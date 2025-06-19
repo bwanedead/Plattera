@@ -205,4 +205,14 @@ pids
 
 # Temporary folders
 tmp/
-temp/ 
+temp/
+
+# Environment variables (API keys, etc.)
+.env
+.env.*
+backend/.env
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local 

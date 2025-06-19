@@ -13,9 +13,9 @@ numpy==1.25.2
 pytesseract==0.3.10
 pdfplumber==0.10.3
 
-# LLM APIs (add as needed)
+# LLM APIs
 openai==1.3.5
-# anthropic==0.7.8
+anthropic==0.7.8
 
 # Visualization (for backend processing)
 matplotlib==3.8.2
