@@ -2,7 +2,7 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "PlatteraParcel",
     "type": "object",
-    "required": ["parcel_id", "crs", "origin", "legs", "close"],
+    "required": ["parcel_id", "crs", "origin", "legs", "close", "stated_area_ac", "source"],
     "properties": {
       "parcel_id": { 
         "type": "string", 
@@ -18,30 +18,26 @@
       "origin": {
         "type": "object",
         "description": "Starting point for all legs",
-        "required": ["type"],
+        "required": ["type", "lat", "lon", "zone", "easting_m", "northing_m", "t", "r", "section", "corner", "offset_m", "offset_bearing_deg", "note"],
         "properties": {
           "type": {
             "type": "string",
             "enum": ["latlon", "utm", "plss", "local"]
           },
-  
           "lat":  { "type": "number" },
           "lon":  { "type": "number" },
-  
           "zone": { "type": "integer", "minimum": 1, "maximum": 60 },
           "easting_m":  { "type": "number" },
           "northing_m": { "type": "number" },
-  
           "t":       { "type": "integer", "description": "Township number" },
           "r":       { "type": "integer", "description": "Range number" },
           "section": { "type": "integer", "minimum": 1, "maximum": 36 },
           "corner":  { "type": "string", "enum": ["NW","NE","SW","SE"] },
-  
           "offset_m":           { "type": "number" },
           "offset_bearing_deg": { "type": "number", "minimum": 0, "maximum": 360 },
-  
           "note": { "type": "string" }
-        }
+        },
+        "additionalProperties": false
       },
   
       "legs": {
@@ -49,14 +45,15 @@
         "minItems": 1,
         "items": {
           "type": "object",
-          "required": ["bearing_deg", "distance_m"],
+          "required": ["bearing_deg", "distance_m", "distance_sigma_m", "raw_text", "confidence"],
           "properties": {
             "bearing_deg":  { "type": "number", "minimum": 0, "maximum": 360 },
             "distance_m":   { "type": "number", "exclusiveMinimum": 0 },
             "distance_sigma_m": { "type": "number", "minimum": 0 },
             "raw_text":     { "type": "string" },
             "confidence":   { "type": "number", "minimum": 0, "maximum": 1 }
-          }
+          },
+          "additionalProperties": false
         }
       },
   
@@ -66,7 +63,6 @@
   
       "source": { "type": "string" }
     },
-  
     "additionalProperties": false
   }
 

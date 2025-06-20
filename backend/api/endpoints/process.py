@@ -3,7 +3,14 @@ from pydantic import BaseModel
 from typing import Dict, Any
 import json
 import os
-from ...core.llm_processor import LLMProcessor
+import sys
+from pathlib import Path
+
+# Add the backend directory to the Python path
+backend_dir = Path(__file__).parent.parent.parent
+sys.path.append(str(backend_dir))
+
+from core.llm_processor import LLMProcessor
 
 router = APIRouter()
 
@@ -54,4 +61,36 @@ async def generate_geometry(structured_data: Dict[str, Any]):
     return {
         "status": "success", 
         "message": "Geometry generation endpoint ready"
-    } 
+    }
+
+@router.get("/test-openai")
+async def test_openai_connection():
+    """Test OpenAI API connection"""
+    try:
+        from core.llm_processor import LLMProcessor
+        llm = LLMProcessor()
+        
+        if not llm.openai_client:
+            return {"status": "error", "message": "OpenAI client not configured"}
+        
+        # Simple test call to OpenAI - using basic model first
+        response = llm.openai_client.chat.completions.create(
+            model="gpt-4o-mini",  # Basic model that should work
+            messages=[
+                {"role": "user", "content": "Say 'Hello from OpenAI!' if you can read this."}
+            ],
+            max_tokens=50
+        )
+        
+        return {
+            "status": "success",
+            "message": "OpenAI connection working",
+            "response": response.choices[0].message.content,
+            "model": "gpt-4o-mini"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"OpenAI connection failed: {str(e)}"
+        } 

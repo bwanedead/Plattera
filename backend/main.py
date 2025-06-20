@@ -13,7 +13,12 @@ app = FastAPI(title="Plattera API", version="1.0.0")
 # Configure CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React dev server
+    allow_origins=[
+        "http://localhost:3000",  # Next.js dev server
+        "tauri://localhost",      # Tauri app
+        "http://tauri.localhost", # Alternative Tauri format
+        "https://tauri.localhost" # Secure Tauri
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
