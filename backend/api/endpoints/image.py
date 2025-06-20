@@ -9,7 +9,7 @@ from typing import Optional, List
 import os
 from pathlib import Path
 
-from ...core.image_processor import ImageProcessor
+from core.image_processor import ImageProcessor
 
 # Initialize router
 router = APIRouter(prefix="/api/image", tags=["image"])
