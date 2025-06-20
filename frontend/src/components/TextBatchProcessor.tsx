@@ -53,7 +53,7 @@ const TextBatchProcessor: React.FC<TextBatchProcessorProps> = ({ onResults }) =>
       if (!item.text.trim()) continue
 
       try {
-        const response = await fetch('http://localhost:8000/api/text-to-schema', {
+        const response = await fetch('http://localhost:8000/api/process/text-to-schema', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

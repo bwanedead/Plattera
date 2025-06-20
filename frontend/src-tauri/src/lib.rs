@@ -3,6 +3,8 @@ use std::process::{Command, Child};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
+use std::env;
+use std::path::Path;
 
 struct BackendProcess(Mutex<Option<Child>>);
 
@@ -12,14 +14,34 @@ async fn start_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
     let mut process_guard = backend_process.0.lock().unwrap();
     
     if process_guard.is_none() {
+        // Use a more direct approach - go directly to the backend directory
+        let backend_dir = Path::new("../../backend");  // From src-tauri, go up 2 levels then into backend
+        
+        // Check if backend directory exists
+        if !backend_dir.exists() {
+            return Err(format!("Backend directory does not exist: {:?}", backend_dir.canonicalize().unwrap_or_else(|_| backend_dir.to_path_buf())));
+        }
+        
+        // Try to use the virtual environment Python first  
+        let venv_python = Path::new("../../.venv/Scripts/python.exe");
+        let python_cmd = if venv_python.exists() {
+            venv_python.to_string_lossy().to_string()
+        } else {
+            "python".to_string()
+        };
+        
+        println!("Backend dir: {:?}", backend_dir);
+        println!("Python cmd: {}", python_cmd);
+        
         // Start Python backend
-        let child = Command::new("python")
-            .arg("../backend/main.py")
+        let child = Command::new(&python_cmd)
+            .arg("main.py")
+            .current_dir(&backend_dir)
             .spawn()
-            .map_err(|e| format!("Failed to start backend: {}", e))?;
+            .map_err(|e| format!("Failed to start backend with {}: {}", python_cmd, e))?;
             
         *process_guard = Some(child);
-        Ok("Backend started successfully".to_string())
+        Ok(format!("Backend started successfully with {}", python_cmd))
     } else {
         Ok("Backend already running".to_string())
     }
@@ -48,15 +70,14 @@ pub fn run() {
             let app_handle = app.handle().clone();
             thread::spawn(move || {
                 // Give a moment for the app to fully initialize
-                thread::sleep(Duration::from_millis(1000));
+                thread::sleep(Duration::from_millis(2000));
                 
                 // Start the backend
                 let runtime = tokio::runtime::Runtime::new().unwrap();
                 runtime.block_on(async {
-                    if let Err(e) = start_backend(app_handle).await {
-                        eprintln!("Failed to start backend: {}", e);
-                    } else {
-                        println!("Backend started successfully!");
+                    match start_backend(app_handle).await {
+                        Ok(msg) => println!("✅ {}", msg),
+                        Err(e) => println!("❌ Failed to start backend: {}", e),
                     }
                 });
             });

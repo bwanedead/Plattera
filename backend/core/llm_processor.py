@@ -47,16 +47,22 @@ CRITICAL REQUIREMENTS:
 4. Include confidence scores (0.0-1.0) for each extracted leg based on clarity of the text
 5. Use the provided parcel_id
 
-FOR MISSING INFORMATION, USE THESE DEFAULTS:
-- Numbers: Use 0 if not mentioned in the text
-- Strings: Use empty string "" if not mentioned
-- For origin.type: Use "local" if unclear
-- For origin.corner: Use "NW" if not specified
+FOR DISTANCE AND UNITS:
+- Extract the EXACT distance value as stated (don't convert)
+- Identify the unit: "feet", "meters", "yards", "chains", "rods", "miles", "kilometers"
+- Example: "100 feet" → distance: 100, distance_units: "feet"
+
+FOR MISSING INFORMATION, USE null:
+- If a field is not mentioned in the text, set it to null
+- Only provide actual values when they are explicitly stated or can be clearly inferred
+- For origin.type: Use "local" if unclear about coordinate system
+- For origin.corner: Use null if not specified (don't guess)
 - For legs.raw_text: Copy the relevant portion of the legal description
+- For distance_units: Use "feet" as default only if distance is given but unit is unclear
 
 Example bearing formats: "North 45 degrees East" = 45, "South" = 180, "West" = 270
 
-The goal is to extract what IS in the text and use sensible defaults for what ISN'T."""
+The goal is to extract what IS clearly stated in the text and use null for what ISN'T."""
 
         user_prompt = f"""Legal Description Text:
 {text}
