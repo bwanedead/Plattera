@@ -215,4 +215,11 @@ frontend/.env
 frontend/.env.local
 frontend/.env.development.local
 frontend/.env.test.local
-frontend/.env.production.local 
+frontend/.env.production.local
+
+# Next.js build cache and dependencies
+frontend/.next/
+frontend/node_modules/
+
+# Tauri build artifacts
+frontend/src-tauri/target/
