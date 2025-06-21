@@ -55,14 +55,14 @@ const App: React.FC = () => {
                 <p className="entry-note">Ready for testing</p>
               </div>
 
-              <div 
-                className="entry-card disabled"
-                onClick={() => alert('Coming soon!')}
+              <div
+                className="entry-card"
+                onClick={() => setEntryPoint('image')}
               >
                 <div className="entry-icon">📷</div>
                 <h3>Handwritten Images</h3>
                 <p>Upload scanned documents or photos</p>
-                <p className="entry-note">Coming soon</p>
+                <p className="entry-note">Beta</p>
               </div>
             </div>
           </div>

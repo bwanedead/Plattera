@@ -251,7 +251,7 @@ class ImageProcessor:
         if isinstance(estimated_tokens, str) or estimated_tokens == 0:
             return 0.0
         
-        # o3-mini pricing (approximate)
+        # o3 pricing (approximate)
         cost_per_1k_tokens = 0.15  # $0.15 per 1K tokens (this is an estimate)
         estimated_cost = (estimated_tokens / 1000) * cost_per_1k_tokens
         return round(estimated_cost, 4) 
