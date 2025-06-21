@@ -83,17 +83,19 @@ const ResultsViewer: React.FC<ResultsViewerProps> = ({ results }) => {
                 {result.status === 'completed' ? (
                   <div className="json-container">
                     <div className="json-header">
-                      <span className="json-title">Structured Schema Output</span>
+                      <span className="json-title">{typeof result.result === 'string' ? 'Extracted Text' : 'Structured Schema Output'}</span>
                       <button
                         className="copy-button"
-                        onClick={() => handleCopyToClipboard(JSON.stringify(result.result, null, 2), result.id)}
-                        title="Copy JSON to clipboard"
+                        onClick={() => handleCopyToClipboard(typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2), result.id)}
+                        title="Copy to clipboard"
                       >
                         {copiedId === result.id ? '✓ Copied!' : '📋 Copy'}
                       </button>
                     </div>
                     <pre className="json-output">
-                      {JSON.stringify(result.result, null, 2)}
+                      {typeof result.result === 'string'
+                        ? result.result
+                        : JSON.stringify(result.result, null, 2)}
                     </pre>
                   </div>
                 ) : (

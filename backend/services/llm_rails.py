@@ -83,7 +83,7 @@ class OpenAIRails:
         try:
             response = self.make_completion_call(
                 messages=[{"role": "user", "content": "Test connection - respond with 'OK'"}],
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 max_tokens=10,
                 temperature=0
             )

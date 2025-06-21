@@ -75,7 +75,7 @@ async def test_openai_connection():
         
         # Simple test call to OpenAI - using basic model first
         response = llm.openai_client.chat.completions.create(
-            model="gpt-4o-mini",  # Basic model that should work
+            model="gpt-4o",  # Use full o3 model
             messages=[
                 {"role": "user", "content": "Say 'Hello from OpenAI!' if you can read this."}
             ],
@@ -86,7 +86,7 @@ async def test_openai_connection():
             "status": "success",
             "message": "OpenAI connection working",
             "response": response.choices[0].message.content,
-            "model": "gpt-4o-mini"
+            "model": "gpt-4o"
         }
         
     except Exception as e:
