@@ -12,7 +12,7 @@ from pathlib import Path
 from core.image_processor import ImageProcessor
 
 # Initialize router
-router = APIRouter(prefix="/api/image", tags=["image"])
+router = APIRouter(tags=["image"])
 
 # Initialize image processor
 image_processor = ImageProcessor()

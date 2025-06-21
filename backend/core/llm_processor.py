@@ -2,30 +2,17 @@
 LLM Processor Module
 Handles text interpretation, formatting, and multi-model comparison
 """
-import os
 import json
-from openai import OpenAI
-# from anthropic import Anthropic  # Uncomment when ready
+from services.llm_service import get_llm_service
+from services.llm_profiles import LLMProfile
 
 class LLMProcessor:
     def __init__(self):
-        # Initialize LLM clients with API keys from environment
-        self.openai_client = None
-        self.anthropic_client = None
-        
-        # OpenAI setup
-        if os.getenv("OPENAI_API_KEY"):
-            self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        else:
-            print("Warning: OPENAI_API_KEY not found in environment")
-            
-        # Anthropic setup (for future use)
-        # if os.getenv("ANTHROPIC_API_KEY"):
-        #     self.anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        self.llm_service = get_llm_service("openai")
     
     async def text_to_parcel_schema(self, text: str, schema: dict, parcel_id: str = None) -> dict:
         """Convert legal description text to structured parcel JSON schema"""
-        if not self.openai_client:
+        if not self.llm_service.is_configured():
             raise Exception("OpenAI client not configured")
             
         # Generate parcel_id if not provided
@@ -72,50 +59,46 @@ Parcel ID: {parcel_id}
 Convert this to the required JSON schema format."""
 
         try:
-            # Use gpt-4o (not mini) for structured outputs
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4o-2024-08-06",  # Correct model for structured outputs
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "parcel_schema",
-                        "strict": True,  # Required for structured outputs
-                        "schema": schema
-                    }
-                },
-                max_tokens=2000,
-                temperature=0.1
+            # Use the schema call method
+            success, error, result = self.llm_service.make_schema_call(
+                text=user_prompt,
+                schema=schema,
+                profile=LLMProfile.TEXT_TO_SCHEMA,
+                system_prompt=system_prompt
             )
             
-            # Parse the response as JSON
-            parcel_data = json.loads(response.choices[0].message.content)
-            return parcel_data
+            if not success:
+                raise Exception(f"LLM service error: {error}")
+            
+            # Return the structured data if available, otherwise parse from content
+            if 'structured_data' in result:
+                return result['structured_data']
+            else:
+                # Fallback: parse JSON from content
+                parcel_data = json.loads(result['content'])
+                return parcel_data
             
         except Exception as e:
             raise Exception(f"Failed to process text with LLM: {str(e)}")
     
     def parse_legal_text(self, text: str) -> dict:
         """Parse legal description text using OpenAI"""
-        if not self.openai_client:
+        if not self.llm_service.is_configured():
             return {"error": "OpenAI client not configured"}
             
         try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are an expert at parsing legal property descriptions. Extract structured data from metes and bounds descriptions."},
-                    {"role": "user", "content": f"Parse this legal description: {text}"}
-                ],
-                max_tokens=1000
+            success, error, result = self.llm_service.make_text_call(
+                user_prompt=f"Parse this legal description: {text}",
+                profile=LLMProfile.FAST_PROCESSING,
+                system_prompt="You are an expert at parsing legal property descriptions. Extract structured data from metes and bounds descriptions."
             )
             
+            if not success:
+                return {"error": error, "success": False}
+            
             return {
-                "parsed": response.choices[0].message.content,
-                "model": "gpt-3.5-turbo",
+                "parsed": result['content'],
+                "model": result['usage'].get('model', 'openai'),
                 "success": True
             }
         except Exception as e:
@@ -126,7 +109,7 @@ Convert this to the required JSON schema format."""
         results = {}
         
         # OpenAI interpretation
-        if self.openai_client:
+        if self.llm_service.is_configured():
             results["openai"] = self.parse_legal_text(text)
             
         # Future: Add Anthropic interpretation

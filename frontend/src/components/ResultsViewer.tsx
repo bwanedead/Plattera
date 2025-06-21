@@ -14,9 +14,33 @@ interface ResultsViewerProps {
 
 const ResultsViewer: React.FC<ResultsViewerProps> = ({ results }) => {
   const [selectedResult, setSelectedResult] = useState<string | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   const completedResults = results.filter(r => r.status === 'completed')
   const errorResults = results.filter(r => r.status === 'error')
+
+  const handleCopyToClipboard = async (text: string, resultId: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedId(resultId)
+      setTimeout(() => setCopiedId(null), 2000) // Reset after 2 seconds
+    } catch (err) {
+      console.error('Failed to copy text: ', err)
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea')
+      textArea.value = text
+      document.body.appendChild(textArea)
+      textArea.select()
+      try {
+        document.execCommand('copy')
+        setCopiedId(resultId)
+        setTimeout(() => setCopiedId(null), 2000)
+      } catch (fallbackErr) {
+        console.error('Fallback copy failed: ', fallbackErr)
+      }
+      document.body.removeChild(textArea)
+    }
+  }
 
   return (
     <div className="results-viewer">
@@ -35,23 +59,43 @@ const ResultsViewer: React.FC<ResultsViewerProps> = ({ results }) => {
           <div 
             key={result.id} 
             className={`result-item ${result.status}`}
-            onClick={() => setSelectedResult(selectedResult === result.id ? null : result.id)}
           >
-            <div className="result-summary">
+            <div 
+              className="result-summary"
+              onClick={() => setSelectedResult(selectedResult === result.id ? null : result.id)}
+            >
               <span className="result-status">
                 {result.status === 'completed' ? '✓' : '✗'}
               </span>
               <span className="result-preview">
                 {result.input.substring(0, 80)}...
               </span>
+              <span className="expand-indicator">
+                {selectedResult === result.id ? '▼' : '▶'}
+              </span>
             </div>
 
             {selectedResult === result.id && (
-              <div className="result-details">
+              <div 
+                className="result-details"
+                onClick={(e) => e.stopPropagation()} // Prevent closing when clicking on details
+              >
                 {result.status === 'completed' ? (
-                  <pre className="json-output">
-                    {JSON.stringify(result.result, null, 2)}
-                  </pre>
+                  <div className="json-container">
+                    <div className="json-header">
+                      <span className="json-title">Structured Schema Output</span>
+                      <button
+                        className="copy-button"
+                        onClick={() => handleCopyToClipboard(JSON.stringify(result.result, null, 2), result.id)}
+                        title="Copy JSON to clipboard"
+                      >
+                        {copiedId === result.id ? '✓ Copied!' : '📋 Copy'}
+                      </button>
+                    </div>
+                    <pre className="json-output">
+                      {JSON.stringify(result.result, null, 2)}
+                    </pre>
+                  </div>
                 ) : (
                   <div className="error-details">
                     <strong>Error:</strong> {result.error}

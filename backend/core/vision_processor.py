@@ -2,22 +2,15 @@
 Vision Processor Module
 Handles o3 Vision API integration for image-to-text extraction
 """
-import os
 import base64
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
-from openai import OpenAI
+from services.llm_service import get_llm_service
+from services.llm_profiles import LLMProfile
 
 class VisionProcessor:
     def __init__(self):
-        self.openai_client = None
-        self._initialize_client()
-    
-    def _initialize_client(self):
-        """Initialize OpenAI client"""
-        api_key = os.getenv("OPENAI_API_KEY")
-        if api_key:
-            self.openai_client = OpenAI(api_key=api_key)
+        self.llm_service = get_llm_service("openai")
     
     def extract_text_from_image(self, image_path: str, extraction_mode: str = "legal_document") -> Tuple[bool, Optional[str], Optional[dict]]:
         """
@@ -30,7 +23,7 @@ class VisionProcessor:
         Returns:
             Tuple of (success, error_message, extraction_result)
         """
-        if not self.openai_client:
+        if not self.llm_service.is_configured():
             return False, "OpenAI client not configured", None
         
         try:
@@ -42,45 +35,20 @@ class VisionProcessor:
             # Get appropriate prompt for extraction mode
             system_prompt, user_prompt = self._get_prompts(extraction_mode)
             
-            # Make API call to o3
-            response = self.openai_client.chat.completions.create(
-                model="o3-mini",  # Using o3-mini for cost optimization, upgrade to o3 if needed
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": user_prompt
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{image_base64}",
-                                    "detail": "high"  # High detail for text extraction
-                                }
-                            }
-                        ]
-                    }
-                ],
-                max_tokens=4000,  # Generous limit for long legal descriptions
-                temperature=0.1   # Low temperature for consistent extraction
+            # Make vision API call using the service
+            success, error, result = self.llm_service.make_vision_call(
+                text_prompt=user_prompt,
+                image_base64=image_base64,
+                profile=LLMProfile.VISION_LEGAL_EXTRACTION,
+                system_prompt=system_prompt
             )
             
-            # Extract response
-            extracted_text = response.choices[0].message.content
+            if not success:
+                return False, error, None
             
-            # Get usage information
-            usage_info = {
-                'prompt_tokens': response.usage.prompt_tokens,
-                'completion_tokens': response.usage.completion_tokens,
-                'total_tokens': response.usage.total_tokens,
-                'model': "o3-mini"
-            }
+            # Extract response data
+            extracted_text = result['content']
+            usage_info = result['usage']
             
             extraction_result = {
                 'extracted_text': extracted_text,
@@ -181,7 +149,7 @@ Ignore headers, signatures, witness information, and other non-property-descript
     
     def test_vision_connection(self) -> Tuple[bool, Optional[str], Optional[dict]]:
         """Test o3 Vision API connection with a simple request"""
-        if not self.openai_client:
+        if not self.llm_service.is_configured():
             return False, "OpenAI client not configured", None
         
         try:
@@ -198,38 +166,26 @@ Ignore headers, signatures, witness information, and other non-property-descript
             # Encode to base64
             test_image_b64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
             
-            response = self.openai_client.chat.completions.create(
-                model="o3-mini",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "What do you see in this image? Respond with 'Vision API working' if you can see the image."
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{test_image_b64}",
-                                    "detail": "low"
-                                }
-                            }
-                        ]
-                    }
-                ],
+            # Use the service for the test call
+            success, error, result = self.llm_service.make_vision_call(
+                text_prompt="What do you see in this image? Respond with 'Vision API working' if you can see the image.",
+                image_base64=test_image_b64,
+                profile=LLMProfile.FAST_PROCESSING,  # Use fast processing for test
                 max_tokens=50,
                 temperature=0
             )
             
-            result = {
+            if not success:
+                return False, error, None
+            
+            test_result = {
                 'status': 'success',
-                'response': response.choices[0].message.content,
-                'model': 'o3-mini',
-                'tokens_used': response.usage.total_tokens
+                'response': result['content'],
+                'model': result['usage']['model'] if 'model' in result['usage'] else result.get('model', 'o3'),
+                'tokens_used': result['usage']['total_tokens']
             }
             
-            return True, None, result
+            return True, None, test_result
             
         except Exception as e:
             return False, f"Vision API test failed: {str(e)}", None
@@ -237,7 +193,7 @@ Ignore headers, signatures, witness information, and other non-property-descript
     def get_supported_extraction_modes(self) -> Dict[str, str]:
         """Get list of supported extraction modes"""
         return {
-            'legal_document': 'Complete legal document extraction with formatting preservation',
-            'property_description_only': 'Extract only legal property descriptions',
-            'full_ocr': 'Complete OCR extraction of all visible text'
+            "legal_document": "Complete legal document extraction with formatting preservation",
+            "property_description_only": "Extract only legal property descriptions and boundaries", 
+            "full_ocr": "Complete OCR extraction of all visible text"
         } 
