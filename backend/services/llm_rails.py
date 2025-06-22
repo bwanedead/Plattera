@@ -61,21 +61,41 @@ class OpenAIRails:
     def parse_response(self, response) -> Dict[str, Any]:
         """
         Parse OpenAI response into common format
-        
-        Args:
-            response: OpenAI response object
-            
-        Returns:
-            Parsed response data
         """
+        choice = response.choices[0]
+        content = choice.message.content
+        
+        # DEBUG: Check what we're getting
+        print(f"DEBUG: Response model: {response.model}")
+        print(f"DEBUG: Finish reason: {choice.finish_reason}")
+        print(f"DEBUG: Content type: {type(content)}")
+        print(f"DEBUG: Content length: {len(content) if content else 'None'}")
+        if content:
+            print(f"DEBUG: Content preview: {repr(content[:100])}")
+        else:
+            print("DEBUG: Content is None or empty!")
+        
+        # Handle None content
+        if content is None:
+            content = ""
+        
+        # Parse usage
+        usage_data = {
+            'prompt_tokens': response.usage.prompt_tokens,
+            'completion_tokens': response.usage.completion_tokens,
+            'total_tokens': response.usage.total_tokens
+        }
+        
+        # Add reasoning tokens if present (o3 models)
+        if hasattr(response.usage, 'completion_tokens_details'):
+            details = response.usage.completion_tokens_details
+            if hasattr(details, 'reasoning_tokens'):
+                usage_data['reasoning_tokens'] = details.reasoning_tokens
+        
         return {
-            'content': response.choices[0].message.content,
+            'content': content,
             'model': response.model,
-            'usage': {
-                'prompt_tokens': response.usage.prompt_tokens,
-                'completion_tokens': response.usage.completion_tokens,
-                'total_tokens': response.usage.total_tokens
-            }
+            'usage': usage_data
         }
     
     def test_connection(self) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:

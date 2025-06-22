@@ -95,6 +95,7 @@ async def upload_image(file: UploadFile = File(...)):
 async def process_image(
     file: UploadFile = File(...),
     extraction_mode: str = Form("legal_document"),
+    model: str = Form("gpt-4o"),
     cleanup_after: bool = Form(True)
 ):
     """
@@ -121,9 +122,9 @@ async def process_image(
             raise HTTPException(status_code=500, detail=f"File save failed: {error}")
         
         try:
-            # Process the image
+            # Process the image with selected model
             success, error, result = image_processor.process_image_to_text(
-                saved_path, extraction_mode, cleanup_after
+                saved_path, extraction_mode, model, cleanup_after
             )
             
             if not success:
@@ -304,6 +305,24 @@ async def get_extraction_modes():
             "default_mode": "legal_document"
         }
         
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+@router.get("/models")
+async def get_available_models():
+    """Get list of available vision models"""
+    try:
+        # Import here to avoid circular imports
+        from services.llm_profiles import ProfileConfig
+        
+        models = ProfileConfig.get_supported_models()
+        return {
+            "status": "success",
+            "models": models
+        }
     except Exception as e:
         return {
             "status": "error",

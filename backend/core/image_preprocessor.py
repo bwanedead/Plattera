@@ -1,250 +1,268 @@
 """
 Image Preprocessor Module
-Handles image resizing, format conversion, and optimization for o3 Vision API
+Handles image optimization, format conversion, and preparation for vision API
 """
 import os
+import shutil
 from pathlib import Path
-from typing import Tuple, Optional, Dict, Any
-from PIL import Image, ImageEnhance, ImageFilter
+from typing import Optional, Dict, Any, Tuple
+from PIL import Image
+import fitz  # PyMuPDF for PDF handling
 import uuid
 
 class ImagePreprocessor:
-    # Optimal settings for o3 Vision API
-    MAX_DIMENSION = 1024  # Cost-optimized max dimension
-    TARGET_FORMAT = 'PNG'  # Best for text extraction
-    QUALITY_SETTINGS = {
-        'dpi': (300, 300),  # High DPI for text clarity
-        'optimize': True
-    }
-    
-    def __init__(self, processed_dir: str = "uploads/processed"):
-        self.processed_dir = Path(processed_dir)
-        self.processed_dir.mkdir(parents=True, exist_ok=True)
-    
+    def __init__(self, output_dir: str = "uploads/processed"):
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Optimal settings for vision API
+        self.target_format = "PNG"  # PNG is best for OCR/text extraction
+        self.max_dimension = 2048   # OpenAI's max for high detail
+        self.target_dpi = 300       # Good for text clarity
+        
     def preprocess_image(self, input_path: str, file_info: dict) -> Tuple[bool, Optional[str], Optional[dict]]:
         """
-        Preprocess image for optimal o3 Vision API processing
+        Convert and optimize any input file for vision API processing
         
-        Args:
-            input_path: Path to the original image
-            file_info: File information from validator
-        
-        Returns:
-            Tuple of (success, error_message, processed_info)
+        Handles: JPEG, PNG, WEBP, GIF, BMP, TIFF, PDF (single/multi-page)
+        Outputs: Optimized PNG ready for vision API
         """
         try:
             input_path = Path(input_path)
-            
-            # Generate unique filename for processed image
             unique_id = str(uuid.uuid4())[:8]
-            output_filename = f"{unique_id}_{input_path.stem}.png"
-            output_path = self.processed_dir / output_filename
             
-            # Handle different input formats
-            if file_info['mime_type'] == 'application/pdf':
-                success, error, processed_info = self._process_pdf(input_path, output_path, file_info)
-            else:
-                success, error, processed_info = self._process_image(input_path, output_path, file_info)
+            # Handle PDF files separately
+            if file_info['extension'].lower() == '.pdf':
+                return self._process_pdf(input_path, unique_id, file_info)
             
-            if success:
-                processed_info.update({
-                    'processed_path': str(output_path),
-                    'unique_id': unique_id,
-                    'ready_for_api': True
-                })
-            
-            return success, error, processed_info
+            # Handle image files
+            return self._process_image(input_path, unique_id, file_info)
             
         except Exception as e:
-            return False, f"Preprocessing error: {str(e)}", None
+            return False, f"Preprocessing failed: {str(e)}", None
     
-    def _process_image(self, input_path: Path, output_path: Path, file_info: dict) -> Tuple[bool, Optional[str], Optional[dict]]:
-        """Process regular image files"""
+    def _process_pdf(self, pdf_path: Path, unique_id: str, file_info: dict) -> Tuple[bool, Optional[str], Optional[dict]]:
+        """Convert PDF to optimized image(s) for vision processing"""
         try:
-            with Image.open(input_path) as img:
-                # Convert to RGB if necessary (for PNG output)
-                if img.mode in ('RGBA', 'LA', 'P'):
-                    # Preserve transparency by creating white background
-                    background = Image.new('RGB', img.size, (255, 255, 255))
-                    if img.mode == 'P':
-                        img = img.convert('RGBA')
-                    background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
-                    img = background
-                elif img.mode != 'RGB':
-                    img = img.convert('RGB')
+            # Open PDF
+            pdf_doc = fitz.open(str(pdf_path))
+            
+            if len(pdf_doc) == 0:
+                return False, "PDF contains no pages", None
+            
+            # For now, process only the first page (can be extended for multi-page)
+            page = pdf_doc[0]
+            
+            # Convert PDF page to image with high DPI for text clarity
+            mat = fitz.Matrix(self.target_dpi / 72, self.target_dpi / 72)  # Scale for target DPI
+            pix = page.get_pixmap(matrix=mat)
+            
+            # Convert to PIL Image
+            img_data = pix.tobytes("png")
+            image = Image.open(io.BytesIO(img_data))
+            
+            # Process the converted image
+            processed_image, processing_info = self._optimize_image_for_vision(image)
+            
+            # Save processed image
+            output_filename = f"{unique_id}_{pdf_path.stem}.png"
+            output_path = self.output_dir / output_filename
+            processed_image.save(output_path, "PNG", optimize=True)
+            
+            pdf_doc.close()
+            
+            # Calculate file size
+            file_size_mb = output_path.stat().st_size / (1024 * 1024)
+            
+            result = {
+                'processed_path': str(output_path),
+                'unique_id': unique_id,
+                'original_format': 'PDF',
+                'output_format': 'PNG',
+                'original_dimensions': [pix.width, pix.height],
+                'processed_dimensions': list(processed_image.size),
+                'file_size_mb': file_size_mb,
+                'pages_processed': 1,
+                'total_pages': len(pdf_doc),
+                'optimization': processing_info['optimization'],
+                'ready_for_api': True
+            }
+            
+            return True, None, result
+            
+        except Exception as e:
+            return False, f"PDF processing failed: {str(e)}", None
+    
+    def _process_image(self, image_path: Path, unique_id: str, file_info: dict) -> Tuple[bool, Optional[str], Optional[dict]]:
+        """Convert and optimize image files for vision processing"""
+        try:
+            # Open image with PIL (handles JPEG, PNG, WEBP, GIF, BMP, TIFF, etc.)
+            with Image.open(image_path) as image:
+                # Convert to RGB if necessary (handles CMYK, grayscale, etc.)
+                if image.mode not in ('RGB', 'RGBA'):
+                    if image.mode == 'P' and 'transparency' in image.info:
+                        # Handle transparent palette images
+                        image = image.convert('RGBA')
+                    else:
+                        image = image.convert('RGB')
                 
-                # Get original dimensions
-                original_width, original_height = img.size
+                # Process and optimize
+                processed_image, processing_info = self._optimize_image_for_vision(image)
                 
-                # Calculate optimal dimensions
-                new_width, new_height = self._calculate_optimal_size(original_width, original_height)
+                # Save as PNG (best for OCR/text extraction)
+                output_filename = f"{unique_id}_{image_path.stem}.png"
+                output_path = self.output_dir / output_filename
+                processed_image.save(output_path, "PNG", optimize=True)
                 
-                # Resize if necessary
-                if (new_width, new_height) != (original_width, original_height):
-                    # Use high-quality resampling for text preservation
-                    img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                # Calculate file size
+                file_size_mb = output_path.stat().st_size / (1024 * 1024)
                 
-                # Enhance for text extraction
-                img = self._enhance_for_text(img)
-                
-                # Save optimized image
-                img.save(
-                    output_path, 
-                    format='PNG',
-                    dpi=self.QUALITY_SETTINGS['dpi'],
-                    optimize=self.QUALITY_SETTINGS['optimize']
-                )
-                
-                processed_info = {
-                    'original_dimensions': (original_width, original_height),
-                    'processed_dimensions': (new_width, new_height),
-                    'format': 'PNG',
-                    'optimization': 'text_enhanced',
-                    'file_size_mb': output_path.stat().st_size / (1024*1024)
+                result = {
+                    'processed_path': str(output_path),
+                    'unique_id': unique_id,
+                    'original_format': file_info['extension'].upper().replace('.', ''),
+                    'output_format': 'PNG',
+                    'original_dimensions': list(image.size),
+                    'processed_dimensions': list(processed_image.size),
+                    'file_size_mb': file_size_mb,
+                    'optimization': processing_info['optimization'],
+                    'ready_for_api': True
                 }
                 
-                return True, None, processed_info
+                return True, None, result
                 
         except Exception as e:
             return False, f"Image processing failed: {str(e)}", None
     
-    def _process_pdf(self, input_path: Path, output_path: Path, file_info: dict) -> Tuple[bool, Optional[str], Optional[dict]]:
-        """Process PDF files (extract first page as image)"""
-        try:
-            # Import here to avoid dependency issues if pdf2image not installed
-            from pdf2image import convert_from_path
-            
-            # Convert first page to image
-            pages = convert_from_path(input_path, first_page=1, last_page=1, dpi=300)
-            
-            if not pages:
-                return False, "Could not extract page from PDF", None
-            
-            img = pages[0]
-            
-            # Convert to RGB
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            
-            # Get original dimensions
-            original_width, original_height = img.size
-            
-            # Calculate optimal dimensions
-            new_width, new_height = self._calculate_optimal_size(original_width, original_height)
-            
-            # Resize if necessary
-            if (new_width, new_height) != (original_width, original_height):
-                img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            
-            # Enhance for text extraction
-            img = self._enhance_for_text(img)
-            
-            # Save as PNG
-            img.save(
-                output_path,
-                format='PNG',
-                dpi=self.QUALITY_SETTINGS['dpi'],
-                optimize=self.QUALITY_SETTINGS['optimize']
-            )
-            
-            processed_info = {
-                'original_dimensions': (original_width, original_height),
-                'processed_dimensions': (new_width, new_height),
-                'format': 'PNG',
-                'source': 'pdf_page_1',
-                'optimization': 'text_enhanced',
-                'file_size_mb': output_path.stat().st_size / (1024*1024)
-            }
-            
-            return True, None, processed_info
-            
-        except ImportError:
-            return False, "PDF processing requires pdf2image library", None
-        except Exception as e:
-            return False, f"PDF processing failed: {str(e)}", None
+    def _optimize_image_for_vision(self, image: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
+        """Optimize image specifically for vision API processing"""
+        original_size = image.size
+        optimization_applied = []
+        
+        # 1. Handle transparency (convert RGBA to RGB with white background)
+        if image.mode == 'RGBA':
+            # Create white background
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            background.paste(image, mask=image.split()[-1])  # Use alpha channel as mask
+            image = background
+            optimization_applied.append("transparency_removed")
+        
+        # 2. Resize if too large (OpenAI max is 2048x2048 for high detail)
+        if max(image.size) > self.max_dimension:
+            # Calculate new size maintaining aspect ratio
+            ratio = self.max_dimension / max(image.size)
+            new_size = tuple(int(dim * ratio) for dim in image.size)
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+            optimization_applied.append("resized")
+        
+        # 3. Enhance for text clarity if image is low contrast
+        image = self._enhance_text_clarity(image)
+        if hasattr(self, '_enhancement_applied') and self._enhancement_applied:
+            optimization_applied.append("text_enhanced")
+        
+        # 4. Ensure minimum size (too small images don't work well)
+        min_dimension = 100
+        if min(image.size) < min_dimension:
+            ratio = min_dimension / min(image.size)
+            new_size = tuple(int(dim * ratio) for dim in image.size)
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+            optimization_applied.append("upscaled")
+        
+        processing_info = {
+            'optimization': optimization_applied,
+            'size_change': f"{original_size} → {image.size}",
+            'ready_for_vision_api': True
+        }
+        
+        return image, processing_info
     
-    def _calculate_optimal_size(self, width: int, height: int) -> Tuple[int, int]:
-        """Calculate optimal dimensions for o3 API (max 1024px, maintain aspect ratio)"""
-        max_dim = max(width, height)
+    def _enhance_text_clarity(self, image: Image.Image) -> Image.Image:
+        """Enhance image for better text recognition"""
+        from PIL import ImageEnhance, ImageFilter
         
-        if max_dim <= self.MAX_DIMENSION:
-            return width, height
+        self._enhancement_applied = False
         
-        # Calculate scaling factor
-        scale_factor = self.MAX_DIMENSION / max_dim
-        
-        new_width = int(width * scale_factor)
-        new_height = int(height * scale_factor)
-        
-        # Ensure minimum dimensions
-        new_width = max(new_width, 100)
-        new_height = max(new_height, 100)
-        
-        return new_width, new_height
-    
-    def _enhance_for_text(self, img: Image.Image) -> Image.Image:
-        """Apply enhancements to improve text extraction quality"""
         try:
-            # Slight sharpening for text clarity
-            enhancer = ImageEnhance.Sharpness(img)
-            img = enhancer.enhance(1.1)
+            # Convert to grayscale to analyze contrast
+            gray = image.convert('L')
             
-            # Slight contrast enhancement
-            enhancer = ImageEnhance.Contrast(img)
-            img = enhancer.enhance(1.05)
+            # Calculate image statistics
+            import numpy as np
+            img_array = np.array(gray)
+            contrast = img_array.std()
+            brightness = img_array.mean()
             
-            # Very light noise reduction
-            img = img.filter(ImageFilter.MedianFilter(size=1))
+            # Apply enhancements if needed
+            enhanced = image
             
-            return img
+            # Increase contrast if low
+            if contrast < 50:  # Low contrast threshold
+                enhancer = ImageEnhance.Contrast(enhanced)
+                enhanced = enhancer.enhance(1.3)  # Increase contrast by 30%
+                self._enhancement_applied = True
+            
+            # Adjust brightness if too dark or too bright
+            if brightness < 100:  # Too dark
+                enhancer = ImageEnhance.Brightness(enhanced)
+                enhanced = enhancer.enhance(1.2)
+                self._enhancement_applied = True
+            elif brightness > 200:  # Too bright
+                enhancer = ImageEnhance.Brightness(enhanced)
+                enhanced = enhancer.enhance(0.9)
+                self._enhancement_applied = True
+            
+            # Slight sharpening for text
+            enhanced = enhanced.filter(ImageFilter.UnsharpMask(radius=1, percent=120, threshold=3))
+            
+            return enhanced
             
         except Exception:
             # If enhancement fails, return original
-            return img
+            return image
     
-    def cleanup_processed_file(self, processed_path: str) -> bool:
-        """Remove processed file after API call"""
-        try:
-            Path(processed_path).unlink(missing_ok=True)
-            return True
-        except Exception:
-            return False
-    
-    def get_processing_info(self, file_info: dict) -> dict:
-        """Get estimated processing information before actual processing"""
-        width = file_info.get('width', 0)
-        height = file_info.get('height', 0)
+    def get_processing_info(self, file_info: dict) -> Dict[str, Any]:
+        """Get information about what processing will be needed"""
+        extension = file_info['extension'].lower()
         
-        if width and height:
-            new_width, new_height = self._calculate_optimal_size(width, height)
-            will_resize = (new_width, new_height) != (width, height)
-            
-            return {
-                'will_resize': will_resize,
-                'estimated_dimensions': (new_width, new_height),
-                'estimated_tokens': self._estimate_tokens(new_width, new_height),
-                'processing_needed': will_resize or file_info.get('mime_type') != 'image/png'
-            }
+        processing_needed = True
+        will_resize = False
+        estimated_tokens = 85  # Base cost for low detail
+        
+        # Check if resizing will be needed
+        if 'width' in file_info and 'height' in file_info:
+            max_dim = max(file_info['width'], file_info['height'])
+            if max_dim > self.max_dimension:
+                will_resize = True
+                # Calculate estimated dimensions after resize
+                ratio = self.max_dimension / max_dim
+                estimated_width = int(file_info['width'] * ratio)
+                estimated_height = int(file_info['height'] * ratio)
+            else:
+                estimated_width = file_info['width']
+                estimated_height = file_info['height']
+        else:
+            # Default estimates for unknown dimensions
+            estimated_width = 1024
+            estimated_height = 768
+        
+        # Estimate token usage for high detail mode
+        # OpenAI: 170 tokens per 512px tile + 85 base
+        tiles_x = (estimated_width + 511) // 512
+        tiles_y = (estimated_height + 511) // 512
+        estimated_tokens = (tiles_x * tiles_y * 170) + 85
         
         return {
-            'will_resize': True,
-            'estimated_dimensions': 'unknown',
-            'estimated_tokens': 'unknown',
-            'processing_needed': True
+            'processing_needed': processing_needed,
+            'will_resize': will_resize,
+            'estimated_dimensions': [estimated_width, estimated_height],
+            'estimated_tokens': estimated_tokens,
+            'target_format': self.target_format,
+            'supports_format': extension in ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff', '.pdf']
         }
     
-    def _estimate_tokens(self, width: int, height: int) -> int:
-        """Estimate token usage for o3 Vision API"""
-        # Rough estimation based on OpenAI's token calculation
-        # This is approximate - actual tokens may vary
-        base_tokens = 85
-        
-        # Calculate tiles (512x512 each)
-        tiles_x = (width + 511) // 512
-        tiles_y = (height + 511) // 512
-        total_tiles = tiles_x * tiles_y
-        
-        # Each tile adds ~170 tokens
-        estimated_tokens = base_tokens + (total_tiles * 170)
-        
-        return estimated_tokens 
+    def cleanup_processed_file(self, file_path: str):
+        """Clean up a processed file"""
+        try:
+            Path(file_path).unlink()
+        except Exception:
+            pass  # Ignore cleanup errors 

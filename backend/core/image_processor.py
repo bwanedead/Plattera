@@ -10,7 +10,6 @@ from typing import Optional, Dict, Any, Tuple
 from .image_validator import ImageValidator
 from .image_preprocessor import ImagePreprocessor
 from .vision_processor import VisionProcessor
-from .text_cleaner import TextCleaner
 
 class ImageProcessor:
     def __init__(self, 
@@ -31,18 +30,19 @@ class ImageProcessor:
         self.validator = ImageValidator()
         self.preprocessor = ImagePreprocessor(str(self.processed_dir))
         self.vision_processor = VisionProcessor()
-        self.text_cleaner = TextCleaner()
     
     def process_image_to_text(self, 
                             image_path: str, 
                             extraction_mode: str = "legal_document",
+                            model: str = "gpt-4o",
                             cleanup_after: bool = True) -> Tuple[bool, Optional[str], Optional[dict]]:
         """
-        Complete image-to-text pipeline
+        Complete image-to-text pipeline with model selection
         
         Args:
             image_path: Path to the input image
             extraction_mode: Type of text extraction to perform
+            model: Model to use for vision processing
             cleanup_after: Whether to clean up processed files after completion
         
         Returns:
@@ -63,31 +63,30 @@ class ImageProcessor:
             
             processed_path = processed_info['processed_path']
             
-            # Step 3: Extract text using vision API
+            # Step 3: Extract text using vision API with selected model
             success, error, extraction_result = self.vision_processor.extract_text_from_image(
-                processed_path, extraction_mode
+                processed_path, extraction_mode, model
             )
             if not success:
                 return False, f"Text extraction failed: {error}", None
             
-            # Step 4: Clean extracted text
-            raw_text = extraction_result['extracted_text']
-            cleaned_text = self.text_cleaner.clean_extracted_text(raw_text)
+            # Step 4: Use extracted text directly (no cleaning needed)
+            extracted_text = extraction_result['extracted_text']
             
             # Combine all results
             final_result = {
-                'extracted_text': cleaned_text,
-                'raw_extracted_text': raw_text,
+                'extracted_text': extracted_text,  # Use raw AI output
                 'extraction_mode': extraction_mode,
+                'model_used': model,
                 'file_info': file_info,
                 'processing_info': processed_info,
                 'extraction_info': extraction_result,
                 'pipeline_stats': {
                     'original_size_mb': file_info['size_mb'],
                     'processed_size_mb': processed_info['file_size_mb'],
-                    'tokens_used': extraction_result['usage']['total_tokens'],
-                    'confidence': extraction_result['confidence'],
-                    'word_count': len(cleaned_text.split()) if cleaned_text else 0
+                    'tokens_used': extraction_result.get('tokens_used', 0),
+                    'confidence': extraction_result.get('confidence', 0.8),
+                    'word_count': len(extracted_text.split()) if extracted_text else 0
                 }
             }
             
@@ -254,4 +253,8 @@ class ImageProcessor:
         # o3-mini pricing (approximate)
         cost_per_1k_tokens = 0.15  # $0.15 per 1K tokens (this is an estimate)
         estimated_cost = (estimated_tokens / 1000) * cost_per_1k_tokens
-        return round(estimated_cost, 4) 
+        return round(estimated_cost, 4)
+
+    def get_available_models(self) -> Dict[str, Dict[str, Any]]:
+        """Get available models for vision processing"""
+        return self.vision_processor.get_available_models() 

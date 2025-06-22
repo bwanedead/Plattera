@@ -13,99 +13,121 @@ interface ResultsViewerProps {
 }
 
 const ResultsViewer: React.FC<ResultsViewerProps> = ({ results }) => {
-  const [selectedResult, setSelectedResult] = useState<string | null>(null)
-  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [selectedResult, setSelectedResult] = useState<ProcessingResult | null>(null)
+  const [viewMode, setViewMode] = useState<'text' | 'metadata'>('text')
+
+  if (results.length === 0) {
+    return null
+  }
 
   const completedResults = results.filter(r => r.status === 'completed')
   const errorResults = results.filter(r => r.status === 'error')
-
-  const handleCopyToClipboard = async (text: string, resultId: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopiedId(resultId)
-      setTimeout(() => setCopiedId(null), 2000) // Reset after 2 seconds
-    } catch (err) {
-      console.error('Failed to copy text: ', err)
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea')
-      textArea.value = text
-      document.body.appendChild(textArea)
-      textArea.select()
-      try {
-        document.execCommand('copy')
-        setCopiedId(resultId)
-        setTimeout(() => setCopiedId(null), 2000)
-      } catch (fallbackErr) {
-        console.error('Fallback copy failed: ', fallbackErr)
-      }
-      document.body.removeChild(textArea)
-    }
-  }
 
   return (
     <div className="results-viewer">
       <div className="results-header">
         <h2>Processing Results</h2>
         <div className="results-summary">
-          <span className="success-count">✓ {completedResults.length} successful</span>
+          <span className="success-count">{completedResults.length} successful</span>
           {errorResults.length > 0 && (
-            <span className="error-count">✗ {errorResults.length} failed</span>
+            <span className="error-count">{errorResults.length} failed</span>
           )}
         </div>
       </div>
 
       <div className="results-list">
         {results.map((result) => (
-          <div 
-            key={result.id} 
-            className={`result-item ${result.status}`}
-          >
-            <div 
-              className="result-summary"
-              onClick={() => setSelectedResult(selectedResult === result.id ? null : result.id)}
-            >
-              <span className="result-status">
-                {result.status === 'completed' ? '✓' : '✗'}
-              </span>
-              <span className="result-preview">
-                {result.input.substring(0, 80)}...
-              </span>
-              <span className="expand-indicator">
-                {selectedResult === result.id ? '▼' : '▶'}
-              </span>
+          <div key={result.id} className={`result-item ${result.status}`}>
+            <div className="result-header">
+              <div className="result-info">
+                <h4>{result.input}</h4>
+                <span className={`status-badge ${result.status}`}>
+                  {result.status}
+                </span>
+              </div>
+              {result.status === 'completed' && (
+                <button 
+                  onClick={() => setSelectedResult(result)}
+                  className="view-button"
+                >
+                  View Details
+                </button>
+              )}
             </div>
 
-            {selectedResult === result.id && (
-              <div 
-                className="result-details"
-                onClick={(e) => e.stopPropagation()} // Prevent closing when clicking on details
-              >
-                {result.status === 'completed' ? (
-                  <div className="json-container">
-                    <div className="json-header">
-                      <span className="json-title">Structured Schema Output</span>
-                      <button
-                        className="copy-button"
-                        onClick={() => handleCopyToClipboard(JSON.stringify(result.result, null, 2), result.id)}
-                        title="Copy JSON to clipboard"
-                      >
-                        {copiedId === result.id ? '✓ Copied!' : '📋 Copy'}
-                      </button>
-                    </div>
-                    <pre className="json-output">
-                      {JSON.stringify(result.result, null, 2)}
-                    </pre>
-                  </div>
-                ) : (
-                  <div className="error-details">
-                    <strong>Error:</strong> {result.error}
-                  </div>
-                )}
+            {result.status === 'error' && (
+              <div className="error-message">
+                <p>Error: {result.error}</p>
+              </div>
+            )}
+
+            {result.status === 'completed' && (
+              <div className="result-preview">
+                <div className="text-preview">
+                  <p>{result.result.extracted_text?.substring(0, 200)}...</p>
+                </div>
+                <div className="result-stats">
+                  <span>Words: {result.result.pipeline_stats?.word_count || 0}</span>
+                  <span>Tokens: {result.result.pipeline_stats?.tokens_used || 0}</span>
+                  <span>Confidence: {((result.result.pipeline_stats?.confidence || 0) * 100).toFixed(1)}%</span>
+                </div>
               </div>
             )}
           </div>
         ))}
       </div>
+
+      {/* Detailed View Modal */}
+      {selectedResult && (
+        <div className="modal-overlay" onClick={() => setSelectedResult(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{selectedResult.input}</h3>
+              <div className="view-mode-toggle">
+                <button 
+                  className={viewMode === 'text' ? 'active' : ''}
+                  onClick={() => setViewMode('text')}
+                >
+                  Extracted Text
+                </button>
+                <button 
+                  className={viewMode === 'metadata' ? 'active' : ''}
+                  onClick={() => setViewMode('metadata')}
+                >
+                  Metadata
+                </button>
+              </div>
+              <button 
+                onClick={() => setSelectedResult(null)}
+                className="close-button"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {viewMode === 'text' ? (
+                <div className="extracted-text-view">
+                  <div className="text-actions">
+                    <button onClick={() => navigator.clipboard.writeText(selectedResult.result.extracted_text)}>
+                      📋 Copy Text
+                    </button>
+                  </div>
+                  <pre className="extracted-text">
+                    {selectedResult.result.extracted_text}
+                  </pre>
+                </div>
+              ) : (
+                <div className="metadata-view">
+                  <pre className="metadata-json">
+                    {JSON.stringify(selectedResult.result, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

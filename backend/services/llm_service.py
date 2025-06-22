@@ -22,15 +22,36 @@ class LLMService:
                         image_base64: str,
                         profile: LLMProfile = LLMProfile.VISION_LEGAL_EXTRACTION,
                         system_prompt: str = None,
+                        model: str = None,
+                        image_format: str = "jpeg",
                         **overrides) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
-        """Make a vision API call"""
+        """Make a vision API call with model-specific configuration"""
         try:
-            # Get profile configuration
-            config = ProfileConfig.get_profile_config(self.provider, profile)
+            # Get profile configuration with model-specific params
+            config = ProfileConfig.get_profile_config(self.provider, profile, model)
             config.update(overrides)
             
-            # Build messages
-            messages = MessageBuilder.build_vision_messages(text_prompt, image_base64, system_prompt)
+            # Build messages with correct image format
+            messages = MessageBuilder.build_vision_messages(text_prompt, image_base64, system_prompt, image_format)
+            
+            # DEBUG: Print the actual messages and config being sent
+            print(f"DEBUG: Config being sent: {config}")
+            print(f"DEBUG: Number of messages: {len(messages)}")
+            for i, msg in enumerate(messages):
+                if msg.get('role') == 'system':
+                    print(f"DEBUG: Message {i} (system): {msg['content'][:100]}...")
+                elif msg.get('role') == 'user':
+                    content = msg.get('content', [])
+                    if isinstance(content, list):
+                        print(f"DEBUG: Message {i} (user): {len(content)} content items")
+                        for j, item in enumerate(content):
+                            if item.get('type') == 'text':
+                                print(f"  - Text item {j}: {item['text'][:50]}...")
+                            elif item.get('type') == 'image_url':
+                                url = item.get('image_url', {}).get('url', '')
+                                print(f"  - Image item {j}: {url[:50]}... (detail: {item.get('image_url', {}).get('detail')})")
+                    else:
+                        print(f"DEBUG: Message {i} (user): {str(content)[:100]}...")
             
             # Make API call
             response = self.rails.make_completion_call(messages, **config)
@@ -41,17 +62,19 @@ class LLMService:
             return True, None, result
             
         except Exception as e:
+            print(f"DEBUG: Exception in make_vision_call: {str(e)}")
             return False, str(e), None
     
     def make_text_call(self,
                       user_prompt: str,
                       profile: LLMProfile = LLMProfile.GENERAL_REASONING,
                       system_prompt: str = None,
+                      model: str = None,  # Allow model override
                       **overrides) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
-        """Make a text-only API call"""
+        """Make a text-only API call with model-specific configuration"""
         try:
-            # Get profile configuration
-            config = ProfileConfig.get_profile_config(self.provider, profile)
+            # Get profile configuration with model-specific params
+            config = ProfileConfig.get_profile_config(self.provider, profile, model)
             config.update(overrides)
             
             # Build messages
@@ -73,15 +96,16 @@ class LLMService:
                         schema: Dict[str, Any],
                         profile: LLMProfile = LLMProfile.TEXT_TO_SCHEMA,
                         system_prompt: str = None,
+                        model: str = None,  # Allow model override
                         **overrides) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
-        """Make a text-to-schema API call"""
+        """Make a text-to-schema API call with model-specific configuration"""
         try:
-            # Get profile configuration
-            config = ProfileConfig.get_profile_config(self.provider, profile)
+            # Get profile configuration with model-specific params
+            config = ProfileConfig.get_profile_config(self.provider, profile, model)
             config.update(overrides)
             
             # For structured output, add response format if using compatible model
-            if config.get("model", "").startswith("gpt-4o") and "response_format" not in config:
+            if model and model.startswith("gpt-4o") and "response_format" not in config:
                 config["response_format"] = {
                     "type": "json_schema",
                     "json_schema": {
@@ -123,13 +147,17 @@ class LLMService:
         except Exception as e:
             return False, str(e), None
     
-    def test_connection(self) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
-        """Test the service connection"""
+    def test_connection(self, model: str = None) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """Test the service connection with specific model"""
         return self.rails.test_connection()
     
     def get_available_profiles(self) -> List[LLMProfile]:
         """Get available profiles for this provider"""
         return ProfileConfig.get_available_profiles(self.provider)
+    
+    def get_supported_models(self) -> Dict[str, Dict[str, Any]]:
+        """Get supported models with their capabilities"""
+        return ProfileConfig.get_supported_models()
 
 
 # Global service instance (singleton pattern)

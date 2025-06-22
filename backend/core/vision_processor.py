@@ -1,68 +1,98 @@
 """
 Vision Processor Module
-Handles o3 Vision API integration for image-to-text extraction
+Handles Vision API integration for image-to-text extraction with configurable models
 """
 import base64
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 from services.llm_service import get_llm_service
-from services.llm_profiles import LLMProfile
+from services.llm_profiles import LLMProfile, ProfileConfig
+import io
 
 class VisionProcessor:
     def __init__(self):
         self.llm_service = get_llm_service("openai")
     
-    def extract_text_from_image(self, image_path: str, extraction_mode: str = "legal_document") -> Tuple[bool, Optional[str], Optional[dict]]:
+    def extract_text_from_image(self, 
+                              image_path: str, 
+                              extraction_mode: str = "legal_document",
+                              model: str = "gpt-4o") -> Tuple[bool, Optional[str], Optional[dict]]:
         """
-        Extract text from image using o3 Vision API
-        
-        Args:
-            image_path: Path to the processed image
-            extraction_mode: Type of extraction to perform
-        
-        Returns:
-            Tuple of (success, error_message, extraction_result)
+        Extract text from image using Vision API - SIMPLE TEXT EXTRACTION ONLY
         """
         if not self.llm_service.is_configured():
             return False, "OpenAI client not configured", None
         
         try:
-            # Encode image to base64
+            # Encode image
             image_base64 = self._encode_image_to_base64(image_path)
             if not image_base64:
                 return False, "Failed to encode image", None
             
-            # Get appropriate prompt for extraction mode
-            system_prompt, user_prompt = self._get_prompts(extraction_mode)
+            # Detect image format for API
+            image_format = self._detect_image_format(image_path)
             
-            # Make vision API call using the service
+            # ULTRA-SIMPLE prompts to minimize reasoning overhead
+            system_prompt = "Transcribe all text from this image."
+            user_prompt = "Transcribe the text."
+            
+            print(f"DEBUG: Making vision call with model: {model}")
+            
+            # Make simple vision API call
             success, error, result = self.llm_service.make_vision_call(
                 text_prompt=user_prompt,
                 image_base64=image_base64,
                 profile=LLMProfile.VISION_LEGAL_EXTRACTION,
-                system_prompt=system_prompt
+                system_prompt=system_prompt,
+                model=model,
+                image_format=image_format
             )
             
             if not success:
-                return False, error, None
+                print(f"DEBUG: Vision call failed: {error}")
+                return False, f"Text extraction failed: {error}", None
             
-            # Extract response data
-            extracted_text = result['content']
-            usage_info = result['usage']
+            if not result:
+                print("DEBUG: Result is None")
+                return False, "No response from vision API", None
             
+            print(f"DEBUG: Result keys: {result.keys() if result else 'None'}")
+            
+            # Check if we have the expected keys
+            if 'content' not in result:
+                print("DEBUG: No 'content' in result")
+                return False, "Invalid response format", None
+            
+            if 'usage' not in result:
+                print("DEBUG: No 'usage' in result")
+                return False, "Invalid response format - missing usage data", None
+            
+            # Just return the extracted text - no complex processing
+            extracted_text = result['content'] or ""
+            
+            # Simple result structure with safe access
             extraction_result = {
                 'extracted_text': extracted_text,
-                'extraction_mode': extraction_mode,
-                'confidence': self._estimate_confidence(extracted_text),
-                'usage': usage_info,
+                'model_used': model,
                 'word_count': len(extracted_text.split()) if extracted_text else 0,
-                'character_count': len(extracted_text) if extracted_text else 0
+                'character_count': len(extracted_text) if extracted_text else 0,
+                'tokens_used': result.get('usage', {}).get('total_tokens', 0)
             }
+            
+            print(f"DEBUG: Extraction successful, text length: {len(extracted_text)}")
             
             return True, None, extraction_result
             
         except Exception as e:
-            return False, f"Vision API error: {str(e)}", None
+            print(f"DEBUG: Exception in extract_text_from_image: {str(e)}")
+            return False, f"Vision processing error: {str(e)}", None
+    
+    def get_available_models(self) -> Dict[str, Dict[str, Any]]:
+        """Get list of available vision models with their capabilities"""
+        # Import here to avoid circular imports
+        from services.llm_profiles import ProfileConfig
+        
+        return ProfileConfig.get_supported_models()
     
     def _encode_image_to_base64(self, image_path: str) -> Optional[str]:
         """Encode image file to base64 string"""
@@ -73,88 +103,19 @@ class VisionProcessor:
         except Exception:
             return None
     
-    def _get_prompts(self, extraction_mode: str) -> Tuple[str, str]:
-        """Get appropriate prompts based on extraction mode"""
-        
-        if extraction_mode == "legal_document":
-            system_prompt = """You are an expert legal document text extraction specialist. Your task is to extract ALL text from legal property documents with perfect accuracy and formatting preservation.
-
-Key requirements:
-1. Extract EVERY word, number, and punctuation mark exactly as shown
-2. Preserve the original formatting, line breaks, and paragraph structure
-3. Include ALL legal descriptions, measurements, bearings, and technical details
-4. Maintain proper spacing and indentation
-5. Do not summarize, interpret, or modify any text
-6. If text is unclear, mark it as [UNCLEAR: best_guess] but still include your best reading
-7. Include headers, footers, page numbers, and any marginal notes
-8. Preserve special characters, fractions, and symbols exactly as shown"""
-
-            user_prompt = """Please extract ALL text from this legal document image. 
-
-Extract everything you see - every word, number, punctuation mark, and formatting detail. This is a legal property document where accuracy is critical.
-
-Return only the extracted text with original formatting preserved. Do not add any commentary or explanations."""
-        
-        elif extraction_mode == "property_description_only":
-            system_prompt = """You are a specialist in extracting legal property descriptions from documents. Focus specifically on the legal description portions that describe property boundaries, measurements, and locations."""
-
-            user_prompt = """Extract ONLY the legal property description portions from this document. Look for:
-- Property boundary descriptions
-- Measurements and distances 
-- Bearings and directions
-- Township, range, and section references
-- "Beginning at..." and similar legal description language
-
-Ignore headers, signatures, witness information, and other non-property-description content. Return only the legal description text with original formatting preserved."""
-        
-        elif extraction_mode == "full_ocr":
-            system_prompt = """You are a high-accuracy OCR system. Extract ALL visible text from the image exactly as it appears."""
-
-            user_prompt = """Perform complete OCR extraction of all text visible in this image. Extract everything exactly as shown, preserving formatting and structure."""
-        
-        else:  # Default to legal_document
-            return self._get_prompts("legal_document")
-        
-        return system_prompt, user_prompt
+    def _detect_image_format(self, image_path: str) -> str:
+        """Detect image format for API"""
+        # This method needs to be implemented to detect the image format
+        # For now, we'll use a default format
+        return "png"
     
-    def _estimate_confidence(self, extracted_text: str) -> float:
-        """Estimate confidence level based on extracted text characteristics"""
-        if not extracted_text:
-            return 0.0
-        
-        confidence = 0.8  # Base confidence
-        
-        # Increase confidence for legal document indicators
-        legal_indicators = [
-            "beginning at", "thence", "township", "range", "section",
-            "feet", "degrees", "minutes", "north", "south", "east", "west",
-            "bearing", "distance", "boundary", "parcel", "lot", "block"
-        ]
-        
-        text_lower = extracted_text.lower()
-        matches = sum(1 for indicator in legal_indicators if indicator in text_lower)
-        
-        # Boost confidence based on legal terminology
-        confidence += min(matches * 0.02, 0.15)
-        
-        # Reduce confidence for very short extractions
-        if len(extracted_text) < 50:
-            confidence -= 0.2
-        
-        # Reduce confidence if many [UNCLEAR] markers
-        unclear_count = extracted_text.count('[UNCLEAR')
-        confidence -= min(unclear_count * 0.1, 0.3)
-        
-        return max(0.1, min(1.0, confidence))
-    
-    def test_vision_connection(self) -> Tuple[bool, Optional[str], Optional[dict]]:
-        """Test o3 Vision API connection with a simple request"""
+    def test_vision_connection(self, model: str = "gpt-4o") -> Tuple[bool, Optional[str], Optional[dict]]:
+        """Test Vision API connection with a specific model"""
         if not self.llm_service.is_configured():
             return False, "OpenAI client not configured", None
         
         try:
             # Create a simple test image (1x1 white pixel)
-            import io
             from PIL import Image
             
             # Create test image
@@ -166,13 +127,18 @@ Ignore headers, signatures, witness information, and other non-property-descript
             # Encode to base64
             test_image_b64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
             
+            # Create custom profile for the test model
+            profile_config = ProfileConfig.get_profile_config("openai", LLMProfile.FAST_PROCESSING)
+            profile_config["model"] = model
+            profile_config["max_tokens"] = 50
+            profile_config["temperature"] = 0
+            
             # Use the service for the test call
             success, error, result = self.llm_service.make_vision_call(
                 text_prompt="What do you see in this image? Respond with 'Vision API working' if you can see the image.",
                 image_base64=test_image_b64,
-                profile=LLMProfile.FAST_PROCESSING,  # Use fast processing for test
-                max_tokens=50,
-                temperature=0
+                profile=LLMProfile.FAST_PROCESSING,
+                custom_config=profile_config
             )
             
             if not success:
@@ -181,7 +147,7 @@ Ignore headers, signatures, witness information, and other non-property-descript
             test_result = {
                 'status': 'success',
                 'response': result['content'],
-                'model': result['usage']['model'] if 'model' in result['usage'] else result.get('model', 'o3'),
+                'model': model,
                 'tokens_used': result['usage']['total_tokens']
             }
             
