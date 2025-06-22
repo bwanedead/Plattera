@@ -10,7 +10,7 @@ from pathlib import Path
 backend_dir = Path(__file__).parent.parent.parent
 sys.path.append(str(backend_dir))
 
-from core.llm_processor import LLMProcessor
+from core.text_to_schema import LLMProcessor
 
 router = APIRouter()
 
@@ -67,26 +67,27 @@ async def generate_geometry(structured_data: Dict[str, Any]):
 async def test_openai_connection():
     """Test OpenAI API connection"""
     try:
-        from core.llm_processor import LLMProcessor
+        from core.text_to_schema import LLMProcessor
         llm = LLMProcessor()
         
-        if not llm.openai_client:
+        if not llm.llm_service.is_configured():
             return {"status": "error", "message": "OpenAI client not configured"}
         
-        # Simple test call to OpenAI - using basic model first
-        response = llm.openai_client.chat.completions.create(
-            model="gpt-4o-mini",  # Basic model that should work
-            messages=[
-                {"role": "user", "content": "Say 'Hello from OpenAI!' if you can read this."}
-            ],
+        # Use the LLM service for the test call
+        success, error, result = llm.llm_service.make_text_call(
+            user_prompt="Say 'Hello from OpenAI!' if you can read this.",
+            profile=llm.llm_service.get_profile("FAST_PROCESSING"),
             max_tokens=50
         )
+        
+        if not success:
+            return {"status": "error", "message": f"OpenAI connection failed: {error}"}
         
         return {
             "status": "success",
             "message": "OpenAI connection working",
-            "response": response.choices[0].message.content,
-            "model": "gpt-4o-mini"
+            "response": result['content'],
+            "model": result['usage'].get('model', 'openai')
         }
         
     except Exception as e:
