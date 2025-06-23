@@ -41,7 +41,7 @@ class ProfileConfig:
     MODEL_SPECIFIC_PARAMS = {
         "o3": {
             "reasoning_effort": {
-                LLMProfile.VISION_LEGAL_EXTRACTION: "high",
+                LLMProfile.VISION_LEGAL_EXTRACTION: "low",
                 LLMProfile.TEXT_TO_SCHEMA: "medium", 
                 LLMProfile.GENERAL_REASONING: "medium",
                 LLMProfile.FAST_PROCESSING: "low"
