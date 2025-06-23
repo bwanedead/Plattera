@@ -4,6 +4,7 @@ Handles image optimization, format conversion, and preparation for vision API
 """
 import os
 import shutil
+import io
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 from PIL import Image

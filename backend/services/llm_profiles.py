@@ -1,9 +1,9 @@
 """
-LLM Profiles - Specific configurations for different types of API calls
-Defines the exact parameters, models, and message formats for each use case
+LLM Profiles - Configuration and message building for different LLM use cases
+Supports multiple providers (OpenAI, Anthropic)
 """
-from typing import Dict, Any, List
 from enum import Enum
+from typing import Dict, Any, List
 
 class LLMProfile(Enum):
     """Available LLM profiles for different use cases"""
@@ -41,9 +41,9 @@ class ProfileConfig:
     MODEL_SPECIFIC_PARAMS = {
         "o3": {
             "reasoning_effort": {
-                LLMProfile.VISION_LEGAL_EXTRACTION: "low",
-                LLMProfile.TEXT_TO_SCHEMA: "medium", 
-                LLMProfile.GENERAL_REASONING: "medium",
+                LLMProfile.VISION_LEGAL_EXTRACTION: "low",  # For text extraction, low reasoning is sufficient
+                LLMProfile.TEXT_TO_SCHEMA: "medium",        # For structured output, medium reasoning helps
+                LLMProfile.GENERAL_REASONING: "medium",     # Balanced reasoning for general tasks
                 LLMProfile.FAST_PROCESSING: "low"
             },
             # o3 restrictions: only these parameters are allowed
@@ -61,13 +61,22 @@ class ProfileConfig:
         "gpt-4o-2024-08-06": {
             "token_param": "max_tokens", 
             "allowed_params": ["model", "temperature", "max_tokens", "top_p"]
+        },
+        # Updated Claude models
+        "claude-sonnet-4-20250514": {
+            "token_param": "max_tokens",
+            "allowed_params": ["model", "temperature", "max_tokens", "top_p"]
+        },
+        "claude-3-7-sonnet-20250219": {
+            "token_param": "max_tokens",
+            "allowed_params": ["model", "temperature", "max_tokens", "top_p"]
         }
     }
     
     @classmethod
     def get_profile_config(cls, provider: str, profile: LLMProfile, model: str = None) -> Dict[str, Any]:
         """Get configuration for a specific provider, profile, and model"""
-        if provider != "openai":
+        if provider not in ["openai", "anthropic"]:
             raise ValueError(f"Unknown provider: {provider}")
         
         # Start with base profile config
@@ -75,7 +84,10 @@ class ProfileConfig:
         
         # Set default model if none provided
         if not model:
-            model = "gpt-4o"  # Default to gpt-4o
+            if provider == "openai":
+                model = "gpt-4o"  # Default to gpt-4o
+            elif provider == "anthropic":
+                model = "claude-3-5-sonnet-20241022"  # Default to Claude 3.5 Sonnet
         
         config["model"] = model
         
@@ -108,7 +120,7 @@ class ProfileConfig:
     @classmethod
     def get_available_profiles(cls, provider: str) -> List[LLMProfile]:
         """Get list of available profiles for a provider"""
-        if provider == "openai":
+        if provider in ["openai", "anthropic"]:
             return list(cls.BASE_PROFILES.keys())
         else:
             return []
@@ -117,8 +129,10 @@ class ProfileConfig:
     def get_supported_models(cls) -> Dict[str, Dict[str, Any]]:
         """Get list of supported models with their capabilities"""
         return {
+            # OpenAI Models
             "gpt-4o": {
                 "name": "GPT-4o",
+                "provider": "openai",
                 "description": "Fast, cost-effective vision model optimized for document OCR",
                 "capabilities": ["vision", "text", "fast_processing"],
                 "cost_tier": "standard",
@@ -127,6 +141,7 @@ class ProfileConfig:
             },
             "gpt-4o-2024-08-06": {
                 "name": "GPT-4o (August 2024)",
+                "provider": "openai",
                 "description": "Stable version with consistent performance and structured output support",
                 "capabilities": ["vision", "text", "structured_output"],
                 "cost_tier": "standard", 
@@ -135,11 +150,31 @@ class ProfileConfig:
             },
             "o3": {
                 "name": "o3",
+                "provider": "openai",
                 "description": "Most advanced reasoning model with highest accuracy",
                 "capabilities": ["vision", "text", "advanced_reasoning", "high_accuracy"],
                 "cost_tier": "premium",
                 "verification_required": True,
                 "supports_reasoning_effort": True
+            },
+            # Updated Anthropic Models
+            "claude-sonnet-4-20250514": {
+                "name": "Claude Sonnet 4",
+                "provider": "anthropic",
+                "description": "Latest high-performance model with exceptional reasoning and efficiency",
+                "capabilities": ["vision", "text", "advanced_reasoning", "high_accuracy", "extended_thinking"],
+                "cost_tier": "premium",
+                "verification_required": False,
+                "supports_reasoning_effort": False
+            },
+            "claude-3-7-sonnet-20250219": {
+                "name": "Claude Sonnet 3.7",
+                "provider": "anthropic", 
+                "description": "High-performance model with early extended thinking capabilities",
+                "capabilities": ["vision", "text", "advanced_reasoning", "extended_thinking"],
+                "cost_tier": "premium",
+                "verification_required": False,
+                "supports_reasoning_effort": False
             }
         }
 

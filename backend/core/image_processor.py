@@ -6,7 +6,7 @@ Coordinates validation, preprocessing, and vision processing
 import os
 import shutil
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 from .image_validator import ImageValidator
 from .image_preprocessor import ImagePreprocessor
 from .vision_processor import VisionProcessor
@@ -28,7 +28,9 @@ class ImageProcessor:
         
         # Initialize processors
         self.validator = ImageValidator()
-        self.preprocessor = ImagePreprocessor(str(self.processed_dir))
+        self.preprocessor = ImagePreprocessor(
+            output_dir=str(self.processed_dir)
+        )
         self.vision_processor = VisionProcessor()
     
     def process_image_to_text(self, 
@@ -100,6 +102,73 @@ class ImageProcessor:
             if cleanup_after and processed_path:
                 self.preprocessor.cleanup_processed_file(processed_path)
     
+    def process_image_committee_mode(self, 
+                                   image_path: str,
+                                   models: List[str] = None,
+                                   extraction_mode: str = "legal_document",
+                                   cleanup_after: bool = True) -> Tuple[bool, Optional[str], Optional[dict]]:
+        """
+        Process image using committee of models for maximum accuracy
+        
+        Args:
+            image_path: Path to the image file
+            models: List of models to use. If None, uses default committee
+            extraction_mode: Type of extraction to perform
+            cleanup_after: Whether to cleanup processed files after extraction
+        
+        Returns:
+            Tuple of (success, error_message, committee_results_dict)
+        """
+        processed_path = None
+        
+        try:
+            # Step 1: Validate the image file
+            is_valid, error, file_info = self.validator.validate_file(image_path)
+            if not is_valid:
+                return False, f"Validation failed: {error}", None
+            
+            # Step 2: Preprocess the image (format conversion, optimization)
+            success, error, processed_info = self.preprocessor.preprocess_image(
+                image_path, file_info
+            )
+            if not success:
+                return False, f"Preprocessing failed: {error}", None
+            
+            processed_path = processed_info['processed_path']
+            
+            # Step 3: Extract text using committee of models
+            success, error, committee_result = self.vision_processor.extract_text_committee_mode(
+                processed_path, models, extraction_mode
+            )
+            if not success:
+                return False, f"Committee extraction failed: {error}", None
+            
+            # Step 4: Combine with pipeline metadata
+            final_result = {
+                'committee_mode': True,
+                'extraction_mode': extraction_mode,
+                'file_info': file_info,
+                'processing_info': processed_info,
+                'committee_results': committee_result,
+                'pipeline_stats': {
+                    'original_size_mb': file_info['size_mb'],
+                    'processed_size_mb': processed_info['file_size_mb'],
+                    'total_models_used': committee_result.get('successful_extractions', 0),
+                    'total_tokens_used': committee_result.get('summary', {}).get('total_tokens_used', 0),
+                    'processing_time': committee_result.get('total_time', 0)
+                }
+            }
+            
+            return True, None, final_result
+            
+        except Exception as e:
+            return False, f"Committee pipeline error: {str(e)}", None
+        
+        finally:
+            # Cleanup processed file if requested
+            if cleanup_after and processed_path:
+                self.preprocessor.cleanup_processed_file(processed_path)
+    
     def save_uploaded_file(self, file_data: bytes, filename: str) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Save uploaded file to the upload directory
@@ -160,7 +229,8 @@ class ImageProcessor:
                 'estimated_dimensions': processing_info['estimated_dimensions'],
                 'estimated_tokens': processing_info['estimated_tokens'],
                 'estimated_cost_usd': self._estimate_cost(processing_info['estimated_tokens']),
-                'supported_extraction_modes': self.vision_processor.get_supported_extraction_modes()
+                'supported_extraction_modes': self.vision_processor.get_supported_extraction_modes(),
+                'available_models': self.get_available_models()
             }
             
             return True, None, estimate
@@ -172,13 +242,16 @@ class ImageProcessor:
         """Test all pipeline components"""
         results = {}
         
-        # Test vision processor
-        vision_success, vision_error, vision_result = self.vision_processor.test_vision_connection()
-        results['vision_api'] = {
-            'status': 'success' if vision_success else 'error',
-            'error': vision_error,
-            'result': vision_result
-        }
+        # Test vision processor with multiple models
+        available_models = self.get_available_models()
+        for model_name, model_info in available_models.items():
+            vision_success, vision_error, vision_result = self.vision_processor.test_vision_connection(model_name)
+            results[f'vision_api_{model_name}'] = {
+                'status': 'success' if vision_success else 'error',
+                'error': vision_error,
+                'result': vision_result,
+                'provider': model_info.get('provider', 'unknown')
+            }
         
         # Test file system access
         try:
@@ -250,8 +323,8 @@ class ImageProcessor:
         if isinstance(estimated_tokens, str) or estimated_tokens == 0:
             return 0.0
         
-        # o3-mini pricing (approximate)
-        cost_per_1k_tokens = 0.15  # $0.15 per 1K tokens (this is an estimate)
+        # Updated pricing estimates for committee mode
+        cost_per_1k_tokens = 0.15  # Average across all models
         estimated_cost = (estimated_tokens / 1000) * cost_per_1k_tokens
         return round(estimated_cost, 4)
 
