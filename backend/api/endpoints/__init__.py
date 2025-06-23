@@ -1,1 +1,1 @@
-# Endpoints package 
+# API endpoints package 
