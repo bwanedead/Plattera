@@ -28,6 +28,14 @@ class OpenAIService(LLMService):
             "description": "Fast, cost-effective vision model optimized for document OCR",
             "verification_required": False
         },
+        "gpt-o4-mini": {
+            "name": "GPT-o4-mini",
+            "provider": "openai",
+            "cost_tier": "budget",
+            "capabilities": ["vision", "text"],
+            "description": "Lightweight, fast, and cost-effective model for simple vision tasks",
+            "verification_required": False
+        },
         "o3": {
             "name": "o3", 
             "provider": "openai",

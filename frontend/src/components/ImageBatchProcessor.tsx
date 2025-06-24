@@ -49,7 +49,7 @@ const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({ onResults }) 
   useEffect(() => {
     const loadModels = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/image/models')
+        const response = await fetch('http://localhost:8000/api/models')
         
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -94,11 +94,12 @@ const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({ onResults }) 
       try {
         const formData = new FormData()
         formData.append('file', file)
+        formData.append('content_type', 'image-to-text')
         formData.append('extraction_mode', extractionMode)
         formData.append('model', selectedModel)
         formData.append('cleanup_after', 'true')
 
-        const response = await fetch('http://localhost:8000/api/image/process', {
+        const response = await fetch('http://localhost:8000/api/process', {
           method: 'POST',
           body: formData
         })

@@ -149,6 +149,44 @@ class ServiceRegistry:
         
         return None
     
+    def get_llm_services(self) -> Dict[str, LLMService]:
+        """Get all available LLM services with detailed info"""
+        return self.llm_services.copy()
+    
+    def get_ocr_services(self) -> Dict[str, OCRService]:
+        """Get all available OCR services with detailed info"""
+        return self.ocr_services.copy()
+    
+    def get_service_info(self) -> Dict[str, Any]:
+        """Get detailed information about all services for logging/debugging"""
+        info = {
+            "llm_services": {},
+            "ocr_services": {},
+            "total_models": 0
+        }
+        
+        # Get LLM service info
+        for name, service in self.llm_services.items():
+            models = service.get_models()
+            info["llm_services"][name] = {
+                "available": service.is_available(),
+                "model_count": len(models),
+                "models": list(models.keys())
+            }
+            info["total_models"] += len(models)
+        
+        # Get OCR service info
+        for name, service in self.ocr_services.items():
+            models = service.get_models()
+            info["ocr_services"][name] = {
+                "available": service.is_available(),
+                "model_count": len(models),
+                "models": list(models.keys())
+            }
+            info["total_models"] += len(models)
+        
+        return info
+    
     def process_text(self, prompt: str, model: str, **kwargs) -> Dict[str, Any]:
         """Process text-only request (routes to appropriate LLM service)"""
         service = self.get_service_for_model(model)

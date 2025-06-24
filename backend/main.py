@@ -2,6 +2,9 @@
 Plattera Backend API v2.0
 Clean architecture with central API hub
 """
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.router import api_router
@@ -31,6 +34,39 @@ app.add_middleware(
 
 # Include the central API router
 app.include_router(api_router)
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup"""
+    logger.info("Starting Plattera API v2.0...")
+    
+    # Import here to trigger service discovery
+    from services.registry import get_registry
+    registry = get_registry()
+    
+    logger.info("🔍 Discovering services...")
+    
+    # Get detailed service information
+    llm_services = registry.get_llm_services()
+    ocr_services = registry.get_ocr_services()
+    service_info = registry.get_service_info()
+    
+    # Log LLM services with detailed model info
+    for name, service in llm_services.items():
+        models = service.get_models()
+        logger.info(f"✅ LLM: {name} ({len(models)} models)")
+        for model_id in models.keys():
+            logger.info(f"    🤖 {model_id}")
+    
+    # Log OCR services with detailed model info
+    for name, service in ocr_services.items():
+        models = service.get_models()
+        logger.info(f"✅ OCR: {name} ({len(models)} models)")
+        for model_id in models.keys():
+            logger.info(f"    🤖 {model_id}")
+    
+    logger.info(f"✅ Loaded {len(llm_services)} LLM services, {len(ocr_services)} OCR services")
+    logger.info(f"📊 Total models available: {service_info['total_models']}")
 
 @app.get("/")
 async def root():
