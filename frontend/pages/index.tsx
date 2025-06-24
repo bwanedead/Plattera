@@ -2,84 +2,83 @@ import React, { useState } from 'react'
 import TextBatchProcessor from '../src/components/TextBatchProcessor'
 import ImageBatchProcessor from '../src/components/ImageBatchProcessor'
 import ResultsViewer from '../src/components/ResultsViewer'
+import { ImageProcessingWorkspace } from '../src/components/ImageProcessingWorkspace'
 
-type EntryPoint = 'text' | 'image' | null
-type ProcessingResult = {
+type ProcessingMode = 'text' | 'image' | null
+
+interface ProcessingResult {
   id: string
+  name: string
   input: string
   result: any
   status: 'processing' | 'completed' | 'error'
   error?: string
 }
 
+type AppMode = 'home' | 'image-processing' | 'text-processing'
+
 const App: React.FC = () => {
-  const [entryPoint, setEntryPoint] = useState<EntryPoint>(null)
+  const [mode, setMode] = useState<AppMode>('home')
   const [results, setResults] = useState<ProcessingResult[]>([])
+  const [selectedResultId, setSelectedResultId] = useState<string | null>(null)
 
-  const handleBackToMenu = () => {
-    setEntryPoint(null)
+  const handleResults = (newResults: Omit<ProcessingResult, 'id' | 'name'>[]) => {
+    const formattedResults = newResults.map(r => ({
+      ...r,
+      id: `res_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name: r.input,
+    }))
+    setResults(prev => [...prev, ...formattedResults])
+    if (formattedResults.length > 0) {
+      setSelectedResultId(formattedResults[0].id)
+    }
+    setMode('home')
   }
+  
+  const selectedResult = results.find(r => r.id === selectedResultId)
 
-  const handleTextResults = (newResults: ProcessingResult[]) => {
-    setResults(prev => [...prev, ...newResults])
-  }
-
-  const handleImageResults = (newResults: ProcessingResult[]) => {
-    setResults(prev => [...prev, ...newResults])
-  }
-
-  return (
-    <div className="app-container">
-      <div className="app-header">
-        <h1>Plattera</h1>
-        <p>Legal Property Description Processor</p>
-        {entryPoint && (
-          <button onClick={handleBackToMenu} className="back-button">
-            ← Back to Menu
-          </button>
-        )}
-      </div>
-
-      <div className="app-content">
-        {!entryPoint && (
-          <div className="entry-point-selector">
-            <h2>Choose Entry Point</h2>
-            <div className="entry-options">
-              <div 
-                className="entry-card"
-                onClick={() => setEntryPoint('text')}
-              >
-                <div className="entry-icon">📝</div>
-                <h3>Plain Text</h3>
-                <p>Import typed/digitized legal descriptions</p>
-                <p className="entry-note">Ready for testing</p>
+  const renderContent = () => {
+    switch (mode) {
+      case 'image-processing':
+        return <ImageProcessingWorkspace onExit={() => setMode('home')} />
+      case 'text-processing':
+        return (
+          <div style={{padding: '2rem'}}>
+            <h2>Text to Schema Workspace (Coming Soon)</h2>
+            <button onClick={() => setMode('home')}>Back to Home</button>
+          </div>
+        )
+      case 'home':
+      default:
+        return (
+          <div className="home-view">
+            <div className="home-header">
+              <h1>Plattera<span>.</span></h1>
+              <p>Professional Legal Description Processing Suite</p>
+            </div>
+            <div className="home-options">
+              {/* Image to Text Card (Left) */}
+              <div className="pipeline-card" onClick={() => setMode('image-processing')}>
+                <h3>Image to Text</h3>
+                <p>Extract text from scanned documents using advanced AI vision models.</p>
+                <button>Launch Workspace</button>
               </div>
 
-              <div 
-                className="entry-card"
-                onClick={() => setEntryPoint('image')}
-              >
-                <div className="entry-icon">📷</div>
-                <h3>Image Processing</h3>
-                <p>Upload scanned documents or photos</p>
-                <p className="entry-note">Ready for testing</p>
+              {/* Text to Schema Card (Right) */}
+              <div className="pipeline-card" onClick={() => setMode('text-processing')}>
+                <h3>Text to Schema</h3>
+                <p>Convert blocks of legal text into structured JSON for analysis.</p>
+                <button>Launch Workspace</button>
               </div>
             </div>
           </div>
-        )}
+        )
+    }
+  }
 
-        {entryPoint === 'text' && (
-          <TextBatchProcessor onResults={handleTextResults} />
-        )}
-
-        {entryPoint === 'image' && (
-          <ImageBatchProcessor onResults={handleImageResults} />
-        )}
-
-        {results.length > 0 && (
-          <ResultsViewer results={results} />
-        )}
-      </div>
+  return (
+    <div className="app-workspace">
+      {renderContent()}
     </div>
   )
 }
