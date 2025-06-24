@@ -149,6 +149,15 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
 
   return (
     <div className="image-processing-workspace">
+      <div className="workspace-nav">
+        <button className="nav-home" onClick={onExit}>
+          Home
+        </button>
+        <button className="nav-next" onClick={() => {/* TODO: Add text-to-schema navigation */}}>
+          Text to Schema
+        </button>
+      </div>
+
       <Allotment defaultSizes={[300, 700]}>
         <Allotment.Pane minSize={250} maxSize={400}>
           <div className="control-panel">

@@ -1015,7 +1015,7 @@ body {
 }
 
 .control-panel h2 {
-  margin: 0 0 24px 0;
+  margin: 40px 0 24px 0;
   color: var(--text-primary);
   font-size: 1.5rem;
   font-weight: 600;
@@ -1355,4 +1355,45 @@ body {
   color: var(--text-primary);
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* Simple navigation bar - minimal and clean */
+.workspace-nav {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: space-between;
+  z-index: 100;
+  pointer-events: none; /* Allow clicks to pass through the container */
+}
+
+.nav-home,
+.nav-next {
+  padding: 8px 16px;
+  background: var(--surface-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  pointer-events: auto; /* Re-enable clicks on the buttons */
+}
+
+.nav-home {
+  /* Top left positioning handled by flex */
+}
+
+.nav-next {
+  /* Top right positioning handled by flex */
+}
+
+.nav-home:hover,
+.nav-next:hover {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
 } 
