@@ -932,67 +932,102 @@ body {
 }
 
 .parcel-tracer-loader svg {
-  width: 100%;
-  height: 100%;
+  overflow: visible;
 }
 
 .tracer-group {
-  /* Container for the polygon */
+  transform-style: preserve-3d;
+}
+
+.tracer-edge-group {
+  transform-origin: 0 0; /* Pivot from the start point */
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.tracer-edge-group.visible {
+  opacity: 1;
 }
 
 .tracer-edge {
-  stroke: var(--border-color);
-  stroke-width: 2;
-  fill: none;
-  opacity: 0;
-  transform-origin: center;
-  animation: edge-fall-and-draw 0.8s ease-out forwards;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition: stroke 0.4s ease, filter 0.4s ease;
+  stroke: rgba(0, 169, 255, 0.4);
+  filter: none;
 }
 
-/* Last edge gets colored immediately when drawn */
-.tracer-edge:last-child {
+.tracer-edge-group.animating .tracer-edge {
   stroke: var(--accent-primary);
-  animation: edge-fall-and-draw 0.8s ease-out forwards;
+  filter: drop-shadow(0 0 8px var(--accent-primary));
+  animation: flow-in 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* When polygon is complete, all edges become colored */
-.tracer-group.completed .tracer-edge {
-  stroke: var(--accent-primary);
-  animation: completed-glow 0.3s ease-out forwards;
-}
-
-/* Animation for each edge falling into place */
-@keyframes edge-fall-and-draw {
+@keyframes flow-in {
   0% {
+    stroke-dashoffset: var(--segment-length);
+    /* Start wider for a bolder effect */
+    stroke-width: 4;
     opacity: 0;
-    transform: rotateZ(90deg); /* Start vertical */
-    stroke-dasharray: 100;
-    stroke-dashoffset: 100;
   }
-  50% {
+  30% {
+    /* Fade in quickly */
     opacity: 1;
-    transform: rotateZ(0deg); /* Fall to horizontal */
-    stroke-dasharray: 100;
-    stroke-dashoffset: 100;
+  }
+  80% {
+     /* Taper to the final width */
+    stroke-width: 2.5;
   }
   100% {
-    opacity: 1;
-    transform: rotateZ(0deg);
-    stroke-dasharray: 100;
-    stroke-dashoffset: 0; /* Draw the line */
+    stroke-dashoffset: 0;
+    stroke-width: 2.5;
   }
 }
 
-/* Animation when polygon completes */
-@keyframes completed-glow {
+.tracer-group.completed .tracer-edge {
+  stroke: var(--accent-primary);
+  filter: drop-shadow(0 0 8px var(--accent-primary));
+  animation: completion-pulse-with-shift 2.5s ease-in-out infinite;
+}
+
+@keyframes completion-pulse-with-shift {
   0% {
-    stroke: var(--border-color);
-    stroke-width: 2;
+    stroke: var(--accent-primary);
+    stroke-width: 2.5;
+    filter: drop-shadow(0 0 8px var(--accent-primary));
+  }
+  25% {
+    stroke: var(--accent-primary);
+    stroke-width: 3.5;
+    filter: drop-shadow(0 0 12px var(--accent-primary));
+  }
+  50% {
+    stroke: hsl(calc(120 + var(--random-hue, 0)), 70%, 60%);
+    stroke-width: 3.5;
+    filter: drop-shadow(0 0 12px hsl(calc(120 + var(--random-hue, 0)), 70%, 60%));
+  }
+  75% {
+    stroke: hsl(calc(240 + var(--random-hue, 0)), 80%, 65%);
+    stroke-width: 3;
+    filter: drop-shadow(0 0 10px hsl(calc(240 + var(--random-hue, 0)), 80%, 65%));
   }
   100% {
     stroke: var(--accent-primary);
-    stroke-width: 3;
-    filter: drop-shadow(0 0 4px var(--accent-primary));
+    stroke-width: 2.5;
+    filter: drop-shadow(0 0 8px var(--accent-primary));
+  }
+}
+
+.tracer-group.fading-out {
+  animation: fade-out-group 0.5s ease-in forwards;
+}
+
+@keyframes fade-out-group {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 

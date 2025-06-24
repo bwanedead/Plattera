@@ -7,6 +7,8 @@ from prompts.image_to_text import get_image_to_text_prompt
 import base64
 from pathlib import Path
 import logging
+from typing import Tuple
+from .image_processor import enhance_for_character_recognition
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +41,8 @@ class ImageToTextPipeline:
                     "error": f"No service available for model: {model}"
                 }
             
-            # Prepare the image
-            image_data = self._prepare_image(image_path)
+            # Prepare the enhanced image
+            image_data, image_format = self._prepare_image(image_path)
             if not image_data:
                 return {
                     "success": False,
@@ -56,7 +58,8 @@ class ImageToTextPipeline:
                 result = service.process_image_with_text(
                     image_data=image_data,
                     prompt=prompt,
-                    model=model
+                    model=model,
+                    image_format=image_format
                 )
             elif hasattr(service, 'extract_text'):
                 # OCR service
@@ -95,19 +98,20 @@ class ImageToTextPipeline:
         
         return None
     
-    def _prepare_image(self, image_path: str) -> str:
-        """Prepare image data for processing"""
+    def _prepare_image(self, image_path: str) -> Tuple[str, str]:
+        """Prepare and enhance image data for processing"""
         try:
             image_path = Path(image_path)
             if not image_path.exists():
-                return None
+                return None, None
                 
-            with open(image_path, "rb") as image_file:
-                image_data = base64.b64encode(image_file.read()).decode('utf-8')
-                return image_data
+            # Use enhanced processing for better character recognition
+            enhanced_image_data, image_format = enhance_for_character_recognition(str(image_path))
+            return enhanced_image_data, image_format
+            
         except Exception as e:
             logger.error(f"Failed to prepare image: {str(e)}")
-            return None
+            return None, None
     
     def _standardize_response(self, result: dict, model: str, service) -> dict:
         """Standardize response format across different services"""

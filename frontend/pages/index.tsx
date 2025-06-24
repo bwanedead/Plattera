@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import Link from 'next/link'
 import TextBatchProcessor from '../src/components/TextBatchProcessor'
 import ImageBatchProcessor from '../src/components/ImageBatchProcessor'
 import ResultsViewer from '../src/components/ResultsViewer'
@@ -70,6 +71,23 @@ const App: React.FC = () => {
                 <p>Convert blocks of legal text into structured JSON for analysis.</p>
                 <button>Launch Workspace</button>
               </div>
+            </div>
+            <div style={{ marginTop: '4rem', textAlign: 'center' }}>
+              <Link href="/animation-tester" passHref legacyBehavior>
+                <a style={{
+                  display: 'inline-block',
+                  padding: '8px 16px',
+                  color: 'var(--text-secondary)',
+                  textDecoration: 'none',
+                  fontSize: '0.8rem',
+                  transition: 'color 0.2s ease'
+                }}
+                onMouseOver={e => e.currentTarget.style.color = 'var(--accent-primary)'}
+                onMouseOut={e => e.currentTarget.style.color = 'var(--text-secondary)'}
+                >
+                  Animation Tester
+                </a>
+              </Link>
             </div>
           </div>
         )
