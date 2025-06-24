@@ -60,4 +60,25 @@ This is a legal contract. Extract all text including:
 - All legal clauses and provisions
 
 Preserve the contract structure and hierarchy.
-""" 
+"""
+
+def get_image_to_text_prompt(extraction_mode: str) -> str:
+    """
+    Get the appropriate prompt for the given extraction mode
+    
+    Args:
+        extraction_mode: The mode of extraction (legal_document, simple_ocr, etc.)
+        
+    Returns:
+        str: The prompt text for the given mode
+    """
+    prompts = {
+        "legal_document": LEGAL_DOCUMENT,
+        "simple_ocr": SIMPLE_OCR,
+        "handwritten": HANDWRITTEN,
+        "property_deed": PROPERTY_DEED,
+        "court_document": COURT_DOCUMENT,
+        "contract": CONTRACT
+    }
+    
+    return prompts.get(extraction_mode, LEGAL_DOCUMENT) 

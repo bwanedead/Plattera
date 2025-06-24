@@ -119,6 +119,7 @@ class ServiceRegistry:
                 models = service.get_models()
                 for model_id, model_info in models.items():
                     model_info["service_type"] = "llm"
+                    model_info["service_name"] = service.name
                     all_models[model_id] = model_info
             except Exception as e:
                 print(f"Error getting models from LLM service {service.name}: {e}")
@@ -129,6 +130,7 @@ class ServiceRegistry:
                 models = service.get_models()
                 for model_id, model_info in models.items():
                     model_info["service_type"] = "ocr"
+                    model_info["service_name"] = service.name
                     all_models[model_id] = model_info
             except Exception as e:
                 print(f"Error getting models from OCR service {service.name}: {e}")

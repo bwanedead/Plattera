@@ -127,4 +127,36 @@ class OpenAIService(LLMService):
                 "error": str(e),
                 "text": None,
                 "model": model
-            } 
+            }
+    
+    def process_image_with_text(self, image_data: str, prompt: str, model: str, **kwargs) -> Dict[str, Any]:
+        """
+        Process image with text prompt (wrapper around call_vision for pipeline compatibility)
+        
+        Args:
+            image_data: Base64 encoded image data
+            prompt: Text prompt for processing
+            model: Model to use
+            **kwargs: Additional parameters
+        
+        Returns:
+            Standardized response format for pipelines
+        """
+        result = self.call_vision(prompt, image_data, model, **kwargs)
+        
+        # Convert to pipeline-expected format
+        if result.get("success"):
+            return {
+                "success": True,
+                "extracted_text": result.get("text", ""),
+                "tokens_used": result.get("tokens_used"),
+                "model_used": result.get("model"),
+                "service_type": "llm",
+                "confidence_score": 1.0,  # OpenAI doesn't provide confidence scores
+                "metadata": {
+                    "provider": "openai",
+                    **kwargs
+                }
+            }
+        else:
+            return result 
