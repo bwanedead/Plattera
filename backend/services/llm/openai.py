@@ -34,7 +34,8 @@ class OpenAIService(LLMService):
             "cost_tier": "budget",
             "capabilities": ["vision", "text"],
             "description": "Lightweight, fast, and cost-effective model for simple vision tasks",
-            "verification_required": False
+            "verification_required": False,
+            "api_model_name": "o4-mini-2025-04-16"
         },
         "o3": {
             "name": "o3", 
@@ -63,15 +64,34 @@ class OpenAIService(LLMService):
         """Check if OpenAI is available and configured"""
         return OPENAI_AVAILABLE and os.getenv("OPENAI_API_KEY") is not None
     
+    def _get_api_model_name(self, model: str) -> str:
+        """Get the actual API model name (some models have different display vs API names)"""
+        model_info = self.models.get(model, {})
+        return model_info.get("api_model_name", model)
+    
     def call_text(self, prompt: str, model: str, **kwargs) -> Dict[str, Any]:
         """Make text-only API call to OpenAI"""
         try:
-            response = self.client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=kwargs.get("temperature", 0.1),
-                max_tokens=kwargs.get("max_tokens", 4000)
-            )
+            api_model_name = self._get_api_model_name(model)
+            
+            # Build parameters based on model type
+            completion_params = {
+                "model": api_model_name,
+                "messages": [{"role": "user", "content": prompt}]
+            }
+            
+            # o4-mini has specific parameter requirements
+            if "o4-mini" in api_model_name:
+                # o4-mini only supports default temperature (1), so don't include it
+                completion_params["max_completion_tokens"] = kwargs.get("max_tokens", 4000)
+                # Set reasoning effort to high for maximum accuracy
+                completion_params["reasoning_effort"] = "high"
+            else:
+                # Other models use standard parameters
+                completion_params["temperature"] = kwargs.get("temperature", 0.1)
+                completion_params["max_tokens"] = kwargs.get("max_tokens", 4000)
+            
+            response = self.client.chat.completions.create(**completion_params)
             
             return {
                 "success": True,
@@ -91,6 +111,8 @@ class OpenAIService(LLMService):
     def call_vision(self, prompt: str, image_data: str, model: str, **kwargs) -> Dict[str, Any]:
         """Make vision API call to OpenAI with image"""
         try:
+            api_model_name = self._get_api_model_name(model)
+            
             messages = [
                 {
                     "role": "user",
@@ -107,12 +129,24 @@ class OpenAIService(LLMService):
                 }
             ]
             
-            response = self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=kwargs.get("temperature", 0.1),
-                max_tokens=kwargs.get("max_tokens", 4000)
-            )
+            # Build parameters based on model type
+            completion_params = {
+                "model": api_model_name,
+                "messages": messages
+            }
+            
+            # o4-mini has specific parameter requirements
+            if "o4-mini" in api_model_name:
+                # o4-mini only supports default temperature (1), so don't include it
+                completion_params["max_completion_tokens"] = kwargs.get("max_tokens", 4000)
+                # Set reasoning effort to high for maximum accuracy
+                completion_params["reasoning_effort"] = "high"
+            else:
+                # Other models use standard parameters
+                completion_params["temperature"] = kwargs.get("temperature", 0.1)
+                completion_params["max_tokens"] = kwargs.get("max_tokens", 4000)
+            
+            response = self.client.chat.completions.create(**completion_params)
             
             return {
                 "success": True,

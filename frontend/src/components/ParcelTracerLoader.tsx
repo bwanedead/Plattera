@@ -32,11 +32,19 @@ const generatePolygonSegments = (numVertices: number): Segment[] => {
 };
 
 export const ParcelTracerLoader: React.FC = () => {
-  const [allSegments, setAllSegments] = useState<Segment[]>(generatePolygonSegments(5));
+  const [allSegments, setAllSegments] = useState<Segment[]>([]);
   const [drawnSegments, setDrawnSegments] = useState<Segment[]>([]);
   const [isComplete, setIsComplete] = useState(false);
 
+  // Initialize segments on mount
   useEffect(() => {
+    setAllSegments(generatePolygonSegments(5));
+  }, []);
+
+  useEffect(() => {
+    // Only start animation if we have segments
+    if (allSegments.length === 0) return;
+
     // Reset and start a new polygon animation
     const animatePolygon = () => {
       setIsComplete(false);
@@ -74,7 +82,7 @@ export const ParcelTracerLoader: React.FC = () => {
     <div className="parcel-tracer-loader">
       <svg viewBox={`0 0 ${VIEWBOX_SIZE} ${VIEWBOX_SIZE}`} preserveAspectRatio="xMidYMid meet">
         <g className={`tracer-group ${isComplete ? 'completed' : ''}`}>
-          {drawnSegments.map((seg) => (
+          {drawnSegments.filter(seg => seg && seg.x1 !== undefined).map((seg) => (
             <line
               key={seg.id}
               className="tracer-edge"

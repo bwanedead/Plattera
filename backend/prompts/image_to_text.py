@@ -11,6 +11,11 @@ Include all names, dates, property descriptions, and legal language.
 Return only the extracted text without any additional commentary.
 """
 
+# Ultra-precise legal deed transcription (for o4-mini)
+ULTRA_PRECISE_LEGAL = """
+Can you transcribe this legal deed text. I need very accurate transcription every number figure and detail to be preserved exactly into the plain text transcription. The numbers and figures and property description details are essential to have exactly correct no errors can be present or all downstream work is corrupted.
+"""
+
 # Simple OCR-style extraction
 SIMPLE_OCR = """
 Extract all visible text from this image.
@@ -62,16 +67,21 @@ This is a legal contract. Extract all text including:
 Preserve the contract structure and hierarchy.
 """
 
-def get_image_to_text_prompt(extraction_mode: str) -> str:
+def get_image_to_text_prompt(extraction_mode: str, model: str = None) -> str:
     """
-    Get the appropriate prompt for the given extraction mode
+    Get the appropriate prompt for the given extraction mode and model
     
     Args:
         extraction_mode: The mode of extraction (legal_document, simple_ocr, etc.)
+        model: The model being used (optional, for model-specific prompts)
         
     Returns:
-        str: The prompt text for the given mode
+        str: The prompt text for the given mode and model
     """
+    # Use ultra-precise prompt for o4-mini model with legal documents
+    if model == "gpt-o4-mini" and extraction_mode == "legal_document":
+        return ULTRA_PRECISE_LEGAL
+    
     prompts = {
         "legal_document": LEGAL_DOCUMENT,
         "simple_ocr": SIMPLE_OCR,

@@ -47,8 +47,8 @@ class ImageToTextPipeline:
                     "error": "Failed to prepare image data"
                 }
             
-            # Get the prompt for this extraction mode
-            prompt = get_image_to_text_prompt(extraction_mode)
+            # Get the prompt for this extraction mode and model
+            prompt = get_image_to_text_prompt(extraction_mode, model)
             
             # Process based on service type
             if hasattr(service, 'process_image_with_text'):
