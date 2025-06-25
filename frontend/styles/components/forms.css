@@ -1,0 +1,58 @@
+/* Form Component Styles */
+
+/* Text Input and Textarea */
+.manual-text-input {
+  width: 100%;
+  min-height: 120px;
+  padding: var(--spacing-base);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  resize: vertical;
+  margin-bottom: 0.75rem;
+  transition: border-color var(--transition-base);
+}
+
+.manual-text-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+/* Buttons */
+.add-text-btn {
+  width: 100%;
+  padding: 0.75rem;
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.add-text-btn:hover:not(:disabled) {
+  background-color: var(--accent-secondary);
+}
+
+.add-text-btn:disabled {
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+/* Import Buttons */
+.import-btn {
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+  border: none;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.import-btn:hover {
+  background-color: var(--accent-secondary);
+} 

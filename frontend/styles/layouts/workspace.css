@@ -1,0 +1,93 @@
+/* Base Workspace Layout Pattern */
+.workspace {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+/* Workspace Navigation */
+.workspace-nav {
+  position: absolute;
+  top: var(--spacing-base);
+  left: var(--spacing-base);
+  right: var(--spacing-base);
+  display: flex;
+  justify-content: space-between;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.nav-home,
+.nav-next,
+.nav-prev {
+  padding: 8px 16px;
+  background: var(--surface-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  pointer-events: auto;
+}
+
+.nav-home:hover,
+.nav-next:hover,
+.nav-prev:hover {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
+}
+
+/* Control Panel (Left Side) */
+.control-panel {
+  padding: var(--spacing-xl);
+  background-color: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.control-panel h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: var(--spacing-xl);
+  color: var(--text-primary);
+}
+
+/* Results Panel (Right Side) */
+.results-panel {
+  height: 100vh;
+  background-color: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Allotment Splitter Customization */
+.Resizer {
+  background: var(--border-color);
+  opacity: 0.6;
+  z-index: 1;
+  box-sizing: border-box;
+  background-clip: padding-box;
+}
+
+.Resizer:hover { 
+  transition: all var(--transition-base); 
+  background: var(--accent-primary); 
+}
+
+.Resizer.vertical { 
+  width: 5px; 
+  margin: 0 -2.5px; 
+  border-left: 2px solid var(--bg-primary); 
+  border-right: 2px solid var(--bg-primary); 
+  cursor: col-resize; 
+} 

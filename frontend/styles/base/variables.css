@@ -1,0 +1,38 @@
+/* Design System Variables */
+:root {
+  /* Colors - Extracted from current globals.css */
+  --bg-primary: #0D0D0D;
+  --bg-secondary: #1C1C1C;
+  --bg-tertiary: #2A2A2A;
+  --border-color: #383838;
+  --text-primary: #EAEAEA;
+  --text-secondary: #888888;
+  --accent-primary: #00A9FF;
+  --status-success: #34D399;
+  --status-error: #EF4444;
+  --status-warning: #F59E0B;
+
+  /* Surface colors for different contexts */
+  --surface-primary: #0D0D0D;
+  --surface-secondary: #1C1C1C;
+  --success-color: #34D399;
+  --error-color: #EF4444;
+  --warning-color: #F59E0B;
+
+  /* Typography */
+  --font-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+  --font-family-primary: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-base: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 3rem;
+
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.3s ease;
+} 

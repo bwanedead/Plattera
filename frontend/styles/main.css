@@ -1,0 +1,21 @@
+/* Main CSS Entry Point - Modular Architecture */
+
+/* 1. Design Tokens */
+@import './base/variables.css';
+
+/* 2. Base Styles */
+@import './base/reset.css';
+
+/* 3. Layout Patterns */
+@import './layouts/workspace.css';
+@import './layouts/home.css';
+
+/* 4. Components */
+@import './components/loaders.css';
+@import './components/shared.css';
+@import './components/results.css';
+@import './components/forms.css';
+
+/* 5. Workspace-Specific Styles */
+@import './workspaces/image-to-text.css';
+@import './workspaces/text-to-schema.css'; 
