@@ -248,51 +248,59 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         </Allotment.Pane>
         <Allotment.Pane>
           <div className="results-area">
-            <div className={`results-history-panel ${isHistoryVisible ? 'visible' : ''}`}>
-                <div className="history-header">
-                    <h4>Session Log</h4>
-                    <button onClick={() => setIsHistoryVisible(false)}>‹</button>
-                </div>
-                <div className="history-list-items">
-                    {sessionResults.map((res, i) => (
+            <Allotment defaultSizes={[300, 700]} split="vertical">
+              {isHistoryVisible && (
+                <Allotment.Pane minSize={200} maxSize={500}>
+                  <div className="results-history-panel visible">
+                    <div className="history-header">
+                      <h4>Session Log</h4>
+                      <button onClick={() => setIsHistoryVisible(false)}>‹</button>
+                    </div>
+                    <div className="history-list-items">
+                      {sessionResults.map((res, i) => (
                         <div key={i} className={`log-item ${selectedResult === res ? 'selected' : ''} ${res.status}`} onClick={() => setSelectedResult(res)}>
-                            <span className={`log-item-status-dot ${res.status}`}></span>
-                            {res.input}
+                          <span className={`log-item-status-dot ${res.status}`}></span>
+                          {res.input}
                         </div>
-                    ))}
-                </div>
-            </div>
-            <div className="results-viewer-panel">
-              {!isHistoryVisible && <button className="history-toggle-button" onClick={() => setIsHistoryVisible(true)}>›</button>}
-              {isProcessing && (
-                <div className="loading-view">
-                  <ParcelTracerLoader />
-                  <h4>Tracing Parcels...</h4>
-                  <p>Analyzing document geometry.</p>
-                </div>
-              )}
-              {!isProcessing && !selectedResult && (
-                 <div className="placeholder-view">
-                    <p>Your results will appear here.</p>
-                </div>
-              )}
-              {!isProcessing && selectedResult && (
-                <div className="result-display-area">
-                    <div className="result-tabs">
-                        <button className={activeTab === 'text' ? 'active' : ''} onClick={() => setActiveTab('text')}>Extracted Text</button>
-                        <button className={activeTab === 'metadata' ? 'active' : ''} onClick={() => setActiveTab('metadata')}>Metadata</button>
+                      ))}
                     </div>
-                    <div className="result-tab-content">
-                        {activeTab === 'text' && (
-                          <pre>{selectedResult.status === 'completed' ? selectedResult.result.extracted_text : `Error: ${selectedResult.error}`}</pre>
-                        )}
-                        {activeTab === 'metadata' && (
-                          <pre>{selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result.metadata, null, 2) : 'No metadata available for failed processing.'}</pre>
-                        )}
-                    </div>
-                </div>
+                  </div>
+                </Allotment.Pane>
               )}
-            </div>
+              <Allotment.Pane>
+                <div className="results-viewer-panel">
+                  {!isHistoryVisible && <button className="history-toggle-button" onClick={() => setIsHistoryVisible(true)}>›</button>}
+                  {isProcessing && (
+                    <div className="loading-view">
+                      <ParcelTracerLoader />
+                      <h4>Tracing Parcels...</h4>
+                      <p>Analyzing document geometry.</p>
+                    </div>
+                  )}
+                  {!isProcessing && !selectedResult && (
+                     <div className="placeholder-view">
+                        <p>Your results will appear here.</p>
+                    </div>
+                  )}
+                  {!isProcessing && selectedResult && (
+                    <div className="result-display-area">
+                        <div className="result-tabs">
+                            <button className={activeTab === 'text' ? 'active' : ''} onClick={() => setActiveTab('text')}>Extracted Text</button>
+                            <button className={activeTab === 'metadata' ? 'active' : ''} onClick={() => setActiveTab('metadata')}>Metadata</button>
+                        </div>
+                        <div className="result-tab-content">
+                            {activeTab === 'text' && (
+                              <pre>{selectedResult.status === 'completed' ? selectedResult.result.extracted_text : `Error: ${selectedResult.error}`}</pre>
+                            )}
+                            {activeTab === 'metadata' && (
+                              <pre>{selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result.metadata, null, 2) : 'No metadata available for failed processing.'}</pre>
+                            )}
+                        </div>
+                    </div>
+                  )}
+                </div>
+              </Allotment.Pane>
+            </Allotment>
           </div>
         </Allotment.Pane>
       </Allotment>

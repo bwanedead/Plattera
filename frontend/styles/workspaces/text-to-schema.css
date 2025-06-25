@@ -5,7 +5,9 @@
 }
 
 .text-to-schema-workspace .panel-header {
-  margin-top: 1rem;
+  margin-top: 3rem;
+  position: relative;
+  z-index: 50;
 }
 
 .text-to-schema-workspace .history-header button {
@@ -31,6 +33,25 @@
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border-color: var(--accent-primary);
+}
+
+.text-to-schema-workspace .loading-view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-primary);
+  z-index: 10;
+  width: 100%;
+}
+
+.text-to-schema-workspace .results-viewer-panel {
+  overflow: hidden;
+}
+
+.text-to-schema-workspace .results-area {
+  width: 100%;
 }
 
 /* Text-to-Schema specific components */
