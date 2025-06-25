@@ -161,7 +161,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       <Allotment defaultSizes={[300, 700]}>
         <Allotment.Pane minSize={250} maxSize={400}>
           <div className="control-panel">
-            <h2>Image to Text</h2>
+            <div className="panel-header">
+              <h2>Image to Text</h2>
+            </div>
             
             <div className="import-section">
               <label>Import Files</label>
@@ -248,7 +250,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         </Allotment.Pane>
         <Allotment.Pane>
           <div className="results-area">
-            <Allotment defaultSizes={[300, 700]} split="vertical">
+            <Allotment defaultSizes={[300, 700]} vertical={false}>
               {isHistoryVisible && (
                 <Allotment.Pane minSize={200} maxSize={500}>
                   <div className="results-history-panel visible">

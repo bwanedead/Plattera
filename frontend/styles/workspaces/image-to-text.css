@@ -17,7 +17,7 @@
 }
 
 .control-panel {
-  padding: 2rem;
+  padding: 0 2rem 2rem 2rem;
   background-color: var(--bg-secondary);
   display: flex;
   flex-direction: column;
@@ -30,7 +30,7 @@
   align-items: center;
   gap: 1rem;
   margin-bottom: 2rem;
-  margin-top: 3rem;
+  padding-top: 3rem;
   position: relative;
   z-index: 50;
 }
@@ -51,6 +51,8 @@
 .panel-header h2 {
   font-size: 1.25rem;
   font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
 }
 
 .control-group {
@@ -198,6 +200,15 @@
   width: 100%;
 }
 
+/* Allotment Pane Styles */
+.results-area .allotment {
+  height: 100% !important;
+}
+
+.results-area .allotment-pane {
+  height: 100% !important;
+}
+
 /* Resizer Styles */
 .Resizer {
   background: var(--border-color);
@@ -220,8 +231,16 @@
   cursor: col-resize;
 }
 
+.Resizer.horizontal {
+  height: 5px;
+  margin: -2.5px 0;
+  border-top: 2px solid var(--bg-primary);
+  border-bottom: 2px solid var(--bg-primary);
+  cursor: row-resize;
+}
+
 .results-history-panel {
-  width: 300px;
+  height: 100%;
   background-color: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -248,14 +267,18 @@
 .history-header {
   display: flex;
   justify-content: space-between;
-  padding: 1.5rem;
+  align-items: center;
+  padding: 1rem 1.5rem;
   border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  flex-shrink: 0;
 }
 
 .history-header h4 {
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-weight: 600;
   color: var(--text-primary);
+  margin: 0;
 }
 
 .history-header button {
