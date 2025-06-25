@@ -3,6 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { ParcelTracerLoader } from './ParcelTracerLoader';
+import { ImageEnhancementModal } from './ImageEnhancementModal';
 
 // Enhancement settings interface
 interface EnhancementSettings {
@@ -138,11 +139,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [extractionMode, setExtractionMode] = useState('legal_document');
   const [activeTab, setActiveTab] = useState('text');
   const [enhancementSettings, setEnhancementSettings] = useState<EnhancementSettings>({
-    contrast: 1.3,
+    contrast: 1.5,
     sharpness: 1.2,
     brightness: 1.0,
     color: 1.0
   });
+  const [showEnhancementModal, setShowEnhancementModal] = useState(false);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setStagedFiles(prev => [...prev, ...acceptedFiles]);
@@ -283,84 +285,16 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             </div>
 
             <div className="enhancement-section">
-              <label>🎨 Image Enhancement</label>
-              <div className="enhancement-controls">
-                <div className="enhancement-sliders">
-                  <div className="slider-group">
-                    <label htmlFor="contrast-slider">
-                      Contrast: {enhancementSettings.contrast.toFixed(1)}
-                    </label>
-                    <input
-                      id="contrast-slider"
-                      type="range"
-                      min="0.5"
-                      max="2.0"
-                      step="0.1"
-                      value={enhancementSettings.contrast}
-                      onChange={(e) => handleEnhancementChange('contrast', parseFloat(e.target.value))}
-                      disabled={isProcessing}
-                    />
-                  </div>
-
-                  <div className="slider-group">
-                    <label htmlFor="sharpness-slider">
-                      Sharpness: {enhancementSettings.sharpness.toFixed(1)}
-                    </label>
-                    <input
-                      id="sharpness-slider"
-                      type="range"
-                      min="0.5"
-                      max="2.0"
-                      step="0.1"
-                      value={enhancementSettings.sharpness}
-                      onChange={(e) => handleEnhancementChange('sharpness', parseFloat(e.target.value))}
-                      disabled={isProcessing}
-                    />
-                  </div>
-
-                  <div className="slider-group">
-                    <label htmlFor="brightness-slider">
-                      Brightness: {enhancementSettings.brightness.toFixed(1)}
-                    </label>
-                    <input
-                      id="brightness-slider"
-                      type="range"
-                      min="0.5"
-                      max="1.5"
-                      step="0.1"
-                      value={enhancementSettings.brightness}
-                      onChange={(e) => handleEnhancementChange('brightness', parseFloat(e.target.value))}
-                      disabled={isProcessing}
-                    />
-                  </div>
-
-                  <div className="slider-group">
-                    <label htmlFor="color-slider">
-                      Color: {enhancementSettings.color.toFixed(1)}
-                    </label>
-                    <input
-                      id="color-slider"
-                      type="range"
-                      min="0.0"
-                      max="2.0"
-                      step="0.1"
-                      value={enhancementSettings.color}
-                      onChange={(e) => handleEnhancementChange('color', parseFloat(e.target.value))}
-                      disabled={isProcessing}
-                    />
-                  </div>
-                </div>
-
-                <div className="enhancement-presets">
-                  <button 
-                    onClick={() => setEnhancementSettings({ contrast: 1.3, sharpness: 1.2, brightness: 1.0, color: 1.0 })}
-                    disabled={isProcessing}
-                    className="preset-btn"
-                  >
-                    Restore Default
-                  </button>
-                </div>
-              </div>
+              <button 
+                className="enhancement-modal-btn"
+                onClick={() => setShowEnhancementModal(true)}
+                disabled={isProcessing}
+              >
+                🎨 Image Enhancement
+              </button>
+              <small className="enhancement-hint">
+                Current: C:{enhancementSettings.contrast.toFixed(1)} S:{enhancementSettings.sharpness.toFixed(1)} B:{enhancementSettings.brightness.toFixed(1)} Col:{enhancementSettings.color.toFixed(1)}
+              </small>
             </div>
 
             <div className="process-section">
@@ -432,6 +366,17 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
           </div>
         </Allotment.Pane>
       </Allotment>
+      
+      {/* Image Enhancement Modal */}
+      {showEnhancementModal && (
+        <ImageEnhancementModal
+          isOpen={showEnhancementModal}
+          onClose={() => setShowEnhancementModal(false)}
+          enhancementSettings={enhancementSettings}
+          onSettingsChange={setEnhancementSettings}
+          previewImage={stagedFiles[0]}
+        />
+      )}
     </div>
   );
 }; 
