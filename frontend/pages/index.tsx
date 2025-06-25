@@ -4,6 +4,7 @@ import TextBatchProcessor from '../src/components/TextBatchProcessor'
 import ImageBatchProcessor from '../src/components/ImageBatchProcessor'
 import ResultsViewer from '../src/components/ResultsViewer'
 import { ImageProcessingWorkspace } from '../src/components/ImageProcessingWorkspace'
+import { TextToSchemaWorkspace } from '../src/components/TextToSchemaWorkspace'
 
 type ProcessingMode = 'text' | 'image' | null
 
@@ -43,12 +44,7 @@ const App: React.FC = () => {
       case 'image-processing':
         return <ImageProcessingWorkspace onExit={() => setMode('home')} />
       case 'text-processing':
-        return (
-          <div style={{padding: '2rem'}}>
-            <h2>Text to Schema Workspace (Coming Soon)</h2>
-            <button onClick={() => setMode('home')}>Back to Home</button>
-          </div>
-        )
+        return <TextToSchemaWorkspace onExit={() => setMode('home')} />
       case 'home':
       default:
         return (

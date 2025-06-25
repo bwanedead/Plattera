@@ -4,8 +4,10 @@ Drop this file in services/llm/ and OpenAI models will automatically appear
 """
 import os
 import base64
-from typing import Dict, Any
+import json
+from typing import Dict, Any, List, Optional, Union
 from .base import LLMService
+from pydantic import BaseModel
 
 # Only import if available
 try:
@@ -13,6 +15,39 @@ try:
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
+
+# Add this Pydantic model for the parcel schema
+class ParcelOrigin(BaseModel):
+    type: str  # "latlon", "utm", "plss", "local"
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    zone: Optional[int] = None
+    easting_m: Optional[float] = None
+    northing_m: Optional[float] = None
+    t: Optional[int] = None  # Township
+    r: Optional[int] = None  # Range
+    section: Optional[int] = None
+    corner: Optional[str] = None  # "NW", "NE", "SW", "SE"
+    offset_m: Optional[float] = None
+    offset_bearing_deg: Optional[float] = None
+    note: Optional[str] = None
+
+class ParcelLeg(BaseModel):
+    bearing_deg: float  # 0-360
+    distance: float
+    distance_units: str  # "feet", "meters", "yards", "chains", "rods", "miles", "kilometers"
+    distance_sigma: Optional[float] = None
+    raw_text: str
+    confidence: float  # 0-1
+
+class PlatteraParcel(BaseModel):
+    parcel_id: str
+    crs: str  # "LOCAL", "EPSG:4326", "UTM", "PLSS"
+    origin: ParcelOrigin
+    legs: List[ParcelLeg]
+    close: bool
+    stated_area_ac: Optional[float] = None
+    source: Optional[str] = None
 
 class OpenAIService(LLMService):
     """OpenAI LLM service provider"""
@@ -25,7 +60,7 @@ class OpenAIService(LLMService):
             "provider": "openai",
             "cost_tier": "standard",
             "capabilities": ["vision", "text"],
-            "description": "Fast, cost-effective vision model optimized for document OCR",
+            "description": "Most reliable for structured outputs and vision tasks",
             "verification_required": False
         },
         "gpt-o4-mini": {
@@ -33,7 +68,7 @@ class OpenAIService(LLMService):
             "provider": "openai",
             "cost_tier": "budget",
             "capabilities": ["vision", "text"],
-            "description": "Lightweight, fast, and cost-effective model for simple vision tasks",
+            "description": "Lightweight, fast model with reasoning capabilities",
             "verification_required": False,
             "api_model_name": "o4-mini-2025-04-16"
         },
@@ -194,3 +229,110 @@ class OpenAIService(LLMService):
             }
         else:
             return result 
+    
+    def call_structured_pydantic(self, prompt: str, input_text: str, model: str, parcel_id: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        """Make structured output API call using Pydantic model (recommended approach)"""
+        try:
+            api_model_name = self._get_api_model_name(model)
+            
+            # Create the full prompt with parcel_id if provided
+            if parcel_id:
+                full_prompt = f"{prompt}\n\nUse '{parcel_id}' as the parcel_id.\n\nLegal Description Text:\n{input_text}"
+            else:
+                full_prompt = f"{prompt}\n\nLegal Description Text:\n{input_text}"
+            
+            messages = [{"role": "user", "content": full_prompt}]
+            
+            # Use the beta.chat.completions.parse method for structured outputs
+            completion = self.client.beta.chat.completions.parse(
+                model=api_model_name,
+                messages=messages,
+                response_format=PlatteraParcel,
+                temperature=kwargs.get("temperature", 0.1),
+                max_tokens=kwargs.get("max_tokens", 4000)
+            )
+            
+            # Parse the structured response
+            if completion.choices[0].message.parsed:
+                structured_data = completion.choices[0].message.parsed.model_dump()
+                response_text = completion.choices[0].message.content
+            else:
+                # Handle refusal
+                return {
+                    "success": False,
+                    "error": f"Model refused to process: {completion.choices[0].message.refusal}",
+                    "structured_data": None,
+                    "model": model
+                }
+            
+            return {
+                "success": True,
+                "structured_data": structured_data,
+                "text": response_text,
+                "tokens_used": completion.usage.total_tokens,
+                "model": model
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "structured_data": None,
+                "model": model
+            }
+    
+    def call_structured(self, prompt: str, input_text: str, schema: dict, model: str, **kwargs) -> Dict[str, Any]:
+        """Make structured output API call using JSON schema (fallback method)"""
+        try:
+            api_model_name = self._get_api_model_name(model)
+            
+            # Create the full prompt
+            full_prompt = f"{prompt}\n\nLegal Description Text:\n{input_text}"
+            
+            messages = [{"role": "user", "content": full_prompt}]
+            
+            # Build parameters for structured output
+            completion_params = {
+                "model": api_model_name,
+                "messages": messages,
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "parcel_extraction",
+                        "strict": True,
+                        "schema": schema
+                    }
+                },
+                "temperature": kwargs.get("temperature", 0.1),
+                "max_tokens": kwargs.get("max_tokens", 4000)
+            }
+            
+            response = self.client.chat.completions.create(**completion_params)
+            
+            # Parse the structured JSON response
+            response_text = response.choices[0].message.content
+            try:
+                structured_data = json.loads(response_text)
+            except json.JSONDecodeError as e:
+                return {
+                    "success": False,
+                    "error": f"Failed to parse structured response: {str(e)}",
+                    "text": response_text,
+                    "model": model
+                }
+            
+            return {
+                "success": True,
+                "structured_data": structured_data,
+                "text": response_text,
+                "tokens_used": response.usage.total_tokens,
+                "model": model
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "structured_data": None,
+                "model": model
+            } 

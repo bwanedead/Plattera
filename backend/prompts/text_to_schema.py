@@ -1,55 +1,74 @@
 """
 Centralized Text-to-Schema Prompts
-Edit these prompts to adjust how LLMs convert text to structured data
+Edit these prompts to adjust how LLMs convert text to structured parcel data
 """
 
-# Main parcel schema conversion prompt
+# Main parcel schema conversion prompt using the exact parcel_v0.1.json structure
 PARCEL_SCHEMA = """
-Convert the following legal property description text into a structured JSON format.
+Convert the following legal property description text into structured JSON data following the PlatteraParcel schema.
 
-The output should follow this schema structure:
+You must extract and organize the information into this exact structure:
+
 {
-  "parcel_id": "string",
-  "legal_description": "string", 
-  "property_type": "string",
-  "location": {
-    "address": "string",
-    "city": "string",
-    "county": "string", 
-    "state": "string"
+  "parcel_id": "string - unique identifier for this parcel",
+  "crs": "string - coordinate reference system: LOCAL, EPSG:4326, UTM, or PLSS",
+  "origin": {
+    "type": "string - latlon, utm, plss, or local",
+    "lat": "number or null - latitude if available",
+    "lon": "number or null - longitude if available", 
+    "zone": "integer or null - UTM zone 1-60",
+    "easting_m": "number or null - easting in meters",
+    "northing_m": "number or null - northing in meters",
+    "t": "integer or null - township number",
+    "r": "integer or null - range number", 
+    "section": "integer or null - section number 1-36",
+    "corner": "string or null - NW, NE, SW, SE, or null",
+    "offset_m": "number or null - offset distance in meters",
+    "offset_bearing_deg": "number or null - offset bearing 0-360 degrees",
+    "note": "string or null - additional notes about origin"
   },
-  "boundaries": {
-    "north": "string",
-    "south": "string", 
-    "east": "string",
-    "west": "string"
-  },
-  "measurements": {
-    "acreage": "number",
-    "square_feet": "number",
-    "frontage": "string"
-  },
-  "parties": {
-    "grantor": "string",
-    "grantee": "string"
-  },
-  "dates": {
-    "deed_date": "string",
-    "recording_date": "string"
-  },
-  "references": {
-    "deed_book": "string",
-    "page": "string",
-    "prior_deeds": ["string"]
-  }
+  "legs": [
+    {
+      "bearing_deg": "number - bearing in degrees 0-360",
+      "distance": "number - distance value as stated",
+      "distance_units": "string - feet, meters, yards, chains, rods, miles, or kilometers",
+      "distance_sigma": "number or null - uncertainty in measurement",
+      "raw_text": "string - exact text describing this boundary segment",
+      "confidence": "number - your confidence in this extraction 0-1"
+    }
+  ],
+  "close": "boolean - does the description close back to starting point",
+  "stated_area_ac": "number or null - area in acres if mentioned",
+  "source": "string or null - source document reference"
 }
 
-Extract information from the text and format it according to this schema.
-If information is not available, use null values.
-Return only valid JSON without any additional text or commentary.
+IMPORTANT INSTRUCTIONS:
+1. Extract each boundary segment (leg) from the legal description with bearing and distance
+2. Convert all bearings to degrees (0-360), distances to their stated units
+3. Set confidence scores based on clarity of the text (0.9+ for clear, 0.7-0.8 for somewhat clear, <0.7 for unclear)
+4. Use the raw_text field to capture the exact words describing each boundary segment
+5. Determine coordinate reference system from context (PLSS for township/range, UTM for coordinates, etc.)
+6. If information is missing or unclear, use null for optional fields
+7. Generate a meaningful parcel_id if not provided in the text
+8. Return only valid JSON without any additional commentary
 
 Legal Description Text:
 """
+
+def get_text_to_schema_prompt(schema_type: str, model: str = None) -> str:
+    """
+    Get the appropriate prompt for schema extraction
+    
+    Args:
+        schema_type: The type of schema extraction (currently only "parcel" supported)
+        model: The model being used (optional, for model-specific prompts)
+        
+    Returns:
+        str: The prompt text for parcel schema extraction
+    """
+    
+    # For now, we only support parcel schema
+    return PARCEL_SCHEMA
 
 # Simple property extraction
 SIMPLE_PROPERTY = """

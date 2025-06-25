@@ -27,7 +27,9 @@ async def process_content(
     content_type: str = Form(...),  # "image-to-text", "text-to-schema", etc.
     model: str = Form("gpt-4o"),
     extraction_mode: str = Form("legal_document"),
-    cleanup_after: str = Form("true")
+    cleanup_after: str = Form("true"),
+    flow_to: str = Form(None),
+    parcel_id: str = Form(None)
 ):
     """
     Universal processing endpoint that routes to appropriate pipeline
