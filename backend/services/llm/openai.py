@@ -1,6 +1,43 @@
 """
 OpenAI LLM Provider
 Drop this file in services/llm/ and OpenAI models will automatically appear
+
+CRITICAL WIRING DOCUMENTATION:
+==============================
+
+🔴 THIS MODULE IS THE FINAL LINK IN THE CHAIN - PRESERVE ALL WIRING BELOW 🔴
+
+CRITICAL INTEGRATION POINTS:
+1. Pipeline calls: service.process_image_with_text()
+2. This method wraps: call_vision()
+3. call_vision() formats data for OpenAI API
+4. OpenAI API returns text content
+5. process_image_with_text() standardizes response
+
+CRITICAL API WIRING:
+- OpenAI vision API expects: data:image/jpeg;base64,{base64_string}
+- Pipeline provides: clean base64 string (no prefix)
+- This service adds: data URI prefix in call_vision()
+- OpenAI returns: text content in response.choices[0].message.content
+
+CRITICAL RESPONSE FORMAT:
+process_image_with_text() MUST return:
+{
+    "success": True,
+    "extracted_text": "...",  # CRITICAL: Frontend dependency
+    "tokens_used": 6561,
+    "model_used": "gpt-4o",
+    "service_type": "llm",
+    "confidence_score": 1.0,
+    "metadata": {...}
+}
+
+ENHANCEMENT SAFETY RULES:
+- NEVER change process_image_with_text() signature
+- NEVER modify "extracted_text" field mapping
+- NEVER change data URI prefix format
+- ALWAYS preserve response standardization
+- ALWAYS maintain backward compatibility
 """
 import os
 import base64
@@ -144,10 +181,31 @@ class OpenAIService(LLMService):
             }
     
     def call_vision(self, prompt: str, image_data: str, model: str, **kwargs) -> Dict[str, Any]:
-        """Make vision API call to OpenAI with image"""
+        """
+        Make vision API call to OpenAI with image
+        
+        🔴 CRITICAL VISION API INTEGRATION - PRESERVE EXACT FORMAT 🔴
+        
+        Args:
+            prompt: Text prompt for image analysis
+            image_data: Base64 encoded image data (NO data URI prefix)
+            model: Model identifier
+            **kwargs: Additional parameters
+            
+        Returns:
+            Dict with success, text, tokens_used, model
+            
+        CRITICAL WIRING:
+        - Pipeline provides: clean base64 string
+        - This method adds: data:image/jpeg;base64, prefix
+        - OpenAI expects: complete data URI format
+        - Response provides: text content for extraction
+        """
         try:
             api_model_name = self._get_api_model_name(model)
             
+            # CRITICAL: Build OpenAI vision API message format
+            # OpenAI expects specific structure with image_url object
             messages = [
                 {
                     "role": "user",
@@ -156,6 +214,8 @@ class OpenAIService(LLMService):
                         {
                             "type": "image_url",
                             "image_url": {
+                                # CRITICAL: Add data URI prefix to base64 string
+                                # Pipeline provides clean base64, we add prefix here
                                 "url": f"data:image/jpeg;base64,{image_data}",
                                 "detail": kwargs.get("detail", "high")
                             }
@@ -181,11 +241,14 @@ class OpenAIService(LLMService):
                 completion_params["temperature"] = kwargs.get("temperature", 0.1)
                 completion_params["max_tokens"] = kwargs.get("max_tokens", 4000)
             
+            # CRITICAL: Make OpenAI API call
             response = self.client.chat.completions.create(**completion_params)
             
+            # CRITICAL: Extract text content from response
+            # This is what becomes "extracted_text" in final response
             return {
                 "success": True,
-                "text": response.choices[0].message.content,
+                "text": response.choices[0].message.content,  # CRITICAL: Text extraction
                 "tokens_used": response.usage.total_tokens,
                 "model": model
             }
@@ -202,22 +265,32 @@ class OpenAIService(LLMService):
         """
         Process image with text prompt (wrapper around call_vision for pipeline compatibility)
         
+        🔴 CRITICAL PIPELINE INTERFACE - DO NOT MODIFY SIGNATURE 🔴
+        
         Args:
-            image_data: Base64 encoded image data
+            image_data: Base64 encoded image data (clean, no prefix)
             prompt: Text prompt for processing
             model: Model to use
             **kwargs: Additional parameters
         
         Returns:
             Standardized response format for pipelines
+            
+        CRITICAL RESPONSIBILITIES:
+        1. Call call_vision() with correct parameters
+        2. Convert response to pipeline-expected format
+        3. Map "text" field to "extracted_text" field
+        4. Preserve token usage and metadata
         """
+        # CRITICAL: Call vision API with provided parameters
         result = self.call_vision(prompt, image_data, model, **kwargs)
         
-        # Convert to pipeline-expected format
+        # CRITICAL: Convert to pipeline-expected format
+        # Pipeline expects "extracted_text" field, call_vision returns "text"
         if result.get("success"):
             return {
                 "success": True,
-                "extracted_text": result.get("text", ""),
+                "extracted_text": result.get("text", ""),  # CRITICAL: Field mapping
                 "tokens_used": result.get("tokens_used"),
                 "model_used": result.get("model"),
                 "service_type": "llm",
@@ -228,7 +301,8 @@ class OpenAIService(LLMService):
                 }
             }
         else:
-            return result 
+            # CRITICAL: Preserve error response format
+            return result
     
     def call_structured_pydantic(self, prompt: str, input_text: str, model: str, parcel_id: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """Make structured output API call using Pydantic model (recommended approach)"""
