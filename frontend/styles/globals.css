@@ -987,34 +987,26 @@ body {
 .tracer-group.completed .tracer-edge {
   stroke: var(--accent-primary);
   filter: drop-shadow(0 0 8px var(--accent-primary));
-  animation: completion-pulse-with-shift 2.5s ease-in-out infinite;
+  animation: completion-pulse 1.2s ease-in-out forwards;
 }
 
-@keyframes completion-pulse-with-shift {
+@keyframes completion-pulse {
   0% {
-    stroke: var(--accent-primary);
+    /* Starts at the bright, completed state */
     stroke-width: 2.5;
+    stroke: var(--accent-primary);
     filter: drop-shadow(0 0 8px var(--accent-primary));
   }
-  25% {
-    stroke: var(--accent-primary);
+  50% {
+    /* Peak of the pulse */
     stroke-width: 3.5;
     filter: drop-shadow(0 0 12px var(--accent-primary));
   }
-  50% {
-    stroke: hsl(calc(120 + var(--random-hue, 0)), 70%, 60%);
-    stroke-width: 3.5;
-    filter: drop-shadow(0 0 12px hsl(calc(120 + var(--random-hue, 0)), 70%, 60%));
-  }
-  75% {
-    stroke: hsl(calc(240 + var(--random-hue, 0)), 80%, 65%);
-    stroke-width: 3;
-    filter: drop-shadow(0 0 10px hsl(calc(240 + var(--random-hue, 0)), 80%, 65%));
-  }
   100% {
-    stroke: var(--accent-primary);
+    /* Ends at the dim, non-glowing resting state */
     stroke-width: 2.5;
-    filter: drop-shadow(0 0 8px var(--accent-primary));
+    stroke: rgba(0, 169, 255, 0.4);
+    filter: none;
   }
 }
 

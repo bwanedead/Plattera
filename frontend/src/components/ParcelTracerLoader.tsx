@@ -51,7 +51,6 @@ const generatePolygonSegments = (numVertices: number): Segment[] => {
 const PolygonAnimation: React.FC<{ segments: Segment[]; onComplete: () => void }> = ({ segments, onComplete }) => {
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(-1);
   const [isComplete, setIsComplete] = useState(false);
-  const [randomHue] = useState(() => Math.random() * 360);
 
   useEffect(() => {
     let index = 0;
@@ -63,10 +62,10 @@ const PolygonAnimation: React.FC<{ segments: Segment[]; onComplete: () => void }
         clearInterval(interval);
         setIsComplete(true);
         
-        // After completion, wait for the color-shifting effect to play out
+        // Timeout is now 1200ms, perfectly matching the 1.2s CSS animation
         setTimeout(() => {
           onComplete();
-        }, 2500); // Give it 2.5 seconds to show the color shifting
+        }, 1200);
       }
     }, 600);
 
@@ -74,10 +73,7 @@ const PolygonAnimation: React.FC<{ segments: Segment[]; onComplete: () => void }
   }, [segments, onComplete]);
 
   return (
-    <g 
-      className={`tracer-group ${isComplete ? 'completed' : ''}`}
-      style={{ '--random-hue': randomHue } as React.CSSProperties}
-    >
+    <g className={`tracer-group ${isComplete ? 'completed' : ''}`}>
       {segments.map((seg, index) => {
         const isVisible = index <= currentSegmentIndex;
         const isAnimating = index === currentSegmentIndex;
