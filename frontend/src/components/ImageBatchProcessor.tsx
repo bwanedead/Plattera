@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react'
 
+interface EnhancementSettings {
+  contrast: number;
+  sharpness: number;
+  brightness: number;
+  color: number;
+}
+
 interface ProcessingResult {
   id: string
   input: string
@@ -10,6 +17,7 @@ interface ProcessingResult {
 
 interface ImageBatchProcessorProps {
   onResults: (results: ProcessingResult[]) => void
+  enhancementSettings?: EnhancementSettings
 }
 
 interface ModelInfo {
@@ -20,7 +28,10 @@ interface ModelInfo {
   verification_required: boolean
 }
 
-const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({ onResults }) => {
+const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({ 
+  onResults, 
+  enhancementSettings = { contrast: 1.3, sharpness: 1.2, brightness: 1.0, color: 1.0 } 
+}) => {
   const [processing, setProcessing] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [selectedModel, setSelectedModel] = useState('gpt-4o')
@@ -98,6 +109,12 @@ const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({ onResults }) 
         formData.append('extraction_mode', extractionMode)
         formData.append('model', selectedModel)
         formData.append('cleanup_after', 'true')
+        
+        // Add enhancement settings
+        formData.append('contrast', enhancementSettings.contrast.toString())
+        formData.append('sharpness', enhancementSettings.sharpness.toString())
+        formData.append('brightness', enhancementSettings.brightness.toString())
+        formData.append('color', enhancementSettings.color.toString())
 
         const response = await fetch('http://localhost:8000/api/process', {
           method: 'POST',

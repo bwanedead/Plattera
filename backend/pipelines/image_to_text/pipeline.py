@@ -70,7 +70,7 @@ class ImageToTextPipeline:
         # CRITICAL: Registry provides service routing
         self.registry = get_registry()
     
-    def process(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document") -> dict:
+    def process(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document", enhancement_settings: dict = None) -> dict:
         """
         Process an image to extract text
         
@@ -80,6 +80,7 @@ class ImageToTextPipeline:
             image_path: Path to the image file
             model: Model identifier to use for processing
             extraction_mode: Mode of extraction (legal_document, simple_ocr, etc.)
+            enhancement_settings: Optional dict with contrast, sharpness, brightness, color values
             
         Returns:
             dict: Processing result with extracted text and metadata
@@ -103,7 +104,7 @@ class ImageToTextPipeline:
             
             # CRITICAL: Prepare the enhanced image
             # This MUST return (base64_string, format_string) tuple
-            image_data, image_format = self._prepare_image(image_path)
+            image_data, image_format = self._prepare_image(image_path, enhancement_settings)
             if not image_data:
                 return {
                     "success": False,
@@ -169,18 +170,22 @@ class ImageToTextPipeline:
         
         return None
     
-    def _prepare_image(self, image_path: str) -> Tuple[str, str]:
+    def _prepare_image(self, image_path: str, enhancement_settings: dict = None) -> Tuple[str, str]:
         """
         Prepare and enhance image data for processing
         
         🔴 CRITICAL IMAGE PROCESSING - DO NOT MODIFY RETURN SIGNATURE 🔴
+        
+        Args:
+            image_path: Path to the image file
+            enhancement_settings: Optional dict with enhancement parameters
         
         Returns:
             Tuple[str, str]: (base64_string, format_string)
             
         CRITICAL CHAIN:
         1. Validate image path exists
-        2. Call enhance_for_character_recognition()
+        2. Call enhance_for_character_recognition() with settings
         3. Return (base64_string, format_string) to process()
         4. process() passes base64_string to service
         """
@@ -191,7 +196,23 @@ class ImageToTextPipeline:
                 
             # CRITICAL: Use enhanced processing for better character recognition
             # This function MUST return (base64_string, format_string) tuple
-            enhanced_image_data, image_format = enhance_for_character_recognition(str(image_path))
+            if enhancement_settings:
+                # Extract enhancement parameters with safe defaults
+                contrast = float(enhancement_settings.get('contrast', 1.3))
+                sharpness = float(enhancement_settings.get('sharpness', 1.2))
+                brightness = float(enhancement_settings.get('brightness', 1.0))
+                color = float(enhancement_settings.get('color', 1.0))
+                
+                enhanced_image_data, image_format = enhance_for_character_recognition(
+                    str(image_path),
+                    contrast=contrast,
+                    sharpness=sharpness,
+                    brightness=brightness,
+                    color=color
+                )
+            else:
+                # Use default enhancement settings
+                enhanced_image_data, image_format = enhance_for_character_recognition(str(image_path))
             
             # CRITICAL: Return tuple format expected by process()
             return enhanced_image_data, image_format

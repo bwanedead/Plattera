@@ -4,8 +4,16 @@ import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { ParcelTracerLoader } from './ParcelTracerLoader';
 
+// Enhancement settings interface
+interface EnhancementSettings {
+  contrast: number;
+  sharpness: number;
+  brightness: number;
+  color: number;
+}
+
 // --- Real API Calls (replacing the simulated ones) ---
-const processFilesAPI = async (files: File[], model: string, mode: string) => {
+const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings) => {
   console.log(`Processing ${files.length} files with model: ${model} and mode: ${mode}`);
   
   const results = [];
@@ -18,6 +26,12 @@ const processFilesAPI = async (files: File[], model: string, mode: string) => {
       formData.append('extraction_mode', mode);
       formData.append('model', model);
       formData.append('cleanup_after', 'true');
+      
+      // Add enhancement settings
+      formData.append('contrast', enhancementSettings.contrast.toString());
+      formData.append('sharpness', enhancementSettings.sharpness.toString());
+      formData.append('brightness', enhancementSettings.brightness.toString());
+      formData.append('color', enhancementSettings.color.toString());
 
       const response = await fetch('http://localhost:8000/api/process', {
         method: 'POST',
@@ -89,6 +103,24 @@ const fetchModelsAPI = async () => {
   }
 };
 
+// Enhancement settings interface
+interface EnhancementSettings {
+  contrast: number;
+  sharpness: number;
+  brightness: number;
+  color: number;
+}
+
+interface ProcessingResult {
+  success: boolean;
+  extracted_text: string;
+  model_used: string;
+  service_type: string;
+  tokens_used?: number;
+  confidence_score?: number;
+  metadata?: any;
+}
+
 // Define the type for the component's props, including the onExit callback
 interface ImageProcessingWorkspaceProps {
   onExit: () => void;
@@ -105,6 +137,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [selectedModel, setSelectedModel] = useState('gpt-o4-mini');
   const [extractionMode, setExtractionMode] = useState('legal_document');
   const [activeTab, setActiveTab] = useState('text');
+  const [enhancementSettings, setEnhancementSettings] = useState<EnhancementSettings>({
+    contrast: 1.3,
+    sharpness: 1.2,
+    brightness: 1.0,
+    color: 1.0
+  });
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setStagedFiles(prev => [...prev, ...acceptedFiles]);
@@ -123,8 +161,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     setIsProcessing(true);
     setSelectedResult(null); // Clear previous selection
     
-    // Process all files and get results
-    const newResults = await processFilesAPI(stagedFiles, selectedModel, extractionMode);
+    // Process all files and get results with enhancement settings
+    const newResults = await processFilesAPI(stagedFiles, selectedModel, extractionMode, enhancementSettings);
     
     // Add all results to session
     setSessionResults(prev => [...newResults, ...prev]);
@@ -145,6 +183,13 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
 
   useEffect(() => {
     fetchModelsAPI().then(setAvailableModels);
+  }, []);
+
+  const handleEnhancementChange = useCallback((setting: keyof EnhancementSettings, value: number) => {
+    setEnhancementSettings(prev => ({
+      ...prev,
+      [setting]: value
+    }));
   }, []);
 
   return (
@@ -235,6 +280,87 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 <option value="court_document">Court Document</option>
                 <option value="contract">Contract</option>
               </select>
+            </div>
+
+            <div className="enhancement-section">
+              <label>🎨 Image Enhancement</label>
+              <div className="enhancement-controls">
+                <div className="enhancement-sliders">
+                  <div className="slider-group">
+                    <label htmlFor="contrast-slider">
+                      Contrast: {enhancementSettings.contrast.toFixed(1)}
+                    </label>
+                    <input
+                      id="contrast-slider"
+                      type="range"
+                      min="0.5"
+                      max="2.0"
+                      step="0.1"
+                      value={enhancementSettings.contrast}
+                      onChange={(e) => handleEnhancementChange('contrast', parseFloat(e.target.value))}
+                      disabled={isProcessing}
+                    />
+                  </div>
+
+                  <div className="slider-group">
+                    <label htmlFor="sharpness-slider">
+                      Sharpness: {enhancementSettings.sharpness.toFixed(1)}
+                    </label>
+                    <input
+                      id="sharpness-slider"
+                      type="range"
+                      min="0.5"
+                      max="2.0"
+                      step="0.1"
+                      value={enhancementSettings.sharpness}
+                      onChange={(e) => handleEnhancementChange('sharpness', parseFloat(e.target.value))}
+                      disabled={isProcessing}
+                    />
+                  </div>
+
+                  <div className="slider-group">
+                    <label htmlFor="brightness-slider">
+                      Brightness: {enhancementSettings.brightness.toFixed(1)}
+                    </label>
+                    <input
+                      id="brightness-slider"
+                      type="range"
+                      min="0.5"
+                      max="1.5"
+                      step="0.1"
+                      value={enhancementSettings.brightness}
+                      onChange={(e) => handleEnhancementChange('brightness', parseFloat(e.target.value))}
+                      disabled={isProcessing}
+                    />
+                  </div>
+
+                  <div className="slider-group">
+                    <label htmlFor="color-slider">
+                      Color: {enhancementSettings.color.toFixed(1)}
+                    </label>
+                    <input
+                      id="color-slider"
+                      type="range"
+                      min="0.0"
+                      max="2.0"
+                      step="0.1"
+                      value={enhancementSettings.color}
+                      onChange={(e) => handleEnhancementChange('color', parseFloat(e.target.value))}
+                      disabled={isProcessing}
+                    />
+                  </div>
+                </div>
+
+                <div className="enhancement-presets">
+                  <button 
+                    onClick={() => setEnhancementSettings({ contrast: 1.3, sharpness: 1.2, brightness: 1.0, color: 1.0 })}
+                    disabled={isProcessing}
+                    className="preset-btn"
+                  >
+                    Restore Default
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="process-section">

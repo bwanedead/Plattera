@@ -29,7 +29,12 @@ async def process_content(
     extraction_mode: str = Form("legal_document"),
     cleanup_after: str = Form("true"),
     flow_to: str = Form(None),
-    parcel_id: str = Form(None)
+    parcel_id: str = Form(None),
+    # Enhancement settings - optional
+    contrast: str = Form("1.3"),
+    sharpness: str = Form("1.2"),
+    brightness: str = Form("1.0"),
+    color: str = Form("1.0")
 ):
     """
     Universal processing endpoint that routes to appropriate pipeline
@@ -40,6 +45,10 @@ async def process_content(
         model: Model to use for processing
         extraction_mode: Mode of extraction/processing
         cleanup_after: Cleanup after processing
+        contrast: Image contrast enhancement (1.0 = no change)
+        sharpness: Image sharpness enhancement (1.0 = no change)
+        brightness: Image brightness enhancement (1.0 = no change)
+        color: Image color saturation enhancement (1.0 = no change)
     """
     # Add detailed logging
     logger.info(f"🔥 PROCESSING REQUEST RECEIVED:")
@@ -49,6 +58,15 @@ async def process_content(
     logger.info(f"   🤖 Model: {model}")
     logger.info(f"   ⚙️ Extraction Mode: {extraction_mode}")
     logger.info(f"   🧹 Cleanup After: {cleanup_after}")
+    logger.info(f"   🎨 Enhancement Settings: contrast={contrast}, sharpness={sharpness}, brightness={brightness}, color={color}")
+    
+    # Parse enhancement settings
+    enhancement_settings = {
+        'contrast': float(contrast),
+        'sharpness': float(sharpness),
+        'brightness': float(brightness),
+        'color': float(color)
+    }
     
     temp_path = None
     
@@ -56,7 +74,7 @@ async def process_content(
         # Route to appropriate pipeline based on content_type
         if content_type == "image-to-text":
             logger.info("🖼️ Routing to image-to-text pipeline")
-            return await _process_image_to_text(file, model, extraction_mode)
+            return await _process_image_to_text(file, model, extraction_mode, enhancement_settings)
         elif content_type == "text-to-schema":
             logger.info("📝 Routing to text-to-schema pipeline")
             return await _process_text_to_schema(file, model)
@@ -75,7 +93,7 @@ async def process_content(
         logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
-async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: str) -> ProcessResponse:
+async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: str, enhancement_settings: dict = None) -> ProcessResponse:
     """Route to image-to-text pipeline"""
     temp_path = None
     
@@ -112,7 +130,7 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
         
         # Process the image
         logger.info(f"🔄 Processing with model: {model}, mode: {extraction_mode}")
-        result = pipeline.process(temp_path, model, extraction_mode)
+        result = pipeline.process(temp_path, model, extraction_mode, enhancement_settings)
         logger.info(f"📊 Pipeline result: {result}")
         
         if not result.get("success", False):

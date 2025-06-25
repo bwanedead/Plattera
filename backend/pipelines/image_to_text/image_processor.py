@@ -43,9 +43,15 @@ from PIL import Image, ImageEnhance, ImageFilter
 import io
 import base64
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Optional
 
-def enhance_for_character_recognition(image_path: str) -> Tuple[str, str]:
+def enhance_for_character_recognition(
+    image_path: str,
+    contrast: float = 1.3,
+    sharpness: float = 1.2,
+    brightness: float = 1.0,
+    color: float = 1.0
+) -> Tuple[str, str]:
     """
     Enhance image specifically for better character recognition
     Focus on contrast and sharpness to help distinguish ambiguous characters
@@ -54,6 +60,10 @@ def enhance_for_character_recognition(image_path: str) -> Tuple[str, str]:
     
     Args:
         image_path: Path to the original image
+        contrast: Contrast enhancement factor (1.0 = no change, >1.0 = more contrast)
+        sharpness: Sharpness enhancement factor (1.0 = no change, >1.0 = sharper)
+        brightness: Brightness enhancement factor (1.0 = no change, >1.0 = brighter)
+        color: Color saturation factor (1.0 = no change, >1.0 = more saturated)
         
     Returns:
         Tuple[str, str]: (base64_encoded_image, image_format)
@@ -72,19 +82,29 @@ def enhance_for_character_recognition(image_path: str) -> Tuple[str, str]:
             if img.mode != 'RGB':
                 img = img.convert('RGB')
             
-            # WORKING ENHANCEMENT VALUES - TESTED AND VALIDATED
-            # These values provide optimal character recognition improvement
+            # CONFIGURABLE ENHANCEMENT VALUES - RESPECTING USER SETTINGS
+            # Default values provide optimal character recognition improvement
             # without degrading image quality for OpenAI vision API
             
-            # Moderate contrast boost to help character disambiguation
-            # 1.3 = 30% increase - tested to work well with legal documents
-            contrast_enhancer = ImageEnhance.Contrast(img)
-            img = contrast_enhancer.enhance(1.3)  # 30% contrast increase
+            # Apply brightness adjustment first (affects overall exposure)
+            if brightness != 1.0:
+                brightness_enhancer = ImageEnhance.Brightness(img)
+                img = brightness_enhancer.enhance(brightness)
             
-            # Slight sharpness increase for character edges
-            # 1.2 = 20% increase - helps with blurry or low-res text
-            sharpness_enhancer = ImageEnhance.Sharpness(img)
-            img = sharpness_enhancer.enhance(1.2)  # 20% sharpness increase
+            # Apply contrast boost to help character disambiguation
+            if contrast != 1.0:
+                contrast_enhancer = ImageEnhance.Contrast(img)
+                img = contrast_enhancer.enhance(contrast)
+            
+            # Apply color saturation adjustment
+            if color != 1.0:
+                color_enhancer = ImageEnhance.Color(img)
+                img = color_enhancer.enhance(color)
+            
+            # Apply sharpness increase for character edges (do this last)
+            if sharpness != 1.0:
+                sharpness_enhancer = ImageEnhance.Sharpness(img)
+                img = sharpness_enhancer.enhance(sharpness)
             
             # CRITICAL: Save as high-quality JPEG for OpenAI compatibility
             # OpenAI vision API works best with JPEG format
