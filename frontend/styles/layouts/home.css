@@ -38,7 +38,11 @@
   padding: var(--spacing-xl);
   cursor: pointer;
   transition: all var(--transition-slow);
-  min-width: 300px;
+  width: 280px;
+  height: 280px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .pipeline-card:hover {
