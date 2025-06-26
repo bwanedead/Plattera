@@ -97,4 +97,76 @@
   to {
     opacity: 0;
   }
+}
+
+/* --- Animated Border Component --- */
+/* Reusable animated border that matches the ParcelTracerLoader aesthetic */
+
+.animated-border-container {
+  position: relative;
+}
+
+.border-tracer-group {
+  transform-style: preserve-3d;
+}
+
+.border-tracer-edge {
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke: rgba(0, 169, 255, 0.4);
+  filter: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  fill: none;
+}
+
+.border-tracer-edge.visible {
+  opacity: 1;
+}
+
+.border-tracer-edge.animating {
+  stroke: var(--border-color, var(--accent-primary));
+  filter: drop-shadow(0 0 6px var(--border-color, var(--accent-primary)));
+  animation: border-flow-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes border-flow-in {
+  0% {
+    stroke-dashoffset: var(--segment-length);
+    stroke-width: 3;
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  80% {
+    stroke-width: 2;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    stroke-width: 2;
+  }
+}
+
+.border-tracer-group.completed .border-tracer-edge {
+  stroke: var(--border-color, var(--accent-primary));
+  filter: drop-shadow(0 0 8px var(--border-color, var(--accent-primary)));
+  animation: border-completion-pulse 1.2s ease-in-out forwards;
+}
+
+@keyframes border-completion-pulse {
+  0% {
+    stroke-width: 2;
+    stroke: var(--border-color, var(--accent-primary));
+    filter: drop-shadow(0 0 6px var(--border-color, var(--accent-primary)));
+  }
+  50% {
+    stroke-width: 2.5;
+    filter: drop-shadow(0 0 10px var(--border-color, var(--accent-primary)));
+  }
+  100% {
+    stroke-width: 2;
+    stroke: rgba(0, 169, 255, 0.4);
+    filter: none;
+  }
 } 

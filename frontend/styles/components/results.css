@@ -1,8 +1,8 @@
 /* Results and History Components */
 
-/* Draft Selector - Compact Collapsible Design */
+/* Draft Selector - Compact Collapsible Design with Animated Border */
 
-/* Collapsed state - just a small icon */
+/* Collapsed state - tiny rounded bubble with animated border */
 .draft-selector-collapsed {
   position: absolute;
   top: 16px;
@@ -10,39 +10,32 @@
   z-index: 10;
 }
 
-.draft-selector-icon {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+.draft-selector-bubble {
+  background: var(--accent-primary);
+  color: white;
+  border: none;
   border-radius: 6px;
-  padding: 8px;
+  width: 28px;
+  height: 28px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.draft-selector-icon:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--accent-primary);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.draft-icon {
-  font-size: 1rem;
-}
-
-.draft-count {
-  background: var(--accent-primary);
-  color: white;
-  font-size: 0.7rem;
+  justify-content: center;
+  font-size: 0.8rem;
   font-weight: 600;
-  padding: 2px 5px;
-  border-radius: 8px;
-  min-width: 16px;
-  text-align: center;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.draft-selector-bubble:hover {
+  background: rgba(var(--accent-primary-rgb), 0.3);
+  color: var(--accent-primary);
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.draft-selector-bubble:active {
+  transform: scale(0.95);
 }
 
 /* Expanded state - compact dropdown */

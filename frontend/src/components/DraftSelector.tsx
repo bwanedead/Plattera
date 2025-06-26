@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AnimatedBorder } from './AnimatedBorder';
 
 interface DraftSelectorProps {
   redundancyAnalysis?: {
@@ -23,6 +24,7 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   // Don't render if no redundancy data
   if (!redundancyAnalysis || !redundancyAnalysis.individual_results) {
@@ -54,18 +56,25 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
     }
   };
 
-  // Collapsed state - just a small icon
+  // Collapsed state - animated bubble with number
   if (!isVisible) {
     return (
       <div className="draft-selector-collapsed">
-        <button 
-          className="draft-selector-icon"
-          onClick={toggleVisibility}
-          title={`${totalDrafts} drafts available - Currently viewing: ${getCurrentDraftLabel()}`}
+        <AnimatedBorder
+          isHovered={isHovered}
+          borderRadius={6}
+          strokeWidth={2}
         >
-          <span className="draft-icon">📄</span>
-          <span className="draft-count">{totalDrafts}</span>
-        </button>
+          <button 
+            className="draft-selector-bubble"
+            onClick={toggleVisibility}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            title={`${totalDrafts} drafts available - Currently viewing: ${getCurrentDraftLabel()}`}
+          >
+            {totalDrafts}
+          </button>
+        </AnimatedBorder>
       </div>
     );
   }

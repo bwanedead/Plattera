@@ -404,10 +404,12 @@ class ImageToTextPipeline:
             return {
                 "success": False,
                 "error": "All redundancy calls failed",
-                "redundancy_analysis": {
-                    "total_calls": len(results),
-                    "successful_calls": 0,
-                    "failed_calls": len(results)
+                "metadata": {
+                    "redundancy_analysis": {
+                        "total_calls": len(results),
+                        "successful_calls": 0,
+                        "failed_calls": len(results)
+                    }
                 }
             }
         
