@@ -573,8 +573,31 @@ class ImageToTextPipeline:
                 }
             }
         
-        # Perform consensus analysis to get word confidence mapping
-        consensus_text, word_confidence_map, word_alternatives = self._calculate_consensus(filtered_texts, consensus_strategy)
+        # Perform consensus analysis using ALL strategies
+        engine = ConsensusEngine()
+        all_consensus_results = {}
+
+        for strategy_name in engine.get_available_strategies():
+            try:
+                consensus_text, confidence_map, alternatives = engine.calculate_consensus(filtered_texts, strategy_name)
+                all_consensus_results[strategy_name] = {
+                    'consensus_text': consensus_text,
+                    'confidence_map': confidence_map,
+                    'word_alternatives': alternatives
+                }
+                logger.info(f"✅ Computed consensus for strategy: {strategy_name}")
+            except Exception as e:
+                logger.error(f"❌ Failed to compute consensus for {strategy_name}: {e}")
+
+        # Use sequential as default for compatibility
+        default_strategy = 'sequential'
+        if default_strategy in all_consensus_results:
+            consensus_text = all_consensus_results[default_strategy]['consensus_text']
+            word_confidence_map = all_consensus_results[default_strategy]['confidence_map']
+            word_alternatives = all_consensus_results[default_strategy]['word_alternatives']
+        else:
+            # Fallback if sequential fails
+            consensus_text, word_confidence_map, word_alternatives = self._calculate_consensus(filtered_texts, 'sequential')
         
         # Calculate overall confidence
         overall_confidence = sum(word_confidence_map.values()) / len(word_confidence_map) if word_confidence_map else 0.0
@@ -630,6 +653,8 @@ class ImageToTextPipeline:
                     "best_result_index": best_result_index,
                     "word_confidence_map": word_confidence_map,
                     "word_alternatives": word_alternatives,
+                    "all_consensus_results": all_consensus_results,
+                    "default_strategy": default_strategy,
                     "individual_results": [
                         {
                             "success": r.get("success", False),

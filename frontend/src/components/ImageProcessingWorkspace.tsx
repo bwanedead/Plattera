@@ -305,7 +305,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [redundancySettings, setRedundancySettings] = useState<RedundancySettings>({
     enabled: true,
     count: 3,
-    consensusStrategy: 'sequential'
+    consensusStrategy: 'segmented_fuzzy'
   });
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
   
@@ -320,6 +320,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   // Navigation button hover states
   const [homeHovered, setHomeHovered] = useState(false);
   const [textSchemaHovered, setTextSchemaHovered] = useState(false);
+
+  const [selectedConsensusStrategy, setSelectedConsensusStrategy] = useState('segmented_fuzzy');
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setStagedFiles(prev => [...prev, ...acceptedFiles]);
@@ -415,23 +417,24 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   ⚠️  ONLY ADD THE EDITED TEXT CHECK AT THE TOP
   */
   const getCurrentText = useCallback(() => {
-    /*
-    🔴 HEATMAP EDITED TEXT CHECK - ADDED AS DOCUMENTED 🔴
-    ====================================================
-    */
     if (isTextEdited && editedText) {
       return editedText;
     }
     
     if (!selectedResult || selectedResult.status !== 'completed' || !selectedResult.result) {
-      return selectedResult?.error ? `Error: ${selectedResult.error}` : '';
+      return selectedResult?.error || 'No result available';
     }
 
-    const redundancyAnalysis = selectedResult.result?.metadata?.redundancy_analysis;  // ← CRITICAL: Heatmap needs this data
+    const redundancyAnalysis = selectedResult.result?.metadata?.redundancy_analysis;
     
+    // 🆕 Use selected consensus strategy if available
+    if (redundancyAnalysis?.all_consensus_results?.[selectedConsensusStrategy]) {
+      return redundancyAnalysis.all_consensus_results[selectedConsensusStrategy].consensus_text;
+    }
+    
+    // Fallback to original logic
     if (!redundancyAnalysis) {
-      // No redundancy data, just return the main text
-      return selectedResult.result.extracted_text || '';
+      return selectedResult.result?.extracted_text || 'No text available';
     }
 
     // CRITICAL DRAFT SELECTION LOGIC - Heatmap must coordinate with this
@@ -449,7 +452,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
 
     // Fallback to main text
     return selectedResult.result.extracted_text || '';
-  }, [selectedResult, selectedDraft, isTextEdited, editedText]);  // ← CRITICAL: Added heatmap dependencies
+  }, [selectedResult, selectedDraft, isTextEdited, editedText, selectedConsensusStrategy]);  // 🆕 Add selectedConsensusStrategy
 
   const handleDraftSelect = useCallback((draft: number | 'consensus' | 'best') => {
     setSelectedDraft(draft);
@@ -637,43 +640,6 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                          redundancySettings.count <= 5 ? 'Medium redundancy' : 'Heavy redundancy'}
                       </div>
                     </div>
-                    
-                    <div className="consensus-strategy-group">
-                      <label htmlFor="consensus-strategy">Consensus Algorithm</label>
-                      <select
-                        id="consensus-strategy"
-                        value={redundancySettings.consensusStrategy}
-                        onChange={(e) => setRedundancySettings(prev => ({
-                          ...prev,
-                          consensusStrategy: e.target.value
-                        }))}
-                        className="consensus-strategy-select"
-                      >
-                        <option value="sequential">Sequential Alignment</option>
-                        <option value="ngram_overlap">N-gram Context Overlap</option>
-                        <option value="strict_majority">Strict Majority</option>
-                        <option value="length_weighted">Length Weighted</option>
-                        <option value="confidence_weighted">Confidence Weighted</option>
-                      </select>
-                      <div className="consensus-strategy-hint">
-                        {(() => {
-                          switch (redundancySettings.consensusStrategy) {
-                            case 'sequential':
-                              return 'Position-based word mapping (original algorithm)';
-                            case 'ngram_overlap':
-                              return 'Context-based word mapping (better for paraphrasing)';
-                            case 'strict_majority':
-                              return 'Only accept words that appear in majority of drafts';
-                            case 'length_weighted':
-                              return 'Weight consensus by text length (longer texts have more influence)';
-                            case 'confidence_weighted':
-                              return 'Hybrid approach combining multiple confidence factors';
-                            default:
-                              return 'Select a consensus algorithm';
-                          }
-                        })()}
-                      </div>
-                    </div>
                   </>
                 )}
               </div>
@@ -770,6 +736,31 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                           hasRedundancyData={!!selectedResult?.result?.metadata?.redundancy_analysis}
                         />
                         
+                        {/* 🆕 SEGMENTED FUZZY CONSENSUS SELECTOR */}
+                        {selectedResult?.result?.metadata?.redundancy_analysis?.all_consensus_results && (
+                          <div className="consensus-selector">
+                            <label htmlFor="consensus-algorithm">Consensus Algorithm:</label>
+                            <select
+                              id="consensus-algorithm"
+                              value={selectedConsensusStrategy}
+                              onChange={(e) => setSelectedConsensusStrategy(e.target.value)}
+                              className="consensus-algorithm-select"
+                            >
+                              <option value="segmented_fuzzy">Segmented Fuzzy (50 words)</option>
+                              <option value="small_segments">Small Segments (20 words)</option>
+                              <option value="large_segments">Large Segments (100 words)</option>
+                            </select>
+                            <div className="consensus-strategy-hint">
+                              {selectedConsensusStrategy === 'segmented_fuzzy' && 
+                                'Fuzzy matches 50-word segments - balanced speed and accuracy'}
+                              {selectedConsensusStrategy === 'small_segments' && 
+                                'Fuzzy matches 20-word segments - more precise but slower'}
+                              {selectedConsensusStrategy === 'large_segments' && 
+                                'Fuzzy matches 100-word segments - faster but less precise'}
+                            </div>
+                          </div>
+                        )}
+                        
                         <div className="result-tabs">
                             <button className={activeTab === 'text' ? 'active' : ''} onClick={() => setActiveTab('text')}>Extracted Text</button>
                             <button className={activeTab === 'metadata' ? 'active' : ''} onClick={() => setActiveTab('metadata')}>Metadata</button>
@@ -783,7 +774,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                               isHeatmapEnabled && selectedResult?.result?.metadata?.redundancy_analysis ? (
                                 <ConfidenceHeatmapViewer
                                   text={getCurrentText()}
-                                  wordConfidenceMap={selectedResult.result.metadata.redundancy_analysis.word_confidence_map || {}}
+                                  wordConfidenceMap={
+                                    selectedResult.result.metadata.redundancy_analysis.all_consensus_results?.[selectedConsensusStrategy]?.confidence_map || 
+                                    selectedResult.result.metadata.redundancy_analysis.word_confidence_map || {}
+                                  }
                                   redundancyAnalysis={selectedResult.result.metadata.redundancy_analysis}
                                   onTextUpdate={handleTextUpdate}
                                 />

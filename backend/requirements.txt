@@ -28,4 +28,11 @@ folium==0.15.1
 contextily==1.4.0
 
 # Utilities
-python-dotenv==1.0.0 
+python-dotenv==1.0.0
+
+# New dependencies
+sentence-transformers==2.2.2
+scikit-learn==1.3.0
+fuzzywuzzy==0.18.0
+python-Levenshtein==0.21.1
+nltk==3.8.1 
