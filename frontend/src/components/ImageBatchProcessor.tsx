@@ -35,9 +35,11 @@ const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({
   const [processing, setProcessing] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [selectedModel, setSelectedModel] = useState('gpt-4o')
-  const [extractionMode, setExtractionMode] = useState('legal_document')
+  const [extractionMode, setExtractionMode] = useState('legal_document_plain')
   const [availableModels, setAvailableModels] = useState<Record<string, ModelInfo>>({})
+  const [availableExtractionModes, setAvailableExtractionModes] = useState<Record<string, {name: string, description: string}>>({})
   const [loadingModels, setLoadingModels] = useState(true)
+  const [loadingModes, setLoadingModes] = useState(true)
   const [apiError, setApiError] = useState<string | null>(null)
 
   // Default models in case API is not available
@@ -56,7 +58,7 @@ const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({
     }
   }
 
-  // Load available models on component mount
+  // Load available models and extraction modes on component mount
   useEffect(() => {
     const loadModels = async () => {
       try {
@@ -83,7 +85,34 @@ const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({
       }
     }
     
+    const loadExtractionModes = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/process/types')
+        const data = await response.json()
+        
+        if (data.status === 'success' && data.processing_types?.['image-to-text']?.extraction_modes) {
+          console.log('Extraction modes API response:', data.processing_types['image-to-text'].extraction_modes)
+          setAvailableExtractionModes(data.processing_types['image-to-text'].extraction_modes)
+        } else {
+          console.log('API response:', data)
+          throw new Error(data.error || 'Invalid response format')
+        }
+      } catch (error) {
+        console.warn('Failed to load extraction modes from API, using defaults:', error)
+        // Fallback to default modes
+        setAvailableExtractionModes({
+          'legal_document_plain': { name: 'Legal Document Plain', description: 'Plain legal document transcription' },
+          'legal_document_sectioned': { name: 'Legal Document Sectioned', description: 'With section markers' },
+          'ultra_precise_legal': { name: 'Ultra Precise Legal', description: 'Maximum accuracy' },
+          'legal_document_json': { name: 'Legal Document JSON', description: 'Structured JSON format' }
+        })
+      } finally {
+        setLoadingModes(false)
+      }
+    }
+    
     loadModels()
+    loadExtractionModes()
   }, [])
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -212,11 +241,17 @@ const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({
             id="extraction-mode"
             value={extractionMode} 
             onChange={(e) => setExtractionMode(e.target.value)}
-            disabled={processing}
+            disabled={processing || loadingModes}
           >
-            <option value="legal_document">Complete Legal Document</option>
-            <option value="property_description_only">Property Description Only</option>
-            <option value="full_ocr">Full OCR</option>
+            {loadingModes ? (
+              <option>Loading modes...</option>
+            ) : (
+              Object.entries(availableExtractionModes).map(([modeId, modeInfo]) => (
+                <option key={modeId} value={modeId}>
+                  {modeInfo.name} - {modeInfo.description}
+                </option>
+              ))
+            )}
           </select>
         </div>
       </div>

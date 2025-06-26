@@ -280,6 +280,47 @@ class OpenAIService(LLMService):
                     completion_params["temperature"] = kwargs.get("temperature", 0.1)
                     completion_params["max_tokens"] = kwargs.get("max_tokens", 4000)
                 
+                # CRITICAL: Add structured JSON response format for JSON extraction mode
+                json_mode = kwargs.get("json_mode", False)
+                if json_mode:
+                    # Use proper JSON schema format for o4-mini structured outputs
+                    completion_params["response_format"] = {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "document_transcription",
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "documentId": {
+                                        "type": "string"
+                                    },
+                                    "sections": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "id": {
+                                                    "type": "integer"
+                                                },
+                                                "header": {
+                                                    "type": ["string", "null"]
+                                                },
+                                                "body": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["id", "header", "body"],
+                                            "additionalProperties": False
+                                        }
+                                    }
+                                },
+                                "required": ["documentId", "sections"],
+                                "additionalProperties": False
+                            },
+                            "strict": True
+                        }
+                    }
+                
                 # CRITICAL: Make OpenAI API call
                 response = self.client.chat.completions.create(**completion_params)
                 
@@ -445,9 +486,37 @@ class OpenAIService(LLMService):
                 "response_format": {
                     "type": "json_schema",
                     "json_schema": {
-                        "name": "parcel_extraction",
-                        "strict": True,
-                        "schema": schema
+                        "name": "document_transcription",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "documentId": {
+                                    "type": "string"
+                                },
+                                "sections": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {
+                                                "type": "integer"
+                                            },
+                                            "header": {
+                                                "type": ["string", "null"]
+                                            },
+                                            "body": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["id", "header", "body"],
+                                        "additionalProperties": False
+                                    }
+                                }
+                            },
+                            "required": ["documentId", "sections"],
+                            "additionalProperties": False
+                        },
+                        "strict": True
                     }
                 },
                 "temperature": kwargs.get("temperature", 0.1),

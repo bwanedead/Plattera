@@ -93,6 +93,12 @@ import { DraftSelector } from './DraftSelector';
 import { AnimatedBorder } from './AnimatedBorder';
 import { HeatmapToggle } from './HeatmapToggle';
 import { ConfidenceHeatmapViewer } from './ConfidenceHeatmapViewer';
+import { 
+  isJsonResult, 
+  formatJsonAsText, 
+  formatJsonPretty,
+  getWordCount 
+} from '../utils/jsonFormatter';
 
 // Enhancement settings interface
 interface EnhancementSettings {
@@ -292,8 +298,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [isProcessing, setIsProcessing] = useState(false);
   const [isHistoryVisible, setIsHistoryVisible] = useState(true);
   const [availableModels, setAvailableModels] = useState<Record<string, any>>({});
+  const [availableExtractionModes, setAvailableExtractionModes] = useState<Record<string, {name: string, description: string}>>({});
   const [selectedModel, setSelectedModel] = useState('gpt-o4-mini');
-  const [extractionMode, setExtractionMode] = useState('legal_document');
+  const [extractionMode, setExtractionMode] = useState('legal_document_plain');
+  const [loadingModes, setLoadingModes] = useState(true);
   const [activeTab, setActiveTab] = useState('text');
   const [enhancementSettings, setEnhancementSettings] = useState<EnhancementSettings>({
     contrast: 2.0,
@@ -367,6 +375,38 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
 
   useEffect(() => {
     fetchModelsAPI().then(setAvailableModels);
+    
+    // Load extraction modes
+    const loadExtractionModes = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/process/types')
+        const data = await response.json()
+        
+        if (data.status === 'success' && data.processing_types?.['image-to-text']?.extraction_modes) {
+          console.log('Extraction modes API response:', data.processing_types['image-to-text'].extraction_modes)
+          console.log('Is array?', Array.isArray(data.processing_types['image-to-text'].extraction_modes))
+          console.log('Type:', typeof data.processing_types['image-to-text'].extraction_modes)
+          console.log('Keys:', Object.keys(data.processing_types['image-to-text'].extraction_modes))
+          setAvailableExtractionModes(data.processing_types['image-to-text'].extraction_modes)
+        } else {
+          console.log('API response:', data)
+          throw new Error(data.error || 'Invalid response format')
+        }
+      } catch (error) {
+        console.warn('Failed to load extraction modes from API, using defaults:', error)
+        // Fallback to default modes
+        setAvailableExtractionModes({
+          'legal_document_plain': { name: 'Legal Document Plain', description: 'Plain legal document transcription' },
+          'legal_document_sectioned': { name: 'Legal Document Sectioned', description: 'With section markers' },
+          'ultra_precise_legal': { name: 'Ultra Precise Legal', description: 'Maximum accuracy' },
+          'legal_document_json': { name: 'Legal Document JSON', description: 'Structured JSON format' }
+        })
+      } finally {
+        setLoadingModes(false)
+      }
+    }
+    
+    loadExtractionModes();
   }, []);
 
   const handleEnhancementChange = useCallback((setting: keyof EnhancementSettings, value: number) => {
@@ -429,29 +469,40 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     
     // 🆕 Use selected consensus strategy if available
     if (redundancyAnalysis?.all_consensus_results?.[selectedConsensusStrategy]) {
-      return redundancyAnalysis.all_consensus_results[selectedConsensusStrategy].consensus_text;
+      const consensusText = redundancyAnalysis.all_consensus_results[selectedConsensusStrategy].consensus_text;
+      // Format JSON as readable text if it's JSON
+      return isJsonResult(consensusText) ? formatJsonAsText(consensusText) : consensusText;
     }
     
     // Fallback to original logic
     if (!redundancyAnalysis) {
-      return selectedResult.result?.extracted_text || 'No text available';
+      const extractedText = selectedResult.result?.extracted_text || 'No text available';
+      // Format JSON as readable text if it's JSON
+      return isJsonResult(extractedText) ? formatJsonAsText(extractedText) : extractedText;
     }
 
     // CRITICAL DRAFT SELECTION LOGIC - Heatmap must coordinate with this
     if (selectedDraft === 'best') {
-      return selectedResult.result.extracted_text || ''; // This is already the best formatted text
+      const extractedText = selectedResult.result.extracted_text || '';
+      // Format JSON as readable text if it's JSON
+      return isJsonResult(extractedText) ? formatJsonAsText(extractedText) : extractedText;
     } else if (selectedDraft === 'consensus') {
-      return redundancyAnalysis.consensus_text || selectedResult.result.extracted_text || '';  // ← CRITICAL: Heatmap consensus view
+      const consensusText = redundancyAnalysis.consensus_text || selectedResult.result.extracted_text || '';
+      // Format JSON as readable text if it's JSON
+      return isJsonResult(consensusText) ? formatJsonAsText(consensusText) : consensusText;
     } else if (typeof selectedDraft === 'number') {
       const individualResults = redundancyAnalysis.individual_results;  // ← CRITICAL: Heatmap needs these for alternatives
       const successfulResults = individualResults.filter((r: any) => r.success);
       if (selectedDraft < successfulResults.length) {
-        return successfulResults[selectedDraft].text || '';  // ← CRITICAL: Heatmap individual draft view
+        const draftText = successfulResults[selectedDraft].text || '';
+        // Format JSON as readable text if it's JSON
+        return isJsonResult(draftText) ? formatJsonAsText(draftText) : draftText;
       }
     }
 
     // Fallback to main text
-    return selectedResult.result.extracted_text || '';
+    const fallbackText = selectedResult.result.extracted_text || '';
+    return isJsonResult(fallbackText) ? formatJsonAsText(fallbackText) : fallbackText;
   }, [selectedResult, selectedDraft, isTextEdited, editedText, selectedConsensusStrategy]);  // 🆕 Add selectedConsensusStrategy
 
   const handleDraftSelect = useCallback((draft: number | 'consensus' | 'best') => {
@@ -476,6 +527,46 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       setEditedText('');
     }
   }, []);
+
+  // Get raw extracted text for JSON tab (without formatting)
+  const getRawText = useCallback(() => {
+    if (!selectedResult || selectedResult.status !== 'completed' || !selectedResult.result) {
+      return selectedResult?.error || 'No result available';
+    }
+
+    const redundancyAnalysis = selectedResult.result?.metadata?.redundancy_analysis;
+    
+    // Use selected consensus strategy if available
+    if (redundancyAnalysis?.all_consensus_results?.[selectedConsensusStrategy]) {
+      return redundancyAnalysis.all_consensus_results[selectedConsensusStrategy].consensus_text;
+    }
+    
+    // Fallback to original logic
+    if (!redundancyAnalysis) {
+      return selectedResult.result?.extracted_text || 'No text available';
+    }
+
+    // Draft selection logic for raw text
+    if (selectedDraft === 'best') {
+      return selectedResult.result.extracted_text || '';
+    } else if (selectedDraft === 'consensus') {
+      return redundancyAnalysis.consensus_text || selectedResult.result.extracted_text || '';
+    } else if (typeof selectedDraft === 'number') {
+      const individualResults = redundancyAnalysis.individual_results;
+      const successfulResults = individualResults.filter((r: any) => r.success);
+      if (selectedDraft < successfulResults.length) {
+        return successfulResults[selectedDraft].text || '';
+      }
+    }
+
+    return selectedResult.result.extracted_text || '';
+  }, [selectedResult, selectedDraft, selectedConsensusStrategy]);
+
+  // Check if current result is JSON format
+  const isCurrentResultJson = useCallback(() => {
+    const rawText = getRawText();
+    return isJsonResult(rawText);
+  }, [getRawText]);
 
   return (
     <div className="image-processing-workspace">
@@ -577,13 +668,17 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 value={extractionMode} 
                 onChange={(e) => setExtractionMode(e.target.value)}
                 className="extraction-selector"
+                disabled={loadingModes}
               >
-                <option value="legal_document">Legal Document</option>
-                <option value="simple_ocr">Simple OCR</option>
-                <option value="handwritten">Handwritten</option>
-                <option value="property_deed">Property Deed</option>
-                <option value="court_document">Court Document</option>
-                <option value="contract">Contract</option>
+                {loadingModes ? (
+                  <option>Loading modes...</option>
+                ) : (
+                  Object.entries(availableExtractionModes).map(([modeId, modeInfo]) => (
+                    <option key={modeId} value={modeId}>
+                      {modeInfo.name} - {modeInfo.description}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 
@@ -762,8 +857,11 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                         )}
                         
                         <div className="result-tabs">
-                            <button className={activeTab === 'text' ? 'active' : ''} onClick={() => setActiveTab('text')}>Extracted Text</button>
-                            <button className={activeTab === 'metadata' ? 'active' : ''} onClick={() => setActiveTab('metadata')}>Metadata</button>
+                            <button className={activeTab === 'text' ? 'active' : ''} onClick={() => setActiveTab('text')}>📄 Text</button>
+                            {isCurrentResultJson() && (
+                              <button className={activeTab === 'json' ? 'active' : ''} onClick={() => setActiveTab('json')}>🔧 JSON</button>
+                            )}
+                            <button className={activeTab === 'metadata' ? 'active' : ''} onClick={() => setActiveTab('metadata')}>📊 Metadata</button>
                         </div>
                         <div className="result-tab-content">
                             {/* 
@@ -782,8 +880,34 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                                   onTextUpdate={handleTextUpdate}
                                 />
                               ) : (
-                                <pre>{getCurrentText()}</pre>
+                                <div className="formatted-text-display">
+                                  {getCurrentText().split('\n').map((line: string, index: number) => {
+                                    // Check if line is a section divider (contains only dashes)
+                                    if (/^─+$/.test(line.trim())) {
+                                      return <hr key={index} className="section-divider" />
+                                    }
+                                    // Empty lines for spacing
+                                    if (!line.trim()) {
+                                      return <div key={index} className="line-break" />
+                                    }
+                                    // Regular text lines
+                                    return <p key={index} className="text-line">{line}</p>
+                                  })}
+                                </div>
                               )
+                            )}
+                            {activeTab === 'json' && isCurrentResultJson() && (
+                              <div className="json-display">
+                                <div className="json-actions">
+                                  <button onClick={() => navigator.clipboard.writeText(formatJsonPretty(getRawText()))}>
+                                    📋 Copy JSON
+                                  </button>
+                                  <button onClick={() => navigator.clipboard.writeText(getRawText())}>
+                                    📋 Copy Raw
+                                  </button>
+                                </div>
+                                <pre className="json-content">{formatJsonPretty(getRawText())}</pre>
+                              </div>
                             )}
                             {activeTab === 'metadata' && (
                               <pre>{selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result?.metadata, null, 2) : 'No metadata available for failed processing.'}</pre>

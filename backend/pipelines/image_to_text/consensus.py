@@ -42,12 +42,18 @@ def _normalize_token(token: str) -> str:
 
 class SegmentedFuzzyConsensus:
     """
-    Segments each draft and uses fuzzy matching to align and merge segments
+    Segments each draft and uses fuzzy matching to align and merge segments.
+    word_match_threshold – Levenshtein ratio (%) needed for two words to be
+    regarded as "the same" when computing confidence.
     """
     
-    def __init__(self, segment_size: int = 50, fuzzy_threshold: int = 70):
-        self.segment_size = segment_size  # Words per segment
-        self.fuzzy_threshold = fuzzy_threshold  # Minimum fuzzy match score
+    def __init__(self,
+                 segment_size: int = 50,
+                 fuzzy_threshold: int = 70,
+                 word_match_threshold: int = 88):
+        self.segment_size          = segment_size
+        self.fuzzy_threshold       = fuzzy_threshold
+        self.word_match_threshold  = word_match_threshold
         
     def _segment_text(self, text: str) -> List[str]:
         """Break text into segments of roughly equal word count"""
@@ -124,32 +130,28 @@ class SegmentedFuzzyConsensus:
                             candidates.append(candidate_word)
                         break
             
-            # Decide on consensus word
-            if len(candidates) == 1:
-                # No alternatives - use primary word
-                consensus_word = primary_word
-                confidence = 1.0 / len(all_segments)  # Low confidence if no agreement
-            else:
-                # Multiple candidates - find most common normalized form
-                normalized_counts = Counter(_normalize_token(word) for word in candidates)
-                most_common_norm = normalized_counts.most_common(1)[0][0]
-                
-                # Find first word that matches the most common normalized form
-                consensus_word = next(word for word in candidates 
-                                    if _normalize_token(word) == most_common_norm)
-                
-                # Confidence based on how many segments agree
-                agreement_count = normalized_counts[most_common_norm]
-                confidence = agreement_count / len(all_segments)
-                
-                # Store alternatives
-                alternatives = []
-                for word in candidates:
-                    if _normalize_token(word) != most_common_norm and word not in alternatives:
-                        alternatives.append(word)
-                
-                if alternatives:
-                    word_alternatives[word_id] = alternatives
+            # -----  NEW  agreement logic  -----
+            agree_candidates  = []
+            alt_candidates    = []
+
+            for cand in candidates:
+                same = (
+                    _normalize_token(cand) == _normalize_token(primary_word)
+                    or (FUZZY_AVAILABLE and
+                        fuzz.ratio(_normalize_token(cand),
+                                   _normalize_token(primary_word)) >=
+                        self.word_match_threshold)
+                )
+                (agree_candidates if same else alt_candidates).append(cand)
+
+            consensus_word = primary_word if agree_candidates else candidates[0]
+            confidence     = len(agree_candidates) / len(all_segments)
+
+            if alt_candidates:
+                # Deduplicate while preserving order
+                seen=set()
+                word_alternatives[word_id] = [w for w in alt_candidates
+                                              if not (seen.add(_normalize_token(w)))]
             
             merged_words.append(consensus_word)
             word_confidences[word_id] = confidence

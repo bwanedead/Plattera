@@ -3,68 +3,71 @@ Centralized Image-to-Text Prompts
 Edit these prompts to adjust how LLMs extract text from images
 """
 
-# Main legal document extraction prompt
-LEGAL_DOCUMENT = """
+# ============================================================================
+# CORE TRANSCRIPTION MODES
+# ============================================================================
+
+# Ultra-precise legal transcription (no sections)
+ULTRA_PRECISE_LEGAL = """
+Can you transcribe this legal deed text. I need very accurate transcription every number figure and detail to be preserved exactly into the plain text transcription. The numbers and figures and property description details are essential to have exactly correct no errors can be present or all downstream work is corrupted.
+
+Return only the extracted text without any additional commentary or section markers.
+"""
+
+# Plain legal document transcription (no sections)
+LEGAL_DOCUMENT_PLAIN = """
 Transcribe all text from this legal document image.
 Focus on accuracy and preserve important formatting.
 Include all names, dates, property descriptions, and legal language.
-Return only the extracted text without any additional commentary.
+Return only the extracted text without any additional commentary or section markers.
 """
 
-# Ultra-precise legal deed transcription (for o4-mini)
-ULTRA_PRECISE_LEGAL = """
-Can you transcribe this legal deed text. I need very accurate transcription every number figure and detail to be preserved exactly into the plain text transcription. The numbers and figures and property description details are essential to have exactly correct no errors can be present or all downstream work is corrupted.
+# Legal document with section markers
+LEGAL_DOCUMENT_SECTIONED = """
+Transcribe all text from this legal document image.
+Focus on accuracy and preserve important formatting.
+Include all names, dates, property descriptions, and legal language.
+
+When transcribing, identify natural sections or logical breaks in the document and mark them with section headers using this format:
+DONUT-1
+[first section content]
+DONUT-2
+[second section content]
+DONUT-3
+[third section content]
+...and so on
+
+Use your judgment to break the text into meaningful sections (paragraphs, clauses, different parts of the document, etc.). Each section should be substantial enough to be meaningful but not so large as to lose granularity.
+
+Return only the extracted text with section markers, without any additional commentary.
 """
 
-# Simple OCR-style extraction
-SIMPLE_OCR = """
-Extract all visible text from this image.
-Transcribe exactly what you see, preserving line breaks where appropriate.
-Do not add any interpretation or commentary.
-"""
+# JSON structured transcription
+LEGAL_DOCUMENT_JSON = """
+You are an expert transcriptionist. Output **ONLY** valid JSON conforming to the schema below. Do not wrap in markdown or add any other text.
 
-# Handwritten document extraction
-HANDWRITTEN = """
-Carefully transcribe this handwritten document.
-Pay special attention to unclear characters and use context to resolve ambiguities.
-Preserve the original structure and formatting where possible.
-If any text is unclear, indicate with [unclear] but continue transcribing.
-"""
+Schema:
+{
+  "documentId": "<string>",
+  "sections": [
+    {
+      "id": <int>,
+      "header": "<string|omit>", 
+      "body": "<string>"
+    }
+  ]
+}
 
-# Property deed specific extraction
-PROPERTY_DEED = """
-This is a property deed or similar legal document. Extract all text including:
-- All names of parties involved
-- All dates and locations
-- Complete property descriptions and legal boundaries
-- All legal language and clauses
-- Signatures and notary information
+RULES:
+1. Use consecutive integers starting at 1 for "id"
+2. Preserve original line-breaks inside each "body"
+3. Never insert or omit a section; reflect every change in the numbering
+4. If a header is missing in the source, omit the "header" field entirely
+5. Each "body" must contain the actual transcribed text content
+6. Break the document into logical sections (paragraphs, clauses, different parts)
+7. Ensure ultra-precise transcription - every number, figure, and detail must be preserved exactly
 
-Preserve the document structure and return only the transcribed text.
-"""
-
-# Court document extraction
-COURT_DOCUMENT = """
-This is a court document. Extract all text including:
-- Case numbers and court information
-- All party names and legal representation
-- All dates and deadlines
-- Complete legal arguments and rulings
-- All procedural information
-
-Maintain the formal structure of the document.
-"""
-
-# Contract extraction
-CONTRACT = """
-This is a legal contract. Extract all text including:
-- All party information
-- Contract terms and conditions
-- Dates, amounts, and specific obligations
-- Signatures and witness information
-- All legal clauses and provisions
-
-Preserve the contract structure and hierarchy.
+Transcribe this legal document image into the JSON format above. Focus on accuracy and preserve all names, dates, property descriptions, and legal language.
 """
 
 def get_image_to_text_prompt(extraction_mode: str, model: str = None) -> str:
@@ -72,23 +75,50 @@ def get_image_to_text_prompt(extraction_mode: str, model: str = None) -> str:
     Get the appropriate prompt for the given extraction mode and model
     
     Args:
-        extraction_mode: The mode of extraction (legal_document, simple_ocr, etc.)
+        extraction_mode: The mode of extraction 
         model: The model being used (optional, for model-specific prompts)
         
     Returns:
         str: The prompt text for the given mode and model
+        
+    Available modes:
+        - ultra_precise_legal: Ultra-precise transcription without sections
+        - legal_document_plain: Plain transcription without sections  
+        - legal_document_sectioned: Transcription with DONUT section markers
+        - legal_document_json: Structured JSON transcription
     """
-    # Use ultra-precise prompt for o4-mini model with legal documents
-    if model == "gpt-o4-mini" and extraction_mode == "legal_document":
-        return ULTRA_PRECISE_LEGAL
     
     prompts = {
-        "legal_document": LEGAL_DOCUMENT,
-        "simple_ocr": SIMPLE_OCR,
-        "handwritten": HANDWRITTEN,
-        "property_deed": PROPERTY_DEED,
-        "court_document": COURT_DOCUMENT,
-        "contract": CONTRACT
+        "ultra_precise_legal": ULTRA_PRECISE_LEGAL,
+        "legal_document_plain": LEGAL_DOCUMENT_PLAIN,
+        "legal_document_sectioned": LEGAL_DOCUMENT_SECTIONED, 
+        "legal_document_json": LEGAL_DOCUMENT_JSON
     }
     
-    return prompts.get(extraction_mode, LEGAL_DOCUMENT) 
+    return prompts.get(extraction_mode, LEGAL_DOCUMENT_PLAIN)
+
+def get_available_extraction_modes() -> dict:
+    """
+    Get all available extraction modes with descriptions
+    
+    Returns:
+        dict: Dictionary of mode_id -> {name, description}
+    """
+    return {
+        "ultra_precise_legal": {
+            "name": "Ultra Precise Legal",
+            "description": "Ultra-precise transcription without sections (maximum accuracy)"
+        },
+        "legal_document_plain": {
+            "name": "Legal Document Plain", 
+            "description": "Plain legal document transcription without section markers"
+        },
+        "legal_document_sectioned": {
+            "name": "Legal Document Sectioned",
+            "description": "Legal document transcription with DONUT section markers for alignment"
+        },
+        "legal_document_json": {
+            "name": "Legal Document JSON",
+            "description": "Structured JSON transcription with deterministic parsing (recommended for alignment)"
+        }
+    } 

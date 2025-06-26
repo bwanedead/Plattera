@@ -1,9 +1,17 @@
 import React, { useState } from 'react'
+import { 
+  isJsonResult, 
+  formatJsonAsText, 
+  formatJsonPretty, 
+  getWordCount, 
+  extractDisplayMetadata,
+  ProcessingResult as FormatterProcessingResult
+} from '../utils/jsonFormatter'
 
 interface ProcessingResult {
   id: string
   input: string
-  result: any
+  result: FormatterProcessingResult
   status: 'processing' | 'completed' | 'error'
   error?: string
 }
@@ -12,9 +20,11 @@ interface ResultsViewerProps {
   results: ProcessingResult[]
 }
 
+type ViewMode = 'text' | 'json' | 'metadata'
+
 const ResultsViewer: React.FC<ResultsViewerProps> = ({ results }) => {
   const [selectedResult, setSelectedResult] = useState<ProcessingResult | null>(null)
-  const [viewMode, setViewMode] = useState<'text' | 'metadata'>('text')
+  const [viewMode, setViewMode] = useState<ViewMode>('text')
 
   if (results.length === 0) {
     return null
@@ -22,6 +32,26 @@ const ResultsViewer: React.FC<ResultsViewerProps> = ({ results }) => {
 
   const completedResults = results.filter(r => r.status === 'completed')
   const errorResults = results.filter(r => r.status === 'error')
+
+  const getDisplayText = (result: FormatterProcessingResult): string => {
+    if (isJsonResult(result.extracted_text)) {
+      return formatJsonAsText(result.extracted_text)
+    }
+    return result.extracted_text
+  }
+
+  const getPreviewText = (result: FormatterProcessingResult): string => {
+    const displayText = getDisplayText(result)
+    return displayText.substring(0, 200) + (displayText.length > 200 ? '...' : '')
+  }
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch (err) {
+      console.error('Failed to copy text:', err)
+    }
+  }
 
   return (
     <div className="results-viewer">
@@ -44,6 +74,9 @@ const ResultsViewer: React.FC<ResultsViewerProps> = ({ results }) => {
                 <span className={`status-badge ${result.status}`}>
                   {result.status}
                 </span>
+                {result.status === 'completed' && isJsonResult(result.result.extracted_text) && (
+                  <span className="format-badge json">JSON</span>
+                )}
               </div>
               {result.status === 'completed' && (
                 <button 
@@ -64,12 +97,12 @@ const ResultsViewer: React.FC<ResultsViewerProps> = ({ results }) => {
             {result.status === 'completed' && (
               <div className="result-preview">
                 <div className="text-preview">
-                  <p>{result.result.extracted_text?.substring(0, 200)}...</p>
+                  <p>{getPreviewText(result.result)}</p>
                 </div>
                 <div className="result-stats">
-                  <span>Words: {result.result.pipeline_stats?.word_count || 0}</span>
-                  <span>Tokens: {result.result.pipeline_stats?.tokens_used || 0}</span>
-                  <span>Confidence: {((result.result.pipeline_stats?.confidence || 0) * 100).toFixed(1)}%</span>
+                  <span>Words: {getWordCount(result.result.extracted_text)}</span>
+                  <span>Tokens: {result.result.tokens_used || result.result.pipeline_stats?.tokens_used || 0}</span>
+                  <span>Confidence: {((result.result.confidence_score || result.result.pipeline_stats?.confidence || 0) * 100).toFixed(1)}%</span>
                 </div>
               </div>
             )}
@@ -88,13 +121,21 @@ const ResultsViewer: React.FC<ResultsViewerProps> = ({ results }) => {
                   className={viewMode === 'text' ? 'active' : ''}
                   onClick={() => setViewMode('text')}
                 >
-                  Extracted Text
+                  📄 Text
                 </button>
+                {isJsonResult(selectedResult.result.extracted_text) && (
+                  <button 
+                    className={viewMode === 'json' ? 'active' : ''}
+                    onClick={() => setViewMode('json')}
+                  >
+                    🔧 JSON
+                  </button>
+                )}
                 <button 
                   className={viewMode === 'metadata' ? 'active' : ''}
                   onClick={() => setViewMode('metadata')}
                 >
-                  Metadata
+                  📊 Metadata
                 </button>
               </div>
               <button 
@@ -106,22 +147,72 @@ const ResultsViewer: React.FC<ResultsViewerProps> = ({ results }) => {
             </div>
 
             <div className="modal-body">
-              {viewMode === 'text' ? (
-                <div className="extracted-text-view">
+              {viewMode === 'text' && (
+                <div className="text-view">
                   <div className="text-actions">
-                    <button onClick={() => navigator.clipboard.writeText(selectedResult.result.extracted_text)}>
+                    <button onClick={() => copyToClipboard(getDisplayText(selectedResult.result))}>
                       📋 Copy Text
                     </button>
+                    {isJsonResult(selectedResult.result.extracted_text) && (
+                      <span className="format-info">
+                        ✨ Formatted from JSON structure
+                      </span>
+                    )}
                   </div>
-                  <pre className="extracted-text">
-                    {selectedResult.result.extracted_text}
+                  <div className="formatted-text">
+                    {getDisplayText(selectedResult.result).split('\n').map((line, index) => {
+                      // Check if line is a section divider (contains only dashes)
+                      if (/^─+$/.test(line.trim())) {
+                        return <hr key={index} className="section-divider" />
+                      }
+                      // Empty lines for spacing
+                      if (!line.trim()) {
+                        return <div key={index} className="line-break" />
+                      }
+                      // Regular text lines
+                      return <p key={index} className="text-line">{line}</p>
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {viewMode === 'json' && isJsonResult(selectedResult.result.extracted_text) && (
+                <div className="json-view">
+                  <div className="json-actions">
+                    <button onClick={() => copyToClipboard(formatJsonPretty(selectedResult.result.extracted_text))}>
+                      📋 Copy JSON
+                    </button>
+                    <button onClick={() => copyToClipboard(selectedResult.result.extracted_text)}>
+                      📋 Copy Raw
+                    </button>
+                  </div>
+                  <pre className="json-content">
+                    {formatJsonPretty(selectedResult.result.extracted_text)}
                   </pre>
                 </div>
-              ) : (
+              )}
+
+              {viewMode === 'metadata' && (
                 <div className="metadata-view">
-                  <pre className="metadata-json">
-                    {JSON.stringify(selectedResult.result, null, 2)}
-                  </pre>
+                  <div className="metadata-actions">
+                    <button onClick={() => copyToClipboard(JSON.stringify(extractDisplayMetadata(selectedResult.result), null, 2))}>
+                      📋 Copy Metadata
+                    </button>
+                  </div>
+                  <div className="metadata-grid">
+                    {Object.entries(extractDisplayMetadata(selectedResult.result)).map(([key, value]) => (
+                      <div key={key} className="metadata-item">
+                        <span className="metadata-key">{key}:</span>
+                        <span className="metadata-value">{String(value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="raw-metadata">
+                    <h4>Full Processing Result</h4>
+                    <pre className="metadata-json">
+                      {JSON.stringify(selectedResult.result, null, 2)}
+                    </pre>
+                  </div>
                 </div>
               )}
             </div>

@@ -315,21 +315,44 @@ async def process_text_to_schema_direct(request: TextToSchemaRequest):
 @router.get("/process/types")
 async def get_processing_types():
     """Get available processing types"""
-    return {
-        "status": "success",
-        "processing_types": {
-            "image-to-text": {
-                "description": "Extract text from images using LLM or OCR",
-                "supported_files": ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp"],
-                "extraction_modes": ["legal_document", "simple_ocr", "handwritten", "property_deed"]
-            },
-            "text-to-schema": {
-                "description": "Convert text to structured JSON schema",
-                "supported_files": ["txt", "pdf"],
-                "status": "coming_soon"
+    try:
+        # Import here to avoid circular dependencies
+        from prompts.image_to_text import get_available_extraction_modes
+        
+        extraction_modes = get_available_extraction_modes()
+        print("DEBUG: extraction_modes from prompts module:", extraction_modes)
+        print("DEBUG: type of extraction_modes:", type(extraction_modes))
+        
+        return {
+            "status": "success",
+            "processing_types": {
+                "image-to-text": {
+                    "description": "Extract text from images using LLM or OCR",
+                    "supported_files": ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp"],
+                    "extraction_modes": extraction_modes  # Dynamic from prompts module
+                },
+                "text-to-schema": {
+                    "description": "Convert text to structured JSON schema",
+                    "supported_files": ["txt", "pdf"],
+                    "status": "coming_soon"
+                }
             }
         }
-    }
+    except Exception as e:
+        print("DEBUG: Error importing extraction modes:", e)
+        # Fallback in case of import error
+        return {
+            "status": "success", 
+            "processing_types": {
+                "image-to-text": {
+                    "description": "Extract text from images using LLM or OCR",
+                    "supported_files": ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp"],
+                    "extraction_modes": {
+                        "legal_document_plain": {"name": "Legal Document Plain", "description": "Fallback mode"}
+                    }
+                }
+            }
+        }
 
 # Add this test endpoint to see if the basic structure works
 @router.post("/process/test")

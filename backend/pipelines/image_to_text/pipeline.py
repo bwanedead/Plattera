@@ -238,11 +238,14 @@ class ImageToTextPipeline:
             # OpenAI service MUST have process_image_with_text method
             if hasattr(service, 'process_image_with_text'):
                 # LLM service (OpenAI)
+                # Pass JSON mode flag for structured response
+                json_mode = extraction_mode == "legal_document_json"
                 result = service.process_image_with_text(
                     image_data=image_data,    # CRITICAL: base64 string
                     prompt=prompt,
                     model=model,
-                    image_format=image_format  # CRITICAL: format string
+                    image_format=image_format,  # CRITICAL: format string
+                    json_mode=json_mode  # CRITICAL: Enable structured JSON response
                 )
             elif hasattr(service, 'extract_text'):
                 # OCR service
@@ -379,14 +382,10 @@ class ImageToTextPipeline:
         return image_models
     
     def get_extraction_modes(self) -> dict:
-        """Get available extraction modes"""
-        return {
-            "legal_document": "Optimized for legal documents and contracts",
-            "simple_ocr": "Simple text extraction with minimal processing",
-            "handwritten": "Specialized for handwritten text recognition",
-            "property_deed": "Optimized for property deeds and real estate documents",
-            "table_extraction": "Extract structured data from tables"
-        }
+        """Get available extraction modes - DEPRECATED, use prompts.image_to_text.get_available_extraction_modes() instead"""
+        # Import here to avoid circular dependencies
+        from prompts.image_to_text import get_available_extraction_modes
+        return get_available_extraction_modes()
     
     def process_with_redundancy(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document", 
                               enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = "sequential") -> dict:
@@ -482,8 +481,10 @@ class ImageToTextPipeline:
             
             # CRITICAL: Execute parallel calls to generate redundancy data
             logger.info(f"Processing with redundancy: {redundancy_count} parallel calls")
+            # Pass JSON mode flag for structured response
+            json_mode = extraction_mode == "legal_document_json"
             parallel_results = self._execute_parallel_calls(
-                service, image_data, image_format, prompt, model, redundancy_count
+                service, image_data, image_format, prompt, model, redundancy_count, json_mode
             )
             
             # CRITICAL: Analyze results and generate consensus data for heatmap
@@ -496,7 +497,7 @@ class ImageToTextPipeline:
                 "error": f"Redundancy processing failed: {str(e)}"
             }
 
-    def _execute_parallel_calls(self, service, image_data: str, image_format: str, prompt: str, model: str, count: int) -> List[dict]:
+    def _execute_parallel_calls(self, service, image_data: str, image_format: str, prompt: str, model: str, count: int, json_mode: bool = False) -> List[dict]:
         """Execute multiple parallel API calls"""
         results = []
         
@@ -510,7 +511,8 @@ class ImageToTextPipeline:
                     image_data=image_data,
                     prompt=prompt,
                     model=model,
-                    image_format=image_format
+                    image_format=image_format,
+                    json_mode=json_mode
                 )
                 futures.append(future)
             

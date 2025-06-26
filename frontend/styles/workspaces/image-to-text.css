@@ -1254,3 +1254,159 @@ After redundancy styling implementation, verify:
   background: var(--background-primary);
   color: var(--text-primary);
 }
+
+/* Enhanced Text Display Styles */
+
+.formatted-text-display {
+  padding: 1.5rem;
+  line-height: 1.7;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg-primary);
+}
+
+.text-line {
+  margin: 0 0 1rem 0;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.section-divider {
+  border: none;
+  height: 1px;
+  background: var(--border-color);
+  margin: 1.5rem 0;
+  opacity: 0.6;
+}
+
+.line-break {
+  height: 1rem;
+}
+
+/* JSON Display Styles */
+
+.json-display {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-primary);
+}
+
+.json-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.json-actions button {
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.json-actions button:hover {
+  background: rgba(var(--accent-primary-rgb), 0.8);
+  transform: translateY(-1px);
+}
+
+.json-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  background: var(--bg-tertiary);
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Enhanced Result Tabs */
+
+.result-tabs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem 0 1.5rem;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.result-tabs button {
+  background: none;
+  border: none;
+  padding: 0.75rem 1rem;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid transparent;
+  border-bottom: none;
+}
+
+.result-tabs button:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.result-tabs button.active {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+  border-bottom: 1px solid var(--bg-primary);
+  margin-bottom: -1px;
+}
+
+.result-tab-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+/* Responsive Design for Enhanced Display */
+
+@media (max-width: 768px) {
+  .formatted-text-display {
+    padding: 1rem;
+    font-size: 0.9rem;
+  }
+  
+  .json-actions {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .json-content {
+    padding: 1rem;
+    font-size: 0.8rem;
+  }
+  
+  .result-tabs {
+    padding: 0.75rem 1rem 0 1rem;
+  }
+  
+  .result-tabs button {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+  }
+}
