@@ -226,6 +226,58 @@ interface ImageProcessingWorkspaceProps {
 
 // --- Main Component ---
 export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> = ({ onExit, onNavigateToTextSchema }) => {
+  /*
+  🔴 CRITICAL STATE MANAGEMENT DOCUMENTATION 🔴
+  =============================================
+  
+  EXISTING CRITICAL STATE (DO NOT MODIFY):
+  - selectedResult: Contains redundancy_analysis data needed for heatmap
+  - selectedDraft: Controls which text is displayed (affects heatmap display)
+  - redundancySettings: Controls redundancy processing (affects heatmap data availability)
+  
+  REQUIRED HEATMAP STATE ADDITIONS:
+  ================================
+  
+  ADD THESE STATE VARIABLES AFTER selectedDraft:
+  
+  const [isHeatmapEnabled, setIsHeatmapEnabled] = useState(false);
+  const [editedText, setEditedText] = useState<string>('');
+  const [isTextEdited, setIsTextEdited] = useState(false);
+  
+  CRITICAL CALLBACK FUNCTIONS TO ADD:
+  ==================================
+  
+  const handleTextUpdate = useCallback((newText: string) => {
+    setEditedText(newText);
+    setIsTextEdited(true);
+    // Optional: Mark result as edited in metadata
+  }, []);
+  
+  const handleHeatmapToggle = useCallback((enabled: boolean) => {
+    setIsHeatmapEnabled(enabled);
+    if (!enabled) {
+      // Reset edited state when disabling heatmap
+      setIsTextEdited(false);
+      setEditedText('');
+    }
+  }, []);
+  
+  CRITICAL INTEGRATION POINTS:
+  ============================
+  
+  1. getCurrentText() function MUST be modified to return editedText when available:
+     - If isTextEdited && editedText: return editedText
+     - Otherwise: return normal draft text logic
+  
+  2. DraftSelector must coordinate with heatmap state:
+     - When draft changes, reset edited state if needed
+     - Heatmap display must update to show selected draft
+  
+  3. Result selection must reset heatmap state:
+     - When selectedResult changes, reset isHeatmapEnabled
+     - Clear any edited text state
+  */
+  
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const [sessionResults, setSessionResults] = useState<any[]>([]);
   const [selectedResult, setSelectedResult] = useState<any | null>(null);
@@ -247,6 +299,15 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     count: 3
   });
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
+  
+  /*
+  🔴 ADD HEATMAP STATE VARIABLES HERE 🔴
+  =====================================
+  
+  const [isHeatmapEnabled, setIsHeatmapEnabled] = useState(false);
+  const [editedText, setEditedText] = useState<string>('');
+  const [isTextEdited, setIsTextEdited] = useState(false);
+  */
   
   // Navigation button hover states
   const [homeHovered, setHomeHovered] = useState(false);
@@ -301,33 +362,83 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     }));
   }, []);
 
+  /*
+  🔴 CRITICAL TEXT RETRIEVAL FUNCTION - CORE HEATMAP INTEGRATION POINT 🔴
+  =======================================================================
+  
+  This function determines which text is displayed in the results viewer.
+  The heatmap feature DEPENDS on this function working correctly.
+  
+  CURRENT LOGIC (MUST BE PRESERVED):
+  1. Error handling for failed results
+  2. Fallback to main text when no redundancy data
+  3. Draft selection logic (best/consensus/individual)
+  4. Graceful fallbacks for missing data
+  
+  REQUIRED HEATMAP MODIFICATION:
+  =============================
+  
+  ADD THIS LOGIC AT THE BEGINNING (after error check):
+  
+  // HEATMAP INTEGRATION: Return edited text if available
+  if (isTextEdited && editedText) {
+    return editedText;
+  }
+  
+  CRITICAL DEPENDENCIES:
+  - isTextEdited state (tracks if user has made edits via heatmap)
+  - editedText state (contains user's edited version)
+  - selectedDraft state (determines which draft to show in heatmap)
+  - redundancyAnalysis data (provides word confidence for heatmap coloring)
+  
+  HEATMAP WORKFLOW:
+  1. getCurrentText() provides base text to ConfidenceHeatmapViewer
+  2. User edits words via heatmap interface
+  3. handleTextUpdate() callback sets editedText and isTextEdited
+  4. getCurrentText() returns editedText on subsequent calls
+  5. Normal <pre> view and heatmap view both use same text source
+  
+  ⚠️  DO NOT MODIFY THE EXISTING DRAFT SELECTION LOGIC
+  ⚠️  DO NOT CHANGE THE FALLBACK BEHAVIOR
+  ⚠️  ONLY ADD THE EDITED TEXT CHECK AT THE TOP
+  */
   const getCurrentText = useCallback(() => {
+    /*
+    🔴 ADD HEATMAP EDITED TEXT CHECK HERE 🔴
+    =======================================
+    
+    if (isTextEdited && editedText) {
+      return editedText;
+    }
+    */
+    
     if (!selectedResult || selectedResult.status !== 'completed' || !selectedResult.result) {
       return selectedResult?.error ? `Error: ${selectedResult.error}` : '';
     }
 
-    const redundancyAnalysis = selectedResult.result?.metadata?.redundancy_analysis;
+    const redundancyAnalysis = selectedResult.result?.metadata?.redundancy_analysis;  // ← CRITICAL: Heatmap needs this data
     
     if (!redundancyAnalysis) {
       // No redundancy data, just return the main text
       return selectedResult.result.extracted_text || '';
     }
 
+    // CRITICAL DRAFT SELECTION LOGIC - Heatmap must coordinate with this
     if (selectedDraft === 'best') {
       return selectedResult.result.extracted_text || ''; // This is already the best formatted text
     } else if (selectedDraft === 'consensus') {
-      return redundancyAnalysis.consensus_text || selectedResult.result.extracted_text || '';
+      return redundancyAnalysis.consensus_text || selectedResult.result.extracted_text || '';  // ← CRITICAL: Heatmap consensus view
     } else if (typeof selectedDraft === 'number') {
-      const individualResults = redundancyAnalysis.individual_results;
+      const individualResults = redundancyAnalysis.individual_results;  // ← CRITICAL: Heatmap needs these for alternatives
       const successfulResults = individualResults.filter((r: any) => r.success);
       if (selectedDraft < successfulResults.length) {
-        return successfulResults[selectedDraft].text || '';
+        return successfulResults[selectedDraft].text || '';  // ← CRITICAL: Heatmap individual draft view
       }
     }
 
     // Fallback to main text
     return selectedResult.result.extracted_text || '';
-  }, [selectedResult, selectedDraft]);
+  }, [selectedResult, selectedDraft]);  // ← CRITICAL: Add isTextEdited, editedText to dependencies when implementing heatmap
 
   const handleDraftSelect = useCallback((draft: number | 'consensus' | 'best') => {
     setSelectedDraft(draft);
@@ -551,18 +662,79 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                   )}
                   {!isProcessing && selectedResult && (
                     <div className="result-display-area">
-                        {/* Draft Selector - positioned absolutely in top-right */}
+                        {/* 
+                        🔴 CRITICAL HEATMAP INTEGRATION POINT #1 - DRAFT SELECTOR POSITIONING 🔴
+                        ========================================================================
+                        
+                        This DraftSelector component is positioned at top: 60px, right: 40px
+                        
+                        HEATMAP INTEGRATION REQUIREMENTS:
+                        - HeatmapToggle MUST be positioned at top: 60px, right: 80px (40px offset)
+                        - BOTH components must coordinate draft selection state
+                        - BOTH components need access to redundancyAnalysis data
+                        - selectedDraft state affects which text the heatmap displays
+                        
+                        CRITICAL DATA FLOW:
+                        - redundancyAnalysis contains word_confidence_map for coloring
+                        - redundancyAnalysis contains individual_results for alternatives
+                        - onDraftSelect callback updates selectedDraft for both components
+                        
+                        ⚠️  ADD HEATMAPTOGGLE COMPONENT IMMEDIATELY AFTER THIS DRAFTSELECTOR
+                        */}
                         <DraftSelector
                           redundancyAnalysis={selectedResult.result?.metadata?.redundancy_analysis}
                           onDraftSelect={handleDraftSelect}
                           selectedDraft={selectedDraft}
                         />
                         
+                        {/* 
+                        🔴 HEATMAP INTEGRATION POINT #2 - ADD HEATMAP TOGGLE HERE 🔴
+                        ===========================================================
+                        
+                        ADD HeatmapToggle component here with these exact props:
+                        
+                        <HeatmapToggle
+                          isEnabled={isHeatmapEnabled}
+                          onToggle={setIsHeatmapEnabled}
+                          hasRedundancyData={!!selectedResult?.result?.metadata?.redundancy_analysis}
+                        />
+                        
+                        POSITIONING: CSS must set top: 60px, right: 80px for proper alignment
+                        */}
+                        
                         <div className="result-tabs">
                             <button className={activeTab === 'text' ? 'active' : ''} onClick={() => setActiveTab('text')}>Extracted Text</button>
                             <button className={activeTab === 'metadata' ? 'active' : ''} onClick={() => setActiveTab('metadata')}>Metadata</button>
                         </div>
                         <div className="result-tab-content">
+                            {/* 
+                            🔴 CRITICAL HEATMAP INTEGRATION POINT #3 - TEXT DISPLAY REPLACEMENT 🔴
+                            =====================================================================
+                            
+                            CURRENT: <pre>{getCurrentText()}</pre>
+                            
+                            MUST REPLACE WITH CONDITIONAL RENDERING:
+                            
+                            {activeTab === 'text' && (
+                              isHeatmapEnabled && selectedResult?.result?.metadata?.redundancy_analysis ? (
+                                <ConfidenceHeatmapViewer
+                                  text={getCurrentText()}
+                                  wordConfidenceMap={selectedResult.result.metadata.redundancy_analysis.word_confidence_map || {}}
+                                  redundancyAnalysis={selectedResult.result.metadata.redundancy_analysis}
+                                  onTextUpdate={handleTextUpdate}
+                                />
+                              ) : (
+                                <pre>{getCurrentText()}</pre>
+                              )
+                            )}
+                            
+                            CRITICAL REQUIREMENTS:
+                            - Must preserve getCurrentText() functionality for normal view
+                            - Must pass word_confidence_map for confidence coloring
+                            - Must pass full redundancyAnalysis for word alternatives
+                            - Must implement handleTextUpdate callback for editing
+                            - Must gracefully handle missing redundancy data
+                            */}
                             {activeTab === 'text' && (
                               <pre>{getCurrentText()}</pre>
                             )}

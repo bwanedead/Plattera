@@ -1,22 +1,144 @@
+/*
+🔴 CRITICAL RESULTS COMPONENT STYLING DOCUMENTATION 🔴
+======================================================
+
+THIS FILE CONTROLS CRITICAL POSITIONING AND STYLING FOR REDUNDANCY FEATURES
+
+CRITICAL POSITIONING SYSTEM (DO NOT MODIFY):
+===========================================
+
+1. DRAFT SELECTOR POSITIONING (CRITICAL - HEATMAP REFERENCE POINT):
+   - .draft-selector-collapsed: position: absolute; top: 60px; right: 40px; z-index: 10;
+   - .draft-selector-expanded: position: absolute; top: 60px; right: 40px; z-index: 10;
+   - Size: 28x28px bubble (width: 28px; height: 28px;)
+   
+   ⚠️  THESE VALUES ARE POSITIONING ANCHORS FOR HEATMAP FEATURE:
+   - top: 60px = Below navigation (nav height ~50px + margin)
+   - right: 40px = Clear of scrollbar (16px) + safe margin (24px)
+   - z-index: 10 = Above content, below popups
+
+2. HEATMAP TOGGLE POSITIONING REQUIREMENTS:
+   - MUST use right: 80px (40px offset from DraftSelector)
+   - MUST use same top: 60px for alignment
+   - MUST use z-index: 10 for same layer
+   - MUST use same 28x28px size for consistency
+
+3. Z-INDEX HIERARCHY (CRITICAL - DO NOT DISRUPT):
+   - Content: z-index: 1
+   - Controls (DraftSelector, HeatmapToggle): z-index: 10
+   - Popups (Confidence popup, dropdowns): z-index: 1000+
+
+SAFE ADDITIONS FOR HEATMAP FEATURE:
+==================================
+
+✅ SAFE TO ADD:
+- .heatmap-toggle-collapsed, .heatmap-toggle-expanded classes
+- .confidence-heatmap-viewer, .confidence-word, .confidence-popup classes
+- Additional color variables for confidence visualization
+- Hover states and transitions for word highlighting
+- Popup positioning and styling
+
+❌ DO NOT MODIFY:
+- Existing .draft-selector-* positioning values
+- Existing z-index values
+- Existing size constraints (28x28px)
+- Color variables used by existing components
+
+HEATMAP STYLING REQUIREMENTS:
+============================
+
+1. CONFIDENCE COLOR SCHEME:
+   ```css
+   High Confidence (80-100%): rgba(34, 197, 94, 0.1-0.3)   // Green
+   Medium Confidence (50-79%): rgba(234, 179, 8, 0.2-0.5)  // Yellow  
+   Low Confidence (0-49%): rgba(239, 68, 68, 0.3-0.7)      // Red
+   ```
+
+2. WORD INTERACTION STATES:
+   - Default: Subtle background highlighting
+   - Hover: Slightly darker background + cursor: pointer
+   - Editing: Input field styling to match theme
+   - Contested: Clear visual indication of clickability
+
+3. POPUP STYLING:
+   - Background: var(--bg-secondary) with border
+   - High z-index: 1000+ (above all other elements)
+   - Proper shadow and border-radius for consistency
+   - Responsive positioning to avoid viewport edges
+
+CRITICAL DEPENDENCIES:
+=====================
+
+1. CSS VARIABLES (MUST REMAIN FUNCTIONAL):
+   - var(--accent-primary) - Used for active states
+   - var(--bg-secondary), var(--bg-tertiary) - Used for backgrounds
+   - var(--border-color) - Used for borders and dividers
+   - var(--text-primary), var(--text-secondary) - Used for text colors
+
+2. COMPONENT COORDINATION:
+   - AnimatedBorder component expects consistent sizing
+   - Results viewer expects proper text display area
+   - Navigation expects clear z-index hierarchy
+
+3. RESPONSIVE BEHAVIOR:
+   - Must work in both light and dark themes
+   - Must handle viewport size changes
+   - Must maintain readability at all zoom levels
+
+INTEGRATION TESTING CHECKPOINTS:
+===============================
+
+BEFORE adding heatmap styles:
+1. ✅ Verify DraftSelector positioning is correct
+2. ✅ Verify no layout conflicts with existing elements
+3. ✅ Verify color variables work in both themes
+4. ✅ Verify z-index hierarchy is maintained
+
+AFTER adding heatmap styles:
+1. ✅ DraftSelector positioning unchanged
+2. ✅ HeatmapToggle positioned correctly (right: 80px)
+3. ✅ No visual conflicts between components
+4. ✅ Confidence colors are readable and accessible
+5. ✅ Popups appear above all other content
+6. ✅ Hover states work smoothly
+7. ✅ Text editing interface is usable
+
+FAILURE PREVENTION:
+==================
+
+Common mistakes that would break layout:
+- Changing existing positioning values (breaks component coordination)
+- Modifying z-index hierarchy (breaks layering)
+- Changing size constraints (breaks visual consistency)
+- Overriding color variables (breaks theme compatibility)
+
+If this CSS breaks, heatmap feature will lose:
+- Proper positioning coordination with DraftSelector
+- Consistent visual styling with existing components
+- Proper layering of interactive elements
+- Theme compatibility
+*/
+
 /* Results and History Components */
 
 /* Draft Selector - Compact Collapsible Design with Animated Border */
 
-/* Collapsed state - tiny rounded bubble with animated border */
+/* CRITICAL COLLAPSED STATE POSITIONING - HEATMAP REFERENCE POINT */
 .draft-selector-collapsed {
   position: absolute;
-  top: 60px;
-  right: 40px;
-  z-index: 10;
+  top: 60px;          /* ← CRITICAL: Navigation clearance + margin */
+  right: 40px;        /* ← CRITICAL: Scrollbar clearance (16px) + safe margin (24px) */
+  z-index: 10;        /* ← CRITICAL: Above content, below popups */
 }
 
+/* CRITICAL BUBBLE SIZING - HEATMAP TOGGLE MUST MATCH */
 .draft-selector-bubble {
   background: var(--accent-primary);
   color: white;
   border: none;
   border-radius: 6px;
-  width: 28px;
-  height: 28px;
+  width: 28px;        /* ← CRITICAL: Standard control size - heatmap toggle must match */
+  height: 28px;       /* ← CRITICAL: Standard control size - heatmap toggle must match */
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -38,12 +160,12 @@
   transform: scale(0.95);
 }
 
-/* Expanded state - compact dropdown */
+/* CRITICAL EXPANDED STATE POSITIONING - HEATMAP COORDINATION POINT */
 .draft-selector-expanded {
   position: absolute;
-  top: 60px;
-  right: 40px;
-  z-index: 10;
+  top: 60px;          /* ← CRITICAL: Must align with collapsed state */
+  right: 40px;        /* ← CRITICAL: Must align with collapsed state */
+  z-index: 10;        /* ← CRITICAL: Same layer as collapsed state */
   min-width: 200px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -73,8 +195,9 @@
   color: var(--text-secondary);
 }
 
+/* CRITICAL COLOR USAGE - Heatmap toggle must use same accent color */
 .draft-count-badge {
-  background: var(--accent-primary);
+  background: var(--accent-primary);  /* ← CRITICAL: Heatmap toggle must match this color */
   color: white;
   font-size: 0.7rem;
   font-weight: 600;
@@ -140,12 +263,14 @@
   transform: rotate(180deg);
 }
 
+/* CRITICAL DROPDOWN Z-INDEX - Must be below heatmap popups */
 .draft-dropdown {
   border-top: 1px solid var(--border-color);
   background: var(--bg-primary);
   border-radius: 0 0 6px 6px;
   max-height: 200px;
   overflow-y: auto;
+  /* z-index inherited from parent (10) - heatmap popups must use 1000+ */
 }
 
 .draft-item {
@@ -161,9 +286,10 @@
   background: var(--bg-tertiary);
 }
 
+/* CRITICAL ACTIVE STATE STYLING - Heatmap must coordinate with this */
 .draft-item.active {
-  background: rgba(var(--accent-primary-rgb), 0.1);
-  border-left: 3px solid var(--accent-primary);
+  background: rgba(var(--accent-primary-rgb), 0.1);  /* ← CRITICAL: Heatmap active states should match */
+  border-left: 3px solid var(--accent-primary);      /* ← CRITICAL: Heatmap may use similar indicators */
 }
 
 .draft-name {
@@ -180,9 +306,10 @@
   color: var(--text-secondary);
 }
 
+/* CRITICAL INDICATOR STYLING - Heatmap may use similar patterns */
 .recommended,
 .best-indicator {
-  color: #ffd700;
+  color: #ffd700;     /* ← CRITICAL: Gold color for quality indicators */
   font-size: 0.8rem;
 }
 

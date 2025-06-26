@@ -1,3 +1,141 @@
+/*
+🔴 CRITICAL ANIMATED BORDER COMPONENT DOCUMENTATION 🔴
+======================================================
+
+THIS COMPONENT PROVIDES VISUAL CONSISTENCY ACROSS ALL INTERACTIVE ELEMENTS
+
+CRITICAL VISUAL CONSISTENCY REQUIREMENTS:
+========================================
+
+1. ANIMATION TIMING (CRITICAL - MUST MATCH PARCELTRACER):
+   - Trace interval: 600ms (matches ParcelTracerLoader exactly)
+   - Pulse duration: 1.2s (matches ParcelTracerLoader exactly)
+   - Total cycle: 1.8s (600ms + 1.2s)
+
+2. COLOR SCHEME (CRITICAL - MUST MATCH THEME):
+   - Animating: #3b82f6 (bright blue with glow)
+   - Completed: rgba(59, 130, 246, 0.3) (dim blue)
+   - Stroke width: Configurable (1.5px for buttons, 2px for controls)
+
+3. USAGE PATTERN (CRITICAL - HEATMAP MUST FOLLOW):
+   - Wrap interactive elements (buttons, toggles, controls)
+   - Use isHovered prop for hover state activation
+   - Use borderRadius prop to match wrapped element
+   - Use strokeWidth prop for appropriate line thickness
+
+CURRENT IMPLEMENTATIONS:
+=======================
+
+1. NAVIGATION BUTTONS:
+   - Home button, Text to Schema button
+   - strokeWidth: 1.5px (fine lines for sleek buttons)
+   - Hover activation only
+
+2. DRAFT SELECTOR:
+   - Collapsed bubble state
+   - strokeWidth: 2px (slightly thicker for controls)
+   - Hover activation only
+
+HEATMAP INTEGRATION REQUIREMENTS:
+===============================
+
+1. HEATMAP TOGGLE CONSISTENCY:
+   - MUST use same AnimatedBorder wrapper
+   - MUST use strokeWidth: 2px (match DraftSelector)
+   - MUST use borderRadius: 6px (match DraftSelector)
+   - MUST use same hover state pattern
+
+2. POSITIONING COORDINATION:
+   - AnimatedBorder adds no positioning (wrapper only)
+   - Actual positioning handled by CSS classes
+   - Must not interfere with absolute positioning
+
+3. VISUAL HIERARCHY:
+   - All interactive controls use AnimatedBorder
+   - Creates consistent interaction feedback
+   - Maintains brand identity across features
+
+IMPLEMENTATION PATTERN FOR HEATMAP:
+==================================
+
+```tsx
+<AnimatedBorder
+  isHovered={isHeatmapToggleHovered}
+  borderRadius={6}
+  strokeWidth={2}
+>
+  <button 
+    className="heatmap-toggle-button"
+    onMouseEnter={() => setIsHeatmapToggleHovered(true)}
+    onMouseLeave={() => setIsHeatmapToggleHovered(false)}
+    onClick={onToggle}
+  >
+    🔥
+  </button>
+</AnimatedBorder>
+```
+
+CRITICAL DEPENDENCIES:
+======================
+
+1. SVG PATH CALCULATION:
+   - Uses element dimensions to calculate border path
+   - Handles different border radius values
+   - Maintains sharp line ends (stroke-linecap: butt)
+
+2. ANIMATION STATE MANAGEMENT:
+   - isAnimating state controls animation cycle
+   - useEffect manages timing intervals
+   - Cleanup prevents memory leaks
+
+3. RESPONSIVE BEHAVIOR:
+   - Adapts to any element size
+   - Maintains proportional border radius
+   - Works with absolute and relative positioning
+
+⚠️  DO NOT MODIFY:
+- Animation timing values (breaks visual consistency)
+- Color values (breaks theme integration)
+- SVG path calculation (breaks border rendering)
+- Cleanup logic (causes memory leaks)
+
+✅ SAFE TO MODIFY:
+- Default prop values
+- Additional animation states
+- Performance optimizations
+- Accessibility features
+
+TESTING CHECKPOINTS FOR HEATMAP:
+===============================
+
+BEFORE heatmap integration:
+1. ✅ Navigation buttons animate correctly
+2. ✅ DraftSelector bubble animates correctly
+3. ✅ Timing matches ParcelTracerLoader exactly
+4. ✅ Colors match theme in both light/dark modes
+
+AFTER heatmap integration:
+1. ✅ HeatmapToggle uses same animation pattern
+2. ✅ All controls have consistent visual feedback
+3. ✅ No performance degradation with multiple instances
+4. ✅ Hover states work independently for each control
+
+FAILURE PREVENTION:
+==================
+
+Common mistakes that would break visual consistency:
+- Using different animation timing (breaks brand identity)
+- Skipping AnimatedBorder wrapper (creates inconsistent UX)
+- Modifying color values (breaks theme integration)
+- Interfering with positioning logic (breaks layout)
+
+If this component breaks, heatmap feature will lose:
+- Visual consistency with existing controls
+- Professional interaction feedback
+- Brand identity maintenance
+- User experience coherence
+*/
+
 import React, { useState, useEffect, useRef } from 'react';
 
 interface AnimatedBorderProps {
