@@ -106,6 +106,7 @@ interface EnhancementSettings {
 interface RedundancySettings {
   enabled: boolean;
   count: number;
+  consensusStrategy: string;
 }
 
 // --- Real API Calls (replacing the simulated ones) ---
@@ -131,6 +132,11 @@ const processFilesAPI = async (files: File[], model: string, mode: string, enhan
       
       // Add redundancy setting
       formData.append('redundancy', redundancySettings.enabled ? redundancySettings.count.toString() : '1');
+      
+      // Consensus strategy (only relevant when redundancy is enabled)
+      if (redundancySettings.enabled) {
+        formData.append('consensus_strategy', redundancySettings.consensusStrategy);
+      }
 
       const response = await fetch('http://localhost:8000/api/process', {
         method: 'POST',
@@ -298,7 +304,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [showEnhancementModal, setShowEnhancementModal] = useState(false);
   const [redundancySettings, setRedundancySettings] = useState<RedundancySettings>({
     enabled: true,
-    count: 3
+    count: 3,
+    consensusStrategy: 'sequential'
   });
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
   
@@ -607,28 +614,67 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 </div>
                 
                 {redundancySettings.enabled && (
-                  <div className="redundancy-slider-group">
-                    <label htmlFor="redundancy-count">
-                      Redundancy Count: {redundancySettings.count}
-                    </label>
-                    <input
-                      type="range"
-                      id="redundancy-count"
-                      min="1"
-                      max="10"
-                      value={redundancySettings.count}
-                      onChange={(e) => setRedundancySettings(prev => ({
-                        ...prev,
-                        count: parseInt(e.target.value)
-                      }))}
-                      className="redundancy-slider"
-                    />
-                    <div className="redundancy-hint">
-                      {redundancySettings.count === 1 ? 'No redundancy' : 
-                       redundancySettings.count <= 3 ? 'Light redundancy' :
-                       redundancySettings.count <= 5 ? 'Medium redundancy' : 'Heavy redundancy'}
+                  <>
+                    <div className="redundancy-slider-group">
+                      <label htmlFor="redundancy-count">
+                        Redundancy Count: {redundancySettings.count}
+                      </label>
+                      <input
+                        type="range"
+                        id="redundancy-count"
+                        min="1"
+                        max="10"
+                        value={redundancySettings.count}
+                        onChange={(e) => setRedundancySettings(prev => ({
+                          ...prev,
+                          count: parseInt(e.target.value)
+                        }))}
+                        className="redundancy-slider"
+                      />
+                      <div className="redundancy-hint">
+                        {redundancySettings.count === 1 ? 'No redundancy' : 
+                         redundancySettings.count <= 3 ? 'Light redundancy' :
+                         redundancySettings.count <= 5 ? 'Medium redundancy' : 'Heavy redundancy'}
+                      </div>
                     </div>
-                  </div>
+                    
+                    <div className="consensus-strategy-group">
+                      <label htmlFor="consensus-strategy">Consensus Algorithm</label>
+                      <select
+                        id="consensus-strategy"
+                        value={redundancySettings.consensusStrategy}
+                        onChange={(e) => setRedundancySettings(prev => ({
+                          ...prev,
+                          consensusStrategy: e.target.value
+                        }))}
+                        className="consensus-strategy-select"
+                      >
+                        <option value="sequential">Sequential Alignment</option>
+                        <option value="ngram_overlap">N-gram Context Overlap</option>
+                        <option value="strict_majority">Strict Majority</option>
+                        <option value="length_weighted">Length Weighted</option>
+                        <option value="confidence_weighted">Confidence Weighted</option>
+                      </select>
+                      <div className="consensus-strategy-hint">
+                        {(() => {
+                          switch (redundancySettings.consensusStrategy) {
+                            case 'sequential':
+                              return 'Position-based word mapping (original algorithm)';
+                            case 'ngram_overlap':
+                              return 'Context-based word mapping (better for paraphrasing)';
+                            case 'strict_majority':
+                              return 'Only accept words that appear in majority of drafts';
+                            case 'length_weighted':
+                              return 'Weight consensus by text length (longer texts have more influence)';
+                            case 'confidence_weighted':
+                              return 'Hybrid approach combining multiple confidence factors';
+                            default:
+                              return 'Select a consensus algorithm';
+                          }
+                        })()}
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             </div>

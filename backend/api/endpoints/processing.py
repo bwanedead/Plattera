@@ -108,7 +108,9 @@ async def process_content(
     brightness: str = Form("1.5"),
     color: str = Form("1.0"),
     # Redundancy setting - optional
-    redundancy: str = Form("3")
+    redundancy: str = Form("3"),
+    # Consensus strategy - optional
+    consensus_strategy: str = Form("sequential")
 ):
     """
     Universal processing endpoint that routes to appropriate pipeline
@@ -124,6 +126,7 @@ async def process_content(
         brightness: Image brightness enhancement (1.0 = no change)
         color: Image color saturation enhancement (1.0 = no change)
         redundancy: Number of parallel API calls for redundancy (1 = no redundancy, 3 = default)
+        consensus_strategy: Consensus algorithm to use ('sequential', 'ngram_overlap')
     """
     # Add detailed logging
     logger.info(f"🔥 PROCESSING REQUEST RECEIVED:")
@@ -135,6 +138,7 @@ async def process_content(
     logger.info(f"   🧹 Cleanup After: {cleanup_after}")
     logger.info(f"   🎨 Enhancement Settings: contrast={contrast}, sharpness={sharpness}, brightness={brightness}, color={color}")
     logger.info(f"   🔄 Redundancy: {redundancy}")
+    logger.info(f"   🧠 Consensus Strategy: {consensus_strategy}")
     
     # Parse enhancement settings with robust error handling
     try:
@@ -162,13 +166,19 @@ async def process_content(
         logger.warning(f"⚠️ Invalid redundancy parameter, using default: {e}")
         redundancy_count = 3
     
+    # Validate consensus strategy
+    valid_strategies = ['sequential', 'ngram_overlap', 'strict_majority', 'length_weighted', 'confidence_weighted']
+    if consensus_strategy not in valid_strategies:
+        logger.warning(f"⚠️ Invalid consensus strategy '{consensus_strategy}', using 'sequential'")
+        consensus_strategy = 'sequential'
+    
     temp_path = None
     
     try:
         # Route to appropriate pipeline based on content_type
         if content_type == "image-to-text":
             logger.info("🖼️ Routing to image-to-text pipeline")
-            return await _process_image_to_text(file, model, extraction_mode, enhancement_settings, redundancy_count)
+            return await _process_image_to_text(file, model, extraction_mode, enhancement_settings, redundancy_count, consensus_strategy)
         elif content_type == "text-to-schema":
             logger.info("📝 Routing to text-to-schema pipeline")
             return await _process_text_to_schema(file, model)
@@ -187,7 +197,7 @@ async def process_content(
         logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
-async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: str, enhancement_settings: dict = None, redundancy_count: int = 3) -> ProcessResponse:
+async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: str, enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = 'sequential') -> ProcessResponse:
     """Route to image-to-text pipeline"""
     temp_path = None
     
@@ -223,10 +233,10 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
         pipeline = ImageToTextPipeline()
         
         # Process the image with redundancy support
-        logger.info(f"🔄 Processing with model: {model}, mode: {extraction_mode}, redundancy: {redundancy_count}")
+        logger.info(f"🔄 Processing with model: {model}, mode: {extraction_mode}, redundancy: {redundancy_count}, consensus: {consensus_strategy}")
         
         if redundancy_count > 1:
-            result = pipeline.process_with_redundancy(temp_path, model, extraction_mode, enhancement_settings, redundancy_count)
+            result = pipeline.process_with_redundancy(temp_path, model, extraction_mode, enhancement_settings, redundancy_count, consensus_strategy)
         else:
             result = pipeline.process(temp_path, model, extraction_mode, enhancement_settings)
         

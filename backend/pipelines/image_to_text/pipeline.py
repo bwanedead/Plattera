@@ -95,49 +95,12 @@ import re
 import string
 import itertools
 from .image_processor import enhance_for_character_recognition
+from .consensus import ConsensusEngine
 
 logger = logging.getLogger(__name__)
 
-# 🔴 CONSENSUS PREPROCESSING UTILITIES 🔴
-# =======================================
-def _preprocess_text(raw: str) -> str:
-    """
-    Join hyphen-linebreak splits & collapse whitespace.
-    
-    Handles cases like:
-    - 'considera-\n    tions' → 'considerations'
-    - Multiple whitespace → single space
-    """
-    # Join 'word-\n    more' → 'wordmore'
-    text = re.sub(r'(\w+)-\s*\n\s*(\w+)', r'\1\2', raw)
-    # Unify all whitespace to single spaces
-    return re.sub(r'\s+', ' ', text)
-
-def _normalize_token(token: str) -> str:
-    """
-    Lower-case, strip leading/trailing punctuation for comparison.
-    
-    Handles cases like:
-    - 'less:' vs 'less.' → both become 'less'
-    - 'Word,' vs 'word' → both become 'word'
-    """
-    return token.strip(string.punctuation).lower()
-
-def _build_context_key(tokens: List[str], idx: int, win: int = 5) -> tuple:
-    """
-    Return a tuple of 11 tokens: 5 left, token, 5 right (normalised).
-    
-    This creates a unique fingerprint for each word based on its context.
-    Used to match words that appear in the same context across drafts,
-    even when SequenceMatcher gets confused by insertions/deletions.
-    """
-    pad = "␢"  # Special padding token for out-of-bounds positions
-    left = [_normalize_token(tokens[i]) if i >= 0 else pad
-            for i in range(idx - win, idx)]
-    token = [_normalize_token(tokens[idx])]
-    right = [_normalize_token(tokens[i]) if i < len(tokens) else pad
-             for i in range(idx + 1, idx + win + 1)]
-    return tuple(left + token + right)
+# 🔴 CONSENSUS PROCESSING UTILITIES MOVED TO consensus.py 🔴
+# ==============================================================
 
 def _is_llm_refusal_or_failed(text: str) -> bool:
     """
@@ -426,7 +389,7 @@ class ImageToTextPipeline:
         }
     
     def process_with_redundancy(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document", 
-                              enhancement_settings: dict = None, redundancy_count: int = 3) -> dict:
+                              enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = "sequential") -> dict:
         """
         🔴 CRITICAL REDUNDANCY PROCESSING - HEATMAP DATA GENERATOR 🔴
         ============================================================
@@ -524,7 +487,7 @@ class ImageToTextPipeline:
             )
             
             # CRITICAL: Analyze results and generate consensus data for heatmap
-            return self._analyze_redundancy_consensus(parallel_results, model, service)
+            return self._analyze_redundancy_consensus(parallel_results, model, service, consensus_strategy)
             
         except Exception as e:
             logger.error(f"Redundancy processing failed: {str(e)}")
@@ -567,7 +530,7 @@ class ImageToTextPipeline:
         
         return results
 
-    def _analyze_redundancy_consensus(self, results: List[dict], model: str, service) -> dict:
+    def _analyze_redundancy_consensus(self, results: List[dict], model: str, service, consensus_strategy: str = 'sequential') -> dict:
         """Analyze multiple results to find consensus and confidence"""
         
         # Filter successful results
@@ -611,7 +574,7 @@ class ImageToTextPipeline:
             }
         
         # Perform consensus analysis to get word confidence mapping
-        consensus_text, word_confidence_map, word_alternatives = self._calculate_consensus(filtered_texts)
+        consensus_text, word_confidence_map, word_alternatives = self._calculate_consensus(filtered_texts, consensus_strategy)
         
         # Calculate overall confidence
         overall_confidence = sum(word_confidence_map.values()) / len(word_confidence_map) if word_confidence_map else 0.0
@@ -680,167 +643,21 @@ class ImageToTextPipeline:
             }
         }
 
-    def _calculate_consensus(self, texts: List[str]) -> tuple:
+    def _calculate_consensus(self, texts: List[str], strategy: str = 'sequential') -> tuple:
         """
-        🔴 IMPROVED CONSENSUS ALGORITHM - PUNCTUATION & HYPHEN AWARE 🔴
-        ==============================================================
+        🔴 CONSENSUS CALCULATION - NOW USING CONSENSUS ENGINE 🔴
+        =======================================================
         
-        Enhanced alignment that handles:
-        - Hyphen line-breaks: 'considera-\n  tions' → 'considerations'
-        - Punctuation differences: 'less:' vs 'less.' → treated as same
-        - Neighbor word confusion: ignores inserts/deletes to prevent drift
+        Uses the ConsensusEngine with pluggable strategies.
+        Preserves exact same behavior for existing 'sequential' strategy.
         
-        ALGORITHM:
-        0. Pre-process all drafts (join hyphens, normalize whitespace)
-        1. Use longest text as base template (preserves formatting)
-        2. Align on normalized tokens, ignore pure inserts/deletes
-        3. Build word-to-word mappings based on punctuation-agnostic comparison
-        4. Calculate confidence from normalized matches
-        5. Generate alternatives only from genuinely different words
-        
+        Args:
+            texts: List of draft texts to process
+            strategy: Consensus strategy to use ('sequential', 'ngram_overlap', etc.)
+            
         Returns:
             tuple: (consensus_text, confidence_map, word_alternatives)
         """
-        
-        # Step 0: Pre-process all drafts
-        prepared_texts = [_preprocess_text(text) for text in texts]
-        
-        if len(prepared_texts) == 1:
-            # Single result - perfect confidence for all words
-            words = re.findall(r'\S+', prepared_texts[0])
-            confidence_map = {f"word_{i}": 1.0 for i in range(len(words))}
-            word_alternatives = {}  # No alternatives for single result
-            return prepared_texts[0], confidence_map, word_alternatives
-
-        # Step 1: Use longest text as base to preserve document structure
-        base_index = max(range(len(prepared_texts)), key=lambda i: len(prepared_texts[i]))
-        base_text = prepared_texts[base_index]
-        base_tokens = re.findall(r'\S+', base_text)
-        base_normalized = [_normalize_token(token) for token in base_tokens]
-        
-        # Get word positions in base text for replacement (skip pure punctuation)
-        word_spans = []
-        for match in re.finditer(r'\S+', base_text):
-            token = match.group(0)
-            if _normalize_token(token):  # Skip punctuation-only tokens
-                word_spans.append(match.span())
-        
-        # Step 2: Initialize candidate lists - each base word starts with itself
-        word_candidates = [[base_tokens[i]] for i in range(len(base_normalized))]
-
-        # Step 3: Align every other draft to the base using normalized tokens
-        for i, draft_text in enumerate(prepared_texts):
-            if i == base_index:
-                continue  # Skip the base text itself
-                
-            other_tokens = re.findall(r'\S+', draft_text)
-            other_normalized = [_normalize_token(token) for token in other_tokens]
-            
-            # Use SequenceMatcher on normalized tokens for better alignment
-            matcher = SequenceMatcher(None, base_normalized, other_normalized, autojunk=False)
-            
-            # Process alignment opcodes - only handle equal and same-length replace
-            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-                if tag == "equal" or (tag == "replace" and (i2 - i1) == (j2 - j1)):
-                    # Safe 1-to-1 word mapping
-                    for k in range(i2 - i1):
-                        word_candidates[i1 + k].append(other_tokens[j1 + k])
-                        
-                # Note: "insert" and "delete" operations are ignored on purpose
-                # This prevents neighbor words from drifting into wrong positions
-
-        # ---------- PASS-2: CONTEXT-ANCHOR CORRECTION ----------
-        # Fix alignment errors by matching words with identical 5-word context
-        prepared_token_lists = [re.findall(r'\S+', t) for t in prepared_texts]
-
-        # Build lookup tables for every non-base draft
-        ctx_lookups = []
-        for d_idx, tok_list in enumerate(prepared_token_lists):
-            if d_idx == base_index:
-                ctx_lookups.append(None)
-                continue
-            tbl = {}
-            for i, _ in enumerate(tok_list):
-                ck = _build_context_key(tok_list, i)
-                if ck in tbl:
-                    tbl[ck] = None          # duplicate – mark as ambiguous
-                else:
-                    tbl[ck] = i
-            ctx_lookups.append(tbl)
-
-        # Walk the base tokens again - add context matches
-        for b_idx, b_tok in enumerate(base_tokens):
-            ck = _build_context_key(base_tokens, b_idx)
-            for d_idx, lookup in enumerate(ctx_lookups):
-                if lookup is None:
-                    continue
-                match_idx = lookup.get(ck)
-                if match_idx is None:
-                    continue
-                # Found a context match - add the token as candidate
-                matched_token = prepared_token_lists[d_idx][match_idx]
-                if matched_token not in word_candidates[b_idx]:
-                    word_candidates[b_idx].append(matched_token)
-
-        # Step 4: Calculate confidence and find consensus for each word
-        confidence_map = {}
-        consensus_replacements = {}
-        word_alternatives = {}
-        total_drafts = len(prepared_texts)
-
-        for idx, candidates in enumerate(word_candidates):
-            if idx >= len(base_tokens):
-                continue  # Safety check
-                
-            base_token = base_tokens[idx]
-            base_norm = base_normalized[idx]
-            word_id = f"word_{idx}"
-            
-            # Calculate confidence based on normalized matches
-            exact_matches = sum(1 for word in candidates if _normalize_token(word) == base_norm)
-            confidence = exact_matches / total_drafts
-            confidence_map[word_id] = confidence
-
-            # Store alternatives - only different normalized forms
-            unique_alternatives = {}
-            for word in candidates:
-                norm = _normalize_token(word)
-                if norm != base_norm and norm not in unique_alternatives:
-                    unique_alternatives[norm] = word  # Keep first spelling of each variant
-            
-            # Only store alternatives if there are actual differences
-            if unique_alternatives:
-                word_alternatives[word_id] = list(unique_alternatives.values())
-
-            # Find consensus word (most common normalized form)
-            if len(candidates) > 1:
-                # Count occurrences by normalized form
-                norm_counts = {}
-                for word in candidates:
-                    norm = _normalize_token(word)
-                    norm_counts[norm] = norm_counts.get(norm, 0) + 1
-                
-                # Get most common normalized form
-                most_common_norm = max(norm_counts.items(), key=lambda x: x[1])[0]
-                
-                # Find original case version of most common normalized form
-                consensus_word = next(word for word in candidates 
-                                    if _normalize_token(word) == most_common_norm)
-                
-                # Only replace if consensus differs from base word
-                if consensus_word != base_token:
-                    consensus_replacements[idx] = consensus_word
-
-        # Step 5: Build consensus text by applying replacements
-        consensus_text = base_text
-        
-        # Apply replacements from right to left to maintain character positions
-        for word_index in sorted(consensus_replacements.keys(), reverse=True):
-            if word_index < len(word_spans):
-                start_pos, end_pos = word_spans[word_index]
-                replacement_word = consensus_replacements[word_index]
-                consensus_text = (consensus_text[:start_pos] + 
-                                replacement_word + 
-                                consensus_text[end_pos:])
-
-        return consensus_text, confidence_map, word_alternatives 
+        # Use the consensus engine with specified strategy
+        engine = ConsensusEngine()
+        return engine.calculate_consensus(texts, strategy) 

@@ -88,6 +88,8 @@ from pydantic import BaseModel
 import time
 import logging
 
+logger = logging.getLogger(__name__)
+
 # Only import if available
 try:
     from openai import OpenAI
