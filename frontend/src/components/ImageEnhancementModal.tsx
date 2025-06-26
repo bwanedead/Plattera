@@ -23,7 +23,7 @@ interface ImageEnhancementModalProps {
 const DEFAULT_PRESETS: EnhancementPreset[] = [
   {
     name: "Default",
-    settings: { contrast: 1.5, sharpness: 1.2, brightness: 1.0, color: 1.0 }
+    settings: { contrast: 2.0, sharpness: 2.0, brightness: 1.5, color: 1.0 }
   },
   {
     name: "High Contrast",
@@ -198,6 +198,7 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
   // Zoom and pan handlers
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
+    e.stopPropagation(); // Prevent event from bubbling up to parent scrollable elements
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     setZoom(prev => Math.min(Math.max(prev * delta, 0.1), 5));
   }, []);
@@ -273,6 +274,7 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
               ref={containerRef}
               className="preview-container"
               onWheel={handleWheel}
+              onWheelCapture={handleWheel}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -315,7 +317,7 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
                 <input
                   type="range"
                   min="0.5"
-                  max="2.0"
+                  max="3.0"
                   step="0.1"
                   value={localSettings.contrast}
                   onChange={(e) => handleSettingChange('contrast', parseFloat(e.target.value))}
@@ -330,7 +332,7 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
                 <input
                   type="range"
                   min="0.5"
-                  max="2.0"
+                  max="3.0"
                   step="0.1"
                   value={localSettings.sharpness}
                   onChange={(e) => handleSettingChange('sharpness', parseFloat(e.target.value))}
@@ -345,7 +347,7 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
                 <input
                   type="range"
                   min="0.5"
-                  max="1.5"
+                  max="2.25"
                   step="0.1"
                   value={localSettings.brightness}
                   onChange={(e) => handleSettingChange('brightness', parseFloat(e.target.value))}

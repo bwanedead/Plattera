@@ -139,9 +139,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [extractionMode, setExtractionMode] = useState('legal_document');
   const [activeTab, setActiveTab] = useState('text');
   const [enhancementSettings, setEnhancementSettings] = useState<EnhancementSettings>({
-    contrast: 1.5,
-    sharpness: 1.2,
-    brightness: 1.0,
+    contrast: 2.0,
+    sharpness: 2.0,
+    brightness: 1.5,
     color: 1.0
   });
   const [showEnhancementModal, setShowEnhancementModal] = useState(false);

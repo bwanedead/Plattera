@@ -31,9 +31,9 @@ async def process_content(
     flow_to: str = Form(None),
     parcel_id: str = Form(None),
     # Enhancement settings - optional
-    contrast: str = Form("1.3"),
-    sharpness: str = Form("1.2"),
-    brightness: str = Form("1.0"),
+    contrast: str = Form("2.0"),
+    sharpness: str = Form("2.0"),
+    brightness: str = Form("1.5"),
     color: str = Form("1.0")
 ):
     """

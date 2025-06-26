@@ -181,9 +181,9 @@ class ImageToTextPipeline:
             # Validate enhancement settings
             if enhancement_settings:
                 try:
-                    contrast = max(0.1, min(5.0, float(enhancement_settings.get('contrast', 1.5))))
-                    sharpness = max(0.1, min(5.0, float(enhancement_settings.get('sharpness', 1.2))))
-                    brightness = max(0.1, min(3.0, float(enhancement_settings.get('brightness', 1.0))))
+                    contrast = float(enhancement_settings.get('contrast', 2.0))
+                    sharpness = float(enhancement_settings.get('sharpness', 2.0))
+                    brightness = float(enhancement_settings.get('brightness', 1.5))
                     color = max(0.0, min(3.0, float(enhancement_settings.get('color', 1.0))))
                     
                     logger.info(f"Using enhancement settings: C:{contrast}, S:{sharpness}, B:{brightness}, Col:{color}")

@@ -50,9 +50,9 @@ logger = logging.getLogger(__name__)
 
 def enhance_for_character_recognition(
     image_path: str,
-    contrast: float = 1.5,  # Updated default
-    sharpness: float = 1.2,
-    brightness: float = 1.0,
+    contrast: float = 2.0,
+    sharpness: float = 2.0,
+    brightness: float = 1.5,
     color: float = 1.0
 ) -> Tuple[str, str]:
     """Enhanced with bulletproof error handling"""
