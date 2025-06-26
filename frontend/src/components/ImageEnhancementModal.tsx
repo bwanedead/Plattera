@@ -52,6 +52,11 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
   const [showSavePreset, setShowSavePreset] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const originalImageRef = useRef<HTMLImageElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   // Load custom presets from localStorage
   useEffect(() => {
@@ -72,9 +77,10 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
 
   // Load and display preview image
   useEffect(() => {
-    if (!previewImage || !canvasRef.current) return;
+    if (!previewImage || !canvasRef.current || !containerRef.current) return;
 
     const canvas = canvasRef.current;
+    const container = containerRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -83,16 +89,22 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
       // Store original image reference
       originalImageRef.current = img;
       
-      // Set canvas size to fit the modal while maintaining aspect ratio
-      const maxWidth = 400;
-      const maxHeight = 300;
-      const ratio = Math.min(maxWidth / img.width, maxHeight / img.height);
+      // Calculate initial zoom to fit image in container
+      const containerWidth = container.clientWidth - 32; // Account for padding
+      const containerHeight = container.clientHeight - 32;
+      const scaleX = containerWidth / img.width;
+      const scaleY = containerHeight / img.height;
+      const initialZoom = Math.min(scaleX, scaleY, 1); // Don't zoom in beyond 100%
       
-      canvas.width = img.width * ratio;
-      canvas.height = img.height * ratio;
+      setZoom(initialZoom);
+      setPan({ x: 0, y: 0 });
       
-      // Draw the enhanced image
-      applyEnhancements(ctx, img, localSettings, canvas.width, canvas.height);
+      // Set canvas to original dimensions
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      // Draw the enhanced image at full resolution
+      applyEnhancements(ctx, img, localSettings, img.width, img.height);
     };
     
     const reader = new FileReader();
@@ -111,11 +123,12 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
     width: number,
     height: number
   ) => {
+    // Enable high-quality image rendering
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
-    
-    // Draw original image
-    ctx.drawImage(img, 0, 0, width, height);
     
     // Apply filters using CSS filter syntax
     const filters = [
@@ -126,11 +139,10 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
       settings.sharpness !== 1.0 ? `contrast(${1 + (settings.sharpness - 1) * 0.3})` : ''
     ].filter(Boolean).join(' ');
     
-    if (filters) {
-      ctx.filter = filters;
-      ctx.drawImage(img, 0, 0, width, height);
-      ctx.filter = 'none'; // Reset filter
-    }
+    // Apply filters and draw enhanced image at original size (1:1 pixel mapping)
+    ctx.filter = filters || 'none';
+    ctx.drawImage(img, 0, 0);
+    ctx.filter = 'none'; // Reset filter
   }, []);
 
   const handleSettingChange = (setting: keyof EnhancementSettings, value: number) => {
@@ -169,6 +181,54 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
     onClose();
   };
 
+  // Zoom and pan handlers
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setZoom(prev => Math.min(Math.max(prev * delta, 0.1), 5));
+  }, []);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  }, [pan]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging) return;
+    setPan({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y
+    });
+  }, [isDragging, dragStart]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  const resetView = useCallback(() => {
+    if (!originalImageRef.current || !containerRef.current) return;
+    
+    const container = containerRef.current;
+    const img = originalImageRef.current;
+    const containerWidth = container.clientWidth - 32;
+    const containerHeight = container.clientHeight - 32;
+    const scaleX = containerWidth / img.width;
+    const scaleY = containerHeight / img.height;
+    const fitZoom = Math.min(scaleX, scaleY, 1);
+    
+    setZoom(fitZoom);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
+  const zoomToFit = useCallback(() => {
+    resetView();
+  }, [resetView]);
+
+  const zoomToActual = useCallback(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
   if (!isOpen) return null;
 
   return (
@@ -181,13 +241,48 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
 
         <div className="enhancement-modal-content">
           <div className="enhancement-preview-section">
-            <h4>Live Preview</h4>
-            <div className="preview-container">
+            <div className="preview-header">
+              <h4>Live Preview</h4>
+              {previewImage && (
+                <div className="preview-controls">
+                  <button onClick={zoomToFit} className="zoom-btn" title="Fit to window">
+                    📐
+                  </button>
+                  <button onClick={zoomToActual} className="zoom-btn" title="100% size">
+                    🔍
+                  </button>
+                  <span className="zoom-level">{Math.round(zoom * 100)}%</span>
+                </div>
+              )}
+            </div>
+            <div 
+              ref={containerRef}
+              className="preview-container"
+              onWheel={handleWheel}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+            >
               {previewImage ? (
-                <canvas 
-                  ref={canvasRef}
-                  className="preview-canvas"
-                />
+                <>
+                  <div 
+                    className="canvas-wrapper"
+                    style={{
+                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                      transformOrigin: '0 0',
+                      cursor: isDragging ? 'grabbing' : 'grab'
+                    }}
+                  >
+                    <canvas 
+                      ref={canvasRef}
+                      className="preview-canvas"
+                    />
+                  </div>
+                  <div className="preview-hint">
+                    <small>🖱️ Scroll to zoom • Drag to pan</small>
+                  </div>
+                </>
               ) : (
                 <div className="no-preview">
                   <p>📷 No image selected for preview</p>
