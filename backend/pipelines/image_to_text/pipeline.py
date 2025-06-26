@@ -92,9 +92,128 @@ from typing import Tuple, List
 import concurrent.futures
 from difflib import SequenceMatcher
 import re
+import string
+import itertools
 from .image_processor import enhance_for_character_recognition
 
 logger = logging.getLogger(__name__)
+
+# 🔴 CONSENSUS PREPROCESSING UTILITIES 🔴
+# =======================================
+def _preprocess_text(raw: str) -> str:
+    """
+    Join hyphen-linebreak splits & collapse whitespace.
+    
+    Handles cases like:
+    - 'considera-\n    tions' → 'considerations'
+    - Multiple whitespace → single space
+    """
+    # Join 'word-\n    more' → 'wordmore'
+    text = re.sub(r'(\w+)-\s*\n\s*(\w+)', r'\1\2', raw)
+    # Unify all whitespace to single spaces
+    return re.sub(r'\s+', ' ', text)
+
+def _normalize_token(token: str) -> str:
+    """
+    Lower-case, strip leading/trailing punctuation for comparison.
+    
+    Handles cases like:
+    - 'less:' vs 'less.' → both become 'less'
+    - 'Word,' vs 'word' → both become 'word'
+    """
+    return token.strip(string.punctuation).lower()
+
+def _build_context_key(tokens: List[str], idx: int, win: int = 5) -> tuple:
+    """
+    Return a tuple of 11 tokens: 5 left, token, 5 right (normalised).
+    
+    This creates a unique fingerprint for each word based on its context.
+    Used to match words that appear in the same context across drafts,
+    even when SequenceMatcher gets confused by insertions/deletions.
+    """
+    pad = "␢"  # Special padding token for out-of-bounds positions
+    left = [_normalize_token(tokens[i]) if i >= 0 else pad
+            for i in range(idx - win, idx)]
+    token = [_normalize_token(tokens[idx])]
+    right = [_normalize_token(tokens[i]) if i < len(tokens) else pad
+             for i in range(idx + 1, idx + win + 1)]
+    return tuple(left + token + right)
+
+def _is_llm_refusal_or_failed(text: str) -> bool:
+    """
+    Detect LLM refusal responses or failed extractions.
+    
+    Returns True if the text appears to be a refusal message or
+    significantly failed extraction that should be excluded from consensus.
+    """
+    if not text or len(text.strip()) < 10:
+        return True
+    
+    text_lower = text.lower().strip()
+    
+    # Common LLM refusal patterns
+    refusal_patterns = [
+        "i'm sorry, i can't assist",
+        "i cannot assist",
+        "i'm unable to help",
+        "i can't help with that",
+        "i'm not able to",
+        "i cannot provide",
+        "i'm sorry, but i cannot",
+        "i apologize, but i cannot",
+        "i don't feel comfortable",
+        "i'm not comfortable",
+        "this request goes against",
+        "i cannot fulfill this request",
+        "i'm sorry, i cannot process",
+        "unable to process",
+        "cannot be processed"
+    ]
+    
+    # Check for refusal patterns
+    for pattern in refusal_patterns:
+        if pattern in text_lower:
+            return True
+    
+    # Check if text is suspiciously short (likely failed extraction)
+    word_count = len(text.split())
+    if word_count < 5:  # Very short responses are likely failures
+        return True
+    
+    return False
+
+def _filter_valid_extractions(texts: List[str]) -> List[str]:
+    """
+    Filter out LLM refusals and failed extractions from text list.
+    
+    Also filters out texts that are significantly shorter than the median,
+    as they're likely failed extractions.
+    """
+    if not texts:
+        return texts
+    
+    # First pass: Remove obvious refusals and very short texts
+    filtered_texts = []
+    for text in texts:
+        if not _is_llm_refusal_or_failed(text):
+            filtered_texts.append(text)
+    
+    if len(filtered_texts) <= 1:
+        return filtered_texts  # Can't do length filtering with 1 or fewer texts
+    
+    # Second pass: Remove texts that are significantly shorter than others
+    word_counts = [len(text.split()) for text in filtered_texts]
+    median_words = sorted(word_counts)[len(word_counts) // 2]
+    
+    # Filter out texts with less than 30% of median word count
+    # (likely failed extractions that passed the first filter)
+    final_texts = []
+    for text in filtered_texts:
+        word_count = len(text.split())
+        if word_count >= (median_words * 0.3):
+            final_texts.append(text)
+    
+    return final_texts if final_texts else filtered_texts  # Fallback to first filter if second is too aggressive
 
 class ImageToTextPipeline:
     """
@@ -470,18 +589,46 @@ class ImageToTextPipeline:
         # Extract text from successful results
         texts = [r.get("extracted_text", "") for r in successful_results]
         
+        # Filter out invalid extractions
+        filtered_texts = _filter_valid_extractions(texts)
+        
+        # Log filtering results
+        filtered_count = len(successful_results) - len(filtered_texts)
+        if filtered_count > 0:
+            logger.warning(f"Filtered out {filtered_count} invalid extractions from {len(successful_results)} successful results")
+        
+        if not filtered_texts:
+            return {
+                "success": False,
+                "error": "All texts are invalid",
+                "metadata": {
+                    "redundancy_analysis": {
+                        "total_calls": len(results),
+                        "successful_calls": 0,
+                        "failed_calls": len(results)
+                    }
+                }
+            }
+        
         # Perform consensus analysis to get word confidence mapping
-        consensus_text, word_confidence_map, word_alternatives = self._calculate_consensus(texts)
+        consensus_text, word_confidence_map, word_alternatives = self._calculate_consensus(filtered_texts)
         
         # Calculate overall confidence
         overall_confidence = sum(word_confidence_map.values()) / len(word_confidence_map) if word_confidence_map else 0.0
         
-        # Find the best individual result to preserve its formatting
+        # Find the best individual result from filtered results
+        # Map filtered texts back to their original results
+        filtered_results = []
+        for result in successful_results:
+            result_text = result.get("extracted_text", "")
+            if result_text in filtered_texts:
+                filtered_results.append(result)
+        
         # Choose the result with the highest confidence or longest text if confidence is similar
         best_result_index = 0
         best_score = 0
         
-        for i, result in enumerate(successful_results):
+        for i, result in enumerate(filtered_results):
             # Score based on text length and confidence (if available)
             text_length_score = len(result.get("extracted_text", ""))
             confidence_score = result.get("confidence_score", 0.5) * 1000  # Weight confidence higher
@@ -491,8 +638,8 @@ class ImageToTextPipeline:
                 best_score = total_score
                 best_result_index = i
         
-        # Use the best individual result's text to preserve formatting
-        best_formatted_text = successful_results[best_result_index].get("extracted_text", "")
+        # Use the best filtered result's text to preserve formatting
+        best_formatted_text = filtered_results[best_result_index].get("extracted_text", "") if filtered_results else consensus_text
         
         # Aggregate token usage
         total_tokens = sum(r.get("tokens_used", 0) for r in successful_results)
@@ -512,6 +659,8 @@ class ImageToTextPipeline:
                 "redundancy_analysis": {
                     "total_calls": len(results),
                     "successful_calls": len(successful_results),
+                    "valid_extractions": len(filtered_texts),
+                    "filtered_out": len(successful_results) - len(filtered_texts),
                     "failed_calls": len(results) - len(successful_results),
                     "consensus_text": consensus_text,
                     "best_formatted_text": best_formatted_text,
@@ -533,122 +682,162 @@ class ImageToTextPipeline:
 
     def _calculate_consensus(self, texts: List[str]) -> tuple:
         """
-        🔴 SOPHISTICATED CONSENSUS ALGORITHM - SEQUENCE ALIGNMENT 🔴
-        ===========================================================
+        🔴 IMPROVED CONSENSUS ALGORITHM - PUNCTUATION & HYPHEN AWARE 🔴
+        ==============================================================
         
-        Uses difflib.SequenceMatcher to properly align words across drafts.
-        This ensures that "Indenture" in draft 1 correctly corresponds to 
-        "Indenture" in draft 3, not nearby words due to insertions/deletions.
+        Enhanced alignment that handles:
+        - Hyphen line-breaks: 'considera-\n  tions' → 'considerations'
+        - Punctuation differences: 'less:' vs 'less.' → treated as same
+        - Neighbor word confusion: ignores inserts/deletes to prevent drift
         
         ALGORITHM:
+        0. Pre-process all drafts (join hyphens, normalize whitespace)
         1. Use longest text as base template (preserves formatting)
-        2. Align every other draft to base using SequenceMatcher
-        3. Build word-to-word mappings based on alignment opcodes
-        4. Calculate confidence from actual aligned words, not positions
-        5. Generate alternatives only from genuinely disputed words
+        2. Align on normalized tokens, ignore pure inserts/deletes
+        3. Build word-to-word mappings based on punctuation-agnostic comparison
+        4. Calculate confidence from normalized matches
+        5. Generate alternatives only from genuinely different words
         
         Returns:
             tuple: (consensus_text, confidence_map, word_alternatives)
         """
         
-        if len(texts) == 1:
+        # Step 0: Pre-process all drafts
+        prepared_texts = [_preprocess_text(text) for text in texts]
+        
+        if len(prepared_texts) == 1:
             # Single result - perfect confidence for all words
-            words = re.findall(r'\S+', texts[0])
+            words = re.findall(r'\S+', prepared_texts[0])
             confidence_map = {f"word_{i}": 1.0 for i in range(len(words))}
             word_alternatives = {}  # No alternatives for single result
-            return texts[0], confidence_map, word_alternatives
+            return prepared_texts[0], confidence_map, word_alternatives
 
         # Step 1: Use longest text as base to preserve document structure
-        base_text = max(texts, key=len)
-        base_words = re.findall(r'\S+', base_text)
-        n_base_words = len(base_words)
+        base_index = max(range(len(prepared_texts)), key=lambda i: len(prepared_texts[i]))
+        base_text = prepared_texts[base_index]
+        base_tokens = re.findall(r'\S+', base_text)
+        base_normalized = [_normalize_token(token) for token in base_tokens]
         
-        # Get word positions in base text for replacement
-        word_positions = [match.span() for match in re.finditer(r'\S+', base_text)]
-
+        # Get word positions in base text for replacement (skip pure punctuation)
+        word_spans = []
+        for match in re.finditer(r'\S+', base_text):
+            token = match.group(0)
+            if _normalize_token(token):  # Skip punctuation-only tokens
+                word_spans.append(match.span())
+        
         # Step 2: Initialize candidate lists - each base word starts with itself
-        word_candidates = [[base_words[i]] for i in range(n_base_words)]
+        word_candidates = [[base_tokens[i]] for i in range(len(base_normalized))]
 
-        # Step 3: Align every other draft to the base using SequenceMatcher
-        for other_text in texts:
-            if other_text is base_text:
+        # Step 3: Align every other draft to the base using normalized tokens
+        for i, draft_text in enumerate(prepared_texts):
+            if i == base_index:
                 continue  # Skip the base text itself
                 
-            other_words = re.findall(r'\S+', other_text)
+            other_tokens = re.findall(r'\S+', draft_text)
+            other_normalized = [_normalize_token(token) for token in other_tokens]
             
-            # Use SequenceMatcher to find optimal alignment
-            matcher = SequenceMatcher(None, base_words, other_words, autojunk=False)
+            # Use SequenceMatcher on normalized tokens for better alignment
+            matcher = SequenceMatcher(None, base_normalized, other_normalized, autojunk=False)
             
-            # Process alignment opcodes
+            # Process alignment opcodes - only handle equal and same-length replace
             for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-                if tag == "equal":
-                    # Words match exactly - add to candidates
+                if tag == "equal" or (tag == "replace" and (i2 - i1) == (j2 - j1)):
+                    # Safe 1-to-1 word mapping
                     for k in range(i2 - i1):
-                        word_candidates[i1 + k].append(other_words[j1 + k])
+                        word_candidates[i1 + k].append(other_tokens[j1 + k])
                         
-                elif tag == "replace" and (i2 - i1) == (j2 - j1):
-                    # Same span length - safe 1-to-1 word mapping
-                    for k in range(i2 - i1):
-                        word_candidates[i1 + k].append(other_words[j1 + k])
-                        
-                # Note: "insert" and "delete" operations are ignored
-                # They don't align to any base word position
+                # Note: "insert" and "delete" operations are ignored on purpose
+                # This prevents neighbor words from drifting into wrong positions
+
+        # ---------- PASS-2: CONTEXT-ANCHOR CORRECTION ----------
+        # Fix alignment errors by matching words with identical 5-word context
+        prepared_token_lists = [re.findall(r'\S+', t) for t in prepared_texts]
+
+        # Build lookup tables for every non-base draft
+        ctx_lookups = []
+        for d_idx, tok_list in enumerate(prepared_token_lists):
+            if d_idx == base_index:
+                ctx_lookups.append(None)
+                continue
+            tbl = {}
+            for i, _ in enumerate(tok_list):
+                ck = _build_context_key(tok_list, i)
+                if ck in tbl:
+                    tbl[ck] = None          # duplicate – mark as ambiguous
+                else:
+                    tbl[ck] = i
+            ctx_lookups.append(tbl)
+
+        # Walk the base tokens again - add context matches
+        for b_idx, b_tok in enumerate(base_tokens):
+            ck = _build_context_key(base_tokens, b_idx)
+            for d_idx, lookup in enumerate(ctx_lookups):
+                if lookup is None:
+                    continue
+                match_idx = lookup.get(ck)
+                if match_idx is None:
+                    continue
+                # Found a context match - add the token as candidate
+                matched_token = prepared_token_lists[d_idx][match_idx]
+                if matched_token not in word_candidates[b_idx]:
+                    word_candidates[b_idx].append(matched_token)
 
         # Step 4: Calculate confidence and find consensus for each word
         confidence_map = {}
         consensus_replacements = {}
         word_alternatives = {}
-        total_drafts = len(texts)
+        total_drafts = len(prepared_texts)
 
-        for i, candidates in enumerate(word_candidates):
-            base_word = base_words[i]
-            word_id = f"word_{i}"
+        for idx, candidates in enumerate(word_candidates):
+            if idx >= len(base_tokens):
+                continue  # Safety check
+                
+            base_token = base_tokens[idx]
+            base_norm = base_normalized[idx]
+            word_id = f"word_{idx}"
             
-            # Calculate confidence based on exact matches (case-insensitive)
-            base_word_lower = base_word.lower()
-            exact_matches = sum(1 for word in candidates if word.lower() == base_word_lower)
+            # Calculate confidence based on normalized matches
+            exact_matches = sum(1 for word in candidates if _normalize_token(word) == base_norm)
             confidence = exact_matches / total_drafts
             confidence_map[word_id] = confidence
 
-            # Store alternatives if there are multiple different words
-            unique_candidates = []
-            seen_lower = set()
+            # Store alternatives - only different normalized forms
+            unique_alternatives = {}
             for word in candidates:
-                word_lower = word.lower()
-                if word_lower not in seen_lower:
-                    unique_candidates.append(word)
-                    seen_lower.add(word_lower)
+                norm = _normalize_token(word)
+                if norm != base_norm and norm not in unique_alternatives:
+                    unique_alternatives[norm] = word  # Keep first spelling of each variant
             
             # Only store alternatives if there are actual differences
-            if len(unique_candidates) > 1:
-                word_alternatives[word_id] = unique_candidates
+            if unique_alternatives:
+                word_alternatives[word_id] = list(unique_alternatives.values())
 
-            # Find consensus word (most common, preserving original case)
+            # Find consensus word (most common normalized form)
             if len(candidates) > 1:
-                # Count occurrences (case-insensitive)
-                word_counts = {}
+                # Count occurrences by normalized form
+                norm_counts = {}
                 for word in candidates:
-                    normalized = word.lower()
-                    word_counts[normalized] = word_counts.get(normalized, 0) + 1
+                    norm = _normalize_token(word)
+                    norm_counts[norm] = norm_counts.get(norm, 0) + 1
                 
-                # Get most common word (normalized)
-                most_common_normalized = max(word_counts.items(), key=lambda x: x[1])[0]
+                # Get most common normalized form
+                most_common_norm = max(norm_counts.items(), key=lambda x: x[1])[0]
                 
-                # Find original case version of most common word
+                # Find original case version of most common normalized form
                 consensus_word = next(word for word in candidates 
-                                    if word.lower() == most_common_normalized)
+                                    if _normalize_token(word) == most_common_norm)
                 
                 # Only replace if consensus differs from base word
-                if consensus_word != base_word:
-                    consensus_replacements[i] = consensus_word
+                if consensus_word != base_token:
+                    consensus_replacements[idx] = consensus_word
 
         # Step 5: Build consensus text by applying replacements
         consensus_text = base_text
         
         # Apply replacements from right to left to maintain character positions
         for word_index in sorted(consensus_replacements.keys(), reverse=True):
-            if word_index < len(word_positions):
-                start_pos, end_pos = word_positions[word_index]
+            if word_index < len(word_spans):
+                start_pos, end_pos = word_spans[word_index]
                 replacement_word = consensus_replacements[word_index]
                 consensus_text = (consensus_text[:start_pos] + 
                                 replacement_word + 
