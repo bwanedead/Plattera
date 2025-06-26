@@ -75,7 +75,7 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
     localStorage.setItem('imageEnhancementPresets', JSON.stringify(customPresets));
   }, [customPresets]);
 
-  // Load and display preview image
+  // Load preview image (only when image changes, NOT when settings change)
   useEffect(() => {
     if (!previewImage || !canvasRef.current || !containerRef.current) return;
 
@@ -89,7 +89,7 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
       // Store original image reference
       originalImageRef.current = img;
       
-      // Calculate initial zoom to fit image in container
+      // Calculate initial zoom to fit image in container (only on image load)
       const containerWidth = container.clientWidth - 32; // Account for padding
       const containerHeight = container.clientHeight - 32;
       const scaleX = containerWidth / img.width;
@@ -114,7 +114,21 @@ export const ImageEnhancementModal: React.FC<ImageEnhancementModalProps> = ({
       }
     };
     reader.readAsDataURL(previewImage);
-  }, [previewImage, localSettings]);
+  }, [previewImage]); // ✅ Only depend on previewImage, NOT localSettings
+
+  // Update canvas when settings change (preserve zoom/pan state)
+  useEffect(() => {
+    if (!originalImageRef.current || !canvasRef.current) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const img = originalImageRef.current;
+    
+    // Redraw with new settings but keep zoom/pan state intact
+    applyEnhancements(ctx, img, localSettings, img.width, img.height);
+  }, [localSettings]); // ✅ Only redraw when settings change, don't reset zoom/pan
 
   const applyEnhancements = useCallback((
     ctx: CanvasRenderingContext2D,

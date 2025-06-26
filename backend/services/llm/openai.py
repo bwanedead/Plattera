@@ -45,6 +45,8 @@ import json
 from typing import Dict, Any, List, Optional, Union
 from .base import LLMService
 from pydantic import BaseModel
+import time
+import logging
 
 # Only import if available
 try:
@@ -181,85 +183,114 @@ class OpenAIService(LLMService):
             }
     
     def call_vision(self, prompt: str, image_data: str, model: str, **kwargs) -> Dict[str, Any]:
-        """
-        Make vision API call to OpenAI with image
-        
-        🔴 CRITICAL VISION API INTEGRATION - PRESERVE EXACT FORMAT 🔴
-        
-        Args:
-            prompt: Text prompt for image analysis
-            image_data: Base64 encoded image data (NO data URI prefix)
-            model: Model identifier
-            **kwargs: Additional parameters
-            
-        Returns:
-            Dict with success, text, tokens_used, model
-            
-        CRITICAL WIRING:
-        - Pipeline provides: clean base64 string
-        - This method adds: data:image/jpeg;base64, prefix
-        - OpenAI expects: complete data URI format
-        - Response provides: text content for extraction
-        """
-        try:
-            api_model_name = self._get_api_model_name(model)
-            
-            # CRITICAL: Build OpenAI vision API message format
-            # OpenAI expects specific structure with image_url object
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                # CRITICAL: Add data URI prefix to base64 string
-                                # Pipeline provides clean base64, we add prefix here
-                                "url": f"data:image/jpeg;base64,{image_data}",
-                                "detail": kwargs.get("detail", "high")
-                            }
-                        }
-                    ]
-                }
-            ]
-            
-            # Build parameters based on model type
-            completion_params = {
-                "model": api_model_name,
-                "messages": messages
-            }
-            
-            # o4-mini has specific parameter requirements
-            if "o4-mini" in api_model_name:
-                # o4-mini only supports default temperature (1), so don't include it
-                completion_params["max_completion_tokens"] = kwargs.get("max_tokens", 4000)
-                # Set reasoning effort to high for maximum accuracy
-                completion_params["reasoning_effort"] = "high"
-            else:
-                # Other models use standard parameters
-                completion_params["temperature"] = kwargs.get("temperature", 0.1)
-                completion_params["max_tokens"] = kwargs.get("max_tokens", 4000)
-            
-            # CRITICAL: Make OpenAI API call
-            response = self.client.chat.completions.create(**completion_params)
-            
-            # CRITICAL: Extract text content from response
-            # This is what becomes "extracted_text" in final response
-            return {
-                "success": True,
-                "text": response.choices[0].message.content,  # CRITICAL: Text extraction
-                "tokens_used": response.usage.total_tokens,
-                "model": model
-            }
-            
-        except Exception as e:
+        """Enhanced with retry logic and better error handling"""
+        # Validate inputs
+        if not image_data or not image_data.strip():
             return {
                 "success": False,
-                "error": str(e),
+                "error": "Empty image data provided",
                 "text": None,
                 "model": model
             }
+        
+        if not prompt or not prompt.strip():
+            return {
+                "success": False,
+                "error": "Empty prompt provided",
+                "text": None,
+                "model": model
+            }
+        
+        # Retry logic for resilience
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                api_model_name = self._get_api_model_name(model)
+                
+                # CRITICAL: Build OpenAI vision API message format
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{image_data}",
+                                    "detail": kwargs.get("detail", "high")
+                                }
+                            }
+                        ]
+                    }
+                ]
+                
+                # Build parameters based on model type
+                completion_params = {
+                    "model": api_model_name,
+                    "messages": messages
+                }
+                
+                # Model-specific parameters
+                if "o4-mini" in api_model_name:
+                    completion_params["max_completion_tokens"] = kwargs.get("max_tokens", 4000)
+                    completion_params["reasoning_effort"] = "high"
+                else:
+                    completion_params["temperature"] = kwargs.get("temperature", 0.1)
+                    completion_params["max_tokens"] = kwargs.get("max_tokens", 4000)
+                
+                # CRITICAL: Make OpenAI API call
+                response = self.client.chat.completions.create(**completion_params)
+                
+                # Validate response
+                if not response.choices or not response.choices[0].message.content:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Empty response on attempt {attempt + 1}, retrying...")
+                        time.sleep(1)
+                        continue
+                    else:
+                        return {
+                            "success": False,
+                            "error": "OpenAI returned empty response after retries",
+                            "text": None,
+                            "model": model
+                        }
+                
+                # CRITICAL: Extract text content from response
+                extracted_text = response.choices[0].message.content.strip()
+                
+                if not extracted_text:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Empty text content on attempt {attempt + 1}, retrying...")
+                        time.sleep(1)
+                        continue
+                    else:
+                        return {
+                            "success": False,
+                            "error": "OpenAI returned empty text content after retries",
+                            "text": None,
+                            "model": model
+                        }
+                
+                return {
+                    "success": True,
+                    "text": extracted_text,
+                    "tokens_used": response.usage.total_tokens,
+                    "model": model
+                }
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"API call failed on attempt {attempt + 1}: {e}, retrying...")
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+                else:
+                    logger.error(f"All retry attempts failed: {e}")
+                    return {
+                        "success": False,
+                        "error": f"OpenAI API failed after {max_retries} attempts: {str(e)}",
+                        "text": None,
+                        "model": model
+                    }
     
     def process_image_with_text(self, image_data: str, prompt: str, model: str, **kwargs) -> Dict[str, Any]:
         """

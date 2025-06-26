@@ -44,87 +44,106 @@ import io
 import base64
 from pathlib import Path
 from typing import Tuple, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 def enhance_for_character_recognition(
     image_path: str,
-    contrast: float = 1.3,
+    contrast: float = 1.5,  # Updated default
     sharpness: float = 1.2,
     brightness: float = 1.0,
     color: float = 1.0
 ) -> Tuple[str, str]:
-    """
-    Enhance image specifically for better character recognition
-    Focus on contrast and sharpness to help distinguish ambiguous characters
+    """Enhanced with bulletproof error handling"""
     
-    🔴 CRITICAL WIRING: DO NOT MODIFY RETURN SIGNATURE 🔴
+    # Validate and clamp parameters
+    contrast = max(0.1, min(5.0, float(contrast)))
+    sharpness = max(0.1, min(5.0, float(sharpness)))
+    brightness = max(0.1, min(3.0, float(brightness)))
+    color = max(0.0, min(3.0, float(color)))
     
-    Args:
-        image_path: Path to the original image
-        contrast: Contrast enhancement factor (1.0 = no change, >1.0 = more contrast)
-        sharpness: Sharpness enhancement factor (1.0 = no change, >1.0 = sharper)
-        brightness: Brightness enhancement factor (1.0 = no change, >1.0 = brighter)
-        color: Color saturation factor (1.0 = no change, >1.0 = more saturated)
-        
-    Returns:
-        Tuple[str, str]: (base64_encoded_image, image_format)
-        - base64_encoded_image: Clean base64 string (NO data URI prefix)
-        - image_format: Image format string (jpeg, png, etc.)
-    
-    CRITICAL CHAIN POSITION:
-    - Called by: pipeline._prepare_image()
-    - Used by: OpenAI service call_vision() method
-    - OpenAI expects: base64 string as image_data parameter
-    """
     try:
-        # CRITICAL: Load image and validate
+        # Validate image path exists and is readable
+        if not Path(image_path).exists():
+            raise FileNotFoundError(f"Image file not found: {image_path}")
+        
+        # CRITICAL: Load image with explicit error handling
         with Image.open(image_path) as img:
             # CRITICAL: Ensure RGB mode for consistent processing
             if img.mode != 'RGB':
                 img = img.convert('RGB')
             
-            # CONFIGURABLE ENHANCEMENT VALUES - RESPECTING USER SETTINGS
-            # Default values provide optimal character recognition improvement
-            # without degrading image quality for OpenAI vision API
+            # Validate image isn't corrupted
+            img.verify()
             
-            # Apply brightness adjustment first (affects overall exposure)
-            if brightness != 1.0:
-                brightness_enhancer = ImageEnhance.Brightness(img)
-                img = brightness_enhancer.enhance(brightness)
-            
-            # Apply contrast boost to help character disambiguation
-            if contrast != 1.0:
-                contrast_enhancer = ImageEnhance.Contrast(img)
-                img = contrast_enhancer.enhance(contrast)
-            
-            # Apply color saturation adjustment
-            if color != 1.0:
-                color_enhancer = ImageEnhance.Color(img)
-                img = color_enhancer.enhance(color)
-            
-            # Apply sharpness increase for character edges (do this last)
-            if sharpness != 1.0:
-                sharpness_enhancer = ImageEnhance.Sharpness(img)
-                img = sharpness_enhancer.enhance(sharpness)
-            
-            # CRITICAL: Save as high-quality JPEG for OpenAI compatibility
-            # OpenAI vision API works best with JPEG format
-            # Quality 95 ensures minimal compression artifacts
-            img_byte_arr = io.BytesIO()
-            img.save(img_byte_arr, format='JPEG', quality=95, optimize=True)
-            img_byte_arr.seek(0)
-            
-            # CRITICAL: Return clean base64 string - NO data URI prefix
-            # OpenAI service adds its own data URI prefix in call_vision()
-            base64_encoded = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
-            
-            # CRITICAL: Return tuple format expected by pipeline
-            return base64_encoded, 'jpeg'
-            
+            # Reload image after verify (verify() can't be undone)
+            with Image.open(image_path) as img:
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                
+                # Apply enhancements with individual error handling
+                try:
+                    if brightness != 1.0:
+                        brightness_enhancer = ImageEnhance.Brightness(img)
+                        img = brightness_enhancer.enhance(brightness)
+                except Exception as e:
+                    logger.warning(f"Brightness enhancement failed: {e}")
+                
+                try:
+                    if contrast != 1.0:
+                        contrast_enhancer = ImageEnhance.Contrast(img)
+                        img = contrast_enhancer.enhance(contrast)
+                except Exception as e:
+                    logger.warning(f"Contrast enhancement failed: {e}")
+                
+                try:
+                    if color != 1.0:
+                        color_enhancer = ImageEnhance.Color(img)
+                        img = color_enhancer.enhance(color)
+                except Exception as e:
+                    logger.warning(f"Color enhancement failed: {e}")
+                
+                try:
+                    if sharpness != 1.0:
+                        sharpness_enhancer = ImageEnhance.Sharpness(img)
+                        img = sharpness_enhancer.enhance(sharpness)
+                except Exception as e:
+                    logger.warning(f"Sharpness enhancement failed: {e}")
+                
+                # CRITICAL: Save with multiple format fallbacks
+                img_byte_arr = io.BytesIO()
+                
+                # Try JPEG first (preferred by OpenAI)
+                try:
+                    img.save(img_byte_arr, format='JPEG', quality=95, optimize=True)
+                    format_used = 'jpeg'
+                except Exception:
+                    # Fallback to PNG if JPEG fails
+                    img_byte_arr = io.BytesIO()
+                    img.save(img_byte_arr, format='PNG', optimize=True)
+                    format_used = 'png'
+                
+                img_byte_arr.seek(0)
+                
+                # CRITICAL: Return clean base64 string
+                base64_encoded = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
+                
+                # Validate base64 is not empty
+                if not base64_encoded:
+                    raise ValueError("Base64 encoding resulted in empty string")
+                
+                return base64_encoded, format_used
+                
     except Exception as e:
-        # CRITICAL: Fallback to original image if enhancement fails
-        # This ensures the pipeline never fails due to enhancement errors
-        # Maintains system reliability while attempting improvements
-        with open(image_path, "rb") as image_file:
-            image_data = base64.b64encode(image_file.read()).decode('utf-8')
-            # CRITICAL: Return same tuple format even in fallback
-            return image_data, 'jpeg' 
+        logger.error(f"Enhancement failed, using original image: {e}")
+        # CRITICAL: Bulletproof fallback to original image
+        try:
+            with open(image_path, "rb") as image_file:
+                image_data = base64.b64encode(image_file.read()).decode('utf-8')
+                if not image_data:
+                    raise ValueError("Original image encoding failed")
+                return image_data, 'jpeg'
+        except Exception as fallback_error:
+            logger.error(f"Fallback also failed: {fallback_error}")
+            raise RuntimeError(f"Complete image processing failure: {e}, fallback: {fallback_error}") 

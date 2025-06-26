@@ -60,13 +60,23 @@ async def process_content(
     logger.info(f"   🧹 Cleanup After: {cleanup_after}")
     logger.info(f"   🎨 Enhancement Settings: contrast={contrast}, sharpness={sharpness}, brightness={brightness}, color={color}")
     
-    # Parse enhancement settings
-    enhancement_settings = {
-        'contrast': float(contrast),
-        'sharpness': float(sharpness),
-        'brightness': float(brightness),
-        'color': float(color)
-    }
+    # Parse enhancement settings with robust error handling
+    try:
+        enhancement_settings = {
+            'contrast': max(0.1, min(5.0, float(contrast))),  # Clamp between 0.1-5.0
+            'sharpness': max(0.1, min(5.0, float(sharpness))),  # Clamp between 0.1-5.0
+            'brightness': max(0.1, min(3.0, float(brightness))),  # Clamp between 0.1-3.0
+            'color': max(0.0, min(3.0, float(color)))  # Clamp between 0.0-3.0
+        }
+        logger.info(f"✅ Enhancement settings parsed: {enhancement_settings}")
+    except (ValueError, TypeError) as e:
+        logger.warning(f"⚠️ Invalid enhancement parameters, using defaults: {e}")
+        enhancement_settings = {
+            'contrast': 1.5,
+            'sharpness': 1.2,
+            'brightness': 1.0,
+            'color': 1.0
+        }
     
     temp_path = None
     

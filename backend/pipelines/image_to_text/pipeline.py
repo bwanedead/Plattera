@@ -171,50 +171,42 @@ class ImageToTextPipeline:
         return None
     
     def _prepare_image(self, image_path: str, enhancement_settings: dict = None) -> Tuple[str, str]:
-        """
-        Prepare and enhance image data for processing
-        
-        🔴 CRITICAL IMAGE PROCESSING - DO NOT MODIFY RETURN SIGNATURE 🔴
-        
-        Args:
-            image_path: Path to the image file
-            enhancement_settings: Optional dict with enhancement parameters
-        
-        Returns:
-            Tuple[str, str]: (base64_string, format_string)
-            
-        CRITICAL CHAIN:
-        1. Validate image path exists
-        2. Call enhance_for_character_recognition() with settings
-        3. Return (base64_string, format_string) to process()
-        4. process() passes base64_string to service
-        """
+        """Enhanced with bulletproof error handling"""
         try:
             image_path = Path(image_path)
             if not image_path.exists():
+                logger.error(f"Image path does not exist: {image_path}")
                 return None, None
-                
-            # CRITICAL: Use enhanced processing for better character recognition
-            # This function MUST return (base64_string, format_string) tuple
+            
+            # Validate enhancement settings
             if enhancement_settings:
-                # Extract enhancement parameters with safe defaults
-                contrast = float(enhancement_settings.get('contrast', 1.3))
-                sharpness = float(enhancement_settings.get('sharpness', 1.2))
-                brightness = float(enhancement_settings.get('brightness', 1.0))
-                color = float(enhancement_settings.get('color', 1.0))
-                
-                enhanced_image_data, image_format = enhance_for_character_recognition(
-                    str(image_path),
-                    contrast=contrast,
-                    sharpness=sharpness,
-                    brightness=brightness,
-                    color=color
-                )
+                try:
+                    contrast = max(0.1, min(5.0, float(enhancement_settings.get('contrast', 1.5))))
+                    sharpness = max(0.1, min(5.0, float(enhancement_settings.get('sharpness', 1.2))))
+                    brightness = max(0.1, min(3.0, float(enhancement_settings.get('brightness', 1.0))))
+                    color = max(0.0, min(3.0, float(enhancement_settings.get('color', 1.0))))
+                    
+                    logger.info(f"Using enhancement settings: C:{contrast}, S:{sharpness}, B:{brightness}, Col:{color}")
+                    
+                    enhanced_image_data, image_format = enhance_for_character_recognition(
+                        str(image_path),
+                        contrast=contrast,
+                        sharpness=sharpness,
+                        brightness=brightness,
+                        color=color
+                    )
+                except Exception as e:
+                    logger.warning(f"Enhancement settings parsing failed: {e}, using defaults")
+                    enhanced_image_data, image_format = enhance_for_character_recognition(str(image_path))
             else:
                 # Use default enhancement settings
                 enhanced_image_data, image_format = enhance_for_character_recognition(str(image_path))
             
-            # CRITICAL: Return tuple format expected by process()
+            # Validate results
+            if not enhanced_image_data:
+                logger.error("Image enhancement returned empty data")
+                return None, None
+            
             return enhanced_image_data, image_format
             
         except Exception as e:
