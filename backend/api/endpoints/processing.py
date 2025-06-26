@@ -1,6 +1,78 @@
 """
 Processing API Endpoint
 Central hub that routes requests to appropriate pipelines
+
+🔴 CRITICAL REDUNDANCY IMPLEMENTATION DOCUMENTATION 🔴
+=====================================================
+
+THIS FILE IS THE MAIN API GATEWAY - PRESERVE ALL WIRING BELOW WHEN ADDING REDUNDANCY
+
+CURRENT WORKING STRUCTURE (DO NOT BREAK):
+==========================================
+
+1. ENDPOINT SIGNATURE:
+   - process_content() accepts Form parameters
+   - CRITICAL: All existing parameters MUST remain with same names/types
+   - SAFE TO ADD: New redundancy parameter as Form field
+   - PRESERVE: All current parameter validation and error handling
+
+2. ROUTING LOGIC:
+   - content_type routes to _process_image_to_text() or _process_text_to_schema()
+   - CRITICAL: Keep routing logic intact
+   - SAFE TO MODIFY: _process_image_to_text() function signature (add redundancy param)
+
+3. ENHANCEMENT SETTINGS PARSING:
+   - Current parsing with clamping MUST be preserved
+   - CRITICAL: enhancement_settings dict format must remain unchanged
+   - SAFE TO ADD: Similar parsing for redundancy parameter
+
+4. ERROR HANDLING:
+   - All try/catch blocks MUST remain intact
+   - CRITICAL: HTTPException patterns must be preserved
+   - SAFE TO ADD: Additional error handling for redundancy failures
+
+5. RESPONSE FORMAT:
+   - ProcessResponse model MUST remain unchanged
+   - CRITICAL: All response fields must map correctly
+   - SAFE TO ADD: Additional metadata fields for redundancy info
+
+6. FILE HANDLING:
+   - Temporary file management MUST remain intact
+   - CRITICAL: cleanup_temp_file() must always be called in finally block
+   - PRESERVE: All file validation logic
+
+REDUNDANCY IMPLEMENTATION SAFETY RULES:
+======================================
+
+✅ SAFE TO MODIFY:
+- Add redundancy: str = Form("3") parameter
+- Add redundancy parsing with clamping
+- Modify _process_image_to_text() signature to accept redundancy_count
+- Pass redundancy_count to pipeline.process_with_redundancy()
+
+❌ DO NOT MODIFY:
+- Existing parameter names or types
+- Enhancement settings parsing logic
+- Error handling structure
+- Response mapping to ProcessResponse
+- File cleanup logic
+- Routing logic structure
+
+TESTING CHECKPOINTS:
+===================
+After redundancy implementation, verify:
+1. Single file upload still works (redundancy=1)
+2. Enhancement settings still work correctly
+3. Error handling still functions properly  
+4. File cleanup still happens in all cases
+5. Response format matches frontend expectations
+
+CRITICAL INTEGRATION POINTS:
+============================
+- Pipeline must have process_with_redundancy() method
+- Method must return same format as process() method
+- Frontend must send redundancy parameter
+- All existing functionality must remain working
 """
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
@@ -34,7 +106,9 @@ async def process_content(
     contrast: str = Form("2.0"),
     sharpness: str = Form("2.0"),
     brightness: str = Form("1.5"),
-    color: str = Form("1.0")
+    color: str = Form("1.0"),
+    # Redundancy setting - optional
+    redundancy: str = Form("3")
 ):
     """
     Universal processing endpoint that routes to appropriate pipeline
@@ -49,6 +123,7 @@ async def process_content(
         sharpness: Image sharpness enhancement (1.0 = no change)
         brightness: Image brightness enhancement (1.0 = no change)
         color: Image color saturation enhancement (1.0 = no change)
+        redundancy: Number of parallel API calls for redundancy (1 = no redundancy, 3 = default)
     """
     # Add detailed logging
     logger.info(f"🔥 PROCESSING REQUEST RECEIVED:")
@@ -59,6 +134,7 @@ async def process_content(
     logger.info(f"   ⚙️ Extraction Mode: {extraction_mode}")
     logger.info(f"   🧹 Cleanup After: {cleanup_after}")
     logger.info(f"   🎨 Enhancement Settings: contrast={contrast}, sharpness={sharpness}, brightness={brightness}, color={color}")
+    logger.info(f"   🔄 Redundancy: {redundancy}")
     
     # Parse enhancement settings with robust error handling
     try:
@@ -78,13 +154,21 @@ async def process_content(
             'color': 1.0
         }
     
+    # Parse redundancy setting with robust error handling
+    try:
+        redundancy_count = max(1, min(10, int(redundancy)))  # Clamp between 1-10
+        logger.info(f"✅ Redundancy count parsed: {redundancy_count}")
+    except (ValueError, TypeError) as e:
+        logger.warning(f"⚠️ Invalid redundancy parameter, using default: {e}")
+        redundancy_count = 3
+    
     temp_path = None
     
     try:
         # Route to appropriate pipeline based on content_type
         if content_type == "image-to-text":
             logger.info("🖼️ Routing to image-to-text pipeline")
-            return await _process_image_to_text(file, model, extraction_mode, enhancement_settings)
+            return await _process_image_to_text(file, model, extraction_mode, enhancement_settings, redundancy_count)
         elif content_type == "text-to-schema":
             logger.info("📝 Routing to text-to-schema pipeline")
             return await _process_text_to_schema(file, model)
@@ -103,7 +187,7 @@ async def process_content(
         logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
-async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: str, enhancement_settings: dict = None) -> ProcessResponse:
+async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: str, enhancement_settings: dict = None, redundancy_count: int = 3) -> ProcessResponse:
     """Route to image-to-text pipeline"""
     temp_path = None
     
@@ -138,9 +222,14 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
         from pipelines.image_to_text.pipeline import ImageToTextPipeline
         pipeline = ImageToTextPipeline()
         
-        # Process the image
-        logger.info(f"🔄 Processing with model: {model}, mode: {extraction_mode}")
-        result = pipeline.process(temp_path, model, extraction_mode, enhancement_settings)
+        # Process the image with redundancy support
+        logger.info(f"🔄 Processing with model: {model}, mode: {extraction_mode}, redundancy: {redundancy_count}")
+        
+        if redundancy_count > 1:
+            result = pipeline.process_with_redundancy(temp_path, model, extraction_mode, enhancement_settings, redundancy_count)
+        else:
+            result = pipeline.process(temp_path, model, extraction_mode, enhancement_settings)
+        
         logger.info(f"📊 Pipeline result: {result}")
         
         if not result.get("success", False):

@@ -2,10 +2,10 @@
 OpenAI LLM Provider
 Drop this file in services/llm/ and OpenAI models will automatically appear
 
-CRITICAL WIRING DOCUMENTATION:
-==============================
+🔴 CRITICAL REDUNDANCY IMPLEMENTATION DOCUMENTATION 🔴
+=====================================================
 
-🔴 THIS MODULE IS THE FINAL LINK IN THE CHAIN - PRESERVE ALL WIRING BELOW 🔴
+THIS MODULE IS THE FINAL LINK IN THE CHAIN - PRESERVE ALL WIRING BELOW 🔴
 
 CRITICAL INTEGRATION POINTS:
 1. Pipeline calls: service.process_image_with_text()
@@ -38,6 +38,46 @@ ENHANCEMENT SAFETY RULES:
 - NEVER change data URI prefix format
 - ALWAYS preserve response standardization
 - ALWAYS maintain backward compatibility
+
+REDUNDANCY IMPLEMENTATION SAFETY RULES:
+======================================
+
+✅ SAFE FOR REDUNDANCY:
+- process_image_with_text() is THREAD-SAFE for parallel calls
+- call_vision() can be called multiple times simultaneously
+- Response format is consistent across all calls
+- Error handling is robust for individual call failures
+
+❌ DO NOT MODIFY FOR REDUNDANCY:
+- process_image_with_text() method signature
+- call_vision() method signature  
+- Response format structure
+- Error handling patterns
+- Data URI formatting logic
+
+CRITICAL REDUNDANCY REQUIREMENTS:
+================================
+1. Service MUST handle multiple parallel calls to process_image_with_text()
+2. Each call MUST be independent (no shared state)
+3. Response format MUST be identical across all calls
+4. Error handling MUST work for individual call failures
+5. Token counting MUST be accurate for each call
+
+THREADING SAFETY VERIFICATION:
+=============================
+- OpenAI client is thread-safe ✓
+- No shared mutable state in methods ✓
+- Each call creates independent request ✓
+- Response processing is stateless ✓
+
+TESTING CHECKPOINTS:
+===================
+After redundancy implementation, verify:
+1. Single calls still work unchanged
+2. Multiple parallel calls work correctly
+3. Error handling works for individual failures
+4. Token counting is accurate across calls
+5. Response format remains consistent
 """
 import os
 import base64

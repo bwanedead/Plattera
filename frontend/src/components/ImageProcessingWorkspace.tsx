@@ -1,3 +1,88 @@
+/*
+🔴 CRITICAL REDUNDANCY IMPLEMENTATION DOCUMENTATION 🔴
+=====================================================
+
+THIS IS THE MAIN IMAGE PROCESSING UI COMPONENT - PRESERVE ALL WIRING BELOW 🔴
+
+CURRENT WORKING STRUCTURE (DO NOT BREAK):
+==========================================
+
+1. STATE MANAGEMENT:
+   - stagedFiles: File[] (files ready for processing)
+   - sessionResults: any[] (processing history)
+   - selectedResult: any (currently displayed result)
+   - enhancementSettings: EnhancementSettings (image enhancement params)
+   - CRITICAL: All existing state variables MUST remain unchanged
+
+2. API INTEGRATION:
+   - processFilesAPI() handles backend communication
+   - fetchModelsAPI() loads available models
+   - CRITICAL: API call structure MUST remain compatible
+   - SAFE TO ADD: redundancy parameter to API calls
+
+3. ENHANCEMENT SETTINGS:
+   - EnhancementSettings interface defines image enhancement params
+   - handleEnhancementChange() manages settings updates
+   - CRITICAL: Enhancement flow MUST remain functional
+   - SAFE TO ADD: redundancy settings alongside enhancement settings
+
+4. UI COMPONENTS:
+   - File dropzone for image uploads
+   - Control panel with model/mode selection
+   - Enhancement modal for image settings
+   - Results viewer with text display
+   - CRITICAL: All existing UI elements MUST remain functional
+
+REDUNDANCY IMPLEMENTATION SAFETY RULES:
+======================================
+
+✅ SAFE TO ADD:
+- RedundancySettings interface alongside EnhancementSettings
+- redundancySettings state variable
+- Redundancy controls in control panel
+- Redundancy parameter to processFilesAPI()
+- Redundancy display in results metadata
+
+❌ DO NOT MODIFY:
+- Existing state variable names or types
+- EnhancementSettings interface structure
+- processFilesAPI() core functionality
+- handleProcess() core logic
+- UI component structure
+- File handling logic
+
+CRITICAL API INTEGRATION POINTS:
+===============================
+- processFilesAPI() sends FormData to backend
+- Backend expects specific field names (content_type, model, etc.)
+- Response format must match ProcessingResult interface
+- SAFE TO ADD: redundancy form field to FormData
+
+CRITICAL UI INTEGRATION POINTS:
+===============================
+- Enhancement modal integration MUST remain functional
+- File staging/processing flow MUST work unchanged
+- Results display MUST show extracted_text correctly
+- Error handling MUST work for failed processing
+
+REDUNDANCY UI REQUIREMENTS:
+==========================
+1. Add redundancy controls to control panel (after enhancement section)
+2. Include redundancy toggle and slider
+3. Pass redundancy settings to processFilesAPI()
+4. Display redundancy metadata in results (optional)
+5. Maintain all existing functionality
+
+TESTING CHECKPOINTS:
+===================
+After redundancy implementation, verify:
+1. File upload and processing still works
+2. Enhancement settings still function correctly
+3. Results display correctly with redundancy enabled/disabled
+4. All existing UI interactions remain functional
+5. API communication works with new redundancy parameter
+*/
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Allotment } from "allotment";
@@ -13,8 +98,14 @@ interface EnhancementSettings {
   color: number;
 }
 
+// Redundancy settings interface
+interface RedundancySettings {
+  enabled: boolean;
+  count: number;
+}
+
 // --- Real API Calls (replacing the simulated ones) ---
-const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings) => {
+const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings) => {
   console.log(`Processing ${files.length} files with model: ${model} and mode: ${mode}`);
   
   const results = [];
@@ -33,6 +124,9 @@ const processFilesAPI = async (files: File[], model: string, mode: string, enhan
       formData.append('sharpness', enhancementSettings.sharpness.toString());
       formData.append('brightness', enhancementSettings.brightness.toString());
       formData.append('color', enhancementSettings.color.toString());
+      
+      // Add redundancy setting
+      formData.append('redundancy', redundancySettings.enabled ? redundancySettings.count.toString() : '1');
 
       const response = await fetch('http://localhost:8000/api/process', {
         method: 'POST',
@@ -145,6 +239,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     color: 1.0
   });
   const [showEnhancementModal, setShowEnhancementModal] = useState(false);
+  const [redundancySettings, setRedundancySettings] = useState<RedundancySettings>({
+    enabled: true,
+    count: 3
+  });
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setStagedFiles(prev => [...prev, ...acceptedFiles]);
@@ -164,7 +262,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     setSelectedResult(null); // Clear previous selection
     
     // Process all files and get results with enhancement settings
-    const newResults = await processFilesAPI(stagedFiles, selectedModel, extractionMode, enhancementSettings);
+    const newResults = await processFilesAPI(stagedFiles, selectedModel, extractionMode, enhancementSettings, redundancySettings);
     
     // Add all results to session
     setSessionResults(prev => [...newResults, ...prev]);
@@ -295,6 +393,49 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
               <small className="enhancement-hint">
                 Current: C:{enhancementSettings.contrast.toFixed(1)} S:{enhancementSettings.sharpness.toFixed(1)} B:{enhancementSettings.brightness.toFixed(1)} Col:{enhancementSettings.color.toFixed(1)}
               </small>
+            </div>
+
+            <div className="redundancy-section">
+              <label>Redundancy Filter</label>
+              <div className="redundancy-controls">
+                <div className="redundancy-toggle">
+                  <input
+                    type="checkbox"
+                    id="redundancy-enabled"
+                    checked={redundancySettings.enabled}
+                    onChange={(e) => setRedundancySettings(prev => ({
+                      ...prev,
+                      enabled: e.target.checked
+                    }))}
+                  />
+                  <label htmlFor="redundancy-enabled">Enable Redundancy</label>
+                </div>
+                
+                {redundancySettings.enabled && (
+                  <div className="redundancy-slider-group">
+                    <label htmlFor="redundancy-count">
+                      Redundancy Count: {redundancySettings.count}
+                    </label>
+                    <input
+                      type="range"
+                      id="redundancy-count"
+                      min="1"
+                      max="10"
+                      value={redundancySettings.count}
+                      onChange={(e) => setRedundancySettings(prev => ({
+                        ...prev,
+                        count: parseInt(e.target.value)
+                      }))}
+                      className="redundancy-slider"
+                    />
+                    <div className="redundancy-hint">
+                      {redundancySettings.count === 1 ? 'No redundancy' : 
+                       redundancySettings.count <= 3 ? 'Light redundancy' :
+                       redundancySettings.count <= 5 ? 'Medium redundancy' : 'Heavy redundancy'}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="process-section">

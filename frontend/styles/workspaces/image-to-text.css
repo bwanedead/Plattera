@@ -1,3 +1,82 @@
+/*
+🔴 CRITICAL REDUNDANCY IMPLEMENTATION DOCUMENTATION 🔴
+=====================================================
+
+THIS FILE CONTAINS ALL IMAGE-TO-TEXT WORKSPACE STYLING - PRESERVE STRUCTURE BELOW 🔴
+
+CURRENT WORKING STRUCTURE (DO NOT BREAK):
+==========================================
+
+1. WORKSPACE LAYOUT:
+   - .image-processing-workspace (main container)
+   - .pipeline-workspace (grid layout)
+   - .control-panel (left sidebar)
+   - .results-area (right content area)
+   - CRITICAL: All layout classes MUST remain functional
+
+2. CONTROL PANEL SECTIONS:
+   - .panel-header (workspace title)
+   - .import-section (file upload area)
+   - .model-selection (model/mode dropdowns)
+   - .enhancement-section (enhancement modal button)
+   - .process-section (process button)
+   - CRITICAL: All control sections MUST remain styled correctly
+
+3. ENHANCEMENT STYLING:
+   - .enhancement-modal-btn (enhancement button)
+   - .enhancement-hint (settings display)
+   - Enhancement modal styles (in separate section)
+   - CRITICAL: Enhancement UI MUST remain functional
+
+4. RESULTS DISPLAY:
+   - .results-viewer-panel (main results area)
+   - .result-tabs (text/metadata tabs)
+   - .result-tab-content (content display)
+   - CRITICAL: Results display MUST remain readable
+
+REDUNDANCY IMPLEMENTATION SAFETY RULES:
+======================================
+
+✅ SAFE TO ADD:
+- .redundancy-section (new control section)
+- .redundancy-controls (control container)
+- .redundancy-toggle (checkbox styling)
+- .redundancy-slider (range input styling)
+- .redundancy-hint (help text styling)
+
+❌ DO NOT MODIFY:
+- Existing layout grid structure
+- Control panel section spacing
+- Enhancement section styling
+- Results display styling
+- File upload area styling
+
+CRITICAL STYLING REQUIREMENTS:
+=============================
+1. Redundancy section MUST fit in control panel layout
+2. Redundancy controls MUST match existing UI patterns
+3. Redundancy styling MUST not break responsive design
+4. Redundancy elements MUST follow existing color scheme
+5. All existing functionality MUST remain visually intact
+
+SAFE REDUNDANCY STYLING PATTERNS:
+=================================
+- Follow enhancement section styling patterns
+- Use existing CSS variables for colors
+- Match existing spacing and typography
+- Use consistent border radius and shadows
+- Follow existing hover/focus states
+
+TESTING CHECKPOINTS:
+===================
+After redundancy styling implementation, verify:
+1. All existing UI elements still look correct
+2. Control panel layout accommodates new section
+3. Redundancy controls match existing design
+4. Responsive design still works on all screen sizes
+5. Enhancement modal and other features still function
+*/
+
 /* Image-to-Text Workspace Specific Styles */
 
 .image-processing-workspace {
@@ -1025,4 +1104,88 @@
   .presets-grid {
     grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   }
+}
+
+/* Redundancy Controls Styling */
+.redundancy-section {
+  margin-bottom: 2rem;
+}
+
+.redundancy-section label {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.redundancy-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.redundancy-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.redundancy-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-primary);
+}
+
+.redundancy-toggle label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin: 0;
+  cursor: pointer;
+}
+
+.redundancy-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-left: 1.5rem;
+}
+
+.redundancy-slider-group label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.redundancy-slider {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.redundancy-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--accent-primary);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0, 169, 255, 0.3);
+  transition: all 0.2s ease;
+}
+
+.redundancy-slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 15px rgba(0, 169, 255, 0.6);
+  transform: scale(1.1);
+}
+
+.redundancy-hint {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-style: italic;
 }
