@@ -90,6 +90,7 @@ import "allotment/dist/style.css";
 import { ParcelTracerLoader } from './ParcelTracerLoader';
 import { ImageEnhancementModal } from './ImageEnhancementModal';
 import { DraftSelector } from './DraftSelector';
+import { AnimatedBorder } from './AnimatedBorder';
 
 // Enhancement settings interface
 interface EnhancementSettings {
@@ -220,10 +221,11 @@ interface ProcessingResult {
 // Define the type for the component's props, including the onExit callback
 interface ImageProcessingWorkspaceProps {
   onExit: () => void;
+  onNavigateToTextSchema?: () => void;
 }
 
 // --- Main Component ---
-export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> = ({ onExit }) => {
+export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> = ({ onExit, onNavigateToTextSchema }) => {
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const [sessionResults, setSessionResults] = useState<any[]>([]);
   const [selectedResult, setSelectedResult] = useState<any | null>(null);
@@ -245,6 +247,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     count: 3
   });
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
+  
+  // Navigation button hover states
+  const [homeHovered, setHomeHovered] = useState(false);
+  const [textSchemaHovered, setTextSchemaHovered] = useState(false);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setStagedFiles(prev => [...prev, ...acceptedFiles]);
@@ -296,31 +302,31 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   }, []);
 
   const getCurrentText = useCallback(() => {
-    if (!selectedResult || selectedResult.status !== 'completed') {
+    if (!selectedResult || selectedResult.status !== 'completed' || !selectedResult.result) {
       return selectedResult?.error ? `Error: ${selectedResult.error}` : '';
     }
 
-    const redundancyAnalysis = selectedResult.result.metadata?.redundancy_analysis;
+    const redundancyAnalysis = selectedResult.result?.metadata?.redundancy_analysis;
     
     if (!redundancyAnalysis) {
       // No redundancy data, just return the main text
-      return selectedResult.result.extracted_text;
+      return selectedResult.result.extracted_text || '';
     }
 
     if (selectedDraft === 'best') {
-      return selectedResult.result.extracted_text; // This is already the best formatted text
+      return selectedResult.result.extracted_text || ''; // This is already the best formatted text
     } else if (selectedDraft === 'consensus') {
-      return redundancyAnalysis.consensus_text || selectedResult.result.extracted_text;
+      return redundancyAnalysis.consensus_text || selectedResult.result.extracted_text || '';
     } else if (typeof selectedDraft === 'number') {
       const individualResults = redundancyAnalysis.individual_results;
       const successfulResults = individualResults.filter((r: any) => r.success);
       if (selectedDraft < successfulResults.length) {
-        return successfulResults[selectedDraft].text;
+        return successfulResults[selectedDraft].text || '';
       }
     }
 
     // Fallback to main text
-    return selectedResult.result.extracted_text;
+    return selectedResult.result.extracted_text || '';
   }, [selectedResult, selectedDraft]);
 
   const handleDraftSelect = useCallback((draft: number | 'consensus' | 'best') => {
@@ -330,12 +336,32 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   return (
     <div className="image-processing-workspace">
       <div className="workspace-nav">
-        <button className="nav-home" onClick={onExit}>
-          Home
-        </button>
-        <button className="nav-next" onClick={() => {/* TODO: Add text-to-schema navigation */}}>
-          Text to Schema
-        </button>
+        <AnimatedBorder
+          isHovered={homeHovered}
+          strokeWidth={1.5}
+        >
+          <button 
+            className="nav-home" 
+            onClick={onExit}
+            onMouseEnter={() => setHomeHovered(true)}
+            onMouseLeave={() => setHomeHovered(false)}
+          >
+            Home
+          </button>
+        </AnimatedBorder>
+        <AnimatedBorder
+          isHovered={textSchemaHovered}
+          strokeWidth={1.5}
+        >
+          <button 
+            className="nav-next" 
+            onClick={onNavigateToTextSchema}
+            onMouseEnter={() => setTextSchemaHovered(true)}
+            onMouseLeave={() => setTextSchemaHovered(false)}
+          >
+            Text to Schema
+          </button>
+        </AnimatedBorder>
       </div>
 
       <Allotment defaultSizes={[300, 700]}>
@@ -527,7 +553,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                     <div className="result-display-area">
                         {/* Draft Selector - positioned absolutely in top-right */}
                         <DraftSelector
-                          redundancyAnalysis={selectedResult.result.metadata?.redundancy_analysis}
+                          redundancyAnalysis={selectedResult.result?.metadata?.redundancy_analysis}
                           onDraftSelect={handleDraftSelect}
                           selectedDraft={selectedDraft}
                         />
@@ -541,7 +567,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                               <pre>{getCurrentText()}</pre>
                             )}
                             {activeTab === 'metadata' && (
-                              <pre>{selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result.metadata, null, 2) : 'No metadata available for failed processing.'}</pre>
+                              <pre>{selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result?.metadata, null, 2) : 'No metadata available for failed processing.'}</pre>
                             )}
                         </div>
                     </div>

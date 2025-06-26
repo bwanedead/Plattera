@@ -3,6 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { ParcelTracerLoader } from './ParcelTracerLoader';
+import { AnimatedBorder } from './AnimatedBorder';
 
 // Real API call for text-to-schema processing
 const processTextAPI = async (texts: string[], model: string) => {
@@ -99,9 +100,10 @@ const fetchImageToTextResults = async () => {
 
 interface TextToSchemaWorkspaceProps {
   onExit: () => void;
+  onNavigateToImageText?: () => void;
 }
 
-export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({ onExit }) => {
+export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({ onExit, onNavigateToImageText }) => {
   const [stagedTexts, setStagedTexts] = useState<string[]>([]);
   const [manualText, setManualText] = useState('');
   const [sessionResults, setSessionResults] = useState<any[]>([]);
@@ -112,6 +114,10 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({ on
   const [selectedModel, setSelectedModel] = useState('gpt-4o');
   const [activeTab, setActiveTab] = useState('json');
   const [imageToTextResults, setImageToTextResults] = useState<any[]>([]);
+  
+  // Navigation button hover states
+  const [homeHovered, setHomeHovered] = useState(false);
+  const [imageTextHovered, setImageTextHovered] = useState(false);
 
   // File drop for text files
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -178,12 +184,32 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({ on
   return (
     <div className="text-to-schema-workspace">
       <div className="workspace-nav">
-        <button className="nav-home" onClick={onExit}>
-          Home
-        </button>
-        <button className="nav-prev" onClick={() => {/* TODO: Navigate to image-to-text */}}>
-          Image to Text
-        </button>
+        <AnimatedBorder
+          isHovered={homeHovered}
+          strokeWidth={1.5}
+        >
+          <button 
+            className="nav-home" 
+            onClick={onExit}
+            onMouseEnter={() => setHomeHovered(true)}
+            onMouseLeave={() => setHomeHovered(false)}
+          >
+            Home
+          </button>
+        </AnimatedBorder>
+        <AnimatedBorder
+          isHovered={imageTextHovered}
+          strokeWidth={1.5}
+        >
+          <button 
+            className="nav-prev" 
+            onClick={onNavigateToImageText}
+            onMouseEnter={() => setImageTextHovered(true)}
+            onMouseLeave={() => setImageTextHovered(false)}
+          >
+            Image to Text
+          </button>
+        </AnimatedBorder>
       </div>
 
       <Allotment defaultSizes={[300, 700]}>
@@ -291,7 +317,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({ on
               className="process-btn"
             >
               {isProcessing ? (
-                <ParcelTracerLoader size="small" />
+                <ParcelTracerLoader />
               ) : (
                 `Process ${stagedTexts.length} Text${stagedTexts.length !== 1 ? 's' : ''}`
               )}

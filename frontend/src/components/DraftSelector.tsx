@@ -70,7 +70,6 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
             onClick={toggleVisibility}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
-            title={`${totalDrafts} drafts available - Currently viewing: ${getCurrentDraftLabel()}`}
           >
             {totalDrafts}
           </button>
@@ -90,7 +89,6 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
         <button 
           className="draft-close-btn"
           onClick={toggleVisibility}
-          title="Hide draft selector"
         >
           ×
         </button>

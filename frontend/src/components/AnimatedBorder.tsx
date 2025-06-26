@@ -21,86 +21,41 @@ interface BorderSegment {
 const generateBorderSegments = (width: number, height: number, borderRadius: number = 0): BorderSegment[] => {
   const segments: BorderSegment[] = [];
   
-  if (borderRadius > 0) {
-    // For rounded rectangles, we'll create segments that approximate the rounded corners
-    const r = Math.min(borderRadius, Math.min(width, height) / 2);
-    
-    // Top edge (left to right, accounting for radius)
-    segments.push({
+  // For sharp corners - create a complete rectangle with no gaps
+  segments.push(
+    {
       id: 'top',
-      x1: r,
+      x1: 0,
       y1: 0,
-      x2: width - r,
+      x2: width,
       y2: 0,
-      length: width - 2 * r
-    });
-    
-    // Right edge (top to bottom, accounting for radius)
-    segments.push({
+      length: width
+    },
+    {
       id: 'right',
       x1: width,
-      y1: r,
+      y1: 0,
       x2: width,
-      y2: height - r,
-      length: height - 2 * r
-    });
-    
-    // Bottom edge (right to left, accounting for radius)
-    segments.push({
-      id: 'bottom',
-      x1: width - r,
-      y1: height,
-      x2: r,
       y2: height,
-      length: width - 2 * r
-    });
-    
-    // Left edge (bottom to top, accounting for radius)
-    segments.push({
+      length: height
+    },
+    {
+      id: 'bottom',
+      x1: width,
+      y1: height,
+      x2: 0,
+      y2: height,
+      length: width
+    },
+    {
       id: 'left',
       x1: 0,
-      y1: height - r,
+      y1: height,
       x2: 0,
-      y2: r,
-      length: height - 2 * r
-    });
-  } else {
-    // Sharp corners - simple rectangle
-    segments.push(
-      {
-        id: 'top',
-        x1: 0,
-        y1: 0,
-        x2: width,
-        y2: 0,
-        length: width
-      },
-      {
-        id: 'right',
-        x1: width,
-        y1: 0,
-        x2: width,
-        y2: height,
-        length: height
-      },
-      {
-        id: 'bottom',
-        x1: width,
-        y1: height,
-        x2: 0,
-        y2: height,
-        length: width
-      },
-      {
-        id: 'left',
-        x1: 0,
-        y1: height,
-        x2: 0,
-        y2: 0,
-        length: height
-      }
-    );
-  }
+      y2: 0,
+      length: height
+    }
+  );
   
   return segments;
 };
@@ -127,7 +82,7 @@ export const AnimatedBorder: React.FC<AnimatedBorderProps> = ({
     }
   }, [borderRadius, isHovered]);
 
-  // Animation logic
+  // Animation logic - match the ParcelTracerLoader timing exactly
   useEffect(() => {
     if (!isHovered || segments.length === 0) {
       setCurrentSegmentIndex(-1);
@@ -144,14 +99,14 @@ export const AnimatedBorder: React.FC<AnimatedBorderProps> = ({
         clearInterval(interval);
         setIsComplete(true);
         
-        // Pulse and restart cycle
+        // Match ParcelTracerLoader timing exactly
         setTimeout(() => {
           setCurrentSegmentIndex(-1);
           setIsComplete(false);
           setAnimationKey(prev => prev + 1);
-        }, 1200); // Match the ParcelTracerLoader timing
+        }, 1200); // Match the ParcelTracerLoader pulse duration
       }
-    }, 150); // Faster than the loader for snappier button feel
+    }, 600); // Match the ParcelTracerLoader segment timing
 
     return () => clearInterval(interval);
   }, [isHovered, segments, animationKey]);

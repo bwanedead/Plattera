@@ -42,9 +42,15 @@ const App: React.FC = () => {
   const renderContent = () => {
     switch (mode) {
       case 'image-processing':
-        return <ImageProcessingWorkspace onExit={() => setMode('home')} />
+        return <ImageProcessingWorkspace 
+          onExit={() => setMode('home')} 
+          onNavigateToTextSchema={() => setMode('text-processing')}
+        />
       case 'text-processing':
-        return <TextToSchemaWorkspace onExit={() => setMode('home')} />
+        return <TextToSchemaWorkspace 
+          onExit={() => setMode('home')} 
+          onNavigateToImageText={() => setMode('image-processing')}
+        />
       case 'home':
       default:
         return (

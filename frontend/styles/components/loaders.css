@@ -100,7 +100,7 @@
 }
 
 /* --- Animated Border Component --- */
-/* Reusable animated border that matches the ParcelTracerLoader aesthetic */
+/* Reusable animated border that matches the ParcelTracerLoader aesthetic exactly */
 
 .animated-border-container {
   position: relative;
@@ -111,12 +111,12 @@
 }
 
 .border-tracer-edge {
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke: rgba(0, 169, 255, 0.4);
+  stroke-width: 1.5; /* Finer line for sleek buttons */
+  stroke-linecap: butt; /* Sharp ends for square buttons */
+  stroke: rgba(0, 169, 255, 0.4); /* Match the dim color exactly */
   filter: none;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: stroke 0.4s ease, filter 0.4s ease; /* Match the transition timing */
   fill: none;
 }
 
@@ -125,47 +125,53 @@
 }
 
 .border-tracer-edge.animating {
-  stroke: var(--border-color, var(--accent-primary));
-  filter: drop-shadow(0 0 6px var(--border-color, var(--accent-primary)));
-  animation: border-flow-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  stroke: var(--accent-primary);
+  filter: drop-shadow(0 0 6px var(--accent-primary)); /* Lighter glow for finer line */
+  animation: border-flow-in 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; /* Match exactly */
 }
 
 @keyframes border-flow-in {
   0% {
     stroke-dashoffset: var(--segment-length);
-    stroke-width: 3;
+    /* Start slightly wider for visibility */
+    stroke-width: 2.5;
     opacity: 0;
   }
   30% {
+    /* Fade in quickly - match exactly */
     opacity: 1;
   }
   80% {
-    stroke-width: 2;
+     /* Taper to the final fine width */
+    stroke-width: 1.5;
   }
   100% {
     stroke-dashoffset: 0;
-    stroke-width: 2;
+    stroke-width: 1.5;
   }
 }
 
 .border-tracer-group.completed .border-tracer-edge {
-  stroke: var(--border-color, var(--accent-primary));
-  filter: drop-shadow(0 0 8px var(--border-color, var(--accent-primary)));
-  animation: border-completion-pulse 1.2s ease-in-out forwards;
+  stroke: var(--accent-primary);
+  filter: drop-shadow(0 0 6px var(--accent-primary)); /* Lighter glow for finer line */
+  animation: border-completion-pulse 1.2s ease-in-out forwards; /* Match exactly */
 }
 
 @keyframes border-completion-pulse {
   0% {
-    stroke-width: 2;
-    stroke: var(--border-color, var(--accent-primary));
-    filter: drop-shadow(0 0 6px var(--border-color, var(--accent-primary)));
+    /* Starts at the bright, completed state */
+    stroke-width: 1.5;
+    stroke: var(--accent-primary);
+    filter: drop-shadow(0 0 6px var(--accent-primary));
   }
   50% {
-    stroke-width: 2.5;
-    filter: drop-shadow(0 0 10px var(--border-color, var(--accent-primary)));
+    /* Peak of the pulse - slightly wider */
+    stroke-width: 2;
+    filter: drop-shadow(0 0 8px var(--accent-primary));
   }
   100% {
-    stroke-width: 2;
+    /* Ends at the dim, non-glowing resting state */
+    stroke-width: 1.5;
     stroke: rgba(0, 169, 255, 0.4);
     filter: none;
   }

@@ -5,8 +5,8 @@
 /* Collapsed state - tiny rounded bubble with animated border */
 .draft-selector-collapsed {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: 60px;
+  right: 40px;
   z-index: 10;
 }
 
@@ -41,8 +41,8 @@
 /* Expanded state - compact dropdown */
 .draft-selector-expanded {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: 60px;
+  right: 40px;
   z-index: 10;
   min-width: 200px;
   background: var(--bg-secondary);

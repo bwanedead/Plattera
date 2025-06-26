@@ -382,10 +382,10 @@ class ImageToTextPipeline:
             for i, future in enumerate(futures):
                 try:
                     result = future.result(timeout=120)  # 2 minute timeout per call
-                    logger.info(f"✅ Redundancy call {i+1} completed")
+                    print(f"✅ Redundancy call {i+1} completed")
                     results.append(result)
                 except Exception as e:
-                    logger.error(f"❌ Redundancy call {i+1} failed: {e}")
+                    print(f"❌ Redundancy call {i+1} failed: {e}")
                     results.append({
                         "success": False,
                         "error": f"API call failed: {str(e)}",
