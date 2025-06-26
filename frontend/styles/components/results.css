@@ -575,6 +575,16 @@ If this CSS breaks, heatmap feature will lose:
   background-color: rgba(var(--accent-primary-rgb), 0.2) !important;
 }
 
+/* Human-confirmed words - distinct green shade */
+.confidence-word.human-confirmed {
+  background-color: rgba(16, 185, 129, 0.25) !important; /* Emerald green for human input */
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.confidence-word.human-confirmed:hover {
+  background-color: rgba(16, 185, 129, 0.35) !important;
+}
+
 /* Word Edit Input */
 .word-edit-input {
   background: var(--bg-secondary);
@@ -588,103 +598,103 @@ If this CSS breaks, heatmap feature will lose:
   min-width: 60px;
 }
 
-/* Confidence Popup */
+/* Confidence Popup - Sleeker horizontal design */
 .confidence-popup {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-  padding: 0;
-  min-width: 200px;
-  max-width: 300px;
+  padding: 8px 12px;
+  min-width: 150px;
+  max-width: 400px;
   z-index: 1000;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .popup-content {
-  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.popup-header {
+.popup-word-info {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-color);
+  gap: 4px;
+  margin-right: 8px;
 }
 
 .popup-word {
   font-weight: 600;
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .popup-confidence {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
-  padding: 2px 6px;
-  border-radius: 10px;
+  padding: 1px 4px;
+  border-radius: 6px;
 }
 
 .popup-alternatives {
-  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 200px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
 }
 
-.alternatives-label {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-  font-weight: 600;
+.popup-alternatives::-webkit-scrollbar {
+  height: 3px;
+}
+
+.popup-alternatives::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.popup-alternatives::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 2px;
 }
 
 .alternative-option {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-  background: none;
-  border: none;
-  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  padding: 3px 6px;
   border-radius: 4px;
   cursor: pointer;
-  transition: background-color 0.2s ease;
-  margin-bottom: 2px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  font-weight: 500;
 }
 
 .alternative-option:hover {
-  background: var(--bg-tertiary);
-}
-
-.alt-word {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.alt-source {
-  font-size: 0.7rem;
-  color: var(--text-secondary);
-}
-
-.popup-actions {
-  border-top: 1px solid var(--border-color);
-  padding-top: 8px;
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
 }
 
 .unlock-button {
-  width: 100%;
-  background: var(--accent-primary);
-  color: white;
-  border: none;
-  padding: 8px 12px;
+  background: none;
+  border: 1px solid var(--border-color);
+  padding: 4px 6px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 600;
-  transition: background-color 0.2s ease;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .unlock-button:hover {
-  background: rgba(var(--accent-primary-rgb), 0.8);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 } 

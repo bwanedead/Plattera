@@ -1,9 +1,8 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 
 interface WordAlternative {
   word: string;
   source: string;
-  confidence: number;
 }
 
 interface ConfidenceHeatmapViewerProps {
@@ -19,6 +18,7 @@ interface ConfidenceHeatmapViewerProps {
     consensus_text: string;
     best_formatted_text: string;
     best_result_index: number;
+    word_alternatives: Record<string, string[]>;
   };
   onTextUpdate: (newText: string) => void;
 }
@@ -29,6 +29,7 @@ interface WordData {
   alternatives: WordAlternative[];
   isEditable: boolean;
   isEditing: boolean;
+  isHumanConfirmed: boolean;
 }
 
 export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = ({
@@ -40,6 +41,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   const [editingWordIndex, setEditingWordIndex] = useState<number | null>(null);
   const [editingValue, setEditingValue] = useState<string>('');
   const [unlockedWords, setUnlockedWords] = useState<Set<number>>(new Set());
+  const [humanConfirmedWords, setHumanConfirmedWords] = useState<Set<number>>(new Set());
   const [showPopup, setShowPopup] = useState<number | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -52,61 +54,74 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       const confidenceKey = `word_${index}`;
       const confidence = wordConfidenceMap[confidenceKey] || 0;
       
-      // Find alternatives from other drafts
+      // Find ACTUAL alternatives from other drafts
       const alternatives: WordAlternative[] = [];
+      const seenWords = new Set<string>();
       
       successfulResults.forEach((result, resultIndex) => {
         const resultWords = result.text.match(/\S+/g) || [];
-        if (resultWords[index] && resultWords[index] !== word) {
-          alternatives.push({
-            word: resultWords[index],
-            source: `Draft ${resultIndex + 1}`,
-            confidence: 0.8 // Approximate confidence for alternatives
-          });
+        if (resultWords[index] && resultWords[index].toLowerCase() !== word.toLowerCase()) {
+          const altWord = resultWords[index];
+          if (!seenWords.has(altWord.toLowerCase())) {
+            seenWords.add(altWord.toLowerCase());
+            alternatives.push({
+              word: altWord,
+              source: `Draft ${resultIndex + 1}`
+            });
+          }
         }
       });
 
       // Add consensus alternative if different
       const consensusWords = redundancyAnalysis.consensus_text.match(/\S+/g) || [];
-      if (consensusWords[index] && consensusWords[index] !== word) {
-        alternatives.push({
-          word: consensusWords[index],
-          source: 'Consensus',
-          confidence: 0.9
-        });
+      if (consensusWords[index] && consensusWords[index].toLowerCase() !== word.toLowerCase()) {
+        const consensusWord = consensusWords[index];
+        if (!seenWords.has(consensusWord.toLowerCase())) {
+          alternatives.push({
+            word: consensusWord,
+            source: 'Consensus'
+          });
+        }
       }
 
       return {
         word,
         confidence,
-        alternatives: alternatives.filter((alt, idx, arr) => 
-          arr.findIndex(a => a.word === alt.word) === idx // Remove duplicates
-        ),
+        alternatives,
         isEditable: unlockedWords.has(index),
-        isEditing: editingWordIndex === index
+        isEditing: editingWordIndex === index,
+        isHumanConfirmed: humanConfirmedWords.has(index)
       };
     });
-  }, [text, wordConfidenceMap, redundancyAnalysis, unlockedWords, editingWordIndex]);
+  }, [text, wordConfidenceMap, redundancyAnalysis, unlockedWords, editingWordIndex, humanConfirmedWords]);
 
-  const getConfidenceColor = useCallback((confidence: number) => {
+  const getConfidenceColor = useCallback((confidence: number, isHumanConfirmed: boolean) => {
+    if (isHumanConfirmed) {
+      return 'rgba(16, 185, 129, 0.25)'; // Emerald green for human-confirmed
+    }
+    
     if (confidence >= 0.8) {
-      return 'rgba(34, 197, 94, 0.2)'; // Green for high confidence
+      return 'rgba(34, 197, 94, 0.2)'; // Standard green for high confidence
     } else if (confidence >= 0.5) {
-      return 'rgba(234, 179, 8, 0.3)'; // Yellow for medium confidence
+      return 'rgba(255, 193, 7, 0.25)'; // Standard amber for medium confidence
     } else {
-      return 'rgba(239, 68, 68, 0.4)'; // Red for low confidence
+      return 'rgba(220, 53, 69, 0.3)'; // Standard red for low confidence
     }
   }, []);
 
   const handleWordClick = useCallback((wordIndex: number, event: React.MouseEvent) => {
     const wordInfo = wordData[wordIndex];
     
+    if (wordInfo.isEditing) {
+      return; // Don't show popup while editing
+    }
+    
     if (wordInfo.isEditable) {
       // Start editing if word is unlocked
       setEditingWordIndex(wordIndex);
       setEditingValue(wordInfo.word);
       setShowPopup(null);
-    } else if (wordInfo.alternatives.length > 0 || wordInfo.confidence < 0.8) {
+    } else if (wordInfo.alternatives.length > 0 || wordInfo.confidence < 1.0) {
       // Show popup with alternatives and unlock option
       const rect = (event.target as HTMLElement).getBoundingClientRect();
       setPopupPosition({
@@ -126,15 +141,29 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
     const newWords = [...wordData.map(w => w.word)];
     newWords[wordIndex] = alternative;
     const newText = rebuildTextWithFormatting(text, newWords);
+    
+    // Mark as human confirmed
+    setHumanConfirmedWords(prev => new Set([...prev, wordIndex]));
+    
     onTextUpdate(newText);
     setShowPopup(null);
   }, [wordData, text, onTextUpdate]);
 
+  const handleConfirmCurrentWord = useCallback((wordIndex: number) => {
+    // Mark current word as human confirmed without changing it
+    setHumanConfirmedWords(prev => new Set([...prev, wordIndex]));
+    setShowPopup(null);
+  }, []);
+
   const handleEditingComplete = useCallback((wordIndex: number, newValue: string) => {
-    if (newValue.trim() !== '') {
+    if (newValue.trim() !== '' && newValue.trim() !== wordData[wordIndex]?.word) {
       const newWords = [...wordData.map(w => w.word)];
       newWords[wordIndex] = newValue.trim();
       const newText = rebuildTextWithFormatting(text, newWords);
+      
+      // Mark as human confirmed
+      setHumanConfirmedWords(prev => new Set([...prev, wordIndex]));
+      
       onTextUpdate(newText);
     }
     setEditingWordIndex(null);
@@ -167,17 +196,69 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   }, []);
 
   // Close popup when clicking outside
-  const handleDocumentClick = useCallback((event: MouseEvent) => {
-    const target = event.target as HTMLElement;
-    if (!target.closest('.confidence-popup') && !target.closest('.confidence-word')) {
-      setShowPopup(null);
-    }
-  }, []);
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.confidence-popup') && !target.closest('.confidence-word')) {
+        setShowPopup(null);
+      }
+    };
 
-  React.useEffect(() => {
     document.addEventListener('click', handleDocumentClick);
     return () => document.removeEventListener('click', handleDocumentClick);
-  }, [handleDocumentClick]);
+  }, []);
+
+  // Close editing when clicking outside
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.word-edit-input') && editingWordIndex !== null) {
+        handleEditingComplete(editingWordIndex, editingValue);
+      }
+    };
+
+    document.addEventListener('click', handleDocumentClick);
+    return () => document.removeEventListener('click', handleDocumentClick);
+  }, [editingWordIndex, editingValue, handleEditingComplete]);
+
+  /**
+   * 🔴 CRITICAL ALTERNATIVES EXTRACTION 🔴
+   * =====================================
+   * 
+   * Extract actual alternative words from redundancy analysis.
+   * Shows only REAL alternatives that differ from current word.
+   * Includes current word as first option for human confirmation.
+   */
+  const getWordAlternatives = (wordId: string): string[] => {
+    if (!redundancyAnalysis?.word_alternatives) return [];
+    
+    const alternatives = redundancyAnalysis.word_alternatives[wordId] || [];
+    const currentWord = getCurrentWordText(wordId);
+    
+    if (alternatives.length === 0) return [];
+    
+    // Get unique alternatives (case-insensitive deduplication)
+    const uniqueAlternatives = [];
+    const seenLower = new Set();
+    
+    // Always include current word first for confirmation
+    if (currentWord && !seenLower.has(currentWord.toLowerCase())) {
+      uniqueAlternatives.push(currentWord);
+      seenLower.add(currentWord.toLowerCase());
+    }
+    
+    // Add actual alternatives that differ from current word
+    for (const alt of alternatives) {
+      const altLower = alt.toLowerCase();
+      if (!seenLower.has(altLower) && altLower !== currentWord?.toLowerCase()) {
+        uniqueAlternatives.push(alt);
+        seenLower.add(altLower);
+      }
+    }
+    
+    // Only return if there are actual alternatives (more than just current word)
+    return uniqueAlternatives.length > 1 ? uniqueAlternatives : [];
+  };
 
   return (
     <div className="confidence-heatmap-viewer">
@@ -211,29 +292,30 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
                   type="text"
                   value={editingValue}
                   onChange={(e) => setEditingValue(e.target.value)}
-                  onBlur={() => handleEditingComplete(currentWordIndex, editingValue)}
                   onKeyDown={(e) => handleKeyDown(e, currentWordIndex)}
                   className="word-edit-input"
                   autoFocus
+                  style={{ width: `${Math.max(editingValue.length * 8, 60)}px` }}
                 />
               );
             }
+
+            const hasInteraction = wordInfo.alternatives.length > 0 || wordInfo.confidence < 1.0;
 
             return (
               <span
                 key={`word-${segmentIndex}`}
                 className={`confidence-word ${wordInfo.isEditable ? 'editable' : ''} ${
-                  wordInfo.alternatives.length > 0 || wordInfo.confidence < 0.8 ? 'clickable' : ''
-                }`}
+                  hasInteraction ? 'clickable' : ''
+                } ${wordInfo.isHumanConfirmed ? 'human-confirmed' : ''}`}
                 style={{
-                  backgroundColor: getConfidenceColor(wordInfo.confidence),
-                  cursor: wordInfo.isEditable ? 'text' : 
-                         (wordInfo.alternatives.length > 0 || wordInfo.confidence < 0.8) ? 'pointer' : 'default'
+                  backgroundColor: getConfidenceColor(wordInfo.confidence, wordInfo.isHumanConfirmed),
+                  cursor: wordInfo.isEditable ? 'text' : hasInteraction ? 'pointer' : 'default'
                 }}
                 onClick={(e) => handleWordClick(currentWordIndex, e)}
                 title={`Confidence: ${(wordInfo.confidence * 100).toFixed(0)}%${
                   wordInfo.alternatives.length > 0 ? ` • ${wordInfo.alternatives.length} alternatives` : ''
-                }`}
+                }${wordInfo.isHumanConfirmed ? ' • Human confirmed' : ''}`}
               >
                 {segment}
               </span>
@@ -255,37 +337,42 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
           }}
         >
           <div className="popup-content">
-            <div className="popup-header">
+            <div className="popup-word-info">
               <span className="popup-word">{wordData[showPopup]?.word}</span>
               <span className="popup-confidence">
-                {((wordData[showPopup]?.confidence || 0) * 100).toFixed(0)}% confidence
+                {((wordData[showPopup]?.confidence || 0) * 100).toFixed(0)}%
               </span>
             </div>
             
             {wordData[showPopup]?.alternatives.length > 0 && (
               <div className="popup-alternatives">
-                <div className="alternatives-label">Alternatives:</div>
+                {/* Current word as first option */}
+                <button
+                  className="alternative-option"
+                  onClick={() => handleConfirmCurrentWord(showPopup)}
+                  style={{ fontWeight: 'bold' }}
+                >
+                  {wordData[showPopup].word}
+                </button>
+                
                 {wordData[showPopup].alternatives.map((alt, index) => (
                   <button
                     key={index}
                     className="alternative-option"
                     onClick={() => handleSelectAlternative(showPopup, alt.word)}
                   >
-                    <span className="alt-word">{alt.word}</span>
-                    <span className="alt-source">{alt.source}</span>
+                    {alt.word}
                   </button>
                 ))}
               </div>
             )}
             
-            <div className="popup-actions">
-              <button
-                className="unlock-button"
-                onClick={() => handleUnlockWord(showPopup)}
-              >
-                🔓 Unlock for Editing
-              </button>
-            </div>
+            <button
+              className="unlock-button"
+              onClick={() => handleUnlockWord(showPopup)}
+            >
+              🔓
+            </button>
           </div>
         </div>
       )}

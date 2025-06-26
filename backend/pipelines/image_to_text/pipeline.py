@@ -471,7 +471,7 @@ class ImageToTextPipeline:
         texts = [r.get("extracted_text", "") for r in successful_results]
         
         # Perform consensus analysis to get word confidence mapping
-        consensus_text, word_confidence_map = self._calculate_consensus(texts)
+        consensus_text, word_confidence_map, word_alternatives = self._calculate_consensus(texts)
         
         # Calculate overall confidence
         overall_confidence = sum(word_confidence_map.values()) / len(word_confidence_map) if word_confidence_map else 0.0
@@ -517,6 +517,7 @@ class ImageToTextPipeline:
                     "best_formatted_text": best_formatted_text,
                     "best_result_index": best_result_index,
                     "word_confidence_map": word_confidence_map,
+                    "word_alternatives": word_alternatives,
                     "individual_results": [
                         {
                             "success": r.get("success", False),
@@ -532,152 +533,125 @@ class ImageToTextPipeline:
 
     def _calculate_consensus(self, texts: List[str]) -> tuple:
         """
-        🔴 CRITICAL CONSENSUS ALGORITHM - HEATMAP CONFIDENCE GENERATOR 🔴
-        ================================================================
+        🔴 SOPHISTICATED CONSENSUS ALGORITHM - SEQUENCE ALIGNMENT 🔴
+        ===========================================================
         
-        This method generates the word-level confidence data that powers heatmap coloring.
+        Uses difflib.SequenceMatcher to properly align words across drafts.
+        This ensures that "Indenture" in draft 1 correctly corresponds to 
+        "Indenture" in draft 3, not nearby words due to insertions/deletions.
         
-        CRITICAL HEATMAP OUTPUTS:
-        - consensus_text: Merged text with highest confidence words (preserves formatting)
-        - word_confidence_map: Dict mapping word positions to confidence scores (0.0-1.0)
+        ALGORITHM:
+        1. Use longest text as base template (preserves formatting)
+        2. Align every other draft to base using SequenceMatcher
+        3. Build word-to-word mappings based on alignment opcodes
+        4. Calculate confidence from actual aligned words, not positions
+        5. Generate alternatives only from genuinely disputed words
         
-        ALGORITHM OVERVIEW:
-        ==================
-        1. Select longest text as formatting template (preserves document structure)
-        2. Map word positions using regex to maintain exact character positions
-        3. Find corresponding words across texts using position ratios and similarity
-        4. Calculate confidence as agreement percentage across all texts
-        5. Build consensus by replacing disputed words with most common alternatives
-        6. Generate confidence map for heatmap coloring
-        
-        CRITICAL HEATMAP REQUIREMENTS:
-        =============================
-        
-        1. FORMATTING PRESERVATION:
-           - Uses longest text as base to preserve line breaks, spacing, indentation
-           - Maintains exact character positions for word replacement
-           - Preserves document structure (headers, paragraphs, lists, etc.)
-        
-        2. WORD POSITION MAPPING:
-           - Each word gets unique identifier: word_0, word_1, word_2, etc.
-           - Position mapping allows heatmap to highlight specific words
-           - Confidence scores enable color coding (green=high, yellow=medium, red=low)
-        
-        3. CONFIDENCE CALCULATION:
-           - confidence = agreement_count / total_texts
-           - 1.0 = Perfect agreement (all texts have same word)
-           - 0.5 = Half agreement (50% of texts agree)
-           - 0.0 = No agreement (all texts have different words)
-        
-        4. SIMILARITY MATCHING:
-           - Uses SequenceMatcher with 70% threshold for fuzzy word matching
-           - Handles OCR variations (e.g., "Property" vs "Properly")
-           - Position-based search within ±2 word range for alignment
-        
-        HEATMAP COLOR MAPPING:
-        =====================
-        - High Confidence (0.8-1.0): Green background (rgba(34, 197, 94, 0.1-0.3))
-        - Medium Confidence (0.5-0.79): Yellow background (rgba(234, 179, 8, 0.2-0.5))
-        - Low Confidence (0.0-0.49): Red background (rgba(239, 68, 68, 0.3-0.7))
-        
-        RETURN FORMAT (CRITICAL):
-        ========================
-        Returns tuple: (consensus_text, word_confidence_map)
-        
-        consensus_text: str - Merged text with best words, preserving formatting
-        word_confidence_map: dict - {"word_0": 0.8, "word_1": 0.6, "word_2": 1.0, ...}
-        
-        ⚠️  DO NOT MODIFY:
-        - Word position mapping logic (breaks heatmap highlighting)
-        - Confidence calculation formula (breaks color accuracy)
-        - Formatting preservation logic (breaks document structure)
-        - Return format (breaks frontend parsing)
-        
-        ✅ SAFE TO MODIFY:
-        - Similarity threshold (currently 70%)
-        - Search range for word matching (currently ±2)
-        - Confidence calculation weights
-        - Additional metadata in confidence map
+        Returns:
+            tuple: (consensus_text, confidence_map, word_alternatives)
         """
         
         if len(texts) == 1:
-            # Only one result, perfect confidence for all words
+            # Single result - perfect confidence for all words
             words = re.findall(r'\S+', texts[0])
-            confidence_map = {f"word_{i}": 1.0 for i, word in enumerate(words)}
-            return texts[0], confidence_map
-        
-        # CRITICAL: Use longest text as base to preserve document structure
+            confidence_map = {f"word_{i}": 1.0 for i in range(len(words))}
+            word_alternatives = {}  # No alternatives for single result
+            return texts[0], confidence_map, word_alternatives
+
+        # Step 1: Use longest text as base to preserve document structure
         base_text = max(texts, key=len)
+        base_words = re.findall(r'\S+', base_text)
+        n_base_words = len(base_words)
         
-        # CRITICAL: Find all word positions to maintain exact character positions
-        word_pattern = r'\S+'  # Matches any non-whitespace sequence
-        base_words = []
-        word_positions = []  # (start_char, end_char) for each word
-        
-        for match in re.finditer(word_pattern, base_text):
-            base_words.append(match.group())
-            word_positions.append((match.start(), match.end()))
-        
-        # CRITICAL: Generate consensus and confidence for each word position
-        consensus_replacements = {}  # word_index -> replacement_word
-        word_confidence_map = {}     # word_index -> confidence_score
-        
-        for i, (base_word, (start_pos, end_pos)) in enumerate(zip(base_words, word_positions)):
-            # Collect corresponding words from all texts at similar positions
-            word_candidates = [base_word]  # Start with base word
-            
-            # CRITICAL: Find corresponding words in other texts
-            for other_text in texts:
-                if other_text == base_text:
-                    continue
-                    
-                # Find words in other texts around the same relative position
-                other_words = re.findall(word_pattern, other_text)
+        # Get word positions in base text for replacement
+        word_positions = [match.span() for match in re.finditer(r'\S+', base_text)]
+
+        # Step 2: Initialize candidate lists - each base word starts with itself
+        word_candidates = [[base_words[i]] for i in range(n_base_words)]
+
+        # Step 3: Align every other draft to the base using SequenceMatcher
+        for other_text in texts:
+            if other_text is base_text:
+                continue  # Skip the base text itself
                 
-                if other_words:
-                    # CRITICAL: Calculate relative position for word alignment
-                    relative_pos = i / len(base_words) if len(base_words) > 0 else 0
-                    target_index = int(relative_pos * len(other_words))
-                    target_index = min(target_index, len(other_words) - 1)
-                    
-                    # CRITICAL: Search within range for similar words
-                    search_range = min(2, len(other_words))  # ±2 word search window
-                    for j in range(max(0, target_index - search_range), 
-                                 min(len(other_words), target_index + search_range + 1)):
-                        candidate_word = other_words[j]
+            other_words = re.findall(r'\S+', other_text)
+            
+            # Use SequenceMatcher to find optimal alignment
+            matcher = SequenceMatcher(None, base_words, other_words, autojunk=False)
+            
+            # Process alignment opcodes
+            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+                if tag == "equal":
+                    # Words match exactly - add to candidates
+                    for k in range(i2 - i1):
+                        word_candidates[i1 + k].append(other_words[j1 + k])
                         
-                        # CRITICAL: Use similarity matching for OCR variations
-                        similarity = SequenceMatcher(None, base_word.lower(), candidate_word.lower()).ratio()
-                        if similarity > 0.7:  # 70% similarity threshold
-                            word_candidates.append(candidate_word)
-                            break
+                elif tag == "replace" and (i2 - i1) == (j2 - j1):
+                    # Same span length - safe 1-to-1 word mapping
+                    for k in range(i2 - i1):
+                        word_candidates[i1 + k].append(other_words[j1 + k])
+                        
+                # Note: "insert" and "delete" operations are ignored
+                # They don't align to any base word position
+
+        # Step 4: Calculate confidence and find consensus for each word
+        confidence_map = {}
+        consensus_replacements = {}
+        word_alternatives = {}
+        total_drafts = len(texts)
+
+        for i, candidates in enumerate(word_candidates):
+            base_word = base_words[i]
+            word_id = f"word_{i}"
             
-            # CRITICAL: Calculate confidence and choose consensus word
-            non_empty_candidates = [w for w in word_candidates if w.strip()]
-            confidence = len(non_empty_candidates) / len(texts)  # Agreement percentage
+            # Calculate confidence based on exact matches (case-insensitive)
+            base_word_lower = base_word.lower()
+            exact_matches = sum(1 for word in candidates if word.lower() == base_word_lower)
+            confidence = exact_matches / total_drafts
+            confidence_map[word_id] = confidence
+
+            # Store alternatives if there are multiple different words
+            unique_candidates = []
+            seen_lower = set()
+            for word in candidates:
+                word_lower = word.lower()
+                if word_lower not in seen_lower:
+                    unique_candidates.append(word)
+                    seen_lower.add(word_lower)
             
-            if len(non_empty_candidates) > 1:
-                # Find most common word among candidates
+            # Only store alternatives if there are actual differences
+            if len(unique_candidates) > 1:
+                word_alternatives[word_id] = unique_candidates
+
+            # Find consensus word (most common, preserving original case)
+            if len(candidates) > 1:
+                # Count occurrences (case-insensitive)
                 word_counts = {}
-                for word in non_empty_candidates:
-                    word_counts[word] = word_counts.get(word, 0) + 1
+                for word in candidates:
+                    normalized = word.lower()
+                    word_counts[normalized] = word_counts.get(normalized, 0) + 1
                 
-                consensus_word = max(word_counts.items(), key=lambda x: x[1])[0]
+                # Get most common word (normalized)
+                most_common_normalized = max(word_counts.items(), key=lambda x: x[1])[0]
                 
-                # Only replace if consensus word is different from base
+                # Find original case version of most common word
+                consensus_word = next(word for word in candidates 
+                                    if word.lower() == most_common_normalized)
+                
+                # Only replace if consensus differs from base word
                 if consensus_word != base_word:
                     consensus_replacements[i] = consensus_word
-            
-            # CRITICAL: Store confidence for heatmap coloring
-            word_confidence_map[f"word_{i}"] = confidence
-        
-        # CRITICAL: Build consensus text while preserving exact formatting
+
+        # Step 5: Build consensus text by applying replacements
         consensus_text = base_text
         
         # Apply replacements from right to left to maintain character positions
         for word_index in sorted(consensus_replacements.keys(), reverse=True):
-            start_pos, end_pos = word_positions[word_index]
-            replacement_word = consensus_replacements[word_index]
-            consensus_text = consensus_text[:start_pos] + replacement_word + consensus_text[end_pos:]
-        
-        return consensus_text, word_confidence_map 
+            if word_index < len(word_positions):
+                start_pos, end_pos = word_positions[word_index]
+                replacement_word = consensus_replacements[word_index]
+                consensus_text = (consensus_text[:start_pos] + 
+                                replacement_word + 
+                                consensus_text[end_pos:])
+
+        return consensus_text, confidence_map, word_alternatives 
