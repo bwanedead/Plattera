@@ -422,6 +422,7 @@ After redundancy styling implementation, verify:
   flex-direction: column;
   flex-grow: 1;
   min-height: 0;
+  position: relative; /* Enable absolute positioning for DraftSelector */
 }
 
 .result-tabs {

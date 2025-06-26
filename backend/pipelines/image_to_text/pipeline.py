@@ -414,18 +414,36 @@ class ImageToTextPipeline:
         # Extract text from successful results
         texts = [r.get("extracted_text", "") for r in successful_results]
         
-        # Perform consensus analysis
+        # Perform consensus analysis to get word confidence mapping
         consensus_text, word_confidence_map = self._calculate_consensus(texts)
         
         # Calculate overall confidence
         overall_confidence = sum(word_confidence_map.values()) / len(word_confidence_map) if word_confidence_map else 0.0
+        
+        # Find the best individual result to preserve its formatting
+        # Choose the result with the highest confidence or longest text if confidence is similar
+        best_result_index = 0
+        best_score = 0
+        
+        for i, result in enumerate(successful_results):
+            # Score based on text length and confidence (if available)
+            text_length_score = len(result.get("extracted_text", ""))
+            confidence_score = result.get("confidence_score", 0.5) * 1000  # Weight confidence higher
+            total_score = text_length_score + confidence_score
+            
+            if total_score > best_score:
+                best_score = total_score
+                best_result_index = i
+        
+        # Use the best individual result's text to preserve formatting
+        best_formatted_text = successful_results[best_result_index].get("extracted_text", "")
         
         # Aggregate token usage
         total_tokens = sum(r.get("tokens_used", 0) for r in successful_results)
         
         return {
             "success": True,
-            "extracted_text": consensus_text,
+            "extracted_text": best_formatted_text,  # Use best individual result's formatting
             "model_used": model,
             "service_type": "llm",
             "tokens_used": total_tokens,
@@ -434,7 +452,9 @@ class ImageToTextPipeline:
                 "total_calls": len(results),
                 "successful_calls": len(successful_results),
                 "failed_calls": len(results) - len(successful_results),
-                "consensus_text": consensus_text,
+                "consensus_text": consensus_text,  # Keep consensus for comparison
+                "best_formatted_text": best_formatted_text,  # The formatted version we're using
+                "best_result_index": best_result_index,
                 "word_confidence_map": word_confidence_map,
                 "individual_results": [
                     {
@@ -449,7 +469,8 @@ class ImageToTextPipeline:
             "metadata": {
                 "redundancy_enabled": True,
                 "redundancy_count": len(results),
-                "processing_mode": "consensus"
+                "processing_mode": "best_formatted",  # Changed from "consensus"
+                "best_result_used": best_result_index + 1
             }
         }
 

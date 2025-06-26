@@ -89,6 +89,7 @@ import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { ParcelTracerLoader } from './ParcelTracerLoader';
 import { ImageEnhancementModal } from './ImageEnhancementModal';
+import { DraftSelector } from './DraftSelector';
 
 // Enhancement settings interface
 interface EnhancementSettings {
@@ -243,6 +244,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     enabled: true,
     count: 3
   });
+  const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setStagedFiles(prev => [...prev, ...acceptedFiles]);
@@ -271,6 +273,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     const firstSuccessful = newResults.find(r => r.status === 'completed') || newResults[0];
     if (firstSuccessful) {
       setSelectedResult(firstSuccessful);
+      setSelectedDraft('best'); // Reset to best draft for new results
     }
     
     setStagedFiles([]);
@@ -290,6 +293,38 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       ...prev,
       [setting]: value
     }));
+  }, []);
+
+  const getCurrentText = useCallback(() => {
+    if (!selectedResult || selectedResult.status !== 'completed') {
+      return selectedResult?.error ? `Error: ${selectedResult.error}` : '';
+    }
+
+    const redundancyAnalysis = selectedResult.result.metadata?.redundancy_analysis;
+    
+    if (!redundancyAnalysis) {
+      // No redundancy data, just return the main text
+      return selectedResult.result.extracted_text;
+    }
+
+    if (selectedDraft === 'best') {
+      return selectedResult.result.extracted_text; // This is already the best formatted text
+    } else if (selectedDraft === 'consensus') {
+      return redundancyAnalysis.consensus_text || selectedResult.result.extracted_text;
+    } else if (typeof selectedDraft === 'number') {
+      const individualResults = redundancyAnalysis.individual_results;
+      const successfulResults = individualResults.filter((r: any) => r.success);
+      if (selectedDraft < successfulResults.length) {
+        return successfulResults[selectedDraft].text;
+      }
+    }
+
+    // Fallback to main text
+    return selectedResult.result.extracted_text;
+  }, [selectedResult, selectedDraft]);
+
+  const handleDraftSelect = useCallback((draft: number | 'consensus' | 'best') => {
+    setSelectedDraft(draft);
   }, []);
 
   return (
@@ -461,7 +496,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                     </div>
                     <div className="history-list-items">
                       {sessionResults.map((res, i) => (
-                        <div key={i} className={`log-item ${selectedResult === res ? 'selected' : ''} ${res.status}`} onClick={() => setSelectedResult(res)}>
+                        <div key={i} className={`log-item ${selectedResult === res ? 'selected' : ''} ${res.status}`} onClick={() => {
+                          setSelectedResult(res);
+                          setSelectedDraft('best'); // Reset to best draft when switching results
+                        }}>
                           <span className={`log-item-status-dot ${res.status}`}></span>
                           {res.input}
                         </div>
@@ -487,13 +525,20 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                   )}
                   {!isProcessing && selectedResult && (
                     <div className="result-display-area">
+                        {/* Draft Selector - positioned absolutely in top-right */}
+                        <DraftSelector
+                          redundancyAnalysis={selectedResult.result.metadata?.redundancy_analysis}
+                          onDraftSelect={handleDraftSelect}
+                          selectedDraft={selectedDraft}
+                        />
+                        
                         <div className="result-tabs">
                             <button className={activeTab === 'text' ? 'active' : ''} onClick={() => setActiveTab('text')}>Extracted Text</button>
                             <button className={activeTab === 'metadata' ? 'active' : ''} onClick={() => setActiveTab('metadata')}>Metadata</button>
                         </div>
                         <div className="result-tab-content">
                             {activeTab === 'text' && (
-                              <pre>{selectedResult.status === 'completed' ? selectedResult.result.extracted_text : `Error: ${selectedResult.error}`}</pre>
+                              <pre>{getCurrentText()}</pre>
                             )}
                             {activeTab === 'metadata' && (
                               <pre>{selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result.metadata, null, 2) : 'No metadata available for failed processing.'}</pre>
