@@ -477,64 +477,82 @@ class ImageToTextPipeline:
         }
 
     def _calculate_consensus(self, texts: List[str]) -> tuple:
-        """Calculate consensus text and word-level confidence scores"""
+        """Calculate consensus text while preserving formatting structure"""
         
         if len(texts) == 1:
             # Only one result, perfect confidence
-            words = texts[0].split()
+            words = re.findall(r'\S+', texts[0])
             confidence_map = {f"word_{i}": 1.0 for i, word in enumerate(words)}
             return texts[0], confidence_map
         
-        # Tokenize all texts into words
-        all_word_lists = [self._tokenize_text(text) for text in texts]
+        # Find the text with the best structure (longest and most complete)
+        base_text = max(texts, key=len)
         
-        # Find the longest common structure
-        consensus_words = []
+        # Find all word positions in the base text to preserve formatting
+        word_pattern = r'\S+'
+        base_words = []
+        word_positions = []
+        
+        for match in re.finditer(word_pattern, base_text):
+            base_words.append(match.group())
+            word_positions.append((match.start(), match.end()))
+        
+        # For each word position, find consensus across all texts
+        consensus_replacements = {}
         word_confidence_map = {}
         
-        # Use the first text as the base structure
-        base_words = all_word_lists[0] if all_word_lists else []
-        
-        for i, base_word in enumerate(base_words):
-            # Check how many other texts have a similar word at similar position
-            matches = [base_word]
+        for i, (base_word, (start_pos, end_pos)) in enumerate(zip(base_words, word_positions)):
+            # Collect corresponding words from all texts at similar positions
+            word_candidates = [base_word]
             
-            for other_words in all_word_lists[1:]:
-                # Look for similar word in nearby positions
-                match_found = False
-                search_range = min(3, len(other_words))  # Search within 3 positions
+            for other_text in texts:
+                if other_text == base_text:
+                    continue
+                    
+                # Find words in other texts around the same relative position
+                other_words = re.findall(word_pattern, other_text)
                 
-                for j in range(max(0, i-search_range), min(len(other_words), i+search_range+1)):
-                    if j < len(other_words):
-                        similarity = SequenceMatcher(None, base_word.lower(), other_words[j].lower()).ratio()
-                        if similarity > 0.8:  # 80% similarity threshold
-                            matches.append(other_words[j])
-                            match_found = True
+                # Try to find corresponding word by position ratio
+                if other_words:
+                    relative_pos = i / len(base_words) if len(base_words) > 0 else 0
+                    target_index = int(relative_pos * len(other_words))
+                    target_index = min(target_index, len(other_words) - 1)
+                    
+                    # Check a small range around the target position
+                    search_range = min(2, len(other_words))
+                    for j in range(max(0, target_index - search_range), 
+                                 min(len(other_words), target_index + search_range + 1)):
+                        candidate_word = other_words[j]
+                        similarity = SequenceMatcher(None, base_word.lower(), candidate_word.lower()).ratio()
+                        if similarity > 0.7:  # 70% similarity threshold
+                            word_candidates.append(candidate_word)
                             break
-                
-                if not match_found:
-                    matches.append("")  # No match found
             
-            # Calculate confidence based on agreement
-            non_empty_matches = [m for m in matches if m.strip()]
-            confidence = len(non_empty_matches) / len(texts)
+            # Calculate confidence and choose consensus word
+            non_empty_candidates = [w for w in word_candidates if w.strip()]
+            confidence = len(non_empty_candidates) / len(texts)
             
-            # Choose the most common word (or first if tie)
-            if non_empty_matches:
-                # Find most frequent word
+            if len(non_empty_candidates) > 1:
+                # Find most common word
                 word_counts = {}
-                for word in non_empty_matches:
+                for word in non_empty_candidates:
                     word_counts[word] = word_counts.get(word, 0) + 1
                 
                 consensus_word = max(word_counts.items(), key=lambda x: x[1])[0]
-                consensus_words.append(consensus_word)
-                word_confidence_map[f"word_{i}"] = confidence
+                
+                # Only replace if consensus word is different from base
+                if consensus_word != base_word:
+                    consensus_replacements[i] = consensus_word
+            
+            word_confidence_map[f"word_{i}"] = confidence
         
-        consensus_text = " ".join(consensus_words)
-        return consensus_text, word_confidence_map
-
-    def _tokenize_text(self, text: str) -> List[str]:
-        """Simple tokenization that preserves meaningful words"""
-        # Remove extra whitespace and split on whitespace
-        words = re.findall(r'\S+', text.strip())
-        return words 
+        # Build consensus text by replacing words in the base text while preserving formatting
+        consensus_text = base_text
+        
+        # Apply replacements from right to left to maintain position indices
+        for word_index in sorted(consensus_replacements.keys(), reverse=True):
+            start_pos, end_pos = word_positions[word_index]
+            replacement_word = consensus_replacements[word_index]
+            consensus_text = consensus_text[:start_pos] + replacement_word + consensus_text[end_pos:]
+        
+        return consensus_text, word_confidence_map 
