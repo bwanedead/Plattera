@@ -21,7 +21,8 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
   onDraftSelect,
   selectedDraft
 }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   // Don't render if no redundancy data
   if (!redundancyAnalysis || !redundancyAnalysis.individual_results) {
@@ -37,7 +38,7 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
 
   const handleDraftSelect = (draft: number | 'consensus' | 'best') => {
     onDraftSelect(draft);
-    setIsExpanded(false);
+    setIsDropdownOpen(false);
   };
 
   const getCurrentDraftLabel = () => {
@@ -46,65 +47,93 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
     return `Draft ${selectedDraft + 1}`;
   };
 
-  return (
-    <div className="draft-selector-container">
-      <div 
-        className={`draft-selector-bubble ${isExpanded ? 'expanded' : ''}`}
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <div className="draft-selector-current">
-          <span className="draft-label">{getCurrentDraftLabel()}</span>
-          <span className="draft-count">{totalDrafts} drafts</span>
-          <span className={`expand-icon ${isExpanded ? 'rotated' : ''}`}>▼</span>
-        </div>
-        
-        {isExpanded && (
-          <div className="draft-selector-dropdown">
-            <div 
-              className={`draft-option ${selectedDraft === 'best' ? 'active' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDraftSelect('best');
-              }}
-            >
-              <span className="draft-option-label">Best Draft</span>
-              <span className="draft-option-desc">Highest quality (Draft {redundancyAnalysis.best_result_index + 1})</span>
-            </div>
-            
-            <div 
-              className={`draft-option ${selectedDraft === 'consensus' ? 'active' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDraftSelect('consensus');
-              }}
-            >
-              <span className="draft-option-label">Consensus</span>
-              <span className="draft-option-desc">Merged from all drafts</span>
-            </div>
-            
-            <div className="draft-separator"></div>
-            
-            {successfulResults.map((result, index) => (
-              <div 
-                key={index}
-                className={`draft-option ${selectedDraft === index ? 'active' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDraftSelect(index);
-                }}
-              >
-                <span className="draft-option-label">Draft {index + 1}</span>
-                <span className="draft-option-desc">
-                  {result.text.length} chars, {result.tokens} tokens
-                  {index === redundancyAnalysis.best_result_index && (
-                    <span className="best-badge">★</span>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+  const toggleVisibility = () => {
+    setIsVisible(!isVisible);
+    if (!isVisible) {
+      setIsDropdownOpen(false); // Close dropdown when hiding
+    }
+  };
+
+  // Collapsed state - just a small icon
+  if (!isVisible) {
+    return (
+      <div className="draft-selector-collapsed">
+        <button 
+          className="draft-selector-icon"
+          onClick={toggleVisibility}
+          title={`${totalDrafts} drafts available - Currently viewing: ${getCurrentDraftLabel()}`}
+        >
+          <span className="draft-icon">📄</span>
+          <span className="draft-count">{totalDrafts}</span>
+        </button>
       </div>
+    );
+  }
+
+  // Expanded state - compact header with dropdown
+  return (
+    <div className="draft-selector-expanded">
+      <div className="draft-selector-header">
+        <div className="draft-header-left">
+          <span className="draft-label">Drafts</span>
+          <span className="draft-count-badge">{totalDrafts}</span>
+        </div>
+        <button 
+          className="draft-close-btn"
+          onClick={toggleVisibility}
+          title="Hide draft selector"
+        >
+          ×
+        </button>
+      </div>
+      
+      <div className="draft-current-selection">
+        <button 
+          className="draft-current-btn"
+          onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+        >
+          <span className="current-draft-name">{getCurrentDraftLabel()}</span>
+          <span className={`dropdown-arrow ${isDropdownOpen ? 'open' : ''}`}>▼</span>
+        </button>
+      </div>
+      
+      {isDropdownOpen && (
+        <div className="draft-dropdown">
+          <div 
+            className={`draft-item ${selectedDraft === 'best' ? 'active' : ''}`}
+            onClick={() => handleDraftSelect('best')}
+          >
+            <span className="draft-name">Best <span className="recommended">★</span></span>
+            <span className="draft-desc">Highest quality</span>
+          </div>
+          
+          <div 
+            className={`draft-item ${selectedDraft === 'consensus' ? 'active' : ''}`}
+            onClick={() => handleDraftSelect('consensus')}
+          >
+            <span className="draft-name">Consensus</span>
+            <span className="draft-desc">Merged result</span>
+          </div>
+          
+          <div className="draft-divider"></div>
+          
+          {successfulResults.map((result, index) => (
+            <div 
+              key={index}
+              className={`draft-item ${selectedDraft === index ? 'active' : ''}`}
+              onClick={() => handleDraftSelect(index)}
+            >
+              <span className="draft-name">
+                Draft {index + 1}
+                {index === redundancyAnalysis.best_result_index && (
+                  <span className="best-indicator">★</span>
+                )}
+              </span>
+              <span className="draft-desc">{result.tokens} tokens</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }; 

@@ -443,34 +443,34 @@ class ImageToTextPipeline:
         
         return {
             "success": True,
-            "extracted_text": best_formatted_text,  # Use best individual result's formatting
+            "extracted_text": best_formatted_text,
             "model_used": model,
             "service_type": "llm",
             "tokens_used": total_tokens,
             "confidence_score": overall_confidence,
-            "redundancy_analysis": {
-                "total_calls": len(results),
-                "successful_calls": len(successful_results),
-                "failed_calls": len(results) - len(successful_results),
-                "consensus_text": consensus_text,  # Keep consensus for comparison
-                "best_formatted_text": best_formatted_text,  # The formatted version we're using
-                "best_result_index": best_result_index,
-                "word_confidence_map": word_confidence_map,
-                "individual_results": [
-                    {
-                        "success": r.get("success", False),
-                        "text": r.get("extracted_text", ""),
-                        "tokens": r.get("tokens_used", 0),
-                        "error": r.get("error")
-                    }
-                    for r in results
-                ]
-            },
             "metadata": {
                 "redundancy_enabled": True,
                 "redundancy_count": len(results),
-                "processing_mode": "best_formatted",  # Changed from "consensus"
-                "best_result_used": best_result_index + 1
+                "processing_mode": "best_formatted",
+                "best_result_used": best_result_index + 1,
+                "redundancy_analysis": {
+                    "total_calls": len(results),
+                    "successful_calls": len(successful_results),
+                    "failed_calls": len(results) - len(successful_results),
+                    "consensus_text": consensus_text,
+                    "best_formatted_text": best_formatted_text,
+                    "best_result_index": best_result_index,
+                    "word_confidence_map": word_confidence_map,
+                    "individual_results": [
+                        {
+                            "success": r.get("success", False),
+                            "text": r.get("extracted_text", ""),
+                            "tokens": r.get("tokens_used", 0),
+                            "error": r.get("error")
+                        }
+                        for r in results
+                    ]
+                }
             }
         }
 
