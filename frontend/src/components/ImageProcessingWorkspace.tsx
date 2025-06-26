@@ -91,6 +91,8 @@ import { ParcelTracerLoader } from './ParcelTracerLoader';
 import { ImageEnhancementModal } from './ImageEnhancementModal';
 import { DraftSelector } from './DraftSelector';
 import { AnimatedBorder } from './AnimatedBorder';
+import { HeatmapToggle } from './HeatmapToggle';
+import { ConfidenceHeatmapViewer } from './ConfidenceHeatmapViewer';
 
 // Enhancement settings interface
 interface EnhancementSettings {
@@ -301,13 +303,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
   
   /*
-  🔴 ADD HEATMAP STATE VARIABLES HERE 🔴
-  =====================================
-  
+  🔴 HEATMAP STATE VARIABLES - ADDED AS DOCUMENTED 🔴
+  ==================================================
+  */
   const [isHeatmapEnabled, setIsHeatmapEnabled] = useState(false);
   const [editedText, setEditedText] = useState<string>('');
   const [isTextEdited, setIsTextEdited] = useState(false);
-  */
   
   // Navigation button hover states
   const [homeHovered, setHomeHovered] = useState(false);
@@ -341,6 +342,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     if (firstSuccessful) {
       setSelectedResult(firstSuccessful);
       setSelectedDraft('best'); // Reset to best draft for new results
+      // Reset heatmap state for new results
+      setIsHeatmapEnabled(false);
+      setIsTextEdited(false);
+      setEditedText('');
     }
     
     setStagedFiles([]);
@@ -404,13 +409,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   */
   const getCurrentText = useCallback(() => {
     /*
-    🔴 ADD HEATMAP EDITED TEXT CHECK HERE 🔴
-    =======================================
-    
+    🔴 HEATMAP EDITED TEXT CHECK - ADDED AS DOCUMENTED 🔴
+    ====================================================
+    */
     if (isTextEdited && editedText) {
       return editedText;
     }
-    */
     
     if (!selectedResult || selectedResult.status !== 'completed' || !selectedResult.result) {
       return selectedResult?.error ? `Error: ${selectedResult.error}` : '';
@@ -438,10 +442,29 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
 
     // Fallback to main text
     return selectedResult.result.extracted_text || '';
-  }, [selectedResult, selectedDraft]);  // ← CRITICAL: Add isTextEdited, editedText to dependencies when implementing heatmap
+  }, [selectedResult, selectedDraft, isTextEdited, editedText]);  // ← CRITICAL: Added heatmap dependencies
 
   const handleDraftSelect = useCallback((draft: number | 'consensus' | 'best') => {
     setSelectedDraft(draft);
+  }, []);
+
+  /*
+  🔴 HEATMAP CALLBACK FUNCTIONS - ADDED AS DOCUMENTED 🔴
+  ======================================================
+  */
+  const handleTextUpdate = useCallback((newText: string) => {
+    setEditedText(newText);
+    setIsTextEdited(true);
+    // Optional: Mark result as edited in metadata
+  }, []);
+
+  const handleHeatmapToggle = useCallback((enabled: boolean) => {
+    setIsHeatmapEnabled(enabled);
+    if (!enabled) {
+      // Reset edited state when disabling heatmap
+      setIsTextEdited(false);
+      setEditedText('');
+    }
   }, []);
 
   return (
@@ -636,6 +659,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                         <div key={i} className={`log-item ${selectedResult === res ? 'selected' : ''} ${res.status}`} onClick={() => {
                           setSelectedResult(res);
                           setSelectedDraft('best'); // Reset to best draft when switching results
+                          // Reset heatmap state when switching results
+                          setIsHeatmapEnabled(false);
+                          setIsTextEdited(false);
+                          setEditedText('');
                         }}>
                           <span className={`log-item-status-dot ${res.status}`}></span>
                           {res.input}
@@ -688,19 +715,14 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                         />
                         
                         {/* 
-                        🔴 HEATMAP INTEGRATION POINT #2 - ADD HEATMAP TOGGLE HERE 🔴
-                        ===========================================================
-                        
-                        ADD HeatmapToggle component here with these exact props:
-                        
+                        🔴 HEATMAP TOGGLE - ADDED AS DOCUMENTED 🔴
+                        ==========================================
+                        */}
                         <HeatmapToggle
                           isEnabled={isHeatmapEnabled}
-                          onToggle={setIsHeatmapEnabled}
+                          onToggle={handleHeatmapToggle}
                           hasRedundancyData={!!selectedResult?.result?.metadata?.redundancy_analysis}
                         />
-                        
-                        POSITIONING: CSS must set top: 60px, right: 80px for proper alignment
-                        */}
                         
                         <div className="result-tabs">
                             <button className={activeTab === 'text' ? 'active' : ''} onClick={() => setActiveTab('text')}>Extracted Text</button>
@@ -708,13 +730,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                         </div>
                         <div className="result-tab-content">
                             {/* 
-                            🔴 CRITICAL HEATMAP INTEGRATION POINT #3 - TEXT DISPLAY REPLACEMENT 🔴
-                            =====================================================================
-                            
-                            CURRENT: <pre>{getCurrentText()}</pre>
-                            
-                            MUST REPLACE WITH CONDITIONAL RENDERING:
-                            
+                            🔴 HEATMAP TEXT DISPLAY - IMPLEMENTED AS DOCUMENTED 🔴
+                            =====================================================
+                            */}
                             {activeTab === 'text' && (
                               isHeatmapEnabled && selectedResult?.result?.metadata?.redundancy_analysis ? (
                                 <ConfidenceHeatmapViewer
@@ -726,17 +744,6 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                               ) : (
                                 <pre>{getCurrentText()}</pre>
                               )
-                            )}
-                            
-                            CRITICAL REQUIREMENTS:
-                            - Must preserve getCurrentText() functionality for normal view
-                            - Must pass word_confidence_map for confidence coloring
-                            - Must pass full redundancyAnalysis for word alternatives
-                            - Must implement handleTextUpdate callback for editing
-                            - Must gracefully handle missing redundancy data
-                            */}
-                            {activeTab === 'text' && (
-                              <pre>{getCurrentText()}</pre>
                             )}
                             {activeTab === 'metadata' && (
                               <pre>{selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result?.metadata, null, 2) : 'No metadata available for failed processing.'}</pre>
