@@ -197,6 +197,18 @@
   transform: scale(1.1);
 }
 
+/* Click feedback - compress and release */
+.copy-button:active {
+  transform: scale(0.9) !important;
+  transition: transform 0.1s ease;
+}
+
+/* Smooth return to hover state after click */
+.copy-button:hover:not(:active) {
+  transform: scale(1.1);
+  transition: transform 0.2s ease;
+}
+
 /* Hide visible icon on hover */
 .copy-button:hover .copy-icon-visible {
   opacity: 0 !important;
@@ -207,15 +219,15 @@
   opacity: 1 !important;
 }
 
-/* Sequential tracing animation - L starts at 90% of rectangle completion */
+/* Sequential tracing animation - Your custom timing restored */
 .copy-button:hover .copy-path-back {
   animation: trace-rectangle 1.0s ease-out forwards;
-  animation-delay: 0.05s;
+  animation-delay: 0.1s;
 }
 
 .copy-button:hover .copy-path-front {
   animation: trace-l-shape 1.0s ease-out forwards;
-  animation-delay: 0.40s; /* Start at 90% of rectangle (0.1s + 0.9s) */
+  animation-delay: 0.4s; /* Your custom 0.4s delay restored */
 }
 
 /* Keyframe animations */
