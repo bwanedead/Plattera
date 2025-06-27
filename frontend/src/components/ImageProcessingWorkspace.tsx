@@ -797,110 +797,111 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                   )}
                   {!isProcessing && selectedResult && (
                     <div className="result-display-area">
-                        <DraftSelector
-                          redundancyAnalysis={selectedResult.result?.metadata?.redundancy_analysis}
-                          onDraftSelect={handleDraftSelect}
-                          selectedDraft={selectedDraft}
-                        />
-                        
-                        <HeatmapToggle
-                          isEnabled={isHeatmapEnabled}
-                          onToggle={handleHeatmapToggle}
-                          hasRedundancyData={!!selectedResult?.result?.metadata?.redundancy_analysis}
-                        />
-                        
-                        {selectedResult?.result?.metadata?.redundancy_analysis?.all_consensus_results && (
-                          <div className="consensus-selector">
-                            <label htmlFor="consensus-algorithm">Consensus Algorithm:</label>
-                            <select
-                              id="consensus-algorithm"
-                              value={selectedConsensusStrategy}
-                              onChange={(e) => setSelectedConsensusStrategy(e.target.value)}
-                              className="consensus-algorithm-select"
-                            >
-                              <option value="segmented_fuzzy">Segmented Fuzzy (50 words)</option>
-                              <option value="small_segments">Small Segments (20 words)</option>
-                              <option value="large_segments">Large Segments (100 words)</option>
-                            </select>
-                            <div className="consensus-strategy-hint">
-                              {selectedConsensusStrategy === 'segmented_fuzzy' && 
-                                'Fuzzy matches 50-word segments - balanced speed and accuracy'}
-                              {selectedConsensusStrategy === 'small_segments' && 
-                                'Fuzzy matches 20-word segments - more precise but slower'}
-                              {selectedConsensusStrategy === 'large_segments' && 
-                                'Fuzzy matches 100-word segments - faster but less precise'}
-                            </div>
+                      <CopyButton 
+                        onCopy={() => {
+                          if (activeTab === 'text') {
+                            navigator.clipboard.writeText(getCurrentText());
+                          } else if (activeTab === 'json') {
+                            navigator.clipboard.writeText(formatJsonPretty(getRawText()));
+                          } else if (activeTab === 'metadata') {
+                            navigator.clipboard.writeText(selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result?.metadata, null, 2) : 'No metadata available for failed processing.');
+                          }
+                        }}
+                        title={`Copy ${activeTab}`}
+                        style={{
+                          position: 'absolute',
+                          top: '5rem',
+                          left: '-3rem',
+                          zIndex: 20
+                        }}
+                      />
+                      
+                      <DraftSelector
+                        redundancyAnalysis={selectedResult.result?.metadata?.redundancy_analysis}
+                        onDraftSelect={handleDraftSelect}
+                        selectedDraft={selectedDraft}
+                      />
+                      
+                      <HeatmapToggle
+                        isEnabled={isHeatmapEnabled}
+                        onToggle={handleHeatmapToggle}
+                        hasRedundancyData={!!selectedResult?.result?.metadata?.redundancy_analysis}
+                      />
+                      
+                      {selectedResult?.result?.metadata?.redundancy_analysis?.all_consensus_results && (
+                        <div className="consensus-selector">
+                          <label htmlFor="consensus-algorithm">Consensus Algorithm:</label>
+                          <select
+                            id="consensus-algorithm"
+                            value={selectedConsensusStrategy}
+                            onChange={(e) => setSelectedConsensusStrategy(e.target.value)}
+                            className="consensus-algorithm-select"
+                          >
+                            <option value="segmented_fuzzy">Segmented Fuzzy (50 words)</option>
+                            <option value="small_segments">Small Segments (20 words)</option>
+                            <option value="large_segments">Large Segments (100 words)</option>
+                          </select>
+                          <div className="consensus-strategy-hint">
+                            {selectedConsensusStrategy === 'segmented_fuzzy' && 
+                              'Fuzzy matches 50-word segments - balanced speed and accuracy'}
+                            {selectedConsensusStrategy === 'small_segments' && 
+                              'Fuzzy matches 20-word segments - more precise but slower'}
+                            {selectedConsensusStrategy === 'large_segments' && 
+                              'Fuzzy matches 100-word segments - faster but less precise'}
                           </div>
-                        )}
-                        
-                        <div className="result-tabs">
-                            <button className={activeTab === 'text' ? 'active' : ''} onClick={() => setActiveTab('text')}>📄 Text</button>
-                            {isCurrentResultJson() && (
-                              <button className={activeTab === 'json' ? 'active' : ''} onClick={() => setActiveTab('json')}>🔧 JSON</button>
-                            )}
-                            <button className={activeTab === 'metadata' ? 'active' : ''} onClick={() => setActiveTab('metadata')}>📊 Metadata</button>
                         </div>
-                        
-                        <div className="result-tab-content">
-                            {activeTab === 'text' && (
-                              <div className="text-display">
-                                <CopyButton 
-                                  onCopy={() => navigator.clipboard.writeText(getCurrentText())}
-                                  title="Copy text"
-                                  position="floating-left"
-                                  size="medium"
+                      )}
+                      
+                      <div className="result-tabs">
+                          <button className={activeTab === 'text' ? 'active' : ''} onClick={() => setActiveTab('text')}>📄 Text</button>
+                          {isCurrentResultJson() && (
+                            <button className={activeTab === 'json' ? 'active' : ''} onClick={() => setActiveTab('json')}>🔧 JSON</button>
+                          )}
+                          <button className={activeTab === 'metadata' ? 'active' : ''} onClick={() => setActiveTab('metadata')}>📊 Metadata</button>
+                      </div>
+                      
+                      <div className="result-tab-content">
+                          {activeTab === 'text' && (
+                            <div className="text-display">
+                              {isHeatmapEnabled && selectedResult?.result?.metadata?.redundancy_analysis ? (
+                                <ConfidenceHeatmapViewer
+                                  text={getCurrentText()}
+                                  wordConfidenceMap={
+                                    selectedResult.result.metadata.redundancy_analysis.all_consensus_results?.[selectedConsensusStrategy]?.confidence_map || 
+                                    selectedResult.result.metadata.redundancy_analysis.word_confidence_map || {}
+                                  }
+                                  redundancyAnalysis={selectedResult.result.metadata.redundancy_analysis}
+                                  onTextUpdate={handleTextUpdate}
                                 />
-                                {isHeatmapEnabled && selectedResult?.result?.metadata?.redundancy_analysis ? (
-                                  <ConfidenceHeatmapViewer
-                                    text={getCurrentText()}
-                                    wordConfidenceMap={
-                                      selectedResult.result.metadata.redundancy_analysis.all_consensus_results?.[selectedConsensusStrategy]?.confidence_map || 
-                                      selectedResult.result.metadata.redundancy_analysis.word_confidence_map || {}
+                              ) : (
+                                <div className="formatted-text-display">
+                                  {getCurrentText().split('\n').map((line: string, index: number) => {
+                                    // Check if line is a section divider (contains only dashes)
+                                    if (/^─+$/.test(line.trim())) {
+                                      return <hr key={index} className="section-divider" />
                                     }
-                                    redundancyAnalysis={selectedResult.result.metadata.redundancy_analysis}
-                                    onTextUpdate={handleTextUpdate}
-                                  />
-                                ) : (
-                                  <div className="formatted-text-display">
-                                    {getCurrentText().split('\n').map((line: string, index: number) => {
-                                      // Check if line is a section divider (contains only dashes)
-                                      if (/^─+$/.test(line.trim())) {
-                                        return <hr key={index} className="section-divider" />
-                                      }
-                                      // Empty lines for spacing
-                                      if (!line.trim()) {
-                                        return <div key={index} className="line-break" />
-                                      }
-                                      // Regular text lines
-                                      return <p key={index} className="text-line">{line}</p>
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            {activeTab === 'json' && isCurrentResultJson() && (
-                              <div className="json-display">
-                                <CopyButton 
-                                  onCopy={() => navigator.clipboard.writeText(formatJsonPretty(getRawText()))}
-                                  title="Copy JSON"
-                                  position="floating-left"
-                                  size="medium"
-                                />
-                                <pre className="json-content">{formatJsonPretty(getRawText())}</pre>
-                              </div>
-                            )}
-                            {activeTab === 'metadata' && (
-                              <div className="metadata-display">
-                                <CopyButton 
-                                  onCopy={() => navigator.clipboard.writeText(selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result?.metadata, null, 2) : 'No metadata available for failed processing.')}
-                                  title="Copy metadata"
-                                  position="floating-left"
-                                  size="medium"
-                                />
-                                <pre>{selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result?.metadata, null, 2) : 'No metadata available for failed processing.'}</pre>
-                              </div>
-                            )}
-                        </div>
+                                    // Empty lines for spacing
+                                    if (!line.trim()) {
+                                      return <div key={index} className="line-break" />
+                                    }
+                                    // Regular text lines
+                                    return <p key={index} className="text-line">{line}</p>
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {activeTab === 'json' && isCurrentResultJson() && (
+                            <div className="json-display">
+                              <pre className="json-content">{formatJsonPretty(getRawText())}</pre>
+                            </div>
+                          )}
+                          {activeTab === 'metadata' && (
+                            <div className="metadata-display">
+                              <pre>{selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result?.metadata, null, 2) : 'No metadata available for failed processing.'}</pre>
+                            </div>
+                          )}
+                      </div>
                     </div>
                   )}
                 </div>
