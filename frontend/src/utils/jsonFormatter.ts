@@ -69,9 +69,11 @@ export function formatJsonAsText(extractedText: string): string {
       formattedText += '─'.repeat(Math.min(section.header.trim().length, 50)) + '\n'
     }
     
-    // Add section body
+    // Add section body - normalize internal newlines to spaces for proper paragraph formatting
     if (section.body && section.body.trim()) {
-      formattedText += `${section.body.trim()}\n`
+      // Replace multiple whitespace/newlines with single spaces to create clean paragraphs
+      const normalizedBody = section.body.trim().replace(/\s+/g, ' ')
+      formattedText += `${normalizedBody}\n`
     }
     
     // Add spacing between sections (except for the last one)

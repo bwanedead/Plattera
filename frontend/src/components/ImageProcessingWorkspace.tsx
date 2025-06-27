@@ -99,6 +99,7 @@ import {
   formatJsonPretty,
   getWordCount 
 } from '../utils/jsonFormatter';
+import { CopyButton } from './CopyButton';
 
 // Enhancement settings interface
 interface EnhancementSettings {
@@ -598,8 +599,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
           </button>
         </AnimatedBorder>
       </div>
-
-      <Allotment defaultSizes={[300, 700]}>
+      
+      <Allotment defaultSizes={[400, 600]} vertical={false}>
         <Allotment.Pane minSize={250} maxSize={400}>
           <div className="control-panel">
             <div className="panel-header">
@@ -796,42 +797,18 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                   )}
                   {!isProcessing && selectedResult && (
                     <div className="result-display-area">
-                        {/* 
-                        🔴 CRITICAL HEATMAP INTEGRATION POINT #1 - DRAFT SELECTOR POSITIONING 🔴
-                        ========================================================================
-                        
-                        This DraftSelector component is positioned at top: 60px, right: 40px
-                        
-                        HEATMAP INTEGRATION REQUIREMENTS:
-                        - HeatmapToggle MUST be positioned at top: 60px, right: 80px (40px offset)
-                        - BOTH components must coordinate draft selection state
-                        - BOTH components need access to redundancyAnalysis data
-                        - selectedDraft state affects which text the heatmap displays
-                        
-                        CRITICAL DATA FLOW:
-                        - redundancyAnalysis contains word_confidence_map for coloring
-                        - redundancyAnalysis contains individual_results for alternatives
-                        - onDraftSelect callback updates selectedDraft for both components
-                        
-                        ⚠️  ADD HEATMAPTOGGLE COMPONENT IMMEDIATELY AFTER THIS DRAFTSELECTOR
-                        */}
                         <DraftSelector
                           redundancyAnalysis={selectedResult.result?.metadata?.redundancy_analysis}
                           onDraftSelect={handleDraftSelect}
                           selectedDraft={selectedDraft}
                         />
                         
-                        {/* 
-                        🔴 HEATMAP TOGGLE - ADDED AS DOCUMENTED 🔴
-                        ==========================================
-                        */}
                         <HeatmapToggle
                           isEnabled={isHeatmapEnabled}
                           onToggle={handleHeatmapToggle}
                           hasRedundancyData={!!selectedResult?.result?.metadata?.redundancy_analysis}
                         />
                         
-                        {/* 🆕 SEGMENTED FUZZY CONSENSUS SELECTOR */}
                         {selectedResult?.result?.metadata?.redundancy_analysis?.all_consensus_results && (
                           <div className="consensus-selector">
                             <label htmlFor="consensus-algorithm">Consensus Algorithm:</label>
@@ -863,54 +840,65 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                             )}
                             <button className={activeTab === 'metadata' ? 'active' : ''} onClick={() => setActiveTab('metadata')}>📊 Metadata</button>
                         </div>
+                        
                         <div className="result-tab-content">
-                            {/* 
-                            🔴 HEATMAP TEXT DISPLAY - IMPLEMENTED AS DOCUMENTED 🔴
-                            =====================================================
-                            */}
                             {activeTab === 'text' && (
-                              isHeatmapEnabled && selectedResult?.result?.metadata?.redundancy_analysis ? (
-                                <ConfidenceHeatmapViewer
-                                  text={getCurrentText()}
-                                  wordConfidenceMap={
-                                    selectedResult.result.metadata.redundancy_analysis.all_consensus_results?.[selectedConsensusStrategy]?.confidence_map || 
-                                    selectedResult.result.metadata.redundancy_analysis.word_confidence_map || {}
-                                  }
-                                  redundancyAnalysis={selectedResult.result.metadata.redundancy_analysis}
-                                  onTextUpdate={handleTextUpdate}
+                              <div className="text-display">
+                                <CopyButton 
+                                  onCopy={() => navigator.clipboard.writeText(getCurrentText())}
+                                  title="Copy text"
+                                  position="floating-left"
+                                  size="medium"
                                 />
-                              ) : (
-                                <div className="formatted-text-display">
-                                  {getCurrentText().split('\n').map((line: string, index: number) => {
-                                    // Check if line is a section divider (contains only dashes)
-                                    if (/^─+$/.test(line.trim())) {
-                                      return <hr key={index} className="section-divider" />
+                                {isHeatmapEnabled && selectedResult?.result?.metadata?.redundancy_analysis ? (
+                                  <ConfidenceHeatmapViewer
+                                    text={getCurrentText()}
+                                    wordConfidenceMap={
+                                      selectedResult.result.metadata.redundancy_analysis.all_consensus_results?.[selectedConsensusStrategy]?.confidence_map || 
+                                      selectedResult.result.metadata.redundancy_analysis.word_confidence_map || {}
                                     }
-                                    // Empty lines for spacing
-                                    if (!line.trim()) {
-                                      return <div key={index} className="line-break" />
-                                    }
-                                    // Regular text lines
-                                    return <p key={index} className="text-line">{line}</p>
-                                  })}
-                                </div>
-                              )
+                                    redundancyAnalysis={selectedResult.result.metadata.redundancy_analysis}
+                                    onTextUpdate={handleTextUpdate}
+                                  />
+                                ) : (
+                                  <div className="formatted-text-display">
+                                    {getCurrentText().split('\n').map((line: string, index: number) => {
+                                      // Check if line is a section divider (contains only dashes)
+                                      if (/^─+$/.test(line.trim())) {
+                                        return <hr key={index} className="section-divider" />
+                                      }
+                                      // Empty lines for spacing
+                                      if (!line.trim()) {
+                                        return <div key={index} className="line-break" />
+                                      }
+                                      // Regular text lines
+                                      return <p key={index} className="text-line">{line}</p>
+                                    })}
+                                  </div>
+                                )}
+                              </div>
                             )}
                             {activeTab === 'json' && isCurrentResultJson() && (
                               <div className="json-display">
-                                <div className="json-actions">
-                                  <button onClick={() => navigator.clipboard.writeText(formatJsonPretty(getRawText()))}>
-                                    📋 Copy JSON
-                                  </button>
-                                  <button onClick={() => navigator.clipboard.writeText(getRawText())}>
-                                    📋 Copy Raw
-                                  </button>
-                                </div>
+                                <CopyButton 
+                                  onCopy={() => navigator.clipboard.writeText(formatJsonPretty(getRawText()))}
+                                  title="Copy JSON"
+                                  position="floating-left"
+                                  size="medium"
+                                />
                                 <pre className="json-content">{formatJsonPretty(getRawText())}</pre>
                               </div>
                             )}
                             {activeTab === 'metadata' && (
-                              <pre>{selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result?.metadata, null, 2) : 'No metadata available for failed processing.'}</pre>
+                              <div className="metadata-display">
+                                <CopyButton 
+                                  onCopy={() => navigator.clipboard.writeText(selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result?.metadata, null, 2) : 'No metadata available for failed processing.')}
+                                  title="Copy metadata"
+                                  position="floating-left"
+                                  size="medium"
+                                />
+                                <pre>{selectedResult.status === 'completed' ? JSON.stringify(selectedResult.result?.metadata, null, 2) : 'No metadata available for failed processing.'}</pre>
+                              </div>
                             )}
                         </div>
                     </div>

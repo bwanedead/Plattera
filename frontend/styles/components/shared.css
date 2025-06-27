@@ -177,4 +177,87 @@
   background-color: var(--bg-tertiary);
   color: var(--text-secondary);
   cursor: not-allowed;
-} 
+}
+
+/* Copy Button Component Styles */
+.copy-button {
+  background: none;
+  border: none;
+  padding: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.copy-button:hover {
+  opacity: 1 !important;
+  transform: scale(1.1);
+}
+
+/* Hide visible icon on hover */
+.copy-button:hover .copy-icon-visible {
+  opacity: 0 !important;
+}
+
+/* Show tracing animation on hover */
+.copy-button:hover .copy-icon-trace {
+  opacity: 1 !important;
+}
+
+/* Sequential tracing animation */
+.copy-button:hover .copy-path-back {
+  animation: trace-path-sequential 1.2s ease-out forwards;
+  animation-delay: 0.1s;
+}
+
+.copy-button:hover .copy-path-front {
+  animation: trace-path-sequential 1.2s ease-out forwards;
+  animation-delay: 1.4s;
+}
+
+@keyframes trace-path-sequential {
+  0% {
+    stroke-dashoffset: 150;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Floating variant */
+.copy-button.floating {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  z-index: 10;
+}
+
+/* Inline variant */
+.copy-button.inline {
+  position: relative;
+}
+
+/* Small variant */
+.copy-button.small .copy-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* Large variant */
+.copy-button.large .copy-icon {
+  width: 24px;
+  height: 24px;
+}
+
+@media (max-width: 768px) {
+  .copy-button[style*="position: absolute"] {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    margin: 1rem;
+  }
+}
