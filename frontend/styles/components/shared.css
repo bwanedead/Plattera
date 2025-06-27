@@ -207,22 +207,32 @@
   opacity: 1 !important;
 }
 
-/* Sequential tracing animation */
+/* Sequential tracing animation - L starts at 90% of rectangle completion */
 .copy-button:hover .copy-path-back {
-  animation: trace-path-sequential 1.2s ease-out forwards;
-  animation-delay: 0.1s;
+  animation: trace-rectangle 1.0s ease-out forwards;
+  animation-delay: 0.05s;
 }
 
 .copy-button:hover .copy-path-front {
-  animation: trace-path-sequential 1.2s ease-out forwards;
-  animation-delay: 1.4s;
+  animation: trace-l-shape 1.0s ease-out forwards;
+  animation-delay: 0.40s; /* Start at 90% of rectangle (0.1s + 0.9s) */
 }
 
-@keyframes trace-path-sequential {
-  0% {
-    stroke-dashoffset: 150;
+/* Keyframe animations */
+@keyframes trace-rectangle {
+  from {
+    stroke-dashoffset: 36;
   }
-  100% {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes trace-l-shape {
+  from {
+    stroke-dashoffset: 50;
+  }
+  to {
     stroke-dashoffset: 0;
   }
 }

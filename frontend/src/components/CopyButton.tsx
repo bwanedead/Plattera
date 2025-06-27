@@ -9,14 +9,13 @@ interface CopyButtonProps {
 
 export const CopyButton: React.FC<CopyButtonProps> = ({ 
   onCopy, 
-  title = "Copy", 
+  title,
   className = "",
   style = {}
 }) => {
   return (
     <button 
       onClick={onCopy}
-      title={title}
       className={`copy-button ${className}`}
       style={{
         background: 'none',
@@ -44,7 +43,7 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
         <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1z" />
       </svg>
       
-      {/* Tracing animation - only appears on hover */}
+      {/* Tracing animation - exact shapes: rectangle + L-shape */}
       <svg 
         viewBox="0 0 24 24" 
         className="copy-icon-trace"
@@ -58,30 +57,32 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
           transition: 'opacity 0.2s ease'
         }}
       >
-        <path 
-          d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" 
+        {/* Back rectangle - complete rectangle outline */}
+        <rect 
+          x="8" y="7" width="11" height="14" rx="2" ry="2"
           className="copy-path-back"
           style={{
             fill: 'none',
             stroke: 'var(--accent-primary)',
-            strokeWidth: '0.8',
+            strokeWidth: '1',
             strokeLinecap: 'round',
             strokeLinejoin: 'round',
-            strokeDasharray: '150',
-            strokeDashoffset: '150'
+            strokeDasharray: '54',
+            strokeDashoffset: '54'
           }}
         />
+        {/* Front L-shape - simplified L outline */}
         <path 
-          d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1z" 
+          d="M4 3 L15 3 L15 5 L6 5 L6 17 L4 17 L4 3 Z"
           className="copy-path-front"
           style={{
             fill: 'none',
             stroke: 'var(--accent-primary)',
-            strokeWidth: '0.8',
+            strokeWidth: '1',
             strokeLinecap: 'round',
             strokeLinejoin: 'round',
-            strokeDasharray: '150',
-            strokeDashoffset: '150'
+            strokeDasharray: '50',
+            strokeDashoffset: '50'
           }}
         />
       </svg>
