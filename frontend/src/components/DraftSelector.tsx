@@ -162,9 +162,10 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
   const successfulResults = redundancyAnalysis.individual_results.filter(r => r.success);
   const totalDrafts = successfulResults.length;
 
-  // CRITICAL GUARD CLAUSE - Prevents single-draft display (heatmap needs multiple drafts)
-  if (totalDrafts <= 1) {
-    return null; // No point showing selector for single result
+  // Show selector even for single draft (transparency about what user is viewing)
+  // Only hide if no successful results at all
+  if (totalDrafts === 0) {
+    return null; // No results to show
   }
 
   // CRITICAL CALLBACK - Heatmap integration point for draft switching

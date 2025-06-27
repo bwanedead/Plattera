@@ -95,7 +95,6 @@ import re
 import string
 import itertools
 from .image_processor import enhance_for_character_recognition
-from .consensus import ConsensusEngine
 import json
 from .json_alignment import merge_drafts as merge_json_drafts  # Import new alignment system
 
@@ -522,14 +521,22 @@ class ImageToTextPipeline:
             }
 
     def _execute_parallel_calls(self, service, image_data: str, image_format: str, prompt: str, model: str, count: int, json_mode: bool = False) -> List[dict]:
-        """Execute multiple parallel API calls"""
+        """Execute multiple API calls with staggered timing to reduce empty responses"""
+        import time
         results = []
+        
+        # Staggered execution to avoid API congestion
+        stagger_delay = 0.7  # 700ms delay between call submissions
         
         # Use ThreadPoolExecutor for parallel API calls
         with concurrent.futures.ThreadPoolExecutor(max_workers=count) as executor:
-            # Submit all calls
+            # Submit calls with staggered timing
             futures = []
             for i in range(count):
+                if i > 0:  # Add delay before subsequent calls
+                    time.sleep(stagger_delay)
+                    logger.info(f"🕐 Staggered call {i+1} submitted after {stagger_delay * i:.1f}s delay")
+                
                 future = executor.submit(
                     service.process_image_with_text,
                     image_data=image_data,
@@ -539,15 +546,18 @@ class ImageToTextPipeline:
                     json_mode=json_mode
                 )
                 futures.append(future)
+                
+                if i == 0:
+                    logger.info(f"🚀 Call {i+1} submitted immediately")
             
-            # Collect results
+            # Collect results (these will complete whenever they finish)
             for i, future in enumerate(futures):
                 try:
                     result = future.result(timeout=120)  # 2 minute timeout per call
-                    print(f"✅ Redundancy call {i+1} completed")
+                    logger.info(f"✅ Redundancy call {i+1} completed")
                     results.append(result)
                 except Exception as e:
-                    print(f"❌ Redundancy call {i+1} failed: {e}")
+                    logger.error(f"❌ Redundancy call {i+1} failed: {e}")
                     results.append({
                         "success": False,
                         "error": f"API call failed: {str(e)}",
@@ -713,61 +723,39 @@ class ImageToTextPipeline:
     
     def _analyze_text_consensus(self, results: List[dict], successful_results: List[dict], 
                                filtered_texts: List[str], model: str, consensus_strategy: str) -> dict:
-        """Analyze plain text documents using the existing consensus system"""
+        """
+        For non-JSON mode: Just return the best result without consensus processing.
         
-        # Perform consensus analysis using ALL strategies
-        engine = ConsensusEngine()
-        all_consensus_results = {}
-
-        for strategy_name in engine.get_available_strategies():
-            try:
-                consensus_text, confidence_map, alternatives = engine.calculate_consensus(filtered_texts, strategy_name)
-                all_consensus_results[strategy_name] = {
-                    'consensus_text': consensus_text,
-                    'confidence_map': confidence_map,
-                    'word_alternatives': alternatives
-                }
-                logger.info(f"✅ Computed consensus for strategy: {strategy_name}")
-            except Exception as e:
-                logger.error(f"❌ Failed to compute consensus for {strategy_name}: {e}")
-
-        # Use sequential as default for compatibility
-        default_strategy = 'sequential'
-        if default_strategy in all_consensus_results:
-            consensus_text = all_consensus_results[default_strategy]['consensus_text']
-            word_confidence_map = all_consensus_results[default_strategy]['confidence_map']
-            word_alternatives = all_consensus_results[default_strategy]['word_alternatives']
-        else:
-            # Fallback if sequential fails
-            consensus_text, word_confidence_map, word_alternatives = self._calculate_consensus(filtered_texts, 'sequential')
-        
-        # Calculate overall confidence
-        overall_confidence = sum(word_confidence_map.values()) / len(word_confidence_map) if word_confidence_map else 0.0
+        Consensus/alignment is only useful for JSON-structured documents.
+        For plain text, we just pick the best result (longest/highest quality).
+        """
+        logger.info("📄 Non-JSON mode: Selecting best result (no consensus processing)")
         
         # Find the best individual result from filtered results
-        # Map filtered texts back to their original results
         filtered_results = []
         for result in successful_results:
             result_text = result.get("extracted_text", "")
             if result_text in filtered_texts:
                 filtered_results.append(result)
         
-        # Choose the result with the highest confidence or longest text if confidence is similar
+        if not filtered_results:
+            # Fallback to any successful result
+            filtered_results = successful_results
+        
+        # Choose the result with the longest text (best extraction)
         best_result_index = 0
         best_score = 0
         
         for i, result in enumerate(filtered_results):
-            # Score based on text length and confidence (if available)
+            # Score based on text length (longer = better extraction)
             text_length_score = len(result.get("extracted_text", ""))
-            confidence_score = result.get("confidence_score", 0.5) * 1000  # Weight confidence higher
-            total_score = text_length_score + confidence_score
             
-            if total_score > best_score:
-                best_score = total_score
+            if text_length_score > best_score:
+                best_score = text_length_score
                 best_result_index = i
         
-        # Use the best filtered result's text to preserve formatting
-        best_formatted_text = filtered_results[best_result_index].get("extracted_text", "") if filtered_results else consensus_text
+        best_result = filtered_results[best_result_index] if filtered_results else {"extracted_text": "No valid results"}
+        best_formatted_text = best_result.get("extracted_text", "")
         
         # Aggregate token usage
         total_tokens = sum(r.get("tokens_used", 0) for r in successful_results)
@@ -776,13 +764,13 @@ class ImageToTextPipeline:
             "success": True,
             "extracted_text": best_formatted_text,
             "model_used": model,
-            "service_type": "llm",
+            "service_type": "llm", 
             "tokens_used": total_tokens,
-            "confidence_score": overall_confidence,
+            "confidence_score": 1.0,  # Single result = full confidence
             "metadata": {
                 "redundancy_enabled": True,
                 "redundancy_count": len(results),
-                "processing_mode": "text_consensus",
+                "processing_mode": "best_result_selection",
                 "best_result_used": best_result_index + 1,
                 "redundancy_analysis": {
                     "total_calls": len(results),
@@ -790,13 +778,9 @@ class ImageToTextPipeline:
                     "valid_extractions": len(filtered_texts),
                     "filtered_out": len(successful_results) - len(filtered_texts),
                     "failed_calls": len(results) - len(successful_results),
-                    "consensus_text": consensus_text,
                     "best_formatted_text": best_formatted_text,
                     "best_result_index": best_result_index,
-                    "word_confidence_map": word_confidence_map,
-                    "word_alternatives": word_alternatives,
-                    "all_consensus_results": all_consensus_results,
-                    "default_strategy": default_strategy,
+                    "note": "Non-JSON mode: No consensus processing, selected best result",
                     "individual_results": [
                         {
                             "success": r.get("success", False),
@@ -812,19 +796,23 @@ class ImageToTextPipeline:
 
     def _calculate_consensus(self, texts: List[str], strategy: str = 'sequential') -> tuple:
         """
-        🔴 CONSENSUS CALCULATION - NOW USING CONSENSUS ENGINE 🔴
-        =======================================================
+        Simple fallback consensus - just return the longest text.
         
-        Uses the ConsensusEngine with pluggable strategies.
-        Preserves exact same behavior for existing 'sequential' strategy.
+        This is only used as a fallback when JSON alignment fails.
+        Real consensus/alignment should only be used for JSON documents.
         
         Args:
             texts: List of draft texts to process
-            strategy: Consensus strategy to use ('sequential', 'ngram_overlap', etc.)
+            strategy: Ignored (for compatibility)
             
         Returns:
             tuple: (consensus_text, confidence_map, word_alternatives)
         """
-        # Use the consensus engine with specified strategy
-        engine = ConsensusEngine()
-        return engine.calculate_consensus(texts, strategy) 
+        if not texts:
+            return "", {}, {}
+        
+        # Just return the longest text (best extraction)
+        longest_text = max(texts, key=len)
+        
+        # No confidence/alternatives for simple fallback
+        return longest_text, {}, {} 

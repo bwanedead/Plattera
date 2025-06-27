@@ -283,3 +283,52 @@
     margin: 1rem;
   }
 }
+
+/* Heatmap Toggle - Single Draft Tooltip */
+.single-draft-tooltip {
+  position: absolute;
+  top: -60px;
+  right: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: fadeInTooltip 0.2s ease-out forwards;
+}
+
+.single-draft-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  right: 14px;
+  border: 5px solid transparent;
+  border-top-color: var(--border-color);
+}
+
+@keyframes fadeInTooltip {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Heatmap Toggle - Single Draft Button State */
+.heatmap-toggle-button.single-draft {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-secondary) !important;
+  cursor: not-allowed !important;
+}
+
+.heatmap-toggle-button.single-draft:hover {
+  background-color: var(--bg-tertiary) !important;
+  transform: none !important;
+}

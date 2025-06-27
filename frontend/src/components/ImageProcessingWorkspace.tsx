@@ -311,11 +311,29 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     color: 1.0
   });
   const [showEnhancementModal, setShowEnhancementModal] = useState(false);
-  const [redundancySettings, setRedundancySettings] = useState<RedundancySettings>({
-    enabled: true,
-    count: 3,
-    consensusStrategy: 'segmented_fuzzy'
-  });
+  
+  // Dynamic redundancy defaults based on extraction mode
+  const getRedundancyDefaults = (mode: string): RedundancySettings => {
+    if (mode === 'legal_document_json') {
+      // JSON mode: Enable redundancy by default (semantic alignment is valuable)
+      return {
+        enabled: true,
+        count: 3,
+        consensusStrategy: 'segmented_fuzzy'
+      };
+    } else {
+      // Non-JSON mode: Disable redundancy by default (consensus not useful for plain text)
+      return {
+        enabled: false,
+        count: 3,
+        consensusStrategy: 'sequential'
+      };
+    }
+  };
+  
+  const [redundancySettings, setRedundancySettings] = useState<RedundancySettings>(() => 
+    getRedundancyDefaults('legal_document_plain')
+  );
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
   
   /*
@@ -409,6 +427,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     
     loadExtractionModes();
   }, []);
+
+  // Update redundancy settings when extraction mode changes
+  useEffect(() => {
+    const newDefaults = getRedundancyDefaults(extractionMode);
+    setRedundancySettings(newDefaults);
+  }, [extractionMode]);
 
   const handleEnhancementChange = useCallback((setting: keyof EnhancementSettings, value: number) => {
     setEnhancementSettings(prev => ({
@@ -826,6 +850,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                         isEnabled={isHeatmapEnabled}
                         onToggle={handleHeatmapToggle}
                         hasRedundancyData={!!selectedResult?.result?.metadata?.redundancy_analysis}
+                        redundancyAnalysis={selectedResult?.result?.metadata?.redundancy_analysis}
                       />
                       
                       {selectedResult?.result?.metadata?.redundancy_analysis?.all_consensus_results && (
