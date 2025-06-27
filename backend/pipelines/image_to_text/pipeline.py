@@ -88,7 +88,7 @@ from prompts.image_to_text import get_image_to_text_prompt
 import base64
 from pathlib import Path
 import logging
-from typing import Tuple, List
+from typing import Tuple, List, Dict, Any
 import concurrent.futures
 from difflib import SequenceMatcher
 import re
@@ -96,11 +96,35 @@ import string
 import itertools
 from .image_processor import enhance_for_character_recognition
 from .consensus import ConsensusEngine
+import json
+from .json_alignment import merge_drafts as merge_json_drafts  # Import new alignment system
 
 logger = logging.getLogger(__name__)
 
 # 🔴 CONSENSUS PROCESSING UTILITIES MOVED TO consensus.py 🔴
 # ==============================================================
+
+def _is_json_result(text: str) -> bool:
+    """Check if extracted text is JSON format matching our document schema"""
+    if not text or not text.strip():
+        return False
+    
+    try:
+        parsed = json.loads(text)
+        return (
+            isinstance(parsed, dict) and 
+            "documentId" in parsed and 
+            "sections" in parsed and 
+            isinstance(parsed["sections"], list)
+        )
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+def _are_json_results(texts: List[str]) -> bool:
+    """Check if all texts are JSON format"""
+    if not texts:
+        return False
+    return all(_is_json_result(text) for text in texts)
 
 def _is_llm_refusal_or_failed(text: str) -> bool:
     """
@@ -575,6 +599,122 @@ class ImageToTextPipeline:
                 }
             }
         
+        # 🆕 NEW: Check if we have JSON-structured documents
+        if _are_json_results(filtered_texts):
+            logger.info("🔥 JSON documents detected - using new semantic alignment system")
+            return self._analyze_json_consensus(results, successful_results, filtered_texts, model)
+        else:
+            logger.info("📝 Plain text documents - using existing consensus system")
+            return self._analyze_text_consensus(results, successful_results, filtered_texts, model, consensus_strategy)
+    
+    def _analyze_json_consensus(self, results: List[dict], successful_results: List[dict], 
+                               filtered_texts: List[str], model: str) -> dict:
+        """Analyze JSON documents using the new semantic alignment system"""
+        try:
+            # Parse JSON documents
+            json_documents = []
+            for text in filtered_texts:
+                try:
+                    parsed = json.loads(text)
+                    json_documents.append(parsed)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse JSON document: {e}")
+                    continue
+            
+            if not json_documents:
+                raise ValueError("No valid JSON documents found")
+            
+            # Use new alignment system
+            logger.info(f"🎯 Running semantic alignment on {len(json_documents)} JSON documents")
+            alignment_result = merge_json_drafts(json_documents, {"debug": True})
+            
+            # Convert alignment result to consensus format
+            consensus_text = alignment_result.get("consensus", "")
+            confidence_list = alignment_result.get("confidence", [])
+            alternatives_dict = alignment_result.get("alternatives", {})
+            
+            # Convert confidence list to word map format (for compatibility)
+            word_confidence_map = {}
+            for i, conf in enumerate(confidence_list):
+                word_confidence_map[f"word_{i}"] = conf
+            
+            # Convert alternatives dict to word alternatives format
+            word_alternatives = {}
+            for word_idx, alts in alternatives_dict.items():
+                word_alternatives[f"word_{word_idx}"] = alts
+            
+            # Calculate overall confidence
+            overall_confidence = sum(confidence_list) / len(confidence_list) if confidence_list else 0.0
+            
+            # Find best result (longest JSON)
+            best_result_index = 0
+            best_score = 0
+            filtered_results = []
+            
+            for result in successful_results:
+                result_text = result.get("extracted_text", "")
+                if result_text in filtered_texts:
+                    filtered_results.append(result)
+            
+            for i, result in enumerate(filtered_results):
+                score = len(result.get("extracted_text", ""))
+                if score > best_score:
+                    best_score = score
+                    best_result_index = i
+            
+            best_formatted_text = filtered_results[best_result_index].get("extracted_text", "") if filtered_results else filtered_texts[0]
+            
+            # Aggregate token usage
+            total_tokens = sum(r.get("tokens_used", 0) for r in successful_results)
+            
+            return {
+                "success": True,
+                "extracted_text": best_formatted_text,
+                "model_used": model,
+                "service_type": "llm",
+                "tokens_used": total_tokens,
+                "confidence_score": overall_confidence,
+                "metadata": {
+                    "redundancy_enabled": True,
+                    "redundancy_count": len(results),
+                    "processing_mode": "json_semantic_alignment",
+                    "alignment_engine": "semantic",
+                    "best_result_used": best_result_index + 1,
+                    "redundancy_analysis": {
+                        "total_calls": len(results),
+                        "successful_calls": len(successful_results),
+                        "valid_extractions": len(filtered_texts),
+                        "filtered_out": len(successful_results) - len(filtered_texts),
+                        "failed_calls": len(results) - len(successful_results),
+                        "consensus_text": consensus_text,
+                        "best_formatted_text": best_formatted_text,
+                        "best_result_index": best_result_index,
+                        "word_confidence_map": word_confidence_map,
+                        "word_alternatives": word_alternatives,
+                        "json_alignment_result": alignment_result,  # Full alignment data
+                        "individual_results": [
+                            {
+                                "success": r.get("success", False),
+                                "text": r.get("extracted_text", ""),
+                                "tokens": r.get("tokens_used", 0),
+                                "error": r.get("error")
+                            }
+                            for r in results
+                        ]
+                    }
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ JSON alignment failed: {str(e)}")
+            # Fallback to text consensus
+            logger.warning("🚨 Falling back to text consensus due to JSON alignment failure")
+            return self._analyze_text_consensus(results, successful_results, filtered_texts, model, 'sequential')
+    
+    def _analyze_text_consensus(self, results: List[dict], successful_results: List[dict], 
+                               filtered_texts: List[str], model: str, consensus_strategy: str) -> dict:
+        """Analyze plain text documents using the existing consensus system"""
+        
         # Perform consensus analysis using ALL strategies
         engine = ConsensusEngine()
         all_consensus_results = {}
@@ -642,7 +782,7 @@ class ImageToTextPipeline:
             "metadata": {
                 "redundancy_enabled": True,
                 "redundancy_count": len(results),
-                "processing_mode": "best_formatted",
+                "processing_mode": "text_consensus",
                 "best_result_used": best_result_index + 1,
                 "redundancy_analysis": {
                     "total_calls": len(results),

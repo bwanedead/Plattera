@@ -1,0 +1,26 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+when useing the terminal follow the following rules that MUST NOT BE VIOLATED
+
+
+- DO NOT write or execute git commands no git add . or push of any kind 
+
+- DO NOT install any requirements I will install everything needed, if something is not installed i will install after the completed assignment of creating the code or goal you were given. you will not have the venv active and so you can mess a lot of stuff up if you attempt to install packages or dependencies. I will handle all installations 
+
+
+- DO NOT attempt to run the program either via front end or backend so for example no npm run dev, python main.py
+
+
+YOU DO NOT NEED TO TEST THE PROGRAM I WILL TEST MYSELF I JUST WANT YOU TO WRITE THE CODE THAT IS ASKED AND NEEDED TESTING AND GIT MANAGEMENT WILL BE HANDLED BY ME
+
+
+
+
+
+
+
+
+
