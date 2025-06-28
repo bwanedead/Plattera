@@ -87,6 +87,7 @@ from .base import LLMService
 from pydantic import BaseModel
 import time
 import logging
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +226,7 @@ class OpenAIService(LLMService):
             }
     
     def call_vision(self, prompt: str, image_data: str, model: str, **kwargs) -> Dict[str, Any]:
-        """Enhanced with retry logic and better error handling"""
+        """Enhanced with improved retry logic, jitter, and detailed finish_reason logging"""
         # Validate inputs
         if not image_data or not image_data.strip():
             return {
@@ -243,10 +244,21 @@ class OpenAIService(LLMService):
                 "model": model
             }
         
-        # Retry logic for resilience
-        max_retries = 3
+        # 🔧 IMPROVEMENT: Enhanced retry logic with exponential backoff + jitter
+        max_retries = 4  # Increased from 3 to 4 for o4-mini reliability
+        base_delay = 1.0
+        
+        logger.info(f"🤖 Starting OpenAI API call for {model} (max {max_retries} attempts)")
+        
         for attempt in range(max_retries):
             try:
+                # 🔧 IMPROVEMENT: Add pre-send jitter to prevent simultaneous backend hits
+                if attempt > 0:
+                    jitter = random.uniform(0.2, 0.5)
+                    delay = base_delay * (2 ** (attempt - 1)) + jitter  # Exponential backoff + jitter
+                    logger.info(f"🔄 Retry attempt {attempt + 1} after {delay:.2f}s delay")
+                    time.sleep(delay)
+                
                 api_model_name = self._get_api_model_name(model)
                 
                 # CRITICAL: Build OpenAI vision API message format
@@ -272,18 +284,19 @@ class OpenAIService(LLMService):
                     "messages": messages
                 }
                 
-                # Model-specific parameters
+                # 🔧 IMPROVEMENT: Explicit high max_tokens for all models to prevent cutoffs
                 if "o4-mini" in api_model_name:
-                    completion_params["max_completion_tokens"] = kwargs.get("max_tokens", 4000)
+                    completion_params["max_completion_tokens"] = kwargs.get("max_tokens", 8000)  # Increased from 4000
                     completion_params["reasoning_effort"] = "high"
+                    logger.info(f"🧠 Using o4-mini with high reasoning effort, max_tokens: {completion_params['max_completion_tokens']}")
                 else:
                     completion_params["temperature"] = kwargs.get("temperature", 0.1)
-                    completion_params["max_tokens"] = kwargs.get("max_tokens", 4000)
+                    completion_params["max_tokens"] = kwargs.get("max_tokens", 8000)  # Increased from 4000
+                    logger.info(f"🤖 Using {api_model_name}, max_tokens: {completion_params['max_tokens']}")
                 
                 # CRITICAL: Add structured JSON response format for JSON extraction mode
                 json_mode = kwargs.get("json_mode", False)
                 if json_mode:
-                    # Use proper JSON schema format for o4-mini structured outputs
                     completion_params["response_format"] = {
                         "type": "json_schema",
                         "json_schema": {
@@ -291,23 +304,15 @@ class OpenAIService(LLMService):
                             "schema": {
                                 "type": "object",
                                 "properties": {
-                                    "documentId": {
-                                        "type": "string"
-                                    },
+                                    "documentId": {"type": "string"},
                                     "sections": {
                                         "type": "array",
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "id": {
-                                                    "type": "integer"
-                                                },
-                                                "header": {
-                                                    "type": ["string", "null"]
-                                                },
-                                                "body": {
-                                                    "type": "string"
-                                                }
+                                                "id": {"type": "integer"},
+                                                "header": {"type": ["string", "null"]},
+                                                "body": {"type": "string"}
                                             },
                                             "required": ["id", "header", "body"],
                                             "additionalProperties": False
@@ -320,20 +325,34 @@ class OpenAIService(LLMService):
                             "strict": True
                         }
                     }
+                    logger.info("📋 Using structured JSON output mode")
                 
                 # CRITICAL: Make OpenAI API call
+                logger.info(f"📡 Sending API request (attempt {attempt + 1}/{max_retries})...")
                 response = self.client.chat.completions.create(**completion_params)
+                
+                # 🔧 IMPROVEMENT: Detailed logging of finish_reason for debugging
+                finish_reason = response.choices[0].finish_reason if response.choices else None
+                token_usage = response.usage.total_tokens if response.usage else 0
+                logger.info(f"📨 API response received: finish_reason='{finish_reason}', tokens={token_usage}")
+                
+                # Check for problematic finish reasons
+                if finish_reason == "length":
+                    logger.warning(f"⚠️ Response truncated due to token limit - consider increasing max_tokens")
+                elif finish_reason == "content_filter":
+                    logger.warning(f"⚠️ Response blocked by content filter")
+                elif finish_reason != "stop":
+                    logger.warning(f"⚠️ Unexpected finish_reason: {finish_reason}")
                 
                 # Validate response
                 if not response.choices or not response.choices[0].message.content:
+                    logger.warning(f"❌ Empty response content (finish_reason: {finish_reason})")
                     if attempt < max_retries - 1:
-                        logger.warning(f"Empty response on attempt {attempt + 1}, retrying...")
-                        time.sleep(1)
                         continue
                     else:
                         return {
                             "success": False,
-                            "error": "OpenAI returned empty response after retries",
+                            "error": f"OpenAI returned empty response after {max_retries} retries (finish_reason: {finish_reason})",
                             "text": None,
                             "model": model
                         }
@@ -342,32 +361,38 @@ class OpenAIService(LLMService):
                 extracted_text = response.choices[0].message.content.strip()
                 
                 if not extracted_text:
+                    logger.warning(f"❌ Empty text content after strip (finish_reason: {finish_reason})")
                     if attempt < max_retries - 1:
-                        logger.warning(f"Empty text content on attempt {attempt + 1}, retrying...")
-                        time.sleep(1)
                         continue
                     else:
                         return {
                             "success": False,
-                            "error": "OpenAI returned empty text content after retries",
+                            "error": f"OpenAI returned empty text content after {max_retries} retries (finish_reason: {finish_reason})",
                             "text": None,
                             "model": model
                         }
                 
+                # 🔧 IMPROVEMENT: Success logging with detailed metrics
+                char_count = len(extracted_text)
+                word_count = len(extracted_text.split())
+                logger.info(f"✅ API call successful: {char_count} chars, {word_count} words, {token_usage} tokens, finish_reason: {finish_reason}")
+                
                 return {
                     "success": True,
                     "text": extracted_text,
-                    "tokens_used": response.usage.total_tokens,
-                    "model": model
+                    "tokens_used": token_usage,
+                    "model": model,
+                    "finish_reason": finish_reason,  # 🔧 IMPROVEMENT: Include for debugging
+                    "char_count": char_count,
+                    "word_count": word_count
                 }
                 
             except Exception as e:
+                logger.error(f"💥 API call attempt {attempt + 1} failed: {str(e)}")
                 if attempt < max_retries - 1:
-                    logger.warning(f"API call failed on attempt {attempt + 1}: {e}, retrying...")
-                    time.sleep(2 ** attempt)  # Exponential backoff
                     continue
                 else:
-                    logger.error(f"All retry attempts failed: {e}")
+                    logger.error(f"💥 All {max_retries} attempts failed for {model}")
                     return {
                         "success": False,
                         "error": f"OpenAI API failed after {max_retries} attempts: {str(e)}",

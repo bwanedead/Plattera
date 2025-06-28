@@ -178,28 +178,46 @@ def _filter_valid_extractions(texts: List[str]) -> List[str]:
     if not texts:
         return texts
     
+    logger.info(f"📊 Filtering {len(texts)} successful results for quality...")
+    
     # First pass: Remove obvious refusals and very short texts
     filtered_texts = []
-    for text in texts:
-        if not _is_llm_refusal_or_failed(text):
+    refusal_count = 0
+    for i, text in enumerate(texts):
+        if _is_llm_refusal_or_failed(text):
+            refusal_count += 1
+            logger.warning(f"  ❌ Result {i+1}: Filtered as refusal/failed (length: {len(text.split())} words)")
+        else:
             filtered_texts.append(text)
+            logger.info(f"  ✅ Result {i+1}: Passed basic validation (length: {len(text.split())} words)")
     
     if len(filtered_texts) <= 1:
-        return filtered_texts  # Can't do length filtering with 1 or fewer texts
+        logger.info(f"📋 Quality filtering complete: {len(filtered_texts)} results remaining (too few for length comparison)")
+        return filtered_texts
     
     # Second pass: Remove texts that are significantly shorter than others
     word_counts = [len(text.split()) for text in filtered_texts]
     median_words = sorted(word_counts)[len(word_counts) // 2]
+    threshold = median_words * 0.3
+    
+    logger.info(f"📐 Length analysis: median={median_words} words, threshold={threshold:.1f} words (30% of median)")
     
     # Filter out texts with less than 30% of median word count
-    # (likely failed extractions that passed the first filter)
     final_texts = []
-    for text in filtered_texts:
+    length_filtered_count = 0
+    for i, text in enumerate(filtered_texts):
         word_count = len(text.split())
-        if word_count >= (median_words * 0.3):
+        if word_count >= threshold:
             final_texts.append(text)
+            logger.info(f"  ✅ Result {i+1}: Passed length filter ({word_count} >= {threshold:.1f} words)")
+        else:
+            length_filtered_count += 1
+            logger.warning(f"  ❌ Result {i+1}: Filtered as too short ({word_count} < {threshold:.1f} words)")
     
-    return final_texts if final_texts else filtered_texts  # Fallback to first filter if second is too aggressive
+    total_filtered = refusal_count + length_filtered_count
+    logger.info(f"📋 Quality filtering complete: {len(final_texts)}/{len(texts)} results kept ({refusal_count} refusals + {length_filtered_count} too short = {total_filtered} filtered)")
+    
+    return final_texts if final_texts else filtered_texts
 
 class ImageToTextPipeline:
     """
@@ -521,58 +539,76 @@ class ImageToTextPipeline:
             }
 
     def _execute_parallel_calls(self, service, image_data: str, image_format: str, prompt: str, model: str, count: int, json_mode: bool = False) -> List[dict]:
-        """Execute multiple API calls with staggered timing to reduce empty responses"""
+        """Execute multiple API calls with improved staggering and jitter to reduce empty responses"""
         import time
+        import random
         results = []
         
-        # Staggered execution to avoid API congestion
-        stagger_delay = 0.7  # 700ms delay between call submissions
+        logger.info(f"🚀 Starting {count} parallel API calls with improved timing...")
+        
+        # 🔧 IMPROVEMENT: Increased base delay + added jitter for o4-mini reliability
+        base_stagger_delay = 1.5  # Increased from 700ms to 1500ms for o4-mini
         
         # Use ThreadPoolExecutor for parallel API calls
         with concurrent.futures.ThreadPoolExecutor(max_workers=count) as executor:
-            # Submit calls with staggered timing
+            # Submit calls with staggered timing + jitter
             futures = []
             for i in range(count):
                 if i > 0:  # Add delay before subsequent calls
-                    time.sleep(stagger_delay)
-                    logger.info(f"🕐 Staggered call {i+1} submitted after {stagger_delay * i:.1f}s delay")
+                    # 🔧 IMPROVEMENT: Add random jitter (200-800ms) to prevent exact timing collisions
+                    jitter = random.uniform(0.2, 0.8)  
+                    total_delay = base_stagger_delay + jitter
+                    time.sleep(total_delay)
+                    logger.info(f"🕐 Call {i+1}: Submitted after {total_delay:.2f}s delay (base: {base_stagger_delay}s + jitter: {jitter:.2f}s)")
                 
+                # 🔧 IMPROVEMENT: Pass explicit max_tokens to reduce cutoffs
                 future = executor.submit(
                     service.process_image_with_text,
                     image_data=image_data,
                     prompt=prompt,
                     model=model,
                     image_format=image_format,
-                    json_mode=json_mode
+                    json_mode=json_mode,
+                    max_tokens=8000  # 🔧 IMPROVEMENT: Explicit high max_tokens for o4-mini
                 )
                 futures.append(future)
                 
                 if i == 0:
-                    logger.info(f"🚀 Call {i+1} submitted immediately")
+                    logger.info(f"🚀 Call {i+1}: Submitted immediately")
             
             # Collect results (these will complete whenever they finish)
             for i, future in enumerate(futures):
                 try:
-                    result = future.result(timeout=120)  # 2 minute timeout per call
-                    logger.info(f"✅ Redundancy call {i+1} completed")
+                    # 🔧 IMPROVEMENT: Increased timeout for o4-mini (2 min -> 4 min)
+                    result = future.result(timeout=240)  # 4 minute timeout for long reasoning tasks
+                    logger.info(f"✅ Call {i+1}: Completed successfully")
                     results.append(result)
                 except Exception as e:
-                    logger.error(f"❌ Redundancy call {i+1} failed: {e}")
+                    logger.error(f"❌ Call {i+1}: Failed - {e}")
                     results.append({
                         "success": False,
                         "error": f"API call failed: {str(e)}",
                         "extracted_text": ""
                     })
         
+        successful_count = sum(1 for r in results if r.get("success", False))
+        logger.info(f"📊 Parallel execution complete: {successful_count}/{count} calls successful")
+        
         return results
 
     def _analyze_redundancy_consensus(self, results: List[dict], model: str, service, consensus_strategy: str = 'sequential') -> dict:
         """Analyze multiple results to find consensus and confidence"""
         
+        logger.info(f"🔍 Analyzing {len(results)} redundancy results...")
+        
         # Filter successful results
         successful_results = [r for r in results if r.get("success", False)]
+        failed_count = len(results) - len(successful_results)
+        
+        logger.info(f"📊 Initial results: {len(successful_results)} successful, {failed_count} failed")
         
         if not successful_results:
+            logger.error("❌ No successful results to analyze")
             return {
                 "success": False,
                 "error": "All redundancy calls failed",
@@ -588,33 +624,44 @@ class ImageToTextPipeline:
         # Extract text from successful results
         texts = [r.get("extracted_text", "") for r in successful_results]
         
-        # Filter out invalid extractions
+        # Log text lengths before filtering
+        for i, text in enumerate(texts):
+            word_count = len(text.split())
+            char_count = len(text)
+            logger.info(f"  📄 Successful result {i+1}: {word_count} words, {char_count} chars")
+        
+        # Filter out invalid extractions (this is where filtering happens)
         filtered_texts = _filter_valid_extractions(texts)
         
-        # Log filtering results
+        # Log filtering results with explanation
         filtered_count = len(successful_results) - len(filtered_texts)
         if filtered_count > 0:
-            logger.warning(f"Filtered out {filtered_count} invalid extractions from {len(successful_results)} successful results")
+            logger.warning(f"🔍 Quality filter removed {filtered_count} results from {len(successful_results)} successful calls")
+            logger.info(f"📋 Final analysis will use {len(filtered_texts)} high-quality results")
+        else:
+            logger.info(f"📋 All {len(successful_results)} successful results passed quality filters")
         
         if not filtered_texts:
+            logger.error("❌ No results passed quality filtering")
             return {
                 "success": False,
-                "error": "All texts are invalid",
+                "error": "All texts failed quality validation",
                 "metadata": {
                     "redundancy_analysis": {
                         "total_calls": len(results),
-                        "successful_calls": 0,
-                        "failed_calls": len(results)
+                        "successful_calls": len(successful_results),
+                        "failed_calls": failed_count,
+                        "filtered_out": filtered_count
                     }
                 }
             }
         
-        # 🆕 NEW: Check if we have JSON-structured documents
+        # Continue with consensus analysis...
         if _are_json_results(filtered_texts):
-            logger.info("🔥 JSON documents detected - using new semantic alignment system")
+            logger.info("🔥 JSON documents detected - using semantic alignment system")
             return self._analyze_json_consensus(results, successful_results, filtered_texts, model)
         else:
-            logger.info("📝 Plain text documents - using existing consensus system")
+            logger.info("📝 Plain text documents - using text consensus system")
             return self._analyze_text_consensus(results, successful_results, filtered_texts, model, consensus_strategy)
     
     def _analyze_json_consensus(self, results: List[dict], successful_results: List[dict], 
