@@ -92,14 +92,13 @@ import { ImageEnhancementModal } from './ImageEnhancementModal';
 import { DraftSelector } from './DraftSelector';
 import { AnimatedBorder } from './AnimatedBorder';
 import { HeatmapToggle } from './HeatmapToggle';
-import { ConfidenceHeatmapViewer } from './ConfidenceHeatmapViewer';
+import { CopyButton } from './CopyButton';
 import { 
   isJsonResult, 
   formatJsonAsText, 
   formatJsonPretty,
   getWordCount 
 } from '../utils/jsonFormatter';
-import { CopyButton } from './CopyButton';
 
 // Enhancement settings interface
 interface EnhancementSettings {
@@ -364,28 +363,38 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
 
   const handleProcess = async () => {
     if (stagedFiles.length === 0) return;
+    
     setIsProcessing(true);
-    setSelectedResult(null); // Clear previous selection
     
-    // Process all files and get results with enhancement settings
-    const newResults = await processFilesAPI(stagedFiles, selectedModel, extractionMode, enhancementSettings, redundancySettings);
-    
-    // Add all results to session
-    setSessionResults(prev => [...newResults, ...prev]);
-    
-    // Select the first successful result, or the first result if none succeeded
-    const firstSuccessful = newResults.find(r => r.status === 'completed') || newResults[0];
-    if (firstSuccessful) {
-      setSelectedResult(firstSuccessful);
-      setSelectedDraft('best'); // Reset to best draft for new results
-      // Reset heatmap state for new results
-      setIsHeatmapEnabled(false);
-      setIsTextEdited(false);
-      setEditedText('');
+    try {
+      const results = await processFilesAPI(
+        stagedFiles, 
+        selectedModel, 
+        extractionMode, 
+        enhancementSettings, 
+        redundancySettings
+      );
+      
+      // Add all results to session
+      setSessionResults(prev => [...results, ...prev]);
+      
+      // Select the first successful result, or the first result if none succeeded
+      const firstSuccessful = results.find(r => r.status === 'completed') || results[0];
+      if (firstSuccessful) {
+        setSelectedResult(firstSuccessful);
+        setSelectedDraft('best'); // Reset to best draft for new results
+        // Reset heatmap state for new results
+        setIsHeatmapEnabled(false);
+        setIsTextEdited(false);
+        setEditedText('');
+      }
+      
+      setStagedFiles([]);
+      setIsProcessing(false);
+    } catch (error) {
+      console.error('Error processing files:', error);
+      setIsProcessing(false);
     }
-    
-    setStagedFiles([]);
-    setIsProcessing(false);
   };
   
   const removeStagedFile = (fileName: string) => {
@@ -482,10 +491,6 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   ⚠️  ONLY ADD THE EDITED TEXT CHECK AT THE TOP
   */
   const getCurrentText = useCallback(() => {
-    if (isTextEdited && editedText) {
-      return editedText;
-    }
-    
     if (!selectedResult || selectedResult.status !== 'completed' || !selectedResult.result) {
       return selectedResult?.error || 'No result available';
     }
@@ -528,7 +533,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     // Fallback to main text
     const fallbackText = selectedResult.result.extracted_text || '';
     return isJsonResult(fallbackText) ? formatJsonAsText(fallbackText) : fallbackText;
-  }, [selectedResult, selectedDraft, isTextEdited, editedText, selectedConsensusStrategy]);  // 🆕 Add selectedConsensusStrategy
+  }, [selectedResult, selectedDraft, isTextEdited, editedText, selectedConsensusStrategy]);
 
   const handleDraftSelect = useCallback((draft: number | 'consensus' | 'best') => {
     setSelectedDraft(draft);
@@ -853,30 +858,6 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                         redundancyAnalysis={selectedResult?.result?.metadata?.redundancy_analysis}
                       />
                       
-                      {selectedResult?.result?.metadata?.redundancy_analysis?.all_consensus_results && (
-                        <div className="consensus-selector">
-                          <label htmlFor="consensus-algorithm">Consensus Algorithm:</label>
-                          <select
-                            id="consensus-algorithm"
-                            value={selectedConsensusStrategy}
-                            onChange={(e) => setSelectedConsensusStrategy(e.target.value)}
-                            className="consensus-algorithm-select"
-                          >
-                            <option value="segmented_fuzzy">Segmented Fuzzy (50 words)</option>
-                            <option value="small_segments">Small Segments (20 words)</option>
-                            <option value="large_segments">Large Segments (100 words)</option>
-                          </select>
-                          <div className="consensus-strategy-hint">
-                            {selectedConsensusStrategy === 'segmented_fuzzy' && 
-                              'Fuzzy matches 50-word segments - balanced speed and accuracy'}
-                            {selectedConsensusStrategy === 'small_segments' && 
-                              'Fuzzy matches 20-word segments - more precise but slower'}
-                            {selectedConsensusStrategy === 'large_segments' && 
-                              'Fuzzy matches 100-word segments - faster but less precise'}
-                          </div>
-                        </div>
-                      )}
-                      
                       <div className="result-tabs">
                           <button className={activeTab === 'text' ? 'active' : ''} onClick={() => setActiveTab('text')}>📄 Text</button>
                           {isCurrentResultJson() && (
@@ -889,15 +870,20 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                           {activeTab === 'text' && (
                             <div className="text-display">
                               {isHeatmapEnabled && selectedResult?.result?.metadata?.redundancy_analysis ? (
-                                <ConfidenceHeatmapViewer
-                                  text={getCurrentText()}
-                                  wordConfidenceMap={
-                                    selectedResult.result.metadata.redundancy_analysis.all_consensus_results?.[selectedConsensusStrategy]?.confidence_map || 
-                                    selectedResult.result.metadata.redundancy_analysis.word_confidence_map || {}
-                                  }
-                                  redundancyAnalysis={selectedResult.result.metadata.redundancy_analysis}
-                                  onTextUpdate={handleTextUpdate}
-                                />
+                                <div className="formatted-text-display">
+                                  {getCurrentText().split('\n').map((line: string, index: number) => {
+                                    // Check if line is a section divider (contains only dashes)
+                                    if (/^─+$/.test(line.trim())) {
+                                      return <hr key={index} className="section-divider" />
+                                    }
+                                    // Empty lines for spacing
+                                    if (!line.trim()) {
+                                      return <div key={index} className="line-break" />
+                                    }
+                                    // Regular text lines
+                                    return <p key={index} className="text-line">{line}</p>
+                                  })}
+                                </div>
                               ) : (
                                 <div className="formatted-text-display">
                                   {getCurrentText().split('\n').map((line: string, index: number) => {

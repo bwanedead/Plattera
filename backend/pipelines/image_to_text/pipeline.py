@@ -96,7 +96,7 @@ import string
 import itertools
 from .image_processor import enhance_for_character_recognition
 import json
-from .json_alignment import merge_drafts as merge_json_drafts  # Import new alignment system
+# Alignment system removed - clean slate for new implementation
 
 logger = logging.getLogger(__name__)
 
@@ -528,8 +528,14 @@ class ImageToTextPipeline:
                 service, image_data, image_format, prompt, model, redundancy_count, json_mode
             )
             
-            # CRITICAL: Analyze results and generate consensus data for heatmap
-            return self._analyze_redundancy_consensus(parallel_results, model, service, consensus_strategy)
+            # Analyze consensus from results 
+            logger.info("") # Add spacing for readability
+            logger.info("🧠 CONSENSUS ANALYSIS ► Starting redundancy analysis...")
+            final_result = self._analyze_redundancy_consensus(parallel_results, model, service, consensus_strategy)
+            logger.info("✅ CONSENSUS COMPLETE ► Analysis finished successfully")
+            logger.info("") # Add spacing for readability
+            
+            return final_result
             
         except Exception as e:
             logger.error(f"Redundancy processing failed: {str(e)}")
@@ -544,7 +550,7 @@ class ImageToTextPipeline:
         import random
         results = []
         
-        logger.info(f"🚀 Starting {count} parallel API calls with improved timing...")
+        logger.info(f"🚀 API EXECUTION ► Starting {count} parallel calls with staggered timing")
         
         # 🔧 IMPROVEMENT: Increased base delay + added jitter for o4-mini reliability
         base_stagger_delay = 1.5  # Increased from 700ms to 1500ms for o4-mini
@@ -559,7 +565,7 @@ class ImageToTextPipeline:
                     jitter = random.uniform(0.2, 0.8)  
                     total_delay = base_stagger_delay + jitter
                     time.sleep(total_delay)
-                    logger.info(f"🕐 Call {i+1}: Submitted after {total_delay:.2f}s delay (base: {base_stagger_delay}s + jitter: {jitter:.2f}s)")
+                    logger.info(f"⏱️  API CALL {i+1} ► Submitted after {total_delay:.2f}s delay (base {base_stagger_delay}s + jitter {jitter:.2f}s)")
                 
                 # 🔧 IMPROVEMENT: Pass explicit max_tokens to reduce cutoffs
                 future = executor.submit(
@@ -572,19 +578,19 @@ class ImageToTextPipeline:
                     max_tokens=8000  # 🔧 IMPROVEMENT: Explicit high max_tokens for o4-mini
                 )
                 futures.append(future)
-                
+            
                 if i == 0:
-                    logger.info(f"🚀 Call {i+1}: Submitted immediately")
+                    logger.info(f"⚡ API CALL {i+1} ► Submitted immediately")
             
             # Collect results (these will complete whenever they finish)
             for i, future in enumerate(futures):
                 try:
                     # 🔧 IMPROVEMENT: Increased timeout for o4-mini (2 min -> 4 min)
                     result = future.result(timeout=240)  # 4 minute timeout for long reasoning tasks
-                    logger.info(f"✅ Call {i+1}: Completed successfully")
+                    logger.info(f"✅ API CALL {i+1} ► Completed successfully")
                     results.append(result)
                 except Exception as e:
-                    logger.error(f"❌ Call {i+1}: Failed - {e}")
+                    logger.error(f"❌ API CALL {i+1} ► Failed: {e}")
                     results.append({
                         "success": False,
                         "error": f"API call failed: {str(e)}",
@@ -592,232 +598,94 @@ class ImageToTextPipeline:
                     })
         
         successful_count = sum(1 for r in results if r.get("success", False))
-        logger.info(f"📊 Parallel execution complete: {successful_count}/{count} calls successful")
+        logger.info(f"📊 API EXECUTION COMPLETE ► {successful_count}/{count} calls successful")
         
         return results
 
     def _analyze_redundancy_consensus(self, results: List[dict], model: str, service, consensus_strategy: str = 'sequential') -> dict:
-        """Analyze multiple results to find consensus and confidence"""
+        """Analyze multiple results to find consensus - simplified without alignment"""
         
-        logger.info(f"🔍 Analyzing {len(results)} redundancy results...")
-        
-        # Filter successful results
-        successful_results = [r for r in results if r.get("success", False)]
-        failed_count = len(results) - len(successful_results)
-        
-        logger.info(f"📊 Initial results: {len(successful_results)} successful, {failed_count} failed")
-        
-        if not successful_results:
-            logger.error("❌ No successful results to analyze")
-            return {
-                "success": False,
-                "error": "All redundancy calls failed",
-                "metadata": {
-                    "redundancy_analysis": {
-                        "total_calls": len(results),
-                        "successful_calls": 0,
-                        "failed_calls": len(results)
-                    }
-                }
-            }
-        
-        # Extract text from successful results
-        texts = [r.get("extracted_text", "") for r in successful_results]
-        
-        # Log text lengths before filtering
-        for i, text in enumerate(texts):
-            word_count = len(text.split())
-            char_count = len(text)
-            logger.info(f"  📄 Successful result {i+1}: {word_count} words, {char_count} chars")
-        
-        # Filter out invalid extractions (this is where filtering happens)
-        filtered_texts = _filter_valid_extractions(texts)
-        
-        # Log filtering results with explanation
-        filtered_count = len(successful_results) - len(filtered_texts)
-        if filtered_count > 0:
-            logger.warning(f"🔍 Quality filter removed {filtered_count} results from {len(successful_results)} successful calls")
-            logger.info(f"📋 Final analysis will use {len(filtered_texts)} high-quality results")
-        else:
-            logger.info(f"📋 All {len(successful_results)} successful results passed quality filters")
-        
-        if not filtered_texts:
-            logger.error("❌ No results passed quality filtering")
-            return {
-                "success": False,
-                "error": "All texts failed quality validation",
-                "metadata": {
-                    "redundancy_analysis": {
-                        "total_calls": len(results),
-                        "successful_calls": len(successful_results),
-                        "failed_calls": failed_count,
-                        "filtered_out": filtered_count
-                    }
-                }
-            }
+        logger.info(f"🔍 CONSENSUS ANALYSIS ► Starting redundancy analysis on {len(results)} API calls")
         
         # Continue with consensus analysis...
-        if _are_json_results(filtered_texts):
-            logger.info("🔥 JSON documents detected - using semantic alignment system")
-            return self._analyze_json_consensus(results, successful_results, filtered_texts, model)
-        else:
-            logger.info("📝 Plain text documents - using text consensus system")
-            return self._analyze_text_consensus(results, successful_results, filtered_texts, model, consensus_strategy)
-    
-    def _analyze_json_consensus(self, results: List[dict], successful_results: List[dict], 
-                               filtered_texts: List[str], model: str) -> dict:
-        """Analyze JSON documents using the new semantic alignment system"""
-        try:
-            # Parse JSON documents
-            json_documents = []
-            for text in filtered_texts:
-                try:
-                    parsed = json.loads(text)
-                    json_documents.append(parsed)
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Failed to parse JSON document: {e}")
-                    continue
-            
-            if not json_documents:
-                raise ValueError("No valid JSON documents found")
-            
-            # Use new alignment system
-            logger.info(f"🎯 Running semantic alignment on {len(json_documents)} JSON documents")
-            alignment_result = merge_json_drafts(json_documents, {"debug": True})
-            
-            # Convert alignment result to consensus format
-            consensus_text = alignment_result.get("consensus", "")
-            confidence_list = alignment_result.get("confidence", [])
-            alternatives_dict = alignment_result.get("alternatives", {})
-            
-            # Convert confidence list to word map format (for compatibility)
-            word_confidence_map = {}
-            for i, conf in enumerate(confidence_list):
-                word_confidence_map[f"word_{i}"] = conf
-            
-            # Convert alternatives dict to word alternatives format
-            word_alternatives = {}
-            for word_idx, alts in alternatives_dict.items():
-                word_alternatives[f"word_{word_idx}"] = alts
-            
-            # Calculate overall confidence
-            overall_confidence = sum(confidence_list) / len(confidence_list) if confidence_list else 0.0
-            
-            # Find best result (longest JSON)
-            best_result_index = 0
-            best_score = 0
-            filtered_results = []
-            
-            for result in successful_results:
-                result_text = result.get("extracted_text", "")
-                if result_text in filtered_texts:
-                    filtered_results.append(result)
-            
-            for i, result in enumerate(filtered_results):
-                score = len(result.get("extracted_text", ""))
-                if score > best_score:
-                    best_score = score
-                    best_result_index = i
-            
-            best_formatted_text = filtered_results[best_result_index].get("extracted_text", "") if filtered_results else filtered_texts[0]
-            
-            # Aggregate token usage
-            total_tokens = sum(r.get("tokens_used", 0) for r in successful_results)
-            
+        logger.info("🔍 CONSENSUS INPUT ► Filtering successful results...")
+        successful_results = [r for r in results if r.get("success", False)]
+        logger.info(f"   ✅ Found {len(successful_results)}/{len(results)} successful API calls")
+        
+        if not successful_results:
+            logger.info("❌ CONSENSUS FAILED ► No successful results to analyze")
             return {
-                "success": True,
-                "extracted_text": best_formatted_text,
+                "success": False,
+                "extracted_text": "All processing attempts failed",
+                "error": "No successful results", 
                 "model_used": model,
                 "service_type": "llm",
-                "tokens_used": total_tokens,
-                "confidence_score": overall_confidence,
+                "tokens_used": 0,
+                "confidence_score": 0.0,
                 "metadata": {
                     "redundancy_enabled": True,
                     "redundancy_count": len(results),
-                    "processing_mode": "json_semantic_alignment",
-                    "alignment_engine": "semantic",
-                    "best_result_used": best_result_index + 1,
-                    "redundancy_analysis": {
-                        "total_calls": len(results),
-                        "successful_calls": len(successful_results),
-                        "valid_extractions": len(filtered_texts),
-                        "filtered_out": len(successful_results) - len(filtered_texts),
-                        "failed_calls": len(results) - len(successful_results),
-                        "consensus_text": consensus_text,
-                        "best_formatted_text": best_formatted_text,
-                        "best_result_index": best_result_index,
-                        "word_confidence_map": word_confidence_map,
-                        "word_alternatives": word_alternatives,
-                        "json_alignment_result": alignment_result,  # Full alignment data
-                        "individual_results": [
-                            {
-                                "success": r.get("success", False),
-                                "text": r.get("extracted_text", ""),
-                                "tokens": r.get("tokens_used", 0),
-                                "error": r.get("error")
-                            }
-                            for r in results
-                        ]
-                    }
+                    "processing_mode": "failed",
+                    "failed_calls": len(results)
                 }
             }
-            
-        except Exception as e:
-            logger.error(f"❌ JSON alignment failed: {str(e)}")
-            # Fallback to text consensus
-            logger.warning("🚨 Falling back to text consensus due to JSON alignment failure")
-            return self._analyze_text_consensus(results, successful_results, filtered_texts, model, 'sequential')
-    
-    def _analyze_text_consensus(self, results: List[dict], successful_results: List[dict], 
-                               filtered_texts: List[str], model: str, consensus_strategy: str) -> dict:
-        """
-        For non-JSON mode: Just return the best result without consensus processing.
         
-        Consensus/alignment is only useful for JSON-structured documents.
-        For plain text, we just pick the best result (longest/highest quality).
-        """
-        logger.info("📄 Non-JSON mode: Selecting best result (no consensus processing)")
+        # Filter out LLM refusals and failed extractions
+        logger.info("🔧 CONSENSUS FILTERING ► Removing failed extractions...")
+        filtered_texts = _filter_valid_extractions([r.get("extracted_text", "") for r in successful_results])
+        logger.info(f"   📊 Using {len(filtered_texts)} high-quality extractions")
         
-        # Find the best individual result from filtered results
+        if not filtered_texts:
+            logger.info("❌ CONSENSUS FAILED ► No valid extractions after filtering")
+            return {
+                "success": False,
+                "extracted_text": "All extractions were invalid or refused",
+                "error": "No valid extractions after filtering",
+                "model_used": model,
+                "service_type": "llm", 
+                "tokens_used": sum(r.get("tokens_used", 0) for r in successful_results),
+                "confidence_score": 0.0,
+                "metadata": {
+                    "redundancy_enabled": True,
+                    "redundancy_count": len(results),
+                    "processing_mode": "filtered_out",
+                    "successful_calls": len(successful_results),
+                    "failed_calls": len(results) - len(successful_results)
+                }
+            }
+        
+        # Simple draft selection - pick the longest/best result without complex alignment
+        logger.info(f"📋 DRAFT SELECTION ► Selecting best from {len(filtered_texts)} valid extractions")
+        
+        # Find the longest text as the "best" result
+        best_text = max(filtered_texts, key=len)
+        best_result_index = 0
+        
+        # Find which original result corresponds to our best text
         filtered_results = []
         for result in successful_results:
             result_text = result.get("extracted_text", "")
             if result_text in filtered_texts:
                 filtered_results.append(result)
-        
-        if not filtered_results:
-            # Fallback to any successful result
-            filtered_results = successful_results
-        
-        # Choose the result with the longest text (best extraction)
-        best_result_index = 0
-        best_score = 0
-        
-        for i, result in enumerate(filtered_results):
-            # Score based on text length (longer = better extraction)
-            text_length_score = len(result.get("extracted_text", ""))
-            
-            if text_length_score > best_score:
-                best_score = text_length_score
-                best_result_index = i
-        
-        best_result = filtered_results[best_result_index] if filtered_results else {"extracted_text": "No valid results"}
-        best_formatted_text = best_result.get("extracted_text", "")
+                if result_text == best_text:
+                    best_result_index = len(filtered_results) - 1
         
         # Aggregate token usage
         total_tokens = sum(r.get("tokens_used", 0) for r in successful_results)
         
+        logger.info(f"✅ DRAFT SELECTED ► Using result {best_result_index + 1}/{len(filtered_results)} (length: {len(best_text)} chars)")
+        
         return {
             "success": True,
-            "extracted_text": best_formatted_text,
+            "extracted_text": best_text,
             "model_used": model,
-            "service_type": "llm", 
+            "service_type": "llm",
             "tokens_used": total_tokens,
-            "confidence_score": 1.0,  # Single result = full confidence
+            "confidence_score": 1.0,  # Single draft = full confidence
             "metadata": {
                 "redundancy_enabled": True,
                 "redundancy_count": len(results),
-                "processing_mode": "best_result_selection",
+                "processing_mode": "draft_selection",
                 "best_result_used": best_result_index + 1,
                 "redundancy_analysis": {
                     "total_calls": len(results),
@@ -825,9 +693,7 @@ class ImageToTextPipeline:
                     "valid_extractions": len(filtered_texts),
                     "filtered_out": len(successful_results) - len(filtered_texts),
                     "failed_calls": len(results) - len(successful_results),
-                    "best_formatted_text": best_formatted_text,
                     "best_result_index": best_result_index,
-                    "note": "Non-JSON mode: No consensus processing, selected best result",
                     "individual_results": [
                         {
                             "success": r.get("success", False),
@@ -839,27 +705,4 @@ class ImageToTextPipeline:
                     ]
                 }
             }
-        }
-
-    def _calculate_consensus(self, texts: List[str], strategy: str = 'sequential') -> tuple:
-        """
-        Simple fallback consensus - just return the longest text.
-        
-        This is only used as a fallback when JSON alignment fails.
-        Real consensus/alignment should only be used for JSON documents.
-        
-        Args:
-            texts: List of draft texts to process
-            strategy: Ignored (for compatibility)
-            
-        Returns:
-            tuple: (consensus_text, confidence_map, word_alternatives)
-        """
-        if not texts:
-            return "", {}, {}
-        
-        # Just return the longest text (best extraction)
-        longest_text = max(texts, key=len)
-        
-        # No confidence/alternatives for simple fallback
-        return longest_text, {}, {} 
+        } 
