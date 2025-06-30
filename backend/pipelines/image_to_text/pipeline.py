@@ -1,223 +1,88 @@
 """
 Image to Text Processing Pipeline
-Pure business logic - no API endpoints
+=================================
 
-🔴 CRITICAL REDUNDANCY IMPLEMENTATION DOCUMENTATION 🔴
-=====================================================
+🎯 CLEAN ARCHITECTURE - PURE ORCHESTRATION LAYER 🎯
+==================================================
 
-THIS MODULE IS THE CENTRAL ORCHESTRATOR - PRESERVE ALL WIRING BELOW 🔴
+This module is the central orchestrator for image-to-text processing.
+It maintains clean separation of concerns by delegating specialized logic to dedicated modules.
 
-COMPLETE DATA FLOW CHAIN:
-1. API Endpoint → pipeline.process()
-2. pipeline.process() → _get_service_for_model() → OpenAI service
-3. pipeline.process() → _prepare_image() → enhance_for_character_recognition()
-4. pipeline.process() → service.process_image_with_text()
-5. OpenAI service → call_vision() → OpenAI API
-6. OpenAI API response → _standardize_response() → API response
+CURRENT ARCHITECTURE:
+====================
+📁 pipeline.py           → Core orchestration (this file)
+📁 redundancy.py          → Parallel execution & consensus logic  
+📁 utils/text_utils.py    → Reusable text processing utilities
+📁 alignment/             → Validation, tokenization & alignment algorithms
+📁 image_processor.py     → Image enhancement & preparation
 
-CRITICAL METHOD SIGNATURES:
-- process(image_path: str, model: str, extraction_mode: str, enhancement_settings: dict) -> dict
-- service.process_image_with_text(image_data: str, prompt: str, model: str, **kwargs) -> dict
-- enhance_for_character_recognition(image_path: str) -> Tuple[str, str]
+ORCHESTRATION DATA FLOWS:
+=========================
 
-CRITICAL RESPONSE FORMAT:
+SINGLE PROCESSING:
+API → pipeline.process() → service → _standardize_response() → Frontend
+
+REDUNDANCY PROCESSING:  
+API → pipeline.process_with_redundancy() → RedundancyProcessor.process() → Frontend
+
+CRITICAL INTEGRATION POINTS:
+============================
+
+SERVICE INTERFACE:
+- service.process_image_with_text(image_data, prompt, model, image_format, json_mode)
+- MUST return: {"success": bool, "extracted_text": str, "tokens_used": int, ...}
+
+IMAGE PROCESSING:
+- enhance_for_character_recognition(image_path) → (base64_string, format_string)
+- Pipeline handles image preparation and base64 encoding
+
+RESPONSE FORMAT (UNCHANGED):
 {
     "success": True,
-    "extracted_text": "...",  # THIS IS WHAT FRONTEND DISPLAYS
-    "model_used": "gpt-4o",
+    "extracted_text": "...",  # Frontend dependency
+    "model_used": "gpt-4o", 
     "service_type": "llm",
     "tokens_used": 6561,
     "confidence_score": 1.0,
     "metadata": {...}
 }
 
-CRITICAL WIRING POINTS:
-1. _prepare_image() MUST return (base64_string, format_string)
-2. service.process_image_with_text() MUST receive base64 string as image_data
-3. _standardize_response() MUST extract "extracted_text" from service response
-4. Final response MUST have "extracted_text" field for frontend
+REDUNDANCY INTEGRATION:
+======================
+- RedundancyProcessor handles: parallel execution, consensus analysis, response formatting
+- Pipeline orchestrates: service routing, image preparation, delegation to processor
+- Maintains same response format for frontend compatibility
 
-CRITICAL SERVICE INTERFACE:
-- OpenAI service MUST have process_image_with_text() method
-- Method MUST return dict with "success" and "extracted_text" fields
-- OpenAI service MUST handle base64 image data correctly
-
-ENHANCEMENT SAFETY RULES:
-- NEVER change _prepare_image() return signature
-- NEVER change service.process_image_with_text() call signature
-- NEVER modify _standardize_response() extraction logic
-- ALWAYS preserve "extracted_text" field in final response
-- ALWAYS maintain service interface compatibility
-
-REDUNDANCY IMPLEMENTATION SAFETY RULES:
-======================================
-
-✅ SAFE TO ADD:
-- process_with_redundancy() method as NEW method alongside existing process()
-- New private methods: _execute_parallel_calls(), _analyze_redundancy_consensus()
-- Additional imports: concurrent.futures, difflib, typing.List
-- Redundancy-specific response fields in metadata
+SAFETY RULES:
+============
+✅ SAFE TO MODIFY:
+- Internal orchestration logic
+- Error handling improvements  
+- Additional metadata fields
+- Service routing enhancements
 
 ❌ DO NOT MODIFY:
-- Existing process() method signature or behavior
-- Any existing private method signatures
-- Service interface calls
-- Response format structure
-- Image preparation logic
-- Error handling patterns
+- Public method signatures (process, process_with_redundancy)
+- Response format structure (breaks frontend)
+- Service interface calls (breaks integrations)
+- Image preparation return types (breaks image processing)
 
-CRITICAL REDUNDANCY REQUIREMENTS:
-================================
-1. process_with_redundancy() MUST return same format as process()
-2. MUST handle redundancy_count=1 by calling original process()
-3. MUST preserve all existing error handling patterns
-4. MUST use same service interface as original process()
-5. MUST maintain "extracted_text" as primary result field
-
-TESTING CHECKPOINTS:
-===================
-After redundancy implementation, verify:
-1. Original process() method still works unchanged
-2. process_with_redundancy(count=1) produces same result as process()
-3. All service integrations remain functional
-4. Response format matches frontend expectations
-5. Error handling works for both methods
+DEFAULT MODES:
+=============
+- Default extraction_mode: "legal_document_json" (structured output)
+- Default model: "gpt-4o" (balanced speed/quality)
+- JSON mode auto-enables redundancy for better consensus analysis
 """
 from services.registry import get_registry
 from prompts.image_to_text import get_image_to_text_prompt
 import base64
 from pathlib import Path
 import logging
-from typing import Tuple, List, Dict, Any
-import concurrent.futures
-from difflib import SequenceMatcher
-import re
-import string
-import itertools
+from typing import Tuple
 from .image_processor import enhance_for_character_recognition
-import json
-# Alignment system removed - clean slate for new implementation
+from .redundancy import RedundancyProcessor
 
 logger = logging.getLogger(__name__)
-
-# 🔴 CONSENSUS PROCESSING UTILITIES MOVED TO consensus.py 🔴
-# ==============================================================
-
-def _is_json_result(text: str) -> bool:
-    """Check if extracted text is JSON format matching our document schema"""
-    if not text or not text.strip():
-        return False
-    
-    try:
-        parsed = json.loads(text)
-        return (
-            isinstance(parsed, dict) and 
-            "documentId" in parsed and 
-            "sections" in parsed and 
-            isinstance(parsed["sections"], list)
-        )
-    except (json.JSONDecodeError, TypeError):
-        return False
-
-def _are_json_results(texts: List[str]) -> bool:
-    """Check if all texts are JSON format"""
-    if not texts:
-        return False
-    return all(_is_json_result(text) for text in texts)
-
-def _is_llm_refusal_or_failed(text: str) -> bool:
-    """
-    Detect LLM refusal responses or failed extractions.
-    
-    Returns True if the text appears to be a refusal message or
-    significantly failed extraction that should be excluded from consensus.
-    """
-    if not text or len(text.strip()) < 10:
-        return True
-    
-    text_lower = text.lower().strip()
-    
-    # Common LLM refusal patterns
-    refusal_patterns = [
-        "i'm sorry, i can't assist",
-        "i cannot assist",
-        "i'm unable to help",
-        "i can't help with that",
-        "i'm not able to",
-        "i cannot provide",
-        "i'm sorry, but i cannot",
-        "i apologize, but i cannot",
-        "i don't feel comfortable",
-        "i'm not comfortable",
-        "this request goes against",
-        "i cannot fulfill this request",
-        "i'm sorry, i cannot process",
-        "unable to process",
-        "cannot be processed"
-    ]
-    
-    # Check for refusal patterns
-    for pattern in refusal_patterns:
-        if pattern in text_lower:
-            return True
-    
-    # Check if text is suspiciously short (likely failed extraction)
-    word_count = len(text.split())
-    if word_count < 5:  # Very short responses are likely failures
-        return True
-    
-    return False
-
-def _filter_valid_extractions(texts: List[str]) -> List[str]:
-    """
-    Filter out LLM refusals and failed extractions from text list.
-    
-    Also filters out texts that are significantly shorter than the median,
-    as they're likely failed extractions.
-    """
-    if not texts:
-        return texts
-    
-    logger.info(f"📊 Filtering {len(texts)} successful results for quality...")
-    
-    # First pass: Remove obvious refusals and very short texts
-    filtered_texts = []
-    refusal_count = 0
-    for i, text in enumerate(texts):
-        if _is_llm_refusal_or_failed(text):
-            refusal_count += 1
-            logger.warning(f"  ❌ Result {i+1}: Filtered as refusal/failed (length: {len(text.split())} words)")
-        else:
-            filtered_texts.append(text)
-            logger.info(f"  ✅ Result {i+1}: Passed basic validation (length: {len(text.split())} words)")
-    
-    if len(filtered_texts) <= 1:
-        logger.info(f"📋 Quality filtering complete: {len(filtered_texts)} results remaining (too few for length comparison)")
-        return filtered_texts
-    
-    # Second pass: Remove texts that are significantly shorter than others
-    word_counts = [len(text.split()) for text in filtered_texts]
-    median_words = sorted(word_counts)[len(word_counts) // 2]
-    threshold = median_words * 0.3
-    
-    logger.info(f"📐 Length analysis: median={median_words} words, threshold={threshold:.1f} words (30% of median)")
-    
-    # Filter out texts with less than 30% of median word count
-    final_texts = []
-    length_filtered_count = 0
-    for i, text in enumerate(filtered_texts):
-        word_count = len(text.split())
-        if word_count >= threshold:
-            final_texts.append(text)
-            logger.info(f"  ✅ Result {i+1}: Passed length filter ({word_count} >= {threshold:.1f} words)")
-        else:
-            length_filtered_count += 1
-            logger.warning(f"  ❌ Result {i+1}: Filtered as too short ({word_count} < {threshold:.1f} words)")
-    
-    total_filtered = refusal_count + length_filtered_count
-    logger.info(f"📋 Quality filtering complete: {len(final_texts)}/{len(texts)} results kept ({refusal_count} refusals + {length_filtered_count} too short = {total_filtered} filtered)")
-    
-    return final_texts if final_texts else filtered_texts
 
 class ImageToTextPipeline:
     """
@@ -229,8 +94,10 @@ class ImageToTextPipeline:
     def __init__(self):
         # CRITICAL: Registry provides service routing
         self.registry = get_registry()
+        # Initialize redundancy processor
+        self.redundancy_processor = RedundancyProcessor()
     
-    def process(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document", enhancement_settings: dict = None) -> dict:
+    def process(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document_json", enhancement_settings: dict = None) -> dict:
         """
         Process an image to extract text
         
@@ -428,80 +295,20 @@ class ImageToTextPipeline:
         from prompts.image_to_text import get_available_extraction_modes
         return get_available_extraction_modes()
     
-    def process_with_redundancy(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document", 
+    def process_with_redundancy(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document_json", 
                               enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = "sequential") -> dict:
         """
-        🔴 CRITICAL REDUNDANCY PROCESSING - HEATMAP DATA GENERATOR 🔴
-        ============================================================
+        Process with redundancy using the dedicated RedundancyProcessor
         
-        This method generates the redundancy analysis data that powers the heatmap feature.
-        
-        CRITICAL HEATMAP DATA GENERATED:
-        - individual_results: Array of all processing attempts (needed for word alternatives)
-        - consensus_text: Merged text with highest confidence words
-        - best_formatted_text: Best individual result (preserves formatting)
-        - best_result_index: Index of best result (for UI marking)
-        - word_confidence_map: Word-level confidence scores (for heatmap coloring)
-        
-        HEATMAP INTEGRATION REQUIREMENTS:
-        ================================
-        
-        1. INDIVIDUAL RESULTS (CRITICAL):
-           - Each result contains full text for word alternatives
-           - Success/failure status for filtering
-           - Token counts for quality metrics
-           - Error messages for debugging
-        
-        2. CONSENSUS ANALYSIS (CRITICAL):
-           - Preserves document structure and formatting
-           - Maps word positions for confidence calculation
-           - Handles whitespace, punctuation, and special characters
-           - Provides confidence scores (0.0-1.0) for each word
-        
-        3. RESPONSE FORMAT (CRITICAL):
-           ```json
-           {
-             "success": true,
-             "extracted_text": "best_formatted_text",  // Primary display text
-             "metadata": {
-               "redundancy_analysis": {
-                 "individual_results": [...],    // Heatmap word alternatives
-                 "consensus_text": "...",        // Heatmap consensus view
-                 "best_formatted_text": "...",   // Heatmap best view
-                 "best_result_index": 0,         // Heatmap best marking
-                 "word_confidence_map": {...}    // Heatmap coloring data
-               }
-             }
-           }
-           ```
-        
-        CRITICAL PROCESSING FLOW:
-        ========================
-        1. Execute parallel API calls (maintains service interface)
-        2. Filter successful results (ensures data quality)
-        3. Calculate consensus with position mapping (preserves structure)
-        4. Generate word confidence scores (enables heatmap coloring)
-        5. Select best result (provides quality reference)
-        6. Package data for frontend consumption
-        
-        ⚠️  DO NOT MODIFY:
-        - Service interface calls (breaks API integration)
-        - Response format structure (breaks frontend parsing)
-        - Consensus algorithm logic (breaks word mapping)
-        - Error handling patterns (breaks graceful degradation)
-        
-        ✅ SAFE TO MODIFY:
-        - Confidence calculation thresholds
-        - Parallel execution parameters
-        - Quality scoring metrics
-        - Additional metadata fields
+        This method orchestrates redundancy processing while maintaining the same interface.
+        All redundancy logic has been moved to the RedundancyProcessor class for better separation of concerns.
         """
         try:
             # Handle single redundancy by falling back to original method
             if redundancy_count <= 1:
                 return self.process(image_path, model, extraction_mode, enhancement_settings)
             
-            # CRITICAL: Get service and prepare image (same as original process)
+            # Get service and prepare image (same as original process)
             service = self._get_service_for_model(model)
             if not service:
                 return {
@@ -509,7 +316,7 @@ class ImageToTextPipeline:
                     "error": f"No service available for model: {model}"
                 }
             
-            # CRITICAL: Use same image preparation as original process
+            # Use same image preparation as original process
             image_data, image_format = self._prepare_image(image_path, enhancement_settings)
             if not image_data:
                 return {
@@ -517,25 +324,20 @@ class ImageToTextPipeline:
                     "error": "Failed to prepare image data"
                 }
             
-            # CRITICAL: Use same prompt as original process
+            # Use same prompt as original process
             prompt = get_image_to_text_prompt(extraction_mode, model)
             
-            # CRITICAL: Execute parallel calls to generate redundancy data
-            logger.info(f"Processing with redundancy: {redundancy_count} parallel calls")
-            # Pass JSON mode flag for structured response
+            # Delegate to redundancy processor
             json_mode = extraction_mode == "legal_document_json"
-            parallel_results = self._execute_parallel_calls(
-                service, image_data, image_format, prompt, model, redundancy_count, json_mode
+            return self.redundancy_processor.process(
+                service=service,
+                image_data=image_data,
+                image_format=image_format,
+                prompt=prompt,
+                model=model,
+                redundancy_count=redundancy_count,
+                json_mode=json_mode
             )
-            
-            # Analyze consensus from results 
-            logger.info("") # Add spacing for readability
-            logger.info("🧠 CONSENSUS ANALYSIS ► Starting redundancy analysis...")
-            final_result = self._analyze_redundancy_consensus(parallel_results, model, service, consensus_strategy)
-            logger.info("✅ CONSENSUS COMPLETE ► Analysis finished successfully")
-            logger.info("") # Add spacing for readability
-            
-            return final_result
             
         except Exception as e:
             logger.error(f"Redundancy processing failed: {str(e)}")
@@ -544,165 +346,4 @@ class ImageToTextPipeline:
                 "error": f"Redundancy processing failed: {str(e)}"
             }
 
-    def _execute_parallel_calls(self, service, image_data: str, image_format: str, prompt: str, model: str, count: int, json_mode: bool = False) -> List[dict]:
-        """Execute multiple API calls with improved staggering and jitter to reduce empty responses"""
-        import time
-        import random
-        results = []
-        
-        logger.info(f"🚀 API EXECUTION ► Starting {count} parallel calls with staggered timing")
-        
-        # 🔧 IMPROVEMENT: Increased base delay + added jitter for o4-mini reliability
-        base_stagger_delay = 1.5  # Increased from 700ms to 1500ms for o4-mini
-        
-        # Use ThreadPoolExecutor for parallel API calls
-        with concurrent.futures.ThreadPoolExecutor(max_workers=count) as executor:
-            # Submit calls with staggered timing + jitter
-            futures = []
-            for i in range(count):
-                if i > 0:  # Add delay before subsequent calls
-                    # 🔧 IMPROVEMENT: Add random jitter (200-800ms) to prevent exact timing collisions
-                    jitter = random.uniform(0.2, 0.8)  
-                    total_delay = base_stagger_delay + jitter
-                    time.sleep(total_delay)
-                    logger.info(f"⏱️  API CALL {i+1} ► Submitted after {total_delay:.2f}s delay (base {base_stagger_delay}s + jitter {jitter:.2f}s)")
-                
-                # 🔧 IMPROVEMENT: Pass explicit max_tokens to reduce cutoffs
-                future = executor.submit(
-                    service.process_image_with_text,
-                    image_data=image_data,
-                    prompt=prompt,
-                    model=model,
-                    image_format=image_format,
-                    json_mode=json_mode,
-                    max_tokens=8000  # 🔧 IMPROVEMENT: Explicit high max_tokens for o4-mini
-                )
-                futures.append(future)
-            
-                if i == 0:
-                    logger.info(f"⚡ API CALL {i+1} ► Submitted immediately")
-            
-            # Collect results (these will complete whenever they finish)
-            for i, future in enumerate(futures):
-                try:
-                    # 🔧 IMPROVEMENT: Increased timeout for o4-mini (2 min -> 4 min)
-                    result = future.result(timeout=240)  # 4 minute timeout for long reasoning tasks
-                    logger.info(f"✅ API CALL {i+1} ► Completed successfully")
-                    results.append(result)
-                except Exception as e:
-                    logger.error(f"❌ API CALL {i+1} ► Failed: {e}")
-                    results.append({
-                        "success": False,
-                        "error": f"API call failed: {str(e)}",
-                        "extracted_text": ""
-                    })
-        
-        successful_count = sum(1 for r in results if r.get("success", False))
-        logger.info(f"📊 API EXECUTION COMPLETE ► {successful_count}/{count} calls successful")
-        
-        return results
-
-    def _analyze_redundancy_consensus(self, results: List[dict], model: str, service, consensus_strategy: str = 'sequential') -> dict:
-        """Analyze multiple results to find consensus - simplified without alignment"""
-        
-        logger.info(f"🔍 CONSENSUS ANALYSIS ► Starting redundancy analysis on {len(results)} API calls")
-        
-        # Continue with consensus analysis...
-        logger.info("🔍 CONSENSUS INPUT ► Filtering successful results...")
-        successful_results = [r for r in results if r.get("success", False)]
-        logger.info(f"   ✅ Found {len(successful_results)}/{len(results)} successful API calls")
-        
-        if not successful_results:
-            logger.info("❌ CONSENSUS FAILED ► No successful results to analyze")
-            return {
-                "success": False,
-                "extracted_text": "All processing attempts failed",
-                "error": "No successful results", 
-                "model_used": model,
-                "service_type": "llm",
-                "tokens_used": 0,
-                "confidence_score": 0.0,
-                "metadata": {
-                    "redundancy_enabled": True,
-                    "redundancy_count": len(results),
-                    "processing_mode": "failed",
-                    "failed_calls": len(results)
-                }
-            }
-        
-        # Filter out LLM refusals and failed extractions
-        logger.info("🔧 CONSENSUS FILTERING ► Removing failed extractions...")
-        filtered_texts = _filter_valid_extractions([r.get("extracted_text", "") for r in successful_results])
-        logger.info(f"   📊 Using {len(filtered_texts)} high-quality extractions")
-        
-        if not filtered_texts:
-            logger.info("❌ CONSENSUS FAILED ► No valid extractions after filtering")
-            return {
-                "success": False,
-                "extracted_text": "All extractions were invalid or refused",
-                "error": "No valid extractions after filtering",
-                "model_used": model,
-                "service_type": "llm", 
-                "tokens_used": sum(r.get("tokens_used", 0) for r in successful_results),
-                "confidence_score": 0.0,
-                "metadata": {
-                    "redundancy_enabled": True,
-                    "redundancy_count": len(results),
-                    "processing_mode": "filtered_out",
-                    "successful_calls": len(successful_results),
-                    "failed_calls": len(results) - len(successful_results)
-                }
-            }
-        
-        # Simple draft selection - pick the longest/best result without complex alignment
-        logger.info(f"📋 DRAFT SELECTION ► Selecting best from {len(filtered_texts)} valid extractions")
-        
-        # Find the longest text as the "best" result
-        best_text = max(filtered_texts, key=len)
-        best_result_index = 0
-        
-        # Find which original result corresponds to our best text
-        filtered_results = []
-        for result in successful_results:
-            result_text = result.get("extracted_text", "")
-            if result_text in filtered_texts:
-                filtered_results.append(result)
-                if result_text == best_text:
-                    best_result_index = len(filtered_results) - 1
-        
-        # Aggregate token usage
-        total_tokens = sum(r.get("tokens_used", 0) for r in successful_results)
-        
-        logger.info(f"✅ DRAFT SELECTED ► Using result {best_result_index + 1}/{len(filtered_results)} (length: {len(best_text)} chars)")
-        
-        return {
-            "success": True,
-            "extracted_text": best_text,
-            "model_used": model,
-            "service_type": "llm",
-            "tokens_used": total_tokens,
-            "confidence_score": 1.0,  # Single draft = full confidence
-            "metadata": {
-                "redundancy_enabled": True,
-                "redundancy_count": len(results),
-                "processing_mode": "draft_selection",
-                "best_result_used": best_result_index + 1,
-                "redundancy_analysis": {
-                    "total_calls": len(results),
-                    "successful_calls": len(successful_results),
-                    "valid_extractions": len(filtered_texts),
-                    "filtered_out": len(successful_results) - len(filtered_texts),
-                    "failed_calls": len(results) - len(successful_results),
-                    "best_result_index": best_result_index,
-                    "individual_results": [
-                        {
-                            "success": r.get("success", False),
-                            "text": r.get("extracted_text", ""),
-                            "tokens": r.get("tokens_used", 0),
-                            "error": r.get("error")
-                        }
-                        for r in results
-                    ]
-                }
-            }
-        } 
+ 

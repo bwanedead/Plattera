@@ -97,7 +97,7 @@ async def process_content(
     file: UploadFile = File(...),
     content_type: str = Form(...),  # "image-to-text", "text-to-schema", etc.
     model: str = Form("gpt-4o"),
-    extraction_mode: str = Form("legal_document"),
+    extraction_mode: str = Form("legal_document_json"),
     cleanup_after: str = Form("true"),
     flow_to: str = Form(None),
     parcel_id: str = Form(None),
@@ -359,7 +359,7 @@ async def test_process(
     file: UploadFile = File(...),
     content_type: str = Form(...),
     model: str = Form("gpt-4o"),
-    extraction_mode: str = Form("legal_document"),
+    extraction_mode: str = Form("legal_document_json"),
     cleanup_after: str = Form("true")
 ):
     """Test endpoint to debug 422 issues"""

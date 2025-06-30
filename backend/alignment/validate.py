@@ -223,4 +223,4 @@ class DraftValidator:
                     if str(anchor_lists[draft_idx]) != modal_value:
                         conflict_drafts.add(draft_idx)
         
-        return list(conflict_drafts)
+        return list(conflict_drafts) 

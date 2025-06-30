@@ -173,4 +173,4 @@ class DocumentTokenizer:
             
             text_parts.append(token.text)
         
-        return "".join(text_parts)
+        return "".join(text_parts) 

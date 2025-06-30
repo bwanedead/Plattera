@@ -300,7 +300,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [availableModels, setAvailableModels] = useState<Record<string, any>>({});
   const [availableExtractionModes, setAvailableExtractionModes] = useState<Record<string, {name: string, description: string}>>({});
   const [selectedModel, setSelectedModel] = useState('gpt-o4-mini');
-  const [extractionMode, setExtractionMode] = useState('legal_document_plain');
+  const [extractionMode, setExtractionMode] = useState('legal_document_json');
   const [loadingModes, setLoadingModes] = useState(true);
   const [activeTab, setActiveTab] = useState('text');
   const [enhancementSettings, setEnhancementSettings] = useState<EnhancementSettings>({
@@ -331,7 +331,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   };
   
   const [redundancySettings, setRedundancySettings] = useState<RedundancySettings>(() => 
-    getRedundancyDefaults('legal_document_plain')
+    getRedundancyDefaults('legal_document_json')
   );
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
   
