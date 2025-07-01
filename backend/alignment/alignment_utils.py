@@ -90,10 +90,10 @@ def create_scoring_matrix() -> Dict[str, int]:
         Dict with scoring parameters
     """
     return {
-        "match_score": 5,           # +5 for identical tokens
-        "mismatch_score": -5,       # -5 for significant mismatches
-        "trivial_mismatch_score": -1,  # -1 for trivial mismatches
-        "gap_score": -2             # -2 for gaps (insertions/deletions)
+        "match_score": 2.0,           # +2 for identical tokens
+        "mismatch_score": -0.5,       # -0.5 for significant mismatches
+        "trivial_mismatch_score": -0.1,  # -0.1 for trivial mismatches
+        "gap_score": -0.2             # -0.2 for gaps (insertions/deletions)
     }
 
 

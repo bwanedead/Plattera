@@ -223,3 +223,6 @@ frontend/node_modules/
 
 # Tauri build artifacts
 frontend/src-tauri/target/
+
+# Ignore alignment token debug files
+alignment_token_debug/

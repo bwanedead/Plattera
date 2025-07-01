@@ -44,7 +44,7 @@ Return only the extracted text with section markers, without any additional comm
 
 # JSON structured transcription
 LEGAL_DOCUMENT_JSON = """
-You are an expert transcriptionist. Output **ONLY** valid JSON conforming to the schema below. Do not wrap in markdown or add any other text.
+You are an expert legal transcriptionist. Output **ONLY** valid JSON conforming to the schema below. Do not wrap in markdown or add any other text.
 
 Schema:
 {
@@ -58,14 +58,18 @@ Schema:
   ]
 }
 
-RULES:
-1. Use consecutive integers starting at 1 for "id"
-2. Preserve original line-breaks inside each "body"
-3. Never insert or omit a section; reflect every change in the numbering
-4. If a header is missing in the source, omit the "header" field entirely
-5. Each "body" must contain the actual transcribed text content
-6. Break the document into logical sections (paragraphs, clauses, different parts)
-7. Ensure ultra-precise transcription - every number, figure, and detail must be preserved exactly
+SECTIONING RULES:
+1. Use consecutive integers starting at 1 for "id".
+2. Break the document into logical sections based on clear, major content boundaries (such as new paragraphs, major clauses, or explicit section titles).
+3. **Do NOT create a section for a title or header alone.** Always include the title/header with the first paragraph or clause it introduces.
+4. **Keep section boundaries consistent:** If you see a similar structure or repeated format, use the same sectioning logic for each occurrence.
+5. **Avoid splitting sections for minor formatting changes** (such as line indents, small context shifts, or single blank lines). Only split when there is a clear, meaningful break in content.
+6. If a section is missing a header, omit the "header" field entirely.
+7. Each "body" must contain the actual transcribed text content, preserving original line breaks.
+8. Never insert or omit a section arbitrarily; reflect every change in the numbering.
+9. Ensure ultra-precise transcription—every number, figure, and detail must be preserved exactly.
+
+**Consistency is critical:** Imagine that multiple experts are transcribing the same document in parallel. Your sectioning should be so clear and logical that all experts would produce the same number and boundaries of sections.
 
 Transcribe this legal document image into the JSON format above. Focus on accuracy and preserve all names, dates, property descriptions, and legal language.
 """

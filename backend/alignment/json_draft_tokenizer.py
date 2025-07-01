@@ -13,6 +13,7 @@ from typing import Dict, List, Tuple, Any
 from collections import defaultdict
 import nltk
 from nltk.tokenize import word_tokenize
+import os
 
 from .alignment_config import ANCHOR_PATTERNS
 from .alignment_utils import encode_tokens_for_alignment
@@ -167,6 +168,10 @@ class JsonDraftTokenizer:
         
         for draft_id, text in draft_texts.items():
             tokens = self._tokenize_legal_text(text)
+            # Write tokens to file for debugging
+            os.makedirs('alignment_token_debug', exist_ok=True)
+            with open(f'alignment_token_debug/tokens_{draft_id}.txt', 'w', encoding='utf-8') as f:
+                f.write('\n'.join(tokens))
             tokenized_drafts.append({
                 'draft_id': draft_id,
                 'tokens': tokens,
