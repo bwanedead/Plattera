@@ -11,6 +11,8 @@ import re
 import logging
 from typing import Dict, List, Tuple, Any
 from collections import defaultdict
+import nltk
+from nltk.tokenize import word_tokenize
 
 from .alignment_config import ANCHOR_PATTERNS
 from .alignment_utils import encode_tokens_for_alignment
@@ -217,104 +219,30 @@ class JsonDraftTokenizer:
             'draft_count': len(encoded_drafts)
         }
     
+    def _normalize_text(self, text: str) -> str:
+        """
+        Normalize text for alignment:
+        - Lowercase
+        - Standardize quotes
+        - Remove extra spaces
+        - Strip leading/trailing whitespace
+        """
+        text = text.lower()
+        text = re.sub(r'[“”]', '"', text)
+        text = re.sub(r"[‘’]", "'", text)
+        text = re.sub(r'\s+', ' ', text)
+        text = text.strip()
+        return text
+    
     def _tokenize_legal_text(self, text: str) -> List[str]:
         """
-        Tokenize text into meaningful legal document tokens
-        
-        Args:
-            text: Raw text to tokenize
-            
-        Returns:
-            List of tokens preserving legal document structure and meaning
+        Tokenize text into meaningful legal document tokens using NLTK's word_tokenize.
         """
         if not text or not text.strip():
             return []
-        
-        tokens = []
-        remaining_text = text.strip()
-        position = 0
-        
-        while position < len(remaining_text):
-            token_found = False
-            original_position = position
-            
-            # Skip whitespace
-            while position < len(remaining_text) and remaining_text[position].isspace():
-                position += 1
-            
-            if position >= len(remaining_text):
-                break
-            
-            # Check for legal phrases first (longest matches prioritized)
-            for phrase in self.legal_phrases:
-                phrase_len = len(phrase)
-                if position + phrase_len <= len(remaining_text):
-                    text_segment = remaining_text[position:position + phrase_len]
-                    if text_segment.lower() == phrase.lower():
-                        tokens.append(phrase)
-                        position += phrase_len
-                        token_found = True
-                        break
-            
-            if token_found:
-                continue
-            
-            # Check for coordinate patterns
-            for pattern in self.compiled_coordinate_patterns:
-                match = pattern.match(remaining_text, position)
-                if match:
-                    coordinate = match.group(0)
-                    tokens.append(coordinate)
-                    position = match.end()
-                    token_found = True
-                    break
-            
-            if token_found:
-                continue
-            
-            # Check for other anchor patterns (excluding punctuation for separate handling)
-            for pattern_name, compiled_pattern in self.compiled_anchor_patterns.items():
-                if pattern_name == 'PUN':  # Handle punctuation separately
-                    continue
-                    
-                match = compiled_pattern.match(remaining_text, position)
-                if match:
-                    token = match.group(0)
-                    tokens.append(token)
-                    position = match.end()
-                    token_found = True
-                    break
-            
-            if token_found:
-                continue
-            
-            # Check for punctuation (single characters that are legally significant)
-            if remaining_text[position] in '.,;:!?()[]{}"\'-':
-                tokens.append(remaining_text[position])
-                position += 1
-                continue
-            
-            # Check for regular words (alphanumeric sequences)
-            word_match = re.match(r'[A-Za-z0-9]+', remaining_text[position:])
-            if word_match:
-                word = word_match.group(0)
-                tokens.append(word)
-                position += len(word)
-                continue
-            
-            # Single character fallback (but skip whitespace)
-            if not remaining_text[position].isspace():
-                tokens.append(remaining_text[position])
-            position += 1
-            
-            # Safety check to prevent infinite loops
-            if position == original_position:
-                logger.warning(f"Tokenization stuck at position {position}, character: '{remaining_text[position]}'")
-                position += 1
-        
-        # Filter out empty tokens and return
-        final_tokens = [token for token in tokens if token.strip()]
-        return final_tokens
+        text = self._normalize_text(text)
+        tokens = word_tokenize(text)
+        return tokens
     
     def get_tokenization_statistics(self, processed_data: Dict[str, Any]) -> Dict[str, Any]:
         """
