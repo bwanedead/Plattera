@@ -19,7 +19,7 @@ class SchemaError(Exception):
     """Raised when draft fails schema validation"""
     pass
 
-class DraftValidator:
+class DocumentValidator:
     """Validates JSON drafts and assesses alignment quality"""
     
     def __init__(self):

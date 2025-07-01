@@ -12,20 +12,20 @@ multiple sequence alignment of legal document drafts.
 # Core alignment functionality
 from .validate import (
     DocumentValidator,
-    extract_anchors_from_text,
-    validate_document_completeness
+    # extract_anchors_from_text, # This function does not exist in validate.py
+    # validate_document_completeness # This function does not exist in validate.py
 )
 
 from .tokenise import (
     DocumentTokenizer,
-    tokenize_legal_document,
-    get_tokenization_stats
+    # tokenize_legal_document, # This function does not exist in tokenise.py
+    # get_tokenization_stats # This function does not exist in tokenise.py
 )
 
 from .alignment_config import (
     ANCHOR_PATTERNS,
-    TOKENIZATION_CONFIG,
-    VALIDATION_RULES
+    TOKENIZATION,
+    # VALIDATION_RULES # This does not exist in alignment_config.py
 )
 
 # BioPython alignment engine
@@ -49,18 +49,18 @@ from .alignment_utils import check_dependencies, AlignmentError
 __all__ = [
     # Validation
     'DocumentValidator',
-    'extract_anchors_from_text', 
-    'validate_document_completeness',
+    # extract_anchors_from_text', 
+    # validate_document_completeness',
     
     # Tokenization
     'DocumentTokenizer',
-    'tokenize_legal_document',
-    'get_tokenization_stats',
+    # 'tokenize_legal_document',
+    # 'get_tokenization_stats',
     
     # Configuration
     'ANCHOR_PATTERNS',
-    'TOKENIZATION_CONFIG', 
-    'VALIDATION_RULES',
+    'TOKENIZATION', 
+    # 'VALIDATION_RULES',
     
     # BioPython Alignment Engine
     'BioPythonAlignmentEngine',

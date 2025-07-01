@@ -74,11 +74,11 @@ CRITICAL INTEGRATION POINTS:
 - Frontend must send redundancy parameter
 - All existing functionality must remain working
 """
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Response
 from pydantic import BaseModel
 from utils.response_models import ProcessResponse
 from utils.file_handler import save_uploaded_file, cleanup_temp_file, is_valid_image_file
-from typing import Optional
+from typing import Optional, Dict, Any
 import logging
 
 # Set up logging
@@ -352,6 +352,35 @@ async def get_processing_types():
                 }
             }
         }
+
+# Add this test endpoint to see if the basic structure works
+@router.post("/process/test")
+async def test_process(
+    file: UploadFile = File(...),
+    content_type: str = Form(...),
+    model: str = Form("gpt-4o"),
+    extraction_mode: str = Form("legal_document_json"),
+    cleanup_after: str = Form("true")
+):
+    """Test endpoint to debug 422 issues"""
+    logger.info("🔥 TEST ENDPOINT HIT!")
+    logger.info(f"File: {file.filename}")
+    logger.info(f"Content Type: {content_type}")
+    logger.info(f"Model: {model}")
+    logger.info(f"Extraction Mode: {extraction_mode}")
+    logger.info(f"Cleanup After: {cleanup_after}")
+    
+    return {
+        "status": "success",
+        "message": "Test endpoint working!",
+        "received": {
+            "filename": file.filename,
+            "content_type": content_type,
+            "model": model,
+            "extraction_mode": extraction_mode,
+            "cleanup_after": cleanup_after
+        }
+    }
 
 # Add this test endpoint to see if the basic structure works
 @router.post("/process/test")

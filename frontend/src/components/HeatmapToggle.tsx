@@ -45,16 +45,16 @@ export const HeatmapToggle: React.FC<HeatmapToggleProps> = ({
 
   const getTitle = () => {
     if (!hasMultipleDrafts) {
-      return 'Heatmap requires multiple drafts for confidence analysis';
+      return 'BioPython visualization requires multiple drafts for alignment analysis';
     }
-    return isEnabled ? 'Hide Confidence Heatmap' : 'Show Confidence Heatmap';
+    return 'Show BioPython Alignment Visualization';
   };
 
   const getButtonClass = () => {
     if (!hasMultipleDrafts) {
       return 'heatmap-toggle-button disabled single-draft';
     }
-    return `heatmap-toggle-button ${isEnabled ? 'enabled' : 'disabled'}`;
+    return 'heatmap-toggle-button enabled'; // Always show as enabled since it's not a toggle
   };
 
   return (

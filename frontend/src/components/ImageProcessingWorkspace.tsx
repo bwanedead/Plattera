@@ -239,6 +239,7 @@ interface ImageProcessingWorkspaceProps {
 }
 
 // --- Main Component ---
+// Version: v2.1 - BioPython Visualizer Integration
 export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> = ({ onExit, onNavigateToTextSchema }) => {
   /*
   🔴 CRITICAL STATE MANAGEMENT DOCUMENTATION 🔴
@@ -294,7 +295,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const [sessionResults, setSessionResults] = useState<any[]>([]);
-  const [selectedResult, setSelectedResult] = useState<any | null>(null);
+  const [selectedResult, setSelectedResult] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isHistoryVisible, setIsHistoryVisible] = useState(true);
   const [availableModels, setAvailableModels] = useState<Record<string, any>>({});
@@ -309,8 +310,22 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     brightness: 1.5,
     color: 1.0
   });
+  const [redundancySettings, setRedundancySettings] = useState<RedundancySettings>({
+    enabled: false,
+    count: 1,
+    consensusStrategy: 'highest_confidence'
+  });
   const [showEnhancementModal, setShowEnhancementModal] = useState(false);
+  const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
+  const [selectedConsensusStrategy, setSelectedConsensusStrategy] = useState<string>('highest_confidence');
   
+  // Navigation button hover states
+  const [homeHovered, setHomeHovered] = useState(false);
+  const [textSchemaHovered, setTextSchemaHovered] = useState(false);
+
+  // Debug logging to help with redundancySettings issue
+  console.log('🔧 ImageProcessingWorkspace rendered with redundancySettings:', redundancySettings);
+
   // Dynamic redundancy defaults based on extraction mode
   const getRedundancyDefaults = (mode: string): RedundancySettings => {
     if (mode === 'legal_document_json') {
@@ -318,36 +333,17 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       return {
         enabled: true,
         count: 3,
-        consensusStrategy: 'segmented_fuzzy'
+        consensusStrategy: 'highest_confidence'
       };
     } else {
       // Non-JSON mode: Disable redundancy by default (consensus not useful for plain text)
       return {
         enabled: false,
         count: 3,
-        consensusStrategy: 'sequential'
+        consensusStrategy: 'highest_confidence'
       };
     }
   };
-  
-  const [redundancySettings, setRedundancySettings] = useState<RedundancySettings>(() => 
-    getRedundancyDefaults('legal_document_json')
-  );
-  const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
-  
-  /*
-  🔴 HEATMAP STATE VARIABLES - ADDED AS DOCUMENTED 🔴
-  ==================================================
-  */
-  const [isHeatmapEnabled, setIsHeatmapEnabled] = useState(false);
-  const [editedText, setEditedText] = useState<string>('');
-  const [isTextEdited, setIsTextEdited] = useState(false);
-  
-  // Navigation button hover states
-  const [homeHovered, setHomeHovered] = useState(false);
-  const [textSchemaHovered, setTextSchemaHovered] = useState(false);
-
-  const [selectedConsensusStrategy, setSelectedConsensusStrategy] = useState('segmented_fuzzy');
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setStagedFiles(prev => [...prev, ...acceptedFiles]);
@@ -383,10 +379,6 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       if (firstSuccessful) {
         setSelectedResult(firstSuccessful);
         setSelectedDraft('best'); // Reset to best draft for new results
-        // Reset heatmap state for new results
-        setIsHeatmapEnabled(false);
-        setIsTextEdited(false);
-        setEditedText('');
       }
       
       setStagedFiles([]);
@@ -511,7 +503,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       return isJsonResult(extractedText) ? formatJsonAsText(extractedText) : extractedText;
     }
 
-    // CRITICAL DRAFT SELECTION LOGIC - Heatmap must coordinate with this
+    // CRITICAL DRAFT SELECTION LOGIC
     if (selectedDraft === 'best') {
       const extractedText = selectedResult.result.extracted_text || '';
       // Format JSON as readable text if it's JSON
@@ -521,7 +513,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       // Format JSON as readable text if it's JSON
       return isJsonResult(consensusText) ? formatJsonAsText(consensusText) : consensusText;
     } else if (typeof selectedDraft === 'number') {
-      const individualResults = redundancyAnalysis.individual_results;  // ← CRITICAL: Heatmap needs these for alternatives
+      const individualResults = redundancyAnalysis.individual_results;
       const successfulResults = individualResults.filter((r: any) => r.success);
       if (selectedDraft < successfulResults.length) {
         const draftText = successfulResults[selectedDraft].text || '';
@@ -533,30 +525,54 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     // Fallback to main text
     const fallbackText = selectedResult.result.extracted_text || '';
     return isJsonResult(fallbackText) ? formatJsonAsText(fallbackText) : fallbackText;
-  }, [selectedResult, selectedDraft, isTextEdited, editedText, selectedConsensusStrategy]);
+  }, [selectedResult, selectedDraft, selectedConsensusStrategy]);
 
   const handleDraftSelect = useCallback((draft: number | 'consensus' | 'best') => {
     setSelectedDraft(draft);
   }, []);
 
-  /*
-  🔴 HEATMAP CALLBACK FUNCTIONS - ADDED AS DOCUMENTED 🔴
-  ======================================================
-  */
-  const handleTextUpdate = useCallback((newText: string) => {
-    setEditedText(newText);
-    setIsTextEdited(true);
-    // Optional: Mark result as edited in metadata
-  }, []);
+  const handleHeatmapToggle = useCallback(async (enabled: boolean) => {
+    // Only show visualization when clicked (ignore the enabled parameter)
+    try {
+      const redundancyAnalysis = selectedResult?.result?.metadata?.redundancy_analysis;
+      const extractedText = getCurrentText();
+      
+      if (!redundancyAnalysis) {
+        alert('No redundancy analysis data available for visualization');
+        return;
+      }
 
-  const handleHeatmapToggle = useCallback((enabled: boolean) => {
-    setIsHeatmapEnabled(enabled);
-    if (!enabled) {
-      // Reset edited state when disabling heatmap
-      setIsTextEdited(false);
-      setEditedText('');
+      const response = await fetch('/api/generate-visualization-direct', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          redundancy_analysis: redundancyAnalysis,
+          extracted_text: extractedText
+        }),
+      });
+
+      if (response.ok) {
+        const htmlContent = await response.text();
+        // Open the HTML visualization in a new window
+        const newWindow = window.open('', '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+        if (newWindow) {
+          newWindow.document.write(htmlContent);
+          newWindow.document.close();
+        } else {
+          alert('Please allow popups to view the BioPython alignment visualization');
+        }
+      } else {
+        const errorText = await response.text();
+        console.error('Visualization API error:', errorText);
+        alert('Failed to generate visualization. Check console for details.');
+      }
+    } catch (error) {
+      console.error('Error calling visualization API:', error);
+      alert('Failed to connect to visualization service');
     }
-  }, []);
+  }, [selectedResult, getCurrentText]);
 
   // Get raw extracted text for JSON tab (without formatting)
   const getRawText = useCallback(() => {
@@ -796,10 +812,6 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                         <div key={i} className={`log-item ${selectedResult === res ? 'selected' : ''} ${res.status}`} onClick={() => {
                           setSelectedResult(res);
                           setSelectedDraft('best'); // Reset to best draft when switching results
-                          // Reset heatmap state when switching results
-                          setIsHeatmapEnabled(false);
-                          setIsTextEdited(false);
-                          setEditedText('');
                         }}>
                           <span className={`log-item-status-dot ${res.status}`}></span>
                           {res.input}
@@ -852,7 +864,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                       />
                       
                       <HeatmapToggle
-                        isEnabled={isHeatmapEnabled}
+                        isEnabled={false}
                         onToggle={handleHeatmapToggle}
                         hasRedundancyData={!!selectedResult?.result?.metadata?.redundancy_analysis}
                         redundancyAnalysis={selectedResult?.result?.metadata?.redundancy_analysis}
@@ -869,37 +881,20 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                       <div className="result-tab-content">
                           {activeTab === 'text' && (
                             <div className="text-display">
-                              {isHeatmapEnabled && selectedResult?.result?.metadata?.redundancy_analysis ? (
-                                <div className="formatted-text-display">
-                                  {getCurrentText().split('\n').map((line: string, index: number) => {
-                                    // Check if line is a section divider (contains only dashes)
-                                    if (/^─+$/.test(line.trim())) {
-                                      return <hr key={index} className="section-divider" />
-                                    }
-                                    // Empty lines for spacing
-                                    if (!line.trim()) {
-                                      return <div key={index} className="line-break" />
-                                    }
-                                    // Regular text lines
-                                    return <p key={index} className="text-line">{line}</p>
-                                  })}
-                                </div>
-                              ) : (
-                                <div className="formatted-text-display">
-                                  {getCurrentText().split('\n').map((line: string, index: number) => {
-                                    // Check if line is a section divider (contains only dashes)
-                                    if (/^─+$/.test(line.trim())) {
-                                      return <hr key={index} className="section-divider" />
-                                    }
-                                    // Empty lines for spacing
-                                    if (!line.trim()) {
-                                      return <div key={index} className="line-break" />
-                                    }
-                                    // Regular text lines
-                                    return <p key={index} className="text-line">{line}</p>
-                                  })}
-                                </div>
-                              )}
+                              <div className="formatted-text-display">
+                                {getCurrentText().split('\n').map((line: string, index: number) => {
+                                  // Check if line is a section divider (contains only dashes)
+                                  if (/^─+$/.test(line.trim())) {
+                                    return <hr key={index} className="section-divider" />
+                                  }
+                                  // Empty lines for spacing
+                                  if (!line.trim()) {
+                                    return <div key={index} className="line-break" />
+                                  }
+                                  // Regular text lines
+                                  return <p key={index} className="text-line">{line}</p>
+                                })}
+                              </div>
                             </div>
                           )}
                           {activeTab === 'json' && isCurrentResultJson() && (
