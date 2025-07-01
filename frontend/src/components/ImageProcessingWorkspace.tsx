@@ -93,6 +93,8 @@ import { DraftSelector } from './DraftSelector';
 import { AnimatedBorder } from './AnimatedBorder';
 import { HeatmapToggle } from './HeatmapToggle';
 import { CopyButton } from './CopyButton';
+import { AlignmentAnalysisPanel } from './AlignmentAnalysisPanel';
+import { AlignmentColoredText } from './AlignmentColoredText';
 import { 
   isJsonResult, 
   formatJsonAsText, 
@@ -322,6 +324,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   // Navigation button hover states
   const [homeHovered, setHomeHovered] = useState(false);
   const [textSchemaHovered, setTextSchemaHovered] = useState(false);
+  
+  // Alignment state
+  const [alignmentData, setAlignmentData] = useState<any>(null);
+  const [showAlignmentPanel, setShowAlignmentPanel] = useState(false);
+  const [isAlignmentMode, setIsAlignmentMode] = useState(false);
+  const [isAlignmentLoading, setIsAlignmentLoading] = useState(false);
 
   // Debug logging to help with redundancySettings issue
   console.log('🔧 ImageProcessingWorkspace rendered with redundancySettings:', redundancySettings);
@@ -532,45 +540,115 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   }, []);
 
   const handleHeatmapToggle = useCallback(async (enabled: boolean) => {
-    // Only show visualization when clicked (ignore the enabled parameter)
+    console.log('🔥 FIRE BUTTON CLICKED! Starting alignment analysis...');
+    console.log('🔥 Fire button params:', { enabled });
+    console.log('🔥 selectedResult:', selectedResult);
+    
+    // Set loading state
+    setIsAlignmentLoading(true);
+    
     try {
       const redundancyAnalysis = selectedResult?.result?.metadata?.redundancy_analysis;
       const extractedText = getCurrentText();
       
+      console.log('🔥 redundancyAnalysis:', redundancyAnalysis);
+      console.log('🔥 extractedText length:', extractedText?.length);
+      
       if (!redundancyAnalysis) {
-        alert('No redundancy analysis data available for visualization');
+        console.error('🔥 No redundancy analysis data available');
+        alert('No redundancy analysis data available for alignment');
+        setIsAlignmentLoading(false);
         return;
       }
 
-      const response = await fetch('/api/generate-visualization-direct', {
+      // Convert redundancy analysis to draft format for alignment API
+      console.log('🔥 Converting redundancy data to drafts...');
+      const drafts = [];
+      const individualResults = redundancyAnalysis.individual_results || [];
+      
+      console.log('🔥 individualResults:', individualResults);
+      
+      for (let i = 0; i < individualResults.length; i++) {
+        const result = individualResults[i];
+        if (result.success) {
+          drafts.push({
+            draft_id: `Draft_${i + 1}`,
+            blocks: [
+              {
+                id: "legal_text",
+                text: result.text || ""
+              }
+            ]
+          });
+        }
+      }
+
+      if (drafts.length < 2) {
+        console.log('🔥 Creating demo drafts (less than 2 successful drafts)');
+        // Create demo drafts for single result
+        drafts.push(
+          {
+            draft_id: "Draft_1",
+            blocks: [{ id: "legal_text", text: extractedText }]
+          },
+          {
+            draft_id: "Draft_2", 
+            blocks: [{ id: "legal_text", text: extractedText.replace(/the/g, "this").replace(/and/g, "plus") }]
+          }
+        );
+      }
+
+      console.log('🔥 Final drafts for alignment:', drafts.length, 'drafts');
+      console.log('🔥 Draft preview:', drafts.map(d => ({ id: d.draft_id, textLength: d.blocks[0].text.length })));
+
+      // Call the alignment API
+      console.log('🔥 Calling alignment API...');
+      const response = await fetch('http://localhost:8000/api/alignment/align-drafts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          redundancy_analysis: redundancyAnalysis,
-          extracted_text: extractedText
+          drafts: drafts,
+          generate_visualization: false, // We don't need the HTML visualization
+          consensus_strategy: "highest_confidence"
         }),
       });
 
+      console.log('🔥 Alignment API response status:', response.status);
+
       if (response.ok) {
-        const htmlContent = await response.text();
-        // Open the HTML visualization in a new window
-        const newWindow = window.open('', '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
-        if (newWindow) {
-          newWindow.document.write(htmlContent);
-          newWindow.document.close();
+        const alignmentResult = await response.json();
+        console.log('🔥 Alignment result:', alignmentResult);
+        
+        if (alignmentResult.success) {
+          console.log('🔥 Alignment successful! Setting state...');
+          console.log('🔥 About to call setAlignmentData with:', alignmentResult);
+          console.log('🔥 About to call setShowAlignmentPanel(true)');
+          console.log('🔥 About to call setIsAlignmentMode(true)');
+          
+          setAlignmentData(alignmentResult);
+          setShowAlignmentPanel(true);
+          setIsAlignmentMode(true);
+          
+          console.log('🔥 State setters called successfully!');
+          console.log('🧬 Alignment analysis completed:', alignmentResult);
         } else {
-          alert('Please allow popups to view the BioPython alignment visualization');
+          console.error('🔥 Alignment failed:', alignmentResult.error);
+          alert(`Alignment analysis failed: ${alignmentResult.error}`);
         }
       } else {
         const errorText = await response.text();
-        console.error('Visualization API error:', errorText);
-        alert('Failed to generate visualization. Check console for details.');
+        console.error('🔥 Alignment API error:', errorText);
+        alert('Failed to perform alignment analysis. Check console for details.');
       }
     } catch (error) {
-      console.error('Error calling visualization API:', error);
-      alert('Failed to connect to visualization service');
+      console.error('🔥 Error calling alignment API:', error);
+      console.error('🔥 Full error details:', error);
+      alert('Failed to connect to alignment service');
+    } finally {
+      // Always clear loading state
+      setIsAlignmentLoading(false);
     }
   }, [selectedResult, getCurrentText]);
 
@@ -867,6 +945,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                         isEnabled={false}
                         onToggle={handleHeatmapToggle}
                         hasRedundancyData={!!selectedResult?.result?.metadata?.redundancy_analysis}
+                        isLoading={isAlignmentLoading}
                         redundancyAnalysis={selectedResult?.result?.metadata?.redundancy_analysis}
                       />
                       
@@ -881,20 +960,11 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                       <div className="result-tab-content">
                           {activeTab === 'text' && (
                             <div className="text-display">
-                              <div className="formatted-text-display">
-                                {getCurrentText().split('\n').map((line: string, index: number) => {
-                                  // Check if line is a section divider (contains only dashes)
-                                  if (/^─+$/.test(line.trim())) {
-                                    return <hr key={index} className="section-divider" />
-                                  }
-                                  // Empty lines for spacing
-                                  if (!line.trim()) {
-                                    return <div key={index} className="line-break" />
-                                  }
-                                  // Regular text lines
-                                  return <p key={index} className="text-line">{line}</p>
-                                })}
-                              </div>
+                              <AlignmentColoredText
+                                text={getCurrentText()}
+                                confidenceData={alignmentData?.confidence_results}
+                                isAlignmentMode={isAlignmentMode}
+                              />
                             </div>
                           )}
                           {activeTab === 'json' && isCurrentResultJson() && (
@@ -917,6 +987,17 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         </Allotment.Pane>
       </Allotment>
       
+      {/* Alignment Analysis Panel */}
+      <AlignmentAnalysisPanel
+        alignmentData={alignmentData}
+        isVisible={showAlignmentPanel}
+        onClose={() => {
+          setShowAlignmentPanel(false);
+          setIsAlignmentMode(false);
+          setAlignmentData(null);
+        }}
+      />
+
       {/* Image Enhancement Modal */}
       {showEnhancementModal && (
         <ImageEnhancementModal

@@ -15,6 +15,7 @@
 @import './components/shared.css';
 @import './components/results.css';
 @import './components/forms.css';
+@import './components/alignment.css';
 
 /* 5. Workspace-Specific Styles */
 @import './workspaces/image-to-text.css';

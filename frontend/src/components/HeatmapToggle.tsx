@@ -5,6 +5,7 @@ interface HeatmapToggleProps {
   isEnabled: boolean;
   onToggle: (enabled: boolean) => void;
   hasRedundancyData: boolean;
+  isLoading?: boolean;
   redundancyAnalysis?: {
     individual_results: Array<{
       success: boolean;
@@ -19,6 +20,7 @@ export const HeatmapToggle: React.FC<HeatmapToggleProps> = ({
   isEnabled,
   onToggle,
   hasRedundancyData,
+  isLoading = false,
   redundancyAnalysis
 }) => {
   const [isHovered, setIsHovered] = useState(false);
@@ -34,6 +36,10 @@ export const HeatmapToggle: React.FC<HeatmapToggleProps> = ({
   const hasMultipleDrafts = successfulDrafts.length > 1;
 
   const handleToggle = () => {
+    if (isLoading) {
+      return; // Don't allow clicks while loading
+    }
+    
     if (!hasMultipleDrafts) {
       // Show message instead of enabling heatmap for single drafts
       setShowSingleDraftMessage(true);
@@ -44,6 +50,9 @@ export const HeatmapToggle: React.FC<HeatmapToggleProps> = ({
   };
 
   const getTitle = () => {
+    if (isLoading) {
+      return 'Running BioPython alignment analysis...';
+    }
     if (!hasMultipleDrafts) {
       return 'BioPython visualization requires multiple drafts for alignment analysis';
     }
@@ -51,16 +60,29 @@ export const HeatmapToggle: React.FC<HeatmapToggleProps> = ({
   };
 
   const getButtonClass = () => {
+    if (isLoading) {
+      return 'heatmap-toggle-button loading';
+    }
     if (!hasMultipleDrafts) {
       return 'heatmap-toggle-button disabled single-draft';
     }
     return 'heatmap-toggle-button enabled'; // Always show as enabled since it's not a toggle
   };
 
+  const getButtonContent = () => {
+    if (isLoading) {
+      return '⏳'; // Loading spinner emoji
+    }
+    if (!hasMultipleDrafts) {
+      return '🚫';
+    }
+    return '🔥';
+  };
+
   return (
     <div className="heatmap-toggle-container">
       <AnimatedBorder
-        isHovered={isHovered}
+        isHovered={isHovered && !isLoading}
         borderRadius={6}
         strokeWidth={2}
       >
@@ -70,12 +92,19 @@ export const HeatmapToggle: React.FC<HeatmapToggleProps> = ({
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
           title={getTitle()}
+          disabled={isLoading}
         >
-          {!hasMultipleDrafts ? '🚫' : '🔥'}
+          {getButtonContent()}
         </button>
       </AnimatedBorder>
       
-      {showSingleDraftMessage && (
+      {isLoading && (
+        <div className="alignment-loading-tooltip">
+          Running BioPython alignment...
+        </div>
+      )}
+      
+      {showSingleDraftMessage && !isLoading && (
         <div className="single-draft-tooltip">
           Only 1 draft succeeded.
           <br />

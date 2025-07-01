@@ -222,7 +222,12 @@ class BioPythonAlignerConfig:
             raise AlignmentError("Aligner not configured")
         
         try:
-            alignments = self.aligner.align(seq1, seq2)
+            # Convert integer sequences to strings for BioPython
+            # Each integer becomes a single character (A, B, C, etc.)
+            str_seq1 = ''.join([chr(65 + (i % 26)) for i in seq1])  # A-Z mapping
+            str_seq2 = ''.join([chr(65 + (i % 26)) for i in seq2])
+            
+            alignments = self.aligner.align(str_seq1, str_seq2)
             # Return the best (first) alignment
             return alignments[0] if len(alignments) > 0 else None
         except Exception as e:

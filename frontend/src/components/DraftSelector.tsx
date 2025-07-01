@@ -239,24 +239,6 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
       {isDropdownOpen && (
         <div className="draft-dropdown">
           {/* CRITICAL DRAFT OPTIONS - Heatmap must respond to these selections */}
-          <div 
-            className={`draft-item ${selectedDraft === 'best' ? 'active' : ''}`}
-            onClick={() => handleDraftSelect('best')}  // ← CRITICAL: Triggers heatmap text change
-          >
-            <span className="draft-name">Best <span className="recommended">★</span></span>
-            <span className="draft-desc">Highest quality</span>
-          </div>
-          
-          <div 
-            className={`draft-item ${selectedDraft === 'consensus' ? 'active' : ''}`}
-            onClick={() => handleDraftSelect('consensus')}  // ← CRITICAL: Triggers heatmap consensus view
-          >
-            <span className="draft-name">Consensus</span>
-            <span className="draft-desc">Merged result</span>
-          </div>
-          
-          <div className="draft-divider"></div>
-          
           {/* CRITICAL INDIVIDUAL DRAFTS - Heatmap needs access to individual texts */}
           {successfulResults.map((result, index) => (
             <div 
@@ -266,9 +248,6 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
             >
               <span className="draft-name">
                 Draft {index + 1}
-                {index === redundancyAnalysis.best_result_index && (
-                  <span className="best-indicator">★</span>
-                )}
               </span>
               <span className="draft-desc">{result.tokens} tokens</span>  {/* ← INFO: Heatmap may display this */}
             </div>
