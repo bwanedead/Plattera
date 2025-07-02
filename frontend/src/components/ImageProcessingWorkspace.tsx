@@ -95,12 +95,14 @@ import { HeatmapToggle } from './HeatmapToggle';
 import { CopyButton } from './CopyButton';
 import { AlignmentAnalysisPanel } from './AlignmentAnalysisPanel';
 import { AlignmentColoredText } from './AlignmentColoredText';
+import { DraftLoader } from './DraftLoader';
 import { 
   isJsonResult, 
   formatJsonAsText, 
   formatJsonPretty,
   getWordCount 
 } from '../utils/jsonFormatter';
+import { saveDraft, getDraftCount, DraftSession } from '../utils/draftStorage';
 
 // Enhancement settings interface
 interface EnhancementSettings {
@@ -330,6 +332,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [showAlignmentPanel, setShowAlignmentPanel] = useState(false);
   const [isAlignmentMode, setIsAlignmentMode] = useState(false);
   const [isAlignmentLoading, setIsAlignmentLoading] = useState(false);
+
+  // Draft management state
+  const [showDraftLoader, setShowDraftLoader] = useState(false);
+  const [draftCount, setDraftCount] = useState(0);
 
   // Debug logging to help with redundancySettings issue
   console.log('🔧 ImageProcessingWorkspace rendered with redundancySettings:', redundancySettings);
@@ -692,6 +698,41 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     return isJsonResult(rawText);
   }, [getRawText]);
 
+  // Initialize draft count on mount
+  useEffect(() => {
+    setDraftCount(getDraftCount());
+  }, []);
+
+  // Save draft functionality
+  const handleSaveDraft = useCallback(() => {
+    if (!selectedResult || selectedResult.status !== 'completed') {
+      alert('No valid result to save');
+      return;
+    }
+
+    try {
+      const content = getRawText();
+      const modelName = selectedResult.result?.metadata?.model_used || 'unknown';
+      const metadata = selectedResult.result?.metadata;
+      
+      const savedDraft = saveDraft(content, modelName, metadata);
+      setDraftCount(getDraftCount()); // Update count
+      alert(`Draft saved successfully!\nID: ${savedDraft.draft_id}`);
+    } catch (error) {
+      alert('Failed to save draft: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
+  }, [selectedResult, getRawText]);
+
+  // Load drafts functionality
+  const handleLoadDrafts = useCallback((results: DraftSession[]) => {
+    // Replace current session with loaded drafts
+    setSessionResults(results);
+    if (results.length > 0) {
+      setSelectedResult(results[0]);
+      setSelectedDraft('best');
+    }
+  }, []);
+
   return (
     <div className="image-processing-workspace">
       <div className="workspace-nav">
@@ -732,6 +773,18 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             
             <div className="import-section">
               <label>Import Files</label>
+              
+              {/* Load Saved Drafts Button */}
+              <div className="draft-loader-section">
+                <button 
+                  className="load-drafts-button"
+                  onClick={() => setShowDraftLoader(true)}
+                  disabled={draftCount === 0}
+                >
+                  📁 Load Saved Drafts ({draftCount})
+                </button>
+              </div>
+              
               <div 
                 {...getRootProps()} 
                 className={`file-drop-zone ${isDragActive ? 'drag-active' : ''} ${stagedFiles.length > 0 ? 'has-files' : ''}`}
@@ -969,6 +1022,15 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                           )}
                           {activeTab === 'json' && isCurrentResultJson() && (
                             <div className="json-display">
+                              <div className="json-actions">
+                                <button 
+                                  className="save-draft-button"
+                                  onClick={handleSaveDraft}
+                                  title="Save this draft for future alignment testing"
+                                >
+                                  💾 Save Draft
+                                </button>
+                              </div>
                               <pre className="json-content">{formatJsonPretty(getRawText())}</pre>
                             </div>
                           )}
@@ -1008,6 +1070,13 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
           previewImage={stagedFiles[0]}
         />
       )}
+
+      {/* Draft Loader Modal */}
+      <DraftLoader
+        isOpen={showDraftLoader}
+        onClose={() => setShowDraftLoader(false)}
+        onLoadDrafts={handleLoadDrafts}
+      />
     </div>
   );
 }; 

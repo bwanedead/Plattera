@@ -1,0 +1,12 @@
+[
+  {
+    "draft_id": "draft-1-mock-gpt",
+    "model_name": "gpt-4-mock",
+    "content": "{\"title\":\"Standard Lease Agreement\",\"parties\":\"This Lease Agreement is made between John Smith (Landlord) and Jane Doe (Tenant).\",\"sections\":[{\"section_title\":\"1. Property\",\"body\":\"The Landlord agrees to lease to the Tenant the property located at 123 Main Street, Anytown, USA.\"},{\"section_title\":\"2. Term of Lease\",\"body\":\"The term of this lease is for a period of one year, starting on February 1, 2024, and ending on January 31, 2025.\"},{\"section_title\":\"3. Rent\",\"body\":\"The tenant shall pay a monthly rent of $1,200. The rent is due on the first day of each month.\"}]}"
+  },
+  {
+    "draft_id": "draft-2-mock-claude",
+    "model_name": "claude-opus-mock",
+    "content": "{\"title\":\"Residential Lease Agreement\",\"parties\":\"This Agreement is entered into by and between Jane Doe (Hereinafter \\\"Tenant\\\") and John Smith (Hereinafter \\\"Landlord\\\").\",\"sections\":[{\"section_title\":\"1. Leased Premises\",\"body\":\"Landlord hereby leases to Tenant the premises located at 123 Main Street, Anytown, USA.\"},{\"section_title\":\"2. Lease Duration\",\"body\":\"This lease will be for a term of 12 (twelve) months, commencing on February 1, 2024.\"},{\"section_title\":\"3. Rental Payments\",\"body\":\"Tenant agrees to pay rent of twelve hundred dollars ($1200.00) per month, payable on the 1st of each month.\"}]}"
+  }
+] 
