@@ -83,7 +83,7 @@ After redundancy implementation, verify:
 5. API communication works with new redundancy parameter
 */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useLayoutEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
@@ -241,6 +241,8 @@ interface ImageProcessingWorkspaceProps {
   onExit: () => void;
   onNavigateToTextSchema?: () => void;
 }
+
+const STATS_PANEL_WIDTH = 350;
 
 // --- Main Component ---
 // Version: v2.1 - BioPython Visualizer Integration
@@ -795,6 +797,39 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     setSelectedDraft('best'); // Start with best draft view
   }, []);
 
+  const textViewerRef = useRef<HTMLDivElement>(null);
+  const [statsPanelLeft, setStatsPanelLeft] = useState(0);
+
+  // Update position on mount, window resize, and Allotment pane resize
+  useLayoutEffect(() => {
+    function updateLeft() {
+      if (textViewerRef.current) {
+        const rect = textViewerRef.current.getBoundingClientRect();
+        setStatsPanelLeft(rect.left - STATS_PANEL_WIDTH);
+      } else {
+        setStatsPanelLeft(0);
+      }
+    }
+    updateLeft();
+    window.addEventListener('resize', updateLeft);
+
+    // Use ResizeObserver for dynamic pane resizing
+    let observer: ResizeObserver | null = null;
+    if (textViewerRef.current && 'ResizeObserver' in window) {
+      observer = new ResizeObserver(() => {
+        updateLeft();
+      });
+      observer.observe(textViewerRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', updateLeft);
+      if (observer && textViewerRef.current) {
+        observer.unobserve(textViewerRef.current);
+      }
+    };
+  }, [isHistoryVisible, selectedResult, activeTab]);
+
   return (
     <div className="image-processing-workspace">
       <div className="workspace-nav">
@@ -991,7 +1026,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
           </div>
         </Allotment.Pane>
         <Allotment.Pane>
-          <div className="results-area">
+          <div className="results-area" style={{ width: '100%', height: '100%' }}>
             <Allotment defaultSizes={[300, 700]} vertical={false}>
               {isHistoryVisible && (
                 <Allotment.Pane minSize={200} maxSize={500}>
@@ -1074,7 +1109,11 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                       
                       <div className="result-tab-content">
                           {activeTab === 'text' && (
-                            <div className="text-display">
+                            <div
+                              className="text-viewer-pane"
+                              ref={textViewerRef}
+                              style={{ height: '100%' }}
+                            >
                               <AlignmentColoredText
                                 text={getCurrentText()}
                                 confidenceData={alignmentData?.confidence_results}
@@ -1104,6 +1143,31 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                       </div>
                     </div>
                   )}
+                  {/* Floating stats panel */}
+                  {showAlignmentPanel && (
+                    <div
+                      className="alignment-analysis-panel-floating"
+                      style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: statsPanelLeft,
+                        width: STATS_PANEL_WIDTH,
+                        height: '100%',
+                        zIndex: 100,
+                        pointerEvents: 'auto'
+                      }}
+                    >
+                      <AlignmentAnalysisPanel
+                        alignmentData={alignmentData}
+                        isVisible={showAlignmentPanel}
+                        onClose={() => {
+                          setShowAlignmentPanel(false);
+                          setIsAlignmentMode(false);
+                          setAlignmentData(null);
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               </Allotment.Pane>
             </Allotment>
@@ -1111,17 +1175,6 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         </Allotment.Pane>
       </Allotment>
       
-      {/* Alignment Analysis Panel */}
-      <AlignmentAnalysisPanel
-        alignmentData={alignmentData}
-        isVisible={showAlignmentPanel}
-        onClose={() => {
-          setShowAlignmentPanel(false);
-          setIsAlignmentMode(false);
-          setAlignmentData(null);
-        }}
-      />
-
       {/* Image Enhancement Modal */}
       {showEnhancementModal && (
         <ImageEnhancementModal

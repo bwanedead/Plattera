@@ -1,17 +1,15 @@
 /* Alignment Analysis Panel */
 .alignment-analysis-panel {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 350px;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   background: rgba(0, 0, 0, 0.95);
   border-right: 2px solid #00ff88;
   color: white;
-  z-index: 1000;
+  z-index: 100;
   display: flex;
   flex-direction: column;
   font-family: 'Courier New', monospace;
+  pointer-events: auto;
 }
 
 .alignment-analysis-panel .panel-header {
@@ -269,4 +267,15 @@
   transform: translateX(-50%);
   border: 5px solid transparent;
   border-top-color: rgba(255, 170, 0, 0.95);
+}
+
+.alignment-analysis-panel-floating {
+  position: fixed;
+  top: 0;
+  /* left is set inline in React */
+  width: 350px;
+  height: 100%;
+  z-index: 100;
+  pointer-events: auto;
+  box-shadow: 2px 0 12px rgba(0,0,0,0.25);
 } 

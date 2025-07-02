@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+when providing code that is intended for a file in the codebase always provide the file name and path for the file that is intended to be editted. even if it is redundant that is ok we need this information to reduce mistakes. 
