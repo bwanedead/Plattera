@@ -32,12 +32,16 @@ interface AlignmentAnalysisPanelProps {
   alignmentData: AlignmentData | null;
   isVisible: boolean;
   onClose: () => void;
+  isHeatmapEnabled: boolean;
+  onToggleHeatmap: (enabled: boolean) => void;
 }
 
 export const AlignmentAnalysisPanel: React.FC<AlignmentAnalysisPanelProps> = ({
   alignmentData,
   isVisible,
-  onClose
+  onClose,
+  isHeatmapEnabled,
+  onToggleHeatmap
 }) => {
   console.log('🔥 AlignmentAnalysisPanel render:', { isVisible, alignmentData });
 
@@ -67,6 +71,24 @@ export const AlignmentAnalysisPanel: React.FC<AlignmentAnalysisPanelProps> = ({
         <button className="close-button" onClick={onClose}>×</button>
       </div>
       
+      <div style={{ padding: '0 20px 10px 20px' }}>
+        <button
+          onClick={() => onToggleHeatmap(!isHeatmapEnabled)}
+          style={{
+            background: isHeatmapEnabled ? '#00ff88' : '#222',
+            color: isHeatmapEnabled ? '#000' : '#fff',
+            border: '1px solid #00ff88',
+            borderRadius: 4,
+            padding: '6px 12px',
+            cursor: 'pointer',
+            marginBottom: 10,
+            width: '100%'
+          }}
+        >
+          {isHeatmapEnabled ? 'Hide Heatmap' : 'Show Heatmap'}
+        </button>
+      </div>
+
       <div className="panel-content">
         <div className="stats-section">
           <h4>📊 Confidence Statistics</h4>

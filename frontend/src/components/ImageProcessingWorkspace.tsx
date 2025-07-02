@@ -830,6 +830,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     };
   }, [isHistoryVisible, selectedResult, activeTab]);
 
+  const [isHeatmapEnabled, setIsHeatmapEnabled] = useState(false);
+
   return (
     <div className="image-processing-workspace">
       <div className="workspace-nav">
@@ -1117,7 +1119,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                               <AlignmentColoredText
                                 text={getCurrentText()}
                                 confidenceData={alignmentData?.confidence_results}
-                                isAlignmentMode={isAlignmentMode}
+                                isAlignmentMode={isHeatmapEnabled}
                               />
                             </div>
                           )}
@@ -1165,6 +1167,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                           setIsAlignmentMode(false);
                           setAlignmentData(null);
                         }}
+                        isHeatmapEnabled={isHeatmapEnabled}
+                        onToggleHeatmap={setIsHeatmapEnabled}
                       />
                     </div>
                   )}

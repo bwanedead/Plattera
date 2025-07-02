@@ -42,6 +42,13 @@ export const AlignmentColoredText: React.FC<AlignmentColoredTextProps> = ({
     return map;
   }, [confidenceData, isAlignmentMode]);
 
+  console.log('AlignmentColoredText', {
+    isAlignmentMode,
+    confidenceData,
+    tokenConfidenceMapSize: tokenConfidenceMap.size,
+    text,
+  });
+
   if (!isAlignmentMode || tokenConfidenceMap.size === 0) {
     return (
       <div className="formatted-text-display">
