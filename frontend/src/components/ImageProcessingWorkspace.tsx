@@ -703,7 +703,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     setDraftCount(getDraftCount());
   }, []);
 
-  // Save draft functionality
+  // Save draft functionality - only save the currently selected draft
   const handleSaveDraft = useCallback(() => {
     if (!selectedResult || selectedResult.status !== 'completed') {
       alert('No valid result to save');
@@ -712,25 +712,87 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
 
     try {
       const content = getRawText();
-      const modelName = selectedResult.result?.metadata?.model_used || 'unknown';
-      const metadata = selectedResult.result?.metadata;
       
-      const savedDraft = saveDraft(content, modelName, metadata);
+      // Get metadata only for the selected draft
+      let draftMetadata = {};
+      const redundancyAnalysis = selectedResult.result?.metadata?.redundancy_analysis;
+      
+      if (redundancyAnalysis && typeof selectedDraft === 'number') {
+        // If it's a specific draft number, get metadata for that draft only
+        const individualResults = redundancyAnalysis.individual_results;
+        const successfulResults = individualResults?.filter((r: any) => r.success) || [];
+        
+        if (selectedDraft < successfulResults.length) {
+          const specificDraft = successfulResults[selectedDraft];
+          draftMetadata = {
+            model_used: specificDraft.model || selectedResult.result?.metadata?.model_used || 'unknown',
+            original_draft_index: selectedDraft,
+            saved_draft_type: `draft_${selectedDraft + 1}`,
+            confidence_score: specificDraft.confidence || 1.0,
+            service_type: selectedResult.result?.metadata?.service_type || 'llm'
+          };
+        }
+      } else {
+        // For 'best' or 'consensus' drafts, use general metadata
+        draftMetadata = {
+          model_used: selectedResult.result?.metadata?.model_used || 'unknown',
+          saved_draft_type: selectedDraft,
+          confidence_score: selectedResult.result?.metadata?.confidence_score || 1.0,
+          service_type: selectedResult.result?.metadata?.service_type || 'llm'
+        };
+      }
+      
+      const savedDraft = saveDraft(content, draftMetadata.model_used, draftMetadata);
       setDraftCount(getDraftCount()); // Update count
-      alert(`Draft saved successfully!\nID: ${savedDraft.draft_id}`);
+      alert(`Draft saved successfully!\nDraft: ${draftMetadata.saved_draft_type}\nID: ${savedDraft.draft_id}`);
     } catch (error) {
       alert('Failed to save draft: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
-  }, [selectedResult, getRawText]);
+  }, [selectedResult, getRawText, selectedDraft]);
 
-  // Load drafts functionality
+  // Load drafts functionality - combine individual drafts into a redundancy session
   const handleLoadDrafts = useCallback((results: DraftSession[]) => {
-    // Replace current session with loaded drafts
-    setSessionResults(results);
-    if (results.length > 0) {
-      setSelectedResult(results[0]);
-      setSelectedDraft('best');
-    }
+    if (results.length === 0) return;
+
+    // Create a combined session that mimics a redundancy result
+    const combinedResult = {
+      id: `combined-${Date.now()}`,
+      input: `Combined Drafts (${results.length} drafts)`,
+      status: 'completed' as const,
+      result: {
+        extracted_text: results[0].result.extracted_text, // Use first draft as primary
+        model_used: results.map(r => r.result.model_used).join(', '),
+        service_type: 'imported-combined',
+        tokens_used: 0,
+        confidence_score: 1.0,
+        metadata: {
+          imported_at: new Date().toISOString(),
+          is_imported_draft: true,
+          redundancy_analysis: {
+            enabled: true,
+            count: results.length,
+            individual_results: results.map((result, index) => ({
+              success: true,
+              text: result.result.extracted_text,
+              model: result.result.model_used,
+              confidence: result.result.confidence_score,
+              tokens_used: result.result.tokens_used,
+              draft_index: index,
+              imported_draft_id: result.result.metadata?.original_draft_id
+            })),
+            consensus_text: results[0].result.extracted_text, // Use first as consensus
+            consensus_strategy: 'imported_first',
+            confidence_scores: results.map(() => 1.0),
+            average_confidence: 1.0
+          }
+        }
+      }
+    };
+
+    // Replace current session with the combined result
+    setSessionResults([combinedResult]);
+    setSelectedResult(combinedResult);
+    setSelectedDraft('best'); // Start with best draft view
   }, []);
 
   return (
