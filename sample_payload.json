@@ -1,0 +1,31 @@
+﻿{
+  "drafts": [
+    {
+      "draft_id": "Draft_1",
+      "blocks": [
+        {
+          "id": "legal_text",
+          "text": "This is the first draft of the document."
+        }
+      ]
+    },
+    {
+      "draft_id": "Draft_2",
+      "blocks": [
+        {
+          "id": "legal_text",
+          "text": "This is the second draft of the document."
+        }
+      ]
+    },
+    {
+      "draft_id": "Draft_3",
+      "blocks": [
+        {
+          "id": "legal_text",
+          "text": "This is the third draft of the document."
+        }
+      ]
+    }
+  ]
+}

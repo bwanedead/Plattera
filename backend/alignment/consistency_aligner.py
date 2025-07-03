@@ -445,10 +445,23 @@ class ConsistencyBasedAligner:
                 else:
                     token_sequence.append(id_to_token.get(token_id, f'UNK_{token_id}'))
             
+            # Get the original tokens for this draft
+            original_tokens = encoded_drafts[seq_idx]['tokens']
+            original_to_alignment = []
+            orig_ptr = 0
+            for align_idx, token_id in enumerate(encoded_seq):
+                if token_id == -1:
+                    continue  # gap in this draft
+                if orig_ptr < len(original_tokens):
+                    # Map this original token to this alignment position
+                    original_to_alignment.append(align_idx)
+                    orig_ptr += 1
+
             aligned_sequences.append({
                 'draft_id': draft_id,
                 'tokens': token_sequence,
-                'encoded_tokens': encoded_seq
+                'encoded_tokens': encoded_seq,
+                'original_to_alignment': original_to_alignment
             })
         
         return {

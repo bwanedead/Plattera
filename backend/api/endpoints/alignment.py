@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class AlignmentResponse(BaseModel):
     consensus_text: Optional[str] = None
     visualization_html: Optional[str] = None
     error: Optional[str] = None
+    per_draft_alignment_mapping: Optional[Dict[str, Any]] = None
 
 
 class VisualizationRequest(BaseModel):
@@ -122,12 +124,16 @@ async def align_legal_drafts(request: AlignmentRequest):
         
         logger.info(f"✅ BioPython alignment completed successfully in {results['processing_time']:.2f}s")
         
+        logger.info("Alignment API response keys: %s", list(results.keys()))
+        logger.info("per_draft_alignment_mapping sample: %s", json.dumps(results.get('per_draft_alignment_mapping', {}), indent=2)[:1000])
+        
         return AlignmentResponse(
             success=True,
             processing_time=results['processing_time'],
             summary=results['summary'],
             consensus_text=consensus_text,
-            visualization_html=results['visualization_html']
+            visualization_html=results['visualization_html'],
+            per_draft_alignment_mapping=results.get('per_draft_alignment_mapping')
         )
         
     except ImportError as e:

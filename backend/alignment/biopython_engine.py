@@ -100,7 +100,16 @@ class BioPythonAlignmentEngine:
                 'visualization_html': visualization_html,
                 'summary': self._generate_results_summary(
                     alignment_results, confidence_results, difference_results, processing_time
-                )
+                ),
+                'per_draft_alignment_mapping': {
+                    block_id: [
+                        {
+                            'draft_id': seq['draft_id'],
+                            'original_to_alignment': seq.get('original_to_alignment', [])
+                        } for seq in block_data['aligned_sequences']
+                    ]
+                    for block_id, block_data in alignment_results['blocks'].items()
+                }
             }
             
             # Log final statistics

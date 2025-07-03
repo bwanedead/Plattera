@@ -155,6 +155,8 @@ const processFilesAPI = async (files: File[], model: string, mode: string, enhan
 
       const data = await response.json();
 
+      console.log("API response data:", data);
+
       if (data.status === 'success') {
         results.push({
           input: file.name,
@@ -274,14 +276,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     // Optional: Mark result as edited in metadata
   }, []);
   
-  const handleHeatmapToggle = useCallback((enabled: boolean) => {
-    setIsHeatmapEnabled(enabled);
-    if (!enabled) {
-      // Reset edited state when disabling heatmap
-      setIsTextEdited(false);
-      setEditedText('');
-    }
-  }, []);
+  // Removed simple handleHeatmapToggle - using API-enabled version below
   
   CRITICAL INTEGRATION POINTS:
   ============================
@@ -324,6 +319,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [showEnhancementModal, setShowEnhancementModal] = useState(false);
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
   const [selectedConsensusStrategy, setSelectedConsensusStrategy] = useState<string>('highest_confidence');
+  
+  // Heatmap state
+  const [editedText, setEditedText] = useState<string>('');
+  const [isTextEdited, setIsTextEdited] = useState(false);
   
   // Navigation button hover states
   const [homeHovered, setHomeHovered] = useState(false);
@@ -552,6 +551,16 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     console.log('🔥 Fire button params:', { enabled });
     console.log('🔥 selectedResult:', selectedResult);
     
+    // Handle UI state changes
+    setIsHeatmapEnabled(enabled);
+    if (!enabled) {
+      // Reset edited state when disabling heatmap
+      setIsTextEdited(false);
+      setEditedText('');
+      // Don't need to call API when disabling
+      return;
+    }
+    
     // Set loading state
     setIsAlignmentLoading(true);
     
@@ -741,12 +750,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
           saved_draft_type: selectedDraft,
           confidence_score: selectedResult.result?.metadata?.confidence_score || 1.0,
           service_type: selectedResult.result?.metadata?.service_type || 'llm'
-        };
+        } as any;
       }
       
-      const savedDraft = saveDraft(content, draftMetadata.model_used, draftMetadata);
+      const savedDraft = saveDraft(content, (draftMetadata as any).model_used || 'unknown', draftMetadata);
       setDraftCount(getDraftCount()); // Update count
-      alert(`Draft saved successfully!\nDraft: ${draftMetadata.saved_draft_type}\nID: ${savedDraft.draft_id}`);
+      alert(`Draft saved successfully!\nDraft: ${(draftMetadata as any).saved_draft_type || 'unknown'}\nID: ${savedDraft.draft_id}`);
     } catch (error) {
       alert('Failed to save draft: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
@@ -831,6 +840,59 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   }, [isHistoryVisible, selectedResult, activeTab]);
 
   const [isHeatmapEnabled, setIsHeatmapEnabled] = useState(false);
+
+  // --- Helper to get per-draft alignment mapping and confidence scores ---
+  const getHeatmapDataForSelectedDraft = () => {
+    console.log("🚨 TESTING: This is the NEW function version!");
+    console.log("🔍 alignmentData:", alignmentData);
+    console.log("🔍 selectedResult:", selectedResult);
+    
+    if (!alignmentData) {
+      console.log("🔍 No alignmentData available");
+      return null;
+    }
+    
+    // LOG THE ENTIRE STRUCTURE
+    console.log("🔍 FULL alignmentData:", alignmentData);
+    console.log("🔍 alignmentData keys:", Object.keys(alignmentData));
+    
+    const blockId = 'legal_text'; // or make this dynamic if needed
+
+    // Get mapping and confidence from alignmentData (not selectedResult.result)
+    const mappingArr = alignmentData.per_draft_alignment_mapping?.[blockId];
+    const confidenceScores = alignmentData.confidence_results?.block_confidences?.[blockId]?.scores;
+
+    console.log("🔍 per_draft_alignment_mapping exists:", !!alignmentData.per_draft_alignment_mapping);
+    console.log("🔍 confidence_results exists:", !!alignmentData.confidence_results);
+    console.log("🔍 mappingArr for blockId", blockId, ":", mappingArr);
+    console.log("🔍 confidenceScores for blockId", blockId, ":", confidenceScores);
+
+    if (!mappingArr || !confidenceScores) {
+      console.log("🔍 mappingArr or confidenceScores missing");
+      return null;
+    }
+
+    // Find the mapping for the selected draft
+    let selectedDraftId = selectedDraft;
+    console.log("🔍 Looking for selectedDraftId:", selectedDraftId);
+    console.log("🔍 Available draft_ids in mappingArr:", mappingArr.map((m: any) => m.draft_id));
+    
+    const mappingObj = mappingArr.find((m: any) => m.draft_id === selectedDraftId);
+
+    if (!mappingObj) {
+      console.log("🔍 No mappingObj for selectedDraftId", selectedDraftId);
+      return null;
+    }
+
+    console.log("🔍 Found mappingObj:", mappingObj);
+    return {
+      original_to_alignment: mappingObj.original_to_alignment,
+      confidence_scores: confidenceScores,
+    };
+  };
+
+  const heatmapData = getHeatmapDataForSelectedDraft();
+  console.log("Passing heatmapData to AlignmentColoredText:", heatmapData);
 
   return (
     <div className="image-processing-workspace">
@@ -1118,7 +1180,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                             >
                               <AlignmentColoredText
                                 text={getCurrentText()}
-                                confidenceData={alignmentData?.confidence_results}
+                                heatmapData={heatmapData}
                                 isAlignmentMode={isHeatmapEnabled}
                               />
                             </div>
@@ -1168,7 +1230,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                           setAlignmentData(null);
                         }}
                         isHeatmapEnabled={isHeatmapEnabled}
-                        onToggleHeatmap={setIsHeatmapEnabled}
+                        onToggleHeatmap={handleHeatmapToggle}
                       />
                     </div>
                   )}
