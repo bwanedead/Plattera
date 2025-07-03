@@ -1,226 +1,192 @@
-import React, { useState } from 'react'
-import { 
-  isJsonResult, 
-  formatJsonAsText, 
-  formatJsonPretty, 
-  getWordCount, 
-  extractDisplayMetadata,
-  ProcessingResult as FormatterProcessingResult
-} from '../utils/jsonFormatter'
+import React, { useState } from 'react';
+import { Allotment } from 'allotment';
+import "allotment/dist/style.css";
+import { ParcelTracerLoader } from './ParcelTracerLoader';
+import { CopyButton } from './CopyButton';
+import { DraftSelector } from './DraftSelector';
+import { formatJsonPretty } from '../utils/jsonFormatter';
 
-interface ProcessingResult {
-  id: string
-  input: string
-  result: FormatterProcessingResult
-  status: 'processing' | 'completed' | 'error'
-  error?: string
-}
-
+// Define interfaces for props to ensure type safety
 interface ResultsViewerProps {
-  results: ProcessingResult[]
+  isProcessing: boolean;
+  sessionResults: any[];
+  selectedResult: any;
+  onSelectResult: (result: any) => void;
+  isHistoryVisible: boolean;
+  onToggleHistory: (visible: boolean) => void;
+  getCurrentText: () => string;
+  getRawText: () => string;
+  isCurrentResultJson: () => boolean;
+  onSaveDraft: () => void;
+  selectedDraft: number | 'consensus' | 'best';
+  onDraftSelect: (draft: number | 'consensus' | 'best') => void;
 }
 
-type ViewMode = 'text' | 'json' | 'metadata'
-
-const ResultsViewer: React.FC<ResultsViewerProps> = ({ results }) => {
-  const [selectedResult, setSelectedResult] = useState<ProcessingResult | null>(null)
-  const [viewMode, setViewMode] = useState<ViewMode>('text')
-
-  if (results.length === 0) {
-    return null
-  }
-
-  const completedResults = results.filter(r => r.status === 'completed')
-  const errorResults = results.filter(r => r.status === 'error')
-
-  const getDisplayText = (result: FormatterProcessingResult): string => {
-    if (isJsonResult(result.extracted_text)) {
-      return formatJsonAsText(result.extracted_text)
-    }
-    return result.extracted_text
-  }
-
-  const getPreviewText = (result: FormatterProcessingResult): string => {
-    const displayText = getDisplayText(result)
-    return displayText.substring(0, 200) + (displayText.length > 200 ? '...' : '')
-  }
-
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch (err) {
-      console.error('Failed to copy text:', err)
-    }
-  }
+export const ResultsViewer: React.FC<ResultsViewerProps> = ({
+  isProcessing,
+  sessionResults,
+  selectedResult,
+  onSelectResult,
+  isHistoryVisible,
+  onToggleHistory,
+  getCurrentText,
+  getRawText,
+  isCurrentResultJson,
+  onSaveDraft,
+  selectedDraft,
+  onDraftSelect,
+}) => {
+  const [activeTab, setActiveTab] = useState('text');
 
   return (
-    <div className="results-viewer">
-      <div className="results-header">
-        <h2>Processing Results</h2>
-        <div className="results-summary">
-          <span className="success-count">{completedResults.length} successful</span>
-          {errorResults.length > 0 && (
-            <span className="error-count">{errorResults.length} failed</span>
-          )}
-        </div>
-      </div>
-
-      <div className="results-list">
-        {results.map((result) => (
-          <div key={result.id} className={`result-item ${result.status}`}>
-            <div className="result-header">
-              <div className="result-info">
-                <h4>{result.input}</h4>
-                <span className={`status-badge ${result.status}`}>
-                  {result.status}
-                </span>
-                {result.status === 'completed' && isJsonResult(result.result.extracted_text) && (
-                  <span className="format-badge json">JSON</span>
-                )}
+    <div className="results-area" style={{ width: '100%', height: '100%' }}>
+      <Allotment defaultSizes={[300, 700]} vertical={false}>
+        {isHistoryVisible && (
+          <Allotment.Pane minSize={200} maxSize={500}>
+            <div className="results-history-panel visible">
+              <div className="history-header">
+                <h4>Session Log</h4>
+                <button onClick={() => onToggleHistory(false)}>‹</button>
               </div>
-              {result.status === 'completed' && (
-                <button 
-                  onClick={() => setSelectedResult(result)}
-                  className="view-button"
-                >
-                  View Details
-                </button>
-              )}
-            </div>
-
-            {result.status === 'error' && (
-              <div className="error-message">
-                <p>Error: {result.error}</p>
-              </div>
-            )}
-
-            {result.status === 'completed' && (
-              <div className="result-preview">
-                <div className="text-preview">
-                  <p>{getPreviewText(result.result)}</p>
-                </div>
-                <div className="result-stats">
-                  <span>Words: {getWordCount(result.result.extracted_text)}</span>
-                  <span>Tokens: {result.result.tokens_used || result.result.pipeline_stats?.tokens_used || 0}</span>
-                  <span>Confidence: {((result.result.confidence_score || result.result.pipeline_stats?.confidence || 0) * 100).toFixed(1)}%</span>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Detailed View Modal */}
-      {selectedResult && (
-        <div className="modal-overlay" onClick={() => setSelectedResult(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>{selectedResult.input}</h3>
-              <div className="view-mode-toggle">
-                <button 
-                  className={viewMode === 'text' ? 'active' : ''}
-                  onClick={() => setViewMode('text')}
-                >
-                  📄 Text
-                </button>
-                {isJsonResult(selectedResult.result.extracted_text) && (
-                  <button 
-                    className={viewMode === 'json' ? 'active' : ''}
-                    onClick={() => setViewMode('json')}
+              <div className="history-list-items">
+                {sessionResults.map((res, i) => (
+                  <div
+                    key={i}
+                    className={`log-item ${
+                      selectedResult === res ? 'selected' : ''
+                    } ${res.status}`}
+                    onClick={() => onSelectResult(res)}
                   >
-                    🔧 JSON
-                  </button>
-                )}
-                <button 
-                  className={viewMode === 'metadata' ? 'active' : ''}
-                  onClick={() => setViewMode('metadata')}
-                >
-                  📊 Metadata
-                </button>
+                    <span className={`log-item-status-dot ${res.status}`}></span>
+                    {res.input}
+                  </div>
+                ))}
               </div>
-              <button 
-                onClick={() => setSelectedResult(null)}
-                className="close-button"
+            </div>
+          </Allotment.Pane>
+        )}
+        <Allotment.Pane>
+          <div className="results-viewer-panel">
+            {!isHistoryVisible && (
+              <button
+                className="history-toggle-button"
+                onClick={() => onToggleHistory(true)}
               >
-                ✕
+                ›
               </button>
-            </div>
+            )}
+            {isProcessing && (
+              <div className="loading-view">
+                <ParcelTracerLoader />
+                <h4>Tracing Parcels...</h4>
+                <p>Analyzing document geometry.</p>
+              </div>
+            )}
+            {!isProcessing && !selectedResult && (
+              <div className="placeholder-view">
+                <p>Your results will appear here.</p>
+              </div>
+            )}
+            {!isProcessing && selectedResult && (
+              <div className="result-display-area">
+                <CopyButton
+                  onCopy={() => {
+                    if (activeTab === 'text') {
+                      navigator.clipboard.writeText(getCurrentText());
+                    } else if (activeTab === 'json') {
+                      navigator.clipboard.writeText(formatJsonPretty(getRawText()));
+                    } else if (activeTab === 'metadata') {
+                      navigator.clipboard.writeText(
+                        selectedResult.status === 'completed'
+                          ? JSON.stringify(selectedResult.result?.metadata, null, 2)
+                          : 'No metadata available for failed processing.'
+                      );
+                    }
+                  }}
+                  title={`Copy ${activeTab}`}
+                  style={{
+                    position: 'absolute',
+                    top: '5rem',
+                    left: '-3rem',
+                    zIndex: 20,
+                  }}
+                />
 
-            <div className="modal-body">
-              {viewMode === 'text' && (
-                <div className="text-view">
-                  <div className="text-actions">
-                    <button onClick={() => copyToClipboard(getDisplayText(selectedResult.result))}>
-                      📋 Copy Text
+                <DraftSelector
+                  redundancyAnalysis={
+                    selectedResult.result?.metadata?.redundancy_analysis
+                  }
+                  onDraftSelect={onDraftSelect}
+                  selectedDraft={selectedDraft}
+                />
+
+                <div className="result-tabs">
+                  <button
+                    className={activeTab === 'text' ? 'active' : ''}
+                    onClick={() => setActiveTab('text')}
+                  >
+                    📄 Text
+                  </button>
+                  {isCurrentResultJson() && (
+                    <button
+                      className={activeTab === 'json' ? 'active' : ''}
+                      onClick={() => setActiveTab('json')}
+                    >
+                      🔧 JSON
                     </button>
-                    {isJsonResult(selectedResult.result.extracted_text) && (
-                      <span className="format-info">
-                        ✨ Formatted from JSON structure
-                      </span>
-                    )}
-                  </div>
-                  <div className="formatted-text">
-                    {getDisplayText(selectedResult.result).split('\n').map((line, index) => {
-                      // Check if line is a section divider (contains only dashes)
-                      if (/^─+$/.test(line.trim())) {
-                        return <hr key={index} className="section-divider" />
-                      }
-                      // Empty lines for spacing
-                      if (!line.trim()) {
-                        return <div key={index} className="line-break" />
-                      }
-                      // Regular text lines
-                      return <p key={index} className="text-line">{line}</p>
-                    })}
-                  </div>
+                  )}
+                  <button
+                    className={activeTab === 'metadata' ? 'active' : ''}
+                    onClick={() => setActiveTab('metadata')}
+                  >
+                    📊 Metadata
+                  </button>
                 </div>
-              )}
 
-              {viewMode === 'json' && isJsonResult(selectedResult.result.extracted_text) && (
-                <div className="json-view">
-                  <div className="json-actions">
-                    <button onClick={() => copyToClipboard(formatJsonPretty(selectedResult.result.extracted_text))}>
-                      📋 Copy JSON
-                    </button>
-                    <button onClick={() => copyToClipboard(selectedResult.result.extracted_text)}>
-                      📋 Copy Raw
-                    </button>
-                  </div>
-                  <pre className="json-content">
-                    {formatJsonPretty(selectedResult.result.extracted_text)}
-                  </pre>
-                </div>
-              )}
-
-              {viewMode === 'metadata' && (
-                <div className="metadata-view">
-                  <div className="metadata-actions">
-                    <button onClick={() => copyToClipboard(JSON.stringify(extractDisplayMetadata(selectedResult.result), null, 2))}>
-                      📋 Copy Metadata
-                    </button>
-                  </div>
-                  <div className="metadata-grid">
-                    {Object.entries(extractDisplayMetadata(selectedResult.result)).map(([key, value]) => (
-                      <div key={key} className="metadata-item">
-                        <span className="metadata-key">{key}:</span>
-                        <span className="metadata-value">{String(value)}</span>
+                <div className="result-tab-content">
+                  {activeTab === 'text' && (
+                    <div
+                      className="text-viewer-pane"
+                      style={{ height: '100%' }}
+                    >
+                      <pre>{getCurrentText()}</pre>
+                    </div>
+                  )}
+                  {activeTab === 'json' && isCurrentResultJson() && (
+                    <div className="json-display">
+                      <div className="json-actions">
+                        <button
+                          className="save-draft-button"
+                          onClick={onSaveDraft}
+                          title="Save this draft for future alignment testing"
+                        >
+                          💾 Save Draft
+                        </button>
                       </div>
-                    ))}
-                  </div>
-                  <div className="raw-metadata">
-                    <h4>Full Processing Result</h4>
-                    <pre className="metadata-json">
-                      {JSON.stringify(selectedResult.result, null, 2)}
-                    </pre>
-                  </div>
+                      <pre className="json-content">
+                        {formatJsonPretty(getRawText())}
+                      </pre>
+                    </div>
+                  )}
+                  {activeTab === 'metadata' && (
+                    <div className="metadata-display">
+                      <pre>
+                        {selectedResult.status === 'completed'
+                          ? JSON.stringify(
+                              selectedResult.result?.metadata,
+                              null,
+                              2
+                            )
+                          : 'No metadata available for failed processing.'}
+                      </pre>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        </Allotment.Pane>
+      </Allotment>
     </div>
-  )
-}
-
-export default ResultsViewer 
+  );
+}; 
