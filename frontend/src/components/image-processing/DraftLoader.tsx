@@ -5,13 +5,13 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  getSavedDrafts, 
-  SavedDraft, 
-  createSessionFromDrafts, 
+import {
+  getSavedDrafts,
+  SavedDraft,
+  createSessionFromDrafts,
   DraftSession,
-  deleteDraft 
-} from '../utils/draftStorage';
+  deleteDraft
+} from '../../utils/draftStorage';
 
 interface DraftLoaderProps {
   isOpen: boolean;
@@ -19,10 +19,10 @@ interface DraftLoaderProps {
   onLoadDrafts: (results: DraftSession[]) => void;
 }
 
-export const DraftLoader: React.FC<DraftLoaderProps> = ({ 
-  isOpen, 
-  onClose, 
-  onLoadDrafts 
+export const DraftLoader: React.FC<DraftLoaderProps> = ({
+  isOpen,
+  onClose,
+  onLoadDrafts
 }) => {
   const [savedDrafts, setSavedDrafts] = useState<SavedDraft[]>([]);
   const [selectedDrafts, setSelectedDrafts] = useState<Set<string>>(new Set());
@@ -66,10 +66,10 @@ export const DraftLoader: React.FC<DraftLoaderProps> = ({
   }, []);
 
   const handleLoadSelected = useCallback(() => {
-    const draftsToLoad = savedDrafts.filter(draft => 
+    const draftsToLoad = savedDrafts.filter(draft =>
       selectedDrafts.has(draft.draft_id)
     );
-    
+
     if (draftsToLoad.length === 0) {
       alert('Please select at least one draft to load');
       return;
@@ -82,7 +82,7 @@ export const DraftLoader: React.FC<DraftLoaderProps> = ({
 
   const handleDeleteDraft = useCallback(async (draftId: string, event: React.MouseEvent) => {
     event.stopPropagation();
-    
+
     if (!confirm('Are you sure you want to delete this draft?')) {
       return;
     }
@@ -91,7 +91,7 @@ export const DraftLoader: React.FC<DraftLoaderProps> = ({
     try {
       deleteDraft(draftId);
       loadDrafts(); // Refresh the list
-      
+
       // Remove from selection if it was selected
       setSelectedDrafts(prev => {
         const newSelected = new Set(prev);
@@ -107,9 +107,9 @@ export const DraftLoader: React.FC<DraftLoaderProps> = ({
 
   const formatDate = useCallback((dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit'
     });
   }, []);
 
@@ -140,7 +140,7 @@ export const DraftLoader: React.FC<DraftLoaderProps> = ({
           <h3>Load Saved Drafts</h3>
           <button onClick={onClose} className="close-button">✕</button>
         </div>
-        
+
         <div className="modal-body">
           {savedDrafts.length === 0 ? (
             <div className="no-drafts">
@@ -169,7 +169,7 @@ export const DraftLoader: React.FC<DraftLoaderProps> = ({
                   className="load-count-input"
                 />
               </div>
-              
+
               <div className="drafts-list">
                 <div className="drafts-header">
                   <span className="selected-count">
@@ -179,11 +179,11 @@ export const DraftLoader: React.FC<DraftLoaderProps> = ({
                     Select drafts to load for alignment testing
                   </small>
                 </div>
-                
+
                 <div className="drafts-container">
                   {savedDrafts.map((draft) => (
-                    <div 
-                      key={draft.draft_id} 
+                    <div
+                      key={draft.draft_id}
                       className={`draft-item ${selectedDrafts.has(draft.draft_id) ? 'selected' : ''}`}
                       onClick={() => handleDraftToggle(draft.draft_id)}
                     >
@@ -194,7 +194,7 @@ export const DraftLoader: React.FC<DraftLoaderProps> = ({
                         className="draft-checkbox"
                         onClick={(e) => e.stopPropagation()}
                       />
-                      
+
                       <div className="draft-info">
                         <div className="draft-header-row">
                           <div className="draft-model">{draft.model_name}</div>
@@ -216,12 +216,12 @@ export const DraftLoader: React.FC<DraftLoaderProps> = ({
                   ))}
                 </div>
               </div>
-              
+
               <div className="modal-actions">
                 <button onClick={onClose} className="cancel-button">
                   Cancel
                 </button>
-                <button 
+                <button
                   onClick={handleLoadSelected}
                   disabled={selectedDrafts.size === 0}
                   className="load-button"

@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { Allotment } from 'allotment';
 import "allotment/dist/style.css";
 import { ParcelTracerLoader } from './ParcelTracerLoader';
-import { CopyButton } from './CopyButton';
+import { CopyButton } from '../CopyButton';
 import { DraftSelector } from './DraftSelector';
-import { formatJsonPretty } from '../utils/jsonFormatter';
+import { formatJsonPretty } from '../../utils/jsonFormatter';
 
 // Define interfaces for props to ensure type safety
 interface ResultsViewerProps {

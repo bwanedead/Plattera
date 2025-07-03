@@ -92,11 +92,11 @@ import {
   isJsonResult, 
   formatJsonAsText, 
   formatJsonPretty,
-} from '../utils/jsonFormatter';
-import { saveDraft, getDraftCount, DraftSession } from '../utils/draftStorage';
+} from '../../utils/jsonFormatter';
+import { saveDraft, getDraftCount, DraftSession } from '../../utils/draftStorage';
 import { ControlPanel } from './ControlPanel';
 import { ResultsViewer } from './ResultsViewer';
-import { AnimatedBorder } from './AnimatedBorder';
+import { AnimatedBorder } from '../AnimatedBorder';
 
 // Enhancement settings interface
 interface EnhancementSettings {

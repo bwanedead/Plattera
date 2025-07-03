@@ -3,7 +3,7 @@ import Link from 'next/link'
 import TextBatchProcessor from '../src/components/TextBatchProcessor'
 import ImageBatchProcessor from '../src/components/ImageBatchProcessor'
 import ResultsViewer from '../src/components/ResultsViewer'
-import { ImageProcessingWorkspace } from '../src/components/ImageProcessingWorkspace'
+import { ImageProcessingWorkspace } from '../src/components/image-processing/ImageProcessingWorkspace';
 import { TextToSchemaWorkspace } from '../src/components/TextToSchemaWorkspace'
 
 type ProcessingMode = 'text' | 'image' | null

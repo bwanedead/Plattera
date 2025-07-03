@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
-import { ParcelTracerLoader } from './ParcelTracerLoader';
+import { ParcelTracerLoader } from './image-processing/ParcelTracerLoader';
 import { AnimatedBorder } from './AnimatedBorder';
 
 // Real API call for text-to-schema processing

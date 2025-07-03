@@ -124,7 +124,7 @@ If this component breaks, heatmap feature will lose:
 */
 
 import React, { useState } from 'react';
-import { AnimatedBorder } from './AnimatedBorder';
+import { AnimatedBorder } from '../AnimatedBorder';
 
 // CRITICAL INTERFACE - Required for heatmap feature data flow
 interface DraftSelectorProps {
