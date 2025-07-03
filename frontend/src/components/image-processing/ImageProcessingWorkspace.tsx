@@ -1,88 +1,3 @@
-/*
-🔴 CRITICAL REDUNDANCY IMPLEMENTATION DOCUMENTATION 🔴
-=====================================================
-
-THIS IS THE MAIN IMAGE PROCESSING UI COMPONENT - PRESERVE ALL WIRING BELOW 🔴
-
-CURRENT WORKING STRUCTURE (DO NOT BREAK):
-==========================================
-
-1. STATE MANAGEMENT:
-   - stagedFiles: File[] (files ready for processing)
-   - sessionResults: any[] (processing history)
-   - selectedResult: any (currently displayed result)
-   - enhancementSettings: EnhancementSettings (image enhancement params)
-   - CRITICAL: All existing state variables MUST remain unchanged
-
-2. API INTEGRATION:
-   - processFilesAPI() handles backend communication
-   - fetchModelsAPI() loads available models
-   - CRITICAL: API call structure MUST remain compatible
-   - SAFE TO ADD: redundancy parameter to API calls
-
-3. ENHANCEMENT SETTINGS:
-   - EnhancementSettings interface defines image enhancement params
-   - handleEnhancementChange() manages settings updates
-   - CRITICAL: Enhancement flow MUST remain functional
-   - SAFE TO ADD: redundancy settings alongside enhancement settings
-
-4. UI COMPONENTS:
-   - File dropzone for image uploads
-   - Control panel with model/mode selection
-   - Enhancement modal for image settings
-   - Results viewer with text display
-   - CRITICAL: All existing UI elements MUST remain functional
-
-REDUNDANCY IMPLEMENTATION SAFETY RULES:
-======================================
-
-✅ SAFE TO ADD:
-- RedundancySettings interface alongside EnhancementSettings
-- redundancySettings state variable
-- Redundancy controls in control panel
-- Redundancy parameter to processFilesAPI()
-- Redundancy display in results metadata
-
-❌ DO NOT MODIFY:
-- Existing state variable names or types
-- EnhancementSettings interface structure
-- processFilesAPI() core functionality
-- handleProcess() core logic
-- UI component structure
-- File handling logic
-
-CRITICAL API INTEGRATION POINTS:
-===============================
-- processFilesAPI() sends FormData to backend
-- Backend expects specific field names (content_type, model, etc.)
-- Response format must match ProcessingResult interface
-- SAFE TO ADD: redundancy form field to FormData
-
-CRITICAL UI INTEGRATION POINTS:
-===============================
-- Enhancement modal integration MUST remain functional
-- File staging/processing flow MUST work unchanged
-- Results display MUST show extracted_text correctly
-- Error handling MUST work for failed processing
-
-REDUNDANCY UI REQUIREMENTS:
-==========================
-1. Add redundancy controls to control panel (after enhancement section)
-2. Include redundancy toggle and slider
-3. Pass redundancy settings to processFilesAPI()
-4. Display redundancy metadata in results (optional)
-5. Maintain all existing functionality
-
-TESTING CHECKPOINTS:
-===================
-After redundancy implementation, verify:
-1. File upload and processing still works
-2. Enhancement settings still function correctly
-3. Results display correctly with redundancy enabled/disabled
-4. All existing UI interactions remain functional
-5. API communication works with new redundancy parameter
-*/
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
@@ -97,132 +12,9 @@ import { saveDraft, getDraftCount, DraftSession } from '../../utils/draftStorage
 import { ControlPanel } from './ControlPanel';
 import { ResultsViewer } from './ResultsViewer';
 import { AnimatedBorder } from '../AnimatedBorder';
+import { EnhancementSettings, ProcessingResult, RedundancySettings } from '../../types/imageProcessing';
+import { fetchModelsAPI, processFilesAPI } from '../../services/imageProcessingApi';
 
-// Enhancement settings interface
-interface EnhancementSettings {
-  contrast: number;
-  sharpness: number;
-  brightness: number;
-  color: number;
-}
-
-// Redundancy settings interface
-interface RedundancySettings {
-  enabled: boolean;
-  count: number;
-  consensusStrategy: string;
-}
-
-// --- Real API Calls (replacing the simulated ones) ---
-const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings) => {
-  console.log(`Processing ${files.length} files with model: ${model} and mode: ${mode}`);
-  
-  const results = [];
-  
-  for (const file of files) {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('content_type', 'image-to-text');
-      formData.append('extraction_mode', mode);
-      formData.append('model', model);
-      formData.append('cleanup_after', 'true');
-      
-      // Add enhancement settings
-      formData.append('contrast', enhancementSettings.contrast.toString());
-      formData.append('sharpness', enhancementSettings.sharpness.toString());
-      formData.append('brightness', enhancementSettings.brightness.toString());
-      formData.append('color', enhancementSettings.color.toString());
-      
-      // Add redundancy setting
-      formData.append('redundancy', redundancySettings.enabled ? redundancySettings.count.toString() : '1');
-      
-      // Consensus strategy (only relevant when redundancy is enabled)
-      if (redundancySettings.enabled) {
-        formData.append('consensus_strategy', redundancySettings.consensusStrategy);
-      }
-
-      const response = await fetch('http://localhost:8000/api/process', {
-        method: 'POST',
-        body: formData
-      });
-
-      const data = await response.json();
-
-      console.log("API response data:", data);
-
-      if (data.status === 'success') {
-        results.push({
-          input: file.name,
-          status: 'completed' as const,
-          result: {
-            extracted_text: data.extracted_text,
-            metadata: {
-              model_used: data.model_used,
-              service_type: data.service_type,
-              tokens_used: data.tokens_used,
-              confidence_score: data.confidence_score,
-              ...data.metadata
-            }
-          }
-        });
-      } else {
-        results.push({
-          input: file.name,
-          status: 'error' as const,
-          result: null,
-          error: data.error || 'Processing failed'
-        });
-      }
-    } catch (error) {
-      results.push({
-        input: file.name,
-        status: 'error' as const,
-        result: null,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  }
-  
-  return results;
-};
-
-// Real API call for fetching models
-const fetchModelsAPI = async () => {
-  try {
-    const response = await fetch('http://localhost:8000/api/models');
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    if (data.status === 'success' && data.models) {
-      return data.models;
-    } else {
-      throw new Error(data.error || 'Invalid response format');
-    }
-  } catch (error) {
-    console.warn('Failed to load models from API, using defaults:', error);
-    // Fallback to default models
-    return {
-      "gpt-4o": { name: "GPT-4o", provider: "openai" },
-      "o3": { name: "o3", provider: "openai" },
-      "gpt-4": { name: "GPT-4", provider: "openai" },
-    };
-  }
-};
-
-interface ProcessingResult {
-  success: boolean;
-  extracted_text: string;
-  model_used: string;
-  service_type: string;
-  tokens_used?: number;
-  confidence_score?: number;
-  metadata?: any;
-}
 
 // Define the type for the component's props, including the onExit callback
 interface ImageProcessingWorkspaceProps {
@@ -233,8 +25,8 @@ interface ImageProcessingWorkspaceProps {
 // --- Main Component ---
 export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> = ({ onExit, onNavigateToTextSchema }) => {
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
-  const [sessionResults, setSessionResults] = useState<any[]>([]);
-  const [selectedResult, setSelectedResult] = useState<any>(null);
+  const [sessionResults, setSessionResults] = useState<ProcessingResult[]>([]);
+  const [selectedResult, setSelectedResult] = useState<ProcessingResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isHistoryVisible, setIsHistoryVisible] = useState(true);
   const [availableModels, setAvailableModels] = useState<Record<string, any>>({});
@@ -260,7 +52,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   // Navigation button hover states
   const [homeHovered, setHomeHovered] = useState(false);
   const [textSchemaHovered, setTextSchemaHovered] = useState(false);
-
+  
   // Draft management state
   const [showDraftLoader, setShowDraftLoader] = useState(false);
   const [draftCount, setDraftCount] = useState(0);
@@ -317,9 +109,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       }
       
       setStagedFiles([]);
-      setIsProcessing(false);
     } catch (error) {
       console.error('Error processing files:', error);
+    } finally {
       setIsProcessing(false);
     }
   };
@@ -366,7 +158,11 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       return selectedResult?.error || 'No result available';
     }
 
-    const redundancyAnalysis = selectedResult.result?.metadata?.redundancy_analysis;
+    const { result, error } = selectedResult;
+    if (error) return error;
+    if (!result) return 'No result available';
+
+    const redundancyAnalysis = result.metadata?.redundancy_analysis;
     
     // Use selected consensus strategy if available
     if (redundancyAnalysis?.all_consensus_results?.[selectedConsensusStrategy]) {
@@ -377,32 +173,31 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     
     // Fallback to original logic
     if (!redundancyAnalysis) {
-      const extractedText = selectedResult.result?.extracted_text || 'No text available';
+      const extractedText = result.extracted_text || 'No text available';
       // Format JSON as readable text if it's JSON
       return isJsonResult(extractedText) ? formatJsonAsText(extractedText) : extractedText;
     }
 
     // CRITICAL DRAFT SELECTION LOGIC
     if (selectedDraft === 'best') {
-      const extractedText = selectedResult.result.extracted_text || '';
+      const extractedText = result.extracted_text || '';
       // Format JSON as readable text if it's JSON
       return isJsonResult(extractedText) ? formatJsonAsText(extractedText) : extractedText;
     } else if (selectedDraft === 'consensus') {
-      const consensusText = redundancyAnalysis.consensus_text || selectedResult.result.extracted_text || '';
+      const consensusText = redundancyAnalysis.consensus_text || result.extracted_text || '';
       // Format JSON as readable text if it's JSON
       return isJsonResult(consensusText) ? formatJsonAsText(consensusText) : consensusText;
     } else if (typeof selectedDraft === 'number') {
-      const individualResults = redundancyAnalysis.individual_results;
-      const successfulResults = individualResults.filter((r: any) => r.success);
-      if (selectedDraft < successfulResults.length) {
-        const draftText = successfulResults[selectedDraft].text || '';
+      const individualResults = (redundancyAnalysis.individual_results || []).filter((r: any) => r.success);
+      if (selectedDraft < individualResults.length) {
+        const draftText = individualResults[selectedDraft].text || '';
         // Format JSON as readable text if it's JSON
         return isJsonResult(draftText) ? formatJsonAsText(draftText) : draftText;
       }
     }
 
     // Fallback to main text
-    const fallbackText = selectedResult.result.extracted_text || '';
+    const fallbackText = result.extracted_text || '';
     return isJsonResult(fallbackText) ? formatJsonAsText(fallbackText) : fallbackText;
   }, [selectedResult, selectedDraft, selectedConsensusStrategy]);
 
@@ -412,7 +207,11 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       return selectedResult?.error || 'No result available';
     }
 
-    const redundancyAnalysis = selectedResult.result?.metadata?.redundancy_analysis;
+    const { result, error } = selectedResult;
+    if (error) return error;
+    if (!result) return 'No result available';
+
+    const redundancyAnalysis = result.metadata?.redundancy_analysis;
     
     // Use selected consensus strategy if available
     if (redundancyAnalysis?.all_consensus_results?.[selectedConsensusStrategy]) {
@@ -421,23 +220,22 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     
     // Fallback to original logic
     if (!redundancyAnalysis) {
-      return selectedResult.result?.extracted_text || 'No text available';
+      return result.extracted_text || 'No text available';
     }
 
     // Draft selection logic for raw text
     if (selectedDraft === 'best') {
-      return selectedResult.result.extracted_text || '';
+      return result.extracted_text || '';
     } else if (selectedDraft === 'consensus') {
-      return redundancyAnalysis.consensus_text || selectedResult.result.extracted_text || '';
+      return redundancyAnalysis.consensus_text || result.extracted_text || '';
     } else if (typeof selectedDraft === 'number') {
-      const individualResults = redundancyAnalysis.individual_results;
-      const successfulResults = individualResults.filter((r: any) => r.success);
-      if (selectedDraft < successfulResults.length) {
-        return successfulResults[selectedDraft].text || '';
+      const individualResults = (redundancyAnalysis.individual_results || []).filter((r: any) => r.success);
+      if (selectedDraft < individualResults.length) {
+        return individualResults[selectedDraft].text || '';
       }
     }
 
-    return selectedResult.result.extracted_text || '';
+    return result.extracted_text || '';
   }, [selectedResult, selectedDraft, selectedConsensusStrategy]);
 
   // Check if current result is JSON format
@@ -453,7 +251,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
 
   // Save draft functionality - only save the currently selected draft
   const handleSaveDraft = useCallback(() => {
-    if (!selectedResult || selectedResult.status !== 'completed') {
+    if (!selectedResult || selectedResult.status !== 'completed' || !selectedResult.result) {
       alert('No valid result to save');
       return;
     }
@@ -462,32 +260,31 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       const content = getRawText();
       
       // Get metadata only for the selected draft
-      let draftMetadata = {};
-      const redundancyAnalysis = selectedResult.result?.metadata?.redundancy_analysis;
+      let draftMetadata: any = {};
+      const redundancyAnalysis = selectedResult.result.metadata?.redundancy_analysis;
       
       if (redundancyAnalysis && typeof selectedDraft === 'number') {
         // If it's a specific draft number, get metadata for that draft only
-        const individualResults = redundancyAnalysis.individual_results;
-        const successfulResults = individualResults?.filter((r: any) => r.success) || [];
+        const individualResults = (redundancyAnalysis.individual_results || []).filter((r: any) => r.success);
         
-        if (selectedDraft < successfulResults.length) {
-          const specificDraft = successfulResults[selectedDraft];
+        if (selectedDraft < individualResults.length) {
+          const specificDraft = individualResults[selectedDraft];
           draftMetadata = {
-            model_used: specificDraft.model || selectedResult.result?.metadata?.model_used || 'unknown',
+            model_used: specificDraft.model || selectedResult.result.metadata?.model_used || 'unknown',
             original_draft_index: selectedDraft,
             saved_draft_type: `draft_${selectedDraft + 1}`,
             confidence_score: specificDraft.confidence || 1.0,
-            service_type: selectedResult.result?.metadata?.service_type || 'llm'
+            service_type: selectedResult.result.metadata?.service_type || 'llm'
           };
         }
       } else {
         // For 'best' or 'consensus' drafts, use general metadata
         draftMetadata = {
-          model_used: selectedResult.result?.metadata?.model_used || 'unknown',
+          model_used: selectedResult.result.metadata?.model_used || 'unknown',
           saved_draft_type: selectedDraft,
-          confidence_score: selectedResult.result?.metadata?.confidence_score || 1.0,
-          service_type: selectedResult.result?.metadata?.service_type || 'llm'
-        } as any;
+          confidence_score: selectedResult.result.metadata?.confidence_score || 1.0,
+          service_type: selectedResult.result.metadata?.service_type || 'llm'
+        };
       }
       
       const savedDraft = saveDraft(content, (draftMetadata as any).model_used || 'unknown', draftMetadata);
@@ -503,17 +300,16 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     if (results.length === 0) return;
 
     // Create a combined session that mimics a redundancy result
-    const combinedResult = {
-      id: `combined-${Date.now()}`,
+    const combinedResult: ProcessingResult = {
       input: `Combined Drafts (${results.length} drafts)`,
       status: 'completed' as const,
       result: {
         extracted_text: results[0].result.extracted_text, // Use first draft as primary
-        model_used: results.map(r => r.result.model_used).join(', '),
-        service_type: 'imported-combined',
-        tokens_used: 0,
-        confidence_score: 1.0,
         metadata: {
+          model_used: results.map(r => r.result.model_used).join(', '),
+          service_type: 'imported-combined',
+          tokens_used: 0,
+          confidence_score: 1.0,
           imported_at: new Date().toISOString(),
           is_imported_draft: true,
           redundancy_analysis: {
@@ -602,8 +398,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 isProcessing={isProcessing}
                 sessionResults={sessionResults}
                 selectedResult={selectedResult}
-                onSelectResult={(res) => {
-                          setSelectedResult(res);
+                onSelectResult={(res: ProcessingResult) => {
+                    setSelectedResult(res);
                     setSelectedDraft('best');
                 }}
                 isHistoryVisible={isHistoryVisible}
@@ -612,7 +408,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 getRawText={getRawText}
                 isCurrentResultJson={isCurrentResultJson}
                 onSaveDraft={handleSaveDraft}
-                        selectedDraft={selectedDraft}
+                selectedDraft={selectedDraft}
                 onDraftSelect={setSelectedDraft}
             />
         </Allotment.Pane>
