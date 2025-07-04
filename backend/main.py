@@ -7,9 +7,37 @@ load_dotenv()  # Load .env file
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import numpy as np
+import json
 from api.router import api_router
 import logging
 import sys
+
+# Custom JSON encoder to handle NumPy types
+class NumpyEncoder(json.JSONEncoder):
+    """Special json encoder for numpy types"""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
+
+# Custom JSON Response class using our encoder
+class NumpyJSONResponse(JSONResponse):
+    """Custom JSONResponse to handle numpy types in API responses."""
+    def render(self, content: any) -> bytes:
+        return json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+            cls=NumpyEncoder,
+        ).encode("utf-8")
 
 # Configure enhanced logging with visual indicators
 class ColoredFormatter(logging.Formatter):
@@ -86,7 +114,8 @@ app = FastAPI(
     description="Legal document processing with modular LLM and OCR services",
     version="2.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    default_response_class=NumpyJSONResponse
 )
 
 # Add CORS middleware

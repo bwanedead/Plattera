@@ -163,8 +163,13 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         throw new Error('At least 2 successful drafts are required for alignment');
       }
 
-      console.log('Aligning drafts:', drafts);
+      console.log('🚀 Aligning drafts:', drafts);
       const alignmentResult = await alignDraftsAPI(drafts, selectedConsensusStrategy);
+
+      console.log('📊 Alignment result received:', alignmentResult);
+      console.log('📊 Confidence results:', alignmentResult.confidence_results);
+      console.log('📊 Alignment results:', alignmentResult.alignment_results);
+      console.log('📊 Summary:', alignmentResult.summary);
 
       setAlignmentState(prev => ({
         ...prev,
@@ -174,12 +179,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       }));
 
       if (alignmentResult.success) {
-        console.log('Alignment completed successfully:', alignmentResult);
+        console.log('✅ Alignment completed successfully:', alignmentResult);
       } else {
-        console.error('Alignment failed:', alignmentResult.error);
+        console.error('❌ Alignment failed:', alignmentResult.error);
       }
     } catch (error) {
-      console.error('Error during alignment:', error);
+      console.error('💥 Error during alignment:', error);
       setAlignmentState(prev => ({
         ...prev,
         isAligning: false,

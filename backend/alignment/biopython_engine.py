@@ -90,11 +90,22 @@ class BioPythonAlignmentEngine:
             # Calculate processing time
             processing_time = time.time() - start_time
             
+            # --- Sanitize alignment_results before returning ---
+            # The raw alignment_results contain non-serializable BioPython objects.
+            # We create a simplified version that only contains the data needed by the frontend.
+            simplified_alignment_results = {
+                'blocks': {
+                    block_id: {
+                        'aligned_sequences': block_data.get('aligned_sequences', [])
+                    } for block_id, block_data in alignment_results.get('blocks', {}).items()
+                }
+            }
+            
             # Compile final results
             final_results = {
                 'success': True,
                 'processing_time': processing_time,
-                'alignment_results': alignment_results,
+                'alignment_results': simplified_alignment_results,
                 'confidence_results': confidence_results,
                 'difference_results': difference_results,
                 'visualization_html': visualization_html,

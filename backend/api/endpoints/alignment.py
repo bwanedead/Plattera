@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import logging
 import json
+import numpy as np
+from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,8 @@ class AlignmentResponse(BaseModel):
     visualization_html: Optional[str] = None
     error: Optional[str] = None
     per_draft_alignment_mapping: Optional[Dict[str, Any]] = None
+    confidence_results: Optional[Dict[str, Any]] = None
+    alignment_results: Optional[Dict[str, Any]] = None
 
 
 class VisualizationRequest(BaseModel):
@@ -133,7 +137,9 @@ async def align_legal_drafts(request: AlignmentRequest):
             summary=results['summary'],
             consensus_text=consensus_text,
             visualization_html=results['visualization_html'],
-            per_draft_alignment_mapping=results.get('per_draft_alignment_mapping')
+            per_draft_alignment_mapping=results.get('per_draft_alignment_mapping'),
+            confidence_results=results.get('confidence_results'),
+            alignment_results=results.get('alignment_results')
         )
         
     except ImportError as e:
@@ -342,3 +348,30 @@ async def test_visualization_endpoint():
     """
     
     return Response(content=html_content, media_type="text/html") 
+
+
+def debug_log_complex_dict(data, path=""):
+    """Recursively log types in a complex dictionary to find non-serializable data."""
+    logger = logging.getLogger(__name__)
+    if isinstance(data, dict):
+        for k, v in data.items():
+            new_path = f"{path}.{k}" if path else k
+            debug_log_complex_dict(v, new_path)
+    elif isinstance(data, list):
+        for i, item in enumerate(data):
+            new_path = f"{path}[{i}]"
+            debug_log_complex_dict(item, new_path)
+    else:
+        # Log the type of every leaf node for thoroughness
+        logger.info(f"DEBUG_TYPE: Path='{path}', Type='{type(data).__name__}'")
+
+# Custom JSON encoder to handle NumPy types
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj) 
