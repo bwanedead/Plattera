@@ -3,6 +3,7 @@ import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { ImageEnhancementModal } from './ImageEnhancementModal';
 import { DraftLoader } from './DraftLoader';
+import { AlignmentPanel } from './AlignmentPanel';
 import { 
   isJsonResult, 
   formatJsonAsText, 
@@ -12,8 +13,8 @@ import { saveDraft, getDraftCount, DraftSession } from '../../utils/draftStorage
 import { ControlPanel } from './ControlPanel';
 import { ResultsViewer } from './ResultsViewer';
 import { AnimatedBorder } from '../AnimatedBorder';
-import { EnhancementSettings, ProcessingResult, RedundancySettings } from '../../types/imageProcessing';
-import { fetchModelsAPI, processFilesAPI } from '../../services/imageProcessingApi';
+import { EnhancementSettings, ProcessingResult, RedundancySettings, AlignmentState, AlignmentDraft } from '../../types/imageProcessing';
+import { fetchModelsAPI, processFilesAPI, alignDraftsAPI } from '../../services/imageProcessingApi';
 
 
 // Define the type for the component's props, including the onExit callback
@@ -56,6 +57,14 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   // Draft management state
   const [showDraftLoader, setShowDraftLoader] = useState(false);
   const [draftCount, setDraftCount] = useState(0);
+
+  // Alignment state
+  const [alignmentState, setAlignmentState] = useState<AlignmentState>({
+    isAligning: false,
+    alignmentResult: null,
+    showHeatmap: false,
+    showAlignmentPanel: false
+  });
 
   // Dynamic redundancy defaults based on extraction mode
   const getRedundancyDefaults = (mode: string): RedundancySettings => {
@@ -106,6 +115,14 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       if (firstSuccessful) {
         setSelectedResult(firstSuccessful);
         setSelectedDraft('best'); // Reset to best draft for new results
+        
+        // Reset alignment state when new results are processed
+        setAlignmentState({
+          isAligning: false,
+          alignmentResult: null,
+          showHeatmap: false,
+          showAlignmentPanel: false
+        });
       }
       
       setStagedFiles([]);
@@ -114,6 +131,88 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  // Handle alignment process
+  const handleAlign = async () => {
+    if (!selectedResult || !selectedResult.result?.metadata?.redundancy_analysis) {
+      console.warn('No redundancy analysis available for alignment');
+      return;
+    }
+
+    setAlignmentState(prev => ({ ...prev, isAligning: true }));
+
+    try {
+      // Extract drafts from redundancy analysis
+      const redundancyAnalysis = selectedResult.result.metadata.redundancy_analysis;
+      const individualResults = redundancyAnalysis.individual_results || [];
+      
+      const drafts: AlignmentDraft[] = individualResults
+        .filter((result: any) => result.success)
+        .map((result: any, index: number) => ({
+          draft_id: `Draft_${index + 1}`,
+          blocks: [
+            {
+              id: 'legal_text',
+              text: result.text || ''
+            }
+          ]
+        }));
+
+      if (drafts.length < 2) {
+        throw new Error('At least 2 successful drafts are required for alignment');
+      }
+
+      console.log('Aligning drafts:', drafts);
+      const alignmentResult = await alignDraftsAPI(drafts, selectedConsensusStrategy);
+
+      setAlignmentState(prev => ({
+        ...prev,
+        isAligning: false,
+        alignmentResult,
+        showAlignmentPanel: true
+      }));
+
+      if (alignmentResult.success) {
+        console.log('Alignment completed successfully:', alignmentResult);
+      } else {
+        console.error('Alignment failed:', alignmentResult.error);
+      }
+    } catch (error) {
+      console.error('Error during alignment:', error);
+      setAlignmentState(prev => ({
+        ...prev,
+        isAligning: false,
+        alignmentResult: {
+          success: false,
+          processing_time: 0,
+          summary: {
+            total_positions: 0,
+            total_differences: 0,
+            average_confidence: 0,
+            quality_assessment: 'Failed',
+            high_confidence_positions: 0,
+            medium_confidence_positions: 0,
+            low_confidence_positions: 0
+          },
+          error: error instanceof Error ? error.message : 'Unknown alignment error'
+        }
+      }));
+    }
+  };
+
+  // Handle heatmap toggle
+  const handleToggleHeatmap = (show: boolean) => {
+    setAlignmentState(prev => ({ ...prev, showHeatmap: show }));
+  };
+
+  // Handle alignment panel close
+  const handleCloseAlignmentPanel = () => {
+    setAlignmentState(prev => ({
+      ...prev,
+      showAlignmentPanel: false,
+      showHeatmap: false
+    }));
   };
 
   useEffect(() => {
@@ -337,7 +436,23 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     setSessionResults([combinedResult]);
     setSelectedResult(combinedResult);
     setSelectedDraft('best'); // Start with best draft view
+    
+    // Reset alignment state for imported drafts
+    setAlignmentState({
+      isAligning: false,
+      alignmentResult: null,
+      showHeatmap: false,
+      showAlignmentPanel: false
+    });
   }, []);
+
+  // Calculate Allotment sizes based on alignment panel visibility
+  const getAllotmentSizes = () => {
+    if (alignmentState.showAlignmentPanel) {
+      return [300, 250, 450]; // ControlPanel, AlignmentPanel, ResultsViewer
+    }
+    return [300, 700]; // ControlPanel, ResultsViewer
+  };
 
   return (
     <div className="image-processing-workspace">
@@ -370,7 +485,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         </AnimatedBorder>
       </div>
       
-      <Allotment defaultSizes={[400, 600]} vertical={false}>
+      <Allotment defaultSizes={getAllotmentSizes()} vertical={false}>
         <Allotment.Pane minSize={250} maxSize={400}>
             <ControlPanel
                 stagedFiles={stagedFiles}
@@ -393,6 +508,18 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 onRedundancySettingsChange={setRedundancySettings}
             />
         </Allotment.Pane>
+        
+        {alignmentState.showAlignmentPanel && (
+          <Allotment.Pane minSize={200} maxSize={300}>
+            <AlignmentPanel
+              alignmentResult={alignmentState.alignmentResult}
+              showHeatmap={alignmentState.showHeatmap}
+              onToggleHeatmap={handleToggleHeatmap}
+              onClose={handleCloseAlignmentPanel}
+            />
+          </Allotment.Pane>
+        )}
+        
         <Allotment.Pane>
             <ResultsViewer
                 isProcessing={isProcessing}
@@ -401,6 +528,13 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 onSelectResult={(res: ProcessingResult) => {
                     setSelectedResult(res);
                     setSelectedDraft('best');
+                    // Reset alignment state when selecting different result
+                    setAlignmentState({
+                      isAligning: false,
+                      alignmentResult: null,
+                      showHeatmap: false,
+                      showAlignmentPanel: false
+                    });
                 }}
                 isHistoryVisible={isHistoryVisible}
                 onToggleHistory={setIsHistoryVisible}
@@ -410,6 +544,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 onSaveDraft={handleSaveDraft}
                 selectedDraft={selectedDraft}
                 onDraftSelect={setSelectedDraft}
+                alignmentResult={alignmentState.alignmentResult}
+                showHeatmap={alignmentState.showHeatmap}
+                onAlign={handleAlign}
+                isAligning={alignmentState.isAligning}
             />
         </Allotment.Pane>
       </Allotment>

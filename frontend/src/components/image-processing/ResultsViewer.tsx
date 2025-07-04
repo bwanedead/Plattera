@@ -4,7 +4,10 @@ import "allotment/dist/style.css";
 import { ParcelTracerLoader } from './ParcelTracerLoader';
 import { CopyButton } from '../CopyButton';
 import { DraftSelector } from './DraftSelector';
+import { AlignmentButton } from './AlignmentButton';
+import { ConfidenceHeatmapViewer } from './ConfidenceHeatmapViewer';
 import { formatJsonPretty } from '../../utils/jsonFormatter';
+import { AlignmentResult, ConfidenceWord } from '../../types/imageProcessing';
 
 // Define interfaces for props to ensure type safety
 interface ResultsViewerProps {
@@ -20,6 +23,11 @@ interface ResultsViewerProps {
   onSaveDraft: () => void;
   selectedDraft: number | 'consensus' | 'best';
   onDraftSelect: (draft: number | 'consensus' | 'best') => void;
+  // New alignment-related props
+  alignmentResult?: AlignmentResult | null;
+  showHeatmap?: boolean;
+  onAlign?: () => void;
+  isAligning?: boolean;
 }
 
 export const ResultsViewer: React.FC<ResultsViewerProps> = ({
@@ -35,8 +43,21 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   onSaveDraft,
   selectedDraft,
   onDraftSelect,
+  alignmentResult,
+  showHeatmap = false,
+  onAlign,
+  isAligning = false,
 }) => {
   const [activeTab, setActiveTab] = useState('text');
+
+  // Check if current result has multiple drafts for alignment
+  const hasMultipleDrafts = selectedResult?.result?.metadata?.redundancy_analysis?.individual_results?.length > 1;
+
+  // Handle word click in heatmap viewer
+  const handleWordClick = (word: ConfidenceWord, position: number) => {
+    console.log('Word clicked:', word, 'at position:', position);
+    // Add any additional word click handling here
+  };
 
   return (
     <div className="results-area" style={{ width: '100%', height: '100%' }}>
@@ -112,6 +133,14 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   }}
                 />
 
+                {/* Alignment Button - positioned to the left of DraftSelector */}
+                <AlignmentButton
+                  visible={hasMultipleDrafts}
+                  onAlign={onAlign || (() => {})}
+                  isAligning={isAligning}
+                  disabled={!hasMultipleDrafts}
+                />
+
                 <DraftSelector
                   redundancyAnalysis={
                     selectedResult.result?.metadata?.redundancy_analysis
@@ -149,7 +178,16 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                       className="text-viewer-pane"
                       style={{ height: '100%' }}
                     >
-                      <pre>{getCurrentText()}</pre>
+                      {showHeatmap && alignmentResult ? (
+                        <ConfidenceHeatmapViewer
+                          alignmentResult={alignmentResult}
+                          selectedDraft={selectedDraft}
+                          currentText={getCurrentText()}
+                          onWordClick={handleWordClick}
+                        />
+                      ) : (
+                        <pre>{getCurrentText()}</pre>
+                      )}
                     </div>
                   )}
                   {activeTab === 'json' && isCurrentResultJson() && (
