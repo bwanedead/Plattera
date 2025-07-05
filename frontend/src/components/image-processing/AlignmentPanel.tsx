@@ -48,7 +48,7 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
     low_confidence_positions: alignmentResult.summary.confidence_distribution?.low ?? 0,
   };
   
-  const confidencePercentage = Math.round(summary.average_confidence * 100);
+  const confidencePercentage = (summary.average_confidence * 100).toFixed(1);
   
   // Calculate quality color based on confidence
   const getQualityColor = (confidence: number) => {
