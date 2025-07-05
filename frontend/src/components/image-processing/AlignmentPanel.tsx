@@ -6,13 +6,15 @@ interface AlignmentPanelProps {
   showHeatmap: boolean;
   onToggleHeatmap: (show: boolean) => void;
   onClose: () => void;
+  onToggleAlignmentTable: (show: boolean) => void;
 }
 
 export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
   alignmentResult,
   showHeatmap,
   onToggleHeatmap,
-  onClose
+  onClose,
+  onToggleAlignmentTable,
 }) => {
   if (!alignmentResult || !alignmentResult.success) {
     return (
@@ -151,6 +153,12 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
           <p className="heatmap-hint">
             Highlight text with colors based on alignment confidence
           </p>
+          <button 
+            className="view-table-btn"
+            onClick={() => onToggleAlignmentTable(true)}
+          >
+            View Alignment Table
+          </button>
         </div>
 
         <div className="processing-info">

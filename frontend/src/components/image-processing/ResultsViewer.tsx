@@ -180,7 +180,6 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                     >
                       {showHeatmap && alignmentResult ? (
                         <ConfidenceHeatmapViewer
-                          text={getCurrentText()}
                           alignmentResult={alignmentResult}
                           onTextUpdate={handleTextUpdate}
                         />

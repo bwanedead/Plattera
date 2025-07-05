@@ -13,6 +13,7 @@ import { saveDraft, getDraftCount, DraftSession } from '../../utils/draftStorage
 import { ControlPanel } from './ControlPanel';
 import { ResultsViewer } from './ResultsViewer';
 import { AnimatedBorder } from '../AnimatedBorder';
+import { AlignmentTableViewer } from './AlignmentTableViewer';
 import { EnhancementSettings, ProcessingResult, RedundancySettings, AlignmentState, AlignmentDraft } from '../../types/imageProcessing';
 import { fetchModelsAPI, processFilesAPI, alignDraftsAPI } from '../../services/imageProcessingApi';
 
@@ -65,6 +66,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     showHeatmap: false,
     showAlignmentPanel: false
   });
+  const [showAlignmentTable, setShowAlignmentTable] = useState(false);
 
   // Dynamic redundancy defaults based on extraction mode
   const getRedundancyDefaults = (mode: string): RedundancySettings => {
@@ -218,6 +220,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       showAlignmentPanel: false,
       showHeatmap: false
     }));
+  };
+
+  const handleToggleAlignmentTable = (show: boolean) => {
+    setShowAlignmentTable(show);
   };
 
   useEffect(() => {
@@ -521,6 +527,15 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
               showHeatmap={alignmentState.showHeatmap}
               onToggleHeatmap={handleToggleHeatmap}
               onClose={handleCloseAlignmentPanel}
+              onToggleAlignmentTable={handleToggleAlignmentTable}
+            />
+          </Allotment.Pane>
+        )}
+        {showAlignmentTable && alignmentState.alignmentResult && (
+          <Allotment.Pane minSize={200} maxSize={300}>
+            <AlignmentTableViewer
+              alignmentResult={alignmentState.alignmentResult}
+              onClose={() => handleToggleAlignmentTable(false)}
             />
           </Allotment.Pane>
         )}

@@ -174,27 +174,31 @@ class BioPythonConfidenceScorer:
         
         # Count token frequencies
         token_counts = Counter(non_gap_tokens)
-        total_non_gap = len(non_gap_tokens)
+        total_drafts = len(tokens)
         
-        if len(token_counts) == 1:
-            # Perfect agreement among non-gap tokens
+        if len(token_counts) == 1 and len(non_gap_tokens) == total_drafts:
+            # Perfect agreement among all drafts (no gaps)
             confidence = 1.0
             level = 'high'
             analysis = 'Perfect agreement among all drafts'
         else:
-            # Some disagreement
-            most_common_token, most_common_count = token_counts.most_common(1)[0]
-            confidence = most_common_count / total_non_gap
+            # Some disagreement or gaps are present
+            if not token_counts: # This happens if all tokens are gaps
+                 most_common_count = 0
+            else:
+                most_common_token, most_common_count = token_counts.most_common(1)[0]
+            
+            confidence = most_common_count / total_drafts # Divide by total drafts
             
             if confidence >= self.high_confidence_threshold:
                 level = 'high'
-                analysis = f'Strong majority agreement ({most_common_count}/{total_non_gap})'
+                analysis = f'Strong majority agreement ({most_common_count}/{total_drafts})'
             elif confidence >= self.medium_confidence_threshold:
                 level = 'medium'
-                analysis = f'Partial agreement ({most_common_count}/{total_non_gap})'
+                analysis = f'Partial agreement ({most_common_count}/{total_drafts})'
             else:
                 level = 'low'
-                analysis = f'Low agreement ({most_common_count}/{total_non_gap})'
+                analysis = f'Low agreement or gaps present ({most_common_count}/{total_drafts})'
         
         # Create detailed agreement info
         agreement_info = {
@@ -203,7 +207,7 @@ class BioPythonConfidenceScorer:
             'position': position,
             'non_gap_tokens': non_gap_tokens,
             'total_drafts': len(tokens),
-            'total_non_gap': total_non_gap,
+            'total_non_gap': len(non_gap_tokens),
             'unique_tokens': len(token_counts),
             'token_counts': dict(token_counts),
             'most_common_token': token_counts.most_common(1)[0][0] if token_counts else None,
@@ -215,20 +219,23 @@ class BioPythonConfidenceScorer:
     
     def _is_difference_position(self, agreement_info: Dict[str, Any]) -> bool:
         """
-        Check if a position represents a significant difference
-        
-        Args:
-            agreement_info: Agreement information for the position
-            
-        Returns:
-            bool: True if this position has significant differences
+        Check if a position represents a significant difference.
+        A difference occurs if there is more than one unique token OR if there is a
+        mix of tokens and gaps.
         """
-        if agreement_info['type'] == 'all_gaps':
-            return False  # All gaps is not a difference
+        if agreement_info.get('type') == 'all_gaps':
+            return False  # All gaps is not a difference, it's agreement.
+
+        # A difference exists if there are multiple unique tokens
+        has_multiple_tokens = agreement_info.get('unique_tokens', 0) > 1
         
-        # Check if there are multiple unique tokens (indicating disagreement)
-        unique_tokens = agreement_info.get('unique_tokens', 0)
-        return unique_tokens > 1
+        # Or if there's a mix of gaps and tokens
+        is_mixed_gaps_and_tokens = (
+            agreement_info.get('total_non_gap', 0) > 0 and 
+            agreement_info.get('total_non_gap', 0) < agreement_info.get('total_drafts', 0)
+        )
+        
+        return has_multiple_tokens or is_mixed_gaps_and_tokens
     
     def _empty_confidence_result(self) -> Dict[str, Any]:
         """Return empty confidence result for blocks with no data"""

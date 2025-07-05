@@ -132,30 +132,51 @@ class JsonDraftTokenizer:
     
     def _organize_blocks_by_id(self, draft_jsons: List[Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
         """
-        Organize draft blocks by block ID for alignment
+        Parses drafts to extract text from each section, grouping corresponding sections across drafts.
         
         Returns:
-            Dict[block_id, Dict[draft_id, text]]
+            Dict[block_id, Dict[draft_id, text]] 
+            e.g. {'section_1': {'Draft_1': 'text...', 'Draft_2': 'text...'}, 'section_2': ...}
         """
         blocks_by_id = defaultdict(dict)
-        
-        for draft_data in draft_jsons:
-            draft_id = draft_data.get('draft_id', f'draft_{id(draft_data)}')
-            blocks = draft_data.get('blocks', [])
+
+        for draft_container in draft_jsons:
+            draft_id = draft_container.get('draft_id')
             
-            for block in blocks:
-                block_id = block.get('id')
-                block_text = block.get('text', '')
+            # The frontend sends the entire JSON payload as the 'text' of a single block.
+            if not draft_container.get('blocks'):
+                continue
+            full_json_string = draft_container['blocks'][0].get('text', '')
+
+            try:
+                document_data = json.loads(full_json_string)
+                sections = document_data.get('sections', [])
                 
-                if block_id:
-                    blocks_by_id[block_id][draft_id] = block_text
-        
-        # Validate that all blocks have the same number of drafts
-        expected_draft_count = len(draft_jsons)
-        for block_id, drafts in blocks_by_id.items():
-            if len(drafts) != expected_draft_count:
-                logger.warning(f"⚠️ Block '{block_id}' has {len(drafts)} drafts, expected {expected_draft_count}")
-        
+                if not isinstance(sections, list):
+                    logger.warning(f"Draft '{draft_id}' has a 'sections' field that is not a list. Skipping.")
+                    continue
+
+                for section in sections:
+                    section_id = section.get('id')
+                    if section_id is None:
+                        continue
+                    
+                    # Combine header and body to form the text for this section.
+                    header = section.get('header') or ""
+                    body = section.get('body') or ""
+                    section_text = f"{header} {body}".strip()
+
+                    # Use a consistent block ID, e.g., "section_1"
+                    block_id_key = f"section_{section_id}"
+                    blocks_by_id[block_id_key][draft_id] = section_text
+
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse JSON for draft '{draft_id}'. Skipping.")
+                continue
+            except Exception as e:
+                logger.error(f"Error processing sections for draft '{draft_id}': {e}")
+                continue
+
         return dict(blocks_by_id)
     
     def _process_single_block(self, block_id: str, draft_texts: Dict[str, str], 
@@ -228,13 +249,24 @@ class JsonDraftTokenizer:
         """
         Normalize text for alignment:
         - Lowercase
-        - Standardize quotes
-        - Remove extra spaces
+        - Canonicalize numbers to prevent token-splitting issues
+        - Remove all non-alphanumeric characters (keeps spaces)
+        - Collapse multiple spaces into one
         - Strip leading/trailing whitespace
         """
         text = text.lower()
-        text = re.sub(r'[“”]', '"', text)
-        text = re.sub(r"[‘’]", "'", text)
+        
+        # --- New: Canonicalize numbers before stripping punctuation ---
+        # Collapse commas/spaces inside numbers (e.g., "1,638" -> "1638")
+        text = re.sub(r'(?<=\d)[,\s]+(?=\d)', '', text)
+        
+        # Protect decimal points by replacing them with a sentinel
+        text = re.sub(r'(?<=\d)\.(?=\d)', 'DOT', text)
+
+        # Replace all non-alphanumeric chars (except our sentinel) with a space
+        text = re.sub(r'[^a-z0-9\s]', ' ', text.replace('DOT', ' ')).replace('DOT','.') #this is a hacky way to do this but whatever
+
+        # Collapse multiple spaces into one
         text = re.sub(r'\s+', ' ', text)
         text = text.strip()
         return text
