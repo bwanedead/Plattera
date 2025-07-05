@@ -1,270 +1,271 @@
-import React, { useState, useMemo } from 'react';
-import { AlignmentResult, ConfidenceWord, AlignmentToken } from '../../types/imageProcessing';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { AlignmentResult } from '../../types/imageProcessing';
 
-interface ConfidenceHeatmapViewerProps {
-  alignmentResult: AlignmentResult | null;
-  selectedDraft: number | 'consensus' | 'best';
-  currentText: string;
-  onWordClick?: (word: ConfidenceWord, position: number) => void;
+interface WordAlternative {
+  word: string;
+  source: string; // e.g., "Draft 1", "Consensus"
 }
 
-// Parse the actual alignment engine results to extract token-level confidence data
-const parseAlignmentResults = (
-  alignmentResult: AlignmentResult | null, 
-  selectedDraft: number | 'consensus' | 'best',
-  currentText: string
-): AlignmentToken[] => {
-  if (!alignmentResult || !alignmentResult.success) {
-    return [];
-  }
+interface ConfidenceHeatmapViewerProps {
+  text: string;
+  alignmentResult: AlignmentResult;
+  onTextUpdate: (newText: string) => void;
+}
 
-  // For consensus or best, we need to use the confidence data differently
-  if (selectedDraft === 'consensus' || selectedDraft === 'best') {
-    // Use overall confidence results to create tokens from current text
-    const confidenceResults = alignmentResult.confidence_results;
-    if (!confidenceResults?.block_confidences) {
-      return [];
-    }
-
-    // Get the first block's confidence data (assuming single block for now)
-    const blockIds = Object.keys(confidenceResults.block_confidences);
-    if (blockIds.length === 0) {
-      return [];
-    }
-
-    const blockConfidence = confidenceResults.block_confidences[blockIds[0]];
-    const scores = blockConfidence.scores || [];
-    const confidenceLevels = blockConfidence.confidence_levels || [];
-    const tokenAgreements = blockConfidence.token_agreements || [];
-
-    // Split current text into words and map to confidence data
-    const words = currentText.split(/\s+/).filter(word => word.length > 0);
-    const tokens: AlignmentToken[] = [];
-
-    // Map words to confidence scores (this is approximate since alignment positions != word positions)
-    words.forEach((word, wordIndex) => {
-      // Use modulo to cycle through confidence scores if we have fewer scores than words
-      const scoreIndex = Math.min(wordIndex, scores.length - 1);
-      const confidence = scores[scoreIndex] || 1.0;
-      const level = confidenceLevels[scoreIndex] || 'high';
-      const agreement = tokenAgreements[scoreIndex] || {};
-
-      // Extract alternatives from token_counts
-      const tokenCounts = agreement.token_counts || {};
-      const alternatives = Object.keys(tokenCounts).filter(token => token !== word);
-
-      tokens.push({
-        token: word,
-        confidence: confidence,
-        position: wordIndex,
-        original_start: wordIndex,
-        is_difference: level === 'low' || level === 'medium',
-        alternatives: alternatives
-      });
-    });
-
-    return tokens;
-  }
-
-  // For specific draft numbers, we need to use the alignment mapping
-  if (typeof selectedDraft === 'number') {
-    const alignmentResults = alignmentResult.alignment_results;
-    const confidenceResults = alignmentResult.confidence_results;
-    
-    if (!alignmentResults?.blocks || !confidenceResults?.block_confidences) {
-      return [];
-    }
-
-    // Get the first block (assuming single block structure)
-    const blockIds = Object.keys(alignmentResults.blocks);
-    if (blockIds.length === 0) {
-      return [];
-    }
-
-    const blockId = blockIds[0];
-    const blockData = alignmentResults.blocks[blockId];
-    const blockConfidence = confidenceResults.block_confidences[blockId];
-
-    if (!blockData?.aligned_sequences || !blockConfidence) {
-      return [];
-    }
-
-    // Find the specific draft's sequence
-    const draftSequence = blockData.aligned_sequences.find((seq: any) => 
-      seq.draft_id === `Draft_${selectedDraft + 1}`
-    );
-
-    if (!draftSequence?.tokens) {
-      return [];
-    }
-
-    const scores = blockConfidence.scores || [];
-    const confidenceLevels = blockConfidence.confidence_levels || [];
-    const tokenAgreements = blockConfidence.token_agreements || [];
-
-    // Create tokens from the aligned sequence
-    const tokens: AlignmentToken[] = [];
-    draftSequence.tokens.forEach((token: string, index: number) => {
-      if (token !== '-') { // Skip gaps
-        const confidence = scores[index] || 1.0;
-        const level = confidenceLevels[index] || 'high';
-        const agreement = tokenAgreements[index] || {};
-
-        // Extract alternatives from token_counts
-        const tokenCounts = agreement.token_counts || {};
-        const alternatives = Object.keys(tokenCounts).filter(t => t !== token);
-
-        tokens.push({
-          token: token,
-          confidence: confidence,
-          position: index,
-          original_start: index,
-          is_difference: level === 'low' || level === 'medium',
-          alternatives: alternatives
-        });
-      }
-    });
-
-    return tokens;
-  }
-
-  return [];
-};
+interface WordData {
+  word: string;
+  confidence: number;
+  alternatives: WordAlternative[];
+  isEditable: boolean;
+  isEditing: boolean;
+  isHumanConfirmed: boolean;
+}
 
 export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = ({
+  text,
   alignmentResult,
-  selectedDraft,
-  currentText,
-  onWordClick
+  onTextUpdate
 }) => {
-  const [selectedWord, setSelectedWord] = useState<AlignmentToken | null>(null);
-  const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
+  const [editingWordIndex, setEditingWordIndex] = useState<number | null>(null);
+  const [editingValue, setEditingValue] = useState<string>('');
+  const [unlockedWords, setUnlockedWords] = useState<Set<number>>(new Set());
+  const [humanConfirmedWords, setHumanConfirmedWords] = useState<Set<number>>(new Set());
+  const [showPopup, setShowPopup] = useState<number | null>(null);
+  const [popupPosition, setPopupPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  // Parse alignment results into displayable tokens
-  const alignmentTokens = useMemo(() => 
-    parseAlignmentResults(alignmentResult, selectedDraft, currentText),
-    [alignmentResult, selectedDraft, currentText]
-  );
-
-  const getConfidenceClass = (confidence: number): string => {
-    if (confidence >= 0.8) return 'high-confidence';
-    if (confidence >= 0.5) return 'medium-confidence';
-    return 'low-confidence';
-  };
-
-  const handleWordClick = (token: AlignmentToken, event: React.MouseEvent) => {
-    if (!token.is_difference) return;
-
-    const rect = (event.target as HTMLElement).getBoundingClientRect();
-    setPopupPosition({
-      x: rect.left + rect.width / 2,
-      y: rect.top - 10
-    });
-    setSelectedWord(token);
-    
-    if (onWordClick) {
-      const legacyWord: ConfidenceWord = {
-        text: token.token,
-        confidence: token.confidence,
-        position: token.original_start,
-        alternatives: token.alternatives || [],
-        isClickable: token.is_difference,
-      };
-      onWordClick(legacyWord, legacyWord.position);
+  const wordData = useMemo<WordData[]>(() => {
+    if (!alignmentResult?.success) {
+      return (text.match(/\S+/g) || []).map(word => ({
+        word,
+        confidence: 0,
+        alternatives: [],
+        isEditable: false,
+        isEditing: false,
+        isHumanConfirmed: false,
+      }));
     }
-  };
+  
+    const words = text.match(/\S+/g) || [];
+    const confidenceBlock = alignmentResult.confidence_results?.block_confidences?.legal_text;
+    const alignmentBlock = alignmentResult.alignment_results?.blocks?.legal_text;
+  
+    if (!confidenceBlock || !alignmentBlock || !confidenceBlock.scores) {
+        return (text.match(/\S+/g) || []).map(word => ({
+            word,
+            confidence: 0,
+            alternatives: [],
+            isEditable: false,
+            isEditing: false,
+            isHumanConfirmed: false,
+          }));
+    }
+  
+    // Reconstruct the token data with confidence scores
+    const tokenData = confidenceBlock.scores.map((score: number, index: number) => ({
+      // For now, we assume the token from the first draft is the one displayed.
+      // A more robust solution might need to check which draft is selected.
+      token: alignmentBlock.aligned_sequences[0]?.tokens[index] || '',
+      confidence: score,
+      position: index,
+    }));
+  
+    const confidenceMap = new Map<number, number>();
+    tokenData.forEach((tokenInfo: any) => {
+      confidenceMap.set(tokenInfo.position, tokenInfo.confidence);
+    });
+  
+    return words.map((word, index) => {
+      const confidence = confidenceMap.get(index) ?? 0;
+  
+      const alternatives: WordAlternative[] = [];
+      const seenWords = new Set<string>([word.toLowerCase()]);
+  
+      alignmentBlock.aligned_sequences?.forEach((seq: any) => {
+        const altToken = seq.tokens?.[index];
+        if (altToken && altToken !== '-' && !seenWords.has(altToken.toLowerCase())) {
+          alternatives.push({ word: altToken, source: seq.draft_id });
+          seenWords.add(altToken.toLowerCase());
+        }
+      });
+  
+      return {
+        word,
+        confidence,
+        alternatives,
+        isEditable: unlockedWords.has(index),
+        isEditing: editingWordIndex === index,
+        isHumanConfirmed: humanConfirmedWords.has(index),
+      };
+    });
+  }, [text, alignmentResult, unlockedWords, editingWordIndex, humanConfirmedWords]);
 
-  const closePopup = () => {
-    setSelectedWord(null);
-    setPopupPosition(null);
-  };
+  const getConfidenceColor = useCallback((confidence: number, isHumanConfirmed: boolean) => {
+    if (isHumanConfirmed) {
+      return 'rgba(16, 185, 129, 0.25)'; // Emerald green for human-confirmed
+    }
+    
+    if (confidence >= 0.8) {
+      return 'rgba(34, 197, 94, 0.2)'; // Standard green for high confidence
+    } else if (confidence >= 0.5) {
+      return 'rgba(255, 193, 7, 0.25)'; // Standard amber for medium confidence
+    } else {
+      return 'rgba(220, 53, 69, 0.3)'; // Standard red for low confidence
+    }
+  }, []);
 
-  // If we don't have alignment results or no tokens were parsed, show fallback
-  if (!alignmentResult || !alignmentResult.success || alignmentTokens.length === 0) {
-    return (
-      <div className="confidence-heatmap-viewer">
-        <div className="heatmap-text-container">
-          <div className="heatmap-unavailable">
-            <p>Confidence heatmap not available</p>
-            <p>No alignment data found for the selected draft</p>
-            <div className="debug-info" style={{ marginTop: '10px', fontSize: '0.8em', color: '#666' }}>
-              <p>Debug: selectedDraft = {String(selectedDraft)}</p>
-              <p>Debug: hasAlignmentResult = {!!alignmentResult}</p>
-              <p>Debug: alignmentSuccess = {alignmentResult?.success}</p>
-              <p>Debug: tokensFound = {alignmentTokens.length}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const handleWordClick = useCallback((wordIndex: number, event: React.MouseEvent) => {
+    const wordInfo = wordData[wordIndex];
+    
+    if (wordInfo.isEditing) {
+      return;
+    }
+    
+    if (wordInfo.isEditable) {
+      setEditingWordIndex(wordIndex);
+      setEditingValue(wordInfo.word);
+      setShowPopup(null);
+    } else if (wordInfo.alternatives.length > 0 || wordInfo.confidence < 1.0) {
+      const rect = (event.target as HTMLElement).getBoundingClientRect();
+      setPopupPosition({
+        x: rect.left + rect.width / 2,
+        y: rect.top - 10
+      });
+      setShowPopup(wordIndex);
+    }
+  }, [wordData]);
+
+  const handleUnlockWord = useCallback((wordIndex: number) => {
+    setUnlockedWords(prev => new Set([...prev, wordIndex]));
+    setShowPopup(null);
+  }, []);
+
+  const handleSelectAlternative = useCallback((wordIndex: number, alternative: string) => {
+    const newWords = [...wordData.map(w => w.word)];
+    newWords[wordIndex] = alternative;
+    const newText = rebuildTextWithFormatting(text, newWords);
+    
+    setHumanConfirmedWords(prev => new Set([...prev, wordIndex]));
+    onTextUpdate(newText);
+    setShowPopup(null);
+  }, [wordData, text, onTextUpdate]);
+
+  const handleConfirmCurrentWord = useCallback((wordIndex: number) => {
+    setHumanConfirmedWords(prev => new Set([...prev, wordIndex]));
+    setShowPopup(null);
+  }, []);
+
+  const handleEditingComplete = useCallback((wordIndex: number, newValue: string) => {
+    if (newValue.trim() !== '' && newValue.trim() !== wordData[wordIndex]?.word) {
+      const newWords = [...wordData.map(w => w.word)];
+      newWords[wordIndex] = newValue.trim();
+      const newText = rebuildTextWithFormatting(text, newWords);
+      
+      setHumanConfirmedWords(prev => new Set([...prev, wordIndex]));
+      onTextUpdate(newText);
+    }
+    setEditingWordIndex(null);
+    setEditingValue('');
+  }, [wordData, text, onTextUpdate]);
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent, wordIndex: number) => {
+    if (event.key === 'Enter') {
+      handleEditingComplete(wordIndex, editingValue);
+    } else if (event.key === 'Escape') {
+      setEditingWordIndex(null);
+      setEditingValue('');
+    }
+  }, [editingValue, handleEditingComplete]);
+
+  const rebuildTextWithFormatting = useCallback((originalText: string, newWords: string[]) => {
+    let result = originalText;
+    const wordMatches = [...originalText.matchAll(/\S+/g)];
+    
+    for (let i = wordMatches.length - 1; i >= 0; i--) {
+      if (newWords[i] !== undefined) {
+        const match = wordMatches[i];
+        result = result.substring(0, match.index!) + newWords[i] + result.substring(match.index! + match[0].length);
+      }
+    }
+    
+    return result;
+  }, []);
+
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.confidence-popup') && !target.closest('.confidence-word')) {
+        setShowPopup(null);
+      }
+      if (!target.closest('.word-edit-input') && editingWordIndex !== null) {
+        handleEditingComplete(editingWordIndex, editingValue);
+      }
+    };
+
+    document.addEventListener('click', handleDocumentClick);
+    return () => document.removeEventListener('click', handleDocumentClick);
+  }, [editingWordIndex, editingValue, handleEditingComplete]);
 
   return (
     <div className="confidence-heatmap-viewer">
-      <div className="heatmap-info-bar">
-        <div className="heatmap-legend">
-          <span className="legend-item"><span className="legend-color high-confidence"></span>High (80-100%)</span>
-          <span className="legend-item"><span className="legend-color medium-confidence"></span>Medium (50-79%)</span>
-          <span className="legend-item"><span className="legend-color low-confidence"></span>Low (0-49%)</span>
-        </div>
-        <div className="heatmap-draft-info">
-          Viewing: {selectedDraft === 'best' ? 'Best Draft' : 
-                   selectedDraft === 'consensus' ? 'Consensus' : 
-                   `Draft ${selectedDraft + 1}`}
-        </div>
-      </div>
-
-      <div className="heatmap-text-container">
-        <div className="confidence-text">
-          {alignmentTokens.map((token, index) => (
-            <React.Fragment key={index}>
+      <p>
+        {wordData.map((data, index) => (
+          <React.Fragment key={index}>
+            {data.isEditing ? (
+              <input
+                type="text"
+                value={editingValue}
+                onChange={(e) => setEditingValue(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, index)}
+                onBlur={() => handleEditingComplete(index, editingValue)}
+                autoFocus
+                className="word-edit-input"
+                style={{ width: `${Math.max(50, editingValue.length * 8)}px` }}
+              />
+            ) : (
               <span
-                className={`confidence-word ${getConfidenceClass(token.confidence)} ${
-                  token.is_difference ? 'clickable' : ''
-                }`}
-                onClick={(e) => handleWordClick(token, e)}
-                title={`Confidence: ${Math.round(token.confidence * 100)}%${token.is_difference ? ' (Click for alternatives)' : ''}`}
+                className="confidence-word"
+                style={{ backgroundColor: getConfidenceColor(data.confidence, data.isHumanConfirmed) }}
+                onClick={(e) => handleWordClick(index, e)}
               >
-                {token.token}
+                {data.word}
               </span>
-              {index < alignmentTokens.length - 1 && ' '}
-            </React.Fragment>
-          ))}
-        </div>
-      </div>
+            )}
+            {' '}
+          </React.Fragment>
+        ))}
+      </p>
 
-      {/* Confidence Popup */}
-      {selectedWord && popupPosition && (
-        <div className="popup-overlay" onClick={closePopup}>
-          <div
-            className="confidence-popup"
-            style={{
-              left: popupPosition.x,
-              top: popupPosition.y,
-              transform: 'translateX(-50%) translateY(-100%)'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="popup-content">
-              <button className="popup-close" onClick={closePopup}>×</button>
-              
-              <div className="popup-word-info">
-                <div className="popup-word">{selectedWord.token}</div>
-                <div className="popup-confidence">
-                  Confidence: {Math.round(selectedWord.confidence * 100)}%
-                </div>
-              </div>
-
-              {selectedWord.alternatives && selectedWord.alternatives.length > 0 && (
-                <div className="popup-alternatives">
-                  <h5>Alternative versions:</h5>
-                  {selectedWord.alternatives.map((alt, i) => (
-                    <div key={i} className="alternative-option">{alt}</div>
-                  ))}
-                </div>
-              )}
-            </div>
+      {showPopup !== null && (
+        <div 
+          className="confidence-popup" 
+          style={{ 
+            position: 'fixed', 
+            left: `${popupPosition.x}px`, 
+            top: `${popupPosition.y}px`,
+            transform: 'translate(-50%, -100%)',
+          }}
+        >
+          <div className="popup-header">
+            <strong>'{wordData[showPopup].word}'</strong> - Conf: {Math.round(wordData[showPopup].confidence * 100)}%
           </div>
+          <div className="popup-actions">
+            <button onClick={() => handleConfirmCurrentWord(showPopup)}>Confirm Current</button>
+            <button onClick={() => handleUnlockWord(showPopup)}>Unlock & Edit</button>
+          </div>
+          {wordData[showPopup].alternatives.length > 0 && (
+            <div className="popup-alternatives">
+              <hr />
+              <strong>Alternatives:</strong>
+              <ul>
+                {wordData[showPopup].alternatives.map((alt, i) => (
+                  <li key={i} onClick={() => handleSelectAlternative(showPopup, alt.word)}>
+                    <span className="alt-word">{alt.word}</span>
+                    <span className="alt-source">({alt.source})</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -35,7 +35,17 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
     );
   }
 
-  const { summary } = alignmentResult;
+  // --- Data Transformation: Map backend keys to frontend expectations ---
+  const summary = {
+    average_confidence: alignmentResult.summary.average_confidence_score ?? 0,
+    total_positions: alignmentResult.summary.total_positions_analyzed ?? 0,
+    total_differences: alignmentResult.summary.total_differences_found ?? 0,
+    quality_assessment: alignmentResult.summary.quality_assessment ?? 'N/A',
+    high_confidence_positions: alignmentResult.summary.confidence_distribution?.high ?? 0,
+    medium_confidence_positions: alignmentResult.summary.confidence_distribution?.medium ?? 0,
+    low_confidence_positions: alignmentResult.summary.confidence_distribution?.low ?? 0,
+  };
+  
   const confidencePercentage = Math.round(summary.average_confidence * 100);
   
   // Calculate quality color based on confidence
