@@ -114,7 +114,8 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
 
   const handleWordHover = (blockIndex: number, wordIndex: number, event: React.MouseEvent) => {
     const wordInfo = blocksOfWordData[blockIndex]?.[wordIndex];
-    if (wordInfo && (wordInfo.alternatives.length > 0 || wordInfo.confidence < 1.0) && !wordInfo.isHumanConfirmed) {
+    // FIXED: Allow editing on ALL words, not just contested/low-confidence ones
+    if (wordInfo && !wordInfo.isHumanConfirmed) {
       // Only clear the timer if we are about to show a new popup
       if (hidePopupTimer.current) {
         clearTimeout(hidePopupTimer.current);
@@ -275,7 +276,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
             ✓ {activeWordData.word}
           </div>
           
-          {activeWordData.alternatives.map((alt, i) => (
+          {activeWordData.alternatives.length > 0 && activeWordData.alternatives.map((alt, i) => (
             <div key={i} className="bar-option alternative" onClick={() => handleSelectAlternative(activePopup.block, activePopup.word, alt.word)}>
               {alt.word}
             </div>
@@ -284,6 +285,13 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
           <div className="bar-option edit-btn" onClick={() => handleEditClick(activePopup.block, activePopup.word)}>
             ✎ Edit
           </div>
+          
+          {/* Show a message if no alternatives are available but editing is still possible */}
+          {activeWordData.alternatives.length === 0 && (
+            <div className="bar-option info">
+              No alternatives - use Edit to change
+            </div>
+          )}
         </div>
       )}
     </div>

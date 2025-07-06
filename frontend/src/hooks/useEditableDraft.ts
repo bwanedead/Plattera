@@ -228,12 +228,17 @@ function applyEditToBlock(
   alignmentResult: AlignmentResult | null,
   blockIndex: number
 ): string {
+  console.log('🔧 Applying edit:', { blockIndex, tokenIndex, newValue, blockText });
+  
   if (!alignmentResult?.alignment_results?.blocks) {
+    console.log('⚠️ No alignment results, using simple word replacement');
     // Fallback: simple word replacement
     const words = blockText.split(' ');
     if (tokenIndex < words.length) {
       words[tokenIndex] = newValue;
-      return words.join(' ');
+      const result = words.join(' ');
+      console.log('✅ Simple edit result:', result);
+      return result;
     }
     return blockText;
   }
@@ -243,12 +248,17 @@ function applyEditToBlock(
   const blockKey = blockKeys[blockIndex];
   const blockData = alignmentResult.alignment_results.blocks[blockKey];
   
+  console.log('📊 Block data:', { blockKeys, blockKey, hasBlockData: !!blockData });
+  
   if (!blockData?.aligned_sequences?.[0]) {
+    console.log('⚠️ No aligned sequences, using simple replacement');
     // Fallback to simple replacement
     const words = blockText.split(' ');
     if (tokenIndex < words.length) {
       words[tokenIndex] = newValue;
-      return words.join(' ');
+      const result = words.join(' ');
+      console.log('✅ Fallback edit result:', result);
+      return result;
     }
     return blockText;
   }
@@ -257,27 +267,65 @@ function applyEditToBlock(
   const tokens = referenceSequence.tokens || [];
   const originalToAlignment = referenceSequence.original_to_alignment || [];
   
-  // Find the original position in the text
-  if (tokenIndex >= tokens.length) return blockText;
+  console.log('🔍 Token mapping data:', { 
+    tokensLength: tokens.length, 
+    tokenIndex, 
+    targetToken: tokens[tokenIndex],
+    originalToAlignmentLength: originalToAlignment.length 
+  });
   
-  const originalIndex = originalToAlignment[tokenIndex];
-  if (originalIndex === undefined) return blockText;
+  // Find the original position in the text
+  if (tokenIndex >= tokens.length) {
+    console.log('❌ Token index out of bounds');
+    return blockText;
+  }
+  
+  // FIXED: Find the original index that maps TO this tokenIndex
+  // originalToAlignment[i] = j means original position i maps to alignment position j
+  // We need to find i such that originalToAlignment[i] = tokenIndex
+  let originalIndex = -1;
+  for (let i = 0; i < originalToAlignment.length; i++) {
+    if (originalToAlignment[i] === tokenIndex) {
+      originalIndex = i;
+      break;
+    }
+  }
+  
+  console.log('🎯 Found original index:', originalIndex);
+  
+  if (originalIndex === -1) {
+    console.log('⚠️ Could not map token index to original position, using simple replacement');
+    // Fallback to simple token index replacement
+    const words = blockText.split(' ');
+    if (tokenIndex < words.length) {
+      words[tokenIndex] = newValue;
+      const result = words.join(' ');
+      console.log('✅ Simple mapping edit result:', result);
+      return result;
+    }
+    return blockText;
+  }
   
   // Use a more sophisticated approach to preserve special characters
-  // This is a simplified version - in reality, we'd need more complex logic
-  // to handle cases like "4°00'" -> "6°08'"
-  
   const words = blockText.split(' ');
+  console.log('📝 Words array:', words);
+  
   if (originalIndex < words.length) {
     const originalWord = words[originalIndex];
     const cleanedOriginal = tokens[tokenIndex];
     
+    console.log('🔤 Character preservation:', { originalWord, cleanedOriginal, newValue });
+    
     // Try to preserve special characters by pattern matching
     const preservedWord = preserveSpecialCharacters(originalWord, cleanedOriginal, newValue);
     words[originalIndex] = preservedWord;
-    return words.join(' ');
+    const result = words.join(' ');
+    
+    console.log('✅ Final edit result:', { preservedWord, result });
+    return result;
   }
   
+  console.log('❌ Original index out of bounds');
   return blockText;
 }
 

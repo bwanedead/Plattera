@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { ImageEnhancementModal } from './ImageEnhancementModal';
@@ -36,10 +36,13 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const imageProcessing = useImageProcessing();
   const alignmentState = useAlignmentState();
   
-  // Get the original text for the editable draft
-  const originalText = imageProcessing.selectedResult && imageProcessing.selectedResult.status === 'completed' 
-    ? imageProcessing.selectedResult.result?.extracted_text || ''
-    : '';
+  // Get the original text for the editable draft (memoized to prevent unnecessary resets)
+  const originalText = useMemo(() => {
+    if (imageProcessing.selectedResult && imageProcessing.selectedResult.status === 'completed') {
+      return imageProcessing.selectedResult.result?.extracted_text || '';
+    }
+    return '';
+  }, [imageProcessing.selectedResult]);
   
   // Initialize editable draft hook
   const editableDraft = useEditableDraft(originalText, alignmentState.alignmentState.alignmentResult);
@@ -48,24 +51,32 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const draftSelection = useDraftSelection(
     imageProcessing.selectedResult, 
     alignmentState.selectedConsensusStrategy,
-    editableDraft.editableDraftState.editedDraft.content
+    editableDraft.editableDraftState.editedDraft.content,
+    editableDraft.editableDraftState.hasUnsavedChanges
   );
 
-  // Reset draft selection and editing when result changes
+  // Reset draft selection and editing when result actually changes (not just re-renders)
   useEffect(() => {
     if (imageProcessing.selectedResult) {
       draftSelection.resetDraftSelection();
       alignmentState.resetAlignmentState();
-      editableDraft.resetToOriginal();
+      // Only reset editable draft if we have a new result (not just a re-render)
+      // This prevents wiping out user edits during normal component re-renders
+      if (originalText !== editableDraft.editableDraftState.originalDraft.content) {
+        editableDraft.resetToOriginal();
+      }
     }
-  }, [imageProcessing.selectedResult]); // Fixed: removed hook objects from dependencies
+  }, [imageProcessing.selectedResult, originalText]); // Added originalText to dependencies
 
-  // Reset editing when alignment result changes
+  // Reset editing when alignment result changes (but preserve edits during normal re-renders)
+  const alignmentResultId = alignmentState.alignmentState.alignmentResult?.processing_time;
   useEffect(() => {
-    if (alignmentState.alignmentState.alignmentResult) {
+    if (alignmentState.alignmentState.alignmentResult && alignmentResultId) {
+      // Only reset if we actually have a new alignment result
+      // This prevents wiping out edits during component re-renders
       editableDraft.resetToOriginal();
     }
-  }, [alignmentState.alignmentState.alignmentResult]);
+  }, [alignmentResultId]); // Use a stable identifier instead of the entire object
 
   // Initialize draft count
   useEffect(() => {
@@ -82,8 +93,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     }
 
     try {
-      // FIX: Use the content from the editable draft state, which includes any user edits.
-      // This ensures we save the most up-to-date version of the text.
+      // FIXED: Use the content from the editable draft state, which includes any user edits.
+      // This ensures we save the most up-to-date version of the text, including any edits
+      // made in the confidence heatmap viewer.
       const content = editableDraft.editableDraftState.editedDraft.content;
       
       // Get metadata for the selected draft

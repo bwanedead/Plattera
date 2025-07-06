@@ -5,14 +5,15 @@ import { isJsonResult, formatJsonAsText } from '../utils/jsonFormatter';
 export const useDraftSelection = (
   selectedResult: any, 
   selectedConsensusStrategy: string,
-  editedText?: string // New parameter for edited text
+  editedText?: string, // New parameter for edited text
+  hasUnsavedChanges?: boolean // New parameter to track if there are actual edits
 ) => {
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
 
   const getCurrentTextCallback = useCallback(() => {
-    // Determine the source text. If we have edited text, that is our source.
-    // Otherwise, we get it from the original selection logic.
-    const sourceText = editedText !== undefined 
+    // Only use edited text if there are actual unsaved changes
+    // This prevents the blank screen issue when no edits have been made
+    const sourceText = (editedText !== undefined && hasUnsavedChanges)
       ? editedText 
       : getCurrentText({ selectedResult, selectedDraft, selectedConsensusStrategy });
 
@@ -23,16 +24,16 @@ export const useDraftSelection = (
     }
     
     return sourceText;
-  }, [selectedResult, selectedDraft, selectedConsensusStrategy, editedText]);
+  }, [selectedResult, selectedDraft, selectedConsensusStrategy, editedText, hasUnsavedChanges]);
 
   const getRawTextCallback = useCallback(() => {
-    // If we have edited text, use it instead of the original.
-    // The "raw" version of an edit is just its current state.
-    if (editedText !== undefined) {
+    // Only use edited text if there are actual unsaved changes
+    // This prevents the blank screen issue when no edits have been made
+    if (editedText !== undefined && hasUnsavedChanges) {
       return editedText;
     }
     return getRawText({ selectedResult, selectedDraft, selectedConsensusStrategy });
-  }, [selectedResult, selectedDraft, selectedConsensusStrategy, editedText]);
+  }, [selectedResult, selectedDraft, selectedConsensusStrategy, editedText, hasUnsavedChanges]);
 
   const isCurrentResultJsonCallback = useCallback(() => {
     const rawText = getRawTextCallback();
