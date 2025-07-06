@@ -1,0 +1,40 @@
+---
+alwaysApply: true
+---
+✅ Principles to Follow
+Keep files focused: Each file should serve a single responsibility or closely related concerns.
+
+Modular design: Break features into reusable, composable modules. Do not hard-code logic across the app or reuse files as dumping grounds.
+
+Scalable structure: Organize code so that adding new features or modifying existing ones does not require large rewrites or break unrelated parts.
+
+Consistent patterns: Use established folder structures (e.g. components/, services/, utils/, models/, api/, etc.) to maintain clarity.
+
+Directory hygiene: Don’t cram unrelated functions, utilities, or components into the same file “just because they work.”
+
+Separation of concerns: Keep UI logic, business logic, and data-fetching logic separate.
+
+🚫 Avoid
+Writing entire features in a single file (e.g., App.tsx or main.py)
+
+Reusing files like utils.js or index.js as dumping grounds for unrelated code
+
+Copy-pasting similar logic in multiple places instead of extracting shared modules
+
+Tight-coupling between modules — use dependency injection or abstractions
+
+🔍 Before Merging Any Code:
+Ask: Does this follow the project’s structural patterns?
+
+Ask: Would this scale well if 10 more features were added like it?
+
+Ask: Could another developer easily understand where this belongs?
+
+🧠 Example Guidelines:
+New components go in components/ with their own subfolder if complex.
+
+New API logic goes in services/ or api/.
+
+Utility functions are grouped by domain — no dumping all into utils.ts.
+
+💡 Clean architecture is not optional — it’s what makes growth possible.
