@@ -52,8 +52,18 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
 
   // Text retrieval functions with edit-aware logic
   const getCurrentTextCallback = useCallback(() => {
-    return editableDraft.getCurrentDisplayText();
-  }, [editableDraft]);
+    // Check if we should show edited version or original based on toggle
+    const shouldShowEdited = showEditedVersion && 
+      editableDraft.editableDraftState.hasUnsavedChanges && 
+      editableDraft.editableDraftState.editedFromDraft === selectedDraft;
+    
+    if (shouldShowEdited) {
+      return editableDraft.editableDraftState.editedDraft.content;
+    }
+    
+    // Show original text when toggle is off or no edits
+    return editableDraft.editableDraftState.originalDraft.content;
+  }, [editableDraft.editableDraftState, showEditedVersion, selectedDraft]);
 
   const getRawTextCallback = useCallback(() => {
     // Check if we should show edited version or original
@@ -310,7 +320,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
               hasUnsavedChanges: editableDraft.editableDraftState.hasUnsavedChanges,
               canUndo: editableDraft.canUndo,
               canRedo: editableDraft.canRedo,
-              editedDraft: editableDraft.editableDraftState.editedDraft
+              editedDraft: editableDraft.editableDraftState.editedDraft,
+              editedFromDraft: editableDraft.editableDraftState.editedFromDraft,
+              editHistory: editableDraft.editableDraftState.editHistory
             }}
             onUndoEdit={editableDraft.undoEdit}
             onRedoEdit={editableDraft.redoEdit}

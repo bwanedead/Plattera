@@ -73,7 +73,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       hasRedundancyAnalysis: !!redundancyAnalysis,
       hasEditState: !!editableDraftState,
       hasUnsavedChanges: editableDraftState?.hasUnsavedChanges,
-      editedFromDraft: (editableDraftState as any)?.editedFromDraft,
+      editedFromDraft: editableDraftState?.editedFromDraft,
       editHistoryLength: editableDraftState?.editHistory?.length || 0
     });
 
@@ -83,12 +83,76 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       
       if (!alignmentBlock || !confidenceBlock || !confidenceBlock.scores) return [];
 
-      // Check if we should use edited text for this block
-      const shouldUseEditedText = (
-        editableDraftState?.hasUnsavedChanges && 
-        editableDraftState?.editedDraft?.blockTexts?.[blockIndex] &&
-        (editableDraftState as any)?.editedFromDraft === selectedDraft
-      );
+      // === COMPREHENSIVE HEATMAP MEMORY DEBUGGING ===
+      console.log(`🔍 === HEATMAP MEMORY DEBUG BLOCK ${blockIndex} ===`);
+      
+      // Log complete editableDraftState
+      console.log('🔍 Complete editableDraftState:', {
+        exists: !!editableDraftState,
+        hasUnsavedChanges: editableDraftState?.hasUnsavedChanges,
+        editedFromDraft: editableDraftState?.editedFromDraft,
+        editedFromDraftType: typeof editableDraftState?.editedFromDraft,
+        selectedDraft: selectedDraft,
+        selectedDraftType: typeof selectedDraft,
+        editHistoryLength: editableDraftState?.editHistory?.length || 0,
+        hasEditedDraft: !!editableDraftState?.editedDraft,
+        hasBlockTexts: !!editableDraftState?.editedDraft?.blockTexts,
+        blockTextsLength: editableDraftState?.editedDraft?.blockTexts?.length || 0,
+        currentBlockExists: !!editableDraftState?.editedDraft?.blockTexts?.[blockIndex]
+      });
+      
+      // Break down shouldUseEditedText condition step by step
+      const condition1 = editableDraftState?.hasUnsavedChanges;
+      const condition2 = !!editableDraftState?.editedDraft?.blockTexts?.[blockIndex];
+      const condition3 = editableDraftState?.editedFromDraft === selectedDraft;
+      
+      console.log('🔍 shouldUseEditedText condition breakdown:', {
+        condition1_hasUnsavedChanges: condition1,
+        condition2_blockTextExists: condition2,
+        condition3_editedFromDraftMatches: condition3,
+        condition3_comparison: {
+          editedFromDraft: editableDraftState?.editedFromDraft,
+          selectedDraft: selectedDraft,
+          areEqual: editableDraftState?.editedFromDraft === selectedDraft,
+          strictEqual: editableDraftState?.editedFromDraft === selectedDraft
+        }
+      });
+
+      const shouldUseEditedText = condition1 && condition2 && condition3;
+      console.log('🔍 Final shouldUseEditedText result:', shouldUseEditedText);
+
+      // Show edit history for this block
+      if (editableDraftState?.editHistory) {
+        const relevantEdits = editableDraftState.editHistory.filter((edit: any) => 
+          edit.blockIndex === blockIndex
+        );
+        
+        // ENHANCED DEBUGGING: Show actual values instead of objects
+        console.log(`🔍 DETAILED EDIT HISTORY DEBUG FOR BLOCK ${blockIndex}:`);
+        console.log(`🔍 Total edits in history: ${editableDraftState.editHistory.length}`);
+        console.log(`🔍 Current block index being checked: ${blockIndex} (type: ${typeof blockIndex})`);
+        
+        editableDraftState.editHistory.forEach((edit: any, index: number) => {
+          console.log(`🔍 Edit ${index}:`, {
+            blockIndex: edit.blockIndex,
+            blockIndexType: typeof edit.blockIndex,
+            tokenIndex: edit.tokenIndex,
+            originalValue: edit.originalValue,
+            newValue: edit.newValue,
+            matchesCurrentBlock: edit.blockIndex === blockIndex,
+            strictComparison: `${edit.blockIndex} === ${blockIndex} = ${edit.blockIndex === blockIndex}`
+          });
+        });
+        
+        console.log(`🔍 Relevant edits found: ${relevantEdits.length}`);
+        
+        if (relevantEdits.length === 0 && editableDraftState.editHistory.length > 0) {
+          console.log(`❌ MISMATCH: We have ${editableDraftState.editHistory.length} total edits but 0 match block ${blockIndex}`);
+          console.log(`❌ All edit blockIndexes:`, editableDraftState.editHistory.map(e => `${e.blockIndex} (${typeof e.blockIndex})`));
+        }
+      } else {
+        console.log(`🔍 No edit history available for block ${blockIndex}`);
+      }
 
       let displayTokens: string[];
       
@@ -115,7 +179,11 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       // Extract clean tokens from the selected sequence
       if (selectedSequence?.tokens) {
         displayTokens = selectedSequence.tokens.filter((token: string) => token && token !== '-');
-        console.log(`📝 Using alignment tokens for block ${blockIndex}:`, displayTokens.slice(0, 5));
+        console.log(`📝 Original alignment tokens for block ${blockIndex}:`, {
+          allTokens: selectedSequence.tokens,
+          filteredTokens: displayTokens,
+          tokenCount: displayTokens.length
+        });
       } else {
         displayTokens = [];
         console.warn(`❌ No tokens found for block ${blockIndex}`);
@@ -123,26 +191,61 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       
       // If we have edited text, apply the edits to the display tokens
       if (shouldUseEditedText && editableDraftState?.editHistory) {
+        console.log(`🔍 Attempting to apply edits to block ${blockIndex}...`);
+        
         const relevantEdits = editableDraftState.editHistory.filter((edit: any) => 
           edit.blockIndex === blockIndex
         );
         
+        console.log(`🔍 Found ${relevantEdits.length} relevant edits for block ${blockIndex}`);
+        
         if (relevantEdits.length > 0) {
           // Apply edits to the display tokens
+          const originalTokens = [...displayTokens];
           const editedTokens = [...displayTokens];
-          relevantEdits.forEach((edit: any) => {
+          
+          console.log(`🔍 Before applying edits:`, {
+            originalTokens: originalTokens,
+            aboutToApplyEdits: relevantEdits.map((e: any) => `Token ${e.tokenIndex}: ${e.originalValue} → ${e.newValue}`)
+          });
+          
+          relevantEdits.forEach((edit: any, editIndex: number) => {
+            console.log(`🔍 Applying edit ${editIndex + 1}/${relevantEdits.length}:`, {
+              tokenIndex: edit.tokenIndex,
+              originalValue: edit.originalValue,
+              newValue: edit.newValue,
+              tokenExists: edit.tokenIndex < editedTokens.length,
+              currentTokenAtIndex: editedTokens[edit.tokenIndex]
+            });
+            
             if (edit.tokenIndex < editedTokens.length) {
               editedTokens[edit.tokenIndex] = edit.newValue;
+              console.log(`✅ Applied edit: Token ${edit.tokenIndex} changed from "${originalTokens[edit.tokenIndex]}" to "${edit.newValue}"`);
+            } else {
+              console.log(`❌ Failed to apply edit: Token index ${edit.tokenIndex} out of bounds (max: ${editedTokens.length - 1})`);
             }
           });
+          
           displayTokens = editedTokens;
-          console.log(`✏️ Applied ${relevantEdits.length} edits to block ${blockIndex}:`, {
-            originalTokens: selectedSequence?.tokens?.slice(0, 5),
-            editedTokens: displayTokens.slice(0, 5),
-            edits: relevantEdits.map((e: any) => `${e.tokenIndex}: ${e.originalValue} → ${e.newValue}`)
+          
+          console.log(`✏️ Successfully applied ${relevantEdits.length} edits to block ${blockIndex}:`, {
+            originalTokens: originalTokens,
+            editedTokens: displayTokens,
+            changes: relevantEdits.map((e: any) => `${e.tokenIndex}: ${originalTokens[e.tokenIndex]} → ${displayTokens[e.tokenIndex]}`)
           });
+        } else {
+          console.log(`🔍 No relevant edits found for block ${blockIndex}`);
         }
+      } else {
+        console.log(`🔍 Skipping edit application for block ${blockIndex}:`, {
+          shouldUseEditedText,
+          hasEditHistory: !!editableDraftState?.editHistory,
+          reason: !shouldUseEditedText ? 'shouldUseEditedText is false' : 'no edit history'
+        });
       }
+      
+      console.log(`🔍 Final display tokens for block ${blockIndex}:`, displayTokens);
+      console.log(`🔍 === END HEATMAP MEMORY DEBUG BLOCK ${blockIndex} ===`);
 
       // Create word data objects
       return displayTokens.map((token: string, index: number) => {
