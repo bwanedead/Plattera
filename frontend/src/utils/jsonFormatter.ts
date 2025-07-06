@@ -244,11 +244,20 @@ export const extractCleanText = (content: string): string => {
         if (parsed.content && typeof parsed.content === 'string') {
           cleanText = parsed.content;
         } else if (parsed.sections && Array.isArray(parsed.sections)) {
-          // Handle document with sections
+          // Handle document with sections - PRESERVE FORMATTING
           cleanText = parsed.sections
-            .map((section: any) => section.body || section.content || '')
+            .map((section: any) => {
+              let sectionText = '';
+              if (section.header && section.header.trim()) {
+                sectionText += section.header.trim() + '\n';
+              }
+              if (section.body && section.body.trim()) {
+                sectionText += section.body.trim();
+              }
+              return sectionText;
+            })
             .filter((text: string) => text.length > 0)
-            .join(' ');
+            .join('\n\n'); // Use double newlines to separate sections
         } else if (parsed.text) {
           cleanText = parsed.text;
         } else if (typeof parsed === 'string') {
@@ -265,16 +274,17 @@ export const extractCleanText = (content: string): string => {
     }
   }
   
-  // Remove any remaining JSON artifacts
+  // Remove any remaining JSON artifacts but preserve basic formatting
   cleanText = cleanText
     .replace(/^\{.*?"content":\s*"/i, '') // Remove leading JSON up to content
     .replace(/",.*\}$/i, '') // Remove trailing JSON after content
-    .replace(/\\n/g, ' ') // Replace escaped newlines with spaces
+    .replace(/\\n/g, '\n') // Convert escaped newlines to actual newlines
     .replace(/\\"/g, '"') // Unescape quotes
     .replace(/[{}[\]]/g, '') // Remove any remaining brackets
     .replace(/^\s*"/, '') // Remove leading quote
     .replace(/"\s*$/, '') // Remove trailing quote
-    .replace(/\s+/g, ' ') // Normalize whitespace
+    .replace(/\n\s*\n\s*\n/g, '\n\n') // Normalize multiple newlines to double
+    .replace(/[ \t]+/g, ' ') // Normalize horizontal whitespace only
     .trim();
   
   return cleanText;

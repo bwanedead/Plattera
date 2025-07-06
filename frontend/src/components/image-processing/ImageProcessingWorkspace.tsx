@@ -26,119 +26,72 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   onExit, 
   onNavigateToTextSchema 
 }) => {
-  // Navigation button hover states
+  // State hooks for UI
+  const [isHistoryVisible, setIsHistoryVisible] = useState(false);
   const [homeHovered, setHomeHovered] = useState(false);
   const [textSchemaHovered, setTextSchemaHovered] = useState(false);
-  const [isHistoryVisible, setIsHistoryVisible] = useState(true);
   const [showEnhancementModal, setShowEnhancementModal] = useState(false);
   const [showDraftLoader, setShowDraftLoader] = useState(false);
   const [draftCount, setDraftCount] = useState(0);
+  const [showEditedVersion, setShowEditedVersion] = useState(true); // Toggle between original and edited versions
 
   // Custom hooks for state management
   const imageProcessing = useImageProcessing();
   const alignmentState = useAlignmentState();
   
-  // Get the original text for the editable draft (memoized to prevent unnecessary resets)
-  const originalText = useMemo(() => {
-    if (imageProcessing.selectedResult && imageProcessing.selectedResult.status === 'completed') {
-      return imageProcessing.selectedResult.result?.extracted_text || '';
-    }
-    return '';
-  }, [imageProcessing.selectedResult]);
-  
-  // Initialize draft selection first (without edited text to avoid circular dependency)
+  // Initialize draft selection first
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>(0);
   
-  // Initialize editable draft hook with current selected draft
+  // Initialize editable draft hook with new signature
   const editableDraft = useEditableDraft(
-    originalText, 
+    imageProcessing.selectedResult,
     alignmentState.alignmentState.alignmentResult,
-    selectedDraft // Pass current selected draft
+    selectedDraft,
+    alignmentState.selectedConsensusStrategy
   );
 
-  // Create draft selection functions that work with edits
+  // Text retrieval functions with edit-aware logic
   const getCurrentTextCallback = useCallback(() => {
-    // Only use edited text if edits were made on the currently selected draft
-    const shouldUseEditedText = (
-      editableDraft.editableDraftState.editedDraft.content !== undefined && 
-      editableDraft.editableDraftState.hasUnsavedChanges && 
-      editableDraft.editableDraftState.editedFromDraft === selectedDraft
-    );
-    
-    if (shouldUseEditedText) {
-      console.log('📋 Using edited text for selected draft:', selectedDraft);
-      const editedContent = editableDraft.editableDraftState.editedDraft.content;
-      return isJsonResult(editedContent) ? formatJsonAsText(editedContent) : editedContent;
-    }
-    
-    // Otherwise get text from the selected draft
-    return getCurrentText({ 
-      selectedResult: imageProcessing.selectedResult, 
-      selectedDraft, 
-      selectedConsensusStrategy: alignmentState.selectedConsensusStrategy 
-    });
-  }, [
-    imageProcessing.selectedResult, 
-    selectedDraft, 
-    alignmentState.selectedConsensusStrategy, 
-    editableDraft.editableDraftState
-  ]);
+    return editableDraft.getCurrentDisplayText();
+  }, [editableDraft]);
 
   const getRawTextCallback = useCallback(() => {
-    // Only use edited text if edits were made on the currently selected draft
-    const shouldUseEditedText = (
-      editableDraft.editableDraftState.editedDraft.content !== undefined && 
+    // Check if we should show edited version or original
+    const shouldShowEdited = showEditedVersion && 
       editableDraft.editableDraftState.hasUnsavedChanges && 
-      editableDraft.editableDraftState.editedFromDraft === selectedDraft
-    );
+      editableDraft.editableDraftState.editedFromDraft === selectedDraft;
     
-    if (shouldUseEditedText) {
+    if (shouldShowEdited) {
       return editableDraft.editableDraftState.editedDraft.content;
     }
     
+    // Use the text selection utilities directly
     return getRawText({ 
       selectedResult: imageProcessing.selectedResult, 
       selectedDraft, 
       selectedConsensusStrategy: alignmentState.selectedConsensusStrategy 
     });
-  }, [
-    imageProcessing.selectedResult, 
-    selectedDraft, 
-    alignmentState.selectedConsensusStrategy, 
-    editableDraft.editableDraftState
-  ]);
+  }, [selectedDraft, imageProcessing.selectedResult, editableDraft.editableDraftState, showEditedVersion, alignmentState.selectedConsensusStrategy]);
 
   const isCurrentResultJsonCallback = useCallback(() => {
     const rawText = getRawTextCallback();
     return isJsonResult(rawText);
   }, [getRawTextCallback]);
 
-  const resetDraftSelection = useCallback(() => {
-    setSelectedDraft(0);
-  }, []);
-
-  // Reset draft selection and editing when result actually changes (not just re-renders)
+  // Reset draft selection when result changes
   useEffect(() => {
     if (imageProcessing.selectedResult) {
-      resetDraftSelection();
+      setSelectedDraft(0); // Reset to Draft 1
       alignmentState.resetAlignmentState();
-      // Only reset editable draft if we have a new result (not just a re-render)
-      // This prevents wiping out user edits during normal component re-renders
-      if (originalText !== editableDraft.editableDraftState.originalDraft.content) {
-        editableDraft.resetToOriginal();
-      }
     }
-  }, [imageProcessing.selectedResult, originalText]); // Added originalText to dependencies
+  }, [imageProcessing.selectedResult]);
 
-  // Reset editing when alignment result changes (but preserve edits during normal re-renders)
-  const alignmentResultId = alignmentState.alignmentState.alignmentResult?.processing_time;
+  // Reset editing when alignment result changes
   useEffect(() => {
-    if (alignmentState.alignmentState.alignmentResult && alignmentResultId) {
-      // Only reset if we actually have a new alignment result
-      // This prevents wiping out edits during component re-renders
+    if (alignmentState.alignmentState.alignmentResult) {
       editableDraft.resetToOriginal();
     }
-  }, [alignmentResultId]); // Use a stable identifier instead of the entire object
+  }, [alignmentState.alignmentState.alignmentResult]);
 
   // Initialize draft count
   useEffect(() => {
@@ -328,7 +281,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             selectedResult={imageProcessing.selectedResult}
             onSelectResult={(res: any) => {
               imageProcessing.selectResult(res);
-              resetDraftSelection();
+              setSelectedDraft(0); // Reset to Draft 1
               alignmentState.resetAlignmentState();
                 }}
                 isHistoryVisible={isHistoryVisible}
@@ -363,6 +316,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             onRedoEdit={editableDraft.redoEdit}
             onResetToOriginal={editableDraft.resetToOriginal}
             onSaveAsOriginal={editableDraft.saveAsOriginal}
+            showEditedVersion={showEditedVersion}
+            onToggleEditedVersion={() => setShowEditedVersion(!showEditedVersion)}
             />
         </Allotment.Pane>
       </Allotment>

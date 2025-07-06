@@ -2043,3 +2043,93 @@ If this CSS breaks, heatmap feature will lose:
 .alignment-popup .alternative-option.current:hover {
   background: rgba(16, 185, 129, 0.2);
 } 
+
+/* Edit Toggle Section */
+.edit-toggle-section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.edit-toggle-button {
+  background: rgba(59, 130, 246, 0.9);
+  color: white;
+  border: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.edit-toggle-button:hover {
+  background: rgba(59, 130, 246, 1);
+  transform: translateY(-1px);
+}
+
+.edit-controls {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.edit-control-button {
+  background: rgba(75, 85, 99, 0.6);
+  color: white;
+  border: none;
+  padding: 0.3rem 0.5rem;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  min-width: 1.8rem;
+}
+
+.edit-control-button:hover:not(:disabled) {
+  background: rgba(75, 85, 99, 0.8);
+  transform: translateY(-1px);
+}
+
+.edit-control-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.edit-control-button.reset {
+  background: rgba(239, 68, 68, 0.6);
+}
+
+.edit-control-button.reset:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.8);
+}
+
+/* Text Content Wrapper */
+.text-content-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.edited-text-indicator {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: rgba(59, 130, 246, 0.9);
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.text-content {
+  flex: 1;
+  overflow-y: auto;
+} 

@@ -1,65 +1,149 @@
-import { useState, useCallback, useMemo } from 'react';
-import { EditOperation, EditableDraftState, AlignmentResult, TokenMapping } from '../types/imageProcessing';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { AlignmentResult } from '../types/imageProcessing';
+import { getCurrentText, getRawText } from '../utils/textSelectionUtils';
+import { extractCleanText } from '../utils/jsonFormatter';
+
+interface EditOperation {
+  id: string;
+  timestamp: number;
+  type: 'alternative_selection' | 'manual_edit';
+  blockIndex: number;
+  tokenIndex: number;
+  originalValue: string;
+  newValue: string;
+  alternatives?: string[];
+}
+
+interface EditableDraftState {
+  originalDraft: {
+    content: string;
+    blockTexts: string[];
+  };
+  editedDraft: {
+    content: string;
+    blockTexts: string[];
+  };
+  editHistory: EditOperation[];
+  currentHistoryIndex: number;
+  hasUnsavedChanges: boolean;
+  editedFromDraft: number | 'consensus' | 'best' | null;
+}
+
+interface TokenMapping {
+  blockIndex: number;
+  tokenIndex: number;
+  originalIndex: number;
+  token: string;
+}
 
 export const useEditableDraft = (
-  originalText: string,
+  selectedResult: any,
   alignmentResult: AlignmentResult | null,
-  currentSelectedDraft?: number | 'consensus' | 'best' // Add parameter to track which draft is currently selected
+  selectedDraft: number | 'consensus' | 'best',
+  selectedConsensusStrategy: string
 ) => {
-  // Initialize state with proper structure
+  // Get text using alignment tokens when available, fallback to clean text
+  const originalText = useMemo(() => {
+    if (!selectedResult) return '';
+    
+    console.log('🔄 Getting original text for:', { selectedDraft, selectedResult: !!selectedResult });
+    
+    // TRY: Build from alignment tokens first (for correct token mapping)
+    if (alignmentResult?.success) {
+      console.log('🔄 Trying to build text from alignment tokens for draft:', selectedDraft);
+      
+      const alignmentBlocks = alignmentResult.alignment_results?.blocks;
+      if (alignmentBlocks) {
+        const blockTexts: string[] = [];
+        let hasValidTokens = false;
+        
+        Object.keys(alignmentBlocks).sort().forEach((blockId, blockIndex) => {
+          const alignmentBlock = alignmentBlocks[blockId];
+          
+          // Find the right sequence for the selected draft
+          let selectedSequence = alignmentBlock.aligned_sequences?.[0];
+          
+          if (typeof selectedDraft === 'number' && alignmentBlock.aligned_sequences) {
+            const sequenceForDraft = alignmentBlock.aligned_sequences.find((seq: any) => {
+              return seq.draft_id === `draft_${selectedDraft}` || 
+                     seq.draft_id === `Draft ${selectedDraft + 1}` ||
+                     seq.draft_index === selectedDraft;
+            });
+            
+            if (sequenceForDraft) {
+              selectedSequence = sequenceForDraft;
+            } else if (selectedDraft < alignmentBlock.aligned_sequences.length) {
+              selectedSequence = alignmentBlock.aligned_sequences[selectedDraft];
+            }
+          }
+          
+          // Extract tokens
+          if (selectedSequence?.tokens) {
+            const displayTokens = selectedSequence.tokens.filter((token: string) => token && token !== '-');
+            if (displayTokens.length > 0) {
+              const blockText = displayTokens.join(' ');
+              blockTexts.push(blockText);
+              hasValidTokens = true;
+              
+              console.log(`📝 Block ${blockIndex} from alignment:`, {
+                blockId,
+                tokenCount: displayTokens.length,
+                firstTokens: displayTokens.slice(0, 5)
+              });
+            }
+          }
+        });
+        
+        if (hasValidTokens && blockTexts.length > 0) {
+          const alignmentText = blockTexts.join('\n\n');
+          console.log('✅ Built text from alignment tokens:', {
+            totalBlocks: blockTexts.length,
+            textLength: alignmentText.length,
+            textPreview: alignmentText.substring(0, 200)
+          });
+          return alignmentText;
+        }
+      }
+    }
+    
+    // FALLBACK: Use the old working method
+    console.log('🔄 Falling back to clean text extraction');
+    const result = selectedResult.result;
+    if (!result) return '';
+    
+    // For redundancy analysis, get the specific draft
+    const redundancyAnalysis = result.metadata?.redundancy_analysis;
+    if (redundancyAnalysis && typeof selectedDraft === 'number') {
+      const individualResults = (redundancyAnalysis.individual_results || []).filter((r: any) => r.success);
+      if (selectedDraft < individualResults.length) {
+        const draftText = individualResults[selectedDraft].text || '';
+        const cleanText = extractCleanText(draftText);
+        console.log('📝 Using clean draft text (fallback):', {
+          selectedDraft,
+          cleanTextLength: cleanText.length,
+          cleanTextPreview: cleanText.substring(0, 200)
+        });
+        return cleanText;
+      }
+    }
+    
+    // Final fallback to main extracted text
+    const fallbackText = result.extracted_text || '';
+    const cleanFallback = extractCleanText(fallbackText);
+    console.log('📝 Using clean fallback text:', {
+      cleanTextLength: cleanFallback.length,
+      cleanTextPreview: cleanFallback.substring(0, 200)
+    });
+    return cleanFallback;
+  }, [alignmentResult, selectedResult, selectedDraft]);
+
+  // Initialize state
   const [editableDraftState, setEditableDraftState] = useState<EditableDraftState>(() => {
     const blockTexts = extractBlockTexts(originalText);
     return {
       originalDraft: {
         content: originalText,
-        blockTexts: [...blockTexts]
-      },
-      editedDraft: {
-        content: originalText,
-        blockTexts: [...blockTexts]
-      },
-      editHistory: [],
-      currentHistoryIndex: -1,
-      hasUnsavedChanges: false,
-      editedFromDraft: null // Track which draft edits were made on
-    };
-  });
-
-  // Create token mappings for alignment-based editing
-  const tokenMappings = useMemo(() => {
-    if (!alignmentResult?.alignment_results?.blocks) return [];
-    
-    const mappings: TokenMapping[] = [];
-    const blocks = alignmentResult.alignment_results.blocks;
-    
-    Object.entries(blocks).forEach(([blockKey, blockData]) => {
-      if ((blockData as any)?.aligned_sequences?.[0]) {
-        const sequence = (blockData as any).aligned_sequences[0];
-        const tokens = sequence.tokens || [];
-        const originalToAlignment = sequence.original_to_alignment || [];
-        
-        tokens.forEach((token: string, index: number) => {
-          mappings.push({
-            originalStart: index,
-            originalEnd: index,
-            alignedIndex: index,
-            originalText: token,
-            cleanedText: token
-          });
-        });
-      }
-    });
-    
-    return mappings;
-  }, [alignmentResult]);
-
-  // Reset state when original text changes
-  const resetToOriginalText = useCallback(() => {
-    const blockTexts = extractBlockTexts(originalText);
-    setEditableDraftState({
-      originalDraft: {
-        content: originalText,
-        blockTexts: [...blockTexts]
+        blockTexts
       },
       editedDraft: {
         content: originalText,
@@ -69,14 +153,67 @@ export const useEditableDraft = (
       currentHistoryIndex: -1,
       hasUnsavedChanges: false,
       editedFromDraft: null
-    });
+    };
+  });
+
+  // Reset when original text changes (new document/draft)
+  useEffect(() => {
+    if (originalText !== editableDraftState.originalDraft.content) {
+      console.log('🔄 Resetting draft state due to text change');
+      const blockTexts = extractBlockTexts(originalText);
+      setEditableDraftState({
+        originalDraft: {
+          content: originalText,
+          blockTexts
+        },
+        editedDraft: {
+          content: originalText,
+          blockTexts: [...blockTexts]
+        },
+        editHistory: [],
+        currentHistoryIndex: -1,
+        hasUnsavedChanges: false,
+        editedFromDraft: null
+      });
+    }
   }, [originalText]);
 
-  // Apply edit with improved tracking and mapping
+  // Apply edit function
   const applyEdit = useCallback((blockIndex: number, tokenIndex: number, newValue: string, alternatives?: string[]) => {
-    console.log('🎯 Applying edit:', { blockIndex, tokenIndex, newValue, currentSelectedDraft });
+    console.log('🎯 Applying edit:', { blockIndex, tokenIndex, newValue, selectedDraft });
     
     setEditableDraftState(prevState => {
+      console.log('🚨 === CRITICAL EDIT DEBUG START ===');
+      console.log('🚨 Original text analysis:', {
+        originalTextLength: originalText.length,
+        originalTextPreview: originalText.substring(0, 200),
+        originalBlockTexts: extractBlockTexts(originalText).map((block, i) => `Block ${i}: ${block.substring(0, 50)}...`)
+      });
+      console.log('🚨 Current edited state:', {
+        editedContent: prevState.editedDraft.content.substring(0, 200),
+        editedBlockTexts: prevState.editedDraft.blockTexts.map((block, i) => `Block ${i}: ${block.substring(0, 50)}...`)
+      });
+      console.log('🚨 === CRITICAL EDIT DEBUG END ===');
+      console.log('🚨 TEXT SOURCE COMPARISON:', {
+        hookOriginalText: originalText.substring(0, 200),
+        hookBlockTexts: prevState.editedDraft.blockTexts.map((block, i) => `${i}: ${block.substring(0, 50)}`),
+        selectedResultText: getCurrentText({ selectedResult, selectedDraft, selectedConsensusStrategy }).substring(0, 200)
+      });
+      
+      // INTENSIVE DEBUG: Show exact token mapping
+      console.log('🔍 INTENSIVE TOKEN MAPPING DEBUG:');
+      console.log('🔍 Original text split into blocks:');
+      const debugBlocks = extractBlockTexts(originalText);
+      debugBlocks.forEach((block, i) => {
+        const words = block.split(' ');
+        console.log(`🔍 Block ${i} (${words.length} words):`, words.slice(0, 10).map((w, j) => `${j}: "${w}"`));
+      });
+      
+      console.log('🔍 Current edited blocks:');
+      prevState.editedDraft.blockTexts.forEach((block, i) => {
+        const words = block.split(' ');
+        console.log(`🔍 Edited Block ${i} (${words.length} words):`, words.slice(0, 10).map((w, j) => `${j}: "${w}"`));
+      });
       const currentBlockTexts = [...prevState.editedDraft.blockTexts];
       const targetBlock = currentBlockTexts[blockIndex];
       
@@ -85,35 +222,47 @@ export const useEditableDraft = (
         return prevState;
       }
 
-      // Get the original word for better debugging
       const words = targetBlock.split(' ');
-      const originalWord = words[tokenIndex] || '';
-      console.log('🔍 Original word at position:', { tokenIndex, originalWord, totalWords: words.length });
-
-      // Apply the edit with improved mapping
-      const updatedBlockText = applyEditToBlock(
-        targetBlock, 
-        tokenIndex, 
-        newValue, 
-        alignmentResult,
-        blockIndex
-      );
-
-      console.log('📝 Block edit result:', {
-        before: targetBlock.substring(0, 100),
-        after: updatedBlockText.substring(0, 100),
-        changed: targetBlock !== updatedBlockText
+      console.log('📊 Token mapping debug:', {
+        blockIndex,
+        tokenIndex,
+        newValue,
+        targetBlock: targetBlock.substring(0, 100),
+        totalWords: words.length,
+        targetWord: words[tokenIndex],
+        wordsAround: words.slice(Math.max(0, tokenIndex - 3), tokenIndex + 4).map((w, i) => `${i + Math.max(0, tokenIndex - 3)}: ${w}`),
+        requestedEdit: `${words[tokenIndex]} → ${newValue}`
       });
-
-      if (updatedBlockText === targetBlock) {
-        console.log('⚠️ No change applied - edit may have failed');
+      
+      const originalWord = words[tokenIndex] || '';
+      
+      if (tokenIndex >= words.length) {
+        console.error('❌ Token index out of bounds:', tokenIndex, 'in', words.length, 'words');
+        console.error('❌ Available words:', words.slice(0, 10).map((w, i) => `${i}: ${w}`));
         return prevState;
       }
 
-      currentBlockTexts[blockIndex] = updatedBlockText;
+      // Apply the edit with character preservation
+      const preservedValue = preserveSpecialCharacters(originalWord, originalWord, newValue);
+      console.log('✏️ Applying edit:', { 
+        originalWord, 
+        preservedValue, 
+        tokenIndex, 
+        beforeEdit: words.slice(Math.max(0, tokenIndex - 2), tokenIndex + 3) 
+      });
+      
+      words[tokenIndex] = preservedValue;
+      currentBlockTexts[blockIndex] = words.join(' ');
       
       // Reconstruct the full content
-      const newContent = reconstructContent(prevState.originalDraft.content, currentBlockTexts);
+      const newContent = currentBlockTexts.join('\n\n');
+      
+      console.log('📝 Edit result:', {
+        blockIndex,
+        oldBlockText: targetBlock.substring(0, 100),
+        newBlockText: currentBlockTexts[blockIndex].substring(0, 100),
+        afterEdit: words.slice(Math.max(0, tokenIndex - 2), tokenIndex + 3)
+      });
       
       // Create edit operation
       const editOperation: EditOperation = {
@@ -123,17 +272,17 @@ export const useEditableDraft = (
         blockIndex,
         tokenIndex,
         originalValue: originalWord,
-        newValue,
+        newValue: preservedValue,
         alternatives
       };
 
-      // Add to history (remove any future operations if we're not at the end)
+      // Add to history
       const newHistory = [
         ...prevState.editHistory.slice(0, prevState.currentHistoryIndex + 1),
         editOperation
       ];
 
-      return {
+      const newState = {
         ...prevState,
         editedDraft: {
           content: newContent,
@@ -142,11 +291,19 @@ export const useEditableDraft = (
         editHistory: newHistory,
         currentHistoryIndex: newHistory.length - 1,
         hasUnsavedChanges: true,
-        // Track which draft the edit was made on
-        editedFromDraft: prevState.editedFromDraft || currentSelectedDraft || null
+        editedFromDraft: selectedDraft
       };
+
+      console.log('✅ Edit applied successfully:', {
+        editedFromDraft: newState.editedFromDraft,
+        selectedDraft,
+        hasUnsavedChanges: newState.hasUnsavedChanges,
+        editOperation
+      });
+
+      return newState;
     });
-  }, [alignmentResult, currentSelectedDraft]);
+  }, [selectedDraft, originalText]);
 
   // Undo edit
   const undoEdit = useCallback(() => {
@@ -156,8 +313,7 @@ export const useEditableDraft = (
       const newHistoryIndex = prevState.currentHistoryIndex - 1;
       const newEditedDraft = replayEditHistory(
         prevState.originalDraft,
-        prevState.editHistory.slice(0, newHistoryIndex + 1),
-        alignmentResult
+        prevState.editHistory.slice(0, newHistoryIndex + 1)
       );
       
       return {
@@ -168,7 +324,7 @@ export const useEditableDraft = (
         editedFromDraft: newHistoryIndex >= 0 ? prevState.editedFromDraft : null
       };
     });
-  }, [alignmentResult]);
+  }, []);
 
   // Redo edit
   const redoEdit = useCallback(() => {
@@ -178,8 +334,7 @@ export const useEditableDraft = (
       const newHistoryIndex = prevState.currentHistoryIndex + 1;
       const newEditedDraft = replayEditHistory(
         prevState.originalDraft,
-        prevState.editHistory.slice(0, newHistoryIndex + 1),
-        alignmentResult
+        prevState.editHistory.slice(0, newHistoryIndex + 1)
       );
       
       return {
@@ -187,10 +342,25 @@ export const useEditableDraft = (
         editedDraft: newEditedDraft,
         currentHistoryIndex: newHistoryIndex,
         hasUnsavedChanges: true,
-        editedFromDraft: currentSelectedDraft || prevState.editedFromDraft
+        editedFromDraft: selectedDraft
       };
     });
-  }, [alignmentResult, currentSelectedDraft]);
+  }, [selectedDraft]);
+
+  // Reset to original
+  const resetToOriginal = useCallback(() => {
+    setEditableDraftState(prevState => ({
+      ...prevState,
+      editedDraft: {
+        content: prevState.originalDraft.content,
+        blockTexts: [...prevState.originalDraft.blockTexts]
+      },
+      editHistory: [],
+      currentHistoryIndex: -1,
+      hasUnsavedChanges: false,
+      editedFromDraft: null
+    }));
+  }, []);
 
   // Save current state as new original
   const saveAsOriginal = useCallback(() => {
@@ -210,20 +380,22 @@ export const useEditableDraft = (
     }));
   }, []);
 
-  // Reset to original
-  const resetToOriginal = useCallback(() => {
-    setEditableDraftState(prevState => ({
-      ...prevState,
-      editedDraft: {
-        content: prevState.originalDraft.content,
-        blockTexts: [...prevState.originalDraft.blockTexts]
-      },
-      editHistory: [],
-      currentHistoryIndex: -1,
-      hasUnsavedChanges: false,
-      editedFromDraft: null // Reset the tracked draft
-    }));
-  }, []);
+  // Get current text (either edited or original)
+  const getCurrentDisplayText = useCallback(() => {
+    console.log('🔍 getCurrentDisplayText called:', {
+      hasUnsavedChanges: editableDraftState.hasUnsavedChanges,
+      editedFromDraft: editableDraftState.editedFromDraft,
+      selectedDraft,
+      willReturnEdited: editableDraftState.hasUnsavedChanges && editableDraftState.editedFromDraft === selectedDraft
+    });
+
+    if (editableDraftState.hasUnsavedChanges && editableDraftState.editedFromDraft === selectedDraft) {
+      console.log('📝 Returning edited content:', editableDraftState.editedDraft.content.substring(0, 200));
+      return editableDraftState.editedDraft.content;
+    }
+    console.log('📄 Returning original text:', originalText.substring(0, 200));
+    return originalText;
+  }, [editableDraftState, selectedDraft, originalText]);
 
   return {
     editableDraftState,
@@ -234,311 +406,63 @@ export const useEditableDraft = (
     saveAsOriginal,
     canUndo: editableDraftState.currentHistoryIndex >= 0,
     canRedo: editableDraftState.currentHistoryIndex < editableDraftState.editHistory.length - 1,
-    tokenMappings
+    getCurrentDisplayText,
+    originalText // Export for debugging
   };
 };
 
-// IMPROVED: Helper function with better debugging and fallback approaches
-function applyEditToBlock(
-  blockText: string,
-  tokenIndex: number,
-  newValue: string,
-  alignmentResult: AlignmentResult | null,
-  blockIndex: number
-): string {
-  console.log('🔧 Applying edit to block:', { blockIndex, tokenIndex, newValue, blockTextLength: blockText?.length });
-  
-  // Add null/undefined checks to prevent crashes
-  if (!blockText || typeof blockText !== 'string') {
-    console.error('❌ Invalid blockText:', blockText);
-    return blockText || '';
-  }
-  
-  const words = blockText.split(' ');
-  console.log('📊 Block analysis:', { 
-    totalWords: words.length, 
-    targetIndex: tokenIndex,
-    targetWord: words[tokenIndex],
-    wordsAroundTarget: words.slice(Math.max(0, tokenIndex - 2), tokenIndex + 3)
-  });
-
-  // APPROACH 1: Try alignment-based mapping if available
-  if (alignmentResult?.alignment_results?.blocks) {
-    const blockKeys = Object.keys(alignmentResult.alignment_results.blocks);
-    const blockKey = blockKeys[blockIndex];
-    const blockData = alignmentResult.alignment_results.blocks[blockKey];
-    
-    if (blockData?.aligned_sequences?.[0]) {
-      const referenceSequence = blockData.aligned_sequences[0];
-      const tokens = referenceSequence.tokens || [];
-      const originalToAlignment = referenceSequence.original_to_alignment || [];
-      
-      console.log('🎯 Alignment mapping attempt:', { 
-        tokensLength: tokens.length, 
-        originalToAlignmentLength: originalToAlignment.length,
-        targetTokenIndex: tokenIndex,
-        alignedToken: tokens[tokenIndex]
-      });
-      
-      // Try to find the original index
-      let originalIndex = -1;
-      
-      // IMPROVED: Try multiple mapping approaches
-      for (let i = 0; i < originalToAlignment.length; i++) {
-        if (originalToAlignment[i] === tokenIndex) {
-          originalIndex = i;
-          console.log('✅ Found original index via alignment:', { originalIndex, mappedToToken: tokenIndex });
-          break;
-        }
-      }
-      
-      // If alignment mapping worked, apply the edit
-      if (originalIndex !== -1 && originalIndex < words.length) {
-        const originalWord = words[originalIndex];
-        const alignedToken = tokens[tokenIndex];
-        
-        console.log('🔤 Alignment-based edit:', { 
-          originalIndex, 
-          originalWord, 
-          alignedToken, 
-          newValue 
-        });
-        
-        const preservedWord = preserveSpecialCharacters(originalWord, alignedToken, newValue);
-        words[originalIndex] = preservedWord;
-        const result = words.join(' ');
-        
-        console.log('✅ Alignment edit successful');
-        return result;
-      } else {
-        console.log('⚠️ Alignment mapping failed, falling back to direct approach');
-      }
-    }
-  }
-  
-  // APPROACH 2: Direct token index mapping (fallback)
-  console.log('🔄 Using direct token mapping fallback');
-  if (tokenIndex < words.length) {
-    const originalWord = words[tokenIndex];
-    console.log('🎯 Direct edit:', { tokenIndex, originalWord, newValue });
-    
-    // Use simpler preservation for direct mapping
-    const preservedWord = preserveSpecialCharacters(originalWord, originalWord, newValue);
-    words[tokenIndex] = preservedWord;
-    const result = words.join(' ');
-    
-    console.log('✅ Direct edit successful');
-    return result;
-  }
-  
-  console.log('❌ All mapping approaches failed');
-  return blockText;
-}
-
-// Helper function to preserve special characters when applying edits
+// Helper functions
 function preserveSpecialCharacters(
   originalWord: string,
   cleanedWord: string,
   newValue: string
 ): string {
-  // Common patterns for legal documents
+  if (!originalWord || !newValue) return newValue;
+  
+  // Pattern matching for common special characters
   const patterns = [
-    // Degrees and coordinates: "4°00'" -> "6°08'"
-    {
-      regex: /^(\d+)°(\d+)'?$/,
-      replacement: (match: RegExpMatchArray, newVal: string) => {
-        const newParts = newVal.split(/\s+/);
-        if (newParts.length === 2) {
-          return `${newParts[0]}°${newParts[1]}'`;
-        }
-        return newVal;
-      }
-    },
-    // Parentheses: "(abc)" -> "(def)"
-    {
-      regex: /^\(([^)]+)\)$/,
-      replacement: (match: RegExpMatchArray, newVal: string) => `(${newVal})`
-    },
-    // Quotes: "abc" -> "def"
-    {
-      regex: /^"([^"]+)"$/,
-      replacement: (match: RegExpMatchArray, newVal: string) => `"${newVal}"`
-    },
-    // Brackets: "[abc]" -> "[def]"
-    {
-      regex: /^\[([^\]]+)\]$/,
-      replacement: (match: RegExpMatchArray, newVal: string) => `[${newVal}]`
-    }
+    { regex: /^(\d+)°(\d+)'$/, replacement: (match: RegExpMatchArray) => `${newValue}°${match[2]}'` },
+    { regex: /^(\d+)°(\d+)$/, replacement: () => `${newValue}°` },
+    { regex: /^\(([^)]+)\)$/, replacement: () => `(${newValue})` },
+    { regex: /^"([^"]+)"$/, replacement: () => `"${newValue}"` },
+    { regex: /^\[([^\]]+)\]$/, replacement: () => `[${newValue}]` },
+    { regex: /^'([^']+)'$/, replacement: () => `'${newValue}'` }
   ];
-
-  // Try each pattern
+  
   for (const pattern of patterns) {
     const match = originalWord.match(pattern.regex);
     if (match) {
-      return pattern.replacement(match, newValue);
+      return pattern.replacement(match);
     }
   }
-
-  // If no pattern matches, return the new value as-is
+  
   return newValue;
 }
 
-// Helper function to replay edit history
+function extractBlockTexts(text: string): string[] {
+  if (!text) return [];
+  return text.split('\n\n').filter(block => block.trim().length > 0);
+}
+
 function replayEditHistory(
   originalDraft: EditableDraftState['originalDraft'],
-  history: EditOperation[],
-  alignmentResult: AlignmentResult | null
+  history: EditOperation[]
 ): EditableDraftState['editedDraft'] {
-  let currentBlockTexts = [...originalDraft.blockTexts];
+  const blockTexts = [...originalDraft.blockTexts];
   
-  // FIXED: Add validation to prevent corrupted state
-  console.log('🔄 Replaying edit history:', { historyLength: history.length, blockTextsLength: currentBlockTexts.length });
-  
-  for (const operation of history) {
-    // FIXED: Validate operation before applying
-    if (!operation || operation.blockIndex < 0 || operation.blockIndex >= currentBlockTexts.length) {
-      console.error('❌ Invalid operation:', operation);
-      continue;
-    }
+  for (const edit of history) {
+    const targetBlock = blockTexts[edit.blockIndex];
+    if (!targetBlock) continue;
     
-    const currentText = currentBlockTexts[operation.blockIndex];
-    if (!currentText || typeof currentText !== 'string') {
-      console.error('❌ Invalid block text at index:', operation.blockIndex, currentText);
-      continue;
-    }
+    const words = targetBlock.split(' ');
+    if (edit.tokenIndex >= words.length) continue;
     
-    try {
-      const editedText = applyEditToBlock(
-        currentText,
-        operation.tokenIndex,
-        operation.newValue,
-        alignmentResult,
-        operation.blockIndex
-      );
-      
-      // FIXED: Validate the result
-      if (editedText && typeof editedText === 'string') {
-        currentBlockTexts[operation.blockIndex] = editedText;
-      } else {
-        console.error('❌ Invalid edit result:', editedText);
-      }
-    } catch (error) {
-      console.error('❌ Error applying edit:', error);
-    }
-  }
-  
-  // FIXED: Validate final state
-  const validBlockTexts = currentBlockTexts.filter(text => text && typeof text === 'string');
-  if (validBlockTexts.length !== currentBlockTexts.length) {
-    console.error('❌ Some block texts are invalid, using original instead');
-    currentBlockTexts = [...originalDraft.blockTexts];
+    words[edit.tokenIndex] = edit.newValue;
+    blockTexts[edit.blockIndex] = words.join(' ');
   }
   
   return {
-    content: reconstructContent(originalDraft.content, currentBlockTexts),
-    blockTexts: currentBlockTexts
+    content: blockTexts.join('\n\n'),
+    blockTexts
   };
 }
-
-// Helper function to extract block texts from either plain text or JSON
-function extractBlockTexts(text: string): string[] {
-  if (!text) return [];
-  
-  console.log('📋 Extracting block texts from:', text.substring(0, 100) + '...');
-  
-  // Check if the text is JSON
-  const trimmedText = text.trim();
-  if (trimmedText.startsWith('{') || trimmedText.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(text);
-      
-      // Handle document structure with sections
-      if (parsed.sections && Array.isArray(parsed.sections)) {
-                 const blockTexts = parsed.sections.map((section: any) => {
-           if (section.body) {
-             return section.body;
-           }
-           return section.header || '';
-         }).filter((text: string) => text && text.trim());
-        
-        console.log('✅ Extracted blocks from JSON:', blockTexts.length, 'blocks');
-        return blockTexts;
-      }
-      
-      // Handle other JSON structures
-      if (parsed.content && typeof parsed.content === 'string') {
-        const blockTexts = parsed.content.split('\n\n');
-        console.log('✅ Extracted blocks from JSON content:', blockTexts.length, 'blocks');
-        return blockTexts;
-      }
-      
-      // If it's a simple string in JSON
-      if (typeof parsed === 'string') {
-        const blockTexts = parsed.split('\n\n');
-        console.log('✅ Extracted blocks from JSON string:', blockTexts.length, 'blocks');
-        return blockTexts;
-      }
-    } catch (e) {
-      console.log('⚠️ Failed to parse JSON, treating as plain text');
-    }
-  }
-  
-  // Fallback to plain text splitting
-  const blockTexts = text.split('\n\n');
-  console.log('✅ Extracted blocks from plain text:', blockTexts.length, 'blocks');
-  return blockTexts;
-}
-
-// Helper function to reconstruct content from block texts
-function reconstructContent(originalContent: string, blockTexts: string[]): string {
-  if (!originalContent || !blockTexts?.length) return originalContent;
-  
-  console.log('🔧 Reconstructing content from blocks:', blockTexts.length, 'blocks');
-  
-  // Check if the original content is JSON
-  const trimmedContent = originalContent.trim();
-  if (trimmedContent.startsWith('{') || trimmedContent.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(originalContent);
-      
-      // Handle document structure with sections
-      if (parsed.sections && Array.isArray(parsed.sections)) {
-        const updatedSections = parsed.sections.map((section: any, index: number) => {
-          if (blockTexts[index]) {
-            return {
-              ...section,
-              body: blockTexts[index]
-            };
-          }
-          return section;
-        });
-        
-        const reconstructed = {
-          ...parsed,
-          sections: updatedSections
-        };
-        
-        console.log('✅ Reconstructed JSON content');
-        return JSON.stringify(reconstructed);
-      }
-      
-      // Handle other JSON structures
-      if (parsed.content && typeof parsed.content === 'string') {
-        const reconstructed = {
-          ...parsed,
-          content: blockTexts.join('\n\n')
-        };
-        console.log('✅ Reconstructed JSON with content field');
-        return JSON.stringify(reconstructed);
-      }
-      
-    } catch (e) {
-      console.log('⚠️ Failed to parse JSON for reconstruction, using plain text');
-    }
-  }
-  
-  // Fallback to plain text reconstruction
-  const reconstructed = blockTexts.join('\n\n');
-  console.log('✅ Reconstructed plain text');
-  return reconstructed;
-} 

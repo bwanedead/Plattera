@@ -20,6 +20,8 @@ interface ConfidenceHeatmapViewerProps {
       content: string;
       blockTexts: string[];
     };
+    editHistory?: any[]; // Allow any edit history format
+    editedFromDraft?: number | 'consensus' | 'best' | null;
   };
   onUndoEdit?: () => void;
   onRedoEdit?: () => void;
@@ -36,6 +38,7 @@ interface WordData {
   isEditable: boolean;
   isEditing: boolean;
   isHumanConfirmed: boolean;
+  hasBeenEdited: boolean; // Added for tracking edited words
 }
 
 export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = ({
@@ -70,7 +73,8 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       hasRedundancyAnalysis: !!redundancyAnalysis,
       hasEditState: !!editableDraftState,
       hasUnsavedChanges: editableDraftState?.hasUnsavedChanges,
-      editedFromDraft: (editableDraftState as any)?.editedFromDraft
+      editedFromDraft: (editableDraftState as any)?.editedFromDraft,
+      editHistoryLength: editableDraftState?.editHistory?.length || 0
     });
 
     const processedBlocks = Object.keys(alignmentBlocks).sort().map((blockId, blockIndex) => {
@@ -79,55 +83,64 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       
       if (!alignmentBlock || !confidenceBlock || !confidenceBlock.scores) return [];
 
-      // FIXED: Always use alignment token structure as foundation
+      // Check if we should use edited text for this block
+      const shouldUseEditedText = (
+        editableDraftState?.hasUnsavedChanges && 
+        editableDraftState?.editedDraft?.blockTexts?.[blockIndex] &&
+        (editableDraftState as any)?.editedFromDraft === selectedDraft
+      );
+
       let displayTokens: string[];
       
-      // Check if we should use edited text for this specific block
-      if (editableDraftState?.hasUnsavedChanges && 
-          (editableDraftState as any)?.editedFromDraft === selectedDraft &&
-          editableDraftState.editedDraft.blockTexts?.[blockIndex]) {
+      // ALWAYS start with the original alignment tokens to preserve structure
+      let selectedSequence = alignmentBlock.aligned_sequences?.[0]; // Default to first
+      
+      if (typeof selectedDraft === 'number' && alignmentBlock.aligned_sequences) {
+        // Try to find the sequence that corresponds to the selected draft
+        const sequenceForDraft = alignmentBlock.aligned_sequences.find((seq: any) => {
+          return seq.draft_id === `draft_${selectedDraft}` || 
+                 seq.draft_id === `Draft ${selectedDraft + 1}` ||
+                 seq.draft_index === selectedDraft;
+        });
         
-        // Use edited text for this block
-        let editedText = editableDraftState.editedDraft.blockTexts[blockIndex];
-        
-        // Use the robust clean text extraction
-        const cleanText = extractCleanText(editedText);
-        
-        displayTokens = cleanText.split(/\s+/).filter((word: string) => word.length > 0);
-        console.log(`✏️ Using edited text for block ${blockIndex}:`, displayTokens.slice(0, 5));
-        
-      } else {
-        // Use alignment data - find the right sequence for the selected draft
-        let selectedSequence = alignmentBlock.aligned_sequences?.[0]; // Default to first
-        
-        if (typeof selectedDraft === 'number' && alignmentBlock.aligned_sequences) {
-          // Try to find the sequence that corresponds to the selected draft
-          const sequenceForDraft = alignmentBlock.aligned_sequences.find((seq: any) => {
-            return seq.draft_id === `draft_${selectedDraft}` || 
-                   seq.draft_id === `Draft ${selectedDraft + 1}` ||
-                   seq.draft_index === selectedDraft;
-          });
-          
-          if (sequenceForDraft) {
-            selectedSequence = sequenceForDraft;
-            console.log(`🎯 Found sequence for draft ${selectedDraft}:`, selectedSequence.draft_id);
-          } else if (selectedDraft < alignmentBlock.aligned_sequences.length) {
-            selectedSequence = alignmentBlock.aligned_sequences[selectedDraft];
-            console.log(`🎯 Using sequence at index ${selectedDraft}`);
-          }
-        } else if (selectedDraft === 'consensus') {
-          // For consensus, use the first sequence or look for a consensus sequence
-          selectedSequence = alignmentBlock.aligned_sequences?.[0];
-          console.log(`🎯 Using consensus sequence`);
+        if (sequenceForDraft) {
+          selectedSequence = sequenceForDraft;
+          console.log(`🎯 Found sequence for draft ${selectedDraft}:`, selectedSequence.draft_id);
+        } else if (selectedDraft < alignmentBlock.aligned_sequences.length) {
+          selectedSequence = alignmentBlock.aligned_sequences[selectedDraft];
+          console.log(`🎯 Using sequence at index ${selectedDraft}`);
         }
+      }
+      
+      // Extract clean tokens from the selected sequence
+      if (selectedSequence?.tokens) {
+        displayTokens = selectedSequence.tokens.filter((token: string) => token && token !== '-');
+        console.log(`📝 Using alignment tokens for block ${blockIndex}:`, displayTokens.slice(0, 5));
+      } else {
+        displayTokens = [];
+        console.warn(`❌ No tokens found for block ${blockIndex}`);
+      }
+      
+      // If we have edited text, apply the edits to the display tokens
+      if (shouldUseEditedText && editableDraftState?.editHistory) {
+        const relevantEdits = editableDraftState.editHistory.filter((edit: any) => 
+          edit.blockIndex === blockIndex
+        );
         
-        // Extract clean tokens from the selected sequence
-        if (selectedSequence?.tokens) {
-          displayTokens = selectedSequence.tokens.filter((token: string) => token && token !== '-');
-          console.log(`📝 Using alignment tokens for block ${blockIndex}:`, displayTokens.slice(0, 5));
-        } else {
-          displayTokens = [];
-          console.warn(`❌ No tokens found for block ${blockIndex}`);
+        if (relevantEdits.length > 0) {
+          // Apply edits to the display tokens
+          const editedTokens = [...displayTokens];
+          relevantEdits.forEach((edit: any) => {
+            if (edit.tokenIndex < editedTokens.length) {
+              editedTokens[edit.tokenIndex] = edit.newValue;
+            }
+          });
+          displayTokens = editedTokens;
+          console.log(`✏️ Applied ${relevantEdits.length} edits to block ${blockIndex}:`, {
+            originalTokens: selectedSequence?.tokens?.slice(0, 5),
+            editedTokens: displayTokens.slice(0, 5),
+            edits: relevantEdits.map((e: any) => `${e.tokenIndex}: ${e.originalValue} → ${e.newValue}`)
+          });
         }
       }
 
@@ -135,6 +148,11 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       return displayTokens.map((token: string, index: number) => {
         const confidence = confidenceBlock.scores[index] ?? 0.9; // Default to high confidence if missing
         const wordKey = `${blockId}_${index}`;
+        
+        // Check if this word has been edited
+        const hasBeenEdited = editableDraftState?.editHistory?.some((edit: any) => 
+          edit.blockIndex === blockIndex && edit.tokenIndex === index
+        ) || false;
         
         // Build alternatives from all sequences in this block
         const alternatives: WordAlternative[] = [];
@@ -158,16 +176,21 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
           isEditable: false,
           isEditing: editingWordIndex?.block === blockIndex && editingWordIndex?.word === index,
           isHumanConfirmed: humanConfirmedWords.has(wordKey),
+          hasBeenEdited,
         };
       });
     });
     
     return processedBlocks.filter(block => block && block.length > 0);
 
-  }, [alignmentResult, editingWordIndex, humanConfirmedWords, editableDraftState, selectedDraft, redundancyAnalysis]);
+  }, [alignmentResult, editingWordIndex, humanConfirmedWords, editableDraftState, selectedDraft]);
 
 
-  const getConfidenceColor = useCallback((confidence: number, isHumanConfirmed: boolean) => {
+  const getConfidenceColor = useCallback((confidence: number, isHumanConfirmed: boolean, hasBeenEdited: boolean) => {
+    if (hasBeenEdited) {
+      return 'rgba(59, 130, 246, 0.3)'; // Blue background for edited words
+    }
+    
     if (isHumanConfirmed) {
       return 'rgba(16, 185, 129, 0.25)'; // Emerald green for human-confirmed
     }
@@ -215,8 +238,28 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   };
 
   const handleSelectAlternative = (blockIndex: number, wordIndex: number, newWord: string) => {
+    // CRYSTAL CLEAR DEBUGGING
+    console.log('🎯 =================');
+    console.log('🎯 HEATMAP CLICK DEBUG');
+    console.log('🎯 =================');
+    console.log('🎯 Clicked word:', blocksOfWordData[blockIndex]?.[wordIndex]?.word);
+    console.log('🎯 Block index:', blockIndex);
+    console.log('🎯 Word index:', wordIndex);
+    console.log('🎯 New value:', newWord);
+    console.log('🎯 Selected draft:', selectedDraft);
+    
+    // Show all words in this block with their indices
+    console.log('🎯 ALL WORDS IN BLOCK', blockIndex + ':');
+    blocksOfWordData[blockIndex]?.forEach((word, i) => {
+      const marker = i === wordIndex ? ' <<< CLICKED' : '';
+      console.log(`🎯   ${i}: "${word.word}"${marker}`);
+    });
+    
+    console.log('🎯 =================');
+
     // Use the new editing system if available
     if (onApplyEdit) {
+      console.log('🎯 Calling onApplyEdit with block:', blockIndex, 'wordIndex:', wordIndex, 'newWord:', newWord);
       onApplyEdit(blockIndex, wordIndex, newWord, 'alternative_selection');
     } else {
       // Fallback to old system for backward compatibility
@@ -253,6 +296,15 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
 
   const handleEditSubmit = (blockIndex: number, wordIndex: number) => {
     if (editingValue.trim() === '') return; // Or handle as a deletion
+    
+    console.log('🎯 Heatmap manual edit request:', {
+      blockIndex,
+      wordIndex,
+      editingValue,
+      selectedDraft,
+      currentWord: blocksOfWordData[blockIndex]?.[wordIndex]?.word,
+      blockData: blocksOfWordData[blockIndex]?.slice(Math.max(0, wordIndex - 3), wordIndex + 4).map((w, i) => `${i + Math.max(0, wordIndex - 3)}: ${w.word}`)
+    });
     
     // Use the new editing system if available
     if (onApplyEdit) {
@@ -316,7 +368,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
                 <span
                   key={wordIndex}
                   className="confidence-word"
-                  style={{ backgroundColor: getConfidenceColor(data.confidence, data.isHumanConfirmed) }}
+                  style={{ backgroundColor: getConfidenceColor(data.confidence, data.isHumanConfirmed, data.hasBeenEdited) }}
                   title={`Confidence: ${(data.confidence * 100).toFixed(0)}%`}
                   onMouseEnter={(e) => handleWordHover(blockIndex, wordIndex, e)}
                   onMouseLeave={handleWordLeave}
