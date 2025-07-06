@@ -6,19 +6,30 @@ export const useDraftSelection = (
   selectedResult: any, 
   selectedConsensusStrategy: string,
   editedText?: string, // New parameter for edited text
-  hasUnsavedChanges?: boolean // New parameter to track if there are actual edits
+  hasUnsavedChanges?: boolean, // New parameter to track if there are actual edits
+  editedFromDraft?: number | 'consensus' | 'best' | null // Track which draft was edited
 ) => {
-  const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
+  // Default to first draft (index 0) instead of 'best'
+  const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>(0);
 
   const getCurrentTextCallback = useCallback(() => {
-    // Only use edited text if there are actual unsaved changes
-    // This prevents the blank screen issue when no edits have been made
-    const sourceText = (editedText !== undefined && hasUnsavedChanges)
+    // Only use edited text if:
+    // 1. There are actual unsaved changes
+    // 2. We're viewing the same draft that was edited
+    const shouldUseEditedText = (
+      editedText !== undefined && 
+      hasUnsavedChanges && 
+      editedFromDraft === selectedDraft
+    );
+    
+    const sourceText = shouldUseEditedText
       ? editedText 
       : getCurrentText({ selectedResult, selectedDraft, selectedConsensusStrategy });
 
     console.log('📋 Draft Selection - Source text info:', {
-      usingEditedText: editedText !== undefined && hasUnsavedChanges,
+      selectedDraft,
+      editedFromDraft,
+      shouldUseEditedText,
       hasUnsavedChanges,
       sourceTextLength: sourceText?.length,
       sourceTextPreview: sourceText?.substring(0, 100),
@@ -39,16 +50,23 @@ export const useDraftSelection = (
     
     console.log('📝 No JSON formatting applied - returning source text as-is');
     return sourceText;
-  }, [selectedResult, selectedDraft, selectedConsensusStrategy, editedText, hasUnsavedChanges]);
+  }, [selectedResult, selectedDraft, selectedConsensusStrategy, editedText, hasUnsavedChanges, editedFromDraft]);
 
   const getRawTextCallback = useCallback(() => {
-    // Only use edited text if there are actual unsaved changes
-    // This prevents the blank screen issue when no edits have been made
-    if (editedText !== undefined && hasUnsavedChanges) {
+    // Only use edited text if:
+    // 1. There are actual unsaved changes
+    // 2. We're viewing the same draft that was edited
+    const shouldUseEditedText = (
+      editedText !== undefined && 
+      hasUnsavedChanges && 
+      editedFromDraft === selectedDraft
+    );
+    
+    if (shouldUseEditedText) {
       return editedText;
     }
     return getRawText({ selectedResult, selectedDraft, selectedConsensusStrategy });
-  }, [selectedResult, selectedDraft, selectedConsensusStrategy, editedText, hasUnsavedChanges]);
+  }, [selectedResult, selectedDraft, selectedConsensusStrategy, editedText, hasUnsavedChanges, editedFromDraft]);
 
   const isCurrentResultJsonCallback = useCallback(() => {
     const rawText = getRawTextCallback();
@@ -56,7 +74,7 @@ export const useDraftSelection = (
   }, [getRawTextCallback]);
 
   const resetDraftSelection = useCallback(() => {
-    setSelectedDraft('best');
+    setSelectedDraft(0); // Reset to first draft instead of 'best'
   }, []);
 
   return {

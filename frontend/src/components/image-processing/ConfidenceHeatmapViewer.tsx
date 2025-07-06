@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { AlignmentResult } from '../../types/imageProcessing';
+import { extractCleanText } from '../../utils/jsonFormatter';
 
 interface WordAlternative {
   word: string;
@@ -23,6 +24,9 @@ interface ConfidenceHeatmapViewerProps {
   onUndoEdit?: () => void;
   onRedoEdit?: () => void;
   onResetToOriginal?: () => void;
+  // New props for draft selection
+  selectedDraft?: number | 'consensus' | 'best';
+  redundancyAnalysis?: any;
 }
 
 interface WordData {
@@ -41,7 +45,9 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   editableDraftState,
   onUndoEdit,
   onRedoEdit,
-  onResetToOriginal
+  onResetToOriginal,
+  selectedDraft,
+  redundancyAnalysis
 }) => {
   const [editingWordIndex, setEditingWordIndex] = useState<{ block: number, word: number } | null>(null);
   const [editingValue, setEditingValue] = useState<string>('');
@@ -59,9 +65,13 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
 
     if (!alignmentBlocks || !confidenceBlocks) return [];
 
-    // Use edited text if available, otherwise use original alignment data
-    const hasEdits = editableDraftState?.hasUnsavedChanges;
-    const editedBlockTexts = editableDraftState?.editedDraft?.blockTexts;
+    console.log('🎯 Heatmap Data Sources:', {
+      selectedDraft,
+      hasRedundancyAnalysis: !!redundancyAnalysis,
+      hasEditState: !!editableDraftState,
+      hasUnsavedChanges: editableDraftState?.hasUnsavedChanges,
+      editedFromDraft: (editableDraftState as any)?.editedFromDraft
+    });
 
     const processedBlocks = Object.keys(alignmentBlocks).sort().map((blockId, blockIndex) => {
       const alignmentBlock = alignmentBlocks[blockId];
@@ -69,68 +79,74 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       
       if (!alignmentBlock || !confidenceBlock || !confidenceBlock.scores) return [];
 
-      const displayedSequence = alignmentBlock.aligned_sequences[0]; // Display text from the first draft
-      if (!displayedSequence) return [];
-
-      // If we have edits, use the edited text for this block, otherwise use original tokens
+      // FIXED: Always use alignment token structure as foundation
       let displayTokens: string[];
       
-      if (hasEdits && editedBlockTexts && editedBlockTexts[blockIndex]) {
-        // Use edited text, but ensure it's properly formatted
-        let editedText = editedBlockTexts[blockIndex];
+      // Check if we should use edited text for this specific block
+      if (editableDraftState?.hasUnsavedChanges && 
+          (editableDraftState as any)?.editedFromDraft === selectedDraft &&
+          editableDraftState.editedDraft.blockTexts?.[blockIndex]) {
         
-        console.log(`🔍 Raw edited text for block ${blockIndex}:`, editedText);
+        // Use edited text for this block
+        let editedText = editableDraftState.editedDraft.blockTexts[blockIndex];
         
-        // FIXED: Improved JSON detection and parsing
-        if (typeof editedText === 'string') {
-          const trimmedText = editedText.trim();
+        // Use the robust clean text extraction
+        const cleanText = extractCleanText(editedText);
+        
+        displayTokens = cleanText.split(/\s+/).filter((word: string) => word.length > 0);
+        console.log(`✏️ Using edited text for block ${blockIndex}:`, displayTokens.slice(0, 5));
+        
+      } else {
+        // Use alignment data - find the right sequence for the selected draft
+        let selectedSequence = alignmentBlock.aligned_sequences?.[0]; // Default to first
+        
+        if (typeof selectedDraft === 'number' && alignmentBlock.aligned_sequences) {
+          // Try to find the sequence that corresponds to the selected draft
+          const sequenceForDraft = alignmentBlock.aligned_sequences.find((seq: any) => {
+            return seq.draft_id === `draft_${selectedDraft}` || 
+                   seq.draft_id === `Draft ${selectedDraft + 1}` ||
+                   seq.draft_index === selectedDraft;
+          });
           
-          // Check for JSON patterns (starts with { or [, or contains JSON-like structure)
-          if (trimmedText.startsWith('{') || trimmedText.startsWith('[') || 
-              (trimmedText.includes('"') && trimmedText.includes(':'))) {
-            try {
-              // Try to parse as JSON first
-              const parsedJson = JSON.parse(editedText);
-              
-              if (parsedJson && typeof parsedJson === 'object' && parsedJson.content) {
-                editedText = parsedJson.content;
-                console.log('✅ Parsed JSON content:', editedText);
-              } else if (parsedJson && typeof parsedJson === 'string') {
-                editedText = parsedJson;
-                console.log('✅ Parsed JSON string:', editedText);
-              } else if (Array.isArray(parsedJson)) {
-                // Handle array case
-                editedText = parsedJson.join(' ');
-                console.log('✅ Parsed JSON array:', editedText);
-              }
-                          } catch (e) {
-                // If it's not valid JSON, use as-is
-                console.log('📝 Edited text is not JSON, using as-is:', e instanceof Error ? e.message : 'Unknown error');
-              }
+          if (sequenceForDraft) {
+            selectedSequence = sequenceForDraft;
+            console.log(`🎯 Found sequence for draft ${selectedDraft}:`, selectedSequence.draft_id);
+          } else if (selectedDraft < alignmentBlock.aligned_sequences.length) {
+            selectedSequence = alignmentBlock.aligned_sequences[selectedDraft];
+            console.log(`🎯 Using sequence at index ${selectedDraft}`);
           }
+        } else if (selectedDraft === 'consensus') {
+          // For consensus, use the first sequence or look for a consensus sequence
+          selectedSequence = alignmentBlock.aligned_sequences?.[0];
+          console.log(`🎯 Using consensus sequence`);
         }
         
-        // Split into words, ensuring we have a valid string
-        displayTokens = (editedText || '').split(' ').filter(word => word.length > 0);
-        console.log(`🔄 Using edited text for block ${blockIndex}:`, displayTokens);
-      } else {
-        // Use original alignment tokens
-        displayTokens = displayedSequence.tokens.filter((token: string) => token !== '-');
-        console.log(`📝 Using original text for block ${blockIndex}:`, displayTokens);
+        // Extract clean tokens from the selected sequence
+        if (selectedSequence?.tokens) {
+          displayTokens = selectedSequence.tokens.filter((token: string) => token && token !== '-');
+          console.log(`📝 Using alignment tokens for block ${blockIndex}:`, displayTokens.slice(0, 5));
+        } else {
+          displayTokens = [];
+          console.warn(`❌ No tokens found for block ${blockIndex}`);
+        }
       }
 
+      // Create word data objects
       return displayTokens.map((token: string, index: number) => {
-        const confidence = confidenceBlock.scores[index] ?? 0;
+        const confidence = confidenceBlock.scores[index] ?? 0.9; // Default to high confidence if missing
         const wordKey = `${blockId}_${index}`;
         
-        // Build alternatives from original alignment data
+        // Build alternatives from all sequences in this block
         const alternatives: WordAlternative[] = [];
         const seenWords = new Set<string>([token.toLowerCase()]);
 
-        alignmentBlock.aligned_sequences?.forEach((seq: any) => {
+        alignmentBlock.aligned_sequences?.forEach((seq: any, seqIndex: number) => {
           const altToken = seq.tokens?.[index];
           if (altToken && altToken !== '-' && !seenWords.has(altToken.toLowerCase())) {
-            alternatives.push({ word: altToken, source: seq.draft_id });
+            alternatives.push({ 
+              word: altToken, 
+              source: seq.draft_id || `Draft ${seqIndex + 1}` 
+            });
             seenWords.add(altToken.toLowerCase());
           }
         });
@@ -139,17 +155,16 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
           word: token,
           confidence,
           alternatives,
-          isEditable: false, // For now, direct editing is complex
+          isEditable: false,
           isEditing: editingWordIndex?.block === blockIndex && editingWordIndex?.word === index,
           isHumanConfirmed: humanConfirmedWords.has(wordKey),
         };
       });
     });
     
-    // Filter out any empty blocks that might have resulted from errors
     return processedBlocks.filter(block => block && block.length > 0);
 
-  }, [alignmentResult, editingWordIndex, humanConfirmedWords, editableDraftState]);
+  }, [alignmentResult, editingWordIndex, humanConfirmedWords, editableDraftState, selectedDraft, redundancyAnalysis]);
 
 
   const getConfidenceColor = useCallback((confidence: number, isHumanConfirmed: boolean) => {

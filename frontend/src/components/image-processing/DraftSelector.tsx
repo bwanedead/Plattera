@@ -161,6 +161,7 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
 
   const successfulResults = redundancyAnalysis.individual_results.filter(r => r.success);
   const totalDrafts = successfulResults.length;
+  const bestDraftIndex = redundancyAnalysis.best_result_index;
 
   // Show selector even for single draft (transparency about what user is viewing)
   // Only hide if no successful results at all
@@ -174,11 +175,13 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
     setIsDropdownOpen(false);
   };
 
-  // CRITICAL LABELING FUNCTION - Heatmap UI consistency depends on this
+  // CRITICAL LABELING FUNCTION - Updated to remove "best" option and add stars
   const getCurrentDraftLabel = () => {
     if (selectedDraft === 'consensus') return 'Consensus';
-    if (selectedDraft === 'best') return `Best (${redundancyAnalysis.best_result_index + 1})`;
-    return `Draft ${selectedDraft + 1}`;
+    if (selectedDraft === 'best') return `Draft ${bestDraftIndex + 1} ⭐`; // Fallback for existing "best" selections
+    const draftNumber = selectedDraft + 1;
+    const isBest = selectedDraft === bestDraftIndex;
+    return `Draft ${draftNumber}${isBest ? ' ⭐' : ''}`;
   };
 
   const toggleVisibility = () => {
@@ -238,20 +241,33 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
       
       {isDropdownOpen && (
         <div className="draft-dropdown">
-          {/* CRITICAL DRAFT OPTIONS - Heatmap must respond to these selections */}
-          {/* CRITICAL INDIVIDUAL DRAFTS - Heatmap needs access to individual texts */}
-          {successfulResults.map((result, index) => (
+          {/* UPDATED: Only show individual drafts, with stars for best draft */}
+          {successfulResults.map((result, index) => {
+            const isBest = index === bestDraftIndex;
+            return (
+              <div 
+                key={index}
+                className={`draft-item ${selectedDraft === index ? 'active' : ''}`}
+                onClick={() => handleDraftSelect(index)}  // ← CRITICAL: Triggers heatmap individual draft view
+              >
+                <span className="draft-name">
+                  Draft {index + 1}{isBest ? ' ⭐' : ''}
+                </span>
+                <span className="draft-desc">{result.tokens} tokens</span>  {/* ← INFO: Heatmap may display this */}
+              </div>
+            );
+          })}
+          
+          {/* OPTIONAL: Keep consensus option if available */}
+          {redundancyAnalysis.consensus_text && (
             <div 
-              key={index}
-              className={`draft-item ${selectedDraft === index ? 'active' : ''}`}
-              onClick={() => handleDraftSelect(index)}  // ← CRITICAL: Triggers heatmap individual draft view
+              className={`draft-item ${selectedDraft === 'consensus' ? 'active' : ''}`}
+              onClick={() => handleDraftSelect('consensus')}
             >
-              <span className="draft-name">
-                Draft {index + 1}
-              </span>
-              <span className="draft-desc">{result.tokens} tokens</span>  {/* ← INFO: Heatmap may display this */}
+              <span className="draft-name">Consensus</span>
+              <span className="draft-desc">Combined</span>
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>

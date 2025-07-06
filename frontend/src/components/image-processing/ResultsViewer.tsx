@@ -211,6 +211,8 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           onUndoEdit={onUndoEdit}
                           onRedoEdit={onRedoEdit}
                           onResetToOriginal={onResetToOriginal}
+                          selectedDraft={selectedDraft}
+                          redundancyAnalysis={selectedResult.result?.metadata?.redundancy_analysis}
                         />
                       ) : (
                         <div

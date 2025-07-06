@@ -1,147 +1,160 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
-import { EditableDraftState, EditOperation, TokenMapping, AlignmentResult } from '../types/imageProcessing';
+import { useState, useCallback, useMemo } from 'react';
+import { EditOperation, EditableDraftState, AlignmentResult, TokenMapping } from '../types/imageProcessing';
 
 export const useEditableDraft = (
   originalText: string,
-  alignmentResult: AlignmentResult | null
+  alignmentResult: AlignmentResult | null,
+  currentSelectedDraft?: number | 'consensus' | 'best' // Add parameter to track which draft is currently selected
 ) => {
+  // Initialize state with proper structure
   const [editableDraftState, setEditableDraftState] = useState<EditableDraftState>(() => {
-    // Extract block texts from either plain text or JSON
     const blockTexts = extractBlockTexts(originalText);
-    
     return {
       originalDraft: {
         content: originalText,
-        blockTexts: blockTexts
+        blockTexts: [...blockTexts]
       },
       editedDraft: {
         content: originalText,
-        blockTexts: blockTexts
+        blockTexts: [...blockTexts]
       },
       editHistory: [],
       currentHistoryIndex: -1,
-      hasUnsavedChanges: false
+      hasUnsavedChanges: false,
+      editedFromDraft: null // Track which draft edits were made on
     };
   });
 
-  // Update original text when it changes
-  useEffect(() => {
-    const blockTexts = extractBlockTexts(originalText);
-    setEditableDraftState(prevState => {
-      // Only update if the original text has actually changed
-      if (prevState.originalDraft.content !== originalText) {
-        return {
-          originalDraft: {
-            content: originalText,
-            blockTexts: blockTexts
-          },
-          editedDraft: {
-            content: originalText,
-            blockTexts: blockTexts
-          },
-          editHistory: [],
-          currentHistoryIndex: -1,
-          hasUnsavedChanges: false
-        };
-      }
-      return prevState;
-    });
-  }, [originalText]);
-
-  // Generate token mappings from alignment result
+  // Create token mappings for alignment-based editing
   const tokenMappings = useMemo(() => {
-    if (!alignmentResult?.alignment_results?.blocks) return {};
+    if (!alignmentResult?.alignment_results?.blocks) return [];
     
-    const mappings: Record<string, TokenMapping[]> = {};
+    const mappings: TokenMapping[] = [];
+    const blocks = alignmentResult.alignment_results.blocks;
     
-    Object.entries(alignmentResult.alignment_results.blocks).forEach(([blockId, blockData]: [string, any]) => {
-      const alignedSequences = blockData.aligned_sequences || [];
-      if (alignedSequences.length === 0) return;
-      
-      // Use the first aligned sequence as the reference
-      const referenceSequence = alignedSequences[0];
-      const tokens = referenceSequence.tokens || [];
-      const originalToAlignment = referenceSequence.original_to_alignment || [];
-      
-      mappings[blockId] = tokens.map((token: string, alignedIndex: number) => {
-        // Find the original index for this aligned position
-        const originalIndex = originalToAlignment.indexOf(alignedIndex);
+    Object.entries(blocks).forEach(([blockKey, blockData]) => {
+      if ((blockData as any)?.aligned_sequences?.[0]) {
+        const sequence = (blockData as any).aligned_sequences[0];
+        const tokens = sequence.tokens || [];
+        const originalToAlignment = sequence.original_to_alignment || [];
         
-        return {
-          originalStart: originalIndex,
-          originalEnd: originalIndex + token.length,
-          alignedIndex,
-          originalText: token, // This would be the "dirty" text with special chars
-          cleanedText: token   // This is the cleaned version used in alignment
-        };
-      });
+        tokens.forEach((token: string, index: number) => {
+          mappings.push({
+            originalStart: index,
+            originalEnd: index,
+            alignedIndex: index,
+            originalText: token,
+            cleanedText: token
+          });
+        });
+      }
     });
     
     return mappings;
   }, [alignmentResult]);
 
-  // Apply an edit to the draft
-  const applyEdit = useCallback((
-    blockIndex: number,
-    tokenIndex: number,
-    newValue: string,
-    editType: 'alternative_selection' | 'manual_edit' = 'manual_edit',
-    confidence?: number,
-    alternatives?: string[]
-  ) => {
-    setEditableDraftState(prevState => {
-      const editId = `edit-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const originalValue = prevState.editedDraft.blockTexts[blockIndex];
-      
-      // Create the edit operation
-      const editOperation: EditOperation = {
-        id: editId,
-        timestamp: Date.now(),
-        type: editType,
-        blockIndex,
-        tokenIndex,
-        originalValue,
-        newValue,
-        confidence,
-        alternatives
-      };
+  // Reset state when original text changes
+  const resetToOriginalText = useCallback(() => {
+    const blockTexts = extractBlockTexts(originalText);
+    setEditableDraftState({
+      originalDraft: {
+        content: originalText,
+        blockTexts: [...blockTexts]
+      },
+      editedDraft: {
+        content: originalText,
+        blockTexts: [...blockTexts]
+      },
+      editHistory: [],
+      currentHistoryIndex: -1,
+      hasUnsavedChanges: false,
+      editedFromDraft: null
+    });
+  }, [originalText]);
 
-      // Apply the edit using smart re-hydration
-      const newBlockTexts = [...prevState.editedDraft.blockTexts];
-      newBlockTexts[blockIndex] = applyEditToBlock(
-        prevState.editedDraft.blockTexts[blockIndex],
-        tokenIndex,
-        newValue,
+  // Apply edit with improved tracking and mapping
+  const applyEdit = useCallback((blockIndex: number, tokenIndex: number, newValue: string, alternatives?: string[]) => {
+    console.log('🎯 Applying edit:', { blockIndex, tokenIndex, newValue, currentSelectedDraft });
+    
+    setEditableDraftState(prevState => {
+      const currentBlockTexts = [...prevState.editedDraft.blockTexts];
+      const targetBlock = currentBlockTexts[blockIndex];
+      
+      if (!targetBlock) {
+        console.error('❌ Block index out of bounds:', blockIndex);
+        return prevState;
+      }
+
+      // Get the original word for better debugging
+      const words = targetBlock.split(' ');
+      const originalWord = words[tokenIndex] || '';
+      console.log('🔍 Original word at position:', { tokenIndex, originalWord, totalWords: words.length });
+
+      // Apply the edit with improved mapping
+      const updatedBlockText = applyEditToBlock(
+        targetBlock, 
+        tokenIndex, 
+        newValue, 
         alignmentResult,
         blockIndex
       );
 
-      // Update history (remove any future operations if we're not at the latest)
-      const newHistory = prevState.editHistory.slice(0, prevState.currentHistoryIndex + 1);
-      newHistory.push(editOperation);
+      console.log('📝 Block edit result:', {
+        before: targetBlock.substring(0, 100),
+        after: updatedBlockText.substring(0, 100),
+        changed: targetBlock !== updatedBlockText
+      });
+
+      if (updatedBlockText === targetBlock) {
+        console.log('⚠️ No change applied - edit may have failed');
+        return prevState;
+      }
+
+      currentBlockTexts[blockIndex] = updatedBlockText;
+      
+      // Reconstruct the full content
+      const newContent = reconstructContent(prevState.originalDraft.content, currentBlockTexts);
+      
+      // Create edit operation
+      const editOperation: EditOperation = {
+        id: `edit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now(),
+        type: alternatives ? 'alternative_selection' : 'manual_edit',
+        blockIndex,
+        tokenIndex,
+        originalValue: originalWord,
+        newValue,
+        alternatives
+      };
+
+      // Add to history (remove any future operations if we're not at the end)
+      const newHistory = [
+        ...prevState.editHistory.slice(0, prevState.currentHistoryIndex + 1),
+        editOperation
+      ];
 
       return {
         ...prevState,
         editedDraft: {
-          content: reconstructContent(prevState.originalDraft.content, newBlockTexts),
-          blockTexts: newBlockTexts
+          content: newContent,
+          blockTexts: currentBlockTexts
         },
         editHistory: newHistory,
         currentHistoryIndex: newHistory.length - 1,
-        hasUnsavedChanges: true
+        hasUnsavedChanges: true,
+        // Track which draft the edit was made on
+        editedFromDraft: prevState.editedFromDraft || currentSelectedDraft || null
       };
     });
-  }, [alignmentResult]);
+  }, [alignmentResult, currentSelectedDraft]);
 
-  // Undo the last edit
+  // Undo edit
   const undoEdit = useCallback(() => {
     setEditableDraftState(prevState => {
       if (prevState.currentHistoryIndex < 0) return prevState;
       
       const newHistoryIndex = prevState.currentHistoryIndex - 1;
-      
-      // Rebuild the draft by replaying history up to the new index
-      const replayedDraft = replayEditHistory(
+      const newEditedDraft = replayEditHistory(
         prevState.originalDraft,
         prevState.editHistory.slice(0, newHistoryIndex + 1),
         alignmentResult
@@ -149,22 +162,21 @@ export const useEditableDraft = (
       
       return {
         ...prevState,
-        editedDraft: replayedDraft,
+        editedDraft: newEditedDraft,
         currentHistoryIndex: newHistoryIndex,
-        hasUnsavedChanges: newHistoryIndex >= 0
+        hasUnsavedChanges: newHistoryIndex >= 0,
+        editedFromDraft: newHistoryIndex >= 0 ? prevState.editedFromDraft : null
       };
     });
   }, [alignmentResult]);
 
-  // Redo the next edit
+  // Redo edit
   const redoEdit = useCallback(() => {
     setEditableDraftState(prevState => {
       if (prevState.currentHistoryIndex >= prevState.editHistory.length - 1) return prevState;
       
       const newHistoryIndex = prevState.currentHistoryIndex + 1;
-      
-      // Rebuild the draft by replaying history up to the new index
-      const replayedDraft = replayEditHistory(
+      const newEditedDraft = replayEditHistory(
         prevState.originalDraft,
         prevState.editHistory.slice(0, newHistoryIndex + 1),
         alignmentResult
@@ -172,14 +184,33 @@ export const useEditableDraft = (
       
       return {
         ...prevState,
-        editedDraft: replayedDraft,
+        editedDraft: newEditedDraft,
         currentHistoryIndex: newHistoryIndex,
-        hasUnsavedChanges: newHistoryIndex >= 0
+        hasUnsavedChanges: true,
+        editedFromDraft: currentSelectedDraft || prevState.editedFromDraft
       };
     });
-  }, [alignmentResult]);
+  }, [alignmentResult, currentSelectedDraft]);
 
-  // Reset to original draft
+  // Save current state as new original
+  const saveAsOriginal = useCallback(() => {
+    setEditableDraftState(prevState => ({
+      originalDraft: {
+        content: prevState.editedDraft.content,
+        blockTexts: [...prevState.editedDraft.blockTexts]
+      },
+      editedDraft: {
+        content: prevState.editedDraft.content,
+        blockTexts: [...prevState.editedDraft.blockTexts]
+      },
+      editHistory: [],
+      currentHistoryIndex: -1,
+      hasUnsavedChanges: false,
+      editedFromDraft: null
+    }));
+  }, []);
+
+  // Reset to original
   const resetToOriginal = useCallback(() => {
     setEditableDraftState(prevState => ({
       ...prevState,
@@ -189,21 +220,8 @@ export const useEditableDraft = (
       },
       editHistory: [],
       currentHistoryIndex: -1,
-      hasUnsavedChanges: false
-    }));
-  }, []);
-
-  // Save current state as the new original
-  const saveAsOriginal = useCallback(() => {
-    setEditableDraftState(prevState => ({
-      ...prevState,
-      originalDraft: {
-        content: prevState.editedDraft.content,
-        blockTexts: [...prevState.editedDraft.blockTexts]
-      },
-      editHistory: [],
-      currentHistoryIndex: -1,
-      hasUnsavedChanges: false
+      hasUnsavedChanges: false,
+      editedFromDraft: null // Reset the tracked draft
     }));
   }, []);
 
@@ -220,7 +238,7 @@ export const useEditableDraft = (
   };
 };
 
-// Helper function to apply an edit to a specific block with special character preservation
+// IMPROVED: Helper function with better debugging and fallback approaches
 function applyEditToBlock(
   blockText: string,
   tokenIndex: number,
@@ -228,126 +246,92 @@ function applyEditToBlock(
   alignmentResult: AlignmentResult | null,
   blockIndex: number
 ): string {
-  console.log('🔧 Applying edit:', { blockIndex, tokenIndex, newValue, blockText });
+  console.log('🔧 Applying edit to block:', { blockIndex, tokenIndex, newValue, blockTextLength: blockText?.length });
   
-  // FIXED: Add null/undefined checks to prevent crashes
+  // Add null/undefined checks to prevent crashes
   if (!blockText || typeof blockText !== 'string') {
     console.error('❌ Invalid blockText:', blockText);
     return blockText || '';
   }
   
-  if (!alignmentResult?.alignment_results?.blocks) {
-    console.log('⚠️ No alignment results, using simple word replacement');
-    // Fallback: simple word replacement
-    const words = blockText.split(' ');
-    if (tokenIndex < words.length) {
-      words[tokenIndex] = newValue;
-      const result = words.join(' ');
-      console.log('✅ Simple edit result:', result);
-      return result;
-    }
-    return blockText;
-  }
-
-  // Get the block data from alignment results
-  const blockKeys = Object.keys(alignmentResult.alignment_results.blocks);
-  const blockKey = blockKeys[blockIndex];
-  const blockData = alignmentResult.alignment_results.blocks[blockKey];
-  
-  console.log('📊 Block data:', { blockKeys, blockKey, hasBlockData: !!blockData });
-  
-  if (!blockData?.aligned_sequences?.[0]) {
-    console.log('⚠️ No aligned sequences, using simple replacement');
-    // Fallback to simple replacement
-    // FIXED: Add safety check here too
-    if (!blockText || typeof blockText !== 'string') {
-      console.error('❌ Invalid blockText at aligned sequences fallback:', blockText);
-      return blockText || '';
-    }
-    const words = blockText.split(' ');
-    if (tokenIndex < words.length) {
-      words[tokenIndex] = newValue;
-      const result = words.join(' ');
-      console.log('✅ Fallback edit result:', result);
-      return result;
-    }
-    return blockText;
-  }
-
-  const referenceSequence = blockData.aligned_sequences[0];
-  const tokens = referenceSequence.tokens || [];
-  const originalToAlignment = referenceSequence.original_to_alignment || [];
-  
-  console.log('🔍 Token mapping data:', { 
-    tokensLength: tokens.length, 
-    tokenIndex, 
-    targetToken: tokens[tokenIndex],
-    originalToAlignmentLength: originalToAlignment.length 
-  });
-  
-  // Find the original position in the text
-  if (tokenIndex >= tokens.length) {
-    console.log('❌ Token index out of bounds');
-    return blockText;
-  }
-  
-  // FIXED: Find the original index that maps TO this tokenIndex
-  // originalToAlignment[i] = j means original position i maps to alignment position j
-  // We need to find i such that originalToAlignment[i] = tokenIndex
-  let originalIndex = -1;
-  for (let i = 0; i < originalToAlignment.length; i++) {
-    if (originalToAlignment[i] === tokenIndex) {
-      originalIndex = i;
-      break;
-    }
-  }
-  
-  console.log('🎯 Found original index:', originalIndex);
-  
-  if (originalIndex === -1) {
-    console.log('⚠️ Could not map token index to original position, using simple replacement');
-    // Fallback to simple token index replacement
-    // FIXED: Add safety check here too
-    if (!blockText || typeof blockText !== 'string') {
-      console.error('❌ Invalid blockText at fallback stage:', blockText);
-      return blockText || '';
-    }
-    const words = blockText.split(' ');
-    if (tokenIndex < words.length) {
-      words[tokenIndex] = newValue;
-      const result = words.join(' ');
-      console.log('✅ Simple mapping edit result:', result);
-      return result;
-    }
-    return blockText;
-  }
-  
-  // Use a more sophisticated approach to preserve special characters
-  // FIXED: Add additional safety checks here too
-  if (!blockText || typeof blockText !== 'string') {
-    console.error('❌ Invalid blockText at character preservation stage:', blockText);
-    return blockText || '';
-  }
-  
   const words = blockText.split(' ');
-  console.log('📝 Words array:', words);
+  console.log('📊 Block analysis:', { 
+    totalWords: words.length, 
+    targetIndex: tokenIndex,
+    targetWord: words[tokenIndex],
+    wordsAroundTarget: words.slice(Math.max(0, tokenIndex - 2), tokenIndex + 3)
+  });
+
+  // APPROACH 1: Try alignment-based mapping if available
+  if (alignmentResult?.alignment_results?.blocks) {
+    const blockKeys = Object.keys(alignmentResult.alignment_results.blocks);
+    const blockKey = blockKeys[blockIndex];
+    const blockData = alignmentResult.alignment_results.blocks[blockKey];
+    
+    if (blockData?.aligned_sequences?.[0]) {
+      const referenceSequence = blockData.aligned_sequences[0];
+      const tokens = referenceSequence.tokens || [];
+      const originalToAlignment = referenceSequence.original_to_alignment || [];
+      
+      console.log('🎯 Alignment mapping attempt:', { 
+        tokensLength: tokens.length, 
+        originalToAlignmentLength: originalToAlignment.length,
+        targetTokenIndex: tokenIndex,
+        alignedToken: tokens[tokenIndex]
+      });
+      
+      // Try to find the original index
+      let originalIndex = -1;
+      
+      // IMPROVED: Try multiple mapping approaches
+      for (let i = 0; i < originalToAlignment.length; i++) {
+        if (originalToAlignment[i] === tokenIndex) {
+          originalIndex = i;
+          console.log('✅ Found original index via alignment:', { originalIndex, mappedToToken: tokenIndex });
+          break;
+        }
+      }
+      
+      // If alignment mapping worked, apply the edit
+      if (originalIndex !== -1 && originalIndex < words.length) {
+        const originalWord = words[originalIndex];
+        const alignedToken = tokens[tokenIndex];
+        
+        console.log('🔤 Alignment-based edit:', { 
+          originalIndex, 
+          originalWord, 
+          alignedToken, 
+          newValue 
+        });
+        
+        const preservedWord = preserveSpecialCharacters(originalWord, alignedToken, newValue);
+        words[originalIndex] = preservedWord;
+        const result = words.join(' ');
+        
+        console.log('✅ Alignment edit successful');
+        return result;
+      } else {
+        console.log('⚠️ Alignment mapping failed, falling back to direct approach');
+      }
+    }
+  }
   
-  if (originalIndex < words.length) {
-    const originalWord = words[originalIndex];
-    const cleanedOriginal = tokens[tokenIndex];
+  // APPROACH 2: Direct token index mapping (fallback)
+  console.log('🔄 Using direct token mapping fallback');
+  if (tokenIndex < words.length) {
+    const originalWord = words[tokenIndex];
+    console.log('🎯 Direct edit:', { tokenIndex, originalWord, newValue });
     
-    console.log('🔤 Character preservation:', { originalWord, cleanedOriginal, newValue });
-    
-    // Try to preserve special characters by pattern matching
-    const preservedWord = preserveSpecialCharacters(originalWord, cleanedOriginal, newValue);
-    words[originalIndex] = preservedWord;
+    // Use simpler preservation for direct mapping
+    const preservedWord = preserveSpecialCharacters(originalWord, originalWord, newValue);
+    words[tokenIndex] = preservedWord;
     const result = words.join(' ');
     
-    console.log('✅ Final edit result:', { preservedWord, result });
+    console.log('✅ Direct edit successful');
     return result;
   }
   
-  console.log('❌ Original index out of bounds');
+  console.log('❌ All mapping approaches failed');
   return blockText;
 }
 

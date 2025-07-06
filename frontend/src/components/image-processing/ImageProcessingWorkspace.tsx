@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { ImageEnhancementModal } from './ImageEnhancementModal';
@@ -13,6 +13,8 @@ import { useImageProcessing } from '../../hooks/useImageProcessing';
 import { useAlignmentState } from '../../hooks/useAlignmentState';
 import { useDraftSelection } from '../../hooks/useDraftSelection';
 import { useEditableDraft } from '../../hooks/useEditableDraft';
+import { isJsonResult, formatJsonAsText } from '../../utils/jsonFormatter';
+import { getCurrentText, getRawText } from '../../utils/textSelectionUtils';
 
 
 interface ImageProcessingWorkspaceProps {
@@ -44,21 +46,81 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     return '';
   }, [imageProcessing.selectedResult]);
   
-  // Initialize editable draft hook
-  const editableDraft = useEditableDraft(originalText, alignmentState.alignmentState.alignmentResult);
+  // Initialize draft selection first (without edited text to avoid circular dependency)
+  const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>(0);
   
-  // Pass the edited text to draft selection
-  const draftSelection = useDraftSelection(
-    imageProcessing.selectedResult, 
-    alignmentState.selectedConsensusStrategy,
-    editableDraft.editableDraftState.editedDraft.content,
-    editableDraft.editableDraftState.hasUnsavedChanges
+  // Initialize editable draft hook with current selected draft
+  const editableDraft = useEditableDraft(
+    originalText, 
+    alignmentState.alignmentState.alignmentResult,
+    selectedDraft // Pass current selected draft
   );
+
+  // Create draft selection functions that work with edits
+  const getCurrentTextCallback = useCallback(() => {
+    // Only use edited text if edits were made on the currently selected draft
+    const shouldUseEditedText = (
+      editableDraft.editableDraftState.editedDraft.content !== undefined && 
+      editableDraft.editableDraftState.hasUnsavedChanges && 
+      editableDraft.editableDraftState.editedFromDraft === selectedDraft
+    );
+    
+    if (shouldUseEditedText) {
+      console.log('📋 Using edited text for selected draft:', selectedDraft);
+      const editedContent = editableDraft.editableDraftState.editedDraft.content;
+      return isJsonResult(editedContent) ? formatJsonAsText(editedContent) : editedContent;
+    }
+    
+    // Otherwise get text from the selected draft
+    return getCurrentText({ 
+      selectedResult: imageProcessing.selectedResult, 
+      selectedDraft, 
+      selectedConsensusStrategy: alignmentState.selectedConsensusStrategy 
+    });
+  }, [
+    imageProcessing.selectedResult, 
+    selectedDraft, 
+    alignmentState.selectedConsensusStrategy, 
+    editableDraft.editableDraftState
+  ]);
+
+  const getRawTextCallback = useCallback(() => {
+    // Only use edited text if edits were made on the currently selected draft
+    const shouldUseEditedText = (
+      editableDraft.editableDraftState.editedDraft.content !== undefined && 
+      editableDraft.editableDraftState.hasUnsavedChanges && 
+      editableDraft.editableDraftState.editedFromDraft === selectedDraft
+    );
+    
+    if (shouldUseEditedText) {
+      return editableDraft.editableDraftState.editedDraft.content;
+    }
+    
+    return getRawText({ 
+      selectedResult: imageProcessing.selectedResult, 
+      selectedDraft, 
+      selectedConsensusStrategy: alignmentState.selectedConsensusStrategy 
+    });
+  }, [
+    imageProcessing.selectedResult, 
+    selectedDraft, 
+    alignmentState.selectedConsensusStrategy, 
+    editableDraft.editableDraftState
+  ]);
+
+  const isCurrentResultJsonCallback = useCallback(() => {
+    const rawText = getRawTextCallback();
+    return isJsonResult(rawText);
+  }, [getRawTextCallback]);
+
+  const resetDraftSelection = useCallback(() => {
+    setSelectedDraft(0);
+  }, []);
 
   // Reset draft selection and editing when result actually changes (not just re-renders)
   useEffect(() => {
     if (imageProcessing.selectedResult) {
-      draftSelection.resetDraftSelection();
+      resetDraftSelection();
       alignmentState.resetAlignmentState();
       // Only reset editable draft if we have a new result (not just a re-render)
       // This prevents wiping out user edits during normal component re-renders
@@ -102,15 +164,15 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       let draftMetadata: any = {};
       const redundancyAnalysis = imageProcessing.selectedResult.result.metadata?.redundancy_analysis;
       
-      if (redundancyAnalysis && typeof draftSelection.selectedDraft === 'number') {
+      if (redundancyAnalysis && typeof selectedDraft === 'number') {
         const individualResults = (redundancyAnalysis.individual_results || []).filter((r: any) => r.success);
         
-        if (draftSelection.selectedDraft < individualResults.length) {
-          const specificDraft = individualResults[draftSelection.selectedDraft];
+        if (selectedDraft < individualResults.length) {
+          const specificDraft = individualResults[selectedDraft];
           draftMetadata = {
             model_used: specificDraft.model || imageProcessing.selectedResult.result.metadata?.model_used || 'unknown',
-            original_draft_index: draftSelection.selectedDraft,
-            saved_draft_type: `draft_${draftSelection.selectedDraft + 1}`,
+            original_draft_index: selectedDraft,
+            saved_draft_type: `draft_${selectedDraft + 1}`,
             confidence_score: specificDraft.confidence || 1.0,
             service_type: imageProcessing.selectedResult.result.metadata?.service_type || 'llm'
           };
@@ -118,7 +180,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       } else {
         draftMetadata = {
           model_used: imageProcessing.selectedResult.result.metadata?.model_used || 'unknown',
-          saved_draft_type: draftSelection.selectedDraft,
+          saved_draft_type: selectedDraft,
           confidence_score: imageProcessing.selectedResult.result.metadata?.confidence_score || 1.0,
           service_type: imageProcessing.selectedResult.result.metadata?.service_type || 'llm'
         };
@@ -266,17 +328,17 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             selectedResult={imageProcessing.selectedResult}
             onSelectResult={(res: any) => {
               imageProcessing.selectResult(res);
-              draftSelection.resetDraftSelection();
+              resetDraftSelection();
               alignmentState.resetAlignmentState();
                 }}
                 isHistoryVisible={isHistoryVisible}
                 onToggleHistory={setIsHistoryVisible}
-            getCurrentText={draftSelection.getCurrentText}
-            getRawText={draftSelection.getRawText}
-            isCurrentResultJson={draftSelection.isCurrentResultJson}
+            getCurrentText={getCurrentTextCallback}
+            getRawText={getRawTextCallback}
+            isCurrentResultJson={isCurrentResultJsonCallback}
                 onSaveDraft={handleSaveDraft}
-            selectedDraft={draftSelection.selectedDraft}
-            onDraftSelect={draftSelection.setSelectedDraft}
+            selectedDraft={selectedDraft}
+            onDraftSelect={setSelectedDraft}
             alignmentResult={alignmentState.alignmentState.alignmentResult}
             showHeatmap={alignmentState.alignmentState.showHeatmap}
             onAlign={() => alignmentState.handleAlign(imageProcessing.selectedResult)}
@@ -286,7 +348,11 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
               console.log('Text updated in heatmap:', newText);
               // The text update is handled by the editableDraft hook automatically
             }}
-            onApplyEdit={editableDraft.applyEdit}
+            onApplyEdit={(blockIndex: number, tokenIndex: number, newValue: string, editType?: 'alternative_selection' | 'manual_edit') => {
+              // Convert editType to alternatives array format
+              const alternatives = editType === 'alternative_selection' ? [newValue] : undefined;
+              editableDraft.applyEdit(blockIndex, tokenIndex, newValue, alternatives);
+            }}
             editableDraftState={{
               hasUnsavedChanges: editableDraft.editableDraftState.hasUnsavedChanges,
               canUndo: editableDraft.canUndo,

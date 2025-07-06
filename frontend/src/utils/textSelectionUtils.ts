@@ -31,15 +31,22 @@ export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensu
     return isJsonResult(extractedText) ? formatJsonAsText(extractedText) : extractedText;
   }
 
-  // CRITICAL DRAFT SELECTION LOGIC
-  if (selectedDraft === 'best') {
-    const extractedText = result.extracted_text || '';
-    // Format JSON as readable text if it's JSON
-    return isJsonResult(extractedText) ? formatJsonAsText(extractedText) : extractedText;
-  } else if (selectedDraft === 'consensus') {
+  // UPDATED DRAFT SELECTION LOGIC
+  if (selectedDraft === 'consensus') {
     const consensusText = redundancyAnalysis.consensus_text || result.extracted_text || '';
     // Format JSON as readable text if it's JSON
     return isJsonResult(consensusText) ? formatJsonAsText(consensusText) : consensusText;
+  } else if (selectedDraft === 'best') {
+    // "Best" now maps to the specific best draft index, not the main extracted text
+    const bestIndex = redundancyAnalysis.best_result_index || 0;
+    const individualResults = (redundancyAnalysis.individual_results || []).filter((r: any) => r.success);
+    if (bestIndex < individualResults.length) {
+      const bestDraftText = individualResults[bestIndex].text || '';
+      return isJsonResult(bestDraftText) ? formatJsonAsText(bestDraftText) : bestDraftText;
+    }
+    // Fallback to main text if best index is invalid
+    const extractedText = result.extracted_text || '';
+    return isJsonResult(extractedText) ? formatJsonAsText(extractedText) : extractedText;
   } else if (typeof selectedDraft === 'number') {
     const individualResults = (redundancyAnalysis.individual_results || []).filter((r: any) => r.success);
     if (selectedDraft < individualResults.length) {
@@ -75,11 +82,17 @@ export const getRawText = ({ selectedResult, selectedDraft, selectedConsensusStr
     return result.extracted_text || 'No text available';
   }
 
-  // Draft selection logic for raw text
-  if (selectedDraft === 'best') {
-    return result.extracted_text || '';
-  } else if (selectedDraft === 'consensus') {
+  // UPDATED DRAFT SELECTION LOGIC FOR RAW TEXT
+  if (selectedDraft === 'consensus') {
     return redundancyAnalysis.consensus_text || result.extracted_text || '';
+  } else if (selectedDraft === 'best') {
+    // "Best" now maps to the specific best draft index, not the main extracted text
+    const bestIndex = redundancyAnalysis.best_result_index || 0;
+    const individualResults = (redundancyAnalysis.individual_results || []).filter((r: any) => r.success);
+    if (bestIndex < individualResults.length) {
+      return individualResults[bestIndex].text || '';
+    }
+    return result.extracted_text || '';
   } else if (typeof selectedDraft === 'number') {
     const individualResults = (redundancyAnalysis.individual_results || []).filter((r: any) => r.success);
     if (selectedDraft < individualResults.length) {

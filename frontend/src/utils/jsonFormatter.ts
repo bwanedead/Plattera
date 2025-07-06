@@ -225,3 +225,57 @@ export function extractDisplayMetadata(result: ProcessingResult): Record<string,
   
   return metadata
 } 
+
+// New function to extract clean text from potentially JSON-formatted content
+export const extractCleanText = (content: string): string => {
+  if (!content || typeof content !== 'string') {
+    return '';
+  }
+
+  let cleanText = content.trim();
+  
+  // Check if this looks like JSON
+  if (cleanText.startsWith('{') || cleanText.startsWith('[') || cleanText.includes('"content":')) {
+    try {
+      const parsed = JSON.parse(cleanText);
+      
+      // Handle different JSON structures
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.content && typeof parsed.content === 'string') {
+          cleanText = parsed.content;
+        } else if (parsed.sections && Array.isArray(parsed.sections)) {
+          // Handle document with sections
+          cleanText = parsed.sections
+            .map((section: any) => section.body || section.content || '')
+            .filter((text: string) => text.length > 0)
+            .join(' ');
+        } else if (parsed.text) {
+          cleanText = parsed.text;
+        } else if (typeof parsed === 'string') {
+          cleanText = parsed;
+        }
+      } else if (Array.isArray(parsed)) {
+        cleanText = parsed.join(' ');
+      } else if (typeof parsed === 'string') {
+        cleanText = parsed;
+      }
+    } catch (e) {
+      // If JSON parsing fails, clean up manually
+      console.log('Cleaning non-JSON text manually');
+    }
+  }
+  
+  // Remove any remaining JSON artifacts
+  cleanText = cleanText
+    .replace(/^\{.*?"content":\s*"/i, '') // Remove leading JSON up to content
+    .replace(/",.*\}$/i, '') // Remove trailing JSON after content
+    .replace(/\\n/g, ' ') // Replace escaped newlines with spaces
+    .replace(/\\"/g, '"') // Unescape quotes
+    .replace(/[{}[\]]/g, '') // Remove any remaining brackets
+    .replace(/^\s*"/, '') // Remove leading quote
+    .replace(/"\s*$/, '') // Remove trailing quote
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim();
+  
+  return cleanText;
+}; 
