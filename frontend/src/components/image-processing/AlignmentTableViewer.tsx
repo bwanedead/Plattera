@@ -121,7 +121,7 @@ export const AlignmentTableViewer: React.FC<AlignmentTableViewerProps> = ({
                   <thead>
                     <tr>
                       <th>Position</th>
-                      {draftIds.map(id => <th key={id}>{id.replace('_', ' ')}</th>)}
+                      {draftIds.map((id: string) => <th key={id}>{id.replace('_', ' ')}</th>)}
                     </tr>
                   </thead>
                   <tbody>

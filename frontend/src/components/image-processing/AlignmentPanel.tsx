@@ -37,7 +37,7 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
     );
   }
 
-  // --- Data Transformation: Map backend keys to frontend expectations ---
+  // --- Map backend property names to frontend expectations ---
   const summary = {
     average_confidence: alignmentResult.summary.average_confidence_score ?? 0,
     total_positions: alignmentResult.summary.total_positions_analyzed ?? 0,
@@ -104,7 +104,7 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
                 <div 
                   className="confidence-bar-fill high-confidence"
                   style={{ 
-                    width: `${(summary.high_confidence_positions / summary.total_positions) * 100}%` 
+                    width: `${summary.total_positions > 0 ? (summary.high_confidence_positions / summary.total_positions) * 100 : 0}%` 
                   }}
                 ></div>
               </div>
@@ -117,7 +117,7 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
                 <div 
                   className="confidence-bar-fill medium-confidence"
                   style={{ 
-                    width: `${(summary.medium_confidence_positions / summary.total_positions) * 100}%` 
+                    width: `${summary.total_positions > 0 ? (summary.medium_confidence_positions / summary.total_positions) * 100 : 0}%` 
                   }}
                 ></div>
               </div>
@@ -130,7 +130,7 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
                 <div 
                   className="confidence-bar-fill low-confidence"
                   style={{ 
-                    width: `${(summary.low_confidence_positions / summary.total_positions) * 100}%` 
+                    width: `${summary.total_positions > 0 ? (summary.low_confidence_positions / summary.total_positions) * 100 : 0}%` 
                   }}
                 ></div>
               </div>

@@ -34,13 +34,23 @@ export interface AlignmentDraft {
 }
 
 export interface AlignmentSummary {
-  total_positions: number;
-  total_differences: number;
-  average_confidence: number;
+  // Backend actual property names
+  total_positions_analyzed: number;
+  total_differences_found: number;
+  average_confidence_score: number;
   quality_assessment: string;
-  high_confidence_positions: number;
-  medium_confidence_positions: number;
-  low_confidence_positions: number;
+  confidence_distribution: {
+    high: number;
+    medium: number;
+    low: number;
+  };
+  // Additional backend properties
+  processing_time_seconds?: number;
+  total_blocks_processed?: number;
+  accuracy_percentage?: number;
+  difference_categories?: Record<string, any>;
+  alignment_method?: string;
+  estimated_tcoffee_accuracy?: string;
 }
 
 export interface AlignmentToken {

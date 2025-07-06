@@ -74,7 +74,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
           isEditing: editingWordIndex?.block === blockIndex && editingWordIndex?.word === index,
           isHumanConfirmed: humanConfirmedWords.has(wordKey),
         };
-      }).filter((data): data is WordData => data !== null);
+      }).filter((data: WordData | null): data is WordData => data !== null);
     });
     
     // Filter out any empty blocks that might have resulted from errors
