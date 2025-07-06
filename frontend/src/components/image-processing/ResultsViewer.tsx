@@ -209,7 +209,12 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           onResetToOriginal={onResetToOriginal}
                         />
                       ) : (
-                        <pre>{getCurrentText()}</pre>
+                        <div
+                          className="text-content"
+                          style={{ whiteSpace: 'pre-wrap', height: '100%', overflowY: 'auto', padding: '1rem', fontFamily: 'monospace' }}
+                        >
+                          {getCurrentText()}
+                        </div>
                       )}
                     </div>
                   )}

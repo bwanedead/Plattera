@@ -66,23 +66,25 @@ export function formatJsonAsText(extractedText: string): string {
     // Add section header if it exists
     if (section.header && section.header.trim()) {
       formattedText += `${section.header.trim()}\n`
-      formattedText += '─'.repeat(Math.min(section.header.trim().length, 50)) + '\n'
+      // You can add an underline or other separator for the header if you like
+      // formattedText += '─'.repeat(Math.min(section.header.trim().length, 50)) + '\n';
     }
     
-    // Add section body - normalize internal newlines to spaces for proper paragraph formatting
+    // Add section body
     if (section.body && section.body.trim()) {
-      // Replace multiple whitespace/newlines with single spaces to create clean paragraphs
-      const normalizedBody = section.body.trim().replace(/\s+/g, ' ')
-      formattedText += `${normalizedBody}\n`
+      // Trim leading/trailing whitespace from the body but preserve internal newlines
+      const normalizedBody = section.body.trim();
+      formattedText += `${normalizedBody}\n`;
     }
     
     // Add spacing between sections (except for the last one)
     if (index < parsed.sections.length - 1) {
-      formattedText += '\n\n'
+      // Use two newlines to create a blank line between sections
+      formattedText += '\n';
     }
   })
   
-  return formattedText
+  return formattedText.trim();
 }
 
 /**

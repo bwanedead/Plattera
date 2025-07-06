@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { getCurrentText, getRawText } from '../utils/textSelectionUtils';
-import { isJsonResult } from '../utils/jsonFormatter';
+import { isJsonResult, formatJsonAsText } from '../utils/jsonFormatter';
 
 export const useDraftSelection = (
   selectedResult: any, 
@@ -10,22 +10,31 @@ export const useDraftSelection = (
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>('best');
 
   const getCurrentTextCallback = useCallback(() => {
-    // If we have edited text, use it instead of the original
-    if (editedText) {
-      return editedText;
+    // Determine the source text. If we have edited text, that is our source.
+    // Otherwise, we get it from the original selection logic.
+    const sourceText = editedText !== undefined 
+      ? editedText 
+      : getCurrentText({ selectedResult, selectedDraft, selectedConsensusStrategy });
+
+    // Now, apply JSON formatting to the determined source text.
+    // This ensures that both edited and original text are displayed correctly.
+    if (isJsonResult(sourceText)) {
+      return formatJsonAsText(sourceText);
     }
-    return getCurrentText({ selectedResult, selectedDraft, selectedConsensusStrategy });
+    
+    return sourceText;
   }, [selectedResult, selectedDraft, selectedConsensusStrategy, editedText]);
 
   const getRawTextCallback = useCallback(() => {
-    // If we have edited text, use it instead of the original
-    if (editedText) {
+    // If we have edited text, use it instead of the original.
+    // The "raw" version of an edit is just its current state.
+    if (editedText !== undefined) {
       return editedText;
     }
     return getRawText({ selectedResult, selectedDraft, selectedConsensusStrategy });
   }, [selectedResult, selectedDraft, selectedConsensusStrategy, editedText]);
 
-  const isCurrentResultJson = useCallback(() => {
+  const isCurrentResultJsonCallback = useCallback(() => {
     const rawText = getRawTextCallback();
     return isJsonResult(rawText);
   }, [getRawTextCallback]);
@@ -39,7 +48,7 @@ export const useDraftSelection = (
     setSelectedDraft,
     getCurrentText: getCurrentTextCallback,
     getRawText: getRawTextCallback,
-    isCurrentResultJson,
+    isCurrentResultJson: isCurrentResultJsonCallback,
     resetDraftSelection,
   };
 }; 

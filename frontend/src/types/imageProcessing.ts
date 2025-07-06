@@ -93,7 +93,7 @@ export interface ConfidenceWord {
   position: number;
   alternatives?: string[];
   isClickable: boolean;
-}
+} 
 
 // --- Editable Draft Types ---
 

@@ -82,7 +82,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     }
 
     try {
-      const content = draftSelection.getRawText();
+      // FIX: Use the content from the editable draft state, which includes any user edits.
+      // This ensures we save the most up-to-date version of the text.
+      const content = editableDraft.editableDraftState.editedDraft.content;
       
       // Get metadata for the selected draft
       let draftMetadata: any = {};
