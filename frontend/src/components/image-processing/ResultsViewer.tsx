@@ -35,6 +35,10 @@ interface ResultsViewerProps {
     hasUnsavedChanges: boolean;
     canUndo: boolean;
     canRedo: boolean;
+    editedDraft: {
+      content: string;
+      blockTexts: string[];
+    };
   };
   onUndoEdit?: () => void;
   onRedoEdit?: () => void;

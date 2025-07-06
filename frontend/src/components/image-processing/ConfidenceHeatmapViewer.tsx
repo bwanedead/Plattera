@@ -15,6 +15,10 @@ interface ConfidenceHeatmapViewerProps {
     hasUnsavedChanges: boolean;
     canUndo: boolean;
     canRedo: boolean;
+    editedDraft: {
+      content: string;
+      blockTexts: string[];
+    };
   };
   onUndoEdit?: () => void;
   onRedoEdit?: () => void;
@@ -55,6 +59,10 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
 
     if (!alignmentBlocks || !confidenceBlocks) return [];
 
+    // Use edited text if available, otherwise use original alignment data
+    const hasEdits = editableDraftState?.hasUnsavedChanges;
+    const editedBlockTexts = editableDraftState?.editedDraft?.blockTexts;
+
     const processedBlocks = Object.keys(alignmentBlocks).sort().map((blockId, blockIndex) => {
       const alignmentBlock = alignmentBlocks[blockId];
       const confidenceBlock = confidenceBlocks[blockId];
@@ -64,12 +72,58 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       const displayedSequence = alignmentBlock.aligned_sequences[0]; // Display text from the first draft
       if (!displayedSequence) return [];
 
-      return displayedSequence.tokens.map((token: string, index: number) => {
-        if (token === '-') return null; // Don't create word data for gaps
+      // If we have edits, use the edited text for this block, otherwise use original tokens
+      let displayTokens: string[];
+      
+      if (hasEdits && editedBlockTexts && editedBlockTexts[blockIndex]) {
+        // Use edited text, but ensure it's properly formatted
+        let editedText = editedBlockTexts[blockIndex];
+        
+        console.log(`🔍 Raw edited text for block ${blockIndex}:`, editedText);
+        
+        // FIXED: Improved JSON detection and parsing
+        if (typeof editedText === 'string') {
+          const trimmedText = editedText.trim();
+          
+          // Check for JSON patterns (starts with { or [, or contains JSON-like structure)
+          if (trimmedText.startsWith('{') || trimmedText.startsWith('[') || 
+              (trimmedText.includes('"') && trimmedText.includes(':'))) {
+            try {
+              // Try to parse as JSON first
+              const parsedJson = JSON.parse(editedText);
+              
+              if (parsedJson && typeof parsedJson === 'object' && parsedJson.content) {
+                editedText = parsedJson.content;
+                console.log('✅ Parsed JSON content:', editedText);
+              } else if (parsedJson && typeof parsedJson === 'string') {
+                editedText = parsedJson;
+                console.log('✅ Parsed JSON string:', editedText);
+              } else if (Array.isArray(parsedJson)) {
+                // Handle array case
+                editedText = parsedJson.join(' ');
+                console.log('✅ Parsed JSON array:', editedText);
+              }
+                          } catch (e) {
+                // If it's not valid JSON, use as-is
+                console.log('📝 Edited text is not JSON, using as-is:', e instanceof Error ? e.message : 'Unknown error');
+              }
+          }
+        }
+        
+        // Split into words, ensuring we have a valid string
+        displayTokens = (editedText || '').split(' ').filter(word => word.length > 0);
+        console.log(`🔄 Using edited text for block ${blockIndex}:`, displayTokens);
+      } else {
+        // Use original alignment tokens
+        displayTokens = displayedSequence.tokens.filter((token: string) => token !== '-');
+        console.log(`📝 Using original text for block ${blockIndex}:`, displayTokens);
+      }
 
+      return displayTokens.map((token: string, index: number) => {
         const confidence = confidenceBlock.scores[index] ?? 0;
         const wordKey = `${blockId}_${index}`;
         
+        // Build alternatives from original alignment data
         const alternatives: WordAlternative[] = [];
         const seenWords = new Set<string>([token.toLowerCase()]);
 
@@ -89,13 +143,13 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
           isEditing: editingWordIndex?.block === blockIndex && editingWordIndex?.word === index,
           isHumanConfirmed: humanConfirmedWords.has(wordKey),
         };
-      }).filter((data: WordData | null): data is WordData => data !== null);
+      });
     });
     
     // Filter out any empty blocks that might have resulted from errors
     return processedBlocks.filter(block => block && block.length > 0);
 
-  }, [alignmentResult, editingWordIndex, humanConfirmedWords]);
+  }, [alignmentResult, editingWordIndex, humanConfirmedWords, editableDraftState]);
 
 
   const getConfidenceColor = useCallback((confidence: number, isHumanConfirmed: boolean) => {

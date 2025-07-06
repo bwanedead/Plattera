@@ -290,7 +290,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             editableDraftState={{
               hasUnsavedChanges: editableDraft.editableDraftState.hasUnsavedChanges,
               canUndo: editableDraft.canUndo,
-              canRedo: editableDraft.canRedo
+              canRedo: editableDraft.canRedo,
+              editedDraft: editableDraft.editableDraftState.editedDraft
             }}
             onUndoEdit={editableDraft.undoEdit}
             onRedoEdit={editableDraft.redoEdit}

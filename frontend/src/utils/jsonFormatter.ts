@@ -31,9 +31,25 @@ export function isJsonResult(extractedText: string): boolean {
   
   try {
     const parsed = JSON.parse(extractedText)
-    return parsed && typeof parsed === 'object' && 
+    const isStructuredJson = parsed && typeof parsed === 'object' && 
            parsed.documentId && Array.isArray(parsed.sections)
-  } catch {
+    
+    console.log('🔍 JSON Detection:', {
+      textLength: extractedText.length,
+      textPreview: extractedText.substring(0, 100),
+      canParse: true,
+      hasDocumentId: !!parsed.documentId,
+      hasSections: Array.isArray(parsed.sections),
+      isStructuredJson
+    });
+    
+    return isStructuredJson
+  } catch (error) {
+    console.log('❌ JSON Detection failed:', {
+      textLength: extractedText.length,
+      textPreview: extractedText.substring(0, 100),
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
     return false
   }
 }
@@ -47,8 +63,34 @@ export function parseJsonResult(extractedText: string): DocumentTranscription | 
     if (parsed && parsed.documentId && Array.isArray(parsed.sections)) {
       return parsed as DocumentTranscription
     }
+    console.log('⚠️ Parsed JSON but missing required structure:', {
+      hasDocumentId: !!parsed.documentId,
+      hasSections: Array.isArray(parsed.sections),
+      keys: Object.keys(parsed)
+    });
     return null
-  } catch {
+  } catch (error) {
+    console.log('❌ JSON parse error, attempting to fix common issues:', error instanceof Error ? error.message : 'Unknown error');
+    
+    // Try to fix common JSON issues that might occur from editing
+    try {
+      // Common fixes for edited JSON
+      let fixedText = extractedText
+        .replace(/([^"\\])"/g, '$1\\"') // Fix unescaped quotes
+        .replace(/\\"/g, '"') // Remove unnecessary escaping
+        .replace(/'/g, '"') // Replace single quotes with double quotes
+        .replace(/,(\s*[}\]])/g, '$1'); // Remove trailing commas
+      
+      console.log('🔧 Attempting to parse fixed JSON...');
+      const parsed = JSON.parse(fixedText)
+      if (parsed && parsed.documentId && Array.isArray(parsed.sections)) {
+        console.log('✅ Successfully parsed fixed JSON!');
+        return parsed as DocumentTranscription
+      }
+    } catch (fixError) {
+      console.log('❌ Could not fix JSON:', fixError instanceof Error ? fixError.message : 'Unknown error');
+    }
+    
     return null
   }
 }
@@ -57,8 +99,37 @@ export function parseJsonResult(extractedText: string): DocumentTranscription | 
  * Format JSON result as readable text with proper section formatting
  */
 export function formatJsonAsText(extractedText: string): string {
+  console.log('🎨 Formatting JSON text:', {
+    inputLength: extractedText.length,
+    inputPreview: extractedText.substring(0, 100)
+  });
+  
   const parsed = parseJsonResult(extractedText)
-  if (!parsed) return extractedText
+  if (!parsed) {
+    console.log('❌ Failed to parse JSON for formatting, applying basic text formatting as fallback');
+    
+    // Fallback: Apply basic formatting to make unformatted JSON more readable
+    try {
+      // Try to at least format it as pretty JSON for readability
+      const basicParsed = JSON.parse(extractedText);
+      const prettyFormatted = JSON.stringify(basicParsed, null, 2);
+      console.log('📝 Applied basic JSON pretty-formatting as fallback');
+      return prettyFormatted;
+    } catch {
+      // If even basic JSON parsing fails, apply minimal formatting
+      console.log('📝 Applying minimal text formatting as last resort');
+      return extractedText
+        .replace(/},/g, '},\n')
+        .replace(/{"/g, '{\n  "')
+        .replace(/}/g, '\n}')
+        .replace(/","/g, '",\n  "');
+    }
+  }
+
+  console.log('✅ Successfully parsed JSON:', {
+    documentId: parsed.documentId,
+    sectionsCount: parsed.sections.length
+  });
 
   let formattedText = ''
   
@@ -84,7 +155,13 @@ export function formatJsonAsText(extractedText: string): string {
     }
   })
   
-  return formattedText.trim();
+  const result = formattedText.trim();
+  console.log('🎨 Formatting complete:', {
+    outputLength: result.length,
+    outputPreview: result.substring(0, 200)
+  });
+  
+  return result;
 }
 
 /**

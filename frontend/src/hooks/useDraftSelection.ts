@@ -17,12 +17,27 @@ export const useDraftSelection = (
       ? editedText 
       : getCurrentText({ selectedResult, selectedDraft, selectedConsensusStrategy });
 
+    console.log('📋 Draft Selection - Source text info:', {
+      usingEditedText: editedText !== undefined && hasUnsavedChanges,
+      hasUnsavedChanges,
+      sourceTextLength: sourceText?.length,
+      sourceTextPreview: sourceText?.substring(0, 100),
+      isJson: isJsonResult(sourceText)
+    });
+
     // Now, apply JSON formatting to the determined source text.
     // This ensures that both edited and original text are displayed correctly.
     if (isJsonResult(sourceText)) {
-      return formatJsonAsText(sourceText);
+      const formatted = formatJsonAsText(sourceText);
+      console.log('✅ Applied JSON formatting:', {
+        originalLength: sourceText.length,
+        formattedLength: formatted.length,
+        formattedPreview: formatted.substring(0, 200)
+      });
+      return formatted;
     }
     
+    console.log('📝 No JSON formatting applied - returning source text as-is');
     return sourceText;
   }, [selectedResult, selectedDraft, selectedConsensusStrategy, editedText, hasUnsavedChanges]);
 

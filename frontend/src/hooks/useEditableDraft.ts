@@ -6,8 +6,8 @@ export const useEditableDraft = (
   alignmentResult: AlignmentResult | null
 ) => {
   const [editableDraftState, setEditableDraftState] = useState<EditableDraftState>(() => {
-    // Split text into blocks (assuming blocks are separated by double newlines)
-    const blockTexts = originalText.split('\n\n');
+    // Extract block texts from either plain text or JSON
+    const blockTexts = extractBlockTexts(originalText);
     
     return {
       originalDraft: {
@@ -26,7 +26,7 @@ export const useEditableDraft = (
 
   // Update original text when it changes
   useEffect(() => {
-    const blockTexts = originalText.split('\n\n');
+    const blockTexts = extractBlockTexts(originalText);
     setEditableDraftState(prevState => {
       // Only update if the original text has actually changed
       if (prevState.originalDraft.content !== originalText) {
@@ -123,7 +123,7 @@ export const useEditableDraft = (
       return {
         ...prevState,
         editedDraft: {
-          content: newBlockTexts.join('\n\n'),
+          content: reconstructContent(prevState.originalDraft.content, newBlockTexts),
           blockTexts: newBlockTexts
         },
         editHistory: newHistory,
@@ -230,6 +230,12 @@ function applyEditToBlock(
 ): string {
   console.log('🔧 Applying edit:', { blockIndex, tokenIndex, newValue, blockText });
   
+  // FIXED: Add null/undefined checks to prevent crashes
+  if (!blockText || typeof blockText !== 'string') {
+    console.error('❌ Invalid blockText:', blockText);
+    return blockText || '';
+  }
+  
   if (!alignmentResult?.alignment_results?.blocks) {
     console.log('⚠️ No alignment results, using simple word replacement');
     // Fallback: simple word replacement
@@ -253,6 +259,11 @@ function applyEditToBlock(
   if (!blockData?.aligned_sequences?.[0]) {
     console.log('⚠️ No aligned sequences, using simple replacement');
     // Fallback to simple replacement
+    // FIXED: Add safety check here too
+    if (!blockText || typeof blockText !== 'string') {
+      console.error('❌ Invalid blockText at aligned sequences fallback:', blockText);
+      return blockText || '';
+    }
     const words = blockText.split(' ');
     if (tokenIndex < words.length) {
       words[tokenIndex] = newValue;
@@ -296,6 +307,11 @@ function applyEditToBlock(
   if (originalIndex === -1) {
     console.log('⚠️ Could not map token index to original position, using simple replacement');
     // Fallback to simple token index replacement
+    // FIXED: Add safety check here too
+    if (!blockText || typeof blockText !== 'string') {
+      console.error('❌ Invalid blockText at fallback stage:', blockText);
+      return blockText || '';
+    }
     const words = blockText.split(' ');
     if (tokenIndex < words.length) {
       words[tokenIndex] = newValue;
@@ -307,6 +323,12 @@ function applyEditToBlock(
   }
   
   // Use a more sophisticated approach to preserve special characters
+  // FIXED: Add additional safety checks here too
+  if (!blockText || typeof blockText !== 'string') {
+    console.error('❌ Invalid blockText at character preservation stage:', blockText);
+    return blockText || '';
+  }
+  
   const words = blockText.split(' ');
   console.log('📝 Words array:', words);
   
@@ -385,18 +407,154 @@ function replayEditHistory(
 ): EditableDraftState['editedDraft'] {
   let currentBlockTexts = [...originalDraft.blockTexts];
   
+  // FIXED: Add validation to prevent corrupted state
+  console.log('🔄 Replaying edit history:', { historyLength: history.length, blockTextsLength: currentBlockTexts.length });
+  
   for (const operation of history) {
-    currentBlockTexts[operation.blockIndex] = applyEditToBlock(
-      currentBlockTexts[operation.blockIndex],
-      operation.tokenIndex,
-      operation.newValue,
-      alignmentResult,
-      operation.blockIndex
-    );
+    // FIXED: Validate operation before applying
+    if (!operation || operation.blockIndex < 0 || operation.blockIndex >= currentBlockTexts.length) {
+      console.error('❌ Invalid operation:', operation);
+      continue;
+    }
+    
+    const currentText = currentBlockTexts[operation.blockIndex];
+    if (!currentText || typeof currentText !== 'string') {
+      console.error('❌ Invalid block text at index:', operation.blockIndex, currentText);
+      continue;
+    }
+    
+    try {
+      const editedText = applyEditToBlock(
+        currentText,
+        operation.tokenIndex,
+        operation.newValue,
+        alignmentResult,
+        operation.blockIndex
+      );
+      
+      // FIXED: Validate the result
+      if (editedText && typeof editedText === 'string') {
+        currentBlockTexts[operation.blockIndex] = editedText;
+      } else {
+        console.error('❌ Invalid edit result:', editedText);
+      }
+    } catch (error) {
+      console.error('❌ Error applying edit:', error);
+    }
+  }
+  
+  // FIXED: Validate final state
+  const validBlockTexts = currentBlockTexts.filter(text => text && typeof text === 'string');
+  if (validBlockTexts.length !== currentBlockTexts.length) {
+    console.error('❌ Some block texts are invalid, using original instead');
+    currentBlockTexts = [...originalDraft.blockTexts];
   }
   
   return {
-    content: currentBlockTexts.join('\n\n'),
+    content: reconstructContent(originalDraft.content, currentBlockTexts),
     blockTexts: currentBlockTexts
   };
+}
+
+// Helper function to extract block texts from either plain text or JSON
+function extractBlockTexts(text: string): string[] {
+  if (!text) return [];
+  
+  console.log('📋 Extracting block texts from:', text.substring(0, 100) + '...');
+  
+  // Check if the text is JSON
+  const trimmedText = text.trim();
+  if (trimmedText.startsWith('{') || trimmedText.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(text);
+      
+      // Handle document structure with sections
+      if (parsed.sections && Array.isArray(parsed.sections)) {
+                 const blockTexts = parsed.sections.map((section: any) => {
+           if (section.body) {
+             return section.body;
+           }
+           return section.header || '';
+         }).filter((text: string) => text && text.trim());
+        
+        console.log('✅ Extracted blocks from JSON:', blockTexts.length, 'blocks');
+        return blockTexts;
+      }
+      
+      // Handle other JSON structures
+      if (parsed.content && typeof parsed.content === 'string') {
+        const blockTexts = parsed.content.split('\n\n');
+        console.log('✅ Extracted blocks from JSON content:', blockTexts.length, 'blocks');
+        return blockTexts;
+      }
+      
+      // If it's a simple string in JSON
+      if (typeof parsed === 'string') {
+        const blockTexts = parsed.split('\n\n');
+        console.log('✅ Extracted blocks from JSON string:', blockTexts.length, 'blocks');
+        return blockTexts;
+      }
+    } catch (e) {
+      console.log('⚠️ Failed to parse JSON, treating as plain text');
+    }
+  }
+  
+  // Fallback to plain text splitting
+  const blockTexts = text.split('\n\n');
+  console.log('✅ Extracted blocks from plain text:', blockTexts.length, 'blocks');
+  return blockTexts;
+}
+
+// Helper function to reconstruct content from block texts
+function reconstructContent(originalContent: string, blockTexts: string[]): string {
+  if (!originalContent || !blockTexts?.length) return originalContent;
+  
+  console.log('🔧 Reconstructing content from blocks:', blockTexts.length, 'blocks');
+  
+  // Check if the original content is JSON
+  const trimmedContent = originalContent.trim();
+  if (trimmedContent.startsWith('{') || trimmedContent.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(originalContent);
+      
+      // Handle document structure with sections
+      if (parsed.sections && Array.isArray(parsed.sections)) {
+        const updatedSections = parsed.sections.map((section: any, index: number) => {
+          if (blockTexts[index]) {
+            return {
+              ...section,
+              body: blockTexts[index]
+            };
+          }
+          return section;
+        });
+        
+        const reconstructed = {
+          ...parsed,
+          sections: updatedSections
+        };
+        
+        console.log('✅ Reconstructed JSON content');
+        return JSON.stringify(reconstructed);
+      }
+      
+      // Handle other JSON structures
+      if (parsed.content && typeof parsed.content === 'string') {
+        const reconstructed = {
+          ...parsed,
+          content: blockTexts.join('\n\n')
+        };
+        console.log('✅ Reconstructed JSON with content field');
+        return JSON.stringify(reconstructed);
+      }
+      
+    } catch (e) {
+      console.log('⚠️ Failed to parse JSON for reconstruction, using plain text');
+    }
+  }
+  
+  // Fallback to plain text reconstruction
+  const reconstructed = blockTexts.join('\n\n');
+  console.log('✅ Reconstructed plain text');
+  return reconstructed;
 } 

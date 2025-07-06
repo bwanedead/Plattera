@@ -121,6 +121,8 @@ export interface EditableDraftState {
   editHistory: EditOperation[];
   currentHistoryIndex: number;
   hasUnsavedChanges: boolean;
+  // Track which draft the edits were made on
+  editedFromDraft: number | 'consensus' | 'best' | null;
 }
 
 export interface TokenMapping {
