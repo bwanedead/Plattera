@@ -9,6 +9,16 @@ interface WordAlternative {
 interface ConfidenceHeatmapViewerProps {
   alignmentResult: AlignmentResult;
   onTextUpdate: (newText: string) => void;
+  // New editing-related props
+  onApplyEdit?: (blockIndex: number, tokenIndex: number, newValue: string, editType?: 'alternative_selection' | 'manual_edit') => void;
+  editableDraftState?: {
+    hasUnsavedChanges: boolean;
+    canUndo: boolean;
+    canRedo: boolean;
+  };
+  onUndoEdit?: () => void;
+  onRedoEdit?: () => void;
+  onResetToOriginal?: () => void;
 }
 
 interface WordData {
@@ -22,7 +32,12 @@ interface WordData {
 
 export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = ({
   alignmentResult,
-  onTextUpdate
+  onTextUpdate,
+  onApplyEdit,
+  editableDraftState,
+  onUndoEdit,
+  onRedoEdit,
+  onResetToOriginal
 }) => {
   const [editingWordIndex, setEditingWordIndex] = useState<{ block: number, word: number } | null>(null);
   const [editingValue, setEditingValue] = useState<string>('');
@@ -130,18 +145,23 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   };
 
   const handleSelectAlternative = (blockIndex: number, wordIndex: number, newWord: string) => {
-    // Reconstruct the full text with the chosen alternative
-    const newBlocksOfWordData = blocksOfWordData.map((block, bIndex) => {
-      if (bIndex === blockIndex) {
-        const newWords = [...block.map(w => w.word)];
-        newWords[wordIndex] = newWord;
-        return newWords;
-      }
-      return block.map(w => w.word);
-    });
+    // Use the new editing system if available
+    if (onApplyEdit) {
+      onApplyEdit(blockIndex, wordIndex, newWord, 'alternative_selection');
+    } else {
+      // Fallback to old system for backward compatibility
+      const newBlocksOfWordData = blocksOfWordData.map((block, bIndex) => {
+        if (bIndex === blockIndex) {
+          const newWords = [...block.map(w => w.word)];
+          newWords[wordIndex] = newWord;
+          return newWords;
+        }
+        return block.map(w => w.word);
+      });
 
-    const newText = newBlocksOfWordData.map(block => block.join(' ')).join('\n\n');
-    onTextUpdate(newText); // Pass full updated text up
+      const newText = newBlocksOfWordData.map(block => block.join(' ')).join('\n\n');
+      onTextUpdate(newText);
+    }
 
     // Mark this word as confirmed
     const blockId = Object.keys(alignmentResult.alignment_results!.blocks)[blockIndex];
@@ -164,24 +184,29 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   const handleEditSubmit = (blockIndex: number, wordIndex: number) => {
     if (editingValue.trim() === '') return; // Or handle as a deletion
     
-    // Create a new list of words for the block
-    const targetBlock = blocksOfWordData[blockIndex];
-    const newWords = targetBlock.map((wordData, wIndex) => {
-        if (wIndex === wordIndex) {
-            return editingValue;
+    // Use the new editing system if available
+    if (onApplyEdit) {
+      onApplyEdit(blockIndex, wordIndex, editingValue, 'manual_edit');
+    } else {
+      // Fallback to old system for backward compatibility
+      const targetBlock = blocksOfWordData[blockIndex];
+      const newWords = targetBlock.map((wordData, wIndex) => {
+          if (wIndex === wordIndex) {
+              return editingValue;
+          }
+          return wordData.word;
+      });
+
+      // Reconstruct the full text content
+      const newBlocksOfText = blocksOfWordData.map((block, bIndex) => {
+        if (bIndex === blockIndex) {
+          return newWords.join(' ');
         }
-        return wordData.word;
-    });
+        return block.map(w => w.word).join(' ');
+      });
 
-    // Reconstruct the full text content
-    const newBlocksOfText = blocksOfWordData.map((block, bIndex) => {
-      if (bIndex === blockIndex) {
-        return newWords.join(' ');
-      }
-      return block.map(w => w.word).join(' ');
-    });
-
-    onTextUpdate(newBlocksOfText.join('\n\n'));
+      onTextUpdate(newBlocksOfText.join('\n\n'));
+    }
 
     // Mark as confirmed and exit editing mode
     const blockId = Object.keys(alignmentResult.alignment_results!.blocks)[blockIndex];

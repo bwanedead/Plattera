@@ -28,6 +28,18 @@ interface ResultsViewerProps {
   showHeatmap?: boolean;
   onAlign?: () => void;
   isAligning?: boolean;
+  // New editing-related props
+  onTextUpdate?: (newText: string) => void;
+  onApplyEdit?: (blockIndex: number, tokenIndex: number, newValue: string, editType?: 'alternative_selection' | 'manual_edit') => void;
+  editableDraftState?: {
+    hasUnsavedChanges: boolean;
+    canUndo: boolean;
+    canRedo: boolean;
+  };
+  onUndoEdit?: () => void;
+  onRedoEdit?: () => void;
+  onResetToOriginal?: () => void;
+  onSaveAsOriginal?: () => void;
 }
 
 export const ResultsViewer: React.FC<ResultsViewerProps> = ({
@@ -47,16 +59,24 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   showHeatmap = false,
   onAlign,
   isAligning = false,
+  onTextUpdate,
+  onApplyEdit,
+  editableDraftState,
+  onUndoEdit,
+  onRedoEdit,
+  onResetToOriginal,
+  onSaveAsOriginal,
 }) => {
   const [activeTab, setActiveTab] = useState('text');
 
   // Check if current result has multiple drafts for alignment
   const hasMultipleDrafts = selectedResult?.result?.metadata?.redundancy_analysis?.individual_results?.length > 1;
 
-  // Placeholder for text updates from the heatmap component
+  // Text update handler from editing functionality
   const handleTextUpdate = (newText: string) => {
-    // In a real implementation, this would update the state in the parent component
-    console.log("Text updated via heatmap interaction:", newText);
+    if (onTextUpdate) {
+      onTextUpdate(newText);
+    }
   };
 
   return (
@@ -182,6 +202,11 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         <ConfidenceHeatmapViewer
                           alignmentResult={alignmentResult}
                           onTextUpdate={handleTextUpdate}
+                          onApplyEdit={onApplyEdit}
+                          editableDraftState={editableDraftState}
+                          onUndoEdit={onUndoEdit}
+                          onRedoEdit={onRedoEdit}
+                          onResetToOriginal={onResetToOriginal}
                         />
                       ) : (
                         <pre>{getCurrentText()}</pre>

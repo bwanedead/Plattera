@@ -93,4 +93,40 @@ export interface ConfidenceWord {
   position: number;
   alternatives?: string[];
   isClickable: boolean;
+}
+
+// --- Editable Draft Types ---
+
+export interface EditOperation {
+  id: string;
+  timestamp: number;
+  type: 'alternative_selection' | 'manual_edit';
+  blockIndex: number;
+  tokenIndex: number;
+  originalValue: string;
+  newValue: string;
+  confidence?: number;
+  alternatives?: string[];
+}
+
+export interface EditableDraftState {
+  originalDraft: {
+    content: string;
+    blockTexts: string[];
+  };
+  editedDraft: {
+    content: string;
+    blockTexts: string[];
+  };
+  editHistory: EditOperation[];
+  currentHistoryIndex: number;
+  hasUnsavedChanges: boolean;
+}
+
+export interface TokenMapping {
+  originalStart: number;
+  originalEnd: number;
+  alignedIndex: number;
+  originalText: string;
+  cleanedText: string;
 } 

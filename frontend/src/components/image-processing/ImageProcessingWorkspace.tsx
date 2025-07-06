@@ -12,6 +12,7 @@ import { saveDraft, getDraftCount, DraftSession } from '../../utils/draftStorage
 import { useImageProcessing } from '../../hooks/useImageProcessing';
 import { useAlignmentState } from '../../hooks/useAlignmentState';
 import { useDraftSelection } from '../../hooks/useDraftSelection';
+import { useEditableDraft } from '../../hooks/useEditableDraft';
 
 
 interface ImageProcessingWorkspaceProps {
@@ -34,18 +35,37 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   // Custom hooks for state management
   const imageProcessing = useImageProcessing();
   const alignmentState = useAlignmentState();
+  
+  // Get the original text for the editable draft
+  const originalText = imageProcessing.selectedResult && imageProcessing.selectedResult.status === 'completed' 
+    ? imageProcessing.selectedResult.result?.extracted_text || ''
+    : '';
+  
+  // Initialize editable draft hook
+  const editableDraft = useEditableDraft(originalText, alignmentState.alignmentState.alignmentResult);
+  
+  // Pass the edited text to draft selection
   const draftSelection = useDraftSelection(
     imageProcessing.selectedResult, 
-    alignmentState.selectedConsensusStrategy
+    alignmentState.selectedConsensusStrategy,
+    editableDraft.editableDraftState.editedDraft.content
   );
 
-  // Reset draft selection when result changes
+  // Reset draft selection and editing when result changes
   useEffect(() => {
     if (imageProcessing.selectedResult) {
       draftSelection.resetDraftSelection();
       alignmentState.resetAlignmentState();
+      editableDraft.resetToOriginal();
     }
   }, [imageProcessing.selectedResult]); // Fixed: removed hook objects from dependencies
+
+  // Reset editing when alignment result changes
+  useEffect(() => {
+    if (alignmentState.alignmentState.alignmentResult) {
+      editableDraft.resetToOriginal();
+    }
+  }, [alignmentState.alignmentState.alignmentResult]);
 
   // Initialize draft count
   useEffect(() => {
@@ -182,12 +202,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       
       <Allotment defaultSizes={getAllotmentSizes()} vertical={false}>
         <Allotment.Pane minSize={250} maxSize={400}>
-          <ControlPanel
+            <ControlPanel
             stagedFiles={imageProcessing.stagedFiles}
             onDrop={imageProcessing.onDrop}
             onRemoveStagedFile={imageProcessing.removeStagedFile}
-            draftCount={draftCount}
-            onShowDraftLoader={() => setShowDraftLoader(true)}
+                draftCount={draftCount}
+                onShowDraftLoader={() => setShowDraftLoader(true)}
             isProcessing={imageProcessing.isProcessing}
             onProcess={imageProcessing.handleProcess}
             availableModels={imageProcessing.availableModels}
@@ -198,10 +218,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             extractionMode={imageProcessing.extractionMode}
             onExtractionModeChange={imageProcessing.setExtractionMode}
             enhancementSettings={imageProcessing.enhancementSettings}
-            onShowEnhancementModal={() => setShowEnhancementModal(true)}
+                onShowEnhancementModal={() => setShowEnhancementModal(true)}
             redundancySettings={imageProcessing.redundancySettings}
             onRedundancySettingsChange={imageProcessing.setRedundancySettings}
-          />
+            />
         </Allotment.Pane>
         
         {alignmentState.alignmentState.showAlignmentPanel && (
@@ -226,7 +246,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         )}
         
         <Allotment.Pane>
-          <ResultsViewer
+            <ResultsViewer
             isProcessing={imageProcessing.isProcessing}
             sessionResults={imageProcessing.sessionResults}
             selectedResult={imageProcessing.selectedResult}
@@ -234,20 +254,35 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
               imageProcessing.selectResult(res);
               draftSelection.resetDraftSelection();
               alignmentState.resetAlignmentState();
-            }}
-            isHistoryVisible={isHistoryVisible}
-            onToggleHistory={setIsHistoryVisible}
+                }}
+                isHistoryVisible={isHistoryVisible}
+                onToggleHistory={setIsHistoryVisible}
             getCurrentText={draftSelection.getCurrentText}
             getRawText={draftSelection.getRawText}
             isCurrentResultJson={draftSelection.isCurrentResultJson}
-            onSaveDraft={handleSaveDraft}
+                onSaveDraft={handleSaveDraft}
             selectedDraft={draftSelection.selectedDraft}
             onDraftSelect={draftSelection.setSelectedDraft}
             alignmentResult={alignmentState.alignmentState.alignmentResult}
             showHeatmap={alignmentState.alignmentState.showHeatmap}
             onAlign={() => alignmentState.handleAlign(imageProcessing.selectedResult)}
             isAligning={alignmentState.alignmentState.isAligning}
-          />
+            onTextUpdate={(newText: string) => {
+              // This is called when text is edited in the heatmap
+              console.log('Text updated in heatmap:', newText);
+              // The text update is handled by the editableDraft hook automatically
+            }}
+            onApplyEdit={editableDraft.applyEdit}
+            editableDraftState={{
+              hasUnsavedChanges: editableDraft.editableDraftState.hasUnsavedChanges,
+              canUndo: editableDraft.canUndo,
+              canRedo: editableDraft.canRedo
+            }}
+            onUndoEdit={editableDraft.undoEdit}
+            onRedoEdit={editableDraft.redoEdit}
+            onResetToOriginal={editableDraft.resetToOriginal}
+            onSaveAsOriginal={editableDraft.saveAsOriginal}
+            />
         </Allotment.Pane>
       </Allotment>
       
