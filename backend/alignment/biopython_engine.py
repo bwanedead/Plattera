@@ -365,6 +365,8 @@ class BioPythonAlignmentEngine:
             Dictionary with frontend-ready alignment results containing formatted text
         """
         logger.info("🎨 FRONTEND FORMATTING ► Converting raw tokens to formatted text")
+        logger.info(f"📊 DEBUG: Alignment results blocks: {list(alignment_results.get('blocks', {}).keys())}")
+        logger.info(f"📊 DEBUG: Tokenized data blocks: {list(tokenized_data.get('blocks', {}).keys())}")
         
         # Import format reconstruction utilities
         from .format_mapping import FormatMapping, TokenPosition, FormatMapper
@@ -373,75 +375,87 @@ class BioPythonAlignmentEngine:
         format_mapper = FormatMapper()
         
         for block_id, block_data in alignment_results.get('blocks', {}).items():
+            logger.info(f"🔍 Processing block: {block_id}")
             aligned_sequences = block_data.get('aligned_sequences', [])
+            logger.info(f"📊 DEBUG: Found {len(aligned_sequences)} aligned sequences in block {block_id}")
             
             # Get format mappings for this block
             tokenized_block = tokenized_data.get('blocks', {}).get(block_id, {})
             format_mappings = tokenized_block.get('format_mappings', {})
+            logger.info(f"📊 DEBUG: Format mappings available for: {list(format_mappings.keys())}")
             
             frontend_sequences = []
             
-            for seq_data in aligned_sequences:
+            for seq_idx, seq_data in enumerate(aligned_sequences):
                 draft_id = seq_data.get('draft_id')
                 aligned_tokens = seq_data.get('tokens', [])
                 original_to_alignment = seq_data.get('original_to_alignment', [])
                 
+                logger.info(f"🔍 Processing sequence {seq_idx}: {draft_id}")
+                logger.info(f"📊 DEBUG: Aligned tokens count: {len(aligned_tokens)}")
+                logger.info(f"📊 DEBUG: First 10 aligned tokens: {aligned_tokens[:10]}")
+                
                 # Get format mapping for this draft
                 format_mapping = format_mappings.get(draft_id)
+                logger.info(f"📊 DEBUG: Format mapping found for {draft_id}: {format_mapping is not None}")
                 
                 if format_mapping and aligned_tokens:
                     # Reconstruct formatted tokens while preserving alignment structure
                     try:
                         # format_mapping is already a FormatMapping object
                         token_positions = format_mapping.token_positions
+                        logger.info(f"📊 DEBUG: Token positions count: {len(token_positions)}")
+                        logger.info(f"📊 DEBUG: First 5 token positions: {[(pos.normalized_text, pos.original_text) for pos in token_positions[:5]]}")
                         
                         # Create formatted tokens array preserving gaps
                         formatted_tokens = []
                         non_gap_tokens = [t for t in aligned_tokens if t != '-']
+                        logger.info(f"📊 DEBUG: Non-gap tokens count: {len(non_gap_tokens)}")
+                        logger.info(f"📊 DEBUG: First 10 non-gap tokens: {non_gap_tokens[:10]}")
                         
-                        # Get formatted versions of non-gap tokens using a simpler approach
+                        # Get formatted versions of non-gap tokens using enhanced format mapping
                         formatted_non_gap_tokens = []
                         skip_indices = set()  # Track which tokens to skip due to merging
                         
                         for i, token in enumerate(non_gap_tokens):
                             if i in skip_indices:
+                                logger.info(f"📊 DEBUG: Skipping token {i}: {token} (part of merged pattern)")
                                 continue
                                 
-                            # Find the corresponding formatted token
+                            # Find the corresponding formatted token using enhanced mapping
                             formatted_token = None
+                            tokens_consumed = 1  # Default to consuming 1 token
+                            
                             for pos in token_positions:
-                                if pos.normalized_text.lower() == token.lower():
+                                # Check if this position starts at the current token index
+                                if pos.token_index == i:
                                     formatted_token = pos.original_text
+                                    
+                                    # Calculate how many tokens this mapping consumes
+                                    if ' ' in pos.normalized_text:
+                                        tokens_consumed = len(pos.normalized_text.split())
+                                    else:
+                                        tokens_consumed = 1
+                                    
+                                    logger.info(f"✅ Found mapping at token {i}: {pos.normalized_text} → '{formatted_token}' (consumes {tokens_consumed} tokens)")
+                                    
+                                    # Mark following tokens for skipping if this is a multi-token pattern
+                                    if tokens_consumed > 1:
+                                        for j in range(i + 1, min(i + tokens_consumed, len(non_gap_tokens))):
+                                            skip_indices.add(j)
+                                            logger.info(f"📊 DEBUG: Marking token {j} for skip: {non_gap_tokens[j]}")
+                                    
                                     break
                             
                             if formatted_token:
                                 formatted_non_gap_tokens.append(formatted_token)
-                                
-                                # Check if this is a multi-token pattern (like N.37°15'W.)
-                                # If so, skip the following tokens that are part of this pattern
-                                if '°' in formatted_token:
-                                    # This is a degree pattern, skip related tokens
-                                    j = i + 1
-                                    while j < len(non_gap_tokens) and j < i + 6:  # Max 6 tokens ahead
-                                        next_token = non_gap_tokens[j]
-                                        # Skip numbers, directions, and quote-related tokens
-                                        if (next_token.isdigit() or 
-                                            next_token.lower() in ['n', 's', 'e', 'w'] or
-                                            next_token in ["'", '"'] or
-                                            len(next_token) <= 2):  # Skip short tokens like '00'
-                                            skip_indices.add(j)
-                                            j += 1
-                                        else:
-                                            break
-                                elif '(' in formatted_token and ')' in formatted_token:
-                                    # Parentheses pattern - usually single token, no skipping needed
-                                    pass
-                                elif ',' in formatted_token and formatted_token.replace(',', '').isdigit():
-                                    # Comma number pattern - usually single token, no skipping needed  
-                                    pass
                             else:
                                 # No formatting found - use original token
+                                logger.info(f"⚠️ No mapping found for token {i}: '{token}' - using original")
                                 formatted_non_gap_tokens.append(token)
+                        
+                        logger.info(f"📊 DEBUG: Formatted non-gap tokens count: {len(formatted_non_gap_tokens)}")
+                        logger.info(f"📊 DEBUG: First 10 formatted tokens: {formatted_non_gap_tokens[:10]}")
                         
                         # Post-process to restore common formatting patterns not caught by mapper
                         final_formatted_tokens = []
@@ -451,10 +465,13 @@ class BioPythonAlignmentEngine:
                                 # Add comma for thousands separator
                                 if len(token) == 4:
                                     token = f"{token[0]},{token[1:]}"
+                                    logger.info(f"💰 Added comma to 4-digit number: {token}")
                                 elif len(token) == 5:
                                     token = f"{token[:2]},{token[2:]}"
+                                    logger.info(f"💰 Added comma to 5-digit number: {token}")
                                 elif len(token) == 6:
                                     token = f"{token[:3]},{token[3:]}"
+                                    logger.info(f"💰 Added comma to 6-digit number: {token}")
                             final_formatted_tokens.append(token)
                         
                         formatted_non_gap_tokens = final_formatted_tokens
@@ -472,6 +489,7 @@ class BioPythonAlignmentEngine:
                                     formatted_tokens.append(token)  # Fallback
                         
                         logger.info(f"✅ Formatted {draft_id} in {block_id}: {len(aligned_tokens)} tokens with formatting")
+                        logger.info(f"📊 DEBUG: Final formatted tokens sample: {formatted_tokens[:20]}")
                         
                         frontend_sequences.append({
                             'draft_id': draft_id,
@@ -482,6 +500,7 @@ class BioPythonAlignmentEngine:
                         
                     except Exception as e:
                         logger.warning(f"⚠️ Format reconstruction failed for {draft_id} in {block_id}: {e}")
+                        logger.exception("Full exception details:")
                         # Fallback to original tokens
                         frontend_sequences.append({
                             'draft_id': draft_id,
@@ -491,6 +510,7 @@ class BioPythonAlignmentEngine:
                         })
                 else:
                     # No format mapping available - use original tokens
+                    logger.warning(f"⚠️ No format mapping available for {draft_id} in {block_id}")
                     frontend_sequences.append({
                         'draft_id': draft_id,
                         'tokens': aligned_tokens,
@@ -499,14 +519,22 @@ class BioPythonAlignmentEngine:
                     })
             
             frontend_blocks[block_id] = {
-                'aligned_sequences': frontend_sequences
+                'aligned_sequences': frontend_sequences,
+                'confidence_scores': block_data.get('confidence_scores', {}),
+                'agreement_info': block_data.get('agreement_info', {}),
+                'differences': block_data.get('differences', [])
             }
         
-        logger.info(f"✅ FRONTEND FORMATTING COMPLETE ► Processed {len(frontend_blocks)} blocks")
-        
-        return {
-            'blocks': frontend_blocks
+        # Create the frontend-ready results structure
+        frontend_results = {
+            'blocks': frontend_blocks,
+            'summary': alignment_results.get('summary', {}),
+            'metadata': alignment_results.get('metadata', {}),
+            'format_reconstruction_applied': True  # Flag to indicate this has been processed
         }
+        
+        logger.info(f"✅ Frontend formatting complete: {len(frontend_blocks)} blocks processed")
+        return frontend_results
 
     def generate_consensus_text(self, alignment_results: Dict[str, Any],
                                confidence_results: Dict[str, Any],
