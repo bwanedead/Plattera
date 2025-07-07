@@ -47,6 +47,11 @@ class FormatMapper:
     def __init__(self):
         # Legal document formatting patterns we want to preserve
         self.formatting_patterns = [
+            # DECIMAL NUMBERS (most specific first)
+            r'\d+\.\d+\s+acres,?\s+more\s+or\s+less',    # 1.9 acres, more or less
+            r'\d+\.\d+\s+acres',                         # 1.9 acres
+            r'\d+\.\d+',                                 # 1.9
+            
             # COORDINATE PATTERNS (most specific first)
             r'[NS]\s*\.\s*\d+°\s*\d+\'\s*[EW]\s*\.',     # N.4°00'W.
             r'[NS]\s*\d+°\s*\d+\'\s*\d+"\s*[EW]',        # N 37°15'30" W
@@ -55,15 +60,55 @@ class FormatMapper:
             r'[NS]\s+\d+°\s+\d+\'\s+\d+"\s+[EW]',       # N 37° 15' 30" W (with spaces)
             r'[NS]\s+\d+°\s+\d+\'\s+[EW]',              # N 37° 15' W (with spaces)
             r'[NS]\s+\d+°\s+[EW]',                       # N 37° W (with spaces)
+            
+            # ADDITIONAL COORDINATE PATTERNS FOR BETTER COVERAGE
+            r'[NS]\s*\d+\s*°\s*\d+\s*\'\s*[EW]',        # N 4° 00' W (flexible spacing)
+            r'[NS]\s*\d+\s*°\s*[EW]',                    # N 4° W (flexible spacing)
+            r'\d+°\s*\d+\'\s*[EW]',                      # 4°00'W (partial coordinate)
+            r'\d+°\s*[EW]',                              # 4°W (partial coordinate)
+            
+            # SECTION REFERENCES
+            r'Section\s+\w+\s+\(\d+\)',                  # Section Two (2)
+            r'section\s+\w+\s+\(\d+\)',                  # section two (2)
+            r'Section\s+\w+\s+\d+',                      # Section Two 2
+            r'section\s+\w+\s+\d+',                      # section two 2
+            
+            # NUMBER WORD PATTERNS (to prevent duplication)
+            r'[Ss]eventy-four\s+\(74\)',                # Seventy-four (74)
+            r'[Ss]eventy-five\s+\(75\)',                # Seventy-five (75)  
+            r'[Ss]eventy-six\s+\(76\)',                 # Seventy-six (76)
+            r'[Ss]eventy-seven\s+\(77\)',               # Seventy-seven (77)
+            r'[Ss]eventy-eight\s+\(78\)',               # Seventy-eight (78)
+            r'[Ss]eventy-nine\s+\(79\)',                # Seventy-nine (79)
+            r'[Ss]eventy\s+\w+\s+\d{2}',                # Seventy four 74 (to be reformatted)
+            r'[Ff]ourteen\s+\(14\)',                    # Fourteen (14)
+            r'[Ff]ifteen\s+\(15\)',                     # Fifteen (15)
+            
+            # MEASUREMENTS WITH COMMAS
+            r'\d+,\d+\s+feet\s+distant',                 # 1,638 feet distant
+            r'\d+,\d+\s+feet',                           # 1,638 feet
+            r'\d{4,}',                                   # 1638 (to be comma-formatted)
+            
+            # COMMA PLACEMENT PATTERNS
+            r'\d+\s+feet,\s+more\s+or\s+less',          # 180 feet, more or less
+            r'\d+,\s+more\s+or\s+less',                  # 180, more or less
+            r'\d+\s+feet\s+more\s+or\s+less',           # 180 feet more or less
+            
             # DEGREE PATTERNS (standalone)
             r'\d+°\s*\d+\'\s*\d+"',                      # 37°15'30"
             r'\d+°\s*\d+\'',                             # 37°15'
             r'\d+°',                                     # 37°
+            
+            # INDIVIDUAL COORDINATE COMPONENTS (for flexible matching)
+            r'\d+\'\s*[EW]',                            # 00'W
+            r'\d+"\s*[EW]',                             # 30"W
+            
             # OTHER PATTERNS
             r'\(\d+\)',                                  # (2)
             r'[NSEW]\.',                                 # N., S., E., W.
             r'\d+,\d+',                                  # 1,638
-            r'\d+\.\d+',                                 # 4.5
+            r'more\s+or\s+less',                         # more or less
+            r'acres,?\s+more\s+or\s+less',               # acres, more or less
         ]
         
         # Compile patterns for efficiency
