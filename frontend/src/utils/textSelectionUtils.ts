@@ -4,9 +4,58 @@ export interface TextSelectionParams {
   selectedResult: any;
   selectedDraft: number | 'consensus' | 'best';
   selectedConsensusStrategy: string;
+  alignmentResult?: any; // Add alignment result parameter
 }
 
-export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensusStrategy }: TextSelectionParams): string => {
+/**
+ * Extract formatted text from alignment results
+ */
+const extractFormattedTextFromAlignment = (alignmentResult: any, selectedDraft: number | 'consensus' | 'best'): string | null => {
+  if (!alignmentResult?.success || !alignmentResult.alignment_results?.blocks) {
+    return null;
+  }
+
+  const blocks = alignmentResult.alignment_results.blocks;
+  const blockTexts: string[] = [];
+
+  // Process each block
+  for (const [blockId, blockData] of Object.entries(blocks)) {
+    const alignedSequences = (blockData as any)?.aligned_sequences || [];
+    
+    if (alignedSequences.length === 0) continue;
+
+    let selectedSequence = null;
+
+    // Find the sequence for the selected draft
+    if (typeof selectedDraft === 'number') {
+      // Find sequence by draft index
+      selectedSequence = alignedSequences.find((seq: any) => {
+        return seq.draft_id === `Draft_${selectedDraft + 1}` || 
+               seq.draft_id === `draft_${selectedDraft + 1}` ||
+               seq.draft_id === `Draft ${selectedDraft + 1}`;
+      });
+      
+      // Fallback to array index if draft_id doesn't match
+      if (!selectedSequence && selectedDraft < alignedSequences.length) {
+        selectedSequence = alignedSequences[selectedDraft];
+      }
+    } else if (selectedDraft === 'consensus' || selectedDraft === 'best') {
+      // For consensus/best, use the first sequence as default
+      selectedSequence = alignedSequences[0];
+    }
+
+    if (selectedSequence && selectedSequence.tokens) {
+      // Extract non-gap tokens and join them
+      const tokens = selectedSequence.tokens.filter((token: string) => token && token !== '-');
+      const blockText = tokens.join(' ');
+      blockTexts.push(blockText);
+    }
+  }
+
+  return blockTexts.join('\n\n');
+};
+
+export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensusStrategy, alignmentResult }: TextSelectionParams): string => {
   if (!selectedResult || selectedResult.status !== 'completed' || !selectedResult.result) {
     return selectedResult?.error || 'No result available';
   }
@@ -15,6 +64,16 @@ export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensu
   if (error) return error;
   if (!result) return 'No result available';
 
+  // PRIORITY 1: Use formatted text from alignment results if available
+  if (alignmentResult?.success) {
+    const formattedText = extractFormattedTextFromAlignment(alignmentResult, selectedDraft);
+    if (formattedText) {
+      console.log('🎨 Using formatted text from alignment results');
+      return isJsonResult(formattedText) ? formatJsonAsText(formattedText) : formattedText;
+    }
+  }
+
+  // PRIORITY 2: Fall back to original redundancy analysis logic
   const redundancyAnalysis = result.metadata?.redundancy_analysis;
   
   // Use selected consensus strategy if available
@@ -61,7 +120,7 @@ export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensu
   return isJsonResult(fallbackText) ? formatJsonAsText(fallbackText) : fallbackText;
 };
 
-export const getRawText = ({ selectedResult, selectedDraft, selectedConsensusStrategy }: TextSelectionParams): string => {
+export const getRawText = ({ selectedResult, selectedDraft, selectedConsensusStrategy, alignmentResult }: TextSelectionParams): string => {
   if (!selectedResult || selectedResult.status !== 'completed' || !selectedResult.result) {
     return selectedResult?.error || 'No result available';
   }
@@ -70,6 +129,16 @@ export const getRawText = ({ selectedResult, selectedDraft, selectedConsensusStr
   if (error) return error;
   if (!result) return 'No result available';
 
+  // PRIORITY 1: Use formatted text from alignment results if available
+  if (alignmentResult?.success) {
+    const formattedText = extractFormattedTextFromAlignment(alignmentResult, selectedDraft);
+    if (formattedText) {
+      console.log('🎨 Using formatted text from alignment results');
+      return isJsonResult(formattedText) ? formatJsonAsText(formattedText) : formattedText;
+    }
+  }
+
+  // PRIORITY 2: Fall back to original redundancy analysis logic
   const redundancyAnalysis = result.metadata?.redundancy_analysis;
   
   // Use selected consensus strategy if available

@@ -40,6 +40,7 @@ interface ResultsViewerProps {
       blockTexts: string[];
     };
     editedFromDraft?: number | 'consensus' | 'best' | null;
+    editHistory?: any[]; // Allow any edit history format
   };
   onUndoEdit?: () => void;
   onRedoEdit?: () => void;

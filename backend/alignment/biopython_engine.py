@@ -91,16 +91,11 @@ class BioPythonAlignmentEngine:
             # Calculate processing time
             processing_time = time.time() - start_time
             
-            # --- Sanitize alignment_results before returning ---
-            # The raw alignment_results contain non-serializable BioPython objects.
-            # We create a simplified version that only contains the data needed by the frontend.
-            simplified_alignment_results = {
-                'blocks': {
-                    block_id: {
-                        'aligned_sequences': block_data.get('aligned_sequences', [])
-                    } for block_id, block_data in alignment_results.get('blocks', {}).items()
-                }
-            }
+            # --- Create frontend-ready alignment results ---
+            # Replace raw tokens with properly formatted text for frontend display
+            simplified_alignment_results = self._create_frontend_alignment_results(
+                alignment_results, tokenized_data
+            )
             
             # Compile final results
             final_results = {
@@ -353,6 +348,132 @@ class BioPythonAlignmentEngine:
             aligned_tokens, format_mapping, original_to_alignment
         )
     
+    def _create_frontend_alignment_results(self, alignment_results: Dict[str, Any], 
+                                         tokenized_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create frontend-ready alignment results with reformatted text instead of raw tokens.
+        
+        This method replaces the raw tokenized sequences with properly formatted text
+        that preserves original formatting (degrees, parentheses, etc.) for display.
+        The confidence mapping remains 1:1 with token positions.
+        
+        Args:
+            alignment_results: Raw alignment results from the consistency aligner
+            tokenized_data: Original tokenized data with format mappings
+            
+        Returns:
+            Dictionary with frontend-ready alignment results containing formatted text
+        """
+        logger.info("🎨 FRONTEND FORMATTING ► Converting raw tokens to formatted text")
+        
+        # Import format reconstruction utilities
+        from .format_mapping import FormatMapping, TokenPosition, FormatMapper
+        
+        frontend_blocks = {}
+        format_mapper = FormatMapper()
+        
+        for block_id, block_data in alignment_results.get('blocks', {}).items():
+            aligned_sequences = block_data.get('aligned_sequences', [])
+            
+            # Get format mappings for this block
+            tokenized_block = tokenized_data.get('blocks', {}).get(block_id, {})
+            format_mappings = tokenized_block.get('format_mappings', {})
+            
+            frontend_sequences = []
+            
+            for seq_data in aligned_sequences:
+                draft_id = seq_data.get('draft_id')
+                aligned_tokens = seq_data.get('tokens', [])
+                original_to_alignment = seq_data.get('original_to_alignment', [])
+                
+                # Get format mapping for this draft
+                format_mapping = format_mappings.get(draft_id)
+                
+                if format_mapping and aligned_tokens:
+                    # Reconstruct formatted tokens while preserving alignment structure
+                    try:
+                        # Create FormatMapping object from serialized data
+                        token_positions = []
+                        for pos_data in format_mapping.token_positions:
+                            token_positions.append(TokenPosition(
+                                token_index=pos_data.token_index,
+                                start_char=pos_data.start_char,
+                                end_char=pos_data.end_char,
+                                original_text=pos_data.original_text,
+                                normalized_text=pos_data.normalized_text
+                            ))
+                        
+                        format_mapping_obj = FormatMapping(
+                            draft_id=format_mapping.draft_id,
+                            original_text=format_mapping.original_text,
+                            token_positions=token_positions
+                        )
+                        
+                        # Create formatted tokens array preserving gaps
+                        formatted_tokens = []
+                        non_gap_tokens = [t for t in aligned_tokens if t != '-']
+                        
+                        # Get formatted versions of non-gap tokens
+                        formatted_non_gap_tokens = []
+                        for token in non_gap_tokens:
+                            # Find the corresponding formatted token
+                            formatted_token = None
+                            for pos in token_positions:
+                                if pos.normalized_text.lower() == token.lower():
+                                    formatted_token = pos.original_text
+                                    break
+                            
+                            if formatted_token:
+                                formatted_non_gap_tokens.append(formatted_token)
+                            else:
+                                formatted_non_gap_tokens.append(token)  # Fallback
+                        
+                        # Reconstruct aligned sequence with gaps preserved
+                        non_gap_idx = 0
+                        for token in aligned_tokens:
+                            if token == '-':
+                                formatted_tokens.append('-')
+                            else:
+                                if non_gap_idx < len(formatted_non_gap_tokens):
+                                    formatted_tokens.append(formatted_non_gap_tokens[non_gap_idx])
+                                    non_gap_idx += 1
+                                else:
+                                    formatted_tokens.append(token)  # Fallback
+                        
+                        logger.info(f"✅ Formatted {draft_id} in {block_id}: {len(aligned_tokens)} tokens with formatting")
+                        
+                        frontend_sequences.append({
+                            'draft_id': draft_id,
+                            'tokens': formatted_tokens,
+                            'original_to_alignment': original_to_alignment
+                        })
+                        
+                    except Exception as e:
+                        logger.warning(f"⚠️ Format reconstruction failed for {draft_id} in {block_id}: {e}")
+                        # Fallback to original tokens
+                        frontend_sequences.append({
+                            'draft_id': draft_id,
+                            'tokens': aligned_tokens,
+                            'original_to_alignment': original_to_alignment
+                        })
+                else:
+                    # No format mapping available - use original tokens
+                    frontend_sequences.append({
+                        'draft_id': draft_id,
+                        'tokens': aligned_tokens,
+                        'original_to_alignment': original_to_alignment
+                    })
+            
+            frontend_blocks[block_id] = {
+                'aligned_sequences': frontend_sequences
+            }
+        
+        logger.info(f"✅ FRONTEND FORMATTING COMPLETE ► Processed {len(frontend_blocks)} blocks")
+        
+        return {
+            'blocks': frontend_blocks
+        }
+
     def generate_consensus_text(self, alignment_results: Dict[str, Any],
                                confidence_results: Dict[str, Any],
                                consensus_strategy: str = 'highest_confidence') -> str:

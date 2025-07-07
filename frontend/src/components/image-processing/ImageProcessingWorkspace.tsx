@@ -61,9 +61,14 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       return editableDraft.editableDraftState.editedDraft.content;
     }
     
-    // Show original text when toggle is off or no edits
-    return editableDraft.editableDraftState.originalDraft.content;
-  }, [editableDraft.editableDraftState, showEditedVersion, selectedDraft]);
+    // Use alignment results if available, otherwise fall back to original text
+    return getCurrentText({ 
+      selectedResult: imageProcessing.selectedResult, 
+      selectedDraft, 
+      selectedConsensusStrategy: alignmentState.selectedConsensusStrategy,
+      alignmentResult: alignmentState.alignmentState.alignmentResult
+    });
+  }, [editableDraft.editableDraftState, showEditedVersion, selectedDraft, imageProcessing.selectedResult, alignmentState.selectedConsensusStrategy, alignmentState.alignmentState.alignmentResult]);
 
   const getRawTextCallback = useCallback(() => {
     // Check if we should show edited version or original
@@ -75,13 +80,14 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       return editableDraft.editableDraftState.editedDraft.content;
     }
     
-    // Use the text selection utilities directly
+    // Use alignment results if available, otherwise fall back to original text
     return getRawText({ 
       selectedResult: imageProcessing.selectedResult, 
       selectedDraft, 
-      selectedConsensusStrategy: alignmentState.selectedConsensusStrategy 
+      selectedConsensusStrategy: alignmentState.selectedConsensusStrategy,
+      alignmentResult: alignmentState.alignmentState.alignmentResult
     });
-  }, [selectedDraft, imageProcessing.selectedResult, editableDraft.editableDraftState, showEditedVersion, alignmentState.selectedConsensusStrategy]);
+  }, [selectedDraft, imageProcessing.selectedResult, editableDraft.editableDraftState, showEditedVersion, alignmentState.selectedConsensusStrategy, alignmentState.alignmentState.alignmentResult]);
 
   const isCurrentResultJsonCallback = useCallback(() => {
     const rawText = getRawTextCallback();

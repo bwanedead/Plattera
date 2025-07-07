@@ -182,8 +182,14 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
         console.log(`📝 Original alignment tokens for block ${blockIndex}:`, {
           allTokens: selectedSequence.tokens,
           filteredTokens: displayTokens,
-          tokenCount: displayTokens.length
+          tokenCount: displayTokens.length,
+          formattingApplied: selectedSequence.formatting_applied || false
         });
+        
+        // Log when formatted tokens are being used
+        if (selectedSequence.formatting_applied) {
+          console.log(`🎨 FORMATTED TOKENS ACTIVE ► Block ${blockIndex} using formatted text with original symbols`);
+        }
       } else {
         displayTokens = [];
         console.warn(`❌ No tokens found for block ${blockIndex}`);
