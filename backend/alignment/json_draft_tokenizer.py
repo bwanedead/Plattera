@@ -17,6 +17,7 @@ import os
 
 from .alignment_config import ANCHOR_PATTERNS
 from .alignment_utils import encode_tokens_for_alignment
+from .format_mapping import FormatMapper
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,9 @@ class JsonDraftTokenizer:
                                            for pattern in self.coordinate_patterns]
         self.compiled_anchor_patterns = {name: re.compile(pattern) 
                                        for name, pattern in ANCHOR_PATTERNS.items()}
+        
+        # NEW: Initialize format mapper for preserving formatting
+        self.format_mapper = FormatMapper()
     
     def process_json_drafts(self, draft_jsons: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -235,6 +239,16 @@ class JsonDraftTokenizer:
                 'token_count': draft_data['token_count']
             })
         
+        # NEW: Create format mappings for each draft (non-breaking addition)
+        format_mappings = {}
+        for draft_data in tokenized_drafts:
+            mapping = self.format_mapper.create_mapping(
+                draft_data['draft_id'],
+                draft_data['text'],
+                draft_data['tokens']
+            )
+            format_mappings[draft_data['draft_id']] = mapping
+        
         return {
             'block_id': block_id,
             'tokenized_drafts': tokenized_drafts,
@@ -242,7 +256,9 @@ class JsonDraftTokenizer:
             'token_to_id': token_to_id,
             'id_to_token': id_to_token,
             'unique_token_count': len(token_to_id),
-            'draft_count': len(encoded_drafts)
+            'draft_count': len(encoded_drafts),
+            # NEW: Add format mappings (pure addition - no existing functionality changed)
+            'format_mappings': format_mappings
         }
     
     def _normalize_text(self, text: str) -> str:

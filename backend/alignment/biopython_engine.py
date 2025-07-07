@@ -15,6 +15,7 @@ from .json_draft_tokenizer import JsonDraftTokenizer, create_sample_json_drafts
 from .consistency_aligner import ConsistencyBasedAligner
 from .confidence_scorer import BioPythonConfidenceScorer
 from .visualizer import BioPythonAlignmentVisualizer
+from .format_mapping import FormatMapper
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +121,11 @@ class BioPythonAlignmentEngine:
                         } for seq in block_data['aligned_sequences']
                     ]
                     for block_id, block_data in alignment_results['blocks'].items()
-                }
+                },
+                # NEW: Add format reconstruction capability (pure addition)
+                'format_reconstruction': self._create_format_reconstruction(
+                    tokenized_data, alignment_results
+                )
             }
             
             # Log final statistics
@@ -228,6 +233,125 @@ class BioPythonAlignmentEngine:
             'alignment_method': 'BioPython Consistency-Based MSA',
             'estimated_tcoffee_accuracy': '95-98%'
         }
+    
+    def _create_format_reconstruction(self, tokenized_data: Dict[str, Any], 
+                                    alignment_results: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create format reconstruction data for restoring original formatting.
+        
+        Args:
+            tokenized_data: Output from tokenizer with format mappings
+            alignment_results: Results from alignment process
+            
+        Returns:
+            Dictionary with format reconstruction data for each block and draft
+        """
+        reconstruction_data = {}
+        
+        for block_id, block_data in tokenized_data.get('blocks', {}).items():
+            format_mappings = block_data.get('format_mappings', {})
+            
+            if not format_mappings:
+                # No format mappings available for this block
+                continue
+            
+            # Get alignment results for this block
+            alignment_block = alignment_results.get('blocks', {}).get(block_id, {})
+            aligned_sequences = alignment_block.get('aligned_sequences', [])
+            
+            block_reconstruction = {}
+            
+            for seq_data in aligned_sequences:
+                draft_id = seq_data.get('draft_id')
+                aligned_tokens = seq_data.get('tokens', [])
+                original_to_alignment = seq_data.get('original_to_alignment', [])
+                
+                # Get format mapping for this draft
+                format_mapping = format_mappings.get(draft_id)
+                
+                if format_mapping and aligned_tokens:
+                    # Create reconstruction data
+                    block_reconstruction[draft_id] = {
+                        'aligned_tokens': aligned_tokens,
+                        'original_to_alignment': original_to_alignment,
+                        'format_mapping': {
+                            'draft_id': format_mapping.draft_id,
+                            'original_text': format_mapping.original_text,
+                            'token_positions': [
+                                {
+                                    'token_index': pos.token_index,
+                                    'start_char': pos.start_char,
+                                    'end_char': pos.end_char,
+                                    'original_text': pos.original_text,
+                                    'normalized_text': pos.normalized_text
+                                }
+                                for pos in format_mapping.token_positions
+                            ]
+                        }
+                    }
+            
+            if block_reconstruction:
+                reconstruction_data[block_id] = block_reconstruction
+        
+        return {
+            'blocks': reconstruction_data,
+            'reconstruction_available': len(reconstruction_data) > 0
+        }
+    
+    def reconstruct_formatted_text(self, block_id: str, draft_id: str, 
+                                 format_reconstruction: Dict[str, Any]) -> str:
+        """
+        Reconstruct formatted text for a specific block and draft.
+        
+        Args:
+            block_id: ID of the block to reconstruct
+            draft_id: ID of the draft to reconstruct
+            format_reconstruction: Format reconstruction data from alignment results
+            
+        Returns:
+            Reconstructed text with original formatting restored
+        """
+        if not format_reconstruction.get('reconstruction_available', False):
+            return ""
+        
+        blocks = format_reconstruction.get('blocks', {})
+        block_data = blocks.get(block_id, {})
+        draft_data = block_data.get(draft_id, {})
+        
+        if not draft_data:
+            return ""
+        
+        aligned_tokens = draft_data.get('aligned_tokens', [])
+        original_to_alignment = draft_data.get('original_to_alignment', [])
+        format_mapping_data = draft_data.get('format_mapping', {})
+        
+        if not aligned_tokens or not format_mapping_data:
+            return ""
+        
+        # Create a temporary FormatMapping object from the serialized data
+        from .format_mapping import FormatMapping, TokenPosition
+        
+        token_positions = []
+        for pos_data in format_mapping_data.get('token_positions', []):
+            token_positions.append(TokenPosition(
+                token_index=pos_data['token_index'],
+                start_char=pos_data['start_char'],
+                end_char=pos_data['end_char'],
+                original_text=pos_data['original_text'],
+                normalized_text=pos_data['normalized_text']
+            ))
+        
+        format_mapping = FormatMapping(
+            draft_id=format_mapping_data['draft_id'],
+            original_text=format_mapping_data['original_text'],
+            token_positions=token_positions
+        )
+        
+        # Use the format mapper to reconstruct the text
+        format_mapper = FormatMapper()
+        return format_mapper.reconstruct_formatted_text(
+            aligned_tokens, format_mapping, original_to_alignment
+        )
     
     def generate_consensus_text(self, alignment_results: Dict[str, Any],
                                confidence_results: Dict[str, Any],
