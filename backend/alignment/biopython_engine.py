@@ -392,30 +392,21 @@ class BioPythonAlignmentEngine:
                 if format_mapping and aligned_tokens:
                     # Reconstruct formatted tokens while preserving alignment structure
                     try:
-                        # Create FormatMapping object from serialized data
-                        token_positions = []
-                        for pos_data in format_mapping.token_positions:
-                            token_positions.append(TokenPosition(
-                                token_index=pos_data.token_index,
-                                start_char=pos_data.start_char,
-                                end_char=pos_data.end_char,
-                                original_text=pos_data.original_text,
-                                normalized_text=pos_data.normalized_text
-                            ))
-                        
-                        format_mapping_obj = FormatMapping(
-                            draft_id=format_mapping.draft_id,
-                            original_text=format_mapping.original_text,
-                            token_positions=token_positions
-                        )
+                        # format_mapping is already a FormatMapping object
+                        token_positions = format_mapping.token_positions
                         
                         # Create formatted tokens array preserving gaps
                         formatted_tokens = []
                         non_gap_tokens = [t for t in aligned_tokens if t != '-']
                         
-                        # Get formatted versions of non-gap tokens
+                        # Get formatted versions of non-gap tokens using a simpler approach
                         formatted_non_gap_tokens = []
-                        for token in non_gap_tokens:
+                        skip_indices = set()  # Track which tokens to skip due to merging
+                        
+                        for i, token in enumerate(non_gap_tokens):
+                            if i in skip_indices:
+                                continue
+                                
                             # Find the corresponding formatted token
                             formatted_token = None
                             for pos in token_positions:
@@ -425,8 +416,48 @@ class BioPythonAlignmentEngine:
                             
                             if formatted_token:
                                 formatted_non_gap_tokens.append(formatted_token)
+                                
+                                # Check if this is a multi-token pattern (like N.37°15'W.)
+                                # If so, skip the following tokens that are part of this pattern
+                                if '°' in formatted_token:
+                                    # This is a degree pattern, skip related tokens
+                                    j = i + 1
+                                    while j < len(non_gap_tokens) and j < i + 6:  # Max 6 tokens ahead
+                                        next_token = non_gap_tokens[j]
+                                        # Skip numbers, directions, and quote-related tokens
+                                        if (next_token.isdigit() or 
+                                            next_token.lower() in ['n', 's', 'e', 'w'] or
+                                            next_token in ["'", '"'] or
+                                            len(next_token) <= 2):  # Skip short tokens like '00'
+                                            skip_indices.add(j)
+                                            j += 1
+                                        else:
+                                            break
+                                elif '(' in formatted_token and ')' in formatted_token:
+                                    # Parentheses pattern - usually single token, no skipping needed
+                                    pass
+                                elif ',' in formatted_token and formatted_token.replace(',', '').isdigit():
+                                    # Comma number pattern - usually single token, no skipping needed  
+                                    pass
                             else:
-                                formatted_non_gap_tokens.append(token)  # Fallback
+                                # No formatting found - use original token
+                                formatted_non_gap_tokens.append(token)
+                        
+                        # Post-process to restore common formatting patterns not caught by mapper
+                        final_formatted_tokens = []
+                        for token in formatted_non_gap_tokens:
+                            # Restore comma formatting for 4+ digit numbers
+                            if token.isdigit() and len(token) >= 4:
+                                # Add comma for thousands separator
+                                if len(token) == 4:
+                                    token = f"{token[0]},{token[1:]}"
+                                elif len(token) == 5:
+                                    token = f"{token[:2]},{token[2:]}"
+                                elif len(token) == 6:
+                                    token = f"{token[:3]},{token[3:]}"
+                            final_formatted_tokens.append(token)
+                        
+                        formatted_non_gap_tokens = final_formatted_tokens
                         
                         # Reconstruct aligned sequence with gaps preserved
                         non_gap_idx = 0
@@ -445,7 +476,8 @@ class BioPythonAlignmentEngine:
                         frontend_sequences.append({
                             'draft_id': draft_id,
                             'tokens': formatted_tokens,
-                            'original_to_alignment': original_to_alignment
+                            'original_to_alignment': original_to_alignment,
+                            'formatting_applied': True  # Flag to indicate formatting was applied
                         })
                         
                     except Exception as e:
@@ -454,14 +486,16 @@ class BioPythonAlignmentEngine:
                         frontend_sequences.append({
                             'draft_id': draft_id,
                             'tokens': aligned_tokens,
-                            'original_to_alignment': original_to_alignment
+                            'original_to_alignment': original_to_alignment,
+                            'formatting_applied': False
                         })
                 else:
                     # No format mapping available - use original tokens
                     frontend_sequences.append({
                         'draft_id': draft_id,
                         'tokens': aligned_tokens,
-                        'original_to_alignment': original_to_alignment
+                        'original_to_alignment': original_to_alignment,
+                        'formatting_applied': False
                     })
             
             frontend_blocks[block_id] = {

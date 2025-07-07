@@ -138,6 +138,10 @@ class JsonDraftTokenizer:
         """
         Parses drafts to extract text from each section, grouping corresponding sections across drafts.
         
+        Handles two cases:
+        1. JSON payload in first block's text (legacy format)
+        2. Simple text blocks (new format)
+        
         Returns:
             Dict[block_id, Dict[draft_id, text]] 
             e.g. {'section_1': {'Draft_1': 'text...', 'Draft_2': 'text...'}, 'section_2': ...}
@@ -147,19 +151,22 @@ class JsonDraftTokenizer:
         for draft_container in draft_jsons:
             draft_id = draft_container.get('draft_id')
             
-            # The frontend sends the entire JSON payload as the 'text' of a single block.
             if not draft_container.get('blocks'):
                 continue
-            full_json_string = draft_container['blocks'][0].get('text', '')
-
+            
+            # Check if this is a JSON payload or simple text blocks
+            first_block_text = draft_container['blocks'][0].get('text', '')
+            
+            # Try to parse as JSON first (legacy format)
             try:
-                document_data = json.loads(full_json_string)
+                document_data = json.loads(first_block_text)
                 sections = document_data.get('sections', [])
                 
                 if not isinstance(sections, list):
                     logger.warning(f"Draft '{draft_id}' has a 'sections' field that is not a list. Skipping.")
                     continue
 
+                # Process JSON sections (legacy format)
                 for section in sections:
                     section_id = section.get('id')
                     if section_id is None:
@@ -175,10 +182,18 @@ class JsonDraftTokenizer:
                     blocks_by_id[block_id_key][draft_id] = section_text
 
             except json.JSONDecodeError:
-                logger.error(f"Failed to parse JSON for draft '{draft_id}'. Skipping.")
-                continue
+                # Not JSON, treat as simple text blocks (new format)
+                logger.info(f"Draft '{draft_id}' contains simple text blocks, not JSON payload.")
+                
+                for block in draft_container['blocks']:
+                    block_id = block.get('id')
+                    block_text = block.get('text', '')
+                    
+                    if block_id and block_text:
+                        blocks_by_id[block_id][draft_id] = block_text
+                        
             except Exception as e:
-                logger.error(f"Error processing sections for draft '{draft_id}': {e}")
+                logger.error(f"Error processing blocks for draft '{draft_id}': {e}")
                 continue
 
         return dict(blocks_by_id)
