@@ -1,0 +1,149 @@
+.suggestion-popup {
+  position: fixed;
+  z-index: 1000;
+  width: 160px; /* Slimmer - reduced from 180px */
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px; /* Slightly smaller radius for sleeker look */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  font-family: inherit; /* Use app's font family */
+  font-size: 0.85rem; /* Smaller font for compactness */
+  transition: opacity 0.12s ease, transform 0.12s ease; /* Faster transitions */
+  opacity: 0;
+  transform: translateY(3px) scale(0.98); /* Subtler entrance */
+  pointer-events: none;
+}
+
+.suggestion-popup.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.confidence-display {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  z-index: 1001;
+  font-size: 10px; /* Smaller font */
+  color: var(--text-secondary);
+  font-weight: 600;
+  background-color: var(--bg-tertiary);
+  padding: 1px 4px; /* Tighter padding */
+  border-radius: 3px; /* Smaller radius */
+  border: 1px solid var(--border-color);
+}
+
+.suggestion-content {
+  padding: 8px 3px 3px 3px; /* Tighter padding all around */
+  max-height: 120px; /* Reduced height */
+  overflow-y: auto;
+}
+
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 5px 6px; /* Tighter padding */
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 3px; /* Smaller radius */
+  transition: background-color 0.12s ease;
+  gap: 6px; /* Smaller gap */
+  font-size: 0.8rem; /* Smaller font */
+}
+
+.suggestion-item:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.suggestion-item.current-word {
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 2px; /* Tighter margin */
+  background-color: rgba(var(--accent-primary-rgb), 0.08); /* Subtle highlight */
+}
+
+.option-icon {
+  font-size: 12px; /* Smaller icons */
+  color: var(--accent-primary);
+  flex-shrink: 0;
+  width: 14px; /* Smaller width */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.option-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.alternative-text {
+  font-size: 0.8rem; /* Smaller font */
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.2; /* Tighter line height */
+  word-break: break-word;
+}
+
+.alternative-source {
+  font-size: 9px; /* Much smaller font */
+  color: var(--text-secondary);
+  margin-top: 1px; /* Tighter margin */
+  opacity: 0.8;
+}
+
+.no-alternatives {
+  padding: 8px 6px; /* Tighter padding */
+  font-size: 0.75rem; /* Smaller font */
+  color: var(--text-secondary);
+  text-align: center;
+  font-style: italic;
+}
+
+.suggestion-footer {
+  padding: 2px 3px; /* Much tighter padding */
+  border-top: 1px solid var(--border-color);
+}
+
+.edit-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px; /* Smaller gap */
+  width: 100%;
+  padding: 4px 6px; /* Much tighter padding */
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.75rem; /* Smaller font */
+  font-weight: 500;
+  color: var(--accent-primary);
+  border-radius: 3px; /* Smaller radius */
+  transition: background-color 0.12s ease;
+}
+
+.edit-button:hover {
+  background-color: var(--bg-tertiary);
+}
+
+/* Scrollbar styling for webkit browsers */
+.suggestion-content::-webkit-scrollbar {
+  width: 4px; /* Thinner scrollbar */
+}
+.suggestion-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+.suggestion-content::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 2px;
+}
+.suggestion-content::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-secondary);
+} 

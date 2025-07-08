@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { AlignmentResult } from '../../types/imageProcessing';
 import { extractCleanText } from '../../utils/jsonFormatter';
+import { SuggestionPopup, SuggestionAlternative } from './SuggestionPopup';
 
 interface WordAlternative {
   word: string;
@@ -92,13 +93,13 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
         const tokensAtPosition = sequences.map((seq: any) => seq.tokens?.[position] || '-');
         
         // Filter out gaps and empty tokens
-        const validTokens = tokensAtPosition.filter(token => token && token !== '-');
+        const validTokens = tokensAtPosition.filter((token: string) => token && token !== '-');
         
         if (validTokens.length === 0) continue;
         
         // Calculate agreement percentage
         const tokenCounts = new Map<string, number>();
-        validTokens.forEach(token => {
+        validTokens.forEach((token: string) => {
           const normalizedToken = token.toLowerCase().trim();
           tokenCounts.set(normalizedToken, (tokenCounts.get(normalizedToken) || 0) + 1);
         });
@@ -111,7 +112,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
           if (count > maxCount) {
             maxCount = count;
             // Find the original case version of this token
-            consensusToken = validTokens.find(t => t.toLowerCase().trim() === token) || token;
+            consensusToken = validTokens.find((t: string) => t.toLowerCase().trim() === token) || token;
           }
         }
         
@@ -197,12 +198,11 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       
       return wordDataForBlock;
     });
-    
-    return processedBlocks.filter(block => block && block.length > 0);
 
-  }, [alignmentResult, editingWordIndex, humanConfirmedWords, editableDraftState, selectedDraft]);
+    return processedBlocks;
+  }, [alignmentResult, selectedDraft, editableDraftState, editingWordIndex, humanConfirmedWords]);
 
-  // Dynamic color gradient: Green → Yellow → Red based on agreement percentage
+  // Calculate confidence color based on agreement percentage
   const getConfidenceColor = useCallback((confidence: number, isHumanConfirmed: boolean, hasBeenEdited: boolean) => {
     if (hasBeenEdited) {
       return 'rgba(59, 130, 246, 0.35)'; // Blue background for edited words
@@ -272,9 +272,9 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       // Reset popup entry tracking
       hasEnteredPopup.current = false;
       
-      // Add delay before showing popup (200ms)
+      // Increased delay before showing popup (200ms)
       showPopupTimer.current = setTimeout(() => {
-      const rect = (event.target as HTMLElement).getBoundingClientRect();
+        const rect = (event.target as HTMLElement).getBoundingClientRect();
         const popupWidth = 180; // Estimated popup width
         const windowWidth = window.innerWidth;
         
@@ -298,8 +298,8 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
         }
         
         setPopupPosition({ x, y });
-      setActivePopup({ block: blockIndex, word: wordIndex });
-      }, 200); // 200ms delay
+        setActivePopup({ block: blockIndex, word: wordIndex });
+      }, 200); // Increased from 100ms to 200ms
     }
   };
 
@@ -326,12 +326,30 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   };
 
   const handlePopupLeave = () => {
-    // Much faster hide if user has already entered popup
-    const hideDelay = hasEnteredPopup.current ? 50 : 200; // Almost instant vs small delay
-    
-    hidePopupTimer.current = setTimeout(() => {
+    // Truly instant hide - no delay at all
+    if (hidePopupTimer.current) {
+      clearTimeout(hidePopupTimer.current);
+    }
     setActivePopup(null);
-    }, hideDelay);
+  };
+
+  // Add margin detection for instant disappearance
+  const handleMouseMove = (event: React.MouseEvent) => {
+    // Check if cursor is in margins (outside text area)
+    const target = event.target as HTMLElement;
+    const isInTextArea = target.closest('.confidence-word') || target.closest('.suggestion-popup');
+    
+    if (!isInTextArea && activePopup) {
+      // Clear all timers and hide popup instantly
+      if (hidePopupTimer.current) {
+        clearTimeout(hidePopupTimer.current);
+      }
+      if (showPopupTimer.current) {
+        clearTimeout(showPopupTimer.current);
+      }
+      setActivePopup(null);
+      setHoveredWord(null);
+    }
   };
 
   const handleSelectAlternative = (blockIndex: number, wordIndex: number, newWord: string) => {
@@ -408,7 +426,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   const activeWordData = activePopup ? blocksOfWordData[activePopup.block]?.[activePopup.word] : null;
 
   return (
-    <div className="confidence-heatmap-viewer">
+    <div className="confidence-heatmap-viewer" onMouseMove={handleMouseMove}>
       {blocksOfWordData.map((block, blockIndex) => (
         <div key={blockIndex} className="heatmap-block">
           <p>
@@ -447,61 +465,19 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       ))}
       
       {activePopup && activeWordData && (
-        <div
-          className="word-suggestion-popup"
-          style={{
-            position: 'fixed',
-            left: `${popupPosition.x}px`,
-            top: `${popupPosition.y}px`,
-            zIndex: 1000,
+        <SuggestionPopup
+          position={{ top: popupPosition.y, left: popupPosition.x }}
+          isVisible={true}
+          word={{
+            text: activeWordData.word,
+            confidence: activeWordData.confidence,
+            alternatives: activeWordData.alternatives.map(alt => ({ text: alt.word, source: alt.source }))
           }}
+          onSelectAlternative={(alternative) => handleSelectAlternative(activePopup.block, activePopup.word, alternative)}
+          onEdit={() => handleEditClick(activePopup.block, activePopup.word)}
           onMouseEnter={handlePopupEnter}
           onMouseLeave={handlePopupLeave}
-        >
-          {/* Confidence header */}
-          <div className="popup-header">
-            <span className="confidence-badge">{(activeWordData.confidence * 100).toFixed(0)}%</span>
-          </div>
-          
-          {/* Current word option */}
-          <div 
-            className="suggestion-option current-word"
-            onClick={() => handleSelectAlternative(activePopup.block, activePopup.word, activeWordData.word)}
-          >
-            <span className="option-icon">✓</span>
-            <div className="option-content">
-              <span className="option-text">{activeWordData.word}</span>
-            </div>
-          </div>
-          
-          {/* Alternative options */}
-          {activeWordData.alternatives.length > 1 && activeWordData.alternatives
-            .filter(alt => alt.word.toLowerCase() !== activeWordData.word.toLowerCase())
-            .map((alt, i) => (
-              <div 
-                key={i} 
-                className="suggestion-option alternative"
-                onClick={() => handleSelectAlternative(activePopup.block, activePopup.word, alt.word)}
-              >
-                <span className="option-icon">↻</span>
-                <div className="option-content">
-                  <span className="option-text">{alt.word}</span>
-                  <span className="option-source">{alt.source}</span>
-                </div>
-              </div>
-            ))}
-
-          {/* Manual edit option */}
-          <div 
-            className="suggestion-option edit-option"
-            onClick={() => handleEditClick(activePopup.block, activePopup.word)}
-          >
-            <span className="option-icon">✎</span>
-            <div className="option-content">
-              <span className="option-text">Edit</span>
-            </div>
-          </div>
-        </div>
+        />
       )}
     </div>
   );
