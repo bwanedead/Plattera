@@ -187,7 +187,7 @@
   margin-bottom: 8px;
 }
 
-/* Enhanced confidence word styling for better interaction */
+/* Enhanced confidence word styling with hover highlight */
 .confidence-word {
   padding: 2px 4px;
   border-radius: 3px;
@@ -195,26 +195,26 @@
   cursor: pointer;
   position: relative;
   display: inline-block;
+  border: 1px solid transparent;
 }
 
-.confidence-word:hover {
+.confidence-word:hover,
+.confidence-word.hovered {
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--accent-primary);
 }
 
 .confidence-word.high {
   background: rgba(0, 255, 136, 0.15);
-  border: 1px solid rgba(0, 255, 136, 0.3);
 }
 
 .confidence-word.medium {
   background: rgba(255, 170, 0, 0.15);
-  border: 1px solid rgba(255, 170, 0, 0.3);
 }
 
 .confidence-word.low {
   background: rgba(255, 107, 107, 0.15);
-  border: 1px solid rgba(255, 107, 107, 0.3);
 }
 
 /* Better word editing input */
@@ -465,6 +465,23 @@
   }
 }
 
+.popup-header {
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: center;
+}
+
+.confidence-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
 .suggestion-option {
   display: flex;
   align-items: flex-start;
@@ -579,6 +596,14 @@
   }
   
   .option-source {
+    font-size: 9px;
+  }
+  
+  .popup-header {
+    padding: 4px 8px;
+  }
+  
+  .confidence-badge {
     font-size: 9px;
   }
 } 

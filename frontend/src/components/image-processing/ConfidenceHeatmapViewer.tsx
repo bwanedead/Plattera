@@ -57,11 +57,13 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   const [editingWordIndex, setEditingWordIndex] = useState<{ block: number; word: number } | null>(null);
   const [editingValue, setEditingValue] = useState('');
   const [humanConfirmedWords, setHumanConfirmedWords] = useState<Set<string>>(new Set());
+  const [hoveredWord, setHoveredWord] = useState<{ block: number; word: number } | null>(null);
   
   const hidePopupTimer = useRef<NodeJS.Timeout | null>(null);
-  const showPopupTimer = useRef<NodeJS.Timeout | null>(null); // New timer for show delay
+  const showPopupTimer = useRef<NodeJS.Timeout | null>(null);
+  const hasEnteredPopup = useRef<boolean>(false); // Track if user has entered popup
 
-  // This is now an array of arrays, one for each block  
+  // This is now an array of arrays, one for each block
   const blocksOfWordData = useMemo<WordData[][]>(() => {
     if (!alignmentResult?.success) return [];
 
@@ -254,6 +256,10 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
 
   const handleWordHover = (blockIndex: number, wordIndex: number, event: React.MouseEvent) => {
     const wordInfo = blocksOfWordData[blockIndex]?.[wordIndex];
+    
+    // Set hovered word for highlighting
+    setHoveredWord({ block: blockIndex, word: wordIndex });
+    
     if (wordInfo && !wordInfo.isHumanConfirmed) {
       // Clear any existing timers
       if (hidePopupTimer.current) {
@@ -263,9 +269,12 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
         clearTimeout(showPopupTimer.current);
       }
       
+      // Reset popup entry tracking
+      hasEnteredPopup.current = false;
+      
       // Add delay before showing popup (200ms)
       showPopupTimer.current = setTimeout(() => {
-        const rect = (event.target as HTMLElement).getBoundingClientRect();
+      const rect = (event.target as HTMLElement).getBoundingClientRect();
         const popupWidth = 180; // Estimated popup width
         const windowWidth = window.innerWidth;
         
@@ -274,7 +283,8 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
         
         let x, y;
         if (shouldPositionLeft) {
-          x = rect.left - popupWidth - 8; // 8px to the left of the word
+          // Position closer to the word when on the left side
+          x = rect.left - popupWidth + rect.width + 4; // Much closer to the word
           y = rect.top - 4;
         } else {
           x = rect.right + 8; // 8px to the right of the word
@@ -288,12 +298,15 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
         }
         
         setPopupPosition({ x, y });
-        setActivePopup({ block: blockIndex, word: wordIndex });
+      setActivePopup({ block: blockIndex, word: wordIndex });
       }, 200); // 200ms delay
     }
   };
 
   const handleWordLeave = () => {
+    // Clear hovered word highlighting
+    setHoveredWord(null);
+    
     // Clear show timer if word is left before popup appears
     if (showPopupTimer.current) {
       clearTimeout(showPopupTimer.current);
@@ -302,20 +315,23 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
     // Longer delay to allow cursor movement to popup
     hidePopupTimer.current = setTimeout(() => {
       setActivePopup(null);
-    }, 800); // Increased to 800ms for easier cursor movement
+    }, 800); // 800ms for easier cursor movement
   };
 
   const handlePopupEnter = () => {
+    hasEnteredPopup.current = true; // Mark that user has entered popup
     if (hidePopupTimer.current) {
       clearTimeout(hidePopupTimer.current);
     }
   };
 
   const handlePopupLeave = () => {
-    // Small delay to prevent accidental closes
+    // Much faster hide if user has already entered popup
+    const hideDelay = hasEnteredPopup.current ? 50 : 200; // Almost instant vs small delay
+    
     hidePopupTimer.current = setTimeout(() => {
-      setActivePopup(null);
-    }, 200);
+    setActivePopup(null);
+    }, hideDelay);
   };
 
   const handleSelectAlternative = (blockIndex: number, wordIndex: number, newWord: string) => {
@@ -411,12 +427,14 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
                   />
                 );
               }
+              
+              const isHovered = hoveredWord?.block === blockIndex && hoveredWord?.word === wordIndex;
+              
               return (
                 <span
                   key={wordIndex}
-                  className="confidence-word"
+                  className={`confidence-word ${isHovered ? 'hovered' : ''}`}
                   style={{ backgroundColor: getConfidenceColor(data.confidence, data.isHumanConfirmed, data.hasBeenEdited) }}
-                  title={`Agreement: ${(data.confidence * 100).toFixed(0)}%`}
                   onMouseEnter={(e) => handleWordHover(blockIndex, wordIndex, e)}
                   onMouseLeave={handleWordLeave}
                 >
@@ -440,6 +458,11 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
           onMouseEnter={handlePopupEnter}
           onMouseLeave={handlePopupLeave}
         >
+          {/* Confidence header */}
+          <div className="popup-header">
+            <span className="confidence-badge">{(activeWordData.confidence * 100).toFixed(0)}%</span>
+          </div>
+          
           {/* Current word option */}
           <div 
             className="suggestion-option current-word"
