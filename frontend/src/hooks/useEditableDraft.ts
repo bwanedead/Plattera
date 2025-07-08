@@ -1,8 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { AlignmentResult } from '../types/imageProcessing';
 import { getCurrentText, getRawText } from '../utils/textSelectionUtils';
-// NEW: Import format reconstruction utilities (ready for integration)
-import { reconstructFormattedText, isFormatReconstructionAvailable } from '../utils/formatReconstruction';
 import { extractCleanText } from '../utils/jsonFormatter';
 
 interface EditOperation {

@@ -78,29 +78,6 @@ export interface AlignmentResult {
   confidence_results?: any;
   alignment_results?: any;
   error?: string;
-  // NEW: Format reconstruction data (non-breaking addition)
-  format_reconstruction?: {
-    blocks: {
-      [block_id: string]: {
-        [draft_id: string]: {
-          aligned_tokens: string[];
-          original_to_alignment: number[];
-          format_mapping: {
-            draft_id: string;
-            original_text: string;
-            token_positions: Array<{
-              token_index: number;
-              start_char: number;
-              end_char: number;
-              original_text: string;
-              normalized_text: string;
-            }>;
-          };
-        };
-      };
-    };
-    reconstruction_available: boolean;
-  };
 }
 
 export interface AlignmentState {
