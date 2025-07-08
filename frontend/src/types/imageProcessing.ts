@@ -108,6 +108,7 @@ export interface AlignmentState {
   alignmentResult: AlignmentResult | null;
   showHeatmap: boolean;
   showAlignmentPanel: boolean;
+  isSuggestionPopupEnabled?: boolean; // Optional for backward compatibility
 }
 
 export interface ConfidenceWord {

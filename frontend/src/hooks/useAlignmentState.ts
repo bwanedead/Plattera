@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { AlignmentState, AlignmentDraft } from '../types/imageProcessing';
+import { AlignmentState, AlignmentDraft, AlignmentResult } from '../types/imageProcessing';
 import { alignDraftsAPI } from '../services/imageProcessingApi';
 
 export const useAlignmentState = () => {
@@ -7,7 +7,8 @@ export const useAlignmentState = () => {
     isAligning: false,
     alignmentResult: null,
     showHeatmap: false,
-    showAlignmentPanel: false
+    showAlignmentPanel: false,
+    isSuggestionPopupEnabled: true // On by default
   });
   const [showAlignmentTable, setShowAlignmentTable] = useState(false);
   const [selectedConsensusStrategy, setSelectedConsensusStrategy] = useState<string>('highest_confidence');
@@ -44,9 +45,6 @@ export const useAlignmentState = () => {
       const alignmentResult = await alignDraftsAPI(drafts, selectedConsensusStrategy);
 
       console.log('📊 Alignment result received:', alignmentResult);
-      console.log('📊 Confidence results:', alignmentResult.confidence_results);
-      console.log('📊 Alignment results:', alignmentResult.alignment_results);
-      console.log('📊 Summary:', alignmentResult.summary);
 
       setAlignmentState(prev => ({
         ...prev,
@@ -55,36 +53,36 @@ export const useAlignmentState = () => {
         showAlignmentPanel: true
       }));
 
-      if (alignmentResult.success) {
-        console.log('✅ Alignment completed successfully:', alignmentResult);
-      } else {
-        console.error('❌ Alignment failed:', alignmentResult.error);
-      }
     } catch (error) {
       console.error('💥 Error during alignment:', error);
+      
+      const errorResult: AlignmentResult = {
+        success: false,
+        processing_time: 0,
+        summary: {
+          total_positions_analyzed: 0,
+          total_differences_found: 0,
+          average_confidence_score: 0,
+          quality_assessment: 'Failed',
+          confidence_distribution: { high: 0, medium: 0, low: 0 }
+        },
+        error: error instanceof Error ? error.message : 'Unknown alignment error'
+      };
+
       setAlignmentState(prev => ({
         ...prev,
         isAligning: false,
-        alignmentResult: {
-          success: false,
-          processing_time: 0,
-          summary: {
-            total_positions: 0,
-            total_differences: 0,
-            average_confidence: 0,
-            quality_assessment: 'Failed',
-            high_confidence_positions: 0,
-            medium_confidence_positions: 0,
-            low_confidence_positions: 0
-          },
-          error: error instanceof Error ? error.message : 'Unknown alignment error'
-        }
+        alignmentResult: errorResult,
       }));
     }
   }, [selectedConsensusStrategy]);
 
   const toggleHeatmap = useCallback((show: boolean) => {
     setAlignmentState(prev => ({ ...prev, showHeatmap: show }));
+  }, []);
+
+  const toggleSuggestionPopup = useCallback((enabled: boolean) => {
+    setAlignmentState(prev => ({ ...prev, isSuggestionPopupEnabled: enabled }));
   }, []);
 
   const closeAlignmentPanel = useCallback(() => {
@@ -100,12 +98,13 @@ export const useAlignmentState = () => {
   }, []);
 
   const resetAlignmentState = useCallback(() => {
-    setAlignmentState({
+    setAlignmentState(prev => ({
       isAligning: false,
       alignmentResult: null,
       showHeatmap: false,
-      showAlignmentPanel: false
-    });
+      showAlignmentPanel: false,
+      isSuggestionPopupEnabled: prev.isSuggestionPopupEnabled
+    }));
   }, []);
 
   return {
@@ -115,6 +114,7 @@ export const useAlignmentState = () => {
     setSelectedConsensusStrategy,
     handleAlign,
     toggleHeatmap,
+    toggleSuggestionPopup,
     closeAlignmentPanel,
     toggleAlignmentTable,
     resetAlignmentState,
