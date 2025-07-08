@@ -59,7 +59,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const hidePopupTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // This is now an array of arrays, one for each block
+  // This is now an array of arrays, one for each block  
   const blocksOfWordData = useMemo<WordData[][]>(() => {
     if (!alignmentResult?.success) return [];
 
@@ -70,39 +70,52 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       const alignmentBlock = alignmentBlocks[blockId];
       if (!alignmentBlock || !alignmentBlock.aligned_sequences) return [];
 
-      // === CALCULATE MISALIGNMENTS FROM ALIGNMENT TABLE ===
-      console.log(`🔍 HEATMAP MISALIGNMENT CALCULATION ► Block ${blockIndex}`);
+      // === CALCULATE AGREEMENT PERCENTAGE FROM ALIGNMENT TABLE ===
+      console.log(`🌈 DYNAMIC HEATMAP CALCULATION ► Block ${blockIndex}`);
       
-      // Extract all aligned sequences (Draft_1, Draft_2, Draft_3, etc.)
       const sequences = alignmentBlock.aligned_sequences;
       if (!sequences || sequences.length < 2) return [];
 
-      // Get the maximum length to handle all positions
       const maxLength = Math.max(...sequences.map((seq: any) => seq.tokens?.length || 0));
-      console.log(`🔍 Block ${blockIndex} has ${sequences.length} drafts with max ${maxLength} tokens`);
+      const totalDrafts = sequences.length;
+      
+      console.log(`🌈 Block ${blockIndex}: ${totalDrafts} drafts, ${maxLength} positions`);
 
-      // For each position, check if all drafts agree
       const wordDataForBlock: WordData[] = [];
       
       for (let position = 0; position < maxLength; position++) {
-        // Get tokens at this position from all drafts
+        // Get all tokens at this position
         const tokensAtPosition = sequences.map((seq: any) => seq.tokens?.[position] || '-');
         
         // Filter out gaps and empty tokens
         const validTokens = tokensAtPosition.filter(token => token && token !== '-');
         
-        if (validTokens.length === 0) continue; // Skip if no valid tokens
+        if (validTokens.length === 0) continue;
         
-        // Check if all valid tokens are the same (case-insensitive)
-        const uniqueTokens = [...new Set(validTokens.map(t => t.toLowerCase()))];
-        const hasMismatch = uniqueTokens.length > 1;
+        // Calculate agreement percentage
+        const tokenCounts = new Map<string, number>();
+        validTokens.forEach(token => {
+          const normalizedToken = token.toLowerCase().trim();
+          tokenCounts.set(normalizedToken, (tokenCounts.get(normalizedToken) || 0) + 1);
+        });
         
-        // Calculate confidence based on agreement
-        const confidence = hasMismatch ? 0.3 : 0.95; // Low confidence for mismatches
+        // Find the most common token and its count
+        let maxCount = 0;
+        let consensusToken = validTokens[0];
         
-        // Use the token from the selected draft, or first valid token
-        let displayToken = validTokens[0]; // Default to first valid token
+        for (const [token, count] of tokenCounts.entries()) {
+          if (count > maxCount) {
+            maxCount = count;
+            // Find the original case version of this token
+            consensusToken = validTokens.find(t => t.toLowerCase().trim() === token) || token;
+          }
+        }
         
+        // Calculate agreement percentage (0.0 to 1.0)
+        const agreementPercentage = maxCount / totalDrafts;
+        
+        // Use selected draft token if available, otherwise use consensus
+        let displayToken = consensusToken;
         if (typeof selectedDraft === 'number' && selectedDraft < sequences.length) {
           const selectedToken = sequences[selectedDraft]?.tokens?.[position];
           if (selectedToken && selectedToken !== '-') {
@@ -110,30 +123,35 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
           }
         }
         
-        // Create alternatives array from all different tokens
+        // Create alternatives from all unique tokens
         const alternatives: WordAlternative[] = [];
         const seenTokens = new Set<string>();
         
         sequences.forEach((seq: any, seqIndex: number) => {
           const token = seq.tokens?.[position];
-          if (token && token !== '-' && !seenTokens.has(token.toLowerCase())) {
-            alternatives.push({
-              word: token,
-              source: seq.draft_id || `Draft ${seqIndex + 1}`
-            });
-            seenTokens.add(token.toLowerCase());
+          if (token && token !== '-') {
+            const normalizedToken = token.toLowerCase().trim();
+            if (!seenTokens.has(normalizedToken)) {
+              alternatives.push({
+                word: token,
+                source: seq.draft_id || `Draft ${seqIndex + 1}`
+              });
+              seenTokens.add(normalizedToken);
+            }
           }
         });
 
-        // Log mismatches for debugging
-        if (hasMismatch) {
-          console.log(`🔍 MISMATCH at position ${position}:`, {
-            tokens: tokensAtPosition,
-            validTokens: validTokens,
-            uniqueTokens: uniqueTokens,
-            displayToken: displayToken,
-            confidence: confidence,
-            alternatives: alternatives
+        // Log detailed agreement analysis
+        if (agreementPercentage < 1.0) {
+          console.log(`🌈 DISAGREEMENT at position ${position}:`, {
+            totalDrafts,
+            validTokens,
+            tokenCounts: Object.fromEntries(tokenCounts),
+            maxCount,
+            agreementPercentage: `${(agreementPercentage * 100).toFixed(1)}%`,
+            consensusToken,
+            displayToken,
+            alternatives: alternatives.map(a => a.word)
           });
         }
 
@@ -144,7 +162,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
 
         wordDataForBlock.push({
           word: displayToken,
-          confidence: confidence,
+          confidence: agreementPercentage, // Use actual agreement percentage
           alternatives: alternatives,
           isEditable: false,
           isEditing: editingWordIndex?.block === blockIndex && editingWordIndex?.word === position,
@@ -153,7 +171,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
         });
       }
 
-      // Apply edits if we have them
+      // Apply edits if available
       if (editableDraftState?.hasUnsavedChanges && 
           editableDraftState?.editHistory && 
           editableDraftState?.editedFromDraft === selectedDraft) {
@@ -170,7 +188,9 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
         });
       }
 
-      console.log(`🔍 Block ${blockIndex} processed: ${wordDataForBlock.length} tokens, ${wordDataForBlock.filter(w => w.confidence < 0.5).length} mismatches`);
+      const disagreementCount = wordDataForBlock.filter(w => w.confidence < 1.0).length;
+      console.log(`🌈 Block ${blockIndex} processed: ${wordDataForBlock.length} tokens, ${disagreementCount} disagreements`);
+      
       return wordDataForBlock;
     });
     
@@ -178,25 +198,55 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
 
   }, [alignmentResult, editingWordIndex, humanConfirmedWords, editableDraftState, selectedDraft]);
 
-
+  // Dynamic color gradient: Green → Yellow → Red based on agreement percentage
   const getConfidenceColor = useCallback((confidence: number, isHumanConfirmed: boolean, hasBeenEdited: boolean) => {
     if (hasBeenEdited) {
-      return 'rgba(59, 130, 246, 0.3)'; // Blue background for edited words
+      return 'rgba(59, 130, 246, 0.35)'; // Blue background for edited words
     }
     
     if (isHumanConfirmed) {
-      return 'rgba(16, 185, 129, 0.25)'; // Emerald green for human-confirmed
+      return 'rgba(16, 185, 129, 0.3)'; // Emerald green for human-confirmed
     }
     
-    // Enhanced color coding for misalignments
-    if (confidence >= 0.9) {
-      return 'rgba(34, 197, 94, 0.15)'; // Light green for perfect agreement
-    } else if (confidence >= 0.7) {
-      return 'rgba(255, 193, 7, 0.2)'; // Yellow for minor disagreements
-    } else if (confidence >= 0.5) {
-      return 'rgba(255, 152, 0, 0.3)'; // Orange for moderate disagreements
+    // Create smooth gradient from green to yellow to red
+    // confidence is now the actual agreement percentage (0.0 to 1.0)
+    
+    if (confidence >= 0.95) {
+      // Very high agreement (95-100%) - Pure green
+      const intensity = 0.15 + (confidence - 0.95) * 0.1; // 0.15 to 0.25
+      return `rgba(34, 197, 94, ${intensity})`;
+    } else if (confidence >= 0.8) {
+      // High agreement (80-95%) - Green to light green
+      const intensity = 0.2 + (confidence - 0.8) * 0.2; // 0.2 to 0.4
+      return `rgba(74, 222, 128, ${intensity})`;
+    } else if (confidence >= 0.6) {
+      // Medium-high agreement (60-80%) - Light green to yellow-green
+      const ratio = (confidence - 0.6) / 0.2; // 0 to 1
+      const red = Math.round(154 + ratio * (255 - 154));   // 154 to 255
+      const green = Math.round(222 + ratio * (255 - 222)); // 222 to 255
+      const blue = Math.round(128 - ratio * 128);          // 128 to 0
+      return `rgba(${red}, ${green}, ${blue}, 0.35)`;
+    } else if (confidence >= 0.4) {
+      // Medium agreement (40-60%) - Yellow-green to yellow
+      const ratio = (confidence - 0.4) / 0.2; // 0 to 1
+      const red = Math.round(255);                      // Pure yellow
+      const green = Math.round(255);                    // Pure yellow
+      const blue = Math.round(0);                       // Pure yellow
+      return `rgba(${red}, ${green}, ${blue}, 0.4)`;
+    } else if (confidence >= 0.2) {
+      // Low agreement (20-40%) - Yellow to orange
+      const ratio = (confidence - 0.2) / 0.2; // 0 to 1
+      const red = Math.round(255);                      // 255 constant
+      const green = Math.round(165 + ratio * (255 - 165)); // 165 to 255
+      const blue = Math.round(0);                       // 0 constant
+      return `rgba(${red}, ${green}, ${blue}, 0.45)`;
     } else {
-      return 'rgba(220, 53, 69, 0.4)'; // Strong red for major misalignments
+      // Very low agreement (0-20%) - Orange to red
+      const ratio = confidence / 0.2; // 0 to 1
+      const red = Math.round(255);                      // 255 constant
+      const green = Math.round(ratio * 165);            // 0 to 165
+      const blue = Math.round(0);                       // 0 constant
+      return `rgba(${red}, ${green}, ${blue}, 0.5)`;
     }
   }, []);
 
