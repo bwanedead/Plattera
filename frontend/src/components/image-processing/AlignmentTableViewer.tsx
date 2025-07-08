@@ -6,6 +6,59 @@ interface AlignmentTableViewerProps {
   onClose: () => void;
 }
 
+// Helper function to apply individual token formatting without changing position structure
+const formatIndividualToken = (token: string, position: number, allTokens: string[]): string => {
+  if (!token || token === '-') {
+    return token;
+  }
+  
+  // Get context tokens
+  const prevToken = position > 0 ? allTokens[position - 1] : '';
+  const nextToken = position < allTokens.length - 1 ? allTokens[position + 1] : '';
+  const nextNextToken = position < allTokens.length - 2 ? allTokens[position + 2] : '';
+  
+  // Apply individual token formatting (never combine tokens)
+  
+  // Format degrees: number + number + direction = first number gets °
+  if (token.match(/^\d+$/) && nextToken && nextToken.match(/^\d+$/) && 
+      nextNextToken && nextNextToken.toLowerCase().match(/^[nsew]$/)) {
+    return `${token}°`;
+  }
+  
+  // Format minutes: previous was number, current is number, next is direction = current gets '
+  if (token.match(/^\d+$/) && prevToken && prevToken.match(/^\d+$/) && 
+      nextToken && nextToken.toLowerCase().match(/^[nsew]$/)) {
+    return `${token}'`;
+  }
+  
+  // Format directions: after numbers, add period
+  if (token.toLowerCase().match(/^[nsew]$/) && prevToken && prevToken.match(/^\d+$/)) {
+    return `${token.toUpperCase()}.`;
+  }
+  
+  // Format large numbers with commas
+  if (token.match(/^\d{4,}$/)) {
+    return token.replace(/(\d)(?=(\d{3})+$)/g, '$1,');
+  }
+  
+  // Return original token (no combining)
+  return token;
+};
+
+// Helper function to get properly formatted token at position using ONLY original_tokens
+const getTokenAtPosition = (seq: any, position: number): string => {
+  // ALWAYS use original_tokens for position structure - never use seq.tokens
+  const originalTokens = seq.original_tokens || seq.tokens || [];
+  const token = originalTokens[position];
+  
+  if (!token) {
+    return '';
+  }
+  
+  // Apply individual formatting without changing position structure
+  return formatIndividualToken(token, position, originalTokens);
+};
+
 export const AlignmentTableViewer: React.FC<AlignmentTableViewerProps> = ({
   alignmentResult,
   onClose,
@@ -46,7 +99,8 @@ export const AlignmentTableViewer: React.FC<AlignmentTableViewerProps> = ({
     blockIds.forEach(blockId => {
       const blockData = alignmentBlocks[blockId];
       const { aligned_sequences } = blockData;
-      const alignmentLength = aligned_sequences[0]?.tokens.length || 0;
+      // ALWAYS use original_tokens length for position structure
+      const alignmentLength = aligned_sequences[0]?.original_tokens?.length || aligned_sequences[0]?.tokens.length || 0;
 
       // Add a header for the block
       csvRows.push(''); // Spacer row
@@ -57,7 +111,7 @@ export const AlignmentTableViewer: React.FC<AlignmentTableViewerProps> = ({
       for (let i = 0; i < alignmentLength; i++) {
         const rowData = [i.toString()];
         aligned_sequences.forEach((seq: any) => {
-          const token = seq.tokens[i] || '';
+          const token = getTokenAtPosition(seq, i);
           // Sanitize token for CSV (handle quotes)
           const sanitizedToken = `"${String(token).replace(/"/g, '""')}"`;
           rowData.push(sanitizedToken);
@@ -101,12 +155,13 @@ export const AlignmentTableViewer: React.FC<AlignmentTableViewerProps> = ({
             const blockData = alignmentBlocks[blockId];
             const { aligned_sequences } = blockData;
             const draftIds = aligned_sequences.map((seq: any) => seq.draft_id);
-            const alignmentLength = aligned_sequences[0]?.tokens.length || 0;
+            // ALWAYS use original_tokens length for position structure
+            const alignmentLength = aligned_sequences[0]?.original_tokens?.length || aligned_sequences[0]?.tokens.length || 0;
 
             const hasDifference = (position: number): boolean => {
               const tokensAtPosition = new Set();
               for (const seq of aligned_sequences) {
-                const token = seq.tokens[position];
+                const token = getTokenAtPosition(seq, position);
                 if (token !== '-') {
                   tokensAtPosition.add(token);
                 }
@@ -128,11 +183,14 @@ export const AlignmentTableViewer: React.FC<AlignmentTableViewerProps> = ({
                     {Array.from({ length: alignmentLength }).map((_, index) => (
                       <tr key={index} className={hasDifference(index) ? 'difference-row' : ''}>
                         <td>{index}</td>
-                        {aligned_sequences.map((seq: any) => (
-                          <td key={seq.draft_id} className={seq.tokens[index] === '-' ? 'gap-cell' : ''}>
-                            {seq.tokens[index]}
-                          </td>
-                        ))}
+                        {aligned_sequences.map((seq: any) => {
+                          const token = getTokenAtPosition(seq, index);
+                          return (
+                            <td key={seq.draft_id} className={token === '-' ? 'gap-cell' : ''}>
+                              {token}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>

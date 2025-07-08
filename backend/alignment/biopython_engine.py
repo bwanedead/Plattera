@@ -508,7 +508,8 @@ class BioPythonAlignmentEngine:
                         
                         frontend_sequences.append({
                             'draft_id': draft_id,
-                            'tokens': formatted_tokens,
+                            'tokens': formatted_tokens,  # Formatted tokens for display
+                            'original_tokens': aligned_tokens,  # ORIGINAL tokens for confidence calculation
                             'display_tokens': frontend_display_tokens,  # NEW: Non-gap tokens for heatmap
                             'original_to_alignment': original_to_alignment,
                             'alignment_to_frontend': alignment_to_frontend_mapping,  # Maps alignment_pos -> frontend_display_pos
@@ -521,7 +522,8 @@ class BioPythonAlignmentEngine:
                         fallback_mapping = {i: i for i in range(len(aligned_tokens))}
                         frontend_sequences.append({
                             'draft_id': draft_id,
-                            'tokens': aligned_tokens,
+                            'tokens': aligned_tokens,  # Same as original since no formatting applied
+                            'original_tokens': aligned_tokens,  # ORIGINAL tokens for confidence calculation
                             'original_to_alignment': original_to_alignment,
                             'alignment_to_frontend': fallback_mapping,
                             'formatting_applied': False
@@ -532,7 +534,8 @@ class BioPythonAlignmentEngine:
                     fallback_mapping = {i: i for i in range(len(aligned_tokens))}
                     frontend_sequences.append({
                         'draft_id': draft_id,
-                        'tokens': aligned_tokens,
+                        'tokens': aligned_tokens,  # Same as original since no formatting applied
+                        'original_tokens': aligned_tokens,  # ORIGINAL tokens for confidence calculation
                         'original_to_alignment': original_to_alignment,
                         'alignment_to_frontend': fallback_mapping,
                         'formatting_applied': False

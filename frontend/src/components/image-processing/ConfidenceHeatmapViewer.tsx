@@ -1,7 +1,60 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { AlignmentResult } from '../../types/imageProcessing';
 import { extractCleanText } from '../../utils/jsonFormatter';
 import { SuggestionPopup, SuggestionAlternative } from './SuggestionPopup';
+
+// Helper function to apply individual token formatting without changing position structure (same as AlignmentTableViewer)
+const formatIndividualToken = (token: string, position: number, allTokens: string[]): string => {
+  if (!token || token === '-') {
+    return token;
+  }
+  
+  // Get context tokens
+  const prevToken = position > 0 ? allTokens[position - 1] : '';
+  const nextToken = position < allTokens.length - 1 ? allTokens[position + 1] : '';
+  const nextNextToken = position < allTokens.length - 2 ? allTokens[position + 2] : '';
+  
+  // Apply individual token formatting (never combine tokens)
+  
+  // Format degrees: number + number + direction = first number gets °
+  if (token.match(/^\d+$/) && nextToken && nextToken.match(/^\d+$/) && 
+      nextNextToken && nextNextToken.toLowerCase().match(/^[nsew]$/)) {
+    return `${token}°`;
+  }
+  
+  // Format minutes: previous was number, current is number, next is direction = current gets '
+  if (token.match(/^\d+$/) && prevToken && prevToken.match(/^\d+$/) && 
+      nextToken && nextToken.toLowerCase().match(/^[nsew]$/)) {
+    return `${token}'`;
+  }
+  
+  // Format directions: after numbers, add period
+  if (token.toLowerCase().match(/^[nsew]$/) && prevToken && prevToken.match(/^\d+$/)) {
+    return `${token.toUpperCase()}.`;
+  }
+  
+  // Format large numbers with commas
+  if (token.match(/^\d{4,}$/)) {
+    return token.replace(/(\d)(?=(\d{3})+$)/g, '$1,');
+  }
+  
+  // Return original token (no combining)
+  return token;
+};
+
+// Helper function to get properly formatted token at position using ONLY original_tokens (same as AlignmentTableViewer)
+const getTokenAtPosition = (seq: any, position: number): string => {
+  // ALWAYS use original_tokens for position structure - never use seq.tokens
+  const originalTokens = seq.original_tokens || seq.tokens || [];
+  const token = originalTokens[position];
+  
+  if (!token) {
+    return '';
+  }
+  
+  // Apply individual formatting without changing position structure
+  return formatIndividualToken(token, position, originalTokens);
+};
 
 interface WordAlternative {
   word: string;
@@ -81,7 +134,8 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       const sequences = alignmentBlock.aligned_sequences;
       if (!sequences || sequences.length < 2) return [];
 
-      const maxLength = Math.max(...sequences.map((seq: any) => seq.tokens?.length || 0));
+      // ALWAYS use original_tokens length for position structure - same as table
+      const maxLength = Math.max(...sequences.map((seq: any) => seq.original_tokens?.length || seq.tokens?.length || 0));
       const totalDrafts = sequences.length;
       
       console.log(`🌈 Block ${blockIndex}: ${totalDrafts} drafts, ${maxLength} positions`);
@@ -89,70 +143,76 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       const wordDataForBlock: WordData[] = [];
       
       for (let position = 0; position < maxLength; position++) {
-        // Get all tokens at this position
-        const tokensAtPosition = sequences.map((seq: any) => seq.tokens?.[position] || '-');
+        // Get all tokens at this position using the SAME function as the table
+        const tokensAtPosition = sequences.map((seq: any) => getTokenAtPosition(seq, position));
         
-        // Filter out gaps and empty tokens
+        // Filter out gaps and empty tokens for confidence calculation
         const validTokens = tokensAtPosition.filter((token: string) => token && token !== '-');
         
-        if (validTokens.length === 0) continue;
+        // Even if all tokens are gaps, we still need to maintain position correspondence
+        // Don't skip - this ensures heatmap positions match table positions
         
-        // Calculate agreement percentage
-        const tokenCounts = new Map<string, number>();
-        validTokens.forEach((token: string) => {
-          const normalizedToken = token.toLowerCase().trim();
-          tokenCounts.set(normalizedToken, (tokenCounts.get(normalizedToken) || 0) + 1);
-        });
-        
-        // Find the most common token and its count
+        let agreementPercentage = 1.0; // Default to full agreement for gap positions
+        let consensusToken = '-';
+        let alternatives: WordAlternative[] = [];
+        let tokenCounts = new Map<string, number>();
         let maxCount = 0;
-        let consensusToken = validTokens[0];
         
-        for (const [token, count] of tokenCounts.entries()) {
-          if (count > maxCount) {
-            maxCount = count;
-            // Find the original case version of this token
-            consensusToken = validTokens.find((t: string) => t.toLowerCase().trim() === token) || token;
+        if (validTokens.length > 0) {
+          // Calculate agreement percentage based on what the table shows
+          validTokens.forEach((token: string) => {
+            const normalizedToken = token.toLowerCase().trim();
+            tokenCounts.set(normalizedToken, (tokenCounts.get(normalizedToken) || 0) + 1);
+          });
+          
+          // Find the most common token and its count
+          consensusToken = validTokens[0];
+          
+          for (const [token, count] of tokenCounts.entries()) {
+            if (count > maxCount) {
+              maxCount = count;
+              // Find the original case version of this token
+              consensusToken = validTokens.find((t: string) => t.toLowerCase().trim() === token) || token;
+            }
           }
+          
+          // Calculate agreement percentage (0.0 to 1.0)
+          agreementPercentage = maxCount / totalDrafts;
+          
+          // Create alternatives from all unique tokens (same as table)
+          const seenTokens = new Set<string>();
+          
+          sequences.forEach((seq: any, seqIndex: number) => {
+            const token = getTokenAtPosition(seq, position);
+            if (token && token !== '-') {
+              const normalizedToken = token.toLowerCase().trim();
+              if (!seenTokens.has(normalizedToken)) {
+                alternatives.push({
+                  word: token,
+                  source: seq.draft_id || `Draft ${seqIndex + 1}`
+                });
+                seenTokens.add(normalizedToken);
+              }
+            }
+          });
         }
         
-        // Calculate agreement percentage (0.0 to 1.0)
-        const agreementPercentage = maxCount / totalDrafts;
-        
-        // Use selected draft token if available, otherwise use consensus
+        // Use selected draft token for display, otherwise use consensus
         let displayToken = consensusToken;
         if (typeof selectedDraft === 'number' && selectedDraft < sequences.length) {
-          const selectedToken = sequences[selectedDraft]?.tokens?.[position];
+          const selectedToken = getTokenAtPosition(sequences[selectedDraft], position);
           if (selectedToken && selectedToken !== '-') {
             displayToken = selectedToken;
           }
         }
-        
-        // Create alternatives from all unique tokens
-        const alternatives: WordAlternative[] = [];
-        const seenTokens = new Set<string>();
-        
-        sequences.forEach((seq: any, seqIndex: number) => {
-          const token = seq.tokens?.[position];
-          if (token && token !== '-') {
-            const normalizedToken = token.toLowerCase().trim();
-            if (!seenTokens.has(normalizedToken)) {
-              alternatives.push({
-                word: token,
-                source: seq.draft_id || `Draft ${seqIndex + 1}`
-              });
-              seenTokens.add(normalizedToken);
-            }
-          }
-        });
 
         // Log detailed agreement analysis
         if (agreementPercentage < 1.0) {
           console.log(`🌈 DISAGREEMENT at position ${position}:`, {
             totalDrafts,
             validTokens,
-            tokenCounts: Object.fromEntries(tokenCounts),
-            maxCount,
+            tokenCounts: validTokens.length > 0 ? Object.fromEntries(tokenCounts) : {},
+            maxCount: validTokens.length > 0 ? maxCount : 0,
             agreementPercentage: `${(agreementPercentage * 100).toFixed(1)}%`,
             consensusToken,
             displayToken,
