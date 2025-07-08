@@ -351,67 +351,68 @@ class BioPythonAlignmentEngine:
     def _create_frontend_alignment_results(self, alignment_results: Dict[str, Any], 
                                          tokenized_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Create frontend-ready alignment results with reformatted text instead of raw tokens.
+        Create frontend-ready alignment results with proper token formatting
         
-        This method replaces the raw tokenized sequences with properly formatted text
-        that preserves original formatting (degrees, parentheses, etc.) for display.
-        The confidence mapping remains 1:1 with token positions.
-        
-        Args:
-            alignment_results: Raw alignment results from the consistency aligner
-            tokenized_data: Original tokenized data with format mappings
-            
-        Returns:
-            Dictionary with frontend-ready alignment results containing formatted text
+        This method applies format reconstruction to alignment results to restore
+        original text formatting for frontend display.
         """
-        logger.info("🎨 FRONTEND FORMATTING ► Converting raw tokens to formatted text")
-        logger.info(f"📊 DEBUG: Alignment results blocks: {list(alignment_results.get('blocks', {}).keys())}")
-        logger.info(f"📊 DEBUG: Tokenized data blocks: {list(tokenized_data.get('blocks', {}).keys())}")
+        logger.info("🔧 Creating frontend alignment results with format reconstruction")
         
-        # Import format reconstruction utilities
-        from .format_mapping import FormatMapping, TokenPosition, FormatMapper
-        
-        frontend_blocks = {}
+        # Create format mappings for all drafts
         format_mapper = FormatMapper()
+        format_mappings = {}
         
-        for block_id, block_data in alignment_results.get('blocks', {}).items():
-            logger.info(f"🔍 Processing block: {block_id}")
-            aligned_sequences = block_data.get('aligned_sequences', [])
-            logger.info(f"📊 DEBUG: Found {len(aligned_sequences)} aligned sequences in block {block_id}")
+        # Build mappings from tokenized data
+        for block_id, block_data in tokenized_data['blocks'].items():
+            format_mappings[block_id] = {}
             
-            # Get format mappings for this block
-            tokenized_block = tokenized_data.get('blocks', {}).get(block_id, {})
-            format_mappings = tokenized_block.get('format_mappings', {})
-            logger.info(f"📊 DEBUG: Format mappings available for: {list(format_mappings.keys())}")
+            for draft_data in block_data.get('encoded_drafts', []):
+                draft_id = draft_data['draft_id']
+                original_text = draft_data.get('original_text', '')
+                tokens = draft_data.get('tokens', [])
+                
+                # Create format mapping
+                format_mapping = format_mapper.create_mapping(draft_id, original_text, tokens)
+                format_mappings[block_id][draft_id] = format_mapping
+        
+        # Process alignment results
+        frontend_blocks = {}
+        
+        for block_id, block_data in alignment_results['blocks'].items():
+            logger.info(f"📊 PROCESSING BLOCK {block_id} ► Starting format reconstruction")
             
             frontend_sequences = []
             
-            for seq_idx, seq_data in enumerate(aligned_sequences):
-                draft_id = seq_data.get('draft_id')
-                aligned_tokens = seq_data.get('tokens', [])
-                original_to_alignment = seq_data.get('original_to_alignment', [])
+            for sequence_data in block_data.get('aligned_sequences', []):
+                draft_id = sequence_data['draft_id']
+                aligned_tokens = sequence_data['tokens']
+                original_to_alignment = sequence_data.get('original_to_alignment', [])
                 
-                logger.info(f"🔍 Processing sequence {seq_idx}: {draft_id}")
-                logger.info(f"📊 DEBUG: Aligned tokens count: {len(aligned_tokens)}")
-                logger.info(f"📊 DEBUG: First 10 aligned tokens: {aligned_tokens[:10]}")
+                logger.info(f"📋 DRAFT {draft_id} ► Processing {len(aligned_tokens)} aligned tokens")
                 
                 # Get format mapping for this draft
-                format_mapping = format_mappings.get(draft_id)
-                logger.info(f"📊 DEBUG: Format mapping found for {draft_id}: {format_mapping is not None}")
+                format_mapping = format_mappings.get(block_id, {}).get(draft_id)
+                
+                logger.info(f"📊 FORMAT MAPPING STATUS ► {draft_id}: {'FOUND' if format_mapping else 'NOT FOUND'}")
                 
                 if format_mapping and aligned_tokens:
                     # Reconstruct formatted tokens while preserving alignment structure
                     try:
                         # format_mapping is already a FormatMapping object
                         token_positions = format_mapping.token_positions
-                        logger.info(f"📊 DEBUG: Token positions count: {len(token_positions)}")
-                        logger.info(f"📊 DEBUG: First 5 token positions: {[(pos.normalized_text, pos.original_text) for pos in token_positions[:5]]}")
+                        logger.info(f"📍 TOKEN POSITIONS ► {draft_id}: {len(token_positions)} positions found")
+                        
+                        # DEBUG: Log all token positions
+                        for i, pos in enumerate(token_positions):
+                            logger.info(f"  📍 Position {i}: token_idx={pos.token_index}, original='{pos.original_text}', normalized='{pos.normalized_text}'")
                         
                         # Create formatted tokens array preserving gaps
                         formatted_tokens = []
                         non_gap_tokens = [t for t in aligned_tokens if t != '-']
-                        logger.info(f"📊 DEBUG: Non-gap tokens count: {len(non_gap_tokens)}")
-                        logger.info(f"📊 DEBUG: First 10 non-gap tokens: {non_gap_tokens[:10]}")
+                        logger.info(f"📊 NON-GAP TOKENS ► {draft_id}: {len(non_gap_tokens)} tokens")
+                        
+                        # DEBUG: Log first 20 non-gap tokens
+                        logger.info(f"📊 FIRST 20 NON-GAP TOKENS ► {non_gap_tokens[:20]}")
                         
                         # Get formatted versions of non-gap tokens using enhanced format mapping
                         formatted_non_gap_tokens = []
@@ -421,6 +422,7 @@ class BioPythonAlignmentEngine:
                         occupied_indices = set()
                         
                         # FIRST PASS: Build a comprehensive mapping, prioritizing longer patterns
+                        logger.info(f"🔍 FIRST PASS ► Building token formatting map for {draft_id}")
                         sorted_positions = sorted(token_positions, key=lambda p: len(p.normalized_text.split()), reverse=True)
                         
                         for pos in sorted_positions:
@@ -436,123 +438,115 @@ class BioPythonAlignmentEngine:
                                     'normalized_text': pos.normalized_text
                                 }
                                 occupied_indices.update(token_range)
-                                logger.info(f"✅ Mapping: token {pos.token_index} → '{pos.original_text}' (consumes {tokens_consumed})")
+                                logger.info(f"✅ MAPPING ADDED ► token {pos.token_index}: '{pos.original_text}' (consumes {tokens_consumed} tokens)")
                             else:
-                                logger.info(f"⚠️ Skipping overlapping mapping: token {pos.token_index} → '{pos.original_text}'")
+                                logger.info(f"⚠️ MAPPING SKIPPED ► token {pos.token_index}: '{pos.original_text}' (conflicts with existing mapping)")
                         
-                        # SECOND PASS: Process tokens using the conflict-free mapping
-                        i = 0
+                        logger.info(f"📊 MAPPING SUMMARY ► {draft_id}: {len(token_formatting_map)} mappings created, {len(occupied_indices)} indices occupied")
+                        
+                        # SECOND PASS: Process tokens and create a direct position mapping
+                        logger.info(f"🔍 SECOND PASS ► Processing tokens for {draft_id}")
+                        formatted_non_gap_tokens = [''] * len(non_gap_tokens)  # Initialize with empty strings
                         processed_indices = set()
-                        
+
+                        i = 0
                         while i < len(non_gap_tokens):
                             token = non_gap_tokens[i]
                             
-                            # Double-check that we haven't already processed this index
+                            logger.info(f"🔍 PROCESSING TOKEN {i} ► '{token}'")
+                            
+                            # Skip if already processed
                             if i in processed_indices:
-                                logger.warning(f"🚨 Token {i} already processed, skipping to prevent duplication")
+                                logger.info(f"⏭️ SKIPPING TOKEN {i} ► Already processed")
                                 i += 1
                                 continue
                             
                             if i in token_formatting_map:
                                 # Use the formatted version
                                 mapping = token_formatting_map[i]
-                                formatted_non_gap_tokens.append(mapping['formatted_text'])
+                                formatted_non_gap_tokens[i] = mapping['formatted_text']
                                 
-                                # Mark all consumed indices as processed
+                                logger.info(f"✅ FORMAT MAPPING APPLIED ► token {i}: '{token}' → '{mapping['formatted_text']}'")
+                                
+                                # Mark all consumed indices as processed and clear their slots
                                 for j in range(i, i + mapping['tokens_consumed']):
                                     processed_indices.add(j)
+                                    if j > i:  # Don't clear the first position which has the formatted text
+                                        formatted_non_gap_tokens[j] = None  # Mark as consumed
+                                        logger.info(f"🔄 TOKEN CONSUMED ► token {j}: marked as consumed (None)")
                                 
-                                # Skip the consumed tokens
                                 i += mapping['tokens_consumed']
-                                logger.info(f"✅ Applied mapping at {i-mapping['tokens_consumed']}: '{mapping['formatted_text']}'")
                             else:
                                 # No mapping found - apply smart formatting
+                                logger.info(f"🎯 SMART FORMATTING ► token {i}: '{token}'")
                                 processed_token = self._apply_smart_formatting(token, i, non_gap_tokens)
                                 
                                 # Check if token should be skipped
                                 if processed_token == "SKIP_TOKEN":
-                                    logger.info(f"⚠️ Skipping token {i}: '{token}' (marked for removal)")
+                                    logger.info(f"⚠️ TOKEN SKIPPED ► token {i}: '{token}' (marked for removal)")
+                                    formatted_non_gap_tokens[i] = None  # Mark as skipped
                                     processed_indices.add(i)
                                     i += 1
                                     continue
                                 
-                                formatted_non_gap_tokens.append(processed_token)
+                                formatted_non_gap_tokens[i] = processed_token
                                 processed_indices.add(i)
                                 i += 1
-                                logger.info(f"⚠️ Smart formatting at {i-1}: '{token}' → '{processed_token}'")
-                        
-                        logger.info(f"📊 DEBUG: Original non-gap tokens count: {len(non_gap_tokens)}")
-                        logger.info(f"📊 DEBUG: Formatted non-gap tokens count: {len(formatted_non_gap_tokens)}")
-                        logger.info(f"📊 DEBUG: First 10 formatted tokens: {formatted_non_gap_tokens[:10]}")
-                        
-                        # Handle count mismatch intelligently (expected when tokens are skipped)
-                        expected_count = len(non_gap_tokens)
-                        actual_count = len(formatted_non_gap_tokens)
-                        skipped_count = len(processed_indices) - actual_count
-                        
-                        if actual_count != expected_count:
-                            if actual_count < expected_count:
-                                logger.info(f"📊 Token count difference: {expected_count - actual_count} tokens were skipped or merged")
+                                logger.info(f"✅ SMART FORMAT APPLIED ► token {i-1}: '{token}' → '{processed_token}'")
+
+                        # DEBUG: Log the formatted tokens array
+                        logger.info(f"📊 FORMATTED TOKENS ARRAY ► {draft_id}:")
+                        for i, token in enumerate(formatted_non_gap_tokens):
+                            if token is not None:
+                                logger.info(f"  📍 Index {i}: '{token}'")
                             else:
-                                logger.error(f"🚨 UNEXPECTED: More formatted tokens ({actual_count}) than original ({expected_count})")
-                                # Only reset if we have MORE tokens than expected (indicates duplication)
-                                formatted_non_gap_tokens = non_gap_tokens[:]
-                        
+                                logger.info(f"  📍 Index {i}: None (consumed/skipped)")
+
+                        # Remove None values (consumed/skipped tokens)
+                        final_formatted_tokens = [t for t in formatted_non_gap_tokens if t is not None]
+
+                        logger.info(f"📊 FINAL COUNTS ► {draft_id}: Original={len(non_gap_tokens)}, Formatted={len(final_formatted_tokens)}")
+                        logger.info(f"📊 FINAL FIRST 20 TOKENS ► {final_formatted_tokens[:20]}")
+
                         # Reconstruct aligned sequence with gaps preserved
-                        if actual_count == expected_count:
-                            # Standard reconstruction when counts match
-                            non_gap_idx = 0
-                            for token in aligned_tokens:
-                                if token == '-':
-                                    formatted_tokens.append('-')
-                                else:
-                                    if non_gap_idx < len(formatted_non_gap_tokens):
+                        logger.info(f"🔄 RECONSTRUCTING ALIGNED SEQUENCE ► {draft_id}")
+                        formatted_tokens = []
+                        non_gap_idx = 0
+                        formatted_idx = 0
+
+                        for align_idx, token in enumerate(aligned_tokens):
+                            if token == '-':
+                                formatted_tokens.append('-')
+                                logger.info(f"  📍 Align {align_idx}: GAP → '-'")
+                            else:
+                                # Find the next non-None formatted token
+                                if non_gap_idx < len(formatted_non_gap_tokens):
+                                    if formatted_non_gap_tokens[non_gap_idx] is not None:
                                         formatted_tokens.append(formatted_non_gap_tokens[non_gap_idx])
-                                        non_gap_idx += 1
+                                        logger.info(f"  📍 Align {align_idx}: '{token}' → '{formatted_non_gap_tokens[non_gap_idx]}'")
                                     else:
-                                        logger.error(f"🚨 Ran out of formatted tokens at index {non_gap_idx}, using original token: {token}")
-                                        formatted_tokens.append(token)  # Fallback
-                        else:
-                            # Special reconstruction when tokens were skipped/merged
-                            logger.info(f"🔧 Using special reconstruction due to token count mismatch")
-                            
-                            # Create a mapping from non-gap position to formatted token
-                            non_gap_to_formatted = {}
-                            formatted_idx = 0
-                            
-                            for orig_idx in range(len(non_gap_tokens)):
-                                if orig_idx not in processed_indices:
-                                    # Token wasn't processed (shouldn't happen, but fallback)
-                                    non_gap_to_formatted[orig_idx] = non_gap_tokens[orig_idx]
-                                elif formatted_idx < len(formatted_non_gap_tokens):
-                                    # Use the formatted version
-                                    non_gap_to_formatted[orig_idx] = formatted_non_gap_tokens[formatted_idx]
-                                    formatted_idx += 1
-                                # If token was skipped, it won't appear in the mapping
-                            
-                            # Reconstruct using the mapping
-                            non_gap_idx = 0
-                            for token in aligned_tokens:
-                                if token == '-':
-                                    formatted_tokens.append('-')
+                                        logger.info(f"  📍 Align {align_idx}: '{token}' → CONSUMED (skipped)")
+                                        # If it's None, this token was consumed/skipped - don't add anything
                                 else:
-                                    if non_gap_idx in non_gap_to_formatted:
-                                        formatted_tokens.append(non_gap_to_formatted[non_gap_idx])
-                                    # If not in mapping, token was skipped - don't add anything
-                                    non_gap_idx += 1
+                                    # Safety fallback
+                                    formatted_tokens.append(token)
+                                    logger.info(f"  📍 Align {align_idx}: '{token}' → '{token}' (fallback)")
+                                non_gap_idx += 1
+
+                        logger.info(f"✅ RECONSTRUCTION COMPLETE ► {draft_id}: {len(formatted_tokens)} aligned tokens")
                         
-                        logger.info(f"✅ Formatted {draft_id} in {block_id}: {len(aligned_tokens)} tokens with formatting")
-                        logger.info(f"📊 DEBUG: Final formatted tokens sample: {formatted_tokens[:20]}")
+                        # DEBUG: Log final result
+                        logger.info(f"📊 FINAL RESULT ► {draft_id}: {' '.join(formatted_tokens[:30])}")
                         
                         frontend_sequences.append({
                             'draft_id': draft_id,
                             'tokens': formatted_tokens,
                             'original_to_alignment': original_to_alignment,
-                            'formatting_applied': True  # Flag to indicate formatting was applied
+                            'formatting_applied': True
                         })
                         
                     except Exception as e:
-                        logger.warning(f"⚠️ Format reconstruction failed for {draft_id} in {block_id}: {e}")
+                        logger.error(f"❌ FORMAT RECONSTRUCTION FAILED ► {draft_id} in {block_id}: {e}")
                         logger.exception("Full exception details:")
                         # Fallback to original tokens
                         frontend_sequences.append({
@@ -563,7 +557,7 @@ class BioPythonAlignmentEngine:
                         })
                 else:
                     # No format mapping available - use original tokens
-                    logger.warning(f"⚠️ No format mapping available for {draft_id} in {block_id}")
+                    logger.warning(f"⚠️ NO FORMAT MAPPING ► {draft_id} in {block_id}")
                     frontend_sequences.append({
                         'draft_id': draft_id,
                         'tokens': aligned_tokens,
@@ -586,136 +580,143 @@ class BioPythonAlignmentEngine:
             'format_reconstruction_applied': True  # Flag to indicate this has been processed
         }
         
-        logger.info(f"✅ Frontend formatting complete: {len(frontend_blocks)} blocks processed")
+        logger.info(f"✅ FRONTEND FORMATTING COMPLETE ► {len(frontend_blocks)} blocks processed")
         return frontend_results
 
     def _apply_smart_formatting(self, token: str, token_index: int, all_tokens: List[str]) -> str:
         """Apply smart formatting to tokens that don't have explicit mappings"""
         
-        # Handle decimal numbers (e.g., "1" and "9" should become "1.9")
-        if token.isdigit() and len(token) == 1:
-            # Check if this is part of a decimal number
-            prev_token = all_tokens[token_index - 1] if token_index > 0 else ""
-            next_token = all_tokens[token_index + 1] if token_index < len(all_tokens) - 1 else ""
-            
-            # Pattern: digit + digit + word (e.g., "1" "9" "acres")
-            if (prev_token.isdigit() and len(prev_token) == 1 and 
-                next_token.isalpha()):
-                logger.info(f"🎯 Smart formatting: {token} → .{token} (decimal part)")
-                return f".{token}"
-            
-            # Pattern: word + digit + digit (e.g., "containing" "1" "9")  
-            elif (prev_token.isalpha() and 
-                  next_token.isdigit() and len(next_token) == 1):
-                logger.info(f"🎯 Smart formatting: {token} → {token}. (decimal start)")
-                return f"{token}."
+        logger.info(f"🎯 SMART FORMATTING INPUT ► token {token_index}: '{token}'")
         
-        # Handle coordinate patterns
-        if token.isdigit():
-            prev_token = all_tokens[token_index - 1] if token_index > 0 else ""
-            next_token = all_tokens[token_index + 1] if token_index < len(all_tokens) - 1 else ""
-            next_next_token = all_tokens[token_index + 2] if token_index < len(all_tokens) - 2 else ""
+        # Get context tokens for logging
+        prev_token = all_tokens[token_index - 1] if token_index > 0 else ""
+        next_token = all_tokens[token_index + 1] if token_index < len(all_tokens) - 1 else ""
+        prev_prev_token = all_tokens[token_index - 2] if token_index > 1 else ""
+        next_next_token = all_tokens[token_index + 2] if token_index < len(all_tokens) - 2 else ""
+        
+        logger.info(f"🎯 CONTEXT ► prev='{prev_token}', current='{token}', next='{next_token}'")
+        
+        # PRIORITY 1: Handle decimal numbers (e.g., "1" and "9" should become "1.9")
+        # This needs to be handled carefully to avoid creating "1. .9"
+        if token.isdigit() and len(token) == 1:
+            # Pattern: word + digit + digit + word (e.g., "containing" "1" "9" "acres")
+            if (prev_token.isalpha() and 
+                next_token.isdigit() and len(next_token) == 1 and
+                token_index + 2 < len(all_tokens) and all_tokens[token_index + 2].isalpha()):
+                # This is the first digit in a decimal - format as "1.9" and mark next token for skipping
+                result = f"{token}.{next_token}"
+                logger.info(f"🎯 DECIMAL PATTERN MATCHED ► {token} → {result} (complete decimal)")
+                return result
             
+            # Pattern: digit + digit + word (e.g., "1" "9" "acres") - but only if prev token was NOT already processed as decimal
+            elif (prev_token.isdigit() and len(prev_token) == 1 and 
+                  next_token.isalpha() and
+                  not (token_index > 1 and all_tokens[token_index - 2].isalpha())):
+                # This is the second digit in a decimal - but only if first digit wasn't already processed
+                logger.info(f"🎯 DECIMAL PATTERN MATCHED ► {token} → SKIP (part of decimal already processed)")
+                return "SKIP_TOKEN"
+        
+        # PRIORITY 2: Handle coordinate patterns
+        if token.isdigit():
             # Pattern: direction + number + number + direction (e.g., s 4 00 e)
             if (prev_token.lower() in ['n', 's', 'e', 'w'] and 
                 next_token.isdigit() and 
                 next_next_token.lower() in ['n', 's', 'e', 'w']):
-                logger.info(f"🎯 Smart formatting: {token} → {token}° (pattern: dir+num+num+dir)")
-                return f"{token}°"
+                result = f"{token}°"
+                logger.info(f"🎯 COORDINATE PATTERN MATCHED ► {token} → {result} (pattern: dir+num+num+dir)")
+                return result
             
             # Pattern: direction + number + direction (e.g., s 4 e)
             elif (prev_token.lower() in ['n', 's', 'e', 'w'] and 
                   next_token.lower() in ['n', 's', 'e', 'w']):
-                logger.info(f"🎯 Smart formatting: {token} → {token}° (pattern: dir+num+dir)")
-                return f"{token}°"
+                result = f"{token}°"
+                logger.info(f"🎯 COORDINATE PATTERN MATCHED ► {token} → {result} (pattern: dir+num+dir)")
+                return result
             
             # Check if this is a minute value (second number in coordinate)
-            prev_prev_token = all_tokens[token_index - 2] if token_index > 1 else ""
             if (prev_prev_token.lower() in ['n', 's', 'e', 'w'] and 
                 prev_token.isdigit() and 
                 next_token.lower() in ['n', 's', 'e', 'w']):
-                logger.info(f"🎯 Smart formatting: {token} → {token}' (minute value)")
-                return f"{token}'"
+                result = f"{token}'"
+                logger.info(f"🎯 COORDINATE PATTERN MATCHED ► {token} → {result} (minute value)")
+                return result
             
             # Check for comma formatting in numbers
             elif len(token) >= 4:
                 if len(token) == 4:
-                    formatted = f"{token[0]},{token[1:]}"
-                    logger.info(f"🎯 Smart formatting: {token} → {formatted} (comma in 4-digit)")
-                    return formatted
+                    result = f"{token[0]},{token[1:]}"
+                    logger.info(f"🎯 COMMA PATTERN MATCHED ► {token} → {result} (comma in 4-digit)")
+                    return result
                 elif len(token) == 5:
-                    formatted = f"{token[:2]},{token[2:]}"
-                    logger.info(f"🎯 Smart formatting: {token} → {formatted} (comma in 5-digit)")
-                    return formatted
-                    
-        # Handle parentheses for section numbers and number word duplications
-        elif token.isdigit() and len(token) <= 2:
-            # Check if this should be in parentheses
-            prev_token = all_tokens[token_index - 1] if token_index > 0 else ""
-            prev_prev_token = all_tokens[token_index - 2] if token_index > 1 else ""
-            next_token = all_tokens[token_index + 1] if token_index < len(all_tokens) - 1 else ""
+                    result = f"{token[:2]},{token[2:]}"
+                    logger.info(f"🎯 COMMA PATTERN MATCHED ► {token} → {result} (comma in 5-digit)")
+                    return result
+        
+        # PRIORITY 3: Handle parentheses for section numbers and number word duplications
+        if token.isdigit() and len(token) <= 2:
+            # Pattern: "section" "two" "2" or "section" "two" "2"
+            if (prev_token.lower() in ['two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'] and
+                prev_prev_token.lower() == 'section'):
+                result = f"({token})"
+                logger.info(f"🎯 SECTION PATTERN MATCHED ► {token} → {result} (section number)")
+                return result
             
-            # Pattern: "Section" "Two" "2" or "section" "two" "2"
-            if (prev_token.lower() in ['two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'] and
-                token in ['2', '3', '4', '5', '6', '7', '8', '9', '10']):
-                logger.info(f"🎯 Smart formatting: {token} → ({token}) (section number)")
-                return f"({token})"
-            
-            # Handle number word duplications like "seventy four 74" → "seventy-four (74)"
+            # Handle number word duplications like "seventy-four" "74" → "seventy-four (74)"
             elif token in ['74', '75', '76', '77', '78', '79']:
-                # Check if preceded by word numbers
-                if (prev_prev_token.lower().startswith('seventy') and 
-                    prev_token.lower() in ['four', 'five', 'six', 'seven', 'eight', 'nine']):
-                    logger.info(f"🎯 Smart formatting: {token} → ({token}) (number word duplication)")
-                    return f"({token})"
+                # Check if preceded by compound word like "seventy-four"
+                if prev_token.lower().startswith('seventy-') and '-' in prev_token:
+                    result = f"({token})"
+                    logger.info(f"🎯 NUMBER WORD PATTERN MATCHED ► {token} → {result} (compound number)")
+                    return result
+                # Also handle if preceded by separate words like "seventy" "four"
+                elif (prev_token.lower() in ['four', 'five', 'six', 'seven', 'eight', 'nine'] and
+                      prev_prev_token.lower() == 'seventy'):
+                    result = f"({token})"
+                    logger.info(f"🎯 NUMBER WORD PATTERN MATCHED ► {token} → {result} (number word sequence)")
+                    return result
             
             # Handle other two-digit numbers after word numbers
             elif (prev_token.lower() in ['fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'] and
                   token in ['14', '15', '16', '17', '18', '19']):
-                logger.info(f"🎯 Smart formatting: {token} → ({token}) (teen number)")
-                return f"({token})"
-                
-        # Handle word number combinations like "seventy" + "four" → "seventy-four"
-        elif token.lower().startswith('seventy'):
-            # Check if followed by a unit number
-            next_token = all_tokens[token_index + 1] if token_index < len(all_tokens) - 1 else ""
-            if next_token.lower() in ['four', 'five', 'six', 'seven', 'eight', 'nine']:
-                formatted = f"{token.lower()}-{next_token.lower()}"
-                logger.info(f"🎯 Smart formatting: {token} → {formatted} (compound number start)")
-                return formatted
+                result = f"({token})"
+                logger.info(f"🎯 TEEN PATTERN MATCHED ► {token} → {result} (teen number)")
+                return result
         
-        # Handle unit numbers that follow "seventy" - skip them since they're handled above
+        # PRIORITY 4: Handle word number combinations like "seventy" + "four" → "seventy-four"
+        elif token.lower() == 'seventy':
+            # Check if followed by a unit number
+            if next_token.lower() in ['four', 'five', 'six', 'seven', 'eight', 'nine']:
+                result = f"seventy-{next_token.lower()}"
+                logger.info(f"🎯 COMPOUND WORD PATTERN MATCHED ► {token} → {result} (compound number start)")
+                return result
+        
+        # PRIORITY 5: Handle unit numbers that follow "seventy" - skip them since they're handled above
         elif (token.lower() in ['four', 'five', 'six', 'seven', 'eight', 'nine'] and 
               token_index > 0):
-            prev_token = all_tokens[token_index - 1] if token_index > 0 else ""
-            if prev_token.lower().startswith('seventy'):
-                logger.info(f"🎯 Smart formatting: {token} → SKIP (part of compound number)")
-                return "SKIP_TOKEN"  # Special marker to skip this token
+            if prev_token.lower() == 'seventy':
+                logger.info(f"🎯 COMPOUND WORD PATTERN MATCHED ► {token} → SKIP (part of compound number)")
+                return "SKIP_TOKEN"
         
-        # Handle directions in coordinates
+        # PRIORITY 6: Handle directions in coordinates
         elif token.lower() in ['n', 's', 'e', 'w']:
-            prev_token = all_tokens[token_index - 1] if token_index > 0 else ""
-            next_token = all_tokens[token_index + 1] if token_index < len(all_tokens) - 1 else ""
-            
             if prev_token.isdigit() or next_token.isdigit():
-                formatted = f"{token.upper()}."
-                logger.info(f"🎯 Smart formatting: {token} → {formatted} (direction with dot)")
-                return formatted
+                result = f"{token.upper()}."
+                logger.info(f"🎯 DIRECTION PATTERN MATCHED ► {token} → {result} (direction with dot)")
+                return result
         
-        # Handle comma placement after numbers
+        # PRIORITY 7: Handle comma placement after numbers
         elif token.isdigit() and len(token) <= 3:
             # Check if this should have a comma after it
-            next_token = all_tokens[token_index + 1] if token_index < len(all_tokens) - 1 else ""
-            next_next_token = all_tokens[token_index + 2] if token_index < len(all_tokens) - 2 else ""
-            
             # Pattern: number + "feet" + "more" (e.g., "180 feet more")
             if next_token.lower() == 'feet' and next_next_token.lower() == 'more':
-                logger.info(f"🎯 Smart formatting: {token} → {token}, (comma after number)")
-                return f"{token},"
+                result = f"{token},"
+                logger.info(f"🎯 COMMA PLACEMENT PATTERN MATCHED ► {token} → {result} (comma after number)")
+                return result
         
         # Default: return token as-is
+        logger.info(f"🎯 NO PATTERN MATCHED ► {token} → {token} (unchanged)")
         return token
-
+    
     def generate_consensus_text(self, alignment_results: Dict[str, Any],
                                confidence_results: Dict[str, Any],
                                consensus_strategy: str = 'highest_confidence') -> str:
