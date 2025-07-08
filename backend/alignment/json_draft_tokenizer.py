@@ -207,18 +207,25 @@ class JsonDraftTokenizer:
         all_tokens = set()  # Collect all unique tokens for consistent encoding
         
         for draft_id, text in draft_texts.items():
-            tokens = self._tokenize_legal_text(text)
-            # Write tokens to file for debugging
+            # Get normalized tokens for alignment (existing functionality)
+            normalized_tokens = self._tokenize_legal_text(text)
+            
+            # Get original tokens for format mapping (NEW: dual tokenization)
+            original_tokens = self._tokenize_original_text(text)
+            
+            # Write normalized tokens to file for debugging (existing functionality)
             os.makedirs('alignment_token_debug', exist_ok=True)
             with open(f'alignment_token_debug/tokens_{draft_id}.txt', 'w', encoding='utf-8') as f:
-                f.write('\n'.join(tokens))
+                f.write('\n'.join(normalized_tokens))
+            
             tokenized_drafts.append({
                 'draft_id': draft_id,
-                'tokens': tokens,
+                'tokens': normalized_tokens,         # For alignment (existing)
+                'original_tokens': original_tokens,  # For format mapping (NEW)
                 'text': text,
-                'token_count': len(tokens)
+                'token_count': len(normalized_tokens)
             })
-            all_tokens.update(tokens)
+            all_tokens.update(normalized_tokens)
         
         # Create consistent token encoding across all drafts in this block
         if block_id not in global_token_mappings:
@@ -251,18 +258,27 @@ class JsonDraftTokenizer:
                 'tokens': draft_data['tokens'],
                 'encoded_tokens': encoded_tokens,
                 'text': draft_data['text'],
-                'token_count': draft_data['token_count']
+                'token_count': draft_data['token_count'],
+                'original_text': draft_data['text']  # Add original text for format mapping
             })
         
-        # NEW: Create format mappings for each draft (non-breaking addition)
+        # NEW: Create format mappings for each draft using ORIGINAL tokens
         format_mappings = {}
         for draft_data in tokenized_drafts:
+            # Use normalized tokens (correct approach) - format mapper handles the mapping internally
             mapping = self.format_mapper.create_mapping(
                 draft_data['draft_id'],
-                draft_data['text'],
-                draft_data['tokens']
+                draft_data['text'],              # Original text with formatting
+                draft_data['tokens']             # ✅ CORRECT - normalized tokens
             )
             format_mappings[draft_data['draft_id']] = mapping
+            
+            # Log format mapping success for debugging
+            logger.info(f"🎯 FORMAT MAPPING ► {draft_data['draft_id']}: {len(mapping.token_positions)} patterns found")
+            if logger.isEnabledFor(logging.DEBUG):
+                for pos in mapping.token_positions:
+                    if pos.original_text != pos.normalized_text:
+                        logger.debug(f"   Token {pos.token_index}: '{pos.normalized_text}' → '{pos.original_text}'")
         
         return {
             'block_id': block_id,
@@ -309,6 +325,20 @@ class JsonDraftTokenizer:
         if not text or not text.strip():
             return []
         text = self._normalize_text(text)
+        tokens = word_tokenize(text)
+        return tokens
+    
+    def _tokenize_original_text(self, text: str) -> List[str]:
+        """
+        Tokenize original text WITHOUT normalization for format mapping.
+        
+        This preserves the original tokens so format mapper can properly map
+        between original text and tokens containing formatting symbols.
+        """
+        if not text or not text.strip():
+            return []
+        
+        # Tokenize original text directly without normalization to preserve formatting
         tokens = word_tokenize(text)
         return tokens
     
