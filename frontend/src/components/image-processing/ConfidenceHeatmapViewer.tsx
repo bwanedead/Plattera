@@ -275,19 +275,21 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       // Increased delay before showing popup (200ms)
       showPopupTimer.current = setTimeout(() => {
         const rect = (event.target as HTMLElement).getBoundingClientRect();
-        const popupWidth = 180; // Estimated popup width
+        const popupWidth = 160; // Updated to match CSS width
         const windowWidth = window.innerWidth;
+        const gap = 4; // Gap between word and popup
         
         // Edge detection: position popup on left if it would extend past right edge
-        const shouldPositionLeft = rect.right + popupWidth + 8 > windowWidth;
+        const shouldPositionLeft = rect.right + popupWidth + gap > windowWidth;
         
         let x, y;
         if (shouldPositionLeft) {
-          // Position closer to the word when on the left side
-          x = rect.left - popupWidth + rect.width + 4; // Much closer to the word
+          // Position popup to the left of the word, just off its boundary
+          x = rect.left - popupWidth - gap; // Popup's right edge will be 4px to the left of word's left edge
           y = rect.top - 4;
         } else {
-          x = rect.right + 8; // 8px to the right of the word
+          // Position popup to the right of the word
+          x = rect.right + gap; // 4px to the right of the word
           y = rect.top - 4;
         }
         
@@ -295,6 +297,11 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
         const popupHeight = 120; // Estimated popup height
         if (y + popupHeight > window.innerHeight) {
           y = window.innerHeight - popupHeight - 8;
+        }
+        
+        // Ensure popup doesn't go off the left edge of the screen
+        if (x < 4) {
+          x = 4;
         }
         
         setPopupPosition({ x, y });
