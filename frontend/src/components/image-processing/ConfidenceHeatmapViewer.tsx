@@ -52,12 +52,14 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   selectedDraft,
   redundancyAnalysis
 }) => {
-  const [editingWordIndex, setEditingWordIndex] = useState<{ block: number, word: number } | null>(null);
-  const [editingValue, setEditingValue] = useState<string>('');
-  const [humanConfirmedWords, setHumanConfirmedWords] = useState<Set<string>>(new Set()); // Use "block_word" key
-  const [activePopup, setActivePopup] = useState<{ block: number, word: number } | null>(null);
+  const [activePopup, setActivePopup] = useState<{ block: number; word: number } | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [editingWordIndex, setEditingWordIndex] = useState<{ block: number; word: number } | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+  const [humanConfirmedWords, setHumanConfirmedWords] = useState<Set<string>>(new Set());
+  
   const hidePopupTimer = useRef<NodeJS.Timeout | null>(null);
+  const showPopupTimer = useRef<NodeJS.Timeout | null>(null); // New timer for show delay
 
   // This is now an array of arrays, one for each block  
   const blocksOfWordData = useMemo<WordData[][]>(() => {
@@ -252,25 +254,55 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
 
   const handleWordHover = (blockIndex: number, wordIndex: number, event: React.MouseEvent) => {
     const wordInfo = blocksOfWordData[blockIndex]?.[wordIndex];
-    // FIXED: Allow editing on ALL words, not just contested/low-confidence ones
     if (wordInfo && !wordInfo.isHumanConfirmed) {
-      // Only clear the timer if we are about to show a new popup
+      // Clear any existing timers
       if (hidePopupTimer.current) {
         clearTimeout(hidePopupTimer.current);
       }
-      const rect = (event.target as HTMLElement).getBoundingClientRect();
-      setPopupPosition({
-        x: rect.left + rect.width / 2,
-        y: rect.bottom + 5 // Position below the word now
-      });
-      setActivePopup({ block: blockIndex, word: wordIndex });
+      if (showPopupTimer.current) {
+        clearTimeout(showPopupTimer.current);
+      }
+      
+      // Add delay before showing popup (200ms)
+      showPopupTimer.current = setTimeout(() => {
+        const rect = (event.target as HTMLElement).getBoundingClientRect();
+        const popupWidth = 180; // Estimated popup width
+        const windowWidth = window.innerWidth;
+        
+        // Edge detection: position popup on left if it would extend past right edge
+        const shouldPositionLeft = rect.right + popupWidth + 8 > windowWidth;
+        
+        let x, y;
+        if (shouldPositionLeft) {
+          x = rect.left - popupWidth - 8; // 8px to the left of the word
+          y = rect.top - 4;
+        } else {
+          x = rect.right + 8; // 8px to the right of the word
+          y = rect.top - 4;
+        }
+        
+        // Also check if popup would extend past bottom edge
+        const popupHeight = 120; // Estimated popup height
+        if (y + popupHeight > window.innerHeight) {
+          y = window.innerHeight - popupHeight - 8;
+        }
+        
+        setPopupPosition({ x, y });
+        setActivePopup({ block: blockIndex, word: wordIndex });
+      }, 200); // 200ms delay
     }
   };
 
   const handleWordLeave = () => {
+    // Clear show timer if word is left before popup appears
+    if (showPopupTimer.current) {
+      clearTimeout(showPopupTimer.current);
+    }
+    
+    // Longer delay to allow cursor movement to popup
     hidePopupTimer.current = setTimeout(() => {
       setActivePopup(null);
-    }, 200);
+    }, 800); // Increased to 800ms for easier cursor movement
   };
 
   const handlePopupEnter = () => {
@@ -280,32 +312,15 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   };
 
   const handlePopupLeave = () => {
-    setActivePopup(null);
+    // Small delay to prevent accidental closes
+    hidePopupTimer.current = setTimeout(() => {
+      setActivePopup(null);
+    }, 200);
   };
 
   const handleSelectAlternative = (blockIndex: number, wordIndex: number, newWord: string) => {
-    // CRYSTAL CLEAR DEBUGGING
-    console.log('🎯 =================');
-    console.log('🎯 HEATMAP CLICK DEBUG');
-    console.log('🎯 =================');
-    console.log('🎯 Clicked word:', blocksOfWordData[blockIndex]?.[wordIndex]?.word);
-    console.log('🎯 Block index:', blockIndex);
-    console.log('🎯 Word index:', wordIndex);
-    console.log('🎯 New value:', newWord);
-    console.log('🎯 Selected draft:', selectedDraft);
-    
-    // Show all words in this block with their indices
-    console.log('🎯 ALL WORDS IN BLOCK', blockIndex + ':');
-    blocksOfWordData[blockIndex]?.forEach((word, i) => {
-      const marker = i === wordIndex ? ' <<< CLICKED' : '';
-      console.log(`🎯   ${i}: "${word.word}"${marker}`);
-    });
-    
-    console.log('🎯 =================');
-
     // Use the new editing system if available
     if (onApplyEdit) {
-      console.log('🎯 Calling onApplyEdit with block:', blockIndex, 'wordIndex:', wordIndex, 'newWord:', newWord);
       onApplyEdit(blockIndex, wordIndex, newWord, 'alternative_selection');
     } else {
       // Fallback to old system for backward compatibility
@@ -333,7 +348,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   const handleEditClick = (blockIndex: number, wordIndex: number) => {
     setEditingWordIndex({ block: blockIndex, word: wordIndex });
     setEditingValue(blocksOfWordData[blockIndex][wordIndex].word);
-    setActivePopup(null); // Hide correction bar while editing
+    setActivePopup(null);
   };
 
   const handleEditChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -341,16 +356,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   };
 
   const handleEditSubmit = (blockIndex: number, wordIndex: number) => {
-    if (editingValue.trim() === '') return; // Or handle as a deletion
-    
-    console.log('🎯 Heatmap manual edit request:', {
-      blockIndex,
-      wordIndex,
-      editingValue,
-      selectedDraft,
-      currentWord: blocksOfWordData[blockIndex]?.[wordIndex]?.word,
-      blockData: blocksOfWordData[blockIndex]?.slice(Math.max(0, wordIndex - 3), wordIndex + 4).map((w, i) => `${i + Math.max(0, wordIndex - 3)}: ${w.word}`)
-    });
+    if (editingValue.trim() === '') return;
     
     // Use the new editing system if available
     if (onApplyEdit) {
@@ -383,11 +389,6 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
     setEditingWordIndex(null);
   };
 
-
-// NOTE: The interactive editing logic (handleWordClick, etc.) will need further
-// refactoring to support multiple blocks, but the display logic below will work.
-// I will simplify the rendering to focus on displaying the data correctly first.
-
   const activeWordData = activePopup ? blocksOfWordData[activePopup.block]?.[activePopup.word] : null;
 
   return (
@@ -415,7 +416,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
                   key={wordIndex}
                   className="confidence-word"
                   style={{ backgroundColor: getConfidenceColor(data.confidence, data.isHumanConfirmed, data.hasBeenEdited) }}
-                  title={`Confidence: ${(data.confidence * 100).toFixed(0)}%`}
+                  title={`Agreement: ${(data.confidence * 100).toFixed(0)}%`}
                   onMouseEnter={(e) => handleWordHover(blockIndex, wordIndex, e)}
                   onMouseLeave={handleWordLeave}
                 >
@@ -429,36 +430,54 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       
       {activePopup && activeWordData && (
         <div
-          className="quick-correction-bar"
+          className="word-suggestion-popup"
           style={{
             position: 'fixed',
             left: `${popupPosition.x}px`,
             top: `${popupPosition.y}px`,
-            transform: 'translateX(-50%)', // Position below the word
+            zIndex: 1000,
           }}
           onMouseEnter={handlePopupEnter}
           onMouseLeave={handlePopupLeave}
         >
-          <div className="bar-option current" onClick={() => handleSelectAlternative(activePopup.block, activePopup.word, activeWordData.word)}>
-            ✓ {activeWordData.word}
+          {/* Current word option */}
+          <div 
+            className="suggestion-option current-word"
+            onClick={() => handleSelectAlternative(activePopup.block, activePopup.word, activeWordData.word)}
+          >
+            <span className="option-icon">✓</span>
+            <div className="option-content">
+              <span className="option-text">{activeWordData.word}</span>
+            </div>
           </div>
           
-          {activeWordData.alternatives.length > 0 && activeWordData.alternatives.map((alt, i) => (
-            <div key={i} className="bar-option alternative" onClick={() => handleSelectAlternative(activePopup.block, activePopup.word, alt.word)}>
-              {alt.word}
-            </div>
-          ))}
+          {/* Alternative options */}
+          {activeWordData.alternatives.length > 1 && activeWordData.alternatives
+            .filter(alt => alt.word.toLowerCase() !== activeWordData.word.toLowerCase())
+            .map((alt, i) => (
+              <div 
+                key={i} 
+                className="suggestion-option alternative"
+                onClick={() => handleSelectAlternative(activePopup.block, activePopup.word, alt.word)}
+              >
+                <span className="option-icon">↻</span>
+                <div className="option-content">
+                  <span className="option-text">{alt.word}</span>
+                  <span className="option-source">{alt.source}</span>
+                </div>
+              </div>
+            ))}
 
-          <div className="bar-option edit-btn" onClick={() => handleEditClick(activePopup.block, activePopup.word)}>
-            ✎ Edit
-          </div>
-          
-          {/* Show a message if no alternatives are available but editing is still possible */}
-          {activeWordData.alternatives.length === 0 && (
-            <div className="bar-option info">
-              No alternatives - use Edit to change
+          {/* Manual edit option */}
+          <div 
+            className="suggestion-option edit-option"
+            onClick={() => handleEditClick(activePopup.block, activePopup.word)}
+          >
+            <span className="option-icon">✎</span>
+            <div className="option-content">
+              <span className="option-text">Edit</span>
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>

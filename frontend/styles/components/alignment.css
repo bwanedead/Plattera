@@ -187,11 +187,19 @@
   margin-bottom: 8px;
 }
 
+/* Enhanced confidence word styling for better interaction */
 .confidence-word {
   padding: 2px 4px;
   border-radius: 3px;
   transition: all 0.2s ease;
-  cursor: help;
+  cursor: pointer;
+  position: relative;
+  display: inline-block;
+}
+
+.confidence-word:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .confidence-word.high {
@@ -209,9 +217,26 @@
   border: 1px solid rgba(255, 107, 107, 0.3);
 }
 
-.confidence-word:hover {
-  transform: scale(1.05);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+/* Better word editing input */
+.word-edit-input {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 2px solid var(--accent-primary);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: inherit;
+  font-size: inherit;
+  width: auto;
+  min-width: 60px;
+  display: inline-block;
+  margin-right: 4px;
+  transition: all 0.2s ease;
+}
+
+.word-edit-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 169, 255, 0.3);
+  border-color: var(--accent-primary);
 }
 
 /* Integration with existing styles */
@@ -412,97 +437,148 @@
   border-bottom: 1px solid var(--border-color);
 }
 
-.quick-correction-bar {
-  display: flex;
-  align-items: center; /* Revert to center, as item-level alignment is more robust */
-  gap: 10px;
-  padding: 5px;
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  position: absolute;
+/* Modern Word Suggestion Popup */
+.word-suggestion-popup {
+  position: fixed;
   z-index: 1000;
-  transition: opacity 0.2s, transform 0.2s;
-  max-width: 400px;
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent-primary) transparent;
-  background-color: var(--bg-tertiary); /* Solid background */
-  border: 1px solid var(--border-color); /* Subtle border */
+  min-width: 140px;
+  max-width: 180px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: scale(0.95);
+  opacity: 0.9;
+  animation: popupFadeIn 0.15s ease-out forwards;
 }
 
-.quick-correction-bar::-webkit-scrollbar {
-  height: 3px;
+@keyframes popupFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
-.quick-correction-bar::-webkit-scrollbar-thumb {
-  background-color: var(--accent-primary);
-  border-radius: 2px;
-}
-.bar-option {
-  display: inline-flex; /* Use flex to align content within the option */
-  align-items: center;   /* Center the content (icon + text) vertically */
-  padding: 4px 8px;
-  border-radius: 4px;
+
+.suggestion-option {
+  display: flex;
+  align-items: flex-start;
+  padding: 8px 10px;
   cursor: pointer;
-  transition: background-color var(--transition-base);
-  white-space: nowrap;
-  font-size: 14px;
+  transition: all 0.12s ease;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 13px;
+  line-height: 1.2;
 }
 
-.bar-option.current {
-  color: var(--status-success);
-  font-weight: bold;
+.suggestion-option:last-child {
+  border-bottom: none;
 }
 
-.bar-option.current:hover {
-  background-color: rgba(52, 211, 153, 0.1);
+.suggestion-option:hover {
+  background: var(--bg-secondary);
+  transform: translateX(2px);
 }
 
-.bar-option.alternative {
+.suggestion-option.current-word {
+  background: rgba(52, 211, 153, 0.08);
+  border-left: 3px solid var(--status-success);
+  padding-left: 7px;
+}
+
+.suggestion-option.current-word:hover {
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.suggestion-option.alternative {
   color: var(--text-secondary);
 }
-.bar-option.alternative:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+
+.suggestion-option.alternative:hover {
+  background: rgba(255, 255, 255, 0.05);
   color: var(--text-primary);
 }
 
-.bar-option.edit-btn {
+.suggestion-option.edit-option {
+  color: var(--accent-primary);
+  border-top: 1px solid var(--border-color);
+  margin-top: 2px;
+}
+
+.suggestion-option.edit-option:hover {
+  background: rgba(0, 169, 255, 0.08);
+}
+
+.option-icon {
+  width: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  margin-top: 1px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.option-content {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.option-text {
+  display: block;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.option-source {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 1px;
+  padding: 1px 4px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suggestion-option.current-word .option-icon {
+  color: var(--status-success);
+}
+
+.suggestion-option.alternative .option-icon {
+  color: var(--text-muted);
+}
+
+.suggestion-option.edit-option .option-icon {
   color: var(--accent-primary);
 }
 
-.bar-option.edit-btn:hover {
-  background-color: rgba(0, 169, 255, 0.1);
-}
-
-.alt-word {
-  font-weight: bold;
-  color: var(--text-primary);
-}
-
-.alt-source {
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-  margin-left: 1rem;
-}
-
-.popup-option:hover .alt-source {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.word-edit-input {
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--accent-primary);
-  border-radius: 4px;
-  padding: 2px 4px;
-  font-family: inherit;
-  font-size: inherit;
-  width: auto; /* Or set a specific width */
-  display: inline-block;
-  margin-right: 4px; /* To match spacing of the span */
-}
-
-.word-edit-input:focus {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(0, 169, 255, 0.4);
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .word-suggestion-popup {
+    min-width: 120px;
+    max-width: 160px;
+  }
+  
+  .suggestion-option {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  
+  .option-source {
+    font-size: 9px;
+  }
 } 
