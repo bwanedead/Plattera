@@ -283,12 +283,13 @@ class FormatMapper:
         """Find all special formatting patterns in the text"""
         patterns = []
         
-        logger.info(f"🔍 PATTERN DETECTION ► Searching for patterns in text: '{text[:100]}...'")
+        logger.info(f"🔍 PATTERN DETECTION ► Searching in text preview: '{text[:100]}...'")
         
+        patterns_found = 0
         for i, pattern in enumerate(self.compiled_patterns):
             matches = list(pattern.finditer(text))
             if matches:
-                logger.info(f"✅ PATTERN {i} FOUND ► '{self.formatting_patterns[i]}' matched {len(matches)} times")
+                patterns_found += 1
                 for match in matches:
                     pattern_info = {
                         'pattern_index': i,
@@ -299,14 +300,11 @@ class FormatMapper:
                         'match': match
                     }
                     patterns.append(pattern_info)
-                    logger.info(f"  📍 Match: '{match.group()}' at positions {match.start()}-{match.end()}")
-            else:
-                logger.info(f"❌ PATTERN {i} NOT FOUND ► '{self.formatting_patterns[i]}'")
         
         # Sort patterns by start position
         patterns.sort(key=lambda x: x['start'])
         
-        logger.info(f"📊 PATTERN SUMMARY ► Found {len(patterns)} total pattern matches")
+        logger.info(f"📊 PATTERN SUMMARY ► Found {len(patterns)} matches from {patterns_found} pattern types")
         return patterns
     
     def _find_pattern_in_normalized_text(self, pattern: Dict, normalized_text: str, normalized_tokens: List[str]) -> Optional[Dict]:
