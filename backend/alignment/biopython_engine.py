@@ -400,6 +400,9 @@ class BioPythonAlignmentEngine:
                         formatted_tokens = []
                         non_gap_tokens = [t for t in aligned_tokens if t != '-']
                         
+                        # TRACK POSITION MAPPING: original_alignment_pos -> frontend_pos
+                        alignment_to_frontend_mapping = {}
+                        
                         # Get formatted versions of non-gap tokens using enhanced format mapping
                         formatted_non_gap_tokens = []
                         
@@ -467,49 +470,71 @@ class BioPythonAlignmentEngine:
                         # Remove None values (consumed/skipped tokens)
                         final_formatted_tokens = [t for t in formatted_non_gap_tokens if t is not None]
 
-                        # Reconstruct aligned sequence with gaps preserved
+                        # Reconstruct aligned sequence with gaps preserved AND create position mapping
                         formatted_tokens = []
                         non_gap_idx = 0
+                        frontend_position = 0  # This tracks position in final NON-GAP display tokens
+                        alignment_to_frontend_mapping = {}
 
                         for align_idx, token in enumerate(aligned_tokens):
                             if token == '-':
                                 formatted_tokens.append('-')
+                                # Gaps map to null - heatmap will skip these
+                                alignment_to_frontend_mapping[align_idx] = None
                             else:
                                 # Find the next non-None formatted token
                                 if non_gap_idx < len(formatted_non_gap_tokens):
-                                    if formatted_non_gap_tokens[non_gap_idx] is not None:
-                                        formatted_tokens.append(formatted_non_gap_tokens[non_gap_idx])
-                                    # If it's None, this token was consumed/skipped - don't add anything
+                                    formatted_token = formatted_non_gap_tokens[non_gap_idx]
+                                    if formatted_token is not None:
+                                        formatted_tokens.append(formatted_token)
+                                        # Map alignment position to frontend position (in non-gap tokens only)
+                                        alignment_to_frontend_mapping[align_idx] = frontend_position
+                                        frontend_position += 1
+                                    else:
+                                        # Token was consumed/skipped - don't add to formatted_tokens
+                                        # but still map to the position that absorbed it
+                                        alignment_to_frontend_mapping[align_idx] = max(0, frontend_position - 1)
                                 else:
                                     # Safety fallback
                                     formatted_tokens.append(token)
+                                    alignment_to_frontend_mapping[align_idx] = frontend_position
+                                    frontend_position += 1
                                 non_gap_idx += 1
 
-                        logger.info(f"✅ FORMATTED ► {draft_id}: {len(formatted_tokens)} tokens")
+                        # Create mapping for frontend display (non-gap tokens only)
+                        frontend_display_tokens = [t for t in formatted_tokens if t != '-']
+                        
+                        logger.info(f"✅ FORMATTED ► {draft_id}: {len(formatted_tokens)} total tokens ({len(frontend_display_tokens)} non-gap), {len(alignment_to_frontend_mapping)} position mappings")
                         
                         frontend_sequences.append({
                             'draft_id': draft_id,
                             'tokens': formatted_tokens,
+                            'display_tokens': frontend_display_tokens,  # NEW: Non-gap tokens for heatmap
                             'original_to_alignment': original_to_alignment,
+                            'alignment_to_frontend': alignment_to_frontend_mapping,  # Maps alignment_pos -> frontend_display_pos
                             'formatting_applied': True
                         })
                         
                     except Exception as e:
                         logger.error(f"❌ FORMAT RECONSTRUCTION FAILED ► {draft_id} in {block_id}: {e}")
-                        # Fallback to original tokens
+                        # Fallback to original tokens with 1:1 mapping
+                        fallback_mapping = {i: i for i in range(len(aligned_tokens))}
                         frontend_sequences.append({
                             'draft_id': draft_id,
                             'tokens': aligned_tokens,
                             'original_to_alignment': original_to_alignment,
+                            'alignment_to_frontend': fallback_mapping,
                             'formatting_applied': False
                         })
                 else:
-                    # No format mapping available - use original tokens
+                    # No format mapping available - use original tokens with 1:1 mapping
                     logger.warning(f"⚠️ NO FORMAT MAPPING ► {draft_id} in {block_id}")
+                    fallback_mapping = {i: i for i in range(len(aligned_tokens))}
                     frontend_sequences.append({
                         'draft_id': draft_id,
                         'tokens': aligned_tokens,
                         'original_to_alignment': original_to_alignment,
+                        'alignment_to_frontend': fallback_mapping,
                         'formatting_applied': False
                     })
             

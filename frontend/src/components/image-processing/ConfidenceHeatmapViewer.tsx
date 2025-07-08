@@ -64,230 +64,114 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
     if (!alignmentResult?.success) return [];
 
     const alignmentBlocks = alignmentResult.alignment_results?.blocks;
-    const confidenceBlocks = alignmentResult.confidence_results?.block_confidences;
-
-    if (!alignmentBlocks || !confidenceBlocks) return [];
-
-    console.log('🎯 Heatmap Data Sources:', {
-      selectedDraft,
-      hasRedundancyAnalysis: !!redundancyAnalysis,
-      hasEditState: !!editableDraftState,
-      hasUnsavedChanges: editableDraftState?.hasUnsavedChanges,
-      editedFromDraft: editableDraftState?.editedFromDraft,
-      editHistoryLength: editableDraftState?.editHistory?.length || 0
-    });
+    if (!alignmentBlocks) return [];
 
     const processedBlocks = Object.keys(alignmentBlocks).sort().map((blockId, blockIndex) => {
       const alignmentBlock = alignmentBlocks[blockId];
-      const confidenceBlock = confidenceBlocks[blockId];
-      
-      if (!alignmentBlock || !confidenceBlock || !confidenceBlock.scores) return [];
+      if (!alignmentBlock || !alignmentBlock.aligned_sequences) return [];
 
-      // === COMPREHENSIVE HEATMAP MEMORY DEBUGGING ===
-      console.log(`🔍 === HEATMAP MEMORY DEBUG BLOCK ${blockIndex} ===`);
+      // === CALCULATE MISALIGNMENTS FROM ALIGNMENT TABLE ===
+      console.log(`🔍 HEATMAP MISALIGNMENT CALCULATION ► Block ${blockIndex}`);
       
-      // Log complete editableDraftState
-      console.log('🔍 Complete editableDraftState:', {
-        exists: !!editableDraftState,
-        hasUnsavedChanges: editableDraftState?.hasUnsavedChanges,
-        editedFromDraft: editableDraftState?.editedFromDraft,
-        editedFromDraftType: typeof editableDraftState?.editedFromDraft,
-        selectedDraft: selectedDraft,
-        selectedDraftType: typeof selectedDraft,
-        editHistoryLength: editableDraftState?.editHistory?.length || 0,
-        hasEditedDraft: !!editableDraftState?.editedDraft,
-        hasBlockTexts: !!editableDraftState?.editedDraft?.blockTexts,
-        blockTextsLength: editableDraftState?.editedDraft?.blockTexts?.length || 0,
-        currentBlockExists: !!editableDraftState?.editedDraft?.blockTexts?.[blockIndex]
-      });
-      
-      // Break down shouldUseEditedText condition step by step
-      const condition1 = editableDraftState?.hasUnsavedChanges;
-      const condition2 = !!editableDraftState?.editedDraft?.blockTexts?.[blockIndex];
-      const condition3 = editableDraftState?.editedFromDraft === selectedDraft;
-      
-      console.log('🔍 shouldUseEditedText condition breakdown:', {
-        condition1_hasUnsavedChanges: condition1,
-        condition2_blockTextExists: condition2,
-        condition3_editedFromDraftMatches: condition3,
-        condition3_comparison: {
-          editedFromDraft: editableDraftState?.editedFromDraft,
-          selectedDraft: selectedDraft,
-          areEqual: editableDraftState?.editedFromDraft === selectedDraft,
-          strictEqual: editableDraftState?.editedFromDraft === selectedDraft
-        }
-      });
+      // Extract all aligned sequences (Draft_1, Draft_2, Draft_3, etc.)
+      const sequences = alignmentBlock.aligned_sequences;
+      if (!sequences || sequences.length < 2) return [];
 
-      const shouldUseEditedText = condition1 && condition2 && condition3;
-      console.log('🔍 Final shouldUseEditedText result:', shouldUseEditedText);
+      // Get the maximum length to handle all positions
+      const maxLength = Math.max(...sequences.map((seq: any) => seq.tokens?.length || 0));
+      console.log(`🔍 Block ${blockIndex} has ${sequences.length} drafts with max ${maxLength} tokens`);
 
-      // Show edit history for this block
-      if (editableDraftState?.editHistory) {
-        const relevantEdits = editableDraftState.editHistory.filter((edit: any) => 
-          edit.blockIndex === blockIndex
-        );
+      // For each position, check if all drafts agree
+      const wordDataForBlock: WordData[] = [];
+      
+      for (let position = 0; position < maxLength; position++) {
+        // Get tokens at this position from all drafts
+        const tokensAtPosition = sequences.map((seq: any) => seq.tokens?.[position] || '-');
         
-        // ENHANCED DEBUGGING: Show actual values instead of objects
-        console.log(`🔍 DETAILED EDIT HISTORY DEBUG FOR BLOCK ${blockIndex}:`);
-        console.log(`🔍 Total edits in history: ${editableDraftState.editHistory.length}`);
-        console.log(`🔍 Current block index being checked: ${blockIndex} (type: ${typeof blockIndex})`);
+        // Filter out gaps and empty tokens
+        const validTokens = tokensAtPosition.filter(token => token && token !== '-');
         
-        editableDraftState.editHistory.forEach((edit: any, index: number) => {
-          console.log(`🔍 Edit ${index}:`, {
-            blockIndex: edit.blockIndex,
-            blockIndexType: typeof edit.blockIndex,
-            tokenIndex: edit.tokenIndex,
-            originalValue: edit.originalValue,
-            newValue: edit.newValue,
-            matchesCurrentBlock: edit.blockIndex === blockIndex,
-            strictComparison: `${edit.blockIndex} === ${blockIndex} = ${edit.blockIndex === blockIndex}`
-          });
-        });
+        if (validTokens.length === 0) continue; // Skip if no valid tokens
         
-        console.log(`🔍 Relevant edits found: ${relevantEdits.length}`);
+        // Check if all valid tokens are the same (case-insensitive)
+        const uniqueTokens = [...new Set(validTokens.map(t => t.toLowerCase()))];
+        const hasMismatch = uniqueTokens.length > 1;
         
-        if (relevantEdits.length === 0 && editableDraftState.editHistory.length > 0) {
-          console.log(`❌ MISMATCH: We have ${editableDraftState.editHistory.length} total edits but 0 match block ${blockIndex}`);
-          console.log(`❌ All edit blockIndexes:`, editableDraftState.editHistory.map(e => `${e.blockIndex} (${typeof e.blockIndex})`));
+        // Calculate confidence based on agreement
+        const confidence = hasMismatch ? 0.3 : 0.95; // Low confidence for mismatches
+        
+        // Use the token from the selected draft, or first valid token
+        let displayToken = validTokens[0]; // Default to first valid token
+        
+        if (typeof selectedDraft === 'number' && selectedDraft < sequences.length) {
+          const selectedToken = sequences[selectedDraft]?.tokens?.[position];
+          if (selectedToken && selectedToken !== '-') {
+            displayToken = selectedToken;
+          }
         }
-      } else {
-        console.log(`🔍 No edit history available for block ${blockIndex}`);
-      }
-
-      let displayTokens: string[];
-      
-      // ALWAYS start with the original alignment tokens to preserve structure
-      let selectedSequence = alignmentBlock.aligned_sequences?.[0]; // Default to first
-      
-      if (typeof selectedDraft === 'number' && alignmentBlock.aligned_sequences) {
-        // Try to find the sequence that corresponds to the selected draft
-        const sequenceForDraft = alignmentBlock.aligned_sequences.find((seq: any) => {
-          return seq.draft_id === `draft_${selectedDraft}` || 
-                 seq.draft_id === `Draft ${selectedDraft + 1}` ||
-                 seq.draft_index === selectedDraft;
-        });
         
-        if (sequenceForDraft) {
-          selectedSequence = sequenceForDraft;
-          console.log(`🎯 Found sequence for draft ${selectedDraft}:`, selectedSequence.draft_id);
-        } else if (selectedDraft < alignmentBlock.aligned_sequences.length) {
-          selectedSequence = alignmentBlock.aligned_sequences[selectedDraft];
-          console.log(`🎯 Using sequence at index ${selectedDraft}`);
-        }
-      }
-      
-      // Extract clean tokens from the selected sequence
-      if (selectedSequence?.tokens) {
-        displayTokens = selectedSequence.tokens.filter((token: string) => token && token !== '-');
-        console.log(`📝 Original alignment tokens for block ${blockIndex}:`, {
-          allTokens: selectedSequence.tokens,
-          filteredTokens: displayTokens,
-          tokenCount: displayTokens.length,
-          formattingApplied: selectedSequence.formatting_applied || false
-        });
-        
-        // Log when formatted tokens are being used
-        if (selectedSequence.formatting_applied) {
-          console.log(`🎨 FORMATTED TOKENS ACTIVE ► Block ${blockIndex} using formatted text with original symbols`);
-        }
-      } else {
-        displayTokens = [];
-        console.warn(`❌ No tokens found for block ${blockIndex}`);
-      }
-      
-      // If we have edited text, apply the edits to the display tokens
-      if (shouldUseEditedText && editableDraftState?.editHistory) {
-        console.log(`🔍 Attempting to apply edits to block ${blockIndex}...`);
-        
-        const relevantEdits = editableDraftState.editHistory.filter((edit: any) => 
-          edit.blockIndex === blockIndex
-        );
-        
-        console.log(`🔍 Found ${relevantEdits.length} relevant edits for block ${blockIndex}`);
-        
-        if (relevantEdits.length > 0) {
-          // Apply edits to the display tokens
-          const originalTokens = [...displayTokens];
-          const editedTokens = [...displayTokens];
-          
-          console.log(`🔍 Before applying edits:`, {
-            originalTokens: originalTokens,
-            aboutToApplyEdits: relevantEdits.map((e: any) => `Token ${e.tokenIndex}: ${e.originalValue} → ${e.newValue}`)
-          });
-          
-          relevantEdits.forEach((edit: any, editIndex: number) => {
-            console.log(`🔍 Applying edit ${editIndex + 1}/${relevantEdits.length}:`, {
-              tokenIndex: edit.tokenIndex,
-              originalValue: edit.originalValue,
-              newValue: edit.newValue,
-              tokenExists: edit.tokenIndex < editedTokens.length,
-              currentTokenAtIndex: editedTokens[edit.tokenIndex]
-            });
-            
-            if (edit.tokenIndex < editedTokens.length) {
-              editedTokens[edit.tokenIndex] = edit.newValue;
-              console.log(`✅ Applied edit: Token ${edit.tokenIndex} changed from "${originalTokens[edit.tokenIndex]}" to "${edit.newValue}"`);
-            } else {
-              console.log(`❌ Failed to apply edit: Token index ${edit.tokenIndex} out of bounds (max: ${editedTokens.length - 1})`);
-            }
-          });
-          
-          displayTokens = editedTokens;
-          
-          console.log(`✏️ Successfully applied ${relevantEdits.length} edits to block ${blockIndex}:`, {
-            originalTokens: originalTokens,
-            editedTokens: displayTokens,
-            changes: relevantEdits.map((e: any) => `${e.tokenIndex}: ${originalTokens[e.tokenIndex]} → ${displayTokens[e.tokenIndex]}`)
-          });
-        } else {
-          console.log(`🔍 No relevant edits found for block ${blockIndex}`);
-        }
-      } else {
-        console.log(`🔍 Skipping edit application for block ${blockIndex}:`, {
-          shouldUseEditedText,
-          hasEditHistory: !!editableDraftState?.editHistory,
-          reason: !shouldUseEditedText ? 'shouldUseEditedText is false' : 'no edit history'
-        });
-      }
-      
-      console.log(`🔍 Final display tokens for block ${blockIndex}:`, displayTokens);
-      console.log(`🔍 === END HEATMAP MEMORY DEBUG BLOCK ${blockIndex} ===`);
-
-      // Create word data objects
-      return displayTokens.map((token: string, index: number) => {
-        const confidence = confidenceBlock.scores[index] ?? 0.9; // Default to high confidence if missing
-        const wordKey = `${blockId}_${index}`;
-        
-        // Check if this word has been edited
-        const hasBeenEdited = editableDraftState?.editHistory?.some((edit: any) => 
-          edit.blockIndex === blockIndex && edit.tokenIndex === index
-        ) || false;
-        
-        // Build alternatives from all sequences in this block
+        // Create alternatives array from all different tokens
         const alternatives: WordAlternative[] = [];
-        const seenWords = new Set<string>([token.toLowerCase()]);
-
-        alignmentBlock.aligned_sequences?.forEach((seq: any, seqIndex: number) => {
-          const altToken = seq.tokens?.[index];
-          if (altToken && altToken !== '-' && !seenWords.has(altToken.toLowerCase())) {
-            alternatives.push({ 
-              word: altToken, 
-              source: seq.draft_id || `Draft ${seqIndex + 1}` 
+        const seenTokens = new Set<string>();
+        
+        sequences.forEach((seq: any, seqIndex: number) => {
+          const token = seq.tokens?.[position];
+          if (token && token !== '-' && !seenTokens.has(token.toLowerCase())) {
+            alternatives.push({
+              word: token,
+              source: seq.draft_id || `Draft ${seqIndex + 1}`
             });
-            seenWords.add(altToken.toLowerCase());
+            seenTokens.add(token.toLowerCase());
           }
         });
 
-        return {
-          word: token,
-          confidence,
-          alternatives,
+        // Log mismatches for debugging
+        if (hasMismatch) {
+          console.log(`🔍 MISMATCH at position ${position}:`, {
+            tokens: tokensAtPosition,
+            validTokens: validTokens,
+            uniqueTokens: uniqueTokens,
+            displayToken: displayToken,
+            confidence: confidence,
+            alternatives: alternatives
+          });
+        }
+
+        const wordKey = `${blockId}_${position}`;
+        const hasBeenEdited = editableDraftState?.editHistory?.some((edit: any) => 
+          edit.blockIndex === blockIndex && edit.tokenIndex === position
+        ) || false;
+
+        wordDataForBlock.push({
+          word: displayToken,
+          confidence: confidence,
+          alternatives: alternatives,
           isEditable: false,
-          isEditing: editingWordIndex?.block === blockIndex && editingWordIndex?.word === index,
+          isEditing: editingWordIndex?.block === blockIndex && editingWordIndex?.word === position,
           isHumanConfirmed: humanConfirmedWords.has(wordKey),
-          hasBeenEdited,
-        };
-      });
+          hasBeenEdited: hasBeenEdited
+        });
+      }
+
+      // Apply edits if we have them
+      if (editableDraftState?.hasUnsavedChanges && 
+          editableDraftState?.editHistory && 
+          editableDraftState?.editedFromDraft === selectedDraft) {
+        
+        const relevantEdits = editableDraftState.editHistory.filter((edit: any) => 
+          edit.blockIndex === blockIndex
+        );
+        
+        relevantEdits.forEach((edit: any) => {
+          if (edit.tokenIndex < wordDataForBlock.length) {
+            wordDataForBlock[edit.tokenIndex].word = edit.newValue;
+            wordDataForBlock[edit.tokenIndex].hasBeenEdited = true;
+          }
+        });
+      }
+
+      console.log(`🔍 Block ${blockIndex} processed: ${wordDataForBlock.length} tokens, ${wordDataForBlock.filter(w => w.confidence < 0.5).length} mismatches`);
+      return wordDataForBlock;
     });
     
     return processedBlocks.filter(block => block && block.length > 0);
@@ -304,12 +188,15 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       return 'rgba(16, 185, 129, 0.25)'; // Emerald green for human-confirmed
     }
     
-    if (confidence >= 0.8) {
-      return 'rgba(34, 197, 94, 0.2)'; // Standard green for high confidence
+    // Enhanced color coding for misalignments
+    if (confidence >= 0.9) {
+      return 'rgba(34, 197, 94, 0.15)'; // Light green for perfect agreement
+    } else if (confidence >= 0.7) {
+      return 'rgba(255, 193, 7, 0.2)'; // Yellow for minor disagreements
     } else if (confidence >= 0.5) {
-      return 'rgba(255, 193, 7, 0.25)'; // Standard amber for medium confidence
+      return 'rgba(255, 152, 0, 0.3)'; // Orange for moderate disagreements
     } else {
-      return 'rgba(220, 53, 69, 0.3)'; // Standard red for low confidence
+      return 'rgba(220, 53, 69, 0.4)'; // Strong red for major misalignments
     }
   }, []);
 
