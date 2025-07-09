@@ -1,115 +1,126 @@
 #!/usr/bin/env python3
 """
-Debug script to test format mapping directly
+Debug Format Mapping - Check Original Formatted Tokens
 """
 
+import requests
+import json
 import sys
+import os
+
+# Add backend to path
 sys.path.append('backend')
 
-from backend.alignment.format_mapping import FormatMapper
-from backend.alignment.json_draft_tokenizer import JsonDraftTokenizer
-
 def test_format_mapping():
-    """Test format mapping with degree symbols"""
+    """Test if original formatted tokens are being properly extracted"""
     
-    # Test text with degree symbols
-    test_text = "Beginning at a point on the west boundary of Section Two (2), Township Fourteen (14) North, Range Seventy-four (74) West whence the northwest corner bears N.4°00'W. 1,638 feet distant and being 50 feet S.21°30'E. from the center line"
+    print("🔧 Testing Format Mapping Original Tokens...")
     
-    print("🔍 Testing Format Mapping")
-    print(f"Original text: {test_text}")
-    print()
+    # Test with legal text image
+    image_path = 'sample text image/legal_text_image.jpg'
     
-    # Initialize tokenizer and format mapper
-    tokenizer = JsonDraftTokenizer()
-    format_mapper = FormatMapper()
+    if not os.path.exists(image_path):
+        print(f"❌ Test image not found: {image_path}")
+        return False
     
-    # Tokenize the text
-    tokens = tokenizer._tokenize_legal_text(test_text)
-    print(f"📋 Tokenized ({len(tokens)} tokens): {tokens}")
-    print()
+    url = "http://localhost:8000/api/alignment/align-drafts"
     
-    # Show text around coordinate patterns
-    print("🔍 Coordinate Pattern Analysis:")
-    coord_patterns = ['N.4°00\'W.', 'S.21°30\'E.']
-    for pattern in coord_patterns:
-        if pattern in test_text:
-            start_pos = test_text.find(pattern)
-            end_pos = start_pos + len(pattern)
-            context_start = max(0, start_pos - 20)
-            context_end = min(len(test_text), end_pos + 20)
-            context = test_text[context_start:context_end]
-            print(f"   Pattern '{pattern}' at {start_pos}-{end_pos}")
-            print(f"   Context: ...{context}...")
+    try:
+        with open(image_path, 'rb') as f:
+            files = {'file': f}
+            data = {'process_format': 'true'}
+            response = requests.post(url, files=files, data=data)
+        
+        if response.status_code != 200:
+            print(f"❌ API call failed with status {response.status_code}")
+            return False
+        
+        result = response.json()
+        
+        if not result.get('success'):
+            print("❌ API returned failure")
+            return False
+        
+        # Check alignment results
+        alignment_results = result.get('alignment_results', {})
+        blocks = alignment_results.get('blocks', {})
+        
+        if not blocks:
+            print("❌ No alignment blocks found")
+            return False
+        
+        print(f"✅ Found {len(blocks)} alignment blocks")
+        
+        # Check each block for original formatted tokens
+        for block_id, block_data in blocks.items():
+            print(f"\n📋 Block: {block_id}")
             
-            # Find what tokens are around this position
-            print(f"   Looking for tokens around position {start_pos}")
+            sequences = block_data.get('aligned_sequences', [])
+            print(f"   Sequences: {len(sequences)}")
             
-            # Reconstruct token positions manually
-            normalized_text = tokenizer._normalize_text(test_text)
-            print(f"   Normalized text: {normalized_text}")
-            
-            # Find the normalized version of the pattern
-            pattern_start_in_norm = normalized_text.find('n 4 00 w')
-            if pattern_start_in_norm >= 0:
-                print(f"   Found 'n 4 00 w' at position {pattern_start_in_norm} in normalized text")
+            for seq in sequences:
+                draft_id = seq.get('draft_id')
+                tokens = seq.get('tokens', [])
+                original_formatted_tokens = seq.get('original_formatted_tokens', [])
                 
-                # Count tokens up to this position
-                tokens_before = normalized_text[:pattern_start_in_norm].split()
-                print(f"   Tokens before pattern: {len(tokens_before)}")
-                print(f"   Tokens at pattern position: {tokens[len(tokens_before):len(tokens_before)+4]}")
-            
-            pattern_start_in_norm = normalized_text.find('s 21 30 e')
-            if pattern_start_in_norm >= 0:
-                print(f"   Found 's 21 30 e' at position {pattern_start_in_norm} in normalized text")
+                print(f"\n   🔍 {draft_id}:")
+                print(f"      Token count: {len(tokens)}")
+                print(f"      Original formatted count: {len(original_formatted_tokens)}")
                 
-                # Count tokens up to this position
-                tokens_before = normalized_text[:pattern_start_in_norm].split()
-                print(f"   Tokens before pattern: {len(tokens_before)}")
-                print(f"   Tokens at pattern position: {tokens[len(tokens_before):len(tokens_before)+4]}")
-    
-    print()
-    
-    # Create format mapping
-    mapping = format_mapper.create_mapping("test_draft", test_text, tokens)
-    print(f"🎯 Format mapping created with {len(mapping.token_positions)} position mappings")
-    
-    # Show mappings
-    print("\n📊 Token Position Mappings:")
-    for pos in mapping.token_positions:
-        if pos.original_text != pos.normalized_text:
-            print(f"   {pos.token_index}: '{pos.normalized_text}' → '{pos.original_text}'")
-    
-    # Test special pattern detection
-    print("\n🔍 Special Pattern Detection:")
-    patterns = format_mapper._find_special_patterns(test_text)
-    for pattern in patterns:
-        print(f"   Pattern: '{pattern['original']}' at {pattern['start']}-{pattern['end']}")
-    
-    # Test reconstruction
-    print("\n🔧 Testing Reconstruction:")
-    reconstructed = format_mapper.reconstruct_formatted_text(
-        tokens, mapping, list(range(len(tokens)))
-    )
-    print(f"Reconstructed: {reconstructed}")
-    
-    # Show detailed reconstruction
-    print("\n🔍 Detailed Reconstruction Analysis:")
-    for i, token in enumerate(tokens):
-        pos = mapping.get_position_for_token(i)
-        if pos:
-            print(f"   Token {i}: '{token}' → '{pos.original_text}' (from mapping)")
-        else:
-            print(f"   Token {i}: '{token}' → '{token}' (no mapping)")
-    
-    # Check if degree symbols are preserved
-    has_degrees = '°' in reconstructed
-    has_parentheses = '(' in reconstructed and ')' in reconstructed
-    has_comma_numbers = '1,638' in reconstructed
-    
-    print(f"\n✅ Results:")
-    print(f"   Degree symbols preserved: {has_degrees}")
-    print(f"   Parentheses preserved: {has_parentheses}")
-    print(f"   Comma numbers preserved: {has_comma_numbers}")
+                # Look for specific formatting patterns
+                formatted_examples = []
+                degree_symbols = []
+                parentheses = []
+                decimals = []
+                
+                for i, token in enumerate(original_formatted_tokens):
+                    if token and token != '-':
+                        # Check for degree symbols
+                        if '°' in token:
+                            degree_symbols.append(f"[{i}] {token}")
+                        # Check for parentheses  
+                        if '(' in token or ')' in token:
+                            parentheses.append(f"[{i}] {token}")
+                        # Check for decimals
+                        if '.' in token and any(c.isdigit() for c in token):
+                            decimals.append(f"[{i}] {token}")
+                        
+                        # Collect first 10 examples
+                        if len(formatted_examples) < 10:
+                            formatted_examples.append(f"[{i}] {token}")
+                
+                print(f"      First 10 formatted tokens: {formatted_examples[:10]}")
+                
+                if degree_symbols:
+                    print(f"      ✅ Degree symbols found: {degree_symbols[:5]}")
+                else:
+                    print(f"      ❌ No degree symbols found")
+                
+                if parentheses:
+                    print(f"      ✅ Parentheses found: {parentheses[:5]}")
+                else:
+                    print(f"      ❌ No parentheses found")
+                    
+                if decimals:
+                    print(f"      ✅ Decimals found: {decimals[:5]}")
+                else:
+                    print(f"      ❌ No decimals found")
+                
+                # Compare with normalized tokens
+                print(f"\n      Comparison (first 10 positions):")
+                for i in range(min(10, len(tokens), len(original_formatted_tokens))):
+                    norm_token = tokens[i] if i < len(tokens) else "N/A"
+                    orig_token = original_formatted_tokens[i] if i < len(original_formatted_tokens) else "N/A"
+                    if norm_token != orig_token:
+                        print(f"        [{i}] '{norm_token}' → '{orig_token}'")
+        
+        print("\n✅ Format mapping test completed!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error during test: {e}")
+        return False
 
 if __name__ == "__main__":
-    test_format_mapping() 
+    success = test_format_mapping()
+    exit(0 if success else 1) 

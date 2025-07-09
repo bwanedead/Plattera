@@ -138,8 +138,7 @@ class ConsistencyBasedAligner:
             for aligned_idx, token in enumerate(aligned_tokens):
                 if token != '-':
                     # This maps the original token at original_idx to its new position in the gapped alignment
-                    while len(original_to_alignment_map) <= original_idx:
-                         original_to_alignment_map.append(aligned_idx)
+                    original_to_alignment_map.append(aligned_idx)
                     original_idx += 1
 
             aligned_sequences_data.append({

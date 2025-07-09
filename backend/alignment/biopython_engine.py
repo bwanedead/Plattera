@@ -387,8 +387,49 @@ class BioPythonAlignmentEngine:
                 aligned_tokens = sequence_data['tokens']
                 original_to_alignment = sequence_data.get('original_to_alignment', [])
                 
-                # Get format mapping for this draft
+                # Get format mapping for this draft (corrected to use the right variable)
                 format_mapping = format_mappings.get(block_id, {}).get(draft_id)
+                
+                logger.info(f"🔍 DEBUG FORMAT MAPPING ► {draft_id} in {block_id}: {'Found' if format_mapping else 'Not found'}")
+                
+                # Extract properly formatted tokens from format mapping
+                aligned_original_formatted_tokens = []
+                if format_mapping and hasattr(format_mapping, 'token_positions'):
+                    logger.info(f"🔍 DEBUG TOKEN POSITIONS ► {draft_id}: {len(format_mapping.token_positions)} positions")
+                    
+                    # Create a mapping from token index to original formatted text
+                    original_formatted_by_index = {}
+                    for pos in format_mapping.token_positions:
+                        original_formatted_by_index[pos.token_index] = pos.original_text
+                        logger.info(f"🔍 DEBUG TOKEN MAPPING ► {pos.token_index}: '{pos.normalized_text}' -> '{pos.original_text}'")
+                    
+                    # Create aligned version using the same alignment as normalized tokens
+                    for i in range(len(aligned_tokens)):
+                        if aligned_tokens[i] == '-':
+                            aligned_original_formatted_tokens.append('-')
+                        else:
+                            # Find which original token this aligned position corresponds to
+                            original_token_idx = None
+                            for orig_idx, align_pos in enumerate(original_to_alignment):
+                                if align_pos == i:
+                                    original_token_idx = orig_idx
+                                    break
+                            
+                            if original_token_idx is not None and original_token_idx in original_formatted_by_index:
+                                # Use the original formatted text (e.g., "N.37°00'W.", "(74)", "1.4")
+                                formatted_token = original_formatted_by_index[original_token_idx]
+                                aligned_original_formatted_tokens.append(formatted_token)
+                                logger.info(f"🔍 DEBUG ALIGNED MAPPING ► pos {i}: orig_idx {original_token_idx} -> '{formatted_token}'")
+                            else:
+                                # Fallback to aligned token
+                                aligned_original_formatted_tokens.append(aligned_tokens[i])
+                                logger.info(f"🔍 DEBUG ALIGNED FALLBACK ► pos {i}: orig_idx {original_token_idx} -> '{aligned_tokens[i]}'")
+                else:
+                    # Fallback if no format mapping available
+                    aligned_original_formatted_tokens = aligned_tokens[:]
+                    logger.warning(f"⚠️ NO FORMAT MAPPING ► {draft_id} in {block_id} - using aligned tokens")
+                
+                logger.info(f"🔍 DEBUG ALIGNED FORMATTED TOKENS ► {draft_id}: {aligned_original_formatted_tokens[:10]}...")
                 
                 if format_mapping and aligned_tokens:
                     # Reconstruct formatted tokens while preserving alignment structure
@@ -510,6 +551,7 @@ class BioPythonAlignmentEngine:
                             'draft_id': draft_id,
                             'tokens': formatted_tokens,  # Formatted tokens for display
                             'original_tokens': aligned_tokens,  # ORIGINAL tokens for confidence calculation
+                            'original_formatted_tokens': aligned_original_formatted_tokens, # NEW: Original formatted tokens
                             'display_tokens': frontend_display_tokens,  # NEW: Non-gap tokens for heatmap
                             'original_to_alignment': original_to_alignment,
                             'alignment_to_frontend': alignment_to_frontend_mapping,  # Maps alignment_pos -> frontend_display_pos
@@ -524,6 +566,7 @@ class BioPythonAlignmentEngine:
                             'draft_id': draft_id,
                             'tokens': aligned_tokens,  # Same as original since no formatting applied
                             'original_tokens': aligned_tokens,  # ORIGINAL tokens for confidence calculation
+                            'original_formatted_tokens': aligned_original_formatted_tokens, # NEW: Original formatted tokens
                             'original_to_alignment': original_to_alignment,
                             'alignment_to_frontend': fallback_mapping,
                             'formatting_applied': False
@@ -536,6 +579,7 @@ class BioPythonAlignmentEngine:
                         'draft_id': draft_id,
                         'tokens': aligned_tokens,  # Same as original since no formatting applied
                         'original_tokens': aligned_tokens,  # ORIGINAL tokens for confidence calculation
+                        'original_formatted_tokens': aligned_original_formatted_tokens, # NEW: Original formatted tokens
                         'original_to_alignment': original_to_alignment,
                         'alignment_to_frontend': fallback_mapping,
                         'formatting_applied': False

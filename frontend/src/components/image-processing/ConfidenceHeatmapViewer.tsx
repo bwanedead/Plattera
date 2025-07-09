@@ -42,12 +42,20 @@ const formatIndividualToken = (token: string, position: number, allTokens: strin
   return token;
 };
 
-// Helper function to get properly formatted token at position using ONLY original_tokens (same as AlignmentTableViewer)
+// Helper function to get properly formatted token at position using original formatted tokens (same as AlignmentTableViewer)
 const getTokenAtPosition = (seq: any, position: number): string => {
-  // ALWAYS use original_tokens for position structure - never use seq.tokens
+  // Use original_formatted_tokens if available (these preserve exact formatting from source)
+  // Otherwise fall back to original_tokens (normalized) or tokens as last resort
+  const formattedTokens = seq.original_formatted_tokens;
   const originalTokens = seq.original_tokens || seq.tokens || [];
-  const token = originalTokens[position];
   
+  if (formattedTokens && formattedTokens[position] !== undefined) {
+    // Use the exact formatting from the original text (e.g., "68°", "30'", "E.")
+    return formattedTokens[position] || '';
+  }
+  
+  // Fallback to old pattern matching if original formatted tokens not available
+  const token = originalTokens[position];
   if (!token) {
     return '';
   }
