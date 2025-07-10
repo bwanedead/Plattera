@@ -7,16 +7,17 @@ Handles legal document draft alignment, confidence analysis, and visualization.
 """
 
 from fastapi import APIRouter, HTTPException, Depends
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+import json
+from collections import defaultdict
 
-from backend.schema.alignment import AlignmentRequest, AlignmentResponse
+from backend.alignment.schemas import AlignmentRequest
 from backend.alignment.biopython_engine import BioPythonAlignmentEngine
 from backend.alignment.format_factory import FormatFactory
-from backend.services.registry import get_service
 
 router = APIRouter()
 
-# Initialize the engine and reconstructor once
+# Initialize the components of our pipeline
 alignment_engine = BioPythonAlignmentEngine()
 format_factory = FormatFactory()
 
@@ -29,22 +30,46 @@ async def align_drafts_endpoint(request: AlignmentRequest):
         raise HTTPException(status_code=400, detail="No drafts provided for alignment.")
 
     try:
-        # Step 1: Get raw alignment results from the core engine
-        engine_output = alignment_engine.align_drafts(draft_jsons=request.drafts)
+        # Step 1: Parse the request and "pivot" the data from a draft-centric
+        # structure to the block-centric structure the engine needs.
+        # This is the "organize by block ID" logic, now living in the API layer.
+        block_texts = defaultdict(dict)
+        for draft_obj in request.drafts:
+            draft_id = draft_obj.get('draft_id')
+            # The user's sample data is a JSON string in the first block's text field.
+            # We must handle this specific "legacy" format.
+            try:
+                legacy_json_text = draft_obj['blocks'][0]['text']
+                document_data = json.loads(legacy_json_text)
+                for section in document_data.get('sections', []):
+                    block_id = f"section_{section.get('id')}"
+                    header = section.get('header') or ""
+                    body = section.get('body') or ""
+                    block_texts[block_id][draft_id] = f"{header} {body}".strip()
+            except (json.JSONDecodeError, IndexError, KeyError, TypeError):
+                # If parsing fails, fall back to the standard format.
+                for block in draft_obj.get('blocks', []):
+                    block_id = block.get('id')
+                    text = block.get('text', '')
+                    if block_id and draft_id:
+                        block_texts[block_id][draft_id] = text
+
+        # Step 2: Run the alignment engine with the correctly structured data.
+        engine_output = alignment_engine.align_drafts(block_texts=dict(block_texts))
 
         if not engine_output.get('success'):
             raise HTTPException(status_code=500, detail=engine_output.get('error', "Unknown alignment error"))
 
-        # Step 2: Reconstruct the formatted text for the frontend
-        formatted_alignment = format_factory.reconstruct_formatted_alignment(
+        # Step 3: Use the Format Factory to reconstruct the two different outputs.
+        reconstructed_outputs = format_factory.reconstruct_outputs(
             alignment_results=engine_output['alignment_results'],
-            tokenized_data=engine_output['tokenized_data']
+            format_maps=engine_output['format_maps']
         )
 
-        # Combine results for the final response
+        # Step 4: Combine results for the final response.
         final_response = {
             "status": "completed",
-            "alignment": formatted_alignment,
+            "reconstructed_outputs": reconstructed_outputs,
             "confidence_scores": engine_output.get('confidence_results'),
             "processing_time": engine_output.get('processing_time')
         }

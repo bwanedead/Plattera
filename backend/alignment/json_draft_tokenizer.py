@@ -23,8 +23,11 @@ logger = logging.getLogger(__name__)
 
 
 class JsonDraftTokenizer:
-    """Handles JSON draft parsing and tokenization for BioPython alignment"""
-    
+    """
+    Takes raw text and performs a three-rung tokenization process to prepare
+    data for alignment and reconstruction.
+    """
+
     def __init__(self):
         # Legal phrases to treat as single tokens (longer phrases first for proper matching)
         self.legal_phrases = [
