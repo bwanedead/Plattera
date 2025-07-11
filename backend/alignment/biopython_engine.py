@@ -14,7 +14,6 @@ from .alignment_utils import check_dependencies, AlignmentError, log_alignment_s
 from .json_draft_tokenizer import JsonDraftTokenizer, create_sample_json_drafts
 from .consistency_aligner import ConsistencyBasedAligner
 from .confidence_scorer import BioPythonConfidenceScorer
-from .visualizer import BioPythonAlignmentVisualizer
 from .format_mapping import FormatMapper
 from .reformatter import Reformatter  # NEW: Import the reformatter
 
@@ -40,7 +39,6 @@ class BioPythonAlignmentEngine:
         self.tokenizer = JsonDraftTokenizer()
         self.aligner = ConsistencyBasedAligner()
         self.confidence_scorer = BioPythonConfidenceScorer()
-        self.visualizer = BioPythonAlignmentVisualizer()
         self.reformatter = Reformatter()  # NEW: Initialize reformatter
         
         logger.info("🧬 BioPython Alignment Engine initialized")
@@ -84,17 +82,47 @@ class BioPythonAlignmentEngine:
             
             # Phase 5: Format Reconstruction (NEW: Use reformatter)
             logger.info("🎨 PHASE 5 ► Format reconstruction and frontend preparation")
+            logger.info(f"📊 REFORMATTER INPUT ► Alignment blocks: {len(alignment_results.get('blocks', {}))}, Tokenized blocks: {len(tokenized_data.get('blocks', {}))}")
+            
+            # Log sample of input data for debugging
+            if alignment_results.get('blocks'):
+                sample_block_id = list(alignment_results['blocks'].keys())[0]
+                sample_block = alignment_results['blocks'][sample_block_id]
+                sample_sequences = sample_block.get('aligned_sequences', [])
+                if sample_sequences:
+                    sample_seq = sample_sequences[0]
+                    logger.info(f"📝 SAMPLE INPUT ► Block '{sample_block_id}', Draft '{sample_seq.get('draft_id')}':")
+                    logger.info(f"   🔤 Input tokens: {sample_seq.get('tokens', [])[:10]}...")
+                    logger.info(f"   🗺️ Original to alignment: {sample_seq.get('original_to_alignment', [])[:10]}...")
+            
             simplified_alignment_results = self.reformatter.create_frontend_alignment_results(
                 alignment_results, tokenized_data
             )
+            
+            logger.info("✅ REFORMATTER OUTPUT RECEIVED ► Checking structure")
+            if simplified_alignment_results and simplified_alignment_results.get('blocks'):
+                sample_block_id = list(simplified_alignment_results['blocks'].keys())[0]
+                sample_block = simplified_alignment_results['blocks'][sample_block_id]
+                sample_sequences = sample_block.get('aligned_sequences', [])
+                if sample_sequences:
+                    sample_seq = sample_sequences[0]
+                    logger.info(f"📝 SAMPLE OUTPUT ► Block '{sample_block_id}', Draft '{sample_seq.get('draft_id')}':")
+                    logger.info(f"   🔤 Output tokens: {sample_seq.get('tokens', [])[:10]}...")
+                    logger.info(f"   📱 Display tokens: {sample_seq.get('display_tokens', [])[:10]}...")
+                    logger.info(f"   📄 Exact text preview: {sample_seq.get('exact_text', '')[:100]}...")
+                    logger.info(f"   ✅ Formatting applied: {sample_seq.get('formatting_applied', False)}")
+            else:
+                logger.error("❌ REFORMATTER OUTPUT ► No blocks or invalid structure received!")
             
             # Phase 6: Visualization (optional)
             visualization_html = None
             if generate_visualization:
                 logger.info("🖼️ PHASE 6 ► Generating HTML visualization")
-                visualization_html = self.visualizer.generate_complete_visualization(
-                    alignment_results, confidence_results, difference_results
-                )
+                # The visualizer is no longer imported, so this line is removed.
+                # visualization_html = self.visualizer.generate_complete_visualization(
+                #     alignment_results, confidence_results, difference_results
+                # )
+                logger.warning("Visualization generation is currently disabled due to missing import.")
             
             # Calculate processing time
             processing_time = time.time() - start_time
