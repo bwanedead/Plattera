@@ -114,7 +114,8 @@ class Reformatter:
             
             logger.info(f"      📊 Found {len(aligned_sequences)} aligned sequences in block {block_id}")
             
-            block_sequences = {}
+            # FIXED: Keep the same structure as original - use aligned_sequences array
+            formatted_aligned_sequences = []
             
             for seq in aligned_sequences:
                 draft_id = seq.get('draft_id')
@@ -122,8 +123,6 @@ class Reformatter:
                 original_to_alignment = seq.get('original_to_alignment', [])
                 
                 logger.info(f"      🔤 Processing sequence {draft_id}: {len(aligned_tokens)} aligned tokens")
-                logger.info(f"         First 10 aligned tokens: {aligned_tokens[:10]}")
-                logger.info(f"         Original to alignment mapping length: {len(original_to_alignment)}")
                 
                 # Get format mapping for this draft
                 format_mapping = format_mappings.get(block_id, {}).get(draft_id)
@@ -139,36 +138,50 @@ class Reformatter:
                             format_mapping, group_sizes
                         )
                         
-                        block_sequences[draft_id] = formatted_sequence
+                        # FIXED: Maintain original structure with draft_id, tokens, etc.
+                        formatted_aligned_sequences.append({
+                            'draft_id': draft_id,
+                            'tokens': formatted_sequence.get('display_tokens', aligned_tokens),  # Use display_tokens for table
+                            'original_to_alignment': original_to_alignment,
+                            'exact_text': formatted_sequence.get('exact_text', ''),  # Add exact text for draft viewer
+                            'formatting_applied': formatted_sequence.get('formatting_applied', False),
+                            'metadata': formatted_sequence.get('metadata', {})
+                        })
+                        
                         successful_formats += 1
                         logger.info(f"      🎉 FORMATTING SUCCESS ► {draft_id} formatted successfully")
                         
                     except Exception as e:
                         logger.error(f"      ❌ FORMATTING ERROR ► {draft_id}: {e}")
-                        # Fallback to unformatted sequence
-                        fallback_sequence = self._create_fallback_sequence(
-                            draft_id, aligned_tokens, original_to_alignment
-                        )
-                        block_sequences[draft_id] = fallback_sequence
+                        # Fallback to original structure
+                        formatted_aligned_sequences.append({
+                            'draft_id': draft_id,
+                            'tokens': aligned_tokens,
+                            'original_to_alignment': original_to_alignment,
+                            'exact_text': ' '.join([t for t in aligned_tokens if t != '-']),
+                            'formatting_applied': False
+                        })
                         failed_formats += 1
                 else:
                     logger.warning(f"      ⚠️ NO FORMAT MAPPING ► {draft_id}: using fallback formatting")
-                    fallback_sequence = self._create_fallback_sequence(
-                        draft_id, aligned_tokens, original_to_alignment
-                    )
-                    block_sequences[draft_id] = fallback_sequence
+                    formatted_aligned_sequences.append({
+                        'draft_id': draft_id,
+                        'tokens': aligned_tokens,
+                        'original_to_alignment': original_to_alignment,
+                        'exact_text': ' '.join([t for t in aligned_tokens if t != '-']),
+                        'formatting_applied': False
+                    })
                     failed_formats += 1
             
+            # FIXED: Use the same structure as original alignment results
             processed_blocks[block_id] = {
-                'sequences': block_sequences,
-                'metadata': {
-                    'alignment_length': len(aligned_sequences[0].get('tokens', [])) if aligned_sequences else 0,
-                    'sequence_count': len(block_sequences),
-                    'consensus_applied': len(consensus_group_sizes) > 0
-                }
+                'aligned_sequences': formatted_aligned_sequences,  # ← Frontend expects this!
+                'alignment_length': len(formatted_aligned_sequences[0].get('tokens', [])) if formatted_aligned_sequences else 0,
+                'draft_count': len(formatted_aligned_sequences),
+                'block_id': block_id
             }
             
-            logger.info(f"   ✅ BLOCK COMPLETE ► {block_id}: {len(block_sequences)} sequences processed")
+            logger.info(f"   ✅ BLOCK COMPLETE ► {block_id}: {len(formatted_aligned_sequences)} sequences processed")
         
         logger.info(f"🎊 BLOCK PROCESSING COMPLETE ► {len(processed_blocks)} sequences processed")
         logger.info(f"   ✅ Successful formats: {successful_formats}")
