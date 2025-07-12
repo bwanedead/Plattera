@@ -61,24 +61,66 @@ const extractFormattedTextFromAlignment = (alignmentResult: any, selectedDraft: 
     }
 
     console.log('🔍 FRONTEND DEBUG: Selected sequence:', selectedSequence);
+    
+    // 🔍 INTENSIVE DEBUG: Log ALL available fields in the sequence
+    if (selectedSequence) {
+      console.log('🔍 FRONTEND DEBUG: ALL SEQUENCE FIELDS:');
+      console.log('  - draft_id:', selectedSequence.draft_id);
+      console.log('  - tokens:', selectedSequence.tokens?.length, 'tokens');
+      console.log('  - display_tokens:', selectedSequence.display_tokens?.length, 'tokens');
+      console.log('  - exact_text:', selectedSequence.exact_text ? `${selectedSequence.exact_text.length} chars` : 'NOT FOUND');
+      console.log('  - formatting_applied:', selectedSequence.formatting_applied);
+      console.log('  - metadata:', selectedSequence.metadata);
+      
+      if (selectedSequence.exact_text) {
+        console.log('  - exact_text preview:', selectedSequence.exact_text.substring(0, 200) + '...');
+      }
+      if (selectedSequence.display_tokens) {
+        console.log('  - display_tokens preview:', selectedSequence.display_tokens.slice(0, 10));
+      }
+      if (selectedSequence.tokens) {
+        console.log('  - tokens preview:', selectedSequence.tokens.slice(0, 10));
+      }
+    }
 
-    if (selectedSequence && selectedSequence.tokens) {
-      console.log(`🔍 FRONTEND DEBUG: Sequence has ${selectedSequence.tokens.length} tokens`);
-      console.log('🔍 FRONTEND DEBUG: First 10 tokens:', selectedSequence.tokens.slice(0, 10));
-      console.log('🔍 FRONTEND DEBUG: Formatting applied flag:', selectedSequence.formatting_applied);
+    if (selectedSequence) {
+      // PRIORITY 1: Use Type 1 exact text if available
+      if (selectedSequence.exact_text) {
+        console.log(`✅ FRONTEND DEBUG: Using Type 1 exact text (${selectedSequence.exact_text.length} chars)`);
+        console.log('✅ FRONTEND DEBUG: Exact text preview:', selectedSequence.exact_text.substring(0, 200) + '...');
+        blockTexts.push(selectedSequence.exact_text);
+        continue;
+      }
       
-      // Extract non-gap tokens and join them
-      const tokens = selectedSequence.tokens.filter((token: string) => token && token !== '-');
-      console.log(`🔍 FRONTEND DEBUG: After filtering gaps: ${tokens.length} tokens`);
-      console.log('🔍 FRONTEND DEBUG: First 10 filtered tokens:', tokens.slice(0, 10));
+      // PRIORITY 2: Use display tokens if available
+      if (selectedSequence.display_tokens && selectedSequence.display_tokens.length > 0) {
+        console.log(`🔍 FRONTEND DEBUG: Using display tokens (${selectedSequence.display_tokens.length} tokens)`);
+        console.log('🔍 FRONTEND DEBUG: First 10 display tokens:', selectedSequence.display_tokens.slice(0, 10));
+        const displayText = selectedSequence.display_tokens.join(' ');
+        console.log(`🔍 FRONTEND DEBUG: Display text length: ${displayText.length} characters`);
+        blockTexts.push(displayText);
+        continue;
+      }
       
-      const blockText = tokens.join(' ');
-      console.log(`🔍 FRONTEND DEBUG: Block text length: ${blockText.length} characters`);
-      console.log('🔍 FRONTEND DEBUG: Block text preview:', blockText.substring(0, 200) + '...');
-      
-      blockTexts.push(blockText);
-    } else {
-      console.log(`⚠️ FRONTEND DEBUG: No tokens found in selected sequence for block ${blockId}`);
+      // PRIORITY 3: Fallback to raw tokens (old behavior)
+      if (selectedSequence.tokens) {
+        console.log(`⚠️ FRONTEND DEBUG: FALLBACK - Using raw tokens (${selectedSequence.tokens.length} tokens)`);
+        console.log('⚠️ FRONTEND DEBUG: First 10 tokens:', selectedSequence.tokens.slice(0, 10));
+        console.log('⚠️ FRONTEND DEBUG: Formatting applied flag:', selectedSequence.formatting_applied);
+        
+        // Extract non-gap tokens and join them
+        const tokens = selectedSequence.tokens.filter((token: string) => token && token !== '-');
+        console.log(`⚠️ FRONTEND DEBUG: After filtering gaps: ${tokens.length} tokens`);
+        console.log('⚠️ FRONTEND DEBUG: First 10 filtered tokens:', tokens.slice(0, 10));
+        
+        const blockText = tokens.join(' ');
+        console.log(`⚠️ FRONTEND DEBUG: Block text length: ${blockText.length} characters`);
+        console.log('⚠️ FRONTEND DEBUG: Block text preview:', blockText.substring(0, 200) + '...');
+        
+        blockTexts.push(blockText);
+      } else {
+        console.log(`❌ FRONTEND DEBUG: No tokens found in selected sequence for block ${blockId}`);
+      }
     }
   }
 

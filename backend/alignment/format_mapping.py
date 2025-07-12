@@ -76,23 +76,35 @@ class FormatMapper:
         word_matches = list(re.finditer(r'\S+', original_text))
         
         token_positions = []
+        used_word_positions = set()  # Track which word positions have been used
         
         # Create purely positional mapping - token position X maps to word position X
         for token_idx, token in enumerate(normalized_tokens):
             if token_idx < len(word_matches):
                 # Map this token to the corresponding positional word in original text
                 word_match = word_matches[token_idx]
+                word_start = word_match.start()
+                word_end = word_match.end()
+                
+                # FIX: Check if this word position has already been used (section boundary overlap)
+                if (word_start, word_end) in used_word_positions:
+                    logger.warning(f"  ⚠️ DUPLICATE WORD POSITION DETECTED at token {token_idx}: '{token}'")
+                    logger.warning(f"     Word position ({word_start}, {word_end}) already mapped")
+                    logger.warning(f"     This might be a section boundary overlap - skipping duplicate")
+                    continue
+                
                 original_word = word_match.group()
                 
                 token_positions.append(TokenPosition(
                     token_index=token_idx,
-                    start_char=word_match.start(),
-                    end_char=word_match.end(),
+                    start_char=word_start,
+                    end_char=word_end,
                     original_text=original_word,  # Whatever was at this position
                     normalized_text=token         # Whatever the token is
                 ))
                 
-                logger.debug(f"  Mapped token {token_idx}: '{token}' → '{original_word}' (chars {word_match.start()}-{word_match.end()})")
+                used_word_positions.add((word_start, word_end))  # Mark as used
+                logger.debug(f"  Mapped token {token_idx}: '{token}' → '{original_word}' (chars {word_start}-{word_end})")
         
         logger.debug(f"Created {len(token_positions)} universal position mappings for draft {draft_id}")
         

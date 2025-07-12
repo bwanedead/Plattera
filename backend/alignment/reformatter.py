@@ -323,35 +323,72 @@ class Reformatter:
         
         Maps back through: aligned tokens → original tokens → exact original text
         """
+        logger.info(f"🔍 RECONSTRUCTING TYPE 1 EXACT TEXT")
+        logger.info(f"   📊 Input: {len(aligned_tokens)} aligned tokens, {len(original_to_alignment)} mappings")
+        
         if not format_mapping or not format_mapping.token_positions:
             # Fallback: simple space-separated text
             non_gap_tokens = [token for token in aligned_tokens if token != '-']
+            logger.warning("   ⚠️ No format mapping, using fallback")
             return ' '.join(non_gap_tokens)
         
-        # Build reverse mapping: alignment position → original token index
-        alignment_to_original = {}
-        for orig_idx, align_pos in enumerate(original_to_alignment):
-            if align_pos != -1:
-                alignment_to_original[align_pos] = orig_idx
+        # FIX: Use the proper one-to-many mapping method
+        alignment_to_original = self._build_alignment_to_original_mapping(
+            original_to_alignment, len(aligned_tokens)
+        )
+        
+        logger.info(f"   🗺️ Built alignment-to-original mapping: {len(alignment_to_original)} entries")
+        
+        # Track which original text portions have been used to prevent duplicates
+        used_original_indices = set()
+        text_parts = []
+        
+        logger.info(f"   📋 Processing {len(aligned_tokens)} aligned tokens...")
         
         # Reconstruct text by going through alignment positions in order
-        text_parts = []
         for align_pos, token in enumerate(aligned_tokens):
             if token == '-':
+                logger.debug(f"     Position {align_pos}: Skipping gap")
                 continue  # Skip gaps
             
-            orig_idx = alignment_to_original.get(align_pos)
-            if orig_idx is not None:
+            # FIX: Get list of original indices for this alignment position
+            original_indices = alignment_to_original.get(align_pos, [])
+            logger.debug(f"     Position {align_pos}: Token '{token}' → Original indices {original_indices}")
+            
+            if original_indices:
+                # FIX: Check if ANY of the original indices have been used
+                if any(orig_idx in used_original_indices for orig_idx in original_indices):
+                    logger.warning(f"     ❌ DUPLICATE DETECTED! Original indices {original_indices} already used")
+                    logger.warning(f"        Token: '{token}' at aligned position {align_pos}")
+                    continue
+                
+                # Use the first original index (they should all map to the same text)
+                orig_idx = original_indices[0]
+                
                 # Get original text for this token
                 token_pos = format_mapping.get_position_for_token(orig_idx)
                 if token_pos:
+                    logger.debug(f"       ✅ Found position: '{token_pos.original_text}' (chars {token_pos.start_char}-{token_pos.end_char})")
                     text_parts.append(token_pos.original_text)
+                    # FIX: Mark ALL original indices as used to prevent future duplicates
+                    for idx in original_indices:
+                        used_original_indices.add(idx)
+                    logger.debug(f"       ✅ Added to text parts (total: {len(text_parts)})")
                 else:
-                    text_parts.append(token)  # Fallback
+                    logger.warning(f"       ❌ No position found for original index {orig_idx}")
+                    # FIX: Don't add fallback token if original indices are already used
+                    continue
             else:
-                text_parts.append(token)  # Fallback
+                logger.debug(f"       ❌ No original index mapping for aligned position {align_pos}")
+                # FIX: Don't add fallback token - skip positions without mapping
+                continue
         
-        return ' '.join(text_parts)
+        result = ' '.join(text_parts)
+        logger.info(f"   ✅ Final result: {len(result)} characters")
+        logger.debug(f"   📋 Used original indices: {sorted(used_original_indices)}")
+        logger.debug(f"   📋 Text parts count: {len(text_parts)}")
+        
+        return result
 
     def compute_consensus_groupings(self, alignment_results: Dict[str, Any],
                                   format_mappings: Dict[str, Dict[str, FormatMapping]]) -> Dict[str, Dict[str, List[int]]]:
