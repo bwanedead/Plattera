@@ -108,17 +108,6 @@ class FormatMapper:
                                  original_to_alignment: List[int]) -> str:
         """
         Reconstruct formatted text from aligned tokens using universal positional mapping.
-        
-        This approach uses character-level mapping to preserve original formatting
-        and spacing without any content matching or pattern logic.
-        
-        Args:
-            aligned_tokens: Tokens after alignment (may include gaps '-')
-            mapping: Original format mapping with character positions
-            original_to_alignment: Maps original token index to aligned position
-            
-        Returns:
-            Text with original formatting and spacing restored
         """
         if not aligned_tokens or not mapping.token_positions:
             return ""
@@ -133,6 +122,7 @@ class FormatMapper:
         sorted_positions = sorted(mapping.token_positions, key=lambda x: x.token_index)
         
         result_parts = []
+        used_original_indices = set()  # Track used original indices
         
         for aligned_idx, token in enumerate(aligned_tokens):
             if token == '-':
@@ -142,7 +132,7 @@ class FormatMapper:
             # Find the original token this aligned position corresponds to
             original_token_idx = alignment_to_original.get(aligned_idx)
             
-            if original_token_idx is not None:
+            if original_token_idx is not None and original_token_idx not in used_original_indices:
                 # Get the original formatting for this token
                 position = mapping.get_position_for_token(original_token_idx)
                 
@@ -161,6 +151,7 @@ class FormatMapper:
                         'end_char': position.end_char,
                         'original_idx': original_token_idx
                     })
+                    used_original_indices.add(original_token_idx)  # Mark as used
         
         if not result_parts:
             return ""
