@@ -93,6 +93,14 @@ class BioPythonConfidenceScorer:
         if alignment_length == 0:
             return self._empty_confidence_result()
         
+        # DEBUG: Log what tokens we're actually analyzing
+        logger.info(f"🔍 CONFIDENCE SCORER DEBUG ► Block has {draft_count} drafts, {alignment_length} positions")
+        for i, seq in enumerate(aligned_sequences):
+            draft_id = seq.get('draft_id', f'Draft_{i}')
+            tokens = seq.get('tokens', [])
+            logger.info(f"   📝 {draft_id}: {len(tokens)} tokens")
+            logger.info(f"      First 10 tokens: {tokens[:10]}")
+        
         scores = []
         confidence_levels = []
         token_agreements = []
@@ -110,6 +118,12 @@ class BioPythonConfidenceScorer:
                 else:
                     position_tokens.append('-')  # Gap if sequence is shorter
             
+            # DEBUG: Log position analysis for positions that might have differences
+            unique_tokens = set(token for token in position_tokens if token != '-')
+            if len(unique_tokens) > 1:
+                logger.info(f"   🔍 POTENTIAL DIFFERENCE at position {pos}: {position_tokens}")
+                logger.info(f"      Unique tokens: {unique_tokens}")
+            
             # Calculate agreement for this position
             confidence, level, agreement_info = self._calculate_position_confidence(
                 position_tokens, pos, aligned_sequences
@@ -121,12 +135,15 @@ class BioPythonConfidenceScorer:
             
             # Check if this position represents a difference
             if self._is_difference_position(agreement_info):
+                logger.info(f"   ✅ DIFFERENCE DETECTED at position {pos}: {position_tokens}")
                 differences.append({
                     'position': pos,
                     'tokens': position_tokens,
                     'confidence': confidence,
                     'agreement_info': agreement_info
                 })
+        
+        logger.info(f"   📊 CONFIDENCE ANALYSIS COMPLETE ► {len(differences)} differences found")
         
         # Count confidence levels
         high_count = sum(1 for level in confidence_levels if level == 'high')
@@ -172,23 +189,40 @@ class BioPythonConfidenceScorer:
                 'analysis': 'All drafts have gaps at this position'
             }
         
-        # Count token frequencies
+        # Count token frequencies and detect content differences
         token_counts = Counter(non_gap_tokens)
         total_drafts = len(tokens)
+        unique_non_gap_tokens = set(non_gap_tokens)
+        has_content_differences = len(unique_non_gap_tokens) > 1
+        
+        # DEBUG: Log when we find content differences
+        if has_content_differences:
+            logger.info(f"      🎯 CONTENT DIFFERENCE at position {position}: {dict(token_counts)}")
         
         if len(token_counts) == 1 and len(non_gap_tokens) == total_drafts:
             # Perfect agreement among all drafts (no gaps)
             confidence = 1.0
             level = 'high'
             analysis = 'Perfect agreement among all drafts'
+        elif has_content_differences:
+            # FIXED: Content differences detected - these are significant
+            most_common_token, most_common_count = token_counts.most_common(1)[0]
+            confidence = most_common_count / total_drafts
+            
+            # Lower confidence for any content differences
+            if confidence >= 0.67:  # 2/3 majority
+                level = 'medium'  # Never high confidence with content differences
+                analysis = f'Content differences detected: {dict(token_counts)}'
+            else:
+                level = 'low'
+                analysis = f'Significant content disagreement: {dict(token_counts)}'
+            
+            logger.info(f"      📉 CONFIDENCE REDUCED due to content differences: {confidence:.3f} ({level})")
         else:
             # Some disagreement or gaps are present
-            if not token_counts: # This happens if all tokens are gaps
-                 most_common_count = 0
-            else:
-                most_common_token, most_common_count = token_counts.most_common(1)[0]
+            most_common_token, most_common_count = token_counts.most_common(1)[0] if token_counts else ('', 0)
             
-            confidence = most_common_count / total_drafts # Divide by total drafts
+            confidence = most_common_count / total_drafts
             
             if confidence >= self.high_confidence_threshold:
                 level = 'high'
@@ -212,6 +246,7 @@ class BioPythonConfidenceScorer:
             'token_counts': dict(token_counts),
             'most_common_token': token_counts.most_common(1)[0][0] if token_counts else None,
             'most_common_count': token_counts.most_common(1)[0][1] if token_counts else 0,
+            'has_content_differences': has_content_differences,  # NEW: Flag for content differences
             'analysis': analysis
         }
         
@@ -220,22 +255,14 @@ class BioPythonConfidenceScorer:
     def _is_difference_position(self, agreement_info: Dict[str, Any]) -> bool:
         """
         Check if a position represents a significant difference.
-        A difference occurs if there is more than one unique token OR if there is a
-        mix of tokens and gaps.
+        Only flag if there are multiple unique non-gap tokens (content mismatch).
         """
         if agreement_info.get('type') == 'all_gaps':
-            return False  # All gaps is not a difference, it's agreement.
+            return False  # All gaps is not a difference
 
-        # A difference exists if there are multiple unique tokens
-        has_multiple_tokens = agreement_info.get('unique_tokens', 0) > 1
-        
-        # Or if there's a mix of gaps and tokens
-        is_mixed_gaps_and_tokens = (
-            agreement_info.get('total_non_gap', 0) > 0 and 
-            agreement_info.get('total_non_gap', 0) < agreement_info.get('total_drafts', 0)
-        )
-        
-        return has_multiple_tokens or is_mixed_gaps_and_tokens
+        # Only flag for content differences (multiple unique tokens)
+        has_multiple_unique_tokens = agreement_info.get('unique_tokens', 0) > 1
+        return has_multiple_unique_tokens
     
     def _empty_confidence_result(self) -> Dict[str, Any]:
         """Return empty confidence result for blocks with no data"""

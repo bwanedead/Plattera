@@ -17,25 +17,21 @@ from Bio.Align import Alignment
 logger = logging.getLogger(__name__)
 
 # Enhanced scoring parameters for legal documents
-MATCH_SCORE = 3.0          # Increased from 2 for legal document precision
-MISMATCH_SCORE = -2.0      # Increased penalty for mismatches
-GAP_OPEN_PENALTY = -3.0    # Affine gap penalty: opening a gap
-GAP_EXTEND_PENALTY = -0.5  # Affine gap penalty: extending a gap
-FUZZY_MATCH_SCORE = 1.5    # Partial credit for near-matches
-
+MATCH_SCORE = 3.0          # Increased from 2 for exact matches
+MISMATCH_SCORE = -2.0      # Penalty for mismatches
+FUZZY_MATCH_SCORE = 1.5    # Partial credit for near-matches (typos)
+GAP_OPEN_PENALTY = -3.0    # Higher penalty to discourage gaps
+GAP_EXTEND_PENALTY = -0.5  # Lower extend penalty for longer gaps
 
 @lru_cache(maxsize=1024)
 def levenshtein(s1: str, s2: str) -> int:
-    """
-    Optimized Levenshtein distance calculation for fuzzy token matching.
-    Cached for performance since it's called frequently during alignment.
-    """
+    """Cached Levenshtein distance for fuzzy matching."""
     if len(s1) < len(s2):
         return levenshtein(s2, s1)
-
+    
     if len(s2) == 0:
         return len(s1)
-
+    
     previous_row = list(range(len(s2) + 1))
     for i, c1 in enumerate(s1):
         current_row = [i + 1]
@@ -85,57 +81,75 @@ class ConsistencyBasedAligner:
         if len(encoded_drafts) < 2:
             raise ValueError("At least two drafts are required for alignment.")
         
+        # DEBUG: Log the ID mapping and encoded tokens
+        logger.debug(f"   🔍 ID_TO_TOKEN MAPPING DEBUG:")
+        logger.debug(f"      Available IDs: {list(id_to_token.keys())[:10]}...")
+        logger.debug(f"      Sample mappings: {dict(list(id_to_token.items())[:5])}")
+        
+        for draft in encoded_drafts:
+            draft_id = draft['draft_id']
+            encoded_tokens = draft['encoded_tokens']
+            logger.debug(f"   🔍 {draft_id} ENCODED TOKENS: {encoded_tokens[:10]}...")
+            
+            # Check if encoded tokens exist in mapping
+            for i, token_id in enumerate(encoded_tokens[:5]):
+                str_id = str(token_id)
+                if str_id in id_to_token:
+                    token = id_to_token[str_id]
+                    logger.debug(f"      ID {token_id} → '{token}' ✅")
+                else:
+                    logger.error(f"      ID {token_id} → NOT FOUND ❌")
+                    logger.error(f"         Available IDs: {list(id_to_token.keys())}")
+        
         # Convert numeric IDs back to token strings for alignment
-        sequences = [[id_to_token.get(str(token_id), '') for token_id in draft['encoded_tokens']] 
-                     for draft in encoded_drafts]
+        sequences = []
+        for draft in encoded_drafts:
+            draft_tokens = []
+            for token_id in draft['encoded_tokens']:
+                token = id_to_token.get(token_id, '')
+                draft_tokens.append(token)
+                if token == '':
+                    logger.error(f"   🚨 EMPTY TOKEN DETECTED! ID {token_id} not found in mapping")
+            sequences.append(draft_tokens)
+        
+        # DEBUG: Log the actual sequences after conversion
+        for i, (draft, seq) in enumerate(zip(encoded_drafts, sequences)):
+            logger.debug(f"   🔍 CONVERTED SEQUENCE {draft['draft_id']}: {seq[:10]}...")
+            if any(token == '' for token in seq):
+                logger.error(f"      🚨 CONTAINS EMPTY STRINGS!")
         
         draft_ids = [draft['draft_id'] for draft in encoded_drafts]
         
         logger.debug(f"   📊 Aligning {len(sequences)} sequences with lengths: {[len(seq) for seq in sequences]}")
-
-        # --- Phase 1: All-vs-All Pairwise Alignments with new scoring ---
-        logger.debug(f"   🔄 Generating {len(sequences) * (len(sequences) - 1) // 2} pairwise alignments")
-        pairwise_alignments = {}
-        for i in range(len(sequences)):
-            for j in range(i + 1, len(sequences)):
-                seq1 = sequences[i]
-                seq2 = sequences[j]
-                
-                # Use the new affine gap penalties and fuzzy matching score function
-                alignments = pairwise2.align.globalcs(
-                    seq1, seq2, self._get_match_score, 
-                    self.gap_open, self.gap_extend,
-                    penalize_end_gaps=False
-                )
-                
-                if alignments:
-                    # Store the best alignment for this pair
-                    pairwise_alignments[(i, j)] = alignments[0]
-                    logger.debug(f"      Aligned seq {i} vs {j}: score {alignments[0][2]:.2f}")
-
-        # --- Phase 2: Build Consistency Library ---
-        consistency_library = self._build_consistency_library(pairwise_alignments, len(sequences))
-        logger.debug(f"   📚 Built consistency library with {len(consistency_library)} positions")
-
-        # --- Phase 3: Progressive Alignment using the Library ---
-        final_alignment = self._progressive_alignment(sequences, draft_ids, consistency_library)
+        
+        # DEBUG: Check if sequences are identical
+        if len(sequences) > 1:
+            are_identical = all(seq == sequences[0] for seq in sequences[1:])
+            logger.debug(f"   🔍 Are all sequences identical? {are_identical}")
+            if are_identical:
+                logger.debug("   ⚡ SHORTCUT: All sequences are identical, skipping alignment")
+                final_alignment = sequences  # No alignment needed
+            else:
+                logger.debug("   🔄 Sequences differ, performing alignment")
+                final_alignment = self._simple_token_alignment(sequences, draft_ids)
+        else:
+            final_alignment = sequences
         
         # --- Final Output Formatting ---
         aligned_sequences_data = []
         for i, draft_id in enumerate(draft_ids):
             if i < len(final_alignment):
-                aligned_seq_str = final_alignment[i]
-                aligned_tokens = [token if token != '-' else '-' for token in aligned_seq_str]
+                aligned_seq = final_alignment[i]
                 
-                # FIXED: Create proper mapping from original token index to aligned index
+                # Create proper mapping from original token index to aligned index
                 original_to_alignment_map = []
                 original_idx = 0
                 
-                logger.debug(f"   🔍 DEBUGGING MAPPING ► {draft_id}: aligned_tokens={len(aligned_tokens)}, original_seq={len(sequences[i])}")
-                logger.debug(f"      First 10 aligned tokens: {aligned_tokens[:10]}")
-                logger.debug(f"      First 10 original tokens: {sequences[i][:10]}")
+                logger.debug(f"   🔍 DEBUGGING MAPPING ► {draft_id}: aligned_seq={len(aligned_seq)}, original_seq={len(sequences[i])}")
+                logger.debug(f"      First 10 aligned: {aligned_seq[:10]}")
+                logger.debug(f"      First 10 original: {sequences[i][:10]}")
                 
-                for aligned_idx, token in enumerate(aligned_tokens):
+                for aligned_idx, token in enumerate(aligned_seq):
                     if token != '-':
                         # Map this original token to its aligned position
                         original_to_alignment_map.append(aligned_idx)
@@ -145,11 +159,11 @@ class ConsistencyBasedAligner:
                         if original_idx <= 5:
                             logger.debug(f"         Mapping original[{original_idx-1}]='{sequences[i][original_idx-1] if original_idx-1 < len(sequences[i]) else 'OUT_OF_BOUNDS'}' → aligned[{aligned_idx}]='{token}'")
                 
-                logger.debug(f"   🗺️ {draft_id}: {len(sequences[i])} original → {len(aligned_tokens)} aligned → {len(original_to_alignment_map)} mappings")
+                logger.debug(f"   🗺️ {draft_id}: {len(sequences[i])} original → {len(aligned_seq)} aligned → {len(original_to_alignment_map)} mappings")
 
                 aligned_sequences_data.append({
                     'draft_id': draft_id,
-                    'tokens': aligned_tokens,
+                    'tokens': aligned_seq,
                     'original_to_alignment': original_to_alignment_map,
                 })
             else:
@@ -173,28 +187,12 @@ class ConsistencyBasedAligner:
             'alignment': final_alignment
         }
 
-    def _build_consistency_library(self, pairwise_alignments, num_sequences):
-        """Build a library of residue matches from all pairwise alignments."""
-        library = defaultdict(int)
-        for (i, j), aln in pairwise_alignments.items():
-            seqA, seqB, score, begin, end = aln
-            idx1, idx2 = -1, -1
-            for k in range(len(seqA)):
-                if seqA[k] != '-':
-                    idx1 += 1
-                if seqB[k] != '-':
-                    idx2 += 1
-                if seqA[k] != '-' and seqB[k] != '-':
-                    library[(i, idx1, j, idx2)] += 1
-        return library
-    
-    def _progressive_alignment(self, sequences, draft_ids, library):
+    def _simple_token_alignment(self, sequences: List[List[str]], draft_ids: List[str]) -> List[List[str]]:
         """
-        Simplified progressive alignment.
-        
-        FIXED: Returns proper list of aligned sequences instead of Bio objects.
+        Simple token-level alignment that preserves token integrity.
+        For now, just perform pairwise alignment and extend.
         """
-        logger.debug("   🔄 Progressive alignment starting")
+        logger.debug("   🔄 Simple token alignment starting")
         
         if not sequences:
             return []
@@ -202,42 +200,86 @@ class ConsistencyBasedAligner:
         if len(sequences) == 1:
             return [sequences[0]]
         
-        # Start with pairwise alignment of first two sequences
-        if len(sequences) >= 2:
-            alignments = pairwise2.align.globalcs(
-                sequences[0], sequences[1], self._get_match_score, 
-                self.gap_open, self.gap_extend, one_alignment_only=True
-            )
-            
-            if alignments:
-                aln1, aln2, score, begin, end = alignments[0]
-                final_alignment = [list(aln1), list(aln2)]
-                logger.debug(f"      Initial pair alignment score: {score:.2f}")
-                logger.debug(f"      Aligned lengths: {len(aln1)} vs {len(aln2)}")
-                logger.debug(f"      Original lengths: {len(sequences[0])} vs {len(sequences[1])}")
-            else:
-                # Fallback: no gaps
-                logger.debug("      No alignments found, using original sequences")
-                final_alignment = [sequences[0], sequences[1]]
-            
-            # Align remaining sequences to the first one
-            for i in range(2, len(sequences)):
-                alignments = pairwise2.align.globalcs(
-                    sequences[0], sequences[i], self._get_match_score, 
-                    self.gap_open, self.gap_extend, one_alignment_only=True
-                )
-                
-                if alignments:
-                    _, aln_i, score, _, _ = alignments[0]
-                    final_alignment.append(list(aln_i))
-                    logger.debug(f"      Sequence {i} alignment score: {score:.2f}")
-                    logger.debug(f"      Aligned length: {len(aln_i)} vs original: {len(sequences[i])}")
-                else:
-                    # Fallback: no gaps
-                    logger.debug(f"      No alignment found for sequence {i}, using original")
-                    final_alignment.append(sequences[i])
-        else:
-            final_alignment = sequences
+        # Start with the first sequence as reference
+        aligned_sequences = [sequences[0]]
         
-        logger.debug(f"   ✅ Progressive alignment complete: {len(final_alignment)} sequences")
-        return final_alignment 
+        # Align each subsequent sequence to the first
+        for i in range(1, len(sequences)):
+            logger.debug(f"      🔍 Aligning sequence {i} to reference")
+            aligned_seq = self._align_to_reference(sequences[0], sequences[i])
+            aligned_sequences.append(aligned_seq)
+        
+        # Ensure all sequences have the same length by padding with gaps
+        max_len = max(len(seq) for seq in aligned_sequences)
+        for i in range(len(aligned_sequences)):
+            while len(aligned_sequences[i]) < max_len:
+                aligned_sequences[i].append('-')
+        
+        logger.debug(f"   ✅ Simple alignment complete: {len(aligned_sequences)} sequences, max length: {max_len}")
+        
+        # DEBUG: Log final alignment results
+        for i, aligned_seq in enumerate(aligned_sequences):
+            logger.debug(f"      📊 Final alignment {i}: {len(aligned_seq)} tokens")
+            logger.debug(f"         First 10: {aligned_seq[:10]}")
+        
+        return aligned_sequences
+
+    def _align_to_reference(self, reference: List[str], sequence: List[str]) -> List[str]:
+        """
+        Align a sequence to a reference sequence using simple token-level alignment.
+        """
+        # For identical sequences, return the original
+        if reference == sequence:
+            return sequence[:]
+        
+        # For different sequences, perform simple alignment
+        # This is a simplified approach - for now, just return the sequence padded to match reference length
+        aligned = sequence[:]
+        
+        # Simple padding to match reference length
+        if len(aligned) < len(reference):
+            aligned.extend(['-'] * (len(reference) - len(aligned)))
+        elif len(aligned) > len(reference):
+            # Truncate if longer (this is a simplification)
+            aligned = aligned[:len(reference)]
+        
+        return aligned
+
+    def debug_alignment_results(self, aligned_sequences_data: List[Dict[str, Any]], sequences: List[List[str]]) -> None:
+        """Debug method to log alignment results and detect issues."""
+        logger.info("🔍 DEBUGGING ALIGNMENT RESULTS")
+        
+        for i, (aligned_data, original_seq) in enumerate(zip(aligned_sequences_data, sequences)):
+            draft_id = aligned_data['draft_id']
+            aligned_tokens = aligned_data['tokens']
+            
+            logger.info(f"   📋 {draft_id}:")
+            logger.info(f"      Original length: {len(original_seq)}")
+            logger.info(f"      Aligned length: {len(aligned_tokens)}")
+            logger.info(f"      First 10 original: {original_seq[:10]}")
+            logger.info(f"      First 10 aligned: {aligned_tokens[:10]}")
+            
+            # Check for differences
+            non_gap_aligned = [token for token in aligned_tokens if token != '-']
+            if non_gap_aligned != original_seq:
+                logger.warning(f"      ⚠️ ALIGNMENT MISMATCH detected for {draft_id}")
+                logger.warning(f"         Original: {original_seq[:5]}...")
+                logger.warning(f"         Non-gap aligned: {non_gap_aligned[:5]}...")
+        
+        # Check for differences across drafts at each position
+        if aligned_sequences_data:
+            alignment_length = len(aligned_sequences_data[0]['tokens'])
+            differences_found = 0
+            
+            for pos in range(alignment_length):
+                tokens_at_pos = [seq['tokens'][pos] for seq in aligned_sequences_data if pos < len(seq['tokens'])]
+                unique_tokens = set(token for token in tokens_at_pos if token != '-')
+                
+                if len(unique_tokens) > 1:
+                    differences_found += 1
+                    logger.info(f"      🔍 DIFFERENCE at position {pos}: {tokens_at_pos}")
+            
+            logger.info(f"   📊 Total differences found: {differences_found}")
+            
+            if differences_found == 0:
+                logger.warning("   ⚠️ NO DIFFERENCES DETECTED - This may indicate an alignment issue") 

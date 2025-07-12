@@ -79,6 +79,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   onToggleEditedVersion,
 }) => {
   const [activeTab, setActiveTab] = useState('text');
+  const [showAlignedText, setShowAlignedText] = useState(false);
 
   // Check if current result has multiple drafts for alignment
   const hasMultipleDrafts = selectedResult?.result?.metadata?.redundancy_analysis?.individual_results?.length > 1;
@@ -223,6 +224,20 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         🔄
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {/* Original vs Aligned Text Toggle */}
+                {alignmentResult?.success && (
+                  <div className="text-source-toggle">
+                    <label className="toggle-label">
+                      <input
+                        type="checkbox"
+                        checked={showAlignedText}
+                        onChange={(e) => setShowAlignedText(e.target.checked)}
+                      />
+                      Show aligned text (vs original)
+                    </label>
                   </div>
                 )}
 

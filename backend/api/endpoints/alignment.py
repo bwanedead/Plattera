@@ -129,7 +129,11 @@ async def align_legal_drafts(request: AlignmentRequest):
         logger.info(f"✅ BioPython alignment completed successfully in {results['processing_time']:.2f}s")
         
         logger.info("Alignment API response keys: %s", list(results.keys()))
-        logger.info("per_draft_alignment_mapping sample: %s", json.dumps(results.get('per_draft_alignment_mapping', {}), indent=2)[:1000])
+        if results.get('per_draft_alignment_mapping'):
+            sample_block = list(results['per_draft_alignment_mapping'].keys())[0]
+            sample_draft = results['per_draft_alignment_mapping'][sample_block][0]
+            mapping_length = len(sample_draft.get('original_to_alignment', []))
+            # Removed repetitive log message that was spamming the terminal
         
         return AlignmentResponse(
             success=True,

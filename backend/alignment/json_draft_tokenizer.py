@@ -202,20 +202,39 @@ class JsonDraftTokenizer:
                             global_token_mappings: Dict[str, Any]) -> Dict[str, Any]:
         """Process a single block across all drafts with consistent tokenization"""
         
+        # ADD: Debug logging for original vs normalized content
+        logger.info(f"🔍 DEBUGGING TOKENIZATION ► Block '{block_id}'")
+        
         # Tokenize all drafts for this block
         tokenized_drafts = []
         all_tokens = set()  # Collect all unique tokens for consistent encoding
         
         for draft_id, text in draft_texts.items():
+            # ADD: Log original text stats
+            original_word_count = len(text.split())
+            logger.info(f"   📝 {draft_id} ORIGINAL ► {original_word_count} words, {len(text)} chars")
+            logger.info(f"      Original text preview: {text[:100]}...")
+            
             # Get normalized tokens for alignment (existing functionality)
             normalized_tokens = self._tokenize_legal_text(text)
+            
+            # ADD: Log normalized stats
+            logger.info(f"   🔧 {draft_id} NORMALIZED ► {len(normalized_tokens)} tokens")
+            logger.info(f"      Normalized tokens preview: {normalized_tokens[:10]}...")
+            
+            # ENHANCED: Log ALL tokens for comparison
+            logger.info(f"      ALL NORMALIZED TOKENS: {normalized_tokens}")
             
             # Get original tokens for format mapping (NEW: dual tokenization)
             original_tokens = self._tokenize_original_text(text)
             
+            # ADD: Log original tokenization (without normalization)
+            logger.info(f"   📄 {draft_id} ORIGINAL TOKENS ► {len(original_tokens)} tokens")
+            logger.info(f"      Original tokens preview: {original_tokens[:10]}...")
+            
             # Write normalized tokens to file for debugging (existing functionality)
             os.makedirs('alignment_token_debug', exist_ok=True)
-            with open(f'alignment_token_debug/tokens_{draft_id}.txt', 'w', encoding='utf-8') as f:
+            with open(f'alignment_token_debug/tokens_{draft_id}_{block_id}.txt', 'w', encoding='utf-8') as f:
                 f.write('\n'.join(normalized_tokens))
             
             tokenized_drafts.append({
@@ -227,6 +246,64 @@ class JsonDraftTokenizer:
             })
             all_tokens.update(normalized_tokens)
         
+        # ADD: Compare token counts and content across drafts
+        token_counts = [len(draft['tokens']) for draft in tokenized_drafts]
+        logger.info(f"   📊 TOKEN COUNT COMPARISON ► {token_counts}")
+        
+        if len(set(token_counts)) == 1:
+            logger.info(f"   ✅ ALL DRAFTS HAVE SAME TOKEN COUNT: {token_counts[0]}")
+        else:
+            logger.warning(f"   ⚠️ DIFFERENT TOKEN COUNTS: min={min(token_counts)}, max={max(token_counts)}")
+        
+        # ENHANCED: More detailed comparison with exact character-by-character checking
+        if len(tokenized_drafts) >= 2:
+            draft1_tokens = tokenized_drafts[0]['tokens']
+            logger.info(f"   🔍 ENHANCED COMPARISON ► Comparing all drafts token by token")
+            
+            for i, draft_data in enumerate(tokenized_drafts[1:], 1):
+                draft2_tokens = draft_data['tokens']
+                
+                logger.info(f"   🆚 COMPARING {tokenized_drafts[0]['draft_id']} vs {draft_data['draft_id']}:")
+                logger.info(f"      Draft 1 tokens: {draft1_tokens}")
+                logger.info(f"      Draft 2 tokens: {draft2_tokens}")
+                
+                # Check if exactly equal
+                if draft1_tokens == draft2_tokens:
+                    logger.warning(f"      ❌ SEQUENCES ARE IDENTICAL - this should NOT happen if there are real differences!")
+                else:
+                    logger.info(f"      ✅ SEQUENCES ARE DIFFERENT - as expected")
+                
+                # Find ALL differences with detailed logging
+                differences = []
+                max_len = max(len(draft1_tokens), len(draft2_tokens))
+                
+                for j in range(max_len):
+                    token1 = draft1_tokens[j] if j < len(draft1_tokens) else '<MISSING>'
+                    token2 = draft2_tokens[j] if j < len(draft2_tokens) else '<MISSING>'
+                    
+                    if token1 != token2:
+                        differences.append((j, token1, token2))
+                        logger.info(f"         🚨 DIFFERENCE at position {j}: '{token1}' ≠ '{token2}'")
+                        logger.info(f"            Token 1 chars: {[ord(c) for c in token1] if token1 != '<MISSING>' else 'N/A'}")
+                        logger.info(f"            Token 2 chars: {[ord(c) for c in token2] if token2 != '<MISSING>' else 'N/A'}")
+                
+                logger.info(f"      📊 TOTAL DIFFERENCES: {len(differences)}")
+                
+                if len(differences) == 0:
+                    logger.error(f"      🚨 NO DIFFERENCES FOUND - BUT THERE SHOULD BE!")
+                    logger.error(f"         This indicates a bug in tokenization or test data")
+        
+        # Add detailed character-level analysis of the source text
+        logger.info(f"   🔍 SOURCE TEXT CHARACTER ANALYSIS:")
+        for i, (draft_id, text) in enumerate(draft_texts.items()):
+            logger.info(f"      {draft_id} chars: {[ord(c) for c in text[:50]]}")
+            if i > 0:
+                prev_text = list(draft_texts.values())[0]
+                if text == prev_text:
+                    logger.warning(f"         ❌ SOURCE TEXT IS IDENTICAL TO FIRST DRAFT")
+                else:
+                    logger.info(f"         ✅ SOURCE TEXT IS DIFFERENT FROM FIRST DRAFT")
+
         # Create consistent token encoding across all drafts in this block
         if block_id not in global_token_mappings:
             # Create encoding for unique tokens in this block
@@ -294,28 +371,30 @@ class JsonDraftTokenizer:
     
     def _normalize_text(self, text: str) -> str:
         """
-        Normalize text for alignment:
-        - Lowercase
-        - Canonicalize numbers to prevent token-splitting issues
-        - Remove all non-alphanumeric characters (keeps spaces)
-        - Collapse multiple spaces into one
-        - Strip leading/trailing whitespace
+        Normalize text for alignment with debug logging
         """
-        text = text.lower()
+        original_text = text
+        logger.debug(f"🔍 NORMALIZATION DEBUG ► Input: '{text[:50]}...'")
         
-        # --- New: Canonicalize numbers before stripping punctuation ---
-        # Collapse commas/spaces inside numbers (e.g., "1,638" -> "1638")
+        text = text.lower()
+        logger.debug(f"   After lowercase: '{text[:50]}...'")
+        
+        # Canonicalize numbers before stripping punctuation
         text = re.sub(r'(?<=\d)[,\s]+(?=\d)', '', text)
+        logger.debug(f"   After number canonicalization: '{text[:50]}...'")
         
         # Protect decimal points by replacing them with a sentinel
         text = re.sub(r'(?<=\d)\.(?=\d)', 'DOT', text)
-
+        
         # Replace all non-alphanumeric chars (except our sentinel) with a space
-        text = re.sub(r'[^a-z0-9\s]', ' ', text.replace('DOT', ' ')).replace('DOT','.') #this is a hacky way to do this but whatever
-
+        text = re.sub(r'[^a-z0-9\s]', ' ', text.replace('DOT', ' ')).replace('DOT','.')
+        logger.debug(f"   After punctuation removal: '{text[:50]}...'")
+        
         # Collapse multiple spaces into one
         text = re.sub(r'\s+', ' ', text)
         text = text.strip()
+        logger.debug(f"   Final normalized: '{text[:50]}...'")
+        
         return text
     
     def _tokenize_legal_text(self, text: str) -> List[str]:
