@@ -1,0 +1,162 @@
+"""
+Type 1 Exact Text Formatter
+===========================
+
+COMPLETELY ISOLATED Type 1 formatting implementation.
+Goal: Reconstruct exact original text with all original formatting, spacing, and punctuation preserved.
+
+This formatter is COMPLETELY UNAWARE of Type 2 formatting and has NO DEPENDENCIES on it.
+"""
+
+from typing import Dict, List, Any, Optional
+from .format_mapping import FormatMapping
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class Type1ExactFormatter:
+    """
+    Type 1 Exact Text Formatter - COMPLETELY ISOLATED
+    
+    Purpose: Reconstruct exact original text from aligned tokens.
+    Output: Complete, readable original text for draft viewer.
+    
+    This class has NO KNOWLEDGE of Type 2 formatting whatsoever.
+    """
+    
+    def __init__(self):
+        """Initialize Type 1 formatter - completely independent."""
+        pass
+    
+    def reconstruct_exact_original_text(self, aligned_tokens: List[str], 
+                                      format_mapping: FormatMapping,
+                                      original_to_alignment: List[int]) -> str:
+        """
+        Reconstruct exact original text (Type 1) from aligned tokens.
+        
+        This method is COMPLETELY ISOLATED from Type 2 formatting.
+        It only cares about reconstructing the exact original text.
+        
+        Args:
+            aligned_tokens: List of aligned tokens (including gaps '-')
+            format_mapping: Mapping from tokens to original text positions
+            original_to_alignment: Mapping from original token indices to alignment positions
+            
+        Returns:
+            str: Exact original text with all formatting preserved
+        """
+        logger.info(f"🔍 TYPE 1 EXACT FORMATTER ► Reconstructing exact original text")
+        logger.info(f"   📊 Input: {len(aligned_tokens)} aligned tokens, {len(original_to_alignment)} mappings")
+        
+        if not format_mapping or not format_mapping.token_positions:
+            # Fallback: simple space-separated text
+            non_gap_tokens = [token for token in aligned_tokens if token != '-']
+            logger.warning("   ⚠️ No format mapping, using fallback")
+            return ' '.join(non_gap_tokens)
+        
+        # Build reverse mapping: alignment position -> original token indices
+        alignment_to_original = self._build_alignment_to_original_mapping(
+            original_to_alignment, len(aligned_tokens)
+        )
+        
+        logger.info(f"   🗺️ Built alignment-to-original mapping: {len(alignment_to_original)} entries")
+        
+        # Collect original text portions in order
+        text_portions = []
+        used_original_indices = set()
+        
+        logger.info(f"   📋 Processing {len(aligned_tokens)} aligned tokens for exact text reconstruction...")
+        
+        # Process alignment positions in order
+        for align_pos, token in enumerate(aligned_tokens):
+            if token == '-':
+                logger.debug(f"     Position {align_pos}: Skipping gap")
+                continue  # Skip gaps
+            
+            # Get original indices for this alignment position
+            original_indices = alignment_to_original.get(align_pos, [])
+            logger.debug(f"     Position {align_pos}: Token '{token}' → Original indices {original_indices}")
+            
+            if original_indices:
+                # Check if any of these indices have been used
+                if any(orig_idx in used_original_indices for orig_idx in original_indices):
+                    logger.warning(f"     ❌ DUPLICATE DETECTED! Original indices {original_indices} already used")
+                    continue
+                
+                # Get the original text portion for the first index
+                orig_idx = original_indices[0]
+                token_pos = format_mapping.get_position_for_token(orig_idx)
+                
+                if token_pos:
+                    logger.debug(f"       ✅ Found original text: '{token_pos.original_text}' (chars {token_pos.start_char}-{token_pos.end_char})")
+                    text_portions.append({
+                        'text': token_pos.original_text,
+                        'start_char': token_pos.start_char,
+                        'end_char': token_pos.end_char,
+                        'original_idx': orig_idx
+                    })
+                    
+                    # Mark ALL original indices as used
+                    for idx in original_indices:
+                        used_original_indices.add(idx)
+                    
+                    logger.debug(f"       ✅ Added to text portions (total: {len(text_portions)})")
+                else:
+                    logger.warning(f"       ❌ No position found for original index {orig_idx}")
+            else:
+                logger.debug(f"       ❌ No original index mapping for aligned position {align_pos}")
+        
+        # Reconstruct with exact original spacing
+        result = self._reconstruct_with_exact_spacing(text_portions, format_mapping.original_text)
+        
+        logger.info(f"   ✅ Type 1 exact text reconstruction complete: {len(result)} characters")
+        logger.debug(f"   📋 Used original indices: {sorted(used_original_indices)}")
+        logger.debug(f"   📋 Text portions count: {len(text_portions)}")
+        
+        return result
+    
+    def _build_alignment_to_original_mapping(self, original_to_alignment: List[int], 
+                                           alignment_length: int) -> Dict[int, List[int]]:
+        """Build reverse mapping from alignment position to list of original token indices."""
+        from collections import defaultdict
+        
+        alignment_to_original = defaultdict(list)
+        
+        for orig_idx, align_pos in enumerate(original_to_alignment):
+            if align_pos != -1 and align_pos < alignment_length:
+                alignment_to_original[align_pos].append(orig_idx)
+        
+        return dict(alignment_to_original)
+    
+    def _reconstruct_with_exact_spacing(self, text_portions: List[Dict], original_text: str) -> str:
+        """
+        Reconstruct text with exact original spacing preserved.
+        
+        This is the key method that preserves exact original formatting.
+        """
+        if not text_portions:
+            return ""
+        
+        # Sort by original character position to maintain order
+        sorted_portions = sorted(text_portions, key=lambda x: x['start_char'])
+        
+        result_parts = []
+        
+        for i, portion in enumerate(sorted_portions):
+            # Add the original text portion
+            result_parts.append(portion['text'])
+            
+            # Add exact spacing between portions
+            if i < len(sorted_portions) - 1:
+                next_portion = sorted_portions[i + 1]
+                
+                current_end = portion['end_char']
+                next_start = next_portion['start_char']
+                
+                # Extract exact spacing from original text
+                if current_end < next_start:
+                    exact_spacing = original_text[current_end:next_start]
+                    result_parts.append(exact_spacing)
+        
+        return ''.join(result_parts) 

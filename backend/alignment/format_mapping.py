@@ -54,20 +54,11 @@ class FormatMapper:
     
     def create_mapping(self, draft_id: str, original_text: str, normalized_tokens: List[str]) -> FormatMapping:
         """
-        Create universal positional mapping between original text and normalized tokens.
+        Create content-based mapping between original text and normalized tokens.
         
-        This approach maps tokens to original words purely by position, regardless of content.
-        Token at position X maps to original word at position X.
-        
-        Args:
-            draft_id: Identifier for this draft
-            original_text: Original text with formatting
-            normalized_tokens: List of normalized tokens from tokenizer
-            
-        Returns:
-            FormatMapping with character positions for each token
+        This approach maps tokens to original words by content matching, not just position.
         """
-        logger.debug(f"Creating universal positional mapping for draft {draft_id} with {len(normalized_tokens)} tokens")
+        logger.debug(f"Creating content-based mapping for draft {draft_id} with {len(normalized_tokens)} tokens")
         
         if not original_text or not normalized_tokens:
             return FormatMapping(draft_id, original_text, [])
@@ -76,43 +67,65 @@ class FormatMapper:
         word_matches = list(re.finditer(r'\S+', original_text))
         
         token_positions = []
-        used_word_positions = set()  # Track which word positions have been used
+        used_word_positions = set()
         
-        # Create purely positional mapping - token position X maps to word position X
+        # Create content-based mapping
         for token_idx, token in enumerate(normalized_tokens):
-            if token_idx < len(word_matches):
-                # Map this token to the corresponding positional word in original text
-                word_match = word_matches[token_idx]
+            # Find the best matching word in the original text
+            best_match = None
+            best_score = 0
+            
+            for word_match in word_matches:
                 word_start = word_match.start()
                 word_end = word_match.end()
                 
-                # FIX: Check if this word position has already been used (section boundary overlap)
+                # Skip if this word position has already been used
                 if (word_start, word_end) in used_word_positions:
-                    logger.warning(f"  ⚠️ DUPLICATE WORD POSITION DETECTED at token {token_idx}: '{token}'")
-                    logger.warning(f"     Word position ({word_start}, {word_end}) already mapped")
-                    logger.warning(f"     This might be a section boundary overlap - skipping duplicate")
                     continue
                 
                 original_word = word_match.group()
                 
+                # Calculate similarity score
+                score = self._calculate_similarity(token, original_word)
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = word_match
+            
+            if best_match and best_score > 0.5:  # Threshold for matching
                 token_positions.append(TokenPosition(
                     token_index=token_idx,
-                    start_char=word_start,
-                    end_char=word_end,
-                    original_text=original_word,  # Whatever was at this position
-                    normalized_text=token         # Whatever the token is
+                    start_char=best_match.start(),
+                    end_char=best_match.end(),
+                    original_text=best_match.group(),
+                    normalized_text=token
                 ))
                 
-                used_word_positions.add((word_start, word_end))  # Mark as used
-                logger.debug(f"  Mapped token {token_idx}: '{token}' → '{original_word}' (chars {word_start}-{word_end})")
+                used_word_positions.add((best_match.start(), best_match.end()))
+                logger.debug(f"  Mapped token {token_idx}: '{token}' → '{best_match.group()}' (score: {best_score:.2f})")
+            else:
+                logger.warning(f"  No match found for token {token_idx}: '{token}'")
         
-        logger.debug(f"Created {len(token_positions)} universal position mappings for draft {draft_id}")
+        logger.debug(f"Created {len(token_positions)} content-based mappings for draft {draft_id}")
         
         return FormatMapping(
             draft_id=draft_id,
             original_text=original_text,
             token_positions=token_positions
         )
+    
+    def _calculate_similarity(self, normalized_token: str, original_word: str) -> float:
+        """Calculate similarity between normalized token and original word."""
+        # Simple similarity based on normalized comparison
+        normalized_original = re.sub(r'[^a-z0-9]', '', original_word.lower())
+        normalized_token_clean = re.sub(r'[^a-z0-9]', '', normalized_token.lower())
+        
+        if normalized_original == normalized_token_clean:
+            return 1.0
+        elif normalized_original.startswith(normalized_token_clean) or normalized_token_clean.startswith(normalized_original):
+            return 0.8
+        else:
+            return 0.0
     
     def reconstruct_formatted_text(self, 
                                  aligned_tokens: List[str], 
