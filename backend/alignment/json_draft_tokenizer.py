@@ -232,11 +232,6 @@ class JsonDraftTokenizer:
             logger.info(f"   📄 {draft_id} ORIGINAL TOKENS ► {len(original_tokens)} tokens")
             logger.info(f"      Original tokens preview: {original_tokens[:10]}...")
             
-            # Write normalized tokens to file for debugging (existing functionality)
-            os.makedirs('alignment_token_debug', exist_ok=True)
-            with open(f'alignment_token_debug/tokens_{draft_id}_{block_id}.txt', 'w', encoding='utf-8') as f:
-                f.write('\n'.join(normalized_tokens))
-            
             tokenized_drafts.append({
                 'draft_id': draft_id,
                 'tokens': normalized_tokens,         # For alignment (existing)
