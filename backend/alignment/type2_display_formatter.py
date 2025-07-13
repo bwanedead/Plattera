@@ -36,18 +36,6 @@ class Type2DisplayFormatter:
                             consensus_group_sizes: List[int]) -> List[str]:
         """
         Create formatted display tokens for alignment table (Type 2).
-        
-        This method is COMPLETELY ISOLATED from Type 1 formatting.
-        It only cares about creating display tokens for the alignment table.
-        
-        Args:
-            aligned_tokens: List of aligned tokens (including gaps '-')
-            format_mapping: Mapping from tokens to original text positions
-            original_to_alignment: Mapping from original token indices to alignment positions
-            consensus_group_sizes: Group sizes for consensus anchoring
-            
-        Returns:
-            List[str]: Formatted display tokens for alignment table
         """
         logger.info(f"🔧 TYPE 2 DISPLAY FORMATTER ► Creating display tokens")
         logger.info(f"   📊 Input: {len(aligned_tokens)} aligned tokens, {len(consensus_group_sizes)} group sizes")
@@ -199,7 +187,7 @@ class Type2ConsensusAnalyzer:
         """
         Compute consensus groupings for Type 2 formatting.
         
-        This method is COMPLETELY ISOLATED from Type 1 formatting.
+        Returns: Dict[block_id, Dict[draft_id, List[int]]] (the correct structure)
         """
         logger.info("🎯 TYPE 2 CONSENSUS ANALYZER ► Computing consensus groupings")
         
@@ -220,92 +208,14 @@ class Type2ConsensusAnalyzer:
             # Get alignment length
             alignment_length = len(aligned_sequences[0].get('tokens', []))
             
-            # Analyze token mappings
-            position_analysis = self._analyze_token_mappings(
-                aligned_sequences, format_mappings.get(block_id, {}), block_id
-            )
-            
-            # Compute consensus group sizes
-            consensus_group_sizes = []
-            for pos in range(alignment_length):
-                if pos < len(position_analysis):
-                    position_counts = position_analysis[pos]
-                    if position_counts:
-                        # Use minimum group size for consistent anchoring
-                        min_group_size = min(position_counts.values())
-                        consensus_group_sizes.append(min_group_size)
-                    else:
-                        consensus_group_sizes.append(1)
-                else:
-                    consensus_group_sizes.append(1)
-            
-            # Apply consensus grouping to all drafts
+            # Simple consensus grouping: each token gets its own group (size 1)
             for seq in aligned_sequences:
                 draft_id = seq.get('draft_id')
                 if draft_id:
-                    block_groupings[draft_id] = consensus_group_sizes.copy()
+                    consensus_group_sizes = [1] * alignment_length
+                    block_groupings[draft_id] = consensus_group_sizes
             
             consensus_groupings[block_id] = block_groupings
         
         logger.info(f"🎊 Type 2 consensus groupings complete: {len(consensus_groupings)} blocks processed")
-        return consensus_groupings
-    
-    def _analyze_token_mappings(self, aligned_sequences: List[Dict], 
-                               format_mappings: Dict[str, FormatMapping], 
-                               block_id: str) -> List[Dict[str, int]]:
-        """Analyze how many formatted tokens each normalized token maps to across drafts."""
-        logger.info(f"🔍 Analyzing token mappings for Type 2 consensus: Block {block_id}")
-        
-        if not aligned_sequences:
-            return []
-        
-        alignment_length = len(aligned_sequences[0].get('tokens', []))
-        position_analysis = [{} for _ in range(alignment_length)]
-        
-        for seq in aligned_sequences:
-            draft_id = seq.get('draft_id')
-            if not draft_id or draft_id not in format_mappings:
-                continue
-                
-            format_mapping = format_mappings[draft_id]
-            aligned_tokens = seq.get('tokens', [])
-            original_to_alignment = seq.get('original_to_alignment', [])
-            
-            # Build reverse mapping
-            alignment_to_original = defaultdict(list)
-            for orig_idx, align_pos in enumerate(original_to_alignment):
-                if align_pos != -1 and align_pos < alignment_length:
-                    alignment_to_original[align_pos].append(orig_idx)
-            
-            # Analyze each position
-            for align_pos in range(len(aligned_tokens)):
-                if aligned_tokens[align_pos] == '-':
-                    position_analysis[align_pos][draft_id] = 0
-                    continue
-                
-                original_indices = alignment_to_original.get(align_pos, [])
-                if not original_indices:
-                    position_analysis[align_pos][draft_id] = 1
-                    continue
-                
-                # Count formatted tokens for these indices
-                formatted_token_count = self._count_formatted_tokens(original_indices, format_mapping)
-                position_analysis[align_pos][draft_id] = formatted_token_count
-        
-        return position_analysis
-    
-    def _count_formatted_tokens(self, original_indices: List[int], 
-                               format_mapping: FormatMapping) -> int:
-        """Count how many formatted tokens the given original token indices map to."""
-        if not original_indices or not format_mapping.token_positions:
-            return len(original_indices)
-        
-        # Count unique formatted token positions
-        formatted_positions = set()
-        
-        for orig_idx in original_indices:
-            token_pos = format_mapping.get_position_for_token(orig_idx)
-            if token_pos:
-                formatted_positions.add((token_pos.start_char, token_pos.end_char))
-        
-        return len(formatted_positions) if formatted_positions else len(original_indices) 
+        return consensus_groupings 
