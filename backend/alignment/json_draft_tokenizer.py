@@ -14,6 +14,7 @@ from collections import defaultdict
 import nltk
 from nltk.tokenize import word_tokenize
 import os
+from dataclasses import dataclass
 
 from .alignment_config import ANCHOR_PATTERNS
 from .alignment_utils import encode_tokens_for_alignment
@@ -21,6 +22,13 @@ from .format_mapping import FormatMapper
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class DirectTokenMapping:
+    """Direct mapping between formatted and normalized tokens"""
+    token_id: int           # Position in original formatted sequence
+    formatted_token: str    # Original token with formatting
+    normalized_tokens: List[str]  # List of normalized tokens (can be multiple)
 
 class JsonDraftTokenizer:
     """Handles JSON draft parsing and tokenization for BioPython alignment"""
@@ -198,95 +206,112 @@ class JsonDraftTokenizer:
 
         return dict(blocks_by_id)
     
+    def _tokenize_with_unified_path(self, text: str) -> Tuple[List[str], List[str], List[DirectTokenMapping]]:
+        """
+        Unified tokenization path: original text -> formatted tokens -> normalized tokens
+        
+        This creates direct 1:1+ mapping while preserving the exact same normalization 
+        logic as the current system.
+        
+        Returns:
+            Tuple of (formatted_tokens, normalized_tokens, mappings)
+        """
+        if not text or not text.strip():
+            return [], [], []
+        
+        # STEP 1: Get formatted tokens (same as current _tokenize_original_text)
+        formatted_tokens = word_tokenize(text)
+        
+        # STEP 2: Apply existing normalization logic to each formatted token
+        all_normalized_tokens = []
+        mappings = []
+        
+        for token_id, formatted_token in enumerate(formatted_tokens):
+            # Apply the EXACT same normalization as current _normalize_text() but to each token
+            normalized_result = self._apply_normalization_to_token(formatted_token)
+            
+            # Split the normalized result into individual tokens (handles multi-word results)
+            if normalized_result and not normalized_result.isspace():
+                # Split on whitespace to handle multi-word results like 'a d' -> ['a', 'd']
+                normalized_sub_tokens = normalized_result.split()
+                
+                if normalized_sub_tokens:
+                    # Add all normalized sub-tokens to the final list
+                    all_normalized_tokens.extend(normalized_sub_tokens)
+                    
+                    # Create mapping with list of normalized tokens
+                    mappings.append(DirectTokenMapping(
+                        token_id=token_id,
+                        formatted_token=formatted_token,
+                        normalized_tokens=normalized_sub_tokens
+                    ))
+        
+        return formatted_tokens, all_normalized_tokens, mappings
+    
+    def _apply_normalization_to_token(self, token: str) -> str:
+        """
+        Apply the EXACT same normalization logic as _normalize_text() to a single token.
+        
+        This preserves the current normalization behavior exactly.
+        """
+        if not token:
+            return ""
+        
+        # Apply the exact same steps as the current _normalize_text()
+        normalized = token
+        
+        # Step 1: Lowercase
+        normalized = normalized.lower()
+        
+        # Step 2: Canonicalize numbers (same regex as current)
+        normalized = re.sub(r'(?<=\d)[,\s]+(?=\d)', '', normalized)
+        
+        # Step 3: Protect decimal points (same as current)
+        normalized = re.sub(r'(?<=\d)\.(?=\d)', 'DOT', normalized)
+        
+        # Step 4: Replace non-alphanumeric chars with space (same as current)
+        normalized = re.sub(r'[^a-z0-9\s]', ' ', normalized.replace('DOT', ' ')).replace('DOT', '.')
+        
+        # Step 5: Collapse spaces and strip (same as current)
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        
+        return normalized
+    
     def _process_single_block(self, block_id: str, draft_texts: Dict[str, str], 
                             global_token_mappings: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a single block across all drafts with consistent tokenization"""
+        """Process a single block across all drafts with unified tokenization path"""
         
-        # ADD: Debug logging for original vs normalized content
-        logger.info(f"🔍 DEBUGGING TOKENIZATION ► Block '{block_id}'")
+        logger.info(f"🔍 UNIFIED TOKENIZATION PATH ► Block '{block_id}'")
         
-        # Tokenize all drafts for this block
+        # Tokenize all drafts for this block with unified path
         tokenized_drafts = []
-        all_tokens = set()  # Collect all unique tokens for consistent encoding
+        all_tokens = set()  # Collect all unique normalized tokens
         
         for draft_id, text in draft_texts.items():
-            # ADD: Log original text stats
-            original_word_count = len(text.split())
-            logger.info(f"   📝 {draft_id} ORIGINAL ► {original_word_count} words, {len(text)} chars")
-            logger.info(f"      Original text preview: {text[:100]}...")
+            logger.info(f"   📝 {draft_id} PROCESSING ► {len(text)} chars")
+            logger.info(f"      Original text: {text[:100]}...")
             
-            # Get normalized tokens for alignment (existing functionality)
-            normalized_tokens = self._tokenize_legal_text(text)
+            # NEW: Use unified tokenization path
+            formatted_tokens, normalized_tokens, token_mappings = self._tokenize_with_unified_path(text)
             
-            # ADD: Log normalized stats
-            logger.info(f"   🔧 {draft_id} NORMALIZED ► {len(normalized_tokens)} tokens")
-            logger.info(f"      Normalized tokens preview: {normalized_tokens[:10]}...")
+            logger.info(f"   🔧 {draft_id} UNIFIED RESULTS:")
+            logger.info(f"      Formatted tokens ({len(formatted_tokens)}): {formatted_tokens[:10]}...")
+            logger.info(f"      Normalized tokens ({len(normalized_tokens)}): {normalized_tokens[:10]}...")
             
-            # ENHANCED: Log ALL tokens for comparison
-            logger.info(f"      ALL NORMALIZED TOKENS: {normalized_tokens}")
-            
-            # Get original tokens for format mapping (NEW: dual tokenization)
-            original_tokens = self._tokenize_original_text(text)
-            
-            # ADD: Log original tokenization (without normalization)
-            logger.info(f"   📄 {draft_id} ORIGINAL TOKENS ► {len(original_tokens)} tokens")
-            logger.info(f"      Original tokens preview: {original_tokens[:10]}...")
+            # Log sample mappings to verify the process
+            logger.info(f"   🎯 {draft_id} SAMPLE MAPPINGS:")
+            for i, mapping in enumerate(token_mappings[:5]):
+                logger.info(f"      [{mapping.token_id}]: '{mapping.formatted_token}' → {mapping.normalized_tokens}")
             
             tokenized_drafts.append({
                 'draft_id': draft_id,
-                'tokens': normalized_tokens,         # For alignment (existing)
-                'original_tokens': original_tokens,  # For format mapping (NEW)
+                'tokens': normalized_tokens,           # For alignment (same as before)
+                'original_tokens': formatted_tokens,   # For format preservation 
+                'token_mappings': token_mappings,      # NEW: Direct mapping
                 'text': text,
                 'token_count': len(normalized_tokens)
             })
             all_tokens.update(normalized_tokens)
-        
-        # ADD: Compare token counts and content across drafts
-        token_counts = [len(draft['tokens']) for draft in tokenized_drafts]
-        logger.info(f"   📊 TOKEN COUNT COMPARISON ► {token_counts}")
-        
-        if len(set(token_counts)) == 1:
-            logger.info(f"   ✅ ALL DRAFTS HAVE SAME TOKEN COUNT: {token_counts[0]}")
-        else:
-            logger.warning(f"   ⚠️ DIFFERENT TOKEN COUNTS: min={min(token_counts)}, max={max(token_counts)}")
-        
-        # ENHANCED: More detailed comparison with exact character-by-character checking
-        if len(tokenized_drafts) >= 2:
-            draft1_tokens = tokenized_drafts[0]['tokens']
-            logger.info(f"   🔍 ENHANCED COMPARISON ► Comparing all drafts token by token")
-            
-            for i, draft_data in enumerate(tokenized_drafts[1:], 1):
-                draft2_tokens = draft_data['tokens']
-                
-                logger.info(f"   🆚 COMPARING {tokenized_drafts[0]['draft_id']} vs {draft_data['draft_id']}:")
-                logger.info(f"      Draft 1 tokens: {draft1_tokens}")
-                logger.info(f"      Draft 2 tokens: {draft2_tokens}")
-                
-                # Check if exactly equal
-                if draft1_tokens == draft2_tokens:
-                    logger.warning(f"      ❌ SEQUENCES ARE IDENTICAL - this should NOT happen if there are real differences!")
-                else:
-                    logger.info(f"      ✅ SEQUENCES ARE DIFFERENT - as expected")
-                
-                # Find ALL differences with detailed logging
-                differences = []
-                max_len = max(len(draft1_tokens), len(draft2_tokens))
-                
-                for j in range(max_len):
-                    token1 = draft1_tokens[j] if j < len(draft1_tokens) else '<MISSING>'
-                    token2 = draft2_tokens[j] if j < len(draft2_tokens) else '<MISSING>'
-                    
-                    if token1 != token2:
-                        differences.append((j, token1, token2))
-                        logger.info(f"         🚨 DIFFERENCE at position {j}: '{token1}' ≠ '{token2}'")
-                        logger.info(f"            Token 1 chars: {[ord(c) for c in token1] if token1 != '<MISSING>' else 'N/A'}")
-                        logger.info(f"            Token 2 chars: {[ord(c) for c in token2] if token2 != '<MISSING>' else 'N/A'}")
-                
-                logger.info(f"      📊 TOTAL DIFFERENCES: {len(differences)}")
-                
-                if len(differences) == 0:
-                    logger.error(f"      🚨 NO DIFFERENCES FOUND - BUT THERE SHOULD BE!")
-                    logger.error(f"         This indicates a bug in tokenization or test data")
         
         # Add detailed character-level analysis of the source text
         logger.info(f"   🔍 SOURCE TEXT CHARACTER ANALYSIS:")
@@ -360,7 +385,6 @@ class JsonDraftTokenizer:
             'id_to_token': id_to_token,
             'unique_token_count': len(token_to_id),
             'draft_count': len(encoded_drafts),
-            # NEW: Add format mappings (pure addition - no existing functionality changed)
             'format_mappings': format_mappings
         }
     
