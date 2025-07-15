@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from .alignment_config import ANCHOR_PATTERNS
 from .alignment_utils import encode_tokens_for_alignment
-from .format_mapping import FormatMapper
+from .format_mapping import FormatMapper, FormatMapping, TokenPosition
 
 logger = logging.getLogger(__name__)
 
@@ -350,32 +350,31 @@ class JsonDraftTokenizer:
                     logger.warning(f"Unknown token '{token}' in block '{block_id}'")
                     encoded_tokens.append(-1)
             
+            # Update the encoded_drafts creation to include token_mappings
             encoded_drafts.append({
                 'draft_id': draft_data['draft_id'],
                 'tokens': draft_data['tokens'],
                 'encoded_tokens': encoded_tokens,
                 'text': draft_data['text'],
                 'token_count': draft_data['token_count'],
-                'original_text': draft_data['text']  # Add original text for format mapping
+                'original_text': draft_data['text'],
+                # NEW: Add direct token mappings for perfect traceability
+                'token_mappings': draft_data['token_mappings'],
+                'original_tokens': draft_data['original_tokens']
             })
         
-        # NEW: Create format mappings for each draft using ORIGINAL tokens
+        # Replace the format mapping creation section with:
         format_mappings = {}
         for draft_data in tokenized_drafts:
-            # Use normalized tokens (correct approach) - format mapper handles the mapping internally
-            mapping = self.format_mapper.create_mapping(
+            # NEW: Create format mapping using direct token mappings (no guesswork!)
+            mapping = self._create_direct_format_mapping(
                 draft_data['draft_id'],
-                draft_data['text'],              # Original text with formatting
-                draft_data['tokens']             # ✅ CORRECT - normalized tokens
+                draft_data['text'],
+                draft_data['token_mappings']
             )
             format_mappings[draft_data['draft_id']] = mapping
             
-            # Log format mapping success for debugging
-            logger.info(f"🎯 FORMAT MAPPING ► {draft_data['draft_id']}: {len(mapping.token_positions)} patterns found")
-            if logger.isEnabledFor(logging.DEBUG):
-                for pos in mapping.token_positions:
-                    if pos.original_text != pos.normalized_text:
-                        logger.debug(f"   Token {pos.token_index}: '{pos.normalized_text}' → '{pos.original_text}'")
+            logger.info(f"🎯 DIRECT FORMAT MAPPING ► {draft_data['draft_id']}: {len(mapping.token_positions)} exact mappings")
         
         return {
             'block_id': block_id,
@@ -468,6 +467,43 @@ class JsonDraftTokenizer:
             }
         
         return stats
+
+    def _create_direct_format_mapping(self, draft_id: str, original_text: str, 
+                                    token_mappings: List[DirectTokenMapping]) -> FormatMapping:
+        """
+        Create format mapping using direct token mappings (no similarity calculations needed).
+        """
+        token_positions = []
+        
+        # Calculate character positions for each formatted token in the original text
+        text_pos = 0
+        normalized_token_index = 0  # Track position in normalized token sequence
+        
+        for mapping in token_mappings:
+            # Find this formatted token in the original text
+            token_start = original_text.find(mapping.formatted_token, text_pos)
+            if token_start == -1:
+                # Fallback: use current position
+                token_start = text_pos
+            token_end = token_start + len(mapping.formatted_token)
+            text_pos = token_end
+            
+            # Create a TokenPosition for each normalized token produced by this formatted token
+            for norm_token in mapping.normalized_tokens:
+                token_positions.append(TokenPosition(
+                    token_index=normalized_token_index,  # Position in normalized sequence
+                    start_char=token_start,
+                    end_char=token_end,
+                    original_text=mapping.formatted_token,  # The formatted token that produced this
+                    normalized_text=norm_token              # The specific normalized token
+                ))
+                normalized_token_index += 1
+        
+        return FormatMapping(
+            draft_id=draft_id,
+            original_text=original_text,
+            token_positions=token_positions
+        )
 
 
 def create_sample_json_drafts() -> List[Dict[str, Any]]:
