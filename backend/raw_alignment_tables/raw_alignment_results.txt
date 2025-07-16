@@ -1,0 +1,1992 @@
+================================================================================
+COMPLETE RAW ALIGNMENT TABLE - ALL BLOCKS
+Generated: 2025-07-16 15:12:18
+Total Blocks: 4
+================================================================================
+
+================================================================================
+BLOCK: section_1
+================================================================================
+
+📊 BLOCK SUMMARY:
+   Alignment Length: 76
+   Number of Drafts: 3
+   Draft IDs: Draft_1, Draft_2, Draft_3
+
+Position  Draft_1                  Draft_2                  Draft_3                  
+-------------------------------------------------------------------------------------
+  0       right                    right                    right                    
+  1       of                       of                       of                       
+  2       way                      way                      way                      
+  3       deed                     deed                     deed                     
+  4       this                     this                     this                     
+  5       indenture                indenture                indenture                
+  6       made                     made                     made                     
+  7       this                     this                     this                     
+  8       3                        3                        3                        
+  9       rd                       rd                       rd                       
+ 10       day                      day                      day                      
+ 11       of                       of                       of                       
+ 12       august                   august                   august                   
+ 13       ad                       ad                       ad                       
+ 14       1915                     1915                     1915                     
+ 15       by                       by                       by                       
+ 16       and                      and                      and                      
+ 17       between                  between                  between                  
+ 18       harriet                  harriet                  harriet                  
+ 19       rickard                  richard                  rickard                  
+ 20       a                        a                        a                        
+ 21       widow                    widow                    widow                    
+ 22       of                       of                       of                       
+ 23       the                      the                      the                      
+ 24       county                   county                   county                   
+ 25       of                       of                       of                       
+ 26       albany                   albany                   albany                   
+ 27       state                    state                    state                    
+ 28       of                       of                       of                       
+ 29       wyoming                  wyoming                  wyoming                  
+ 30       party                    party                    party                    
+ 31       of                       of                       of                       
+ 32       the                      the                      the                      
+ 33       first                    first                    first                    
+ 34       part                     part                     part                     
+ 35       and                      and                      and                      
+ 36       laramie                  laramie                  laramie                  
+ 37       water                    water                    water                    
+ 38       company                  company                  company                  
+ 39       a                        a                        a                        
+ 40       corporation              corporation              corporation              
+ 41       formed                   formed                   formed                   
+ 42       and                      and                      and                      
+ 43       existing                 existing                 existing                 
+ 44       under                    under                    under                    
+ 45       and                      and                      and                      
+ 46       by                       by                       by                       
+ 47       virtue                   virtue                   virtue                   
+ 48       of                       of                       of                       
+ 49       the                      the                      the                      
+ 50       laws                     laws                     laws                     
+ 51       of                       of                       of                       
+ 52       the                      the                      the                      
+ 53       state                    state                    state                    
+ 54       of                       of                       of                       
+ 55       wyoming                  wyoming                  wyoming                  
+ 56       having                   having                   having                   
+ 57       its                      its                      its                      
+ 58       office                   office                   office                   
+ 59       at                       at                       at                       
+ 60       laramie                  laramie                  laramie                  
+ 61       in                       in                       in                       
+ 62       the                      the                      the                      
+ 63       county                   county                   county                   
+ 64       of                       of                       of                       
+ 65       albany                   albany                   albany                   
+ 66       and                      and                      and                      
+ 67       state                    state                    state                    
+ 68       of                       of                       of                       
+ 69       wyoming                  wyoming                  wyoming                  
+ 70       party                    party                    party                    
+ 71       of                       of                       of                       
+ 72       the                      the                      the                      
+ 73       second                   second                   second                   
+ 74       part                     part                     part                     
+ 75       witnesseth               witnesseth               witnesseth               
+
+============================================================
+🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_1
+============================================================
+
+Draft_1:
+  Original token count: 76
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75]
+
+Draft_2:
+  Original token count: 76
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75]
+
+Draft_3:
+  Original token count: 76
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75]
+
+============================================================
+🔤 TOKEN DETAILS - section_1
+============================================================
+
+Draft_1 (76 tokens):
+  [ 0] right
+  [ 1] of
+  [ 2] way
+  [ 3] deed
+  [ 4] this
+  [ 5] indenture
+  [ 6] made
+  [ 7] this
+  [ 8] 3
+  [ 9] rd
+  [10] day
+  [11] of
+  [12] august
+  [13] ad
+  [14] 1915
+  [15] by
+  [16] and
+  [17] between
+  [18] harriet
+  [19] rickard
+  [20] a
+  [21] widow
+  [22] of
+  [23] the
+  [24] county
+  [25] of
+  [26] albany
+  [27] state
+  [28] of
+  [29] wyoming
+  [30] party
+  [31] of
+  [32] the
+  [33] first
+  [34] part
+  [35] and
+  [36] laramie
+  [37] water
+  [38] company
+  [39] a
+  [40] corporation
+  [41] formed
+  [42] and
+  [43] existing
+  [44] under
+  [45] and
+  [46] by
+  [47] virtue
+  [48] of
+  [49] the
+  [50] laws
+  [51] of
+  [52] the
+  [53] state
+  [54] of
+  [55] wyoming
+  [56] having
+  [57] its
+  [58] office
+  [59] at
+  [60] laramie
+  [61] in
+  [62] the
+  [63] county
+  [64] of
+  [65] albany
+  [66] and
+  [67] state
+  [68] of
+  [69] wyoming
+  [70] party
+  [71] of
+  [72] the
+  [73] second
+  [74] part
+  [75] witnesseth
+
+Draft_2 (76 tokens):
+  [ 0] right
+  [ 1] of
+  [ 2] way
+  [ 3] deed
+  [ 4] this
+  [ 5] indenture
+  [ 6] made
+  [ 7] this
+  [ 8] 3
+  [ 9] rd
+  [10] day
+  [11] of
+  [12] august
+  [13] ad
+  [14] 1915
+  [15] by
+  [16] and
+  [17] between
+  [18] harriet
+  [19] richard
+  [20] a
+  [21] widow
+  [22] of
+  [23] the
+  [24] county
+  [25] of
+  [26] albany
+  [27] state
+  [28] of
+  [29] wyoming
+  [30] party
+  [31] of
+  [32] the
+  [33] first
+  [34] part
+  [35] and
+  [36] laramie
+  [37] water
+  [38] company
+  [39] a
+  [40] corporation
+  [41] formed
+  [42] and
+  [43] existing
+  [44] under
+  [45] and
+  [46] by
+  [47] virtue
+  [48] of
+  [49] the
+  [50] laws
+  [51] of
+  [52] the
+  [53] state
+  [54] of
+  [55] wyoming
+  [56] having
+  [57] its
+  [58] office
+  [59] at
+  [60] laramie
+  [61] in
+  [62] the
+  [63] county
+  [64] of
+  [65] albany
+  [66] and
+  [67] state
+  [68] of
+  [69] wyoming
+  [70] party
+  [71] of
+  [72] the
+  [73] second
+  [74] part
+  [75] witnesseth
+
+Draft_3 (76 tokens):
+  [ 0] right
+  [ 1] of
+  [ 2] way
+  [ 3] deed
+  [ 4] this
+  [ 5] indenture
+  [ 6] made
+  [ 7] this
+  [ 8] 3
+  [ 9] rd
+  [10] day
+  [11] of
+  [12] august
+  [13] ad
+  [14] 1915
+  [15] by
+  [16] and
+  [17] between
+  [18] harriet
+  [19] rickard
+  [20] a
+  [21] widow
+  [22] of
+  [23] the
+  [24] county
+  [25] of
+  [26] albany
+  [27] state
+  [28] of
+  [29] wyoming
+  [30] party
+  [31] of
+  [32] the
+  [33] first
+  [34] part
+  [35] and
+  [36] laramie
+  [37] water
+  [38] company
+  [39] a
+  [40] corporation
+  [41] formed
+  [42] and
+  [43] existing
+  [44] under
+  [45] and
+  [46] by
+  [47] virtue
+  [48] of
+  [49] the
+  [50] laws
+  [51] of
+  [52] the
+  [53] state
+  [54] of
+  [55] wyoming
+  [56] having
+  [57] its
+  [58] office
+  [59] at
+  [60] laramie
+  [61] in
+  [62] the
+  [63] county
+  [64] of
+  [65] albany
+  [66] and
+  [67] state
+  [68] of
+  [69] wyoming
+  [70] party
+  [71] of
+  [72] the
+  [73] second
+  [74] part
+  [75] witnesseth
+
+============================================================
+📊 ANALYSIS - section_1
+============================================================
+
+DIFF at pos 19: ['richard', 'rickard']
+
+BLOCK SUMMARY:
+  Total positions: 76
+  Positions with differences: 1
+  Positions with gaps: 0
+  Alignment similarity: 98.7%
+
+================================================================================
+BLOCK: section_2
+================================================================================
+
+📊 BLOCK SUMMARY:
+   Alignment Length: 118
+   Number of Drafts: 3
+   Draft IDs: Draft_1, Draft_2, Draft_3
+
+Position  Draft_1                  Draft_2                  Draft_3                  
+-------------------------------------------------------------------------------------
+  0       that                     that                     that                     
+  1       the                      the                      the                      
+  2       party                    party                    party                    
+  3       of                       of                       of                       
+  4       the                      the                      the                      
+  5       first                    first                    first                    
+  6       part                     part                     part                     
+  7       for                      for                      for                      
+  8       and                      and                      and                      
+  9       in                       in                       in                       
+ 10       consideration            consideration            consideration            
+ 11       of                       of                       of                       
+ 12       the                      the                      the                      
+ 13       sum                      sum                      sum                      
+ 14       of                       of                       of                       
+ 15       one                      one                      one                      
+ 16       dollar                   dollar                   dollar                   
+ 17       and                      and                      and                      
+ 18       other                    other                    other                    
+ 19       valuable                 valuable                 valuable                 
+ 20       considerations           considerations           considerations           
+ 21       to                       to                       to                       
+ 22       her                      her                      her                      
+ 23       in                       in                       in                       
+ 24       hand                     hand                     hand                     
+ 25       paid                     paid                     paid                     
+ 26       by                       by                       by                       
+ 27       the                      the                      the                      
+ 28       party                    party                    party                    
+ 29       of                       of                       of                       
+ 30       the                      the                      the                      
+ 31       second                   second                   second                   
+ 32       part                     part                     part                     
+ 33       at                       at                       at                       
+ 34       or                       or                       or                       
+ 35       before                   before                   before                   
+ 36       the                      the                      the                      
+ 37       execution                execution                execution                
+ 38       of                       of                       of                       
+ 39       this                     this                     this                     
+ 40       instrument               instrument               instrument               
+ 41       the                      the                      the                      
+ 42       receipt                  receipt                  receipt                  
+ 43       of                       of                       of                       
+ 44       which                    which                    which                    
+ 45       considerations           considerations           considerations           
+ 46       is                       is                       is                       
+ 47       hereby                   hereby                   hereby                   
+ 48       acknowledged             acknowledged             acknowledged             
+ 49       has                      has                      has                      
+ 50       bargained                bargained                bargained                
+ 51       sold                     sold                     sold                     
+ 52       granted                  granted                  granted                  
+ 53       and                      and                      and                      
+ 54       conveyed                 conveyed                 conveyed                 
+ 55       unto                     unto                     unto                     
+ 56       the                      the                      the                      
+ 57       party                    party                    party                    
+ 58       of                       of                       of                       
+ 59       the                      the                      the                      
+ 60       second                   second                   second                   
+ 61       part                     part                     part                     
+ 62       its                      its                      its                      
+ 63       successors               successors               successors               
+ 64       and                      and                      and                      
+ 65       assigns                  assigns                  assigns                  
+ 66       those                    those                    those                    
+ 67       two                      two                      two                      
+ 68       2                        2                        2                        
+ 69       parcels                  parcels                  parcels                  
+ 70       of                       of                       of                       
+ 71       land                     land                     land                     
+ 72       situated                 situate                  situated                 
+ 73       in                       in                       in                       
+ 74       the                      the                      the                      
+ 75       southwest                southwest                southwest                
+ 76       quarter                  quarter                  quarter                  
+ 77       of                       of                       of                       
+ 78       the                      the                      the                      
+ 79       northwest                northwest                northwest                
+ 80       quarter                  quarter                  quarter                  
+ 81       of                       of                       of                       
+ 82       section                  section                  section                  
+ 83       two                      two                      two                      
+ 84       2                        2                        2                        
+ 85       township                 township                 township                 
+ 86       fourteen                 fourteen                 fourteen                 
+ 87       14                       14                       14                       
+ 88       north                    north                    north                    
+ 89       range                    range                    range                    
+ 90       seventy                  seventy                  seventy                  
+ 91       five                     five                     five                     
+ 92       75                       75                       75                       
+ 93       west                     west                     west                     
+ 94       of                       of                       of                       
+ 95       the                      the                      the                      
+ 96       sixth                    sixth                    fifth                    
+ 97       principal                principal                principal                
+ 98       meridian                 meridian                 meridian                 
+ 99       in                       in                       in                       
+100       the                      the                      the                      
+101       county                   county                   county                   
+102       of                       of                       of                       
+103       albany                   albany                   albany                   
+104       state                    state                    state                    
+105       of                       of                       of                       
+106       wyoming                  wyoming                  wyoming                  
+107       the                      the                      the                      
+108       said                     said                     said                     
+109       parcels                  parcels                  parcels                  
+110       of                       of                       of                       
+111       land                     land                     land                     
+112       being                    being                    being                    
+113       more                     more                     more                     
+114       particularly             particularly             particularly             
+115       described                described                described                
+116       as                       as                       as                       
+117       follows                  follows                  follows                  
+
+============================================================
+🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_2
+============================================================
+
+Draft_1:
+  Original token count: 118
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117]
+
+Draft_2:
+  Original token count: 118
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117]
+
+Draft_3:
+  Original token count: 118
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117]
+
+============================================================
+🔤 TOKEN DETAILS - section_2
+============================================================
+
+Draft_1 (118 tokens):
+  [ 0] that
+  [ 1] the
+  [ 2] party
+  [ 3] of
+  [ 4] the
+  [ 5] first
+  [ 6] part
+  [ 7] for
+  [ 8] and
+  [ 9] in
+  [10] consideration
+  [11] of
+  [12] the
+  [13] sum
+  [14] of
+  [15] one
+  [16] dollar
+  [17] and
+  [18] other
+  [19] valuable
+  [20] considerations
+  [21] to
+  [22] her
+  [23] in
+  [24] hand
+  [25] paid
+  [26] by
+  [27] the
+  [28] party
+  [29] of
+  [30] the
+  [31] second
+  [32] part
+  [33] at
+  [34] or
+  [35] before
+  [36] the
+  [37] execution
+  [38] of
+  [39] this
+  [40] instrument
+  [41] the
+  [42] receipt
+  [43] of
+  [44] which
+  [45] considerations
+  [46] is
+  [47] hereby
+  [48] acknowledged
+  [49] has
+  [50] bargained
+  [51] sold
+  [52] granted
+  [53] and
+  [54] conveyed
+  [55] unto
+  [56] the
+  [57] party
+  [58] of
+  [59] the
+  [60] second
+  [61] part
+  [62] its
+  [63] successors
+  [64] and
+  [65] assigns
+  [66] those
+  [67] two
+  [68] 2
+  [69] parcels
+  [70] of
+  [71] land
+  [72] situated
+  [73] in
+  [74] the
+  [75] southwest
+  [76] quarter
+  [77] of
+  [78] the
+  [79] northwest
+  [80] quarter
+  [81] of
+  [82] section
+  [83] two
+  [84] 2
+  [85] township
+  [86] fourteen
+  [87] 14
+  [88] north
+  [89] range
+  [90] seventy
+  [91] five
+  [92] 75
+  [93] west
+  [94] of
+  [95] the
+  [96] sixth
+  [97] principal
+  [98] meridian
+  [99] in
+  [100] the
+  [101] county
+  [102] of
+  [103] albany
+  [104] state
+  [105] of
+  [106] wyoming
+  [107] the
+  [108] said
+  [109] parcels
+  [110] of
+  [111] land
+  [112] being
+  [113] more
+  [114] particularly
+  [115] described
+  [116] as
+  [117] follows
+
+Draft_2 (118 tokens):
+  [ 0] that
+  [ 1] the
+  [ 2] party
+  [ 3] of
+  [ 4] the
+  [ 5] first
+  [ 6] part
+  [ 7] for
+  [ 8] and
+  [ 9] in
+  [10] consideration
+  [11] of
+  [12] the
+  [13] sum
+  [14] of
+  [15] one
+  [16] dollar
+  [17] and
+  [18] other
+  [19] valuable
+  [20] considerations
+  [21] to
+  [22] her
+  [23] in
+  [24] hand
+  [25] paid
+  [26] by
+  [27] the
+  [28] party
+  [29] of
+  [30] the
+  [31] second
+  [32] part
+  [33] at
+  [34] or
+  [35] before
+  [36] the
+  [37] execution
+  [38] of
+  [39] this
+  [40] instrument
+  [41] the
+  [42] receipt
+  [43] of
+  [44] which
+  [45] considerations
+  [46] is
+  [47] hereby
+  [48] acknowledged
+  [49] has
+  [50] bargained
+  [51] sold
+  [52] granted
+  [53] and
+  [54] conveyed
+  [55] unto
+  [56] the
+  [57] party
+  [58] of
+  [59] the
+  [60] second
+  [61] part
+  [62] its
+  [63] successors
+  [64] and
+  [65] assigns
+  [66] those
+  [67] two
+  [68] 2
+  [69] parcels
+  [70] of
+  [71] land
+  [72] situate
+  [73] in
+  [74] the
+  [75] southwest
+  [76] quarter
+  [77] of
+  [78] the
+  [79] northwest
+  [80] quarter
+  [81] of
+  [82] section
+  [83] two
+  [84] 2
+  [85] township
+  [86] fourteen
+  [87] 14
+  [88] north
+  [89] range
+  [90] seventy
+  [91] five
+  [92] 75
+  [93] west
+  [94] of
+  [95] the
+  [96] sixth
+  [97] principal
+  [98] meridian
+  [99] in
+  [100] the
+  [101] county
+  [102] of
+  [103] albany
+  [104] state
+  [105] of
+  [106] wyoming
+  [107] the
+  [108] said
+  [109] parcels
+  [110] of
+  [111] land
+  [112] being
+  [113] more
+  [114] particularly
+  [115] described
+  [116] as
+  [117] follows
+
+Draft_3 (118 tokens):
+  [ 0] that
+  [ 1] the
+  [ 2] party
+  [ 3] of
+  [ 4] the
+  [ 5] first
+  [ 6] part
+  [ 7] for
+  [ 8] and
+  [ 9] in
+  [10] consideration
+  [11] of
+  [12] the
+  [13] sum
+  [14] of
+  [15] one
+  [16] dollar
+  [17] and
+  [18] other
+  [19] valuable
+  [20] considerations
+  [21] to
+  [22] her
+  [23] in
+  [24] hand
+  [25] paid
+  [26] by
+  [27] the
+  [28] party
+  [29] of
+  [30] the
+  [31] second
+  [32] part
+  [33] at
+  [34] or
+  [35] before
+  [36] the
+  [37] execution
+  [38] of
+  [39] this
+  [40] instrument
+  [41] the
+  [42] receipt
+  [43] of
+  [44] which
+  [45] considerations
+  [46] is
+  [47] hereby
+  [48] acknowledged
+  [49] has
+  [50] bargained
+  [51] sold
+  [52] granted
+  [53] and
+  [54] conveyed
+  [55] unto
+  [56] the
+  [57] party
+  [58] of
+  [59] the
+  [60] second
+  [61] part
+  [62] its
+  [63] successors
+  [64] and
+  [65] assigns
+  [66] those
+  [67] two
+  [68] 2
+  [69] parcels
+  [70] of
+  [71] land
+  [72] situated
+  [73] in
+  [74] the
+  [75] southwest
+  [76] quarter
+  [77] of
+  [78] the
+  [79] northwest
+  [80] quarter
+  [81] of
+  [82] section
+  [83] two
+  [84] 2
+  [85] township
+  [86] fourteen
+  [87] 14
+  [88] north
+  [89] range
+  [90] seventy
+  [91] five
+  [92] 75
+  [93] west
+  [94] of
+  [95] the
+  [96] fifth
+  [97] principal
+  [98] meridian
+  [99] in
+  [100] the
+  [101] county
+  [102] of
+  [103] albany
+  [104] state
+  [105] of
+  [106] wyoming
+  [107] the
+  [108] said
+  [109] parcels
+  [110] of
+  [111] land
+  [112] being
+  [113] more
+  [114] particularly
+  [115] described
+  [116] as
+  [117] follows
+
+============================================================
+📊 ANALYSIS - section_2
+============================================================
+
+DIFF at pos 72: ['situated', 'situate']
+DIFF at pos 96: ['sixth', 'fifth']
+
+BLOCK SUMMARY:
+  Total positions: 118
+  Positions with differences: 2
+  Positions with gaps: 0
+  Alignment similarity: 98.3%
+
+================================================================================
+BLOCK: section_3
+================================================================================
+
+📊 BLOCK SUMMARY:
+   Alignment Length: 160
+   Number of Drafts: 3
+   Draft IDs: Draft_1, Draft_2, Draft_3
+
+Position  Draft_1                  Draft_2                  Draft_3                  
+-------------------------------------------------------------------------------------
+  0       beginning                beginning                beginning                
+  1       at                       at                       at                       
+  2       a                        a                        a                        
+  3       point                    point                    point                    
+  4       on                       on                       on                       
+  5       the                      the                      the                      
+  6       west                     west                     west                     
+  7       boundary                 boundary                 boundary                 
+  8       of                       of                       of                       
+  9       section                  section                  section                  
+ 10       two                      two                      two                      
+ 11       2                        2                        2                        
+ 12       township                 township                 township                 
+ 13       fourteen                 fourteen                 fourteen                 
+ 14       14                       14                       14                       
+ 15       north                    north                    north                    
+ 16       range                    range                    range                    
+ 17       seventy                  seventy                  seventy                  
+ 18       four                     four                     four                     
+ 19       74                       74                       74                       
+ 20       west                     west                     west                     
+ 21       whence                   whence                   whence                   
+ 22       the                      the                      the                      
+ 23       northwest                northwest                northwest                
+ 24       corner                   corner                   corner                   
+ 25       bears                    bears                    bears                    
+ 26       n                        n                        n                        
+ 27       4                        4                        4                        
+ 28       00                       00                       00                       
+ 29       w                        w                        w                        
+ 30       1638                     1638                     1638                     
+ 31       feet                     feet                     feet                     
+ 32       distant                  distant                  distant                  
+ 33       and                      and                      and                      
+ 34       being                    being                    being                    
+ 35       50                       50                       50                       
+ 36       feet                     feet                     feet                     
+ 37       s                        s                        s                        
+ 38       21                       21                       21                       
+ 39       30                       30                       30                       
+ 40       e                        e                        e                        
+ 41       from                     from                     from                     
+ 42       the                      the                      the                      
+ 43       center                   center                   center                   
+ 44       line                     line                     line                     
+ 45       of                       of                       of                       
+ 46       the                      the                      the                      
+ 47       south                    south                    south                    
+ 48       canal                    canal                    canal                    
+ 49       of                       of                       of                       
+ 50       the                      the                      the                      
+ 51       company                  company                  company                  
+ 52       thence                   thence                   thence                   
+ 53       n                        n                        n                        
+ 54       68                       68                       68                       
+ 55       30                       30                       30                       
+ 56       e                        east                     east                     
+ 57       parallel                 parallel                 parallel                 
+ 58       to                       to                       to                       
+ 59       and                      and                      and                      
+ 60       50                       50                       50                       
+ 61       feet                     feet                     feet                     
+ 62       distant                  distant                  distant                  
+ 63       from                     from                     from                     
+ 64       the                      the                      the                      
+ 65       center                   center                   center                   
+ 66       line                     line                     line                     
+ 67       of                       of                       of                       
+ 68       said                     said                     said                     
+ 69       canal                    canal                    canal                    
+ 70       542                      542                      542                      
+ 71       feet                     feet                     feet                     
+ 72       more                     more                     more                     
+ 73       or                       or                       or                       
+ 74       less                     less                     less                     
+ 75       to                       to                       to                       
+ 76       the                      the                      the                      
+ 77       north                    north                    north                    
+ 78       boundary                 boundary                 boundary                 
+ 79       of                       of                       of                       
+ 80       the                      the                      the                      
+ 81       southwest                southwest                southwest                
+ 82       quarter                  quarter                  quarter                  
+ 83       of                       of                       of                       
+ 84       the                      the                      the                      
+ 85       northwest                northwest                northwest                
+ 86       quarter                  quarter                  quarter                  
+ 87       of                       of                       of                       
+ 88       said                     said                     said                     
+ 89       section                  section                  section                  
+ 90       two                      two                      two                      
+ 91       2                        2                        2                        
+ 92       thence                   thence                   thence                   
+ 93       s                        s                        s                        
+ 94       87                       87                       87                       
+ 95       35                       35                       35                       
+ 96       w                        w                        w                        
+ 97       along                    along                    along                    
+ 98       the                      the                      the                      
+ 99       north                    north                    north                    
+100       boundary                 boundary                 boundary                 
+101       of                       of                       of                       
+102       said                     said                     said                     
+103       southwest                southwest                southwest                
+104       quarter                  quarter                  quarter                  
+105       of                       of                       of                       
+106       the                      the                      the                      
+107       northwest                northwest                northwest                
+108       quarter                  quarter                  quarter                  
+109       518                      518                      518                      
+110       feet                     feet                     feet                     
+111       more                     more                     more                     
+112       or                       or                       or                       
+113       less                     less                     less                     
+114       to                       to                       to                       
+115       the                      the                      the                      
+116       northwest                northwest                northwest                
+117       corner                   corner                   corner                   
+118       of                       of                       of                       
+119       said                     said                     said                     
+120       southwest                southwest                southwest                
+121       quarter                  quarter                  quarter                  
+122       of                       of                       of                       
+123       the                      the                      the                      
+124       northwest                northwest                northwest                
+125       quarter                  quarter                  quarter                  
+126       thence                   thence                   thence                   
+127       s                        s                        s                        
+128       4                        4                        4                        
+129       00                       00                       00                       
+130       e                        e                        e                        
+131       on                       on                       on                       
+132       the                      the                      the                      
+133       west                     west                     west                     
+134       boundary                 boundary                 boundary                 
+135       of                       of                       of                       
+136       said                     said                     said                     
+137       section                  section                  section                  
+138       two                      two                      two                      
+139       2                        2                        2                        
+140       180                      180                      180                      
+141       feet                     feet                     feet                     
+142       more                     more                     more                     
+143       or                       or                       or                       
+144       less                     less                     less                     
+145       to                       to                       to                       
+146       the                      the                      the                      
+147       point                    point                    point                    
+148       of                       of                       of                       
+149       beginning                beginning                beginning                
+150       said                     said                     said                     
+151       parcel                   parcel                   parcel                   
+152       of                       of                       of                       
+153       land                     land                     land                     
+154       containing               containing               containing               
+155       19                       14                       19                       
+156       acres                    acres                    acres                    
+157       more                     more                     more                     
+158       or                       or                       or                       
+159       less                     less                     less                     
+
+============================================================
+🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_3
+============================================================
+
+Draft_1:
+  Original token count: 160
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159]
+
+Draft_2:
+  Original token count: 160
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159]
+
+Draft_3:
+  Original token count: 160
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159]
+
+============================================================
+🔤 TOKEN DETAILS - section_3
+============================================================
+
+Draft_1 (160 tokens):
+  [ 0] beginning
+  [ 1] at
+  [ 2] a
+  [ 3] point
+  [ 4] on
+  [ 5] the
+  [ 6] west
+  [ 7] boundary
+  [ 8] of
+  [ 9] section
+  [10] two
+  [11] 2
+  [12] township
+  [13] fourteen
+  [14] 14
+  [15] north
+  [16] range
+  [17] seventy
+  [18] four
+  [19] 74
+  [20] west
+  [21] whence
+  [22] the
+  [23] northwest
+  [24] corner
+  [25] bears
+  [26] n
+  [27] 4
+  [28] 00
+  [29] w
+  [30] 1638
+  [31] feet
+  [32] distant
+  [33] and
+  [34] being
+  [35] 50
+  [36] feet
+  [37] s
+  [38] 21
+  [39] 30
+  [40] e
+  [41] from
+  [42] the
+  [43] center
+  [44] line
+  [45] of
+  [46] the
+  [47] south
+  [48] canal
+  [49] of
+  [50] the
+  [51] company
+  [52] thence
+  [53] n
+  [54] 68
+  [55] 30
+  [56] e
+  [57] parallel
+  [58] to
+  [59] and
+  [60] 50
+  [61] feet
+  [62] distant
+  [63] from
+  [64] the
+  [65] center
+  [66] line
+  [67] of
+  [68] said
+  [69] canal
+  [70] 542
+  [71] feet
+  [72] more
+  [73] or
+  [74] less
+  [75] to
+  [76] the
+  [77] north
+  [78] boundary
+  [79] of
+  [80] the
+  [81] southwest
+  [82] quarter
+  [83] of
+  [84] the
+  [85] northwest
+  [86] quarter
+  [87] of
+  [88] said
+  [89] section
+  [90] two
+  [91] 2
+  [92] thence
+  [93] s
+  [94] 87
+  [95] 35
+  [96] w
+  [97] along
+  [98] the
+  [99] north
+  [100] boundary
+  [101] of
+  [102] said
+  [103] southwest
+  [104] quarter
+  [105] of
+  [106] the
+  [107] northwest
+  [108] quarter
+  [109] 518
+  [110] feet
+  [111] more
+  [112] or
+  [113] less
+  [114] to
+  [115] the
+  [116] northwest
+  [117] corner
+  [118] of
+  [119] said
+  [120] southwest
+  [121] quarter
+  [122] of
+  [123] the
+  [124] northwest
+  [125] quarter
+  [126] thence
+  [127] s
+  [128] 4
+  [129] 00
+  [130] e
+  [131] on
+  [132] the
+  [133] west
+  [134] boundary
+  [135] of
+  [136] said
+  [137] section
+  [138] two
+  [139] 2
+  [140] 180
+  [141] feet
+  [142] more
+  [143] or
+  [144] less
+  [145] to
+  [146] the
+  [147] point
+  [148] of
+  [149] beginning
+  [150] said
+  [151] parcel
+  [152] of
+  [153] land
+  [154] containing
+  [155] 19
+  [156] acres
+  [157] more
+  [158] or
+  [159] less
+
+Draft_2 (160 tokens):
+  [ 0] beginning
+  [ 1] at
+  [ 2] a
+  [ 3] point
+  [ 4] on
+  [ 5] the
+  [ 6] west
+  [ 7] boundary
+  [ 8] of
+  [ 9] section
+  [10] two
+  [11] 2
+  [12] township
+  [13] fourteen
+  [14] 14
+  [15] north
+  [16] range
+  [17] seventy
+  [18] four
+  [19] 74
+  [20] west
+  [21] whence
+  [22] the
+  [23] northwest
+  [24] corner
+  [25] bears
+  [26] n
+  [27] 4
+  [28] 00
+  [29] w
+  [30] 1638
+  [31] feet
+  [32] distant
+  [33] and
+  [34] being
+  [35] 50
+  [36] feet
+  [37] s
+  [38] 21
+  [39] 30
+  [40] e
+  [41] from
+  [42] the
+  [43] center
+  [44] line
+  [45] of
+  [46] the
+  [47] south
+  [48] canal
+  [49] of
+  [50] the
+  [51] company
+  [52] thence
+  [53] n
+  [54] 68
+  [55] 30
+  [56] east
+  [57] parallel
+  [58] to
+  [59] and
+  [60] 50
+  [61] feet
+  [62] distant
+  [63] from
+  [64] the
+  [65] center
+  [66] line
+  [67] of
+  [68] said
+  [69] canal
+  [70] 542
+  [71] feet
+  [72] more
+  [73] or
+  [74] less
+  [75] to
+  [76] the
+  [77] north
+  [78] boundary
+  [79] of
+  [80] the
+  [81] southwest
+  [82] quarter
+  [83] of
+  [84] the
+  [85] northwest
+  [86] quarter
+  [87] of
+  [88] said
+  [89] section
+  [90] two
+  [91] 2
+  [92] thence
+  [93] s
+  [94] 87
+  [95] 35
+  [96] w
+  [97] along
+  [98] the
+  [99] north
+  [100] boundary
+  [101] of
+  [102] said
+  [103] southwest
+  [104] quarter
+  [105] of
+  [106] the
+  [107] northwest
+  [108] quarter
+  [109] 518
+  [110] feet
+  [111] more
+  [112] or
+  [113] less
+  [114] to
+  [115] the
+  [116] northwest
+  [117] corner
+  [118] of
+  [119] said
+  [120] southwest
+  [121] quarter
+  [122] of
+  [123] the
+  [124] northwest
+  [125] quarter
+  [126] thence
+  [127] s
+  [128] 4
+  [129] 00
+  [130] e
+  [131] on
+  [132] the
+  [133] west
+  [134] boundary
+  [135] of
+  [136] said
+  [137] section
+  [138] two
+  [139] 2
+  [140] 180
+  [141] feet
+  [142] more
+  [143] or
+  [144] less
+  [145] to
+  [146] the
+  [147] point
+  [148] of
+  [149] beginning
+  [150] said
+  [151] parcel
+  [152] of
+  [153] land
+  [154] containing
+  [155] 14
+  [156] acres
+  [157] more
+  [158] or
+  [159] less
+
+Draft_3 (160 tokens):
+  [ 0] beginning
+  [ 1] at
+  [ 2] a
+  [ 3] point
+  [ 4] on
+  [ 5] the
+  [ 6] west
+  [ 7] boundary
+  [ 8] of
+  [ 9] section
+  [10] two
+  [11] 2
+  [12] township
+  [13] fourteen
+  [14] 14
+  [15] north
+  [16] range
+  [17] seventy
+  [18] four
+  [19] 74
+  [20] west
+  [21] whence
+  [22] the
+  [23] northwest
+  [24] corner
+  [25] bears
+  [26] n
+  [27] 4
+  [28] 00
+  [29] w
+  [30] 1638
+  [31] feet
+  [32] distant
+  [33] and
+  [34] being
+  [35] 50
+  [36] feet
+  [37] s
+  [38] 21
+  [39] 30
+  [40] e
+  [41] from
+  [42] the
+  [43] center
+  [44] line
+  [45] of
+  [46] the
+  [47] south
+  [48] canal
+  [49] of
+  [50] the
+  [51] company
+  [52] thence
+  [53] n
+  [54] 68
+  [55] 30
+  [56] east
+  [57] parallel
+  [58] to
+  [59] and
+  [60] 50
+  [61] feet
+  [62] distant
+  [63] from
+  [64] the
+  [65] center
+  [66] line
+  [67] of
+  [68] said
+  [69] canal
+  [70] 542
+  [71] feet
+  [72] more
+  [73] or
+  [74] less
+  [75] to
+  [76] the
+  [77] north
+  [78] boundary
+  [79] of
+  [80] the
+  [81] southwest
+  [82] quarter
+  [83] of
+  [84] the
+  [85] northwest
+  [86] quarter
+  [87] of
+  [88] said
+  [89] section
+  [90] two
+  [91] 2
+  [92] thence
+  [93] s
+  [94] 87
+  [95] 35
+  [96] w
+  [97] along
+  [98] the
+  [99] north
+  [100] boundary
+  [101] of
+  [102] said
+  [103] southwest
+  [104] quarter
+  [105] of
+  [106] the
+  [107] northwest
+  [108] quarter
+  [109] 518
+  [110] feet
+  [111] more
+  [112] or
+  [113] less
+  [114] to
+  [115] the
+  [116] northwest
+  [117] corner
+  [118] of
+  [119] said
+  [120] southwest
+  [121] quarter
+  [122] of
+  [123] the
+  [124] northwest
+  [125] quarter
+  [126] thence
+  [127] s
+  [128] 4
+  [129] 00
+  [130] e
+  [131] on
+  [132] the
+  [133] west
+  [134] boundary
+  [135] of
+  [136] said
+  [137] section
+  [138] two
+  [139] 2
+  [140] 180
+  [141] feet
+  [142] more
+  [143] or
+  [144] less
+  [145] to
+  [146] the
+  [147] point
+  [148] of
+  [149] beginning
+  [150] said
+  [151] parcel
+  [152] of
+  [153] land
+  [154] containing
+  [155] 19
+  [156] acres
+  [157] more
+  [158] or
+  [159] less
+
+============================================================
+📊 ANALYSIS - section_3
+============================================================
+
+DIFF at pos 56: ['east', 'e']
+DIFF at pos 155: ['19', '14']
+
+BLOCK SUMMARY:
+  Total positions: 160
+  Positions with differences: 2
+  Positions with gaps: 0
+  Alignment similarity: 98.8%
+
+================================================================================
+BLOCK: section_4
+================================================================================
+
+📊 BLOCK SUMMARY:
+   Alignment Length: 90
+   Number of Drafts: 3
+   Draft IDs: Draft_1, Draft_2, Draft_3
+
+Position  Draft_1                  Draft_2                  Draft_3                  
+-------------------------------------------------------------------------------------
+  0       and                      and                      and                      
+  1       beginning                beginning                beginning                
+  2       on                       on                       on                       
+  3       the                      the                      the                      
+  4       north                    north                    north                    
+  5       boundary                 boundary                 boundary                 
+  6       of                       of                       of                       
+  7       the                      the                      the                      
+  8       southwest                southwest                southwest                
+  9       quarter                  quarter                  quarter                  
+ 10       of                       of                       of                       
+ 11       the                      the                      the                      
+ 12       northwest                northwest                northwest                
+ 13       quarter                  quarter                  quarter                  
+ 14       of                       of                       of                       
+ 15       said                     said                     said                     
+ 16       section                  section                  section                  
+ 17       two                      two                      two                      
+ 18       2                        2                        2                        
+ 19       township                 township                 township                 
+ 20       fourteen                 fourteen                 fourteen                 
+ 21       14                       14                       14                       
+ 22       north                    north                    north                    
+ 23       range                    range                    range                    
+ 24       seventy                  seventy                  seventy                  
+ 25       four                     four                     four                     
+ 26       74                       74                       74                       
+ 27       west                     west                     west                     
+ 28       at                       at                       at                       
+ 29       a                        a                        a                        
+ 30       point                    point                    point                    
+ 31       where                    where                    where                    
+ 32       the                      the                      the                      
+ 33       northeast                northeast                northeast                
+ 34       corner                   corner                   corner                   
+ 35       of                       of                       of                       
+ 36       said                     said                     said                     
+ 37       section                  section                  section                  
+ 38       two                      two                      two                      
+ 39       2                        2                        2                        
+ 40       bears                    bears                    bears                    
+ 41       n                        n                        n                        
+ 42       37                       37                       37                       
+ 43       00                       00                       00                       
+ 44       w                        w                        w                        
+ 45       1275                     1275                     1275                     
+ 46       feet                     feet                     feet                     
+ 47       distant                  distant                  distant                  
+ 48       and                      and                      and                      
+ 49       being                    being                    being                    
+ 50       50                       50                       50                       
+ 51       feet                     feet                     feet                     
+ 52       s                        s                        s                        
+ 53       53                       53                       53                       
+ 54       00                       00                       00                       
+ 55       w                        w                        w                        
+ 56       from                     from                     from                     
+ 57       the                      the                      the                      
+ 58       center                   center                   center                   
+ 59       line                     line                     line                     
+ 60       of                       of                       of                       
+ 61       the                      the                      the                      
+ 62       south                    south                    south                    
+ 63       canal                    canal                    canal                    
+ 64       of                       of                       of                       
+ 65       the                      the                      the                      
+ 66       company                  company                  company                  
+ 67       thence                   thence                   thence                   
+ 68       n                        n                        n                        
+ 69       87                       87                       87                       
+ 70       35                       35                       35                       
+ 71       e                        e                        e                        
+ 72       along                    along                    along                    
+ 73       the                      the                      the                      
+ 74       north                    north                    north                    
+ 75       boundary                 boundary                 boundary                 
+ 76       of                       of                       of                       
+ 77       said                     said                     said                     
+ 78       southwest                southwest                southwest                
+ 79       quarter                  quarter                  quarter                  
+ 80       of                       of                       of                       
+ 81       the                      the                      the                      
+ 82       northwest                northwest                northwest                
+ 83       quarter                  quarter                  quarter                  
+ 84       400                      400                      400                      
+ 85       feet                     feet                     feet                     
+ 86       more                     more                     more                     
+ 87       or                       or                       or                       
+ 88       less                     less                     less                     
+ 89       to                       to                       to                       
+
+============================================================
+🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_4
+============================================================
+
+Draft_1:
+  Original token count: 90
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89]
+
+Draft_2:
+  Original token count: 90
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89]
+
+Draft_3:
+  Original token count: 90
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89]
+
+============================================================
+🔤 TOKEN DETAILS - section_4
+============================================================
+
+Draft_1 (90 tokens):
+  [ 0] and
+  [ 1] beginning
+  [ 2] on
+  [ 3] the
+  [ 4] north
+  [ 5] boundary
+  [ 6] of
+  [ 7] the
+  [ 8] southwest
+  [ 9] quarter
+  [10] of
+  [11] the
+  [12] northwest
+  [13] quarter
+  [14] of
+  [15] said
+  [16] section
+  [17] two
+  [18] 2
+  [19] township
+  [20] fourteen
+  [21] 14
+  [22] north
+  [23] range
+  [24] seventy
+  [25] four
+  [26] 74
+  [27] west
+  [28] at
+  [29] a
+  [30] point
+  [31] where
+  [32] the
+  [33] northeast
+  [34] corner
+  [35] of
+  [36] said
+  [37] section
+  [38] two
+  [39] 2
+  [40] bears
+  [41] n
+  [42] 37
+  [43] 00
+  [44] w
+  [45] 1275
+  [46] feet
+  [47] distant
+  [48] and
+  [49] being
+  [50] 50
+  [51] feet
+  [52] s
+  [53] 53
+  [54] 00
+  [55] w
+  [56] from
+  [57] the
+  [58] center
+  [59] line
+  [60] of
+  [61] the
+  [62] south
+  [63] canal
+  [64] of
+  [65] the
+  [66] company
+  [67] thence
+  [68] n
+  [69] 87
+  [70] 35
+  [71] e
+  [72] along
+  [73] the
+  [74] north
+  [75] boundary
+  [76] of
+  [77] said
+  [78] southwest
+  [79] quarter
+  [80] of
+  [81] the
+  [82] northwest
+  [83] quarter
+  [84] 400
+  [85] feet
+  [86] more
+  [87] or
+  [88] less
+  [89] to
+
+Draft_2 (90 tokens):
+  [ 0] and
+  [ 1] beginning
+  [ 2] on
+  [ 3] the
+  [ 4] north
+  [ 5] boundary
+  [ 6] of
+  [ 7] the
+  [ 8] southwest
+  [ 9] quarter
+  [10] of
+  [11] the
+  [12] northwest
+  [13] quarter
+  [14] of
+  [15] said
+  [16] section
+  [17] two
+  [18] 2
+  [19] township
+  [20] fourteen
+  [21] 14
+  [22] north
+  [23] range
+  [24] seventy
+  [25] four
+  [26] 74
+  [27] west
+  [28] at
+  [29] a
+  [30] point
+  [31] where
+  [32] the
+  [33] northeast
+  [34] corner
+  [35] of
+  [36] said
+  [37] section
+  [38] two
+  [39] 2
+  [40] bears
+  [41] n
+  [42] 37
+  [43] 00
+  [44] w
+  [45] 1275
+  [46] feet
+  [47] distant
+  [48] and
+  [49] being
+  [50] 50
+  [51] feet
+  [52] s
+  [53] 53
+  [54] 00
+  [55] w
+  [56] from
+  [57] the
+  [58] center
+  [59] line
+  [60] of
+  [61] the
+  [62] south
+  [63] canal
+  [64] of
+  [65] the
+  [66] company
+  [67] thence
+  [68] n
+  [69] 87
+  [70] 35
+  [71] e
+  [72] along
+  [73] the
+  [74] north
+  [75] boundary
+  [76] of
+  [77] said
+  [78] southwest
+  [79] quarter
+  [80] of
+  [81] the
+  [82] northwest
+  [83] quarter
+  [84] 400
+  [85] feet
+  [86] more
+  [87] or
+  [88] less
+  [89] to
+
+Draft_3 (90 tokens):
+  [ 0] and
+  [ 1] beginning
+  [ 2] on
+  [ 3] the
+  [ 4] north
+  [ 5] boundary
+  [ 6] of
+  [ 7] the
+  [ 8] southwest
+  [ 9] quarter
+  [10] of
+  [11] the
+  [12] northwest
+  [13] quarter
+  [14] of
+  [15] said
+  [16] section
+  [17] two
+  [18] 2
+  [19] township
+  [20] fourteen
+  [21] 14
+  [22] north
+  [23] range
+  [24] seventy
+  [25] four
+  [26] 74
+  [27] west
+  [28] at
+  [29] a
+  [30] point
+  [31] where
+  [32] the
+  [33] northeast
+  [34] corner
+  [35] of
+  [36] said
+  [37] section
+  [38] two
+  [39] 2
+  [40] bears
+  [41] n
+  [42] 37
+  [43] 00
+  [44] w
+  [45] 1275
+  [46] feet
+  [47] distant
+  [48] and
+  [49] being
+  [50] 50
+  [51] feet
+  [52] s
+  [53] 53
+  [54] 00
+  [55] w
+  [56] from
+  [57] the
+  [58] center
+  [59] line
+  [60] of
+  [61] the
+  [62] south
+  [63] canal
+  [64] of
+  [65] the
+  [66] company
+  [67] thence
+  [68] n
+  [69] 87
+  [70] 35
+  [71] e
+  [72] along
+  [73] the
+  [74] north
+  [75] boundary
+  [76] of
+  [77] said
+  [78] southwest
+  [79] quarter
+  [80] of
+  [81] the
+  [82] northwest
+  [83] quarter
+  [84] 400
+  [85] feet
+  [86] more
+  [87] or
+  [88] less
+  [89] to
+
+============================================================
+📊 ANALYSIS - section_4
+============================================================
+
+
+BLOCK SUMMARY:
+  Total positions: 90
+  Positions with differences: 0
+  Positions with gaps: 0
+  Alignment similarity: 100.0%
+
+================================================================================
+📊 OVERALL SUMMARY
+================================================================================
+
+Total blocks processed: 4
+Total alignment positions: 444
+Total differences found: 5
+Total gap positions: 0
+Overall similarity: 98.9%

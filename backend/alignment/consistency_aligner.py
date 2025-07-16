@@ -7,6 +7,9 @@ Provides legal document-optimized alignment with ~95-98% of T-Coffee accuracy.
 """
 
 import logging
+import os
+import datetime
+from pathlib import Path
 from typing import Dict, List, Any, Tuple
 from collections import defaultdict
 from functools import lru_cache
@@ -68,7 +71,192 @@ class ConsistencyBasedAligner:
         if levenshtein(a, b) <= 1:
             return FUZZY_MATCH_SCORE
         return self.mismatch_score
-        
+    
+    def save_complete_alignment_debug(self, all_alignment_results: Dict[str, Any]) -> None:
+        """
+        Save complete alignment table with ALL blocks to debug folder.
+        This is called once with all blocks together.
+        """
+        try:
+            # Use the absolute path you specified
+            debug_dir = Path(r"C:\projects\Plattera\backend\raw_alignment_tables")
+            
+            # Create directory if it doesn't exist
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"📁 DEBUG DIR ► Using: {debug_dir}")
+            
+            # Use a fixed filename that gets overwritten each time
+            debug_file = debug_dir / "raw_alignment_results.txt"
+            
+            logger.info(f"📝 SAVING COMPLETE DEBUG OUTPUT ► {debug_file}")
+            
+            all_blocks = all_alignment_results.get('blocks', {})
+            
+            with open(debug_file, 'w', encoding='utf-8') as f:
+                f.write("=" * 80 + "\n")
+                f.write(f"COMPLETE RAW ALIGNMENT TABLE - ALL BLOCKS\n")
+                f.write(f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Total Blocks: {len(all_blocks)}\n")
+                f.write("=" * 80 + "\n\n")
+                
+                if not all_blocks:
+                    f.write("❌ No alignment data available.\n")
+                    return
+                
+                # Process each block
+                for block_id, block_data in all_blocks.items():
+                    aligned_sequences_data = block_data.get('aligned_sequences', [])
+                    
+                    if not aligned_sequences_data:
+                        f.write(f"❌ No sequences for block {block_id}\n\n")
+                        continue
+                    
+                    f.write("=" * 80 + "\n")
+                    f.write(f"BLOCK: {block_id}\n")
+                    f.write("=" * 80 + "\n\n")
+                    
+                    # Get alignment length
+                    alignment_length = len(aligned_sequences_data[0]['tokens']) if aligned_sequences_data else 0
+                    draft_ids = [seq['draft_id'] for seq in aligned_sequences_data]
+                    
+                    f.write(f"📊 BLOCK SUMMARY:\n")
+                    f.write(f"   Alignment Length: {alignment_length}\n")
+                    f.write(f"   Number of Drafts: {len(draft_ids)}\n")
+                    f.write(f"   Draft IDs: {', '.join(draft_ids)}\n\n")
+                    
+                    # Header row with position numbers
+                    f.write("Position".ljust(10))
+                    for draft_id in draft_ids:
+                        f.write(f"{draft_id}".ljust(25))
+                    f.write("\n")
+                    
+                    f.write("-" * (10 + 25 * len(draft_ids)) + "\n")
+                    
+                    # Alignment table rows
+                    for pos in range(alignment_length):
+                        f.write(f"{pos:3d}".ljust(10))
+                        for seq_data in aligned_sequences_data:
+                            tokens = seq_data['tokens']
+                            token = tokens[pos] if pos < len(tokens) else '-'
+                            # Truncate long tokens for display but show more
+                            if len(token) > 22:
+                                display_token = token[:20] + ".."
+                            else:
+                                display_token = token
+                            f.write(f"{display_token}".ljust(25))
+                        f.write("\n")
+                    
+                    f.write("\n" + "=" * 60 + "\n")
+                    f.write(f"🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - {block_id}\n")
+                    f.write("=" * 60 + "\n\n")
+                    
+                    for seq_data in aligned_sequences_data:
+                        draft_id = seq_data['draft_id']
+                        mapping = seq_data['original_to_alignment']
+                        f.write(f"{draft_id}:\n")
+                        f.write(f"  Original token count: {len(mapping)}\n")
+                        f.write(f"  Mapping: {mapping}\n\n")
+                    
+                    f.write("=" * 60 + "\n")
+                    f.write(f"🔤 TOKEN DETAILS - {block_id}\n")
+                    f.write("=" * 60 + "\n\n")
+                    
+                    for seq_data in aligned_sequences_data:
+                        draft_id = seq_data['draft_id']
+                        tokens = seq_data['tokens']
+                        f.write(f"{draft_id} ({len(tokens)} tokens):\n")
+                        
+                        # Show ALL tokens for complete debugging
+                        for i, token in enumerate(tokens):
+                            if token == '-':
+                                f.write(f"  [{i:2d}] {token} (GAP)\n")
+                            else:
+                                f.write(f"  [{i:2d}] {token}\n")
+                        f.write("\n")
+                    
+                    # Analysis section for this block
+                    f.write("=" * 60 + "\n")
+                    f.write(f"📊 ANALYSIS - {block_id}\n")
+                    f.write("=" * 60 + "\n\n")
+                    
+                    # Count differences
+                    differences = 0
+                    gap_positions = 0
+                    
+                    for pos in range(alignment_length):
+                        tokens_at_pos = []
+                        has_gap = False
+                        
+                        for seq_data in aligned_sequences_data:
+                            if pos < len(seq_data['tokens']):
+                                token = seq_data['tokens'][pos]
+                                if token == '-':
+                                    has_gap = True
+                                else:
+                                    tokens_at_pos.append(token)
+                        
+                        if has_gap:
+                            gap_positions += 1
+                        
+                        unique_tokens = set(tokens_at_pos)
+                        if len(unique_tokens) > 1:
+                            differences += 1
+                            f.write(f"DIFF at pos {pos}: {list(unique_tokens)}\n")
+                    
+                    f.write(f"\nBLOCK SUMMARY:\n")
+                    f.write(f"  Total positions: {alignment_length}\n")
+                    f.write(f"  Positions with differences: {differences}\n")
+                    f.write(f"  Positions with gaps: {gap_positions}\n")
+                    f.write(f"  Alignment similarity: {((alignment_length - differences) / max(alignment_length, 1)) * 100:.1f}%\n\n")
+                
+                # Overall summary
+                f.write("=" * 80 + "\n")
+                f.write("📊 OVERALL SUMMARY\n")
+                f.write("=" * 80 + "\n\n")
+                
+                total_positions = 0
+                total_differences = 0
+                total_gaps = 0
+                
+                for block_data in all_blocks.values():
+                    aligned_sequences_data = block_data.get('aligned_sequences', [])
+                    if aligned_sequences_data:
+                        alignment_length = len(aligned_sequences_data[0]['tokens'])
+                        total_positions += alignment_length
+                        
+                        # Count differences and gaps for this block
+                        for pos in range(alignment_length):
+                            tokens_at_pos = []
+                            has_gap = False
+                            
+                            for seq_data in aligned_sequences_data:
+                                if pos < len(seq_data['tokens']):
+                                    token = seq_data['tokens'][pos]
+                                    if token == '-':
+                                        has_gap = True
+                                    else:
+                                        tokens_at_pos.append(token)
+                            
+                            if has_gap:
+                                total_gaps += 1
+                            
+                            unique_tokens = set(tokens_at_pos)
+                            if len(unique_tokens) > 1:
+                                total_differences += 1
+                
+                f.write(f"Total blocks processed: {len(all_blocks)}\n")
+                f.write(f"Total alignment positions: {total_positions}\n")
+                f.write(f"Total differences found: {total_differences}\n")
+                f.write(f"Total gap positions: {total_gaps}\n")
+                f.write(f"Overall similarity: {((total_positions - total_differences) / max(total_positions, 1)) * 100:.1f}%\n")
+            
+            logger.info(f"✅ COMPLETE DEBUG OUTPUT SAVED ► {debug_file}")
+            logger.info(f"📁 Full path: {debug_file.absolute()}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to save complete debug alignment table: {e}")
+            logger.error(f"   Tried to write to: C:\\projects\\Plattera\\backend\\raw_alignment_tables")
+    
     def align_multiple_sequences(self, block_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Align multiple token sequences from different drafts for a single block.
@@ -174,6 +362,10 @@ class ConsistencyBasedAligner:
                     'tokens': sequences[i],
                     'original_to_alignment': list(range(len(sequences[i]))),  # 1:1 mapping
                 })
+        
+        # NO LONGER SAVE DEBUG OUTPUT HERE - wait for all blocks to be processed
+        block_id = block_data.get('block_id', 'unknown_block')
+        logger.info(f"🎯 BLOCK COMPLETE ► Block: {block_id}, Sequences: {len(aligned_sequences_data)}")
         
         logger.debug("✅ ALIGNMENT COMPLETE ► Consistency-based alignment finished")
         

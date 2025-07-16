@@ -210,8 +210,8 @@ class JsonDraftTokenizer:
         """
         Unified tokenization path: original text -> formatted tokens -> normalized tokens
         
-        This creates direct 1:1+ mapping while preserving the exact same normalization 
-        logic as the current system.
+        STAGE 1: Simple whitespace tokenization with comma/period stripping
+        STAGE 2: Normalization that splits on formatting symbols
         
         Returns:
             Tuple of (formatted_tokens, normalized_tokens, mappings)
@@ -219,20 +219,20 @@ class JsonDraftTokenizer:
         if not text or not text.strip():
             return [], [], []
         
-        # STEP 1: Get formatted tokens (same as current _tokenize_original_text)
-        formatted_tokens = word_tokenize(text)
+        # STAGE 1: Get formatted tokens using simple whitespace splitting
+        formatted_tokens = self._tokenize_formatted_simple(text)
         
-        # STEP 2: Apply existing normalization logic to each formatted token
+        # STAGE 2: Apply normalization to each formatted token (can split into multiple)
         all_normalized_tokens = []
         mappings = []
         
         for token_id, formatted_token in enumerate(formatted_tokens):
-            # Apply the EXACT same normalization as current _normalize_text() but to each token
+            # Apply normalization that can split tokens on formatting symbols
             normalized_result = self._apply_normalization_to_token(formatted_token)
             
             # Split the normalized result into individual tokens (handles multi-word results)
             if normalized_result and not normalized_result.isspace():
-                # Split on whitespace to handle multi-word results like 'a d' -> ['a', 'd']
+                # Split on whitespace to handle results like '4 00' -> ['4', '00']
                 normalized_sub_tokens = normalized_result.split()
                 
                 if normalized_sub_tokens:
@@ -248,31 +248,63 @@ class JsonDraftTokenizer:
         
         return formatted_tokens, all_normalized_tokens, mappings
     
+    def _tokenize_formatted_simple(self, text: str) -> List[str]:
+        """
+        Simple tokenization: strip only commas and periods, then split on whitespace.
+        
+        This preserves all important formatting like degree symbols, apostrophes, etc.
+        
+        Examples:
+            "N.4°00'W." -> ["N4°00'W"]
+            "Beginning at a point, thence South." -> ["Beginning", "at", "a", "point", "thence", "South"]
+            "1,638 feet" -> ["1638", "feet"]
+        """
+        if not text or not text.strip():
+            return []
+        
+        # Step 1: Strip only commas and periods
+        cleaned_text = text.replace(',', '').replace('.', '')
+        
+        # Step 2: Split on whitespace only
+        tokens = cleaned_text.split()
+        
+        # Filter out empty tokens
+        tokens = [token for token in tokens if token.strip()]
+        
+        return tokens
+    
     def _apply_normalization_to_token(self, token: str) -> str:
         """
-        Apply the EXACT same normalization logic as _normalize_text() to a single token.
+        Apply normalization to a single formatted token.
         
-        This preserves the current normalization behavior exactly.
+        This can split tokens on formatting symbols like degree signs, apostrophes, etc.
+        
+        Examples:
+            "N4°00'W" -> "n 4 00 w"  (splits on degree symbol and apostrophe)
+            "1638" -> "1638"         (no change)
+            "(2)" -> "2"             (strips parentheses)
         """
         if not token:
             return ""
         
-        # Apply the exact same steps as the current _normalize_text()
-        normalized = token
-        
         # Step 1: Lowercase
-        normalized = normalized.lower()
+        normalized = token.lower()
         
-        # Step 2: Canonicalize numbers (same regex as current)
+        # NEW: Add spaces between letters and digits in both directions
+        normalized = re.sub(r'(?<=[a-z])(?=\d)', ' ', normalized)
+        normalized = re.sub(r'(?<=\d)(?=[a-z])', ' ', normalized)
+        
+        # Step 2: Canonicalize numbers (remove internal spaces/commas in numbers)
         normalized = re.sub(r'(?<=\d)[,\s]+(?=\d)', '', normalized)
         
-        # Step 3: Protect decimal points (same as current)
+        # Step 3: Protect decimal points in numbers
         normalized = re.sub(r'(?<=\d)\.(?=\d)', 'DOT', normalized)
         
-        # Step 4: Replace non-alphanumeric chars with space (same as current)
+        # Step 4: Replace non-alphanumeric chars with spaces (this splits on formatting symbols)
+        # This will turn "4°00'" into "4 00" and "n4°00'w" into "n 4 00 w"
         normalized = re.sub(r'[^a-z0-9\s]', ' ', normalized.replace('DOT', ' ')).replace('DOT', '.')
         
-        # Step 5: Collapse spaces and strip (same as current)
+        # Step 5: Collapse multiple spaces and strip
         normalized = re.sub(r'\s+', ' ', normalized).strip()
         
         return normalized
@@ -302,6 +334,12 @@ class JsonDraftTokenizer:
             logger.info(f"   🎯 {draft_id} SAMPLE MAPPINGS:")
             for i, mapping in enumerate(token_mappings[:5]):
                 logger.info(f"      [{mapping.token_id}]: '{mapping.formatted_token}' → {mapping.normalized_tokens}")
+            
+            # NEW: Sanity check for multi-span tokens
+            logger.info(f"   🔍 {draft_id} MULTI-SPAN TOKENS:")
+            for dm in token_mappings:
+                if len(dm.normalized_tokens) > 1:
+                    logger.info(f"      MULTI-SPAN '{dm.formatted_token}' → {dm.normalized_tokens}")
             
             tokenized_drafts.append({
                 'draft_id': draft_id,

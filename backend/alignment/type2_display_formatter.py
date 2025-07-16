@@ -8,7 +8,7 @@ Goal: Create formatted tokens for alignment table with consensus anchoring.
 This formatter is COMPLETELY UNAWARE of Type 1 formatting and has NO DEPENDENCIES on it.
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set
 from collections import defaultdict
 from .format_mapping import FormatMapping
 import logging
@@ -20,202 +20,205 @@ class Type2DisplayFormatter:
     """
     Type 2 Display Formatter - COMPLETELY ISOLATED
     
-    Purpose: Create formatted tokens for alignment table display.
-    Output: Formatted tokens with consensus anchoring for visual comparison.
-    
-    This class has NO KNOWLEDGE of Type 1 formatting whatsoever.
+    Purpose: Create display tokens for Type 2 alignment table by applying consensus groupings
+    to formatted tokens, ensuring that multi-token spans are properly anchored across drafts.
     """
     
-    def __init__(self):
-        """Initialize Type 2 formatter - completely independent."""
-        pass
+    GAP = "-"
     
-    def create_display_tokens(self, aligned_tokens: List[str], 
-                            format_mapping: FormatMapping,
-                            original_to_alignment: List[int],
-                            consensus_group_sizes: List[int]) -> List[str]:
+    def create_display_tokens(
+        self,
+        aligned_tokens: List[str],
+        format_mapping: FormatMapping,
+        original_to_alignment: List[int],
+        consensus_group_sizes: List[int]
+    ) -> List[str]:
         """
-        Create formatted display tokens for alignment table (Type 2).
+        Create display tokens for Type 2 alignment table.
+        
+        Args:
+            aligned_tokens: The aligned normalized tokens for this draft
+            format_mapping: Mapping from normalized tokens to original formatted tokens
+            original_to_alignment: Mapping from original token indices to alignment positions
+            consensus_group_sizes: Consensus grouping sizes that determine how to collapse rows
+            
+        Returns:
+            List of formatted display tokens respecting consensus groupings
         """
-        logger.info(f"🔧 TYPE 2 DISPLAY FORMATTER ► Creating display tokens")
-        logger.info(f"   📊 Input: {len(aligned_tokens)} aligned tokens, {len(consensus_group_sizes)} group sizes")
-        
-        if not aligned_tokens:
-            logger.warning("   ⚠️ No aligned tokens provided")
-            return []
-        
-        # Step 1: Get formatted tokens from format mapping
-        formatted_tokens = self._get_formatted_tokens(aligned_tokens, format_mapping, original_to_alignment)
-        logger.info(f"   ✅ Formatted tokens: {len(formatted_tokens)} tokens")
-        
-        # Step 2: Apply consensus grouping for anchoring
-        if consensus_group_sizes:
+        try:
+            logger.info(f"Creating Type 2 display tokens for draft {format_mapping.draft_id}")
+            
+            # Step 1: Extract formatted tokens in alignment order
+            formatted_tokens = self._extract_formatted_tokens(
+                format_mapping, original_to_alignment, len(aligned_tokens)
+            )
+            
+            logger.info(f"Extracted {len(formatted_tokens)} formatted tokens")
+            
+            # Step 2: Apply consensus groupings to collapse multi-token spans
             display_tokens = self._apply_consensus_grouping(formatted_tokens, consensus_group_sizes)
-            logger.info(f"   ✅ Consensus grouping applied: {len(display_tokens)} display tokens")
-        else:
-            logger.info("   ⚠️ No consensus grouping available, using formatted tokens as-is")
-            display_tokens = formatted_tokens
-        
-        logger.info(f"   🎉 Type 2 display tokens complete: {len(display_tokens)} tokens")
-        return display_tokens
+            
+            logger.info(f"Applied consensus grouping: {len(formatted_tokens)} → {len(display_tokens)} tokens")
+            
+            return display_tokens
+            
+        except Exception as e:
+            logger.error(f"Error creating Type 2 display tokens for {format_mapping.draft_id}: {e}")
+            return [self.GAP] * len(consensus_group_sizes) if consensus_group_sizes else []
     
-    def _get_formatted_tokens(self, aligned_tokens: List[str], 
-                            format_mapping: FormatMapping,
-                            original_to_alignment: List[int]) -> List[str]:
-        """
-        Get formatted tokens from aligned tokens using format mapping.
+    def _extract_formatted_tokens(
+        self,
+        format_mapping: FormatMapping,
+        original_to_alignment: List[int],
+        alignment_length: int
+    ) -> List[str]:
+        """Extract formatted tokens in alignment order, filling gaps where needed."""
         
-        This is used for Type 2 display before consensus grouping is applied.
-        """
-        logger.debug(f"🔤 Getting formatted tokens for Type 2 display")
+        # Create index mapping for quick lookup
+        token_index_to_formatted = {
+            tp.token_index: tp.original_text
+            for tp in format_mapping.token_positions
+        }
         
-        if not aligned_tokens or not format_mapping or not format_mapping.token_positions:
-            logger.warning("⚠️ Missing data for formatting, returning aligned tokens as-is")
-            return aligned_tokens
-        
+        # Build tokens in alignment order
         formatted_tokens = []
-        
-        # Build reverse mapping: alignment position -> original token indices
-        alignment_to_original = self._build_alignment_to_original_mapping(
-            original_to_alignment, len(aligned_tokens)
-        )
-        
-        for align_pos, token in enumerate(aligned_tokens):
-            if token == '-':
-                formatted_tokens.append('-')  # Preserve gaps
-                continue
-            
-            # Find original token indices for this alignment position
-            original_indices = alignment_to_original.get(align_pos, [])
-            
-            if not original_indices:
-                formatted_tokens.append(token)  # Fallback to aligned token
-                continue
-            
-            # Get formatted token from first original index
-            orig_idx = original_indices[0]
-            token_pos = format_mapping.get_position_for_token(orig_idx)
-            
-            if token_pos:
-                formatted_tokens.append(token_pos.original_text)
+        for i, alignment_pos in enumerate(original_to_alignment):
+            if i in token_index_to_formatted:
+                formatted_tokens.append(token_index_to_formatted[i])
             else:
-                formatted_tokens.append(token)  # Fallback
+                formatted_tokens.append(self.GAP)
         
         return formatted_tokens
     
-    def _apply_consensus_grouping(self, formatted_tokens: List[str], 
-                                group_sizes: List[int]) -> List[str]:
+    def _apply_consensus_grouping(
+        self,
+        formatted_tokens: List[str],
+        group_sizes: List[int]
+    ) -> List[str]:
         """
-        Apply consensus grouping to formatted tokens for Type 2 display.
+        Apply consensus grouping to collapse multi-token spans.
         
-        Groups consecutive tokens according to consensus group sizes to ensure
-        normalized tokens stay anchored to the same positions across all drafts.
+        The key fix: validate by sum(group_sizes) == len(formatted_tokens),
+        not len(group_sizes) == len(formatted_tokens).
         """
-        if not group_sizes or len(group_sizes) != len(formatted_tokens):
-            logger.warning(f"⚠️ Group size mismatch: tokens={len(formatted_tokens)}, groups={len(group_sizes)}")
+        if not group_sizes:
+            logger.warning("No group sizes provided, returning original tokens")
+            return formatted_tokens
+            
+        # FIXED: Check sum of group sizes, not length
+        if sum(group_sizes) != len(formatted_tokens):
+            logger.warning(
+                f"⚠️ Group-size sum {sum(group_sizes)} ≠ token count {len(formatted_tokens)}")
             return formatted_tokens
         
-        logger.info(f"🔧 Applying consensus grouping: {len(formatted_tokens)} tokens, {len(group_sizes)} group sizes")
+        logger.info(f"Applying consensus grouping: {group_sizes}")
         
-        grouped_tokens = []
-        i = 0
+        display_tokens = []
+        token_idx = 0
         
-        for group_idx, group_size in enumerate(group_sizes):
-            if group_size <= 0:
-                continue
+        for group_size in group_sizes:
+            # Extract tokens for this group
+            group_tokens = formatted_tokens[token_idx:token_idx + group_size]
             
-            # Collect tokens for this group
-            group_tokens = []
-            for _ in range(group_size):
-                if i < len(formatted_tokens):
-                    group_tokens.append(formatted_tokens[i])
-                    i += 1
+            # Merge tokens for display (removes duplicates, joins with " | ")
+            merged_token = self._merge_tokens_for_display(group_tokens)
+            display_tokens.append(merged_token)
             
-            if group_tokens:
-                # Merge tokens intelligently
-                merged_token = self._merge_tokens_for_display(group_tokens)
-                grouped_tokens.append(merged_token)
+            token_idx += group_size
         
-        logger.info(f"✅ Consensus grouping complete: {len(grouped_tokens)} grouped tokens")
-        return grouped_tokens
+        return display_tokens
     
     def _merge_tokens_for_display(self, tokens: List[str]) -> str:
         """
-        Intelligently merge multiple tokens into a single display token.
-        
-        This is specifically for Type 2 display purposes.
+        Merge all tokens that belong to the same consensus group.
+
+        * Removes duplicates
+        * Ignores bare gap markers ("-")
+        * Uses  ' | '  to separate multiples
         """
-        if not tokens:
-            return ""
-        
-        if len(tokens) == 1:
-            return tokens[0]
-        
-        # Check if tokens contain special characters that should be merged without spaces
-        merged = ''.join(tokens)
-        if any(char in merged for char in ['°', "'", '"', '(', ')', ',', ';']):
-            return merged
-        
-        # For other cases, join with spaces
-        return ' '.join(tokens)
-    
-    def _build_alignment_to_original_mapping(self, original_to_alignment: List[int], 
-                                           alignment_length: int) -> Dict[int, List[int]]:
-        """Build reverse mapping from alignment position to list of original token indices."""
-        alignment_to_original = defaultdict(list)
-        
-        for orig_idx, align_pos in enumerate(original_to_alignment):
-            if align_pos != -1 and align_pos < alignment_length:
-                alignment_to_original[align_pos].append(orig_idx)
-        
-        return dict(alignment_to_original)
+        # filter blanks / gaps
+        uniq: List[str] = []
+        seen = set()
+        for t in tokens:
+            if t and t != self.GAP and t not in seen:
+                uniq.append(t)
+                seen.add(t)
+
+        if not uniq:                 # every draft was a gap here
+            return self.GAP
+        if len(uniq) == 1:           # single token
+            return uniq[0]
+        return " | ".join(uniq)      # multi‑token bundle
 
 
 class Type2ConsensusAnalyzer:
     """
-    Analyzes token mappings across drafts to compute consensus groupings.
-    
-    This is part of Type 2 formatting and has NO KNOWLEDGE of Type 1.
+    Builds a single **group‑size vector** for every block.
+
+    Algorithm (column‑by‑column):
+        1.  For each draft, measure how far the SAME formatted token
+            extends to the right of the current column.
+        2.  Pick the *longest* such span – that draft is the
+            "most‑reduced" at this position.
+        3.  Record that span length as the next consensus group and
+            skip over it.
     """
-    
-    def __init__(self):
-        """Initialize consensus analyzer."""
-        pass
-    
-    def compute_consensus_groupings(self, alignment_results: Dict[str, Any],
-                                  format_mappings: Dict[str, Dict[str, FormatMapping]]) -> Dict[str, Dict[str, List[int]]]:
-        """
-        Compute consensus groupings for Type 2 formatting.
-        
-        Returns: Dict[block_id, Dict[draft_id, List[int]]] (the correct structure)
-        """
-        logger.info("🎯 TYPE 2 CONSENSUS ANALYZER ► Computing consensus groupings")
-        
-        consensus_groupings = {}
-        
-        blocks = alignment_results.get('blocks', {})
-        
-        for block_id, align_block in blocks.items():
-            logger.info(f"   📋 Processing consensus for block: {block_id}")
-            
-            block_groupings = {}
-            aligned_sequences = align_block.get('aligned_sequences', [])
-            
-            if not aligned_sequences:
-                logger.warning(f"   ⚠️ No aligned sequences for block {block_id}")
+
+    GAP = "-"
+
+    def compute_consensus_groupings(
+        self,
+        alignment_results: Dict[str, Any],
+        format_mappings: Dict[str, Dict[str, FormatMapping]],
+    ) -> Dict[str, Dict[str, List[int]]]:
+
+        consensus: Dict[str, Dict[str, List[int]]] = {}
+
+        for block_id, block_res in alignment_results.get("blocks", {}).items():
+            seqs = block_res.get("aligned_sequences", [])
+            if not seqs:
                 continue
-            
-            # Get alignment length
-            alignment_length = len(aligned_sequences[0].get('tokens', []))
-            
-            # Simple consensus grouping: each token gets its own group (size 1)
-            for seq in aligned_sequences:
-                draft_id = seq.get('draft_id')
-                if draft_id:
-                    consensus_group_sizes = [1] * alignment_length
-                    block_groupings[draft_id] = consensus_group_sizes
-            
-            consensus_groupings[block_id] = block_groupings
-        
-        logger.info(f"🎊 Type 2 consensus groupings complete: {len(consensus_groupings)} blocks processed")
-        return consensus_groupings 
+
+            align_len = block_res["alignment_length"]
+
+            # ---- pre‑compute {draft ➜ [fmt_token | None] * align_len} ---- #
+            per_draft_fmt: Dict[str, List[Optional[str]]] = {}
+            for seq in seqs:
+                draft_id = seq["draft_id"]
+                fmt_map  = format_mappings.get(block_id, {}).get(draft_id)
+                o2a      = seq["original_to_alignment"]
+
+                # default None (= gap)
+                fmt_list: List[Optional[str]] = [None] * align_len
+                if fmt_map:
+                    for tp in fmt_map.token_positions:
+                        if tp.token_index < len(o2a):
+                            col = o2a[tp.token_index]
+                            if 0 <= col < align_len:
+                                fmt_list[col] = tp.original_text
+                per_draft_fmt[draft_id] = fmt_list
+
+            # ---- build consensus group‑size list ---- #
+            group_sizes: List[int] = []
+            col = 0
+            while col < align_len:
+                max_span = 1
+                for draft_id in per_draft_fmt:
+                    token_here = per_draft_fmt[draft_id][col]
+                    if not token_here:
+                        continue
+                    # how far to the right does this same token extend?
+                    span = 1
+                    while (col + span < align_len 
+                           and per_draft_fmt[draft_id][col + span] == token_here):
+                        span += 1
+                    max_span = max(max_span, span)
+                group_sizes.append(max_span)
+                col += max_span
+
+            # ---- assign the same group‑size list to every draft ---- #
+            consensus[block_id] = {}
+            for seq in seqs:
+                consensus[block_id][seq["draft_id"]] = group_sizes
+
+        return consensus

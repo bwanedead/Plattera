@@ -182,12 +182,18 @@ class BioPythonAlignmentEngine:
                 # Create fallback result for failed block
                 aligned_blocks[block_id] = self._create_fallback_alignment(block_data)
         
-        return {
+        # NEW: Save complete debug output for ALL blocks
+        alignment_results = {
             'blocks': aligned_blocks,
             'total_blocks': len(aligned_blocks),
             'draft_count': tokenized_data['draft_count'],
             'processing_method': 'biopython_consistency_msa'
         }
+        
+        logger.info(f"🎯 SAVING COMPLETE DEBUG OUTPUT ► All {len(aligned_blocks)} blocks processed")
+        self.aligner.save_complete_alignment_debug(alignment_results)
+        
+        return alignment_results
     
     def _create_fallback_alignment(self, block_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create fallback alignment for failed blocks"""
