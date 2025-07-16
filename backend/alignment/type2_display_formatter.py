@@ -134,7 +134,7 @@ class Type2DisplayFormatter:
 
         * Removes duplicates
         * Ignores bare gap markers ("-")
-        * Uses  ' | '  to separate multiples
+        * Uses simple space separation for clean display
         """
         # filter blanks / gaps
         uniq: List[str] = []
@@ -148,7 +148,7 @@ class Type2DisplayFormatter:
             return self.GAP
         if len(uniq) == 1:           # single token
             return uniq[0]
-        return " | ".join(uniq)      # multi‑token bundle
+        return " ".join(uniq)        # clean space-separated tokens
 
 
 class Type2ConsensusAnalyzer:
