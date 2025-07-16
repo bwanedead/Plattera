@@ -509,38 +509,51 @@ class JsonDraftTokenizer:
     def _create_direct_format_mapping(self, draft_id: str, original_text: str, 
                                     token_mappings: List[DirectTokenMapping]) -> FormatMapping:
         """
-        Create format mapping using direct token mappings (no similarity calculations needed).
+        Create format mapping using robust left-to-right scan.
+        
+        This approach scans the original text and matches chunks to formatted tokens
+        by cleaning both (removing commas and periods) for comparison, while
+        preserving exact original character spans.
         """
+        import re
+        
         token_positions = []
-        
-        # Calculate character positions for each formatted token in the original text
-        text_pos = 0
-        normalized_token_index = 0  # Track position in normalized token sequence
-        
-        for mapping in token_mappings:
-            # Find this formatted token in the original text
-            token_start = original_text.find(mapping.formatted_token, text_pos)
-            if token_start == -1:
-                # Fallback: use current position
-                token_start = text_pos
-            token_end = token_start + len(mapping.formatted_token)
-            text_pos = token_end
-            
-            # Create a TokenPosition for each normalized token produced by this formatted token
-            for norm_token in mapping.normalized_tokens:
-                token_positions.append(TokenPosition(
-                    token_index=normalized_token_index,  # Position in normalized sequence
-                    start_char=token_start,
-                    end_char=token_end,
-                    original_text=mapping.formatted_token,  # The formatted token that produced this
-                    normalized_text=norm_token              # The specific normalized token
-                ))
-                normalized_token_index += 1
-        
+        normalized_idx = 0          # where we are in normalised sequence
+        cur = 0                     # index in token_mappings list
+
+        for m in re.finditer(r'\S+', original_text):
+            if cur >= len(token_mappings):
+                break                              # all done
+
+            chunk = m.group(0)
+            chunk_span = (m.start(), m.end())
+            chunk_clean = chunk.replace(',', '').replace('.', '')
+
+            wanted = token_mappings[cur].formatted_token
+            if chunk_clean.lower() != wanted.lower():
+                # not the token we are looking for – skip
+                continue
+
+            # this chunk *is* the formatted token → map all its normalised
+            # children to the *same* (start,end) span
+            for norm in token_mappings[cur].normalized_tokens:
+                token_positions.append(
+                    TokenPosition(
+                        token_index=normalized_idx,
+                        start_char=chunk_span[0],
+                        end_char=chunk_span[1],
+                        original_text=chunk,
+                        normalized_text=norm,
+                    )
+                )
+                normalized_idx += 1
+
+            cur += 1                # move to next formatted token
+
         return FormatMapping(
             draft_id=draft_id,
             original_text=original_text,
-            token_positions=token_positions
+            token_positions=token_positions,
         )
 
 

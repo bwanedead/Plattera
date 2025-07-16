@@ -8,7 +8,7 @@ Goal: Reconstruct exact original text with all original formatting, spacing, and
 This formatter is COMPLETELY UNAWARE of Type 2 formatting and has NO DEPENDENCIES on it.
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set, Tuple
 from .format_mapping import FormatMapping
 import logging
 
@@ -64,7 +64,7 @@ class Type1ExactFormatter:
         
         # Collect original text portions in order
         text_portions = []
-        used_original_indices = set()
+        seen_spans: Set[Tuple[int, int]] = set()  # 🔑 Track already-used character spans
         
         logger.info(f"   📋 Processing {len(aligned_tokens)} aligned tokens for exact text reconstruction...")
         
@@ -78,40 +78,42 @@ class Type1ExactFormatter:
             original_indices = alignment_to_original.get(align_pos, [])
             logger.debug(f"     Position {align_pos}: Token '{token}' → Original indices {original_indices}")
             
-            if original_indices:
-                # Check if any of these indices have been used
-                if any(orig_idx in used_original_indices for orig_idx in original_indices):
-                    logger.warning(f"     ❌ DUPLICATE DETECTED! Original indices {original_indices} already used")
-                    continue
-                
-                # Get the original text portion for the first index
-                orig_idx = original_indices[0]
-                token_pos = format_mapping.get_position_for_token(orig_idx)
-                
-                if token_pos:
-                    logger.debug(f"       ✅ Found original text: '{token_pos.original_text}' (chars {token_pos.start_char}-{token_pos.end_char})")
-                    text_portions.append({
-                        'text': token_pos.original_text,
-                        'start_char': token_pos.start_char,
-                        'end_char': token_pos.end_char,
-                        'original_idx': orig_idx
-                    })
-                    
-                    # Mark ALL original indices as used
-                    for idx in original_indices:
-                        used_original_indices.add(idx)
-                    
-                    logger.debug(f"       ✅ Added to text portions (total: {len(text_portions)})")
-                else:
-                    logger.warning(f"       ❌ No position found for original index {orig_idx}")
-            else:
+            if not original_indices:
                 logger.debug(f"       ❌ No original index mapping for aligned position {align_pos}")
+                continue
+            
+            # Use the first original index (order doesn't matter for duplicates)
+            orig_idx = original_indices[0]
+            token_pos = format_mapping.get_position_for_token(orig_idx)
+            
+            if not token_pos:
+                logger.warning(f"       ❌ No position found for original index {orig_idx}")
+                continue
+            
+            # 🔑 Check if we've already processed this character span
+            span = (token_pos.start_char, token_pos.end_char)
+            if span in seen_spans:
+                logger.debug(f"       ⚠️ SPAN ALREADY USED: '{token_pos.original_text}' (chars {span}) - skipping duplicate")
+                continue
+            
+            # Mark this span as used
+            seen_spans.add(span)
+            
+            logger.debug(f"       ✅ Found original text: '{token_pos.original_text}' (chars {token_pos.start_char}-{token_pos.end_char})")
+            text_portions.append({
+                'text': token_pos.original_text,
+                'start_char': token_pos.start_char,
+                'end_char': token_pos.end_char,
+                'original_idx': orig_idx
+            })
+            
+            logger.debug(f"       ✅ Added to text portions (total: {len(text_portions)})")
         
         # Reconstruct with exact original spacing
         result = self._reconstruct_with_exact_spacing(text_portions, format_mapping.original_text)
         
         logger.info(f"   ✅ Type 1 exact text reconstruction complete: {len(result)} characters")
-        logger.debug(f"   📋 Used original indices: {sorted(used_original_indices)}")
+        logger.debug(f"   📋 Used character spans: {len(seen_spans)}")
         logger.debug(f"   📋 Text portions count: {len(text_portions)}")
         
         return result
