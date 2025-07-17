@@ -8,6 +8,7 @@ export const useAlignmentState = () => {
     alignmentResult: null,
     showHeatmap: false,
     showAlignmentPanel: false,
+    showBoundingBoxes: false,
     isSuggestionPopupEnabled: true // On by default
   });
   const [showAlignmentTable, setShowAlignmentTable] = useState(false);
@@ -42,7 +43,11 @@ export const useAlignmentState = () => {
       }
 
       console.log('🚀 Aligning drafts:', drafts);
-      const alignmentResult = await alignDraftsAPI(drafts, selectedConsensusStrategy);
+      
+      // Use the test image for bounding box detection when loading saved drafts
+      const testImagePath = 'C:\\projects\\Plattera\\sample text image\\legal_text_image.jpg';
+      
+      const alignmentResult = await alignDraftsAPI(drafts, selectedConsensusStrategy, testImagePath);
 
       console.log('📊 Alignment result received:', alignmentResult);
 
@@ -81,6 +86,10 @@ export const useAlignmentState = () => {
     setAlignmentState(prev => ({ ...prev, showHeatmap: show }));
   }, []);
 
+  const toggleBoundingBoxes = useCallback((show: boolean) => {
+    setAlignmentState(prev => ({ ...prev, showBoundingBoxes: show }));
+  }, []);
+
   const toggleSuggestionPopup = useCallback((enabled: boolean) => {
     setAlignmentState(prev => ({ ...prev, isSuggestionPopupEnabled: enabled }));
   }, []);
@@ -89,7 +98,8 @@ export const useAlignmentState = () => {
     setAlignmentState(prev => ({
       ...prev,
       showAlignmentPanel: false,
-      showHeatmap: false
+      showHeatmap: false,
+      showBoundingBoxes: false
     }));
   }, []);
 
@@ -103,6 +113,7 @@ export const useAlignmentState = () => {
       alignmentResult: null,
       showHeatmap: false,
       showAlignmentPanel: false,
+      showBoundingBoxes: false,
       isSuggestionPopupEnabled: prev.isSuggestionPopupEnabled
     }));
   }, []);
@@ -114,6 +125,7 @@ export const useAlignmentState = () => {
     setSelectedConsensusStrategy,
     handleAlign,
     toggleHeatmap,
+    toggleBoundingBoxes,
     toggleSuggestionPopup,
     closeAlignmentPanel,
     toggleAlignmentTable,

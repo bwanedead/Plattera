@@ -8,6 +8,7 @@ import { ControlPanel } from './ControlPanel';
 import { ResultsViewer } from './ResultsViewer';
 import { AnimatedBorder } from '../AnimatedBorder';
 import { AlignmentTableViewer } from './AlignmentTableViewer';
+import { BoundingBoxViewer } from './BoundingBoxViewer';
 import { saveDraft, getDraftCount, DraftSession } from '../../utils/draftStorage';
 import { useImageProcessing } from '../../hooks/useImageProcessing';
 import { useAlignmentState } from '../../hooks/useAlignmentState';
@@ -15,6 +16,7 @@ import { useDraftSelection } from '../../hooks/useDraftSelection';
 import { useEditableDraft } from '../../hooks/useEditableDraft';
 import { isJsonResult, formatJsonAsText } from '../../utils/jsonFormatter';
 import { getCurrentText, getRawText } from '../../utils/textSelectionUtils';
+import { BoundingBoxImagePanel } from './BoundingBoxImagePanel';
 
 
 interface ImageProcessingWorkspaceProps {
@@ -277,6 +279,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
               onToggleHeatmap={alignmentState.toggleHeatmap}
               onClose={alignmentState.closeAlignmentPanel}
               onToggleAlignmentTable={alignmentState.toggleAlignmentTable}
+              showBoundingBoxes={alignmentState.alignmentState.showBoundingBoxes}
+              onToggleBoundingBoxes={alignmentState.toggleBoundingBoxes}
             />
           </Allotment.Pane>
         )}
@@ -357,6 +361,20 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         onClose={() => setShowDraftLoader(false)}
         onLoadDrafts={handleLoadDrafts}
       />
+
+      {/* Bounding Box Viewer */}
+      {alignmentState.alignmentState.showBoundingBoxes && 
+       alignmentState.alignmentState.alignmentResult?.bounding_boxes && 
+       alignmentState.alignmentState.alignmentResult.bounding_boxes.length > 0 && (
+          <Allotment.Pane minSize={250} maxSize={400}>
+            <BoundingBoxImagePanel
+              imagePath="C:\\projects\\Plattera\\sample text image\\legal_text_image.jpg"
+              boundingBoxes={alignmentState.alignmentState.alignmentResult.bounding_boxes}
+              stats={alignmentState.alignmentState.alignmentResult.bounding_box_stats}
+              onClose={() => alignmentState.toggleBoundingBoxes(false)}
+            />
+          </Allotment.Pane>
+        )}
     </div>
   );
 }; 

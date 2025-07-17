@@ -12,6 +12,7 @@ from typing import Optional, List, Dict, Any
 import logging
 import json
 import numpy as np
+import asyncio
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,21 @@ class AlignmentRequest(BaseModel):
     drafts: List[JsonDraft]
     generate_visualization: bool = True
     consensus_strategy: str = "highest_confidence"
+    image_path: Optional[str] = None  # Optional image path for bounding box detection
+
+
+class BoundingBoxRequest(BaseModel):
+    """Request model for bounding box detection"""
+    image_path: str
+
+
+class BoundingBoxResponse(BaseModel):
+    """Response model for bounding box detection results"""
+    success: bool
+    processing_time: float
+    bounding_boxes: List[Dict[str, Any]]
+    stats: Dict[str, Any]
+    error: Optional[str] = None
 
 
 class AlignmentResponse(BaseModel):
@@ -48,8 +64,8 @@ class AlignmentResponse(BaseModel):
     visualization_html: Optional[str] = None
     error: Optional[str] = None
     per_draft_alignment_mapping: Optional[Dict[str, Any]] = None
-    confidence_results: Optional[Dict[str, Any]] = None
-    alignment_results: Optional[Dict[str, Any]] = None
+    bounding_boxes: Optional[List[Dict[str, Any]]] = None  # Optional bounding box results
+    bounding_box_stats: Optional[Dict[str, Any]] = None  # Optional bounding box statistics
 
 
 class VisualizationRequest(BaseModel):
@@ -99,6 +115,16 @@ async def align_legal_drafts(request: AlignmentRequest):
         # Initialize BioPython engine
         engine = BioPythonAlignmentEngine()
         
+        # Start parallel bounding box detection if image path provided
+        bbox_task = None
+        if request.image_path:
+            try:
+                from alignment.bounding_box import detect_with_stats_async
+                logger.info(f"📦 Starting parallel bounding box detection for: {request.image_path}")
+                bbox_task = asyncio.create_task(detect_with_stats_async(request.image_path))
+            except ImportError as e:
+                logger.warning(f"⚠️ Bounding box detection not available: {e}")
+        
         # Perform alignment
         results = engine.align_drafts(
             draft_jsons, 
@@ -128,6 +154,28 @@ async def align_legal_drafts(request: AlignmentRequest):
         
         logger.info(f"✅ BioPython alignment completed successfully in {results['processing_time']:.2f}s")
         
+        # Collect bounding box results if task was started
+        bbox_results = None
+        bbox_stats = None
+        if bbox_task:
+            try:
+                logger.info("📦 Waiting for parallel bounding box detection to complete...")
+                logger.info(f"📦 Task status: done={bbox_task.done()}, cancelled={bbox_task.cancelled()}")
+                
+                bbox_data = await bbox_task
+                logger.info(f"📦 Received bbox_data type: {type(bbox_data)}")
+                logger.info(f"📦 Received bbox_data keys: {list(bbox_data.keys()) if isinstance(bbox_data, dict) else 'Not a dict'}")
+                
+                bbox_results = bbox_data['bounding_boxes']
+                bbox_stats = bbox_data['stats']
+                logger.info(f"✅ Bounding box detection completed - Found {len(bbox_results)} boxes")
+                logger.info(f"📦 Stats: {bbox_stats}")
+            except Exception as e:
+                logger.error(f"⚠️ Bounding box detection failed: {e}")
+                logger.exception("Full bounding box task exception:")
+        else:
+            logger.info("📦 No bounding box task was started (image_path not provided)")
+        
         logger.info("Alignment API response keys: %s", list(results.keys()))
         if results.get('per_draft_alignment_mapping'):
             sample_block = list(results['per_draft_alignment_mapping'].keys())[0]
@@ -142,8 +190,8 @@ async def align_legal_drafts(request: AlignmentRequest):
             consensus_text=consensus_text,
             visualization_html=results['visualization_html'],
             per_draft_alignment_mapping=results.get('per_draft_alignment_mapping'),
-            confidence_results=results.get('confidence_results'),
-            alignment_results=results.get('alignment_results')
+            bounding_boxes=bbox_results,
+            bounding_box_stats=bbox_stats
         )
         
     except ImportError as e:
@@ -378,4 +426,65 @@ class NumpyEncoder(json.JSONEncoder):
             return float(obj)
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
-        return super().default(obj) 
+        return super().default(obj)
+
+
+@router.post("/detect-bounding-boxes", response_model=BoundingBoxResponse)
+async def detect_bounding_boxes(request: BoundingBoxRequest):
+    """
+    Detect word-level bounding boxes in a scanned document image.
+    
+    This endpoint provides standalone bounding box detection functionality
+    using OpenCV for word-level region identification.
+    """
+    logger.info(f"📦 BOUNDING BOX DETECTION ► Processing image: {request.image_path}")
+    
+    import time
+    start_time = time.time()
+    
+    try:
+        # Import bounding box detection
+        from alignment.bounding_box import detect_with_stats_async
+        
+        # Perform async detection with statistics
+        result = await detect_with_stats_async(request.image_path)
+        
+        processing_time = time.time() - start_time
+        
+        logger.info(f"✅ Bounding box detection completed in {processing_time:.2f}s - Found {len(result['bounding_boxes'])} boxes")
+        
+        return BoundingBoxResponse(
+            success=True,
+            processing_time=processing_time,
+            bounding_boxes=result['bounding_boxes'],
+            stats=result['stats']
+        )
+        
+    except FileNotFoundError as e:
+        logger.error(f"❌ Image file not found: {e}")
+        return BoundingBoxResponse(
+            success=False,
+            processing_time=time.time() - start_time,
+            bounding_boxes=[],
+            stats={},
+            error=f"Image file not found: {str(e)}"
+        )
+    except ImportError as e:
+        logger.error(f"❌ Bounding box detection module not available: {e}")
+        return BoundingBoxResponse(
+            success=False,
+            processing_time=time.time() - start_time,
+            bounding_boxes=[],
+            stats={},
+            error=f"Bounding box detection not available: {e}. Make sure opencv-python is installed."
+        )
+    except Exception as e:
+        logger.error(f"❌ Unexpected error in bounding box detection: {e}")
+        logger.exception("Full traceback:")
+        return BoundingBoxResponse(
+            success=False,
+            processing_time=time.time() - start_time,
+            bounding_boxes=[],
+            stats={},
+            error=f"Bounding box detection failed: {str(e)}"
+        ) 

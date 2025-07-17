@@ -1,59 +1,51 @@
 """
-System API Endpoints
-Health checks, service status, and system information
+System utilities and file serving endpoints
 """
-from fastapi import APIRouter
-from services.registry import get_registry
+
+from fastapi import APIRouter, HTTPException, Response
+from fastapi.responses import FileResponse
+import os
+from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-@router.get("/health")
-async def health_check():
-    """System health check"""
-    try:
-        registry = get_registry()
+@router.get("/serve-image")
+async def serve_image(image_path: str):
+    """
+    Serve an image file from the local filesystem.
+    
+    Args:
+        image_path: Path to the image file
         
-        return {
-            "status": "healthy",
-            "service": "Plattera API",
-            "version": "2.0.0",
-            "services": {
-                "llm_services": len(registry.llm_services),
-                "ocr_services": len(registry.ocr_services),
-                "total_models": len(registry.get_all_models())
-            }
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e)
-        }
-
-@router.get("/services")
-async def get_service_status():
-    """Get detailed service status"""
+    Returns:
+        FileResponse with the image
+    """
     try:
-        registry = get_registry()
+        # Validate the path exists and is a file
+        path = Path(image_path)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail=f"Image not found: {image_path}")
         
-        return {
-            "status": "success",
-            "llm_services": {
-                name: {
-                    "available": True,
-                    "models": list(service.get_models().keys())
-                }
-                for name, service in registry.llm_services.items()
-            },
-            "ocr_services": {
-                name: {
-                    "available": True,
-                    "models": list(service.get_models().keys())
-                }
-                for name, service in registry.ocr_services.items()
-            }
-        }
+        if not path.is_file():
+            raise HTTPException(status_code=400, detail=f"Path is not a file: {image_path}")
+        
+        # Check if it's an image file (basic check)
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
+        if path.suffix.lower() not in allowed_extensions:
+            raise HTTPException(status_code=400, detail=f"File is not a supported image format: {path.suffix}")
+        
+        logger.info(f"Serving image: {image_path}")
+        
+        # Return the file
+        return FileResponse(
+            path=str(path),
+            media_type=f"image/{path.suffix[1:]}",  # Remove the dot from extension
+            filename=path.name
+        )
+        
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        } 
+        logger.error(f"Error serving image {image_path}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error serving image: {str(e)}") 

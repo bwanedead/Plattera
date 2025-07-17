@@ -7,6 +7,8 @@ interface AlignmentPanelProps {
   onToggleHeatmap: (show: boolean) => void;
   onClose: () => void;
   onToggleAlignmentTable: (show: boolean) => void;
+  showBoundingBoxes: boolean;
+  onToggleBoundingBoxes: (show: boolean) => void;
 }
 
 export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
@@ -15,6 +17,8 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
   onToggleHeatmap,
   onClose,
   onToggleAlignmentTable,
+  showBoundingBoxes,
+  onToggleBoundingBoxes,
 }) => {
   if (!alignmentResult || !alignmentResult.success) {
     return (
@@ -153,6 +157,24 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
           <p className="heatmap-hint">
             Highlight text with colors based on alignment confidence
           </p>
+          
+          {alignmentResult.bounding_boxes && alignmentResult.bounding_boxes.length > 0 && (
+            <>
+              <label className="bounding-box-toggle">
+                <input
+                  type="checkbox"
+                  checked={showBoundingBoxes}
+                  onChange={(e) => onToggleBoundingBoxes(e.target.checked)}
+                />
+                <span className="toggle-slider"></span>
+                <span className="toggle-label">Show Bounding Boxes</span>
+              </label>
+              <p className="bounding-box-hint">
+                Display detected word regions ({alignmentResult.bounding_boxes.length} found)
+              </p>
+            </>
+          )}
+          
           <button 
             className="view-table-btn"
             onClick={() => onToggleAlignmentTable(true)}

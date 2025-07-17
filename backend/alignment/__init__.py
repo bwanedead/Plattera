@@ -52,4 +52,26 @@ __all__ = [
     'validate_json_draft_format',
     'check_dependencies',
     'AlignmentError'
-] 
+]
+
+# Bounding box detection functionality (optional import)
+try:
+    from .bounding_box import (
+        detect_word_bounding_boxes,
+        detect_word_bounding_boxes_async,
+        detect_with_stats_async,
+        get_detection_stats,
+        cleanup_thread_pool,
+        BoundingBoxDetectionTask
+    )
+    __all__.extend([
+        'detect_word_bounding_boxes',
+        'detect_word_bounding_boxes_async', 
+        'detect_with_stats_async',
+        'get_detection_stats',
+        'cleanup_thread_pool',
+        'BoundingBoxDetectionTask'
+    ])
+except ImportError:
+    # OpenCV not available - bounding box detection will not be available
+    pass 

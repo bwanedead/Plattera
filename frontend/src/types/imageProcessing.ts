@@ -68,6 +68,22 @@ export interface DraftAlignmentResult {
   original_to_alignment: number[];
 }
 
+export interface BoundingBox {
+  bbox: [number, number, number, number]; // [x1, y1, x2, y2]
+  index: number;
+}
+
+export interface BoundingBoxStats {
+  total_boxes: number;
+  avg_width: number;
+  avg_height: number;
+  avg_area: number;
+  min_width?: number;
+  max_width?: number;
+  min_height?: number;
+  max_height?: number;
+}
+
 export interface AlignmentResult {
   success: boolean;
   processing_time: number;
@@ -77,6 +93,8 @@ export interface AlignmentResult {
   per_draft_alignment_mapping?: Record<string, any>;
   confidence_results?: any;
   alignment_results?: any;
+  bounding_boxes?: BoundingBox[];
+  bounding_box_stats?: BoundingBoxStats;
   error?: string;
 }
 
@@ -85,6 +103,7 @@ export interface AlignmentState {
   alignmentResult: AlignmentResult | null;
   showHeatmap: boolean;
   showAlignmentPanel: boolean;
+  showBoundingBoxes: boolean;
   isSuggestionPopupEnabled?: boolean; // Optional for backward compatibility
 }
 

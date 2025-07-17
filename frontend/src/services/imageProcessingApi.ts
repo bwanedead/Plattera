@@ -97,20 +97,33 @@ export const fetchModelsAPI = async () => {
 
 // --- Alignment Engine API ---
 
-export const alignDraftsAPI = async (drafts: AlignmentDraft[], consensusStrategy: string = 'highest_confidence'): Promise<AlignmentResult> => {
+export const alignDraftsAPI = async (
+  drafts: AlignmentDraft[], 
+  consensusStrategy: string = 'highest_confidence',
+  imagePath?: string
+): Promise<AlignmentResult> => {
   try {
     console.log(`Aligning ${drafts.length} drafts with strategy: ${consensusStrategy}`);
+    if (imagePath) {
+      console.log(`Including bounding box detection for image: ${imagePath}`);
+    }
+    
+    const requestBody: any = {
+      drafts,
+      generate_visualization: true,
+      consensus_strategy: consensusStrategy
+    };
+    
+    if (imagePath) {
+      requestBody.image_path = imagePath;
+    }
     
     const response = await fetch('http://localhost:8000/api/alignment/align-drafts', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        drafts,
-        generate_visualization: true,
-        consensus_strategy: consensusStrategy
-      })
+      body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
