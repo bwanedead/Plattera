@@ -66,6 +66,7 @@ class AlignmentResponse(BaseModel):
     per_draft_alignment_mapping: Optional[Dict[str, Any]] = None
     bounding_boxes: Optional[List[Dict[str, Any]]] = None  # Optional bounding box results
     bounding_box_stats: Optional[Dict[str, Any]] = None  # Optional bounding box statistics
+    image_path: Optional[str] = None  # Original image path for frontend display
 
 
 class VisualizationRequest(BaseModel):
@@ -191,7 +192,8 @@ async def align_legal_drafts(request: AlignmentRequest):
             visualization_html=results['visualization_html'],
             per_draft_alignment_mapping=results.get('per_draft_alignment_mapping'),
             bounding_boxes=bbox_results,
-            bounding_box_stats=bbox_stats
+            bounding_box_stats=bbox_stats,
+            image_path=request.image_path
         )
         
     except ImportError as e:

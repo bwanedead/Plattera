@@ -8,7 +8,7 @@ import { ControlPanel } from './ControlPanel';
 import { ResultsViewer } from './ResultsViewer';
 import { AnimatedBorder } from '../AnimatedBorder';
 import { AlignmentTableViewer } from './AlignmentTableViewer';
-import { BoundingBoxViewer } from './BoundingBoxViewer';
+
 import { saveDraft, getDraftCount, DraftSession } from '../../utils/draftStorage';
 import { useImageProcessing } from '../../hooks/useImageProcessing';
 import { useAlignmentState } from '../../hooks/useAlignmentState';
@@ -351,12 +351,33 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       
       {/* Overlay panels outside the main layout */}
       
+      {/* DEBUG: Check bounding box panel conditions */}
+      {(() => {
+        const showBoundingBoxes = alignmentState.alignmentState.showBoundingBoxes;
+        const alignmentResult = alignmentState.alignmentState.alignmentResult;
+        const hasBoundingBoxes = alignmentResult?.bounding_boxes;
+        const boundingBoxCount = alignmentResult?.bounding_boxes?.length || 0;
+        
+        console.log("🔧 BOUNDING BOX PANEL DEBUG:");
+        console.log("  showBoundingBoxes:", showBoundingBoxes);
+        console.log("  alignmentResult exists:", !!alignmentResult);
+        console.log("  hasBoundingBoxes:", !!hasBoundingBoxes);
+        console.log("  boundingBoxCount:", boundingBoxCount);
+        console.log("  Should render panel:", showBoundingBoxes && hasBoundingBoxes && boundingBoxCount > 0);
+        
+        if (alignmentResult) {
+          console.log("  alignmentResult keys:", Object.keys(alignmentResult));
+        }
+        
+        return null;
+      })()}
+      
       {/* Bounding Box Overlay Panel */}
       {alignmentState.alignmentState.showBoundingBoxes && 
        alignmentState.alignmentState.alignmentResult?.bounding_boxes && 
        alignmentState.alignmentState.alignmentResult.bounding_boxes.length > 0 && (
         <BoundingBoxImagePanel
-          imagePath="C:\\projects\\Plattera\\sample text image\\legal_text_image.jpg"
+          imagePath={alignmentState.alignmentState.alignmentResult.image_path || "C:\\projects\\Plattera\\sample text image\\legal_text_image.jpg"}
           boundingBoxes={alignmentState.alignmentState.alignmentResult.bounding_boxes}
           stats={alignmentState.alignmentState.alignmentResult.bounding_box_stats}
           onClose={() => alignmentState.toggleBoundingBoxes(false)}

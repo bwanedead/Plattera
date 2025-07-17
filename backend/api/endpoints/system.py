@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-@router.get("/serve-image")
+@router.api_route("/serve-image", methods=["GET", "HEAD"])
 async def serve_image(image_path: str):
     """
     Serve an image file from the local filesystem.

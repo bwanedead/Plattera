@@ -95,6 +95,7 @@ export interface AlignmentResult {
   alignment_results?: any;
   bounding_boxes?: BoundingBox[];
   bounding_box_stats?: BoundingBoxStats;
+  image_path?: string;  // Add this line
   error?: string;
 }
 
