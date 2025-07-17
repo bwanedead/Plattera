@@ -15,9 +15,9 @@ export const BoundingBoxImagePanel: React.FC<BoundingBoxImagePanelProps> = ({
   onClose,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -42,30 +42,55 @@ export const BoundingBoxImagePanel: React.FC<BoundingBoxImagePanelProps> = ({
       drawBoundingBoxes(ctx, boundingBoxes);
       setImageLoaded(true);
       setImageError(false);
+      console.log('✅ Image loaded successfully with bounding boxes');
     };
 
-    img.onerror = () => {
-      console.error('Failed to load image:', imagePath);
+    img.onerror = (error) => {
+      console.error('❌ Failed to load image:', imagePath);
+      console.error('❌ Image error details:', error);
       setImageError(true);
       setImageLoaded(false);
+      setErrorMessage('Failed to load image from server');
     };
 
-    // Use the backend API to serve the image
-    const imageUrl = `/api/serve-image?image_path=${encodeURIComponent(imagePath)}`;
-    console.log('Loading image from:', imageUrl);
-    
-    img.src = imageUrl;
+    // Test different API endpoint paths
+    const testEndpoints = [
+      `/api/system/serve-image?image_path=${encodeURIComponent(imagePath)}`,
+      `/api/serve-image?image_path=${encodeURIComponent(imagePath)}`,
+      `/serve-image?image_path=${encodeURIComponent(imagePath)}`
+    ];
+
+    const tryLoadImage = async () => {
+      for (const endpoint of testEndpoints) {
+        try {
+          console.log('🔄 Trying endpoint:', endpoint);
+          
+          const response = await fetch(endpoint, { method: 'HEAD' });
+          console.log('🔍 Endpoint response:', endpoint, 'Status:', response.status);
+          
+          if (response.ok) {
+            console.log('✅ Using working endpoint:', endpoint);
+            img.src = endpoint;
+            return;
+          }
+        } catch (error) {
+          console.error('❌ Endpoint failed:', endpoint, error);
+        }
+      }
+      
+      // If all endpoints fail, try direct file loading as fallback
+      console.warn('⚠️ All API endpoints failed, trying direct file access');
+      setErrorMessage('All API endpoints failed. Image serving may not be configured correctly.');
+      setImageError(true);
+    };
+
+    tryLoadImage();
   }, [imagePath, boundingBoxes]);
 
   const drawBoundingBoxes = (ctx: CanvasRenderingContext2D, boxes: BoundingBox[]) => {
     // Box styling
     ctx.strokeStyle = '#00ff00'; // Bright green
     ctx.lineWidth = 2;
-    ctx.fillStyle = 'rgba(0, 255, 0, 0.1)'; // Semi-transparent green fill
-
-    // Font for labels
-    ctx.font = '12px Arial';
-    ctx.fillStyle = '#00ff00';
 
     boxes.forEach((box) => {
       const [x1, y1, x2, y2] = box.bbox;
@@ -79,36 +104,35 @@ export const BoundingBoxImagePanel: React.FC<BoundingBoxImagePanelProps> = ({
       ctx.fillStyle = 'rgba(0, 255, 0, 0.1)';
       ctx.fillRect(x1, y1, width, height);
 
-      // Draw index label (only for first few boxes to avoid clutter)
-      if (box.index < 50) {
+      // Draw index label (only for first 20 boxes to avoid clutter)
+      if (box.index < 20) {
         ctx.fillStyle = '#00ff00';
+        ctx.font = '12px Arial';
         ctx.fillText(`${box.index}`, x1 + 2, y1 - 5);
       }
     });
   };
 
   const getDisplayDimensions = () => {
-    if (!imageDimensions.width || !imageDimensions.height || !containerRef.current) {
-      return { width: 300, height: 400 };
+    if (!imageDimensions.width || !imageDimensions.height) {
+      return { width: 350, height: 500 };
     }
     
-    const container = containerRef.current;
-    const containerWidth = container.clientWidth - 20; // Account for padding
-    const containerHeight = container.clientHeight - 100; // Account for header and stats
-    
+    const maxWidth = 350;
+    const maxHeight = 500;
     const aspectRatio = imageDimensions.width / imageDimensions.height;
     
     let displayWidth = imageDimensions.width;
     let displayHeight = imageDimensions.height;
     
     // Scale to fit container
-    if (displayWidth > containerWidth) {
-      displayWidth = containerWidth;
+    if (displayWidth > maxWidth) {
+      displayWidth = maxWidth;
       displayHeight = displayWidth / aspectRatio;
     }
     
-    if (displayHeight > containerHeight) {
-      displayHeight = containerHeight;
+    if (displayHeight > maxHeight) {
+      displayHeight = maxHeight;
       displayWidth = displayHeight * aspectRatio;
     }
     
@@ -118,7 +142,7 @@ export const BoundingBoxImagePanel: React.FC<BoundingBoxImagePanelProps> = ({
   const displayDimensions = getDisplayDimensions();
 
   return (
-    <div ref={containerRef} className="bounding-box-image-panel">
+    <div className="bounding-box-overlay-panel">
       <div className="bounding-box-panel-header">
         <h4>Original Document</h4>
         <button className="close-btn" onClick={onClose}>
@@ -129,12 +153,20 @@ export const BoundingBoxImagePanel: React.FC<BoundingBoxImagePanelProps> = ({
       <div className="bounding-box-panel-content">
         {imageError ? (
           <div className="error-message">
-            <p>Failed to load image</p>
-            <p className="error-detail">Check browser console</p>
+            <p>❌ Image Loading Failed</p>
+            <p className="error-detail">{errorMessage}</p>
+            <p className="error-detail">Path: {imagePath}</p>
+            <button 
+              className="retry-btn"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </button>
           </div>
         ) : !imageLoaded ? (
           <div className="loading-message">
-            <p>Loading image...</p>
+            <div className="loading-spinner"></div>
+            <p>Loading document image...</p>
           </div>
         ) : (
           <div className="image-container">
@@ -144,8 +176,7 @@ export const BoundingBoxImagePanel: React.FC<BoundingBoxImagePanelProps> = ({
                 width: `${displayDimensions.width}px`,
                 height: `${displayDimensions.height}px`,
                 border: '1px solid #333',
-                maxWidth: '100%',
-                maxHeight: '100%',
+                borderRadius: '4px',
               }}
             />
           </div>
@@ -155,10 +186,10 @@ export const BoundingBoxImagePanel: React.FC<BoundingBoxImagePanelProps> = ({
           <div className="bounding-box-mini-stats">
             <div className="mini-stat">
               <span>{stats.total_boxes}</span>
-              <small>boxes</small>
+              <small>regions</small>
             </div>
             <div className="mini-stat">
-              <span>{stats.avg_width.toFixed(0)}px</span>
+              <span>{Math.round(stats.avg_width)}px</span>
               <small>avg width</small>
             </div>
           </div>

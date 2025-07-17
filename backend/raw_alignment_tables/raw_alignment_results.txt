@@ -1,6 +1,6 @@
 ================================================================================
 COMPLETE RAW ALIGNMENT TABLE - ALL BLOCKS
-Generated: 2025-07-17 16:11:42
+Generated: 2025-07-17 16:31:58
 Total Blocks: 4
 ================================================================================
 
@@ -1563,8 +1563,8 @@ Draft_3 (160 tokens):
 📊 ANALYSIS - section_3
 ============================================================
 
-DIFF at pos 56: ['e', 'east']
-DIFF at pos 155: ['14', '19']
+DIFF at pos 56: ['east', 'e']
+DIFF at pos 155: ['19', '14']
 
 BLOCK SUMMARY:
   Total positions: 160

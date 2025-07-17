@@ -208,12 +208,17 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     alignmentState.resetAlignmentState();
   };
 
-  // Calculate Allotment sizes based on alignment panel visibility
+    // Calculate Allotment sizes based on alignment panel visibility
   const getAllotmentSizes = () => {
-    if (alignmentState.alignmentState.showAlignmentPanel) {
-      return [300, 250, 450]; // ControlPanel, AlignmentPanel, ResultsViewer
+    const hasAlignmentPanel = alignmentState.alignmentState.showAlignmentPanel;
+    const hasAlignmentTable = alignmentState.showAlignmentTable && alignmentState.alignmentState.alignmentResult;
+    
+    if (hasAlignmentPanel && hasAlignmentTable) {
+      return [300, 250, 200, 450]; // Control, Alignment, Table, Results
+    } else if (hasAlignmentPanel) {
+      return [300, 250, 450]; // Control, Alignment, Results
     }
-    return [300, 700]; // ControlPanel, ResultsViewer
+    return [300, 700]; // Control, Results
   };
 
   return (
@@ -344,6 +349,20 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         </Allotment.Pane>
       </Allotment>
       
+      {/* Overlay panels outside the main layout */}
+      
+      {/* Bounding Box Overlay Panel */}
+      {alignmentState.alignmentState.showBoundingBoxes && 
+       alignmentState.alignmentState.alignmentResult?.bounding_boxes && 
+       alignmentState.alignmentState.alignmentResult.bounding_boxes.length > 0 && (
+        <BoundingBoxImagePanel
+          imagePath="C:\\projects\\Plattera\\sample text image\\legal_text_image.jpg"
+          boundingBoxes={alignmentState.alignmentState.alignmentResult.bounding_boxes}
+          stats={alignmentState.alignmentState.alignmentResult.bounding_box_stats}
+          onClose={() => alignmentState.toggleBoundingBoxes(false)}
+        />
+      )}
+
       {/* Image Enhancement Modal */}
       {showEnhancementModal && (
         <ImageEnhancementModal
@@ -361,20 +380,6 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         onClose={() => setShowDraftLoader(false)}
         onLoadDrafts={handleLoadDrafts}
       />
-
-      {/* Bounding Box Viewer */}
-      {alignmentState.alignmentState.showBoundingBoxes && 
-       alignmentState.alignmentState.alignmentResult?.bounding_boxes && 
-       alignmentState.alignmentState.alignmentResult.bounding_boxes.length > 0 && (
-          <Allotment.Pane minSize={250} maxSize={400}>
-            <BoundingBoxImagePanel
-              imagePath="C:\\projects\\Plattera\\sample text image\\legal_text_image.jpg"
-              boundingBoxes={alignmentState.alignmentState.alignmentResult.bounding_boxes}
-              stats={alignmentState.alignmentState.alignmentResult.bounding_box_stats}
-              onClose={() => alignmentState.toggleBoundingBoxes(false)}
-            />
-          </Allotment.Pane>
-        )}
     </div>
   );
 }; 
