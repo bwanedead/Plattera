@@ -448,8 +448,11 @@ async def detect_bounding_boxes(request: BoundingBoxRequest):
         # Import bounding box detection
         from alignment.bounding_box import detect_with_stats_async
         
+        # Check if debug mode is requested (you can add this to BoundingBoxRequest model)
+        debug_mode = getattr(request, 'debug_mode', False)
+        
         # Perform async detection with statistics
-        result = await detect_with_stats_async(request.image_path)
+        result = await detect_with_stats_async(request.image_path, debug_mode=debug_mode)
         
         processing_time = time.time() - start_time
         

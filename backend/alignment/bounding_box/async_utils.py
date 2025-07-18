@@ -28,7 +28,7 @@ def get_thread_pool() -> ThreadPoolExecutor:
     return _thread_pool
 
 
-async def detect_word_bounding_boxes_async(image_path: str) -> List[Dict[str, Any]]:
+async def detect_word_bounding_boxes_async(image_path: str, debug_mode: bool = False) -> List[Dict[str, Any]]:
     """
     Async wrapper for detect_word_bounding_boxes.
     
@@ -37,6 +37,7 @@ async def detect_word_bounding_boxes_async(image_path: str) -> List[Dict[str, An
     
     Args:
         image_path: Path to the input image file
+        debug_mode: If True, saves intermediate images for debugging
         
     Returns:
         List of bounding box dictionaries with indices
@@ -47,13 +48,14 @@ async def detect_word_bounding_boxes_async(image_path: str) -> List[Dict[str, An
     loop = asyncio.get_event_loop()
     
     try:
-        logger.info(f"📦 BBOX ASYNC ► Starting thread pool execution for {image_path}")
+        logger.info(f"📦 BBOX ASYNC ► Starting thread pool execution for {image_path} (debug_mode={debug_mode})")
         
         # Run the detection in a thread pool
         result = await loop.run_in_executor(
             get_thread_pool(),
             detect_word_bounding_boxes,
-            image_path
+            image_path,
+            debug_mode
         )
         
         logger.info(f"📦 BBOX ASYNC ► Detection completed successfully for {image_path} - Found {len(result)} boxes")
@@ -65,12 +67,13 @@ async def detect_word_bounding_boxes_async(image_path: str) -> List[Dict[str, An
         raise
 
 
-async def detect_with_stats_async(image_path: str) -> Dict[str, Any]:
+async def detect_with_stats_async(image_path: str, debug_mode: bool = False) -> Dict[str, Any]:
     """
     Detect bounding boxes and calculate statistics asynchronously.
     
     Args:
         image_path: Path to the input image file
+        debug_mode: If True, saves intermediate images for debugging
         
     Returns:
         Dictionary containing both bounding boxes and statistics:
@@ -82,7 +85,7 @@ async def detect_with_stats_async(image_path: str) -> Dict[str, Any]:
     loop = asyncio.get_event_loop()
     
     def detect_and_analyze():
-        logger.info(f"📦 BBOX THREAD ► Starting detection in thread pool for {image_path}")
+        logger.info(f"📦 BBOX THREAD ► Starting detection in thread pool for {image_path} (debug_mode={debug_mode})")
         try:
             # First check if we can import cv2
             try:
@@ -92,7 +95,7 @@ async def detect_with_stats_async(image_path: str) -> Dict[str, Any]:
                 logger.error(f"📦 BBOX THREAD ► OpenCV import failed: {e}")
                 raise
             
-            bounding_boxes = detect_word_bounding_boxes(image_path)
+            bounding_boxes = detect_word_bounding_boxes(image_path, debug_mode)
             logger.info(f"📦 BBOX THREAD ► Detection successful, found {len(bounding_boxes)} boxes")
             
             stats = get_detection_stats(bounding_boxes)
@@ -110,7 +113,7 @@ async def detect_with_stats_async(image_path: str) -> Dict[str, Any]:
             raise
     
     try:
-        logger.info(f"📦 BBOX STATS ASYNC ► Starting detection with stats for {image_path}")
+        logger.info(f"📦 BBOX STATS ASYNC ► Starting detection with stats for {image_path} (debug_mode={debug_mode})")
         
         result = await loop.run_in_executor(
             get_thread_pool(),
@@ -144,8 +147,9 @@ class BoundingBoxDetectionTask:
     Manages a bounding box detection task with cancellation support.
     """
     
-    def __init__(self, image_path: str):
+    def __init__(self, image_path: str, debug_mode: bool = False):
         self.image_path = image_path
+        self.debug_mode = debug_mode
         self.task: Optional[asyncio.Task] = None
         self._result: Optional[List[Dict[str, Any]]] = None
         
@@ -155,7 +159,7 @@ class BoundingBoxDetectionTask:
             raise RuntimeError("Task already started")
             
         self.task = asyncio.create_task(
-            detect_word_bounding_boxes_async(self.image_path)
+            detect_word_bounding_boxes_async(self.image_path, self.debug_mode)
         )
         
     async def wait(self) -> List[Dict[str, Any]]:
