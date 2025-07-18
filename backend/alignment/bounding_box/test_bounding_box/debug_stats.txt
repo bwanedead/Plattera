@@ -1,0 +1,7 @@
+Meta-lines detected: 0
+Main text region: 400,300 to 3600,2700
+Total words detected: 485
+Average word width: 104.7px
+Average word height: 73.7px
+Min width: 10.0px
+Max width: 512.0px

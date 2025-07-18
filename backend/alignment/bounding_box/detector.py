@@ -16,228 +16,205 @@ logger = logging.getLogger(__name__)
 
 def detect_word_bounding_boxes(image_path: str, debug_mode: bool = False) -> List[Dict[str, Any]]:
     """
-    Detect bounding boxes using character detection + intelligent grouping.
-    Works from the clean preprocessed stage without destructive dilation.
+    Two-stage bounding box detection:
+    1. Dilation stage identifies meta-lines (text regions)
+    2. Clean stage finds individual words within those regions
     """
     if not Path(image_path).exists():
         raise FileNotFoundError(f"Image file not found: {image_path}")
     
+    # Set up debug directory
+    debug_dir = Path(__file__).parent / "test_bounding_box"
+    if debug_mode:
+        debug_dir.mkdir(exist_ok=True)
+    
     try:
-        # Load and preprocess (same as before through Stage 5)
+        # Load and preprocess
         image = cv2.imread(image_path)
         if image is None:
-            raise cv2.error(f"Could not load image: {image_path}")
-            
+            raise ValueError(f"Could not load image: {image_path}")
+        
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
-        # Multiple thresholding approaches
-        _, thresh_otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        fg_otsu = 255 - thresh_otsu
+        if debug_mode:
+            cv2.imwrite(str(debug_dir / 'debug_1_gray.png'), gray)
         
-        thresh_adaptive = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                               cv2.THRESH_BINARY, 21, 5)
-        fg_adaptive = 255 - thresh_adaptive
-        
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        gray_eq = clahe.apply(gray)
-        _, thresh_clahe = cv2.threshold(gray_eq, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        fg_clahe = 255 - thresh_clahe
-        
-        # Choose best method
-        otsu_density = np.sum(fg_otsu > 0) / fg_otsu.size
-        adaptive_density = np.sum(fg_adaptive > 0) / fg_adaptive.size
-        clahe_density = np.sum(fg_clahe > 0) / fg_clahe.size
-        
-        logger.info(f"Thresholding densities - Otsu: {otsu_density:.3f}, Adaptive: {adaptive_density:.3f}, CLAHE: {clahe_density:.3f}")
-        
-        if 0.05 <= otsu_density <= 0.25:
-            fg = fg_otsu
-            method = "Otsu"
-        elif 0.05 <= adaptive_density <= 0.25:
-            fg = fg_adaptive
-            method = "Adaptive"
-        elif 0.05 <= clahe_density <= 0.25:
-            fg = fg_clahe
-            method = "CLAHE+Otsu"
-        else:
-            target = 0.15
-            distances = [abs(otsu_density - target), abs(adaptive_density - target), abs(clahe_density - target)]
-            best_idx = distances.index(min(distances))
-            if best_idx == 0:
-                fg = fg_otsu
-                method = "Otsu (fallback)"
-            elif best_idx == 1:
-                fg = fg_adaptive
-                method = "Adaptive (fallback)"
-            else:
-                fg = fg_clahe
-                method = "CLAHE+Otsu (fallback)"
-        
-        logger.info(f"Selected thresholding method: {method}")
-        
-        # Light cleanup to get to Stage 5 quality
-        kernel_small = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
-        fg_clean = cv2.morphologyEx(fg, cv2.MORPH_OPEN, kernel_small, iterations=1)
+        # Stage 1: Meta-line detection using dilation
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        fg = 255 - binary  # Make text white
         
         if debug_mode:
-            cv2.imwrite("debug_0_original_gray.png", gray)
-            cv2.imwrite("debug_1_selected_fg.png", fg)
-            cv2.imwrite("debug_2_cleaned_stage5.png", fg_clean)
+            cv2.imwrite(str(debug_dir / 'debug_2_binary.png'), fg)
         
-        # STOP HERE - Use Stage 5 for bounding box detection
+        # Small open to remove noise
+        kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
+        fg_clean = cv2.morphologyEx(fg, cv2.MORPH_OPEN, kernel_open, iterations=1)
         
-        # Find individual character/stroke components
-        n_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(fg_clean, connectivity=8)
+        if debug_mode:
+            cv2.imwrite(str(debug_dir / 'debug_3_cleaned.png'), fg_clean)
         
-        if n_labels <= 1:
-            logger.info("No text components found")
-            return []
+        # Meta-line detection
+        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 2))
+        fg_dilated = cv2.dilate(fg_clean, kernel_dilate, iterations=2)
         
-        logger.info(f"Found {n_labels-1} character/stroke components at Stage 5")
+        if debug_mode:
+            cv2.imwrite(str(debug_dir / 'debug_4_meta_lines.png'), fg_dilated)
         
-        # Extract character bounding boxes
-        char_boxes = []
-        for i in range(1, n_labels):
+        # Find meta-line regions
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(fg_dilated, connectivity=8)
+        
+        # IMPROVED: Filter meta-lines more aggressively to exclude margins
+        meta_lines = []
+        image_height, image_width = gray.shape
+        
+        for i in range(1, num_labels):
             x, y, w, h, area = stats[i]
             
-            # Filter for reasonable character/stroke size
-            if (h >= 5 and w >= 2 and  # Minimum readable size
-                h <= 80 and w <= 200 and  # Maximum reasonable size
-                area >= 10):  # Minimum area
-                char_boxes.append({
-                    'x': x, 'y': y, 'w': w, 'h': h,
+            # More aggressive filtering to exclude margins
+            if (area > 2000 and  # Increased minimum area
+                h > 15 and  # Increased minimum height
+                w > 50 and  # Minimum width to exclude narrow margin elements
+                x > image_width * 0.05 and  # Not too close to left edge
+                x + w < image_width * 0.95 and  # Not too close to right edge
+                y > image_height * 0.05 and  # Not too close to top edge
+                y + h < image_height * 0.95):  # Not too close to bottom edge
+                
+                meta_lines.append({
+                    'x': x, 'y': y, 'w': w, 'h': h, 
                     'x2': x + w, 'y2': y + h,
-                    'area': area,
-                    'center_x': x + w/2,
-                    'center_y': y + h/2
+                    'area': area
                 })
         
-        logger.info(f"Found {len(char_boxes)} valid character components")
+        meta_lines.sort(key=lambda line: line['y'])
         
-        if not char_boxes:
-            return []
-        
-        # Estimate character dimensions for grouping
-        heights = [box['h'] for box in char_boxes]
-        median_char_height = np.median(heights)
-        
-        # Group characters into lines
-        line_tolerance = median_char_height * 0.6  # Characters on same line
-        lines = {}
-        
-        for box in char_boxes:
-            line_id = int(box['center_y'] / line_tolerance)
-            if line_id not in lines:
-                lines[line_id] = []
-            lines[line_id].append(box)
-        
-        logger.info(f"Grouped characters into {len(lines)} lines")
-        
-        # Group characters into words within each line
-        word_boxes = []
-        
-        for line_id in sorted(lines.keys()):
-            line_chars = sorted(lines[line_id], key=lambda b: b['x'])
-            
-            if not line_chars:
-                continue
-            
-            # Estimate word spacing for this line
-            if len(line_chars) > 1:
-                gaps = []
-                for i in range(len(line_chars) - 1):
-                    gap = line_chars[i+1]['x'] - line_chars[i]['x2']
-                    if gap > 0:
-                        gaps.append(gap)
-                
-                if gaps:
-                    # Use larger gaps as word boundaries
-                    median_gap = np.median(gaps)
-                    word_gap_threshold = max(median_gap * 1.5, median_char_height * 0.8)
-                else:
-                    word_gap_threshold = median_char_height * 0.8
-            else:
-                word_gap_threshold = median_char_height * 0.8
-            
-            # Group characters into words
-            current_word = [line_chars[0]]
-            
-            for i in range(1, len(line_chars)):
-                gap = line_chars[i]['x'] - line_chars[i-1]['x2']
-                
-                if gap <= word_gap_threshold:
-                    # Same word
-                    current_word.append(line_chars[i])
-                else:
-                    # New word - save current and start new
-                    if len(current_word) > 0:
-                        # Create word bounding box
-                        min_x = min(c['x'] for c in current_word)
-                        min_y = min(c['y'] for c in current_word)
-                        max_x = max(c['x2'] for c in current_word)
-                        max_y = max(c['y2'] for c in current_word)
-                        
-                        # Only keep word-like shapes
-                        word_w = max_x - min_x
-                        word_h = max_y - min_y
-                        
-                        if (word_w >= median_char_height * 0.5 and  # Minimum word width
-                            word_h >= 5 and  # Minimum height
-                            word_w > word_h * 0.8):  # Word-like aspect ratio
-                            word_boxes.append([min_x, min_y, max_x, max_y])
-                    
-                    current_word = [line_chars[i]]
-            
-            # Don't forget the last word
-            if len(current_word) > 0:
-                min_x = min(c['x'] for c in current_word)
-                min_y = min(c['y'] for c in current_word)
-                max_x = max(c['x2'] for c in current_word)
-                max_y = max(c['y2'] for c in current_word)
-                
-                word_w = max_x - min_x
-                word_h = max_y - min_y
-                
-                if (word_w >= median_char_height * 0.5 and
-                    word_h >= 5 and
-                    word_w > word_h * 0.8):
-                    word_boxes.append([min_x, min_y, max_x, max_y])
-        
-        logger.info(f"Formed {len(word_boxes)} word groups from character analysis")
-        
-        # Sort in reading order
-        line_tolerance_final = int(median_char_height * 1.5) or 30
-        word_boxes.sort(key=lambda box: (box[1] // line_tolerance_final, box[0]))
-        
-        result = []
-        for i, bbox in enumerate(word_boxes):
-            result.append({
-                "bbox": [int(coord) for coord in bbox],
-                "index": i
-            })
-        
-        # Debug visualization
         if debug_mode:
-            # Show character components
-            char_debug = image.copy()
-            for box in char_boxes:
-                cv2.rectangle(char_debug, (box['x'], box['y']), (box['x2'], box['y2']), (0, 255, 0), 1)
-            cv2.imwrite("debug_3_character_components.png", char_debug)
-            
-            # Show final word boxes
-            word_debug = image.copy()
-            for box_data in result:
-                x1, y1, x2, y2 = box_data["bbox"]
-                cv2.rectangle(word_debug, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                cv2.putText(word_debug, str(box_data["index"]), (x1, y1-5), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-            cv2.imwrite("debug_4_final_word_boxes.png", word_debug)
+            # Draw filtered meta-lines
+            debug_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            for i, line in enumerate(meta_lines):
+                cv2.rectangle(debug_img, (line['x'], line['y']), 
+                            (line['x2'], line['y2']), (0, 255, 0), 2)
+                cv2.putText(debug_img, f"Line {i}", (line['x'], line['y']-5), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            cv2.imwrite(str(debug_dir / 'debug_5_filtered_meta_lines.png'), debug_img)
         
-        logger.info(f"Final result: {len(result)} word-level bounding boxes from Stage 5 analysis")
+        # Find the main text region by combining all meta-lines
+        if meta_lines:
+            # Find the bounding box that encompasses all meta-lines
+            min_x = min(line['x'] for line in meta_lines)
+            max_x = max(line['x2'] for line in meta_lines)
+            min_y = min(line['y'] for line in meta_lines)
+            max_y = max(line['y2'] for line in meta_lines)
+            
+            # Add some padding to ensure we capture the full text
+            pad = 10
+            text_region = {
+                'x': max(0, min_x - pad),
+                'y': max(0, min_y - pad),
+                'x2': min(gray.shape[1], max_x + pad),
+                'y2': min(gray.shape[0], max_y + pad),
+                'w': min(gray.shape[1], max_x + pad) - max(0, min_x - pad),
+                'h': min(gray.shape[0], max_y + pad) - max(0, min_y - pad)
+            }
+        else:
+            # Fallback: use the center 80% of the image
+            text_region = {
+                'x': int(image_width * 0.1),
+                'y': int(image_height * 0.1),
+                'x2': int(image_width * 0.9),
+                'y2': int(image_height * 0.9),
+                'w': int(image_width * 0.8),
+                'h': int(image_height * 0.8)
+            }
+        
+        if debug_mode:
+            # Draw the main text region
+            debug_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            cv2.rectangle(debug_img, (text_region['x'], text_region['y']), 
+                        (text_region['x2'], text_region['y2']), (0, 255, 0), 2)
+            cv2.putText(debug_img, "Main Text Region", (text_region['x'], text_region['y']-5), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            cv2.imwrite(str(debug_dir / 'debug_6_main_text_region.png'), debug_img)
+        
+        # Crop to main text region
+        cropped_gray = gray[text_region['y']:text_region['y2'], text_region['x']:text_region['x2']]
+        cropped_fg_clean = fg_clean[text_region['y']:text_region['y2'], text_region['x']:text_region['x2']]
+        
+        if debug_mode:
+            cv2.imwrite(str(debug_dir / 'debug_7_cropped_text.png'), cropped_gray)
+            cv2.imwrite(str(debug_dir / 'debug_8_cropped_cleaned.png'), cropped_fg_clean)
+        
+        # Stage 2: Word detection on the cropped text region
+        # Word-level dilation to connect characters within words
+        kernel_word = cv2.getStructuringElement(cv2.MORPH_RECT, (8, 1))
+        word_dilated = cv2.dilate(cropped_fg_clean, kernel_word, iterations=1)
+        
+        if debug_mode:
+            cv2.imwrite(str(debug_dir / 'debug_9_word_detection_image.png'), word_dilated)
+        
+        # Find connected components in the cropped region
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(word_dilated, connectivity=8)
+        
+        # Filter components to find words
+        all_words = []
+        for i in range(1, num_labels):
+            x, y, w, h, area = stats[i]
+            
+            # Word filtering criteria
+            if (area > 100 and
+                h > 8 and w > 8 and
+                h < text_region['h'] * 0.3 and  # Not too tall relative to text region
+                w < text_region['w'] * 0.8 and  # Not too wide relative to text region
+                w > h * 0.5):  # Aspect ratio check
+                
+                # Convert to global coordinates (add back the crop offset)
+                global_x = text_region['x'] + x
+                global_y = text_region['y'] + y
+                
+                all_words.append({
+                    'bbox': [global_x, global_y, global_x + w, global_y + h],
+                    'area': area,
+                    'width': w,
+                    'height': h,
+                    'index': len(all_words)
+                })
+        
+        # Sort words by reading order (top to bottom, left to right)
+        all_words.sort(key=lambda word: (word['bbox'][1], word['bbox'][0]))
+        
+        # Update indices after sorting
+        for i, word in enumerate(all_words):
+            word['index'] = i
+        
+        # Final result
+        result = [{'bbox': word['bbox'], 'index': word['index']} for word in all_words]
+        
+        if debug_mode:
+            # Draw final word boxes on original
+            debug_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            for word in all_words:
+                x1, y1, x2, y2 = word['bbox']
+                cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 0, 255), 1)
+                cv2.putText(debug_img, str(word['index']), (x1, y1-2), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 255), 1)
+            cv2.imwrite(str(debug_dir / 'debug_10_final_result.png'), debug_img)
+            
+            # Save stats
+            with open(str(debug_dir / 'debug_stats.txt'), 'w') as f:
+                f.write(f"Meta-lines detected: {len(meta_lines)}\n")
+                f.write(f"Main text region: {text_region['x']},{text_region['y']} to {text_region['x2']},{text_region['y2']}\n")
+                f.write(f"Total words detected: {len(all_words)}\n")
+                if all_words:
+                    widths = [w['width'] for w in all_words]
+                    heights = [w['height'] for w in all_words]
+                    f.write(f"Average word width: {sum(widths)/len(widths):.1f}px\n")
+                    f.write(f"Average word height: {sum(heights)/len(heights):.1f}px\n")
+                    f.write(f"Min width: {min(widths):.1f}px\n")
+                    f.write(f"Max width: {max(widths):.1f}px\n")
+        
         return result
         
     except Exception as e:
-        logger.error(f"Error processing image {image_path}: {str(e)}")
+        logger.error(f"Error in bounding box detection: {e}")
         raise
 
 
