@@ -8,11 +8,13 @@ import { ControlPanel } from './ControlPanel';
 import { ResultsViewer } from './ResultsViewer';
 import { AnimatedBorder } from '../AnimatedBorder';
 import { AlignmentTableViewer } from './AlignmentTableViewer';
+import { BoundingBoxViewer } from './BoundingBoxViewer';
 import { saveDraft, getDraftCount, DraftSession } from '../../utils/draftStorage';
 import { useImageProcessing } from '../../hooks/useImageProcessing';
 import { useAlignmentState } from '../../hooks/useAlignmentState';
 import { useDraftSelection } from '../../hooks/useDraftSelection';
 import { useEditableDraft } from '../../hooks/useEditableDraft';
+import { useBoundingBoxState } from '../../hooks/useBoundingBoxState';
 import { isJsonResult, formatJsonAsText } from '../../utils/jsonFormatter';
 import { getCurrentText, getRawText } from '../../utils/textSelectionUtils';
 
@@ -34,10 +36,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [showDraftLoader, setShowDraftLoader] = useState(false);
   const [draftCount, setDraftCount] = useState(0);
   const [showEditedVersion, setShowEditedVersion] = useState(true); // Toggle between original and edited versions
+  const [showBoundingBoxViewer, setShowBoundingBoxViewer] = useState(false);
 
   // Custom hooks for state management
   const imageProcessing = useImageProcessing();
   const alignmentState = useAlignmentState();
+  const boundingBoxState = useBoundingBoxState();
   
   // Initialize draft selection first
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>(0);
@@ -206,6 +210,31 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     alignmentState.resetAlignmentState();
   };
 
+  // Custom handleProcess that includes bounding box processing
+  const handleProcessWithBoundingBox = async () => {
+    if (imageProcessing.stagedFiles.length === 0) return;
+    
+    try {
+      // 1. Process images for text extraction (existing functionality)
+      const result = await imageProcessing.handleProcess();
+      
+      // 2. Process bounding boxes if enabled (NEW - completely separate)
+      if (boundingBoxState.boundingBoxState.enabled && imageProcessing.stagedFiles.length > 0) {
+        try {
+          await boundingBoxState.processBoundingBox(imageProcessing.stagedFiles[0]); // Process first file
+        } catch (error) {
+          console.warn('Bounding box processing failed:', error);
+          // Don't fail the entire process - bounding box is optional
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Error in combined processing:', error);
+      throw error;
+    }
+  };
+
   // Calculate Allotment sizes based on alignment panel visibility
   const getAllotmentSizes = () => {
     if (alignmentState.alignmentState.showAlignmentPanel) {
@@ -254,7 +283,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 draftCount={draftCount}
                 onShowDraftLoader={() => setShowDraftLoader(true)}
             isProcessing={imageProcessing.isProcessing}
-            onProcess={imageProcessing.handleProcess}
+            onProcess={handleProcessWithBoundingBox}
             availableModels={imageProcessing.availableModels}
             selectedModel={imageProcessing.selectedModel}
             onModelChange={imageProcessing.setSelectedModel}
@@ -266,6 +295,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 onShowEnhancementModal={() => setShowEnhancementModal(true)}
             redundancySettings={imageProcessing.redundancySettings}
             onRedundancySettingsChange={imageProcessing.setRedundancySettings}
+            boundingBoxSettings={{
+              enabled: boundingBoxState.boundingBoxState.enabled,
+              complexity: boundingBoxState.boundingBoxState.complexity,
+              model: boundingBoxState.boundingBoxState.model
+            }}
+            onBoundingBoxSettingsChange={boundingBoxState.updateSettings}
             />
         </Allotment.Pane>
         
@@ -277,6 +312,14 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
               onToggleHeatmap={alignmentState.toggleHeatmap}
               onClose={alignmentState.closeAlignmentPanel}
               onToggleAlignmentTable={alignmentState.toggleAlignmentTable}
+              boundingBoxResult={boundingBoxState.boundingBoxState.boundingBoxResult}
+              onGenerateBoundingBoxes={() => {
+                if (imageProcessing.selectedResult && imageProcessing.stagedFiles.length > 0) {
+                  boundingBoxState.processBoundingBox(imageProcessing.stagedFiles[0]);
+                }
+              }}
+              onToggleBoundingBoxViewer={setShowBoundingBoxViewer}
+              isProcessing={imageProcessing.isProcessing}
             />
           </Allotment.Pane>
         )}
@@ -357,6 +400,15 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         onClose={() => setShowDraftLoader(false)}
         onLoadDrafts={handleLoadDrafts}
       />
+
+      {/* Bounding Box Viewer */}
+      {showBoundingBoxViewer && boundingBoxState.boundingBoxState.boundingBoxResult && (
+        <BoundingBoxViewer
+          boundingBoxResult={boundingBoxState.boundingBoxState.boundingBoxResult}
+          imageUrl={imageProcessing.selectedResult ? URL.createObjectURL(imageProcessing.stagedFiles[0]) : ''}
+          onClose={() => setShowBoundingBoxViewer(false)}
+        />
+      )}
     </div>
   );
 }; 

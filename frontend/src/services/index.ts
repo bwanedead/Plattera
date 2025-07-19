@@ -10,6 +10,14 @@ export { fetchModelsAPI } from './modelApi';
 // Alignment Engine API
 export { alignDraftsAPI } from './alignmentApi';
 
+// Bounding Box API
+export { 
+  detectLinesAPI, 
+  detectWordsAPI, 
+  runBoundingBoxPipeline,
+  getBoundingBoxStatusAPI 
+} from './boundingBoxApi';
+
 // Re-export types for convenience
 export type {
   EnhancementSettings,
@@ -17,4 +25,11 @@ export type {
   RedundancySettings,
   AlignmentDraft,
   AlignmentResult
-} from '../types/imageProcessing'; 
+} from '../types/imageProcessing';
+
+// Bounding Box types
+export type {
+  BoundingBoxSettings,
+  BoundingBoxResult,
+  BoundingBoxState
+} from '../types/boundingBox'; 

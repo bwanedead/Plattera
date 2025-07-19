@@ -34,6 +34,16 @@ interface ControlPanelProps {
   onShowEnhancementModal: () => void;
   redundancySettings: RedundancySettings;
   onRedundancySettingsChange: (settings: RedundancySettings) => void;
+  boundingBoxSettings: {
+    enabled: boolean;
+    complexity: 'simple' | 'standard' | 'enhanced';
+    model: string;
+  };
+  onBoundingBoxSettingsChange: (settings: {
+    enabled: boolean;
+    complexity: 'simple' | 'standard' | 'enhanced';
+    model: string;
+  }) => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -55,6 +65,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onShowEnhancementModal,
   redundancySettings,
   onRedundancySettingsChange,
+  boundingBoxSettings,
+  onBoundingBoxSettingsChange,
 }) => {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -224,6 +236,58 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                     ? 'Medium redundancy'
                     : 'Heavy redundancy'}
                 </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="bounding-box-section">
+        <label>Bounding Box Detection</label>
+        <div className="bounding-box-controls">
+          <div className="bounding-box-toggle">
+            <input
+              type="checkbox"
+              id="bounding-box-enabled"
+              checked={boundingBoxSettings.enabled}
+              onChange={(e) => onBoundingBoxSettingsChange({
+                ...boundingBoxSettings,
+                enabled: e.target.checked,
+              })}
+            />
+            <label htmlFor="bounding-box-enabled">Enable Bounding Box Detection</label>
+          </div>
+          
+          {boundingBoxSettings.enabled && (
+            <>
+              <div className="complexity-selector">
+                <label>Analysis Complexity</label>
+                <select 
+                  value={boundingBoxSettings.complexity}
+                  onChange={(e) => onBoundingBoxSettingsChange({
+                    ...boundingBoxSettings,
+                    complexity: e.target.value as 'simple' | 'standard' | 'enhanced'
+                  })}
+                >
+                  <option value="simple">Simple (Clean Text)</option>
+                  <option value="standard">Standard (Mixed Handwriting)</option>
+                  <option value="enhanced">Enhanced (Complex Cursive)</option>
+                </select>
+              </div>
+              
+              <div className="model-selector">
+                <label>Bounding Box Model</label>
+                <select 
+                  value={boundingBoxSettings.model}
+                  onChange={(e) => onBoundingBoxSettingsChange({
+                    ...boundingBoxSettings,
+                    model: e.target.value
+                  })}
+                >
+                  <option value="gpt-4o">GPT-4o (Recommended)</option>
+                  <option value="gpt-o4-mini">GPT-o4-mini</option>
+                  <option value="o3">o3 (Premium)</option>
+                </select>
               </div>
             </>
           )}

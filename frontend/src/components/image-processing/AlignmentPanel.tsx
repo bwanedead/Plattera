@@ -7,6 +7,30 @@ interface AlignmentPanelProps {
   onToggleHeatmap: (show: boolean) => void;
   onClose: () => void;
   onToggleAlignmentTable: (show: boolean) => void;
+  boundingBoxResult: {
+    success: boolean;
+    lines: Array<{
+      line_index: number;
+      bounds: { y1: number; y2: number; x1: number; x2: number };
+      confidence: number;
+    }>;
+    words_by_line: Array<{
+      line_index: number;
+      line_bounds: { y1: number; y2: number; x1: number; x2: number };
+      words: Array<{
+        word: string;
+        bounds: { x1: number; y1: number; x2: number; y2: number };
+        confidence: number;
+      }>;
+      processing_time: number;
+    }>;
+    total_processing_time: number;
+    total_words: number;
+    error?: string;
+  } | null;
+  onGenerateBoundingBoxes: () => void;
+  onToggleBoundingBoxViewer: (show: boolean) => void;
+  isProcessing: boolean;
 }
 
 export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
@@ -15,6 +39,10 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
   onToggleHeatmap,
   onClose,
   onToggleAlignmentTable,
+  boundingBoxResult,
+  onGenerateBoundingBoxes,
+  onToggleBoundingBoxViewer,
+  isProcessing,
 }) => {
   if (!alignmentResult || !alignmentResult.success) {
     return (
@@ -159,6 +187,44 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
           >
             View Alignment Table
           </button>
+        </div>
+
+        <div className="bounding-box-controls">
+          <h4>Bounding Box Analysis</h4>
+          
+          {boundingBoxResult ? (
+            <>
+              <div className="bounding-box-stats">
+                <div className="stat-item">
+                  <span className="stat-label">Lines:</span>
+                  <span className="stat-value">{boundingBoxResult.lines.length}</span>
+                </div>
+                <div className="stat-item">
+                  <span className="stat-label">Words:</span>
+                  <span className="stat-value">{boundingBoxResult.total_words}</span>
+                </div>
+                <div className="stat-item">
+                  <span className="stat-label">Time:</span>
+                  <span className="stat-value">{boundingBoxResult.total_processing_time}ms</span>
+                </div>
+              </div>
+              
+              <button 
+                className="view-bounding-boxes-btn"
+                onClick={() => onToggleBoundingBoxViewer(true)}
+              >
+                View Bounding Boxes
+              </button>
+            </>
+          ) : (
+            <button 
+              className="generate-bounding-boxes-btn"
+              onClick={onGenerateBoundingBoxes}
+              disabled={isProcessing}
+            >
+              Generate Bounding Boxes
+            </button>
+          )}
         </div>
 
         <div className="processing-info">
