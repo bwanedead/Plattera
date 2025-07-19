@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { ProcessingResult, EnhancementSettings, RedundancySettings } from '../types/imageProcessing';
-import { fetchModelsAPI, processFilesAPI } from '../services/imageProcessingApi';
+import { fetchModelsAPI } from '../services/modelApi';
+import { processFilesAPI } from '../services/imageProcessingApi';
 
 export const useImageProcessing = () => {
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);

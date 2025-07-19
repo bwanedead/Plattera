@@ -224,3 +224,22 @@ frontend/node_modules/
 # Tauri build artifacts
 frontend/src-tauri/target/
 
+# Bounding box test directories
+backend/alignment/bounding_box/test_bounding_box/
+backend/alignment/bounding_box/test_line_detector/
+
+# Debug images and files
+*.png
+*.jpg
+*.jpeg
+debug_*.txt
+debug_*.png
+debug_*.jpg
+debug_*.jpeg
+debug_projections.txt
+debug_stats.txt
+
+# Test output directories
+test_line_detector/
+test_bounding_box/
+

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { AlignmentState, AlignmentDraft, AlignmentResult } from '../types/imageProcessing';
-import { alignDraftsAPI } from '../services/imageProcessingApi';
+import { alignDraftsAPI } from '../services/alignmentApi';
 
 export const useAlignmentState = () => {
   const [alignmentState, setAlignmentState] = useState<AlignmentState>({
