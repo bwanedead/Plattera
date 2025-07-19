@@ -1,0 +1,6 @@
+Image shape: (3000, 4000, 3)
+Cropped shape: (2751, 3763)
+Left bound: 236, Right bound: 3999
+Top bound: 248, Bottom bound: 2999
+Column threshold: 63903.0
+Row threshold: 41769.0

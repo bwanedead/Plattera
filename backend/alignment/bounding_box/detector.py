@@ -16,9 +16,8 @@ logger = logging.getLogger(__name__)
 
 def detect_word_bounding_boxes(image_path: str, debug_mode: bool = False) -> List[Dict[str, Any]]:
     """
-    Two-stage bounding box detection:
-    1. Dilation stage identifies meta-lines (text regions)
-    2. Clean stage finds individual words within those regions
+    Row-aligned word-level bounding box detection with strict boundary enforcement.
+    Ensures boxes don't overlap rows and captures more words.
     """
     if not Path(image_path).exists():
         raise FileNotFoundError(f"Image file not found: {image_path}")
@@ -39,7 +38,7 @@ def detect_word_bounding_boxes(image_path: str, debug_mode: bool = False) -> Lis
         if debug_mode:
             cv2.imwrite(str(debug_dir / 'debug_1_gray.png'), gray)
         
-        # Stage 1: Meta-line detection using dilation
+        # Stage 1: Find text rows using horizontal dilation
         _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         fg = 255 - binary  # Make text white
         
@@ -53,137 +52,169 @@ def detect_word_bounding_boxes(image_path: str, debug_mode: bool = False) -> Lis
         if debug_mode:
             cv2.imwrite(str(debug_dir / 'debug_3_cleaned.png'), fg_clean)
         
-        # Meta-line detection
-        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 2))
-        fg_dilated = cv2.dilate(fg_clean, kernel_dilate, iterations=2)
+        # Moderate horizontal dilation to form text rows
+        kernel_row = cv2.getStructuringElement(cv2.MORPH_RECT, (80, 2))
+        fg_rows = cv2.dilate(fg_clean, kernel_row, iterations=1)
         
         if debug_mode:
-            cv2.imwrite(str(debug_dir / 'debug_4_meta_lines.png'), fg_dilated)
+            cv2.imwrite(str(debug_dir / 'debug_4_text_rows.png'), fg_rows)
         
-        # Find meta-line regions
-        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(fg_dilated, connectivity=8)
+        # Find text rows
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(fg_rows, connectivity=8)
         
-        # IMPROVED: Filter meta-lines more aggressively to exclude margins
-        meta_lines = []
+        if debug_mode:
+            print(f"Found {num_labels-1} potential text rows")
+        
+        # Filter text rows
+        text_rows = []
         image_height, image_width = gray.shape
         
         for i in range(1, num_labels):
             x, y, w, h, area = stats[i]
             
-            # More aggressive filtering to exclude margins
-            if (area > 2000 and  # Increased minimum area
-                h > 15 and  # Increased minimum height
-                w > 50 and  # Minimum width to exclude narrow margin elements
-                x > image_width * 0.05 and  # Not too close to left edge
-                x + w < image_width * 0.95 and  # Not too close to right edge
-                y > image_height * 0.05 and  # Not too close to top edge
-                y + h < image_height * 0.95):  # Not too close to bottom edge
+            if debug_mode:
+                print(f"Row {i}: x={x}, y={y}, w={w}, h={h}, area={area}")
+            
+            # Filter for valid text rows
+            if (area > 1000 and
+                h > 8 and
+                w > image_width * 0.15 and
+                x > image_width * 0.02 and
+                x + w < image_width * 0.98):
                 
-                meta_lines.append({
+                text_rows.append({
                     'x': x, 'y': y, 'w': w, 'h': h, 
                     'x2': x + w, 'y2': y + h,
                     'area': area
                 })
         
-        meta_lines.sort(key=lambda line: line['y'])
+        text_rows.sort(key=lambda row: row['y'])
         
         if debug_mode:
-            # Draw filtered meta-lines
+            print(f"Kept {len(text_rows)} text rows after filtering")
+        
+        if debug_mode:
+            # Draw text rows
             debug_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-            for i, line in enumerate(meta_lines):
-                cv2.rectangle(debug_img, (line['x'], line['y']), 
-                            (line['x2'], line['y2']), (0, 255, 0), 2)
-                cv2.putText(debug_img, f"Line {i}", (line['x'], line['y']-5), 
+            for i, row in enumerate(text_rows):
+                cv2.rectangle(debug_img, (row['x'], row['y']), 
+                            (row['x2'], row['y2']), (0, 255, 0), 2)
+                cv2.putText(debug_img, f"Row {i}", (row['x'], row['y']-5), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-            cv2.imwrite(str(debug_dir / 'debug_5_filtered_meta_lines.png'), debug_img)
+            cv2.imwrite(str(debug_dir / 'debug_5_text_rows_detected.png'), debug_img)
         
-        # Find the main text region by combining all meta-lines
-        if meta_lines:
-            # Find the bounding box that encompasses all meta-lines
-            min_x = min(line['x'] for line in meta_lines)
-            max_x = max(line['x2'] for line in meta_lines)
-            min_y = min(line['y'] for line in meta_lines)
-            max_y = max(line['y2'] for line in meta_lines)
-            
-            # Add some padding to ensure we capture the full text
-            pad = 10
-            text_region = {
-                'x': max(0, min_x - pad),
-                'y': max(0, min_y - pad),
-                'x2': min(gray.shape[1], max_x + pad),
-                'y2': min(gray.shape[0], max_y + pad),
-                'w': min(gray.shape[1], max_x + pad) - max(0, min_x - pad),
-                'h': min(gray.shape[0], max_y + pad) - max(0, min_y - pad)
-            }
-        else:
-            # Fallback: use the center 80% of the image
-            text_region = {
-                'x': int(image_width * 0.1),
-                'y': int(image_height * 0.1),
-                'x2': int(image_width * 0.9),
-                'y2': int(image_height * 0.9),
-                'w': int(image_width * 0.8),
-                'h': int(image_height * 0.8)
-            }
-        
-        if debug_mode:
-            # Draw the main text region
-            debug_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-            cv2.rectangle(debug_img, (text_region['x'], text_region['y']), 
-                        (text_region['x2'], text_region['y2']), (0, 255, 0), 2)
-            cv2.putText(debug_img, "Main Text Region", (text_region['x'], text_region['y']-5), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-            cv2.imwrite(str(debug_dir / 'debug_6_main_text_region.png'), debug_img)
-        
-        # Crop to main text region
-        cropped_gray = gray[text_region['y']:text_region['y2'], text_region['x']:text_region['x2']]
-        cropped_fg_clean = fg_clean[text_region['y']:text_region['y2'], text_region['x']:text_region['x2']]
-        
-        if debug_mode:
-            cv2.imwrite(str(debug_dir / 'debug_7_cropped_text.png'), cropped_gray)
-            cv2.imwrite(str(debug_dir / 'debug_8_cropped_cleaned.png'), cropped_fg_clean)
-        
-        # Stage 2: Word detection on the cropped text region
-        # Word-level dilation to connect characters within words
-        kernel_word = cv2.getStructuringElement(cv2.MORPH_RECT, (8, 1))
-        word_dilated = cv2.dilate(cropped_fg_clean, kernel_word, iterations=1)
-        
-        if debug_mode:
-            cv2.imwrite(str(debug_dir / 'debug_9_word_detection_image.png'), word_dilated)
-        
-        # Find connected components in the cropped region
-        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(word_dilated, connectivity=8)
-        
-        # Filter components to find words
+        # Stage 2: Word detection within each row with strict boundaries
         all_words = []
-        for i in range(1, num_labels):
-            x, y, w, h, area = stats[i]
+        
+        for row_idx, text_row in enumerate(text_rows):
+            # Extract row region with NO padding to enforce strict boundaries
+            y1 = text_row['y']
+            y2 = text_row['y2']
+            x1 = text_row['x']
+            x2 = text_row['x2']
             
-            # Word filtering criteria
-            if (area > 100 and
-                h > 8 and w > 8 and
-                h < text_region['h'] * 0.3 and  # Not too tall relative to text region
-                w < text_region['w'] * 0.8 and  # Not too wide relative to text region
-                w > h * 0.5):  # Aspect ratio check
+            # Extract row from clean image
+            row_region = fg_clean[y1:y2, x1:x2]
+            
+            if debug_mode:
+                cv2.imwrite(str(debug_dir / f'debug_6_row_{row_idx}_region.png'), row_region)
+            
+            # Try multiple dilation strategies to catch more words
+            word_candidates = []
+            
+            # Strategy 1: Light dilation for connected words
+            kernel_light = cv2.getStructuringElement(cv2.MORPH_RECT, (8, 1))
+            row_light = cv2.dilate(row_region, kernel_light, iterations=1)
+            
+            # Strategy 2: Medium dilation for fragmented words
+            kernel_medium = cv2.getStructuringElement(cv2.MORPH_RECT, (12, 2))
+            row_medium = cv2.dilate(row_region, kernel_medium, iterations=1)
+            
+            # Strategy 3: Heavy dilation for very fragmented words
+            kernel_heavy = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 2))
+            row_heavy = cv2.dilate(row_region, kernel_heavy, iterations=2)
+            
+            if debug_mode:
+                cv2.imwrite(str(debug_dir / f'debug_7_row_{row_idx}_light.png'), row_light)
+                cv2.imwrite(str(debug_dir / f'debug_8_row_{row_idx}_medium.png'), row_medium)
+                cv2.imwrite(str(debug_dir / f'debug_9_row_{row_idx}_heavy.png'), row_heavy)
+            
+            # Process each strategy
+            for strategy_name, dilated_region in [("light", row_light), ("medium", row_medium), ("heavy", row_heavy)]:
+                num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(dilated_region, connectivity=8)
                 
-                # Convert to global coordinates (add back the crop offset)
-                global_x = text_region['x'] + x
-                global_y = text_region['y'] + y
+                if debug_mode:
+                    print(f"Row {row_idx} {strategy_name}: Found {num_labels-1} potential words")
                 
-                all_words.append({
-                    'bbox': [global_x, global_y, global_x + w, global_y + h],
-                    'area': area,
-                    'width': w,
-                    'height': h,
-                    'index': len(all_words)
-                })
+                for i in range(1, num_labels):
+                    x, y, w, h, area = stats[i]
+                    
+                    # STRICT row boundary enforcement
+                    if y < 0 or y + h > text_row['h']:
+                        continue  # Skip if extends beyond row boundaries
+                    
+                    # Word filtering criteria
+                    if (area > 80 and  # Lower threshold to catch more words
+                        h > 6 and w > 6 and  # Reasonable minimum size
+                        h < text_row['h'] * 0.9 and  # Must fit within row height
+                        w < text_row['w'] * 0.7 and  # Must fit within row width
+                        w > h * 0.5):  # Words should be wider than tall
+                        
+                        # Convert to global coordinates
+                        global_x = x1 + x
+                        global_y = y1 + y
+                        
+                        # Ensure strict row boundary enforcement
+                        global_y = max(global_y, text_row['y'])
+                        global_y2 = min(global_y + h, text_row['y2'])
+                        global_x = max(global_x, text_row['x'])
+                        global_x2 = min(global_x + w, text_row['x2'])
+                        
+                        word_candidates.append({
+                            'bbox': [global_x, global_y, global_x2, global_y2],
+                            'area': area,
+                            'width': global_x2 - global_x,
+                            'height': global_y2 - global_y,
+                            'strategy': strategy_name
+                        })
+            
+            # Remove duplicate candidates (overlapping boxes)
+            filtered_words = []
+            for candidate in word_candidates:
+                x1, y1, x2, y2 = candidate['bbox']
+                is_duplicate = False
+                
+                for existing in filtered_words:
+                    ex1, ey1, ex2, ey2 = existing['bbox']
+                    # Check for significant overlap
+                    overlap_x = max(0, min(x2, ex2) - max(x1, ex1))
+                    overlap_y = max(0, min(y2, ey2) - max(y1, ey1))
+                    overlap_area = overlap_x * overlap_y
+                    candidate_area = (x2 - x1) * (y2 - y1)
+                    
+                    if overlap_area > candidate_area * 0.5:  # More than 50% overlap
+                        is_duplicate = True
+                        break
+                
+                if not is_duplicate:
+                    filtered_words.append(candidate)
+            
+            # Sort words by x position within row
+            filtered_words.sort(key=lambda word: word['bbox'][0])
+            
+            # Add indices
+            for word_idx, word in enumerate(filtered_words):
+                word['index'] = len(all_words) + word_idx
+                word['row_index'] = row_idx
+                word['word_index'] = word_idx
+            
+            all_words.extend(filtered_words)
+            
+            if debug_mode:
+                print(f"Row {row_idx}: Kept {len(filtered_words)} words after deduplication")
         
-        # Sort words by reading order (top to bottom, left to right)
-        all_words.sort(key=lambda word: (word['bbox'][1], word['bbox'][0]))
-        
-        # Update indices after sorting
-        for i, word in enumerate(all_words):
-            word['index'] = i
+        if debug_mode:
+            print(f"Total words detected: {len(all_words)}")
         
         # Final result
         result = [{'bbox': word['bbox'], 'index': word['index']} for word in all_words]
@@ -191,17 +222,22 @@ def detect_word_bounding_boxes(image_path: str, debug_mode: bool = False) -> Lis
         if debug_mode:
             # Draw final word boxes on original
             debug_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-            for word in all_words:
-                x1, y1, x2, y2 = word['bbox']
-                cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 0, 255), 1)
-                cv2.putText(debug_img, str(word['index']), (x1, y1-2), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 255), 1)
+            
+            if all_words:
+                for word in all_words:
+                    x1, y1, x2, y2 = word['bbox']
+                    cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 0, 255), 1)
+                    cv2.putText(debug_img, str(word['index']), (x1, y1-2), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 255), 1)
+            else:
+                cv2.putText(debug_img, "No words detected!", (50, 50), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            
             cv2.imwrite(str(debug_dir / 'debug_10_final_result.png'), debug_img)
             
             # Save stats
             with open(str(debug_dir / 'debug_stats.txt'), 'w') as f:
-                f.write(f"Meta-lines detected: {len(meta_lines)}\n")
-                f.write(f"Main text region: {text_region['x']},{text_region['y']} to {text_region['x2']},{text_region['y2']}\n")
+                f.write(f"Text rows detected: {len(text_rows)}\n")
                 f.write(f"Total words detected: {len(all_words)}\n")
                 if all_words:
                     widths = [w['width'] for w in all_words]
@@ -210,6 +246,9 @@ def detect_word_bounding_boxes(image_path: str, debug_mode: bool = False) -> Lis
                     f.write(f"Average word height: {sum(heights)/len(heights):.1f}px\n")
                     f.write(f"Min width: {min(widths):.1f}px\n")
                     f.write(f"Max width: {max(widths):.1f}px\n")
+                for i, row in enumerate(text_rows):
+                    row_words = [w for w in all_words if w['row_index'] == i]
+                    f.write(f"Row {i}: {len(row_words)} words\n")
         
         return result
         

@@ -19,17 +19,23 @@ def cleanup_previous_results():
     test_dir.mkdir(exist_ok=True)
     
     # Remove ALL files in the test directory
+    deleted_count = 0
     for file in test_dir.iterdir():
         if file.is_file():
-            file.unlink()
-            print(f"Deleted: {file.name}")
+            try:
+                file.unlink()
+                deleted_count += 1
+                print(f"Deleted: {file.name}")
+            except Exception as e:
+                print(f"Failed to delete {file.name}: {e}")
     
-    print(f"Cleaned up all files in {test_dir}")
+    print(f"Cleaned up {deleted_count} files in {test_dir}")
 
 def test_bounding_box_detection():
     """Test the bounding box detection with debug mode."""
     try:
-        from alignment.bounding_box.detector import detect_word_bounding_boxes
+        # Fix the import path
+        from backend.alignment.bounding_box.detector import detect_word_bounding_boxes
         
         # Test image path
         image_path = "sample text image/legal_text_image.jpg"
@@ -61,9 +67,18 @@ def test_bounding_box_detection():
             print(f"Average height: {sum(heights)/len(heights):.1f}px")
             print(f"Min width: {min(widths):.1f}px")
             print(f"Max width: {max(widths):.1f}px")
+        else:
+            print("WARNING: No bounding boxes detected!")
         
         print("\nDebug images saved to test_bounding_box/ directory")
-        print("Check debug_10_final_result.png for the final result")
+        print("Check debug_8_final_result.png for the final result")
+        
+        # Check if debug stats file exists and show its contents
+        stats_file = Path(__file__).parent / "test_bounding_box" / "debug_stats.txt"
+        if stats_file.exists():
+            print("\nDebug stats:")
+            with open(stats_file, 'r') as f:
+                print(f.read())
         
     except Exception as e:
         print(f"Error during testing: {e}")
