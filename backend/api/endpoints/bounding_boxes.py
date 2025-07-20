@@ -12,6 +12,7 @@ import os
 import base64
 import json
 import time
+import cv2
 from typing import Dict, Any, Optional
 from pathlib import Path
 
@@ -147,6 +148,7 @@ async def detect_words(
     Requires pre-detected lines from /detect-lines endpoint.
     """
     start_time = time.time()
+    temp_file_path = None
     
     try:
         # Validate file
@@ -159,49 +161,126 @@ async def detect_words(
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Invalid lines data format")
         
-        # Read image data for LLM
-        image_data = await image.read()
-        image_base64 = base64.b64encode(image_data).decode('utf-8')
+        # Save uploaded file to temporary location
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+            image_data = await image.read()
+            temp_file.write(image_data)
+            temp_file_path = temp_file.name
         
-        # Get appropriate prompt based on complexity
-        prompt = get_word_segmentation_prompt(complexity, model)
-        
-        # Call LLM for word segmentation
-        llm_response = await llm_service.call_vision(
-            prompt=prompt,
-            image_data=image_base64,
-            model=model,
-            max_tokens=4000
-        )
-        
-        # Parse LLM response
         try:
-            words_data = json.loads(llm_response['content'])
-        except (json.JSONDecodeError, KeyError):
-            # Try to extract JSON from response if it's wrapped
-            import re
-            content = llm_response.get('content', '')
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
-                words_data = json.loads(json_match.group())
-            else:
-                raise ValueError("Invalid JSON response from LLM")
-        
-        # Format response
-        processing_time = (time.time() - start_time) * 1000
-        total_words = sum(len(line.get('words', [])) for line in words_data.get('lines', []))
-        
-        return {
-            "success": True,
-            "words_by_line": words_data.get('lines', []),
-            "total_words": total_words,
-            "processing_time": processing_time,
-            "model_used": model,
-            "complexity_level": complexity,
-            "tokens_used": llm_response.get('tokens_used', 0)
-        }
+            # Get the image with line overlays from line detection
+            from alignment.bounding_box.line_detector import detect_text_lines_with_ruler
+            
+            # Run line detection to get the overlay image
+            line_result = detect_text_lines_with_ruler(temp_file_path, debug_mode=False)
+            overlay_image = line_result.get('overlay_image')
+            
+            if overlay_image is None:
+                raise ValueError("Could not generate overlay image")
+            
+            # Get the number of lines detected
+            num_lines = len(line_result.get('lines', []))
+            print(f"📏 Number of lines detected: {num_lines}")
+            
+            # Save overlay image to temporary file
+            overlay_path = temp_file_path.replace('.jpg', '_overlay.jpg')
+            cv2.imwrite(overlay_path, overlay_image)
+            
+            # Read overlay image for LLM
+            with open(overlay_path, 'rb') as f:
+                overlay_data = f.read()
+            
+            image_base64 = base64.b64encode(overlay_data).decode('utf-8')
+            
+            # Get appropriate prompt based on complexity and number of lines
+            prompt = get_word_segmentation_prompt(complexity, model, num_lines)
+            
+            print(f"🤖 Calling LLM with model: {model}")
+            print(f"📝 Prompt length: {len(prompt)} characters")
+            print(f"️  Image size: {len(image_base64)} base64 characters")
+            print(f"📁 Using overlay image: {overlay_path}")
+            print(f"📏 Expecting exactly {num_lines} lines in response")
+            
+            # Call LLM for word segmentation (NOT async)
+            llm_response = llm_service.call_vision(
+                prompt=prompt,
+                image_data=image_base64,
+                model=model,
+                max_tokens=8000  # Increased from 4000 to handle longer responses
+            )
+            
+            print(f"🤖 LLM Response received: {llm_response.get('success', False)}")
+            print(f" LLM Response keys: {list(llm_response.keys())}")
+            
+            # Check if LLM call was successful
+            if not llm_response.get('success', False):
+                print(f"❌ LLM call failed: {llm_response.get('error', 'Unknown error')}")
+                return {
+                    "success": False,
+                    "error": f"LLM call failed: {llm_response.get('error', 'Unknown error')}",
+                    "words_by_line": [],
+                    "total_words": 0,
+                    "processing_time": (time.time() - start_time) * 1000
+                }
+            
+            # Get the content from LLM response (it's 'text', not 'content')
+            content = llm_response.get('text', '')
+            print(f" LLM Content length: {len(content)} characters")
+            print(f"📄 LLM Content preview: {content[:200]}...")
+            
+            # Parse LLM response
+            try:
+                words_data = json.loads(content)
+                print(f"✅ Successfully parsed JSON from LLM response")
+            except json.JSONDecodeError as e:
+                print(f"❌ JSON decode error: {e}")
+                print(f"📄 Full LLM content: {content}")
+                
+                # Try to extract JSON from response if it's wrapped
+                import re
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    try:
+                        words_data = json.loads(json_match.group())
+                        print(f"✅ Successfully extracted JSON using regex")
+                    except json.JSONDecodeError as e2:
+                        print(f"❌ Regex extraction also failed: {e2}")
+                        raise ValueError(f"Invalid JSON response from LLM. Content: {content[:500]}...")
+                else:
+                    print(f"❌ No JSON pattern found in response")
+                    raise ValueError(f"Invalid JSON response from LLM. Content: {content[:500]}...")
+            
+            # Keep the simple format from LLM - no conversion needed
+            words_by_line = words_data.get('lines', [])
+            
+            # Calculate total words
+            total_words = sum(len(line.get('words', [])) for line in words_by_line)
+            
+            print(f"✅ Word detection successful: {total_words} words found")
+            
+            return {
+                "success": True,
+                "words_by_line": words_by_line,
+                "total_words": total_words,
+                "processing_time": (time.time() - start_time) * 1000,
+                "model_used": model,
+                "complexity_level": complexity,
+                "tokens_used": llm_response.get('tokens_used', 0),
+                "overlay_image_path": overlay_path  # Return path to overlay image
+            }
+            
+        finally:
+            # Clean up temporary files
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
+            if 'overlay_path' in locals() and os.path.exists(overlay_path):
+                # Don't delete overlay_path yet - we need it for visualization
+                pass
         
     except Exception as e:
+        print(f"❌ Exception in word detection: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "success": False,
             "error": str(e),
