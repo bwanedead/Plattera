@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from .alignment_config import ANCHOR_PATTERNS
 from .alignment_utils import encode_tokens_for_alignment
 from .format_mapping import FormatMapper, FormatMapping, TokenPosition
+from .section_normalizer import SectionNormalizer
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,9 @@ class JsonDraftTokenizer:
         
         # NEW: Initialize format mapper for preserving formatting
         self.format_mapper = FormatMapper()
+        
+        # NEW: Initialize section normalizer
+        self.section_normalizer = SectionNormalizer()
     
     def process_json_drafts(self, draft_jsons: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -82,8 +86,12 @@ class JsonDraftTokenizer:
         # Validate input format
         self._validate_json_format(draft_jsons)
         
-        # Organize blocks by ID across drafts
-        blocks_by_id = self._organize_blocks_by_id(draft_jsons)
+        # NEW: Normalize section counts before processing
+        logger.info("🔧 SECTION NORMALIZATION ► Checking for section count consistency")
+        normalized_draft_jsons = self.section_normalizer.normalize_draft_sections(draft_jsons)
+        
+        # Organize blocks by ID across drafts (use normalized drafts)
+        blocks_by_id = self._organize_blocks_by_id(normalized_draft_jsons)
         logger.info(f"   📋 Found {len(blocks_by_id)} unique blocks across drafts")
         
         # Process each block independently
