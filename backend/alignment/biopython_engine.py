@@ -16,7 +16,7 @@ from .consistency_aligner import ConsistencyBasedAligner
 from .confidence_scorer import BioPythonConfidenceScorer
 from .format_mapping import FormatMapper
 from .reformatter import Reformatter  # NEW: Import the reformatter
-from .section_normalizer import SectionNormalizer
+# REMOVED: from .section_normalizer import SectionNormalizer  # ❌ Remove this import
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ class BioPythonAlignmentEngine:
         self.aligner = ConsistencyBasedAligner()
         self.confidence_scorer = BioPythonConfidenceScorer()
         self.reformatter = Reformatter()  # NEW: Initialize reformatter
-        self.section_normalizer = SectionNormalizer()  # NEW: Add section normalizer
+        # REMOVED: self.section_normalizer = SectionNormalizer()  # ❌ Remove this initialization
         
         logger.info("🧬 BioPython Alignment Engine initialized")
     
@@ -66,13 +66,13 @@ class BioPythonAlignmentEngine:
             if not dependencies_available:
                 raise AlignmentError(f"Missing required dependencies: {missing_packages}")
             
-            # Phase 1A: Section Normalization (NEW)
-            logger.info("🔧 PHASE 1A ► Section normalization")
-            normalized_draft_jsons = self.section_normalizer.normalize_draft_sections(draft_jsons)
+            # REMOVED: Phase 1A: Section Normalization (NEW)  # ❌ Remove this phase
+            # REMOVED: logger.info("🔧 PHASE 1A ► Section normalization")
+            # REMOVED: normalized_draft_jsons = self.section_normalizer.normalize_draft_sections(draft_jsons)
             
-            # Phase 1B: JSON Parsing and Tokenization (use normalized drafts)
-            logger.info("📋 PHASE 1B ► JSON parsing and tokenization")
-            tokenized_data = self.tokenizer.process_json_drafts(normalized_draft_jsons)
+            # Phase 1: JSON Parsing and Tokenization (use input drafts directly)
+            logger.info("📋 PHASE 1 ► JSON parsing and tokenization")
+            tokenized_data = self.tokenizer.process_json_drafts(draft_jsons)  # ✅ Use input directly
             
             # Phase 2: Consistency-Based Alignment
             logger.info("🧬 PHASE 2 ► Consistency-based multiple sequence alignment")
