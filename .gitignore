@@ -224,3 +224,6 @@ frontend/node_modules/
 # Tauri build artifacts
 frontend/src-tauri/target/
 
+# Test JSON drafts for section normalizer testing
+json_drafts_section_normalizer/
+
