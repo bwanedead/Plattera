@@ -31,6 +31,7 @@ from .json_draft_tokenizer import (
 from .consistency_aligner import ConsistencyBasedAligner
 from .confidence_scorer import BioPythonConfidenceScorer
 from .alignment_utils import check_dependencies, AlignmentError
+from .section_normalizer import SectionNormalizer
 
 __all__ = [
     # Configuration
@@ -46,6 +47,7 @@ __all__ = [
     'JsonDraftTokenizer',
     'ConsistencyBasedAligner',
     'BioPythonConfidenceScorer',
+    'SectionNormalizer',
     
     # Utilities
     'create_sample_json_drafts',

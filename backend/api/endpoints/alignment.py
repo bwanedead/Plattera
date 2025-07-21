@@ -14,6 +14,12 @@ import json
 import numpy as np
 from fastapi.responses import JSONResponse
 
+# ABSOLUTE IMPORTS ONLY - never relative imports
+from alignment.section_normalizer import SectionNormalizer
+from alignment.biopython_engine import BioPythonAlignmentEngine
+from alignment.alignment_utils import check_dependencies
+from services.alignment_service import AlignmentService
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -70,20 +76,6 @@ async def align_legal_drafts(request: AlignmentRequest):
     logger.info(f"🧬 BIOPYTHON ALIGNMENT REQUEST ► Processing {len(request.drafts)} drafts")
     
     try:
-        # Import BioPython engine
-        from alignment import BioPythonAlignmentEngine, check_dependencies
-        
-        # Check dependencies
-        dependencies_available, missing_packages = check_dependencies()
-        if not dependencies_available:
-            logger.error(f"❌ Missing BioPython dependencies: {missing_packages}")
-            return AlignmentResponse(
-                success=False,
-                processing_time=0.0,
-                summary={},
-                error=f"Missing required dependencies: {', '.join(missing_packages)}. Install with: pip install {' '.join(missing_packages)}"
-            )
-        
         # Convert Pydantic models to dictionaries
         draft_jsons = []
         for draft in request.drafts:
@@ -96,64 +88,36 @@ async def align_legal_drafts(request: AlignmentRequest):
             }
             draft_jsons.append(draft_dict)
         
-        # Initialize BioPython engine
-        engine = BioPythonAlignmentEngine()
-        
-        # Perform alignment
-        results = engine.align_drafts(
-            draft_jsons, 
-            generate_visualization=request.generate_visualization
+        # Use the service layer for processing
+        alignment_service = AlignmentService()
+        results = alignment_service.process_alignment_request(
+            draft_jsons=draft_jsons,
+            generate_visualization=request.generate_visualization,
+            consensus_strategy=request.consensus_strategy
         )
         
         if not results['success']:
-            logger.error(f"❌ BioPython alignment failed: {results.get('error', 'Unknown error')}")
+            logger.error(f"❌ Alignment processing failed: {results.get('error', 'Unknown error')}")
             return AlignmentResponse(
                 success=False,
                 processing_time=results.get('processing_time', 0.0),
-                summary=results['summary'],
+                summary=results.get('summary', {}),
                 error=results.get('error', 'Alignment failed')
             )
         
-        # Generate consensus text if requested
-        consensus_text = None
-        if request.consensus_strategy:
-            try:
-                consensus_text = engine.generate_consensus_text(
-                    results['alignment_results'],
-                    results['confidence_results'],
-                    consensus_strategy=request.consensus_strategy
-                )
-            except Exception as e:
-                logger.warning(f"⚠️ Consensus generation failed: {e}")
-        
         logger.info(f"✅ BioPython alignment completed successfully in {results['processing_time']:.2f}s")
-        
-        logger.info("Alignment API response keys: %s", list(results.keys()))
-        if results.get('per_draft_alignment_mapping'):
-            sample_block = list(results['per_draft_alignment_mapping'].keys())[0]
-            sample_draft = results['per_draft_alignment_mapping'][sample_block][0]
-            mapping_length = len(sample_draft.get('original_to_alignment', []))
-            # Removed repetitive log message that was spamming the terminal
         
         return AlignmentResponse(
             success=True,
             processing_time=results['processing_time'],
             summary=results['summary'],
-            consensus_text=consensus_text,
-            visualization_html=results['visualization_html'],
+            consensus_text=results.get('consensus_text'),
+            visualization_html=results.get('visualization_html'),
             per_draft_alignment_mapping=results.get('per_draft_alignment_mapping'),
             confidence_results=results.get('confidence_results'),
             alignment_results=results.get('alignment_results')
         )
         
-    except ImportError as e:
-        logger.error(f"❌ BioPython alignment module not available: {e}")
-        return AlignmentResponse(
-            success=False,
-            processing_time=0.0,
-            summary={},
-            error=f"BioPython alignment engine not available: {e}"
-        )
     except Exception as e:
         logger.error(f"❌ Unexpected error in BioPython alignment: {e}")
         logger.exception("Full traceback:")
