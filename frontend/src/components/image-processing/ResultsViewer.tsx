@@ -19,6 +19,9 @@ interface ResultsViewerProps {
   onToggleHistory: (visible: boolean) => void;
   getCurrentText: () => string;
   getRawText: () => string;
+  getOriginalJsonText: () => string;
+  getNormalizedSectionsText: () => string;
+  hasNormalizedSections: () => boolean;
   isCurrentResultJson: () => boolean;
   onSaveDraft: () => void;
   selectedDraft: number | 'consensus' | 'best';
@@ -60,6 +63,9 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   onToggleHistory,
   getCurrentText,
   getRawText,
+  getOriginalJsonText,
+  getNormalizedSectionsText,
+  hasNormalizedSections,
   isCurrentResultJson,
   onSaveDraft,
   selectedDraft,
@@ -147,7 +153,9 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                     if (activeTab === 'text') {
                       navigator.clipboard.writeText(getCurrentText());
                     } else if (activeTab === 'json') {
-                      navigator.clipboard.writeText(formatJsonPretty(getRawText()));
+                      navigator.clipboard.writeText(formatJsonPretty(getOriginalJsonText()));
+                    } else if (activeTab === 'normalized') {
+                      navigator.clipboard.writeText(getNormalizedSectionsText());
                     } else if (activeTab === 'metadata') {
                       navigator.clipboard.writeText(
                         selectedResult.status === 'completed'
@@ -256,6 +264,14 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                       🔧 JSON
                     </button>
                   )}
+                  {hasNormalizedSections() && (
+                    <button
+                      className={activeTab === 'normalized' ? 'active' : ''}
+                      onClick={() => setActiveTab('normalized')}
+                    >
+                      📋 Normalized Sections
+                    </button>
+                  )}
                   <button
                     className={activeTab === 'metadata' ? 'active' : ''}
                     onClick={() => setActiveTab('metadata')}
@@ -320,8 +336,21 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         </button>
                       </div>
                       <pre className="json-content">
-                        {formatJsonPretty(getRawText())}
+                        {formatJsonPretty(getOriginalJsonText())}
                       </pre>
+                    </div>
+                  )}
+                  {activeTab === 'normalized' && hasNormalizedSections() && (
+                    <div className="normalized-sections-display">
+                      <div className="normalized-sections-header">
+                        <h4>Section-Normalized Drafts</h4>
+                        <p>Shows drafts after section count normalization (splitting under-sectioned drafts)</p>
+                      </div>
+                      <div className="normalized-sections-content">
+                        <pre className="normalized-sections-text" style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+                          {getNormalizedSectionsText()}
+                        </pre>
+                      </div>
                     </div>
                   )}
                   {activeTab === 'metadata' && (

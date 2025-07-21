@@ -57,13 +57,13 @@ class SectionNormalizer:
         
         logger.info(f"🎯 TARGET DRAFT ► Draft {target_draft_idx + 1} with {max_sections} sections will be the sectioning template")
         
-        # Normalize all other drafts to match the target
+        # FIXED: Only normalize drafts that need it
         normalized_drafts = []
         for i, (draft_json, sections) in enumerate(zip(draft_jsons, draft_sections)):
             if len(sections) == max_sections:
-                # Already has correct section count
+                # Already has correct section count - DON'T PROCESS IT
                 logger.info(f"   ✅ Draft {i+1}: Already has {max_sections} sections, no changes needed")
-                normalized_drafts.append(draft_json)
+                normalized_drafts.append(draft_json)  # Return original, unchanged
             else:
                 # Need to normalize this draft
                 logger.info(f"   🔄 Draft {i+1}: Normalizing {len(sections)} sections → {max_sections} sections")
@@ -81,14 +81,22 @@ class SectionNormalizer:
                 first_block_text = draft_json['blocks'][0].get('text', '')
                 try:
                     document_data = json.loads(first_block_text)
-                    return document_data.get('sections', [])
-                except json.JSONDecodeError:
-                    logger.warning(f"Draft {draft_id}: Could not parse JSON, assuming pre-parsed sections")
+                    sections = document_data.get('sections', [])
+                    if sections:
+                        logger.info(f"Draft {draft_id}: Successfully parsed {len(sections)} sections from JSON")
+                        return sections
+                    else:
+                        logger.warning(f"Draft {draft_id}: JSON parsed but no sections found")
+                        return []
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Draft {draft_id}: Could not parse JSON: {e}")
                     return []
             
             # Handle pre-parsed sections
             if 'sections' in draft_json:
-                return draft_json['sections']
+                sections = draft_json['sections']
+                logger.info(f"Draft {draft_id}: Found {len(sections)} pre-parsed sections")
+                return sections
             
             logger.error(f"Draft {draft_id}: No recognizable section format found")
             return []
@@ -120,10 +128,9 @@ class SectionNormalizer:
     
     def _create_section_mapping(self, current_sections: List[Dict], target_sections: List[Dict]) -> List[Tuple[int, List[int]]]:
         """
-        Create mapping showing which current sections should map to which target sections.
+        ROBUST MAPPING: Create mapping that works for any section count or content distribution.
         
-        Returns:
-            List of tuples: (current_section_index, [target_section_indices])
+        Strategy: Use cumulative length matching with fallback to ensure complete coverage.
         """
         mapping = []
         current_text_lengths = [len(self._get_section_text(section)) for section in current_sections]
@@ -132,33 +139,97 @@ class SectionNormalizer:
         logger.info(f"   📏 Current section lengths: {current_text_lengths}")
         logger.info(f"   📏 Target section lengths: {target_text_lengths}")
         
-        # Simple heuristic: map based on cumulative text length
+        # Handle edge cases
+        if not current_text_lengths or not target_text_lengths:
+            logger.warning("   ⚠️ Empty sections detected, using fallback mapping")
+            return self._create_fallback_mapping(len(current_sections), len(target_sections))
+        
+        # Calculate total lengths
+        total_current = sum(current_text_lengths)
+        total_target = sum(target_text_lengths)
+        
+        if total_current == 0 or total_target == 0:
+            logger.warning("   ⚠️ Zero content detected, using fallback mapping")
+            return self._create_fallback_mapping(len(current_sections), len(target_sections))
+        
+        # Create cumulative length arrays
+        current_cumulative = [0]
+        for length in current_text_lengths:
+            current_cumulative.append(current_cumulative[-1] + length)
+        
+        target_cumulative = [0]
+        for length in target_text_lengths:
+            target_cumulative.append(target_cumulative[-1] + length)
+        
+        # Map each target section to appropriate current section
         current_idx = 0
-        current_cumulative = 0
-        target_cumulative = 0
         target_indices = []
         
-        for target_idx, target_len in enumerate(target_text_lengths):
-            target_cumulative += target_len
-            target_indices.append(target_idx)
+        for target_idx in range(len(target_sections)):
+            # Find which current section this target belongs to
+            target_ratio = target_cumulative[target_idx + 1] / total_target
             
-            # Check if we should close this current section
-            if current_idx < len(current_sections):
-                current_len = current_text_lengths[current_idx]
-                current_potential_cumulative = current_cumulative + current_len
+            # Find current section that contains this ratio
+            while current_idx < len(current_sections):
+                current_ratio = current_cumulative[current_idx + 1] / total_current
                 
-                # If adding this current section would exceed target cumulative by too much,
-                # or if we're at the end, finalize the mapping
-                ratio = target_cumulative / current_potential_cumulative if current_potential_cumulative > 0 else 1.0
-                
-                if (ratio >= 0.7 and ratio <= 1.3) or target_idx == len(target_sections) - 1:
-                    # Good match, finalize this mapping
-                    mapping.append((current_idx, target_indices.copy()))
-                    logger.info(f"   🎯 Mapping: Current section {current_idx} → Target sections {target_indices}")
-                    
+                if current_ratio >= target_ratio:
+                    # This target belongs to current section
+                    target_indices.append(target_idx)
+                    break
+                else:
+                    # Move to next current section
+                    if target_indices:
+                        mapping.append((current_idx, target_indices))
+                        target_indices = []
                     current_idx += 1
-                    current_cumulative += current_len
-                    target_indices = []
+            
+            # Handle end of current sections
+            if current_idx >= len(current_sections):
+                target_indices.append(target_idx)
+        
+        # Add final mapping
+        if target_indices:
+            mapping.append((current_idx, target_indices))
+        
+        # Verify complete coverage
+        mapped_targets = set()
+        for _, target_indices in mapping:
+            mapped_targets.update(target_indices)
+        
+        if mapped_targets != set(range(len(target_sections))):
+            logger.warning(f"   ⚠️ Incomplete mapping detected, using fallback")
+            return self._create_fallback_mapping(len(current_sections), len(target_sections))
+        
+        # Log mappings
+        for current_idx, target_indices in mapping:
+            current_len = current_text_lengths[current_idx]
+            logger.info(f"   🎯 Mapping: Current section {current_idx} ({current_len} chars) → Target sections {target_indices}")
+        
+        return mapping
+
+    def _create_fallback_mapping(self, current_count: int, target_count: int) -> List[Tuple[int, List[int]]]:
+        """Fallback mapping when proportional mapping fails."""
+        mapping = []
+        
+        # Handle edge case where current_count is 0
+        if current_count == 0:
+            logger.warning(f"   ⚠️ Current count is 0, cannot create meaningful mapping")
+            # Return empty mapping - this will cause the draft to be skipped
+            return []
+        
+        targets_per_current = target_count // current_count
+        remainder = target_count % current_count
+        
+        target_idx = 0
+        for current_idx in range(current_count):
+            # Distribute remainder evenly
+            extra = 1 if current_idx < remainder else 0
+            num_targets = targets_per_current + extra
+            
+            target_indices = list(range(target_idx, target_idx + num_targets))
+            mapping.append((current_idx, target_indices))
+            target_idx += num_targets
         
         return mapping
     
@@ -189,21 +260,30 @@ class SectionNormalizer:
     def _split_single_section(self, current_section: Dict, target_sections: List[Dict], 
                             target_indices: List[int]) -> List[Dict]:
         """
-        Split a single section into multiple sections using n-gram boundary detection.
+        FIXED: Split a single section into multiple sections using improved boundary detection.
         """
         current_text = self._get_section_text(current_section)
         target_texts = [self._get_section_text(section) for section in target_sections]
         
         logger.info(f"      📝 Splitting text: {len(current_text)} chars → {len(target_texts)} parts")
         
-        # Find split points using n-gram matching
-        split_points = self._find_split_points_with_ngrams(current_text, target_texts)
+        if len(target_texts) <= 1:
+            # No split needed
+            return [current_section]
+        
+        # FIXED: Use improved split point detection
+        split_points = self._find_improved_split_points(current_text, target_texts)
         
         # Create new sections based on split points
         split_sections = []
         start_pos = 0
         
-        for i, (end_pos, target_idx) in enumerate(zip(split_points + [len(current_text)], target_indices)):
+        for i, target_idx in enumerate(target_indices):
+            if i < len(split_points):
+                end_pos = split_points[i]
+            else:
+                end_pos = len(current_text)
+            
             section_text = current_text[start_pos:end_pos].strip()
             
             if section_text:
@@ -212,9 +292,11 @@ class SectionNormalizer:
                     "body": section_text
                 }
                 
-                # Try to preserve header if it exists and is appropriate
+                # Preserve header only for the first section
                 if i == 0 and current_section.get('header'):
                     new_section['header'] = current_section['header']
+                else:
+                    new_section['header'] = None
                 
                 split_sections.append(new_section)
                 logger.info(f"      ✂️ Created section {target_idx + 1}: {len(section_text)} chars")
@@ -222,49 +304,74 @@ class SectionNormalizer:
             start_pos = end_pos
         
         return split_sections
-    
-    def _find_split_points_with_ngrams(self, current_text: str, target_texts: List[str]) -> List[int]:
+
+    def _find_improved_split_points(self, current_text: str, target_texts: List[str]) -> List[int]:
         """
-        Find optimal split points in current_text using n-gram matching with target texts.
-        
-        Strategy:
-        1. Extract end n-grams from each target text
-        2. Find best matching positions in current text
-        3. Use both forward and backward n-gram matching for accuracy
+        FIXED: Find split points using semantic boundaries and proportional fallback.
         """
         if len(target_texts) <= 1:
             return []
         
         split_points = []
-        search_start = 0
         
-        # For each boundary (except the last), find the split point
-        for i in range(len(target_texts) - 1):
-            # Get n-grams from the end of current target and start of next target
-            current_target_end = self._extract_end_ngrams(target_texts[i])
-            next_target_start = self._extract_start_ngrams(target_texts[i + 1])
+        # Calculate expected proportions based on target text lengths
+        target_lengths = [len(text) for text in target_texts]
+        total_target_length = sum(target_lengths)
+        current_length = len(current_text)
+        
+        cumulative_proportion = 0
+        
+        for i in range(len(target_texts) - 1):  # Don't split after the last section
+            # Calculate where this split should be based on proportions
+            target_proportion = target_lengths[i] / total_target_length
+            cumulative_proportion += target_proportion
+            expected_position = int(current_length * cumulative_proportion)
             
-            logger.info(f"      🔍 Finding split {i+1}: end_ngrams={current_target_end}, start_ngrams={next_target_start}")
-            
-            # Find best match position in current text
-            best_position = self._find_best_ngram_match(
-                current_text, current_target_end, next_target_start, search_start
+            # Look for semantic boundaries near the expected position
+            semantic_split = self._find_semantic_boundary_near_position(
+                current_text, expected_position, window=100
             )
             
-            if best_position is not None:
-                split_points.append(best_position)
-                search_start = best_position
-                logger.info(f"      ✅ Split point {i+1} found at position {best_position}")
+            if semantic_split is not None:
+                split_points.append(semantic_split)
+                logger.info(f"      ✅ Split point {i+1} found at position {semantic_split} (semantic)")
             else:
-                # Fallback: split proportionally
-                remaining_targets = len(target_texts) - i
-                remaining_text = len(current_text) - search_start
-                proportional_split = search_start + remaining_text // remaining_targets
-                split_points.append(proportional_split)
-                search_start = proportional_split
-                logger.info(f"      📐 Split point {i+1} fallback at position {proportional_split}")
+                # Fallback to proportional split
+                split_points.append(expected_position)
+                logger.info(f"      📐 Split point {i+1} at position {expected_position} (proportional)")
         
         return split_points
+
+    def _find_semantic_boundary_near_position(self, text: str, position: int, window: int = 100) -> Optional[int]:
+        """
+        FIXED: Find a good semantic boundary near the target position.
+        """
+        import re
+        
+        start = max(0, position - window)
+        end = min(len(text), position + window)
+        search_area = text[start:end]
+        
+        # Look for natural break points (in order of preference)
+        patterns = [
+            r';\s*\n\s*And\s+beginning',  # End of land parcel
+            r':-\s*\n',                   # End of description with colon-dash
+            r'follows:-\s*\n',            # End of "described as follows:-"
+            r'witnesseth:\s*\n',          # End of witnesseth clause
+            r'\.\s*\n\s*[A-Z]',          # Sentence end followed by new sentence
+            r';\s*\n',                    # Semicolon + newline
+            r'\.\s*\n',                   # Period + newline
+        ]
+        
+        for pattern in patterns:
+            matches = list(re.finditer(pattern, search_area, re.IGNORECASE))
+            if matches:
+                # Find the match closest to our target position within the search area
+                target_in_area = position - start
+                best_match = min(matches, key=lambda m: abs(m.end() - target_in_area))
+                return start + best_match.end()
+        
+        return None
     
     def _extract_end_ngrams(self, text: str, count: int = 3) -> List[str]:
         """Extract the last few n-grams from text."""
@@ -345,33 +452,33 @@ class SectionNormalizer:
         return positions
     
     def _get_section_text(self, section: Dict) -> str:
-        """Extract full text from a section (header + body)."""
+        """FIXED: Extract full text from a section (header + body) without duplication."""
         header = section.get('header', '')
         body = section.get('body', '')
-        return f"{header} {body}".strip()
+        
+        # Avoid duplication if header is already in body
+        if header and body.startswith(header):
+            return body.strip()
+        elif header:
+            return f"{header} {body}".strip()
+        else:
+            return body.strip()
     
     def _reconstruct_draft_json(self, original_draft: Dict[str, Any], normalized_sections: List[Dict]) -> Dict[str, Any]:
         """Reconstruct the draft JSON with normalized sections."""
-        # Create new document structure
-        new_document = {
-            "documentId": f"normalized_{original_draft.get('draft_id', 'unknown')}",
-            "sections": normalized_sections
-        }
+        # Create a copy of the original draft
+        reconstructed = original_draft.copy()
         
-        # Wrap in the same structure as original
-        if 'blocks' in original_draft:
-            return {
-                "draft_id": original_draft['draft_id'],
-                "blocks": [
-                    {
-                        "id": "document",
-                        "text": json.dumps(new_document, indent=2)
-                    }
-                ]
-            }
-        else:
-            # Direct section format
-            return {
-                "draft_id": original_draft['draft_id'],
-                **new_document
-            } 
+        # Update sections
+        reconstructed['sections'] = normalized_sections
+        
+        # Update section IDs to be consecutive
+        for i, section in enumerate(reconstructed['sections']):
+            section['id'] = i + 1
+        
+        # Preserve other fields but handle missing draft_id gracefully
+        if 'draft_id' not in reconstructed:
+            # Generate a draft_id if it doesn't exist
+            reconstructed['draft_id'] = f"normalized_draft_{id(reconstructed)}"
+        
+        return reconstructed 

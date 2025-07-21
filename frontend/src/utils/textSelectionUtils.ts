@@ -273,3 +273,99 @@ export const getRawText = ({ selectedResult, selectedDraft, selectedConsensusStr
 
   return result.extracted_text || '';
 }; 
+
+/**
+ * NEW: Get original LLM JSON output - always returns the original JSON regardless of alignment
+ * This is for the JSON tab which should always show the original LLM response
+ */
+export const getOriginalJsonText = ({ selectedResult, selectedDraft }: TextSelectionParams): string => {
+  if (!selectedResult || selectedResult.status !== 'completed' || !selectedResult.result) {
+    return selectedResult?.error || 'No result available';
+  }
+
+  const { result } = selectedResult;
+  const redundancyAnalysis = result.metadata?.redundancy_analysis;
+
+  // If we have redundancy analysis, get the original JSON from individual results
+  if (redundancyAnalysis?.individual_results) {
+    const individualResults = redundancyAnalysis.individual_results.filter((r: any) => r.success);
+    
+    if (selectedDraft === 'consensus') {
+      // For consensus, return the first available original JSON
+      return individualResults[0]?.text || result.extracted_text || '';
+    } else if (selectedDraft === 'best') {
+      const bestIndex = redundancyAnalysis.best_result_index || 0;
+      return individualResults[bestIndex]?.text || result.extracted_text || '';
+    } else if (typeof selectedDraft === 'number' && selectedDraft < individualResults.length) {
+      return individualResults[selectedDraft]?.text || '';
+    }
+  }
+
+  // Fallback to main extracted text for single processing
+  return result.extracted_text || '';
+};
+
+/**
+ * NEW: Get normalized sections text from alignment results
+ * This shows the section-normalized drafts after alignment processing
+ */
+export const getNormalizedSectionsText = ({ selectedResult, selectedDraft, alignmentResult }: TextSelectionParams): string => {
+  if (!alignmentResult?.success || !selectedResult) {
+    return 'No alignment data available';
+  }
+
+  // Check if we have normalized sections data in the alignment result
+  const alignmentBlocks = alignmentResult.alignment_results?.blocks;
+  if (!alignmentBlocks) {
+    return 'No normalized sections available';
+  }
+
+  // Extract normalized sections from alignment blocks
+  const normalizedSections: string[] = [];
+  
+  Object.keys(alignmentBlocks).sort().forEach(blockId => {
+    const blockData = alignmentBlocks[blockId];
+    const alignedSequences = blockData?.aligned_sequences || [];
+    
+    // Find the sequence for the selected draft
+    let selectedSequence = null;
+    
+    if (typeof selectedDraft === 'number') {
+      selectedSequence = alignedSequences.find((seq: any) => 
+        seq.draft_id === `Draft_${selectedDraft + 1}` || 
+        seq.draft_id === `draft_${selectedDraft + 1}`
+      );
+      
+      // Fallback to array index
+      if (!selectedSequence && selectedDraft < alignedSequences.length) {
+        selectedSequence = alignedSequences[selectedDraft];
+      }
+    } else if (selectedDraft === 'consensus' || selectedDraft === 'best') {
+      selectedSequence = alignedSequences[0]; // Use first sequence as default
+    }
+    
+    if (selectedSequence) {
+      // Try to get the original text from the sequence
+      if (selectedSequence.exact_text) {
+        normalizedSections.push(selectedSequence.exact_text);
+      } else if (selectedSequence.tokens) {
+        // Fallback to joining tokens
+        const tokens = selectedSequence.tokens.filter((token: string) => token && token !== '-');
+        normalizedSections.push(tokens.join(' '));
+      }
+    }
+  });
+
+  if (normalizedSections.length === 0) {
+    return 'No normalized sections data found';
+  }
+
+  return normalizedSections.join('\n\n--- Section Break ---\n\n');
+};
+
+/**
+ * NEW: Check if normalized sections are available
+ */
+export const hasNormalizedSections = ({ alignmentResult }: { alignmentResult?: any }): boolean => {
+  return !!(alignmentResult?.success && alignmentResult?.alignment_results?.blocks);
+}; 

@@ -2133,3 +2133,72 @@ If this CSS breaks, heatmap feature will lose:
   flex: 1;
   overflow-y: auto;
 } 
+
+/* NEW: Normalized Sections Tab Styling */
+.normalized-sections-display {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  background-color: var(--color-bg-secondary);
+}
+
+.normalized-sections-header {
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.normalized-sections-header h4 {
+  margin: 0 0 0.5rem 0;
+  color: var(--color-text-primary);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.normalized-sections-header p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.normalized-sections-content {
+  flex: 1;
+  overflow: hidden;
+  border: 1px solid var(--color-border-light);
+  border-radius: 6px;
+  background-color: var(--color-bg-primary);
+}
+
+.normalized-sections-text {
+  height: 100%;
+  overflow-y: auto;
+  padding: 1rem;
+  margin: 0;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  background-color: transparent;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.normalized-sections-text::-webkit-scrollbar {
+  width: 8px;
+}
+
+.normalized-sections-text::-webkit-scrollbar-track {
+  background: var(--color-bg-secondary);
+  border-radius: 4px;
+}
+
+.normalized-sections-text::-webkit-scrollbar-thumb {
+  background: var(--color-border-light);
+  border-radius: 4px;
+}
+
+.normalized-sections-text::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+} 

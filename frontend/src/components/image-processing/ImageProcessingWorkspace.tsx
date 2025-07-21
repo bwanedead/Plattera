@@ -14,7 +14,7 @@ import { useAlignmentState } from '../../hooks/useAlignmentState';
 import { useDraftSelection } from '../../hooks/useDraftSelection';
 import { useEditableDraft } from '../../hooks/useEditableDraft';
 import { isJsonResult, formatJsonAsText } from '../../utils/jsonFormatter';
-import { getCurrentText, getRawText } from '../../utils/textSelectionUtils';
+import { getCurrentText, getRawText, getOriginalJsonText, getNormalizedSectionsText, hasNormalizedSections } from '../../utils/textSelectionUtils';
 
 
 interface ImageProcessingWorkspaceProps {
@@ -89,10 +89,37 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     });
   }, [selectedDraft, imageProcessing.selectedResult, editableDraft.editableDraftState, showEditedVersion, alignmentState.selectedConsensusStrategy, alignmentState.alignmentState.alignmentResult]);
 
+  // NEW: Get original JSON text callback (always original LLM output)
+  const getOriginalJsonTextCallback = useCallback(() => {
+    return getOriginalJsonText({ 
+      selectedResult: imageProcessing.selectedResult, 
+      selectedDraft,
+      selectedConsensusStrategy: alignmentState.selectedConsensusStrategy,
+      alignmentResult: alignmentState.alignmentState.alignmentResult
+    });
+  }, [selectedDraft, imageProcessing.selectedResult, alignmentState.selectedConsensusStrategy, alignmentState.alignmentState.alignmentResult]);
+
+  // NEW: Get normalized sections text callback
+  const getNormalizedSectionsTextCallback = useCallback(() => {
+    return getNormalizedSectionsText({ 
+      selectedResult: imageProcessing.selectedResult, 
+      selectedDraft,
+      selectedConsensusStrategy: alignmentState.selectedConsensusStrategy,
+      alignmentResult: alignmentState.alignmentState.alignmentResult
+    });
+  }, [selectedDraft, imageProcessing.selectedResult, alignmentState.selectedConsensusStrategy, alignmentState.alignmentState.alignmentResult]);
+
+  // NEW: Check if normalized sections are available
+  const hasNormalizedSectionsCallback = useCallback(() => {
+    return hasNormalizedSections({ 
+      alignmentResult: alignmentState.alignmentState.alignmentResult
+    });
+  }, [alignmentState.alignmentState.alignmentResult]);
+
   const isCurrentResultJsonCallback = useCallback(() => {
-    const rawText = getRawTextCallback();
-    return isJsonResult(rawText);
-  }, [getRawTextCallback]);
+    const originalJsonText = getOriginalJsonTextCallback();
+    return isJsonResult(originalJsonText);
+  }, [getOriginalJsonTextCallback]);
 
   // Reset draft selection when result changes
   useEffect(() => {
@@ -304,6 +331,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 onToggleHistory={setIsHistoryVisible}
             getCurrentText={getCurrentTextCallback}
             getRawText={getRawTextCallback}
+            getOriginalJsonText={getOriginalJsonTextCallback}
+            getNormalizedSectionsText={getNormalizedSectionsTextCallback}
+            hasNormalizedSections={hasNormalizedSectionsCallback}
             isCurrentResultJson={isCurrentResultJsonCallback}
                 onSaveDraft={handleSaveDraft}
             selectedDraft={selectedDraft}
