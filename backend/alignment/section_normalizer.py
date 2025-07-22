@@ -9,11 +9,47 @@ Uses alignment-based matching to split under-sectioned drafts.
 import logging
 import json
 from typing import List, Dict, Any, Tuple
-from collections import defaultdict
+from collections import defaultdict, Counter
 import difflib
 import bisect
+import re
+import unicodedata
 
 logger = logging.getLogger(__name__)
+
+# Add these helper functions at the top
+_pat = re.compile(r"[^\w']+")
+_token_re = re.compile(r"\S+")
+
+def _norm(w: str) -> str:
+    """lower + strip diacritics + remove punct"""
+    w = unicodedata.normalize("NFKD", w).encode("ascii", "ignore").decode()
+    return _pat.sub("", w.lower())
+
+def _jaccard(a: list[str], b: list[str]) -> float:
+    """Compute Jaccard similarity between two token lists."""
+    sa, sb = set(a), set(b)
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+def _words_similar(a: str, b: str, thresh: float = .75) -> bool:
+    """Check if two words are similar using stricter normalization."""
+    a_n, b_n = _norm(a), _norm(b)
+    if not a_n or not b_n:
+        return False
+    return difflib.SequenceMatcher(None, a_n, b_n).ratio() >= thresh
+
+def _tokenise_with_pos(text: str) -> tuple[list[str], list[int]]:
+    """
+    Return tokens **and** their start positions in `text`.
+    positions[i] is the char‑offset of tokens[i].
+    """
+    tokens, starts = [], []
+    for m in _token_re.finditer(text):
+        tokens.append(m.group())
+        starts.append(m.start())
+    return tokens, starts
 
 class SectionNormalizer:
     """
@@ -24,6 +60,37 @@ class SectionNormalizer:
     def __init__(self, similarity_threshold: float = 0.6):
         self.sim_threshold = similarity_threshold
     
+    # ---------------------------------------------------------------------
+    #  A.  Text used for ALIGNMENT     (header+body for FIRST section only)
+    # ---------------------------------------------------------------------
+    def _get_alignment_text(self, section: Dict) -> str:
+        hdr, body = section.get('header', ''), section.get('body', '')
+        return (hdr + " " + body).strip() if hdr else body
+
+    # ---------------------------------------------------------------------
+    #  B.  Text saved back into JSON   (body-only, header lives in `header`)
+    # ---------------------------------------------------------------------
+    def _get_section_text(self, section: Dict) -> str:
+        return section.get('body', '')
+    
+    def _best_boundary(self,
+                       tokens: list[str],
+                       left_tmpl: list[str],
+                       right_tmpl: list[str],
+                       window: int = 8) -> int:
+        """
+        Return token-index that maximises suffix/prefix Jaccard similarity.
+        """
+        best_k, best_score = 0, -1.0
+        for k in range(1, len(tokens)):             # gap between tokens[k-1] | tokens[k]
+            left_slice  = tokens[max(0, k-window):k]
+            right_slice = tokens[k:min(len(tokens), k+window)]
+            s = (_jaccard(left_slice, left_tmpl[-window:]) +
+                 _jaccard(right_slice, right_tmpl[:window]))
+            if s > best_score:
+                best_score, best_k = s, k
+        return best_k
+
     def normalize_draft_sections(self, draft_jsons: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Main entry point: normalize section counts across all drafts.
@@ -120,8 +187,8 @@ class SectionNormalizer:
         """
         Create mapping using content alignment.
         """
-        target_full = ''.join(self._get_section_text(s) for s in target_sections)
-        current_full = ''.join(self._get_section_text(s) for s in current_sections)
+        target_full = ''.join(self._get_alignment_text(s) for s in target_sections)
+        current_full = ''.join(self._get_alignment_text(s) for s in current_sections)
         
         # FIX: Correct order - compare current to target (not target to current)
         sm = difflib.SequenceMatcher(None, current_full, target_full)
@@ -133,7 +200,7 @@ class SectionNormalizer:
         # Target section starts in target text
         target_starts = [0]
         for s in target_sections:
-            target_starts.append(target_starts[-1] + len(self._get_section_text(s)))
+            target_starts.append(target_starts[-1] + len(self._get_alignment_text(s)))
         target_starts = target_starts[:-1]
         
         # Map target starts to positions in current text
@@ -142,7 +209,7 @@ class SectionNormalizer:
         # Current section boundaries in current text
         current_starts = [0]
         for s in current_sections:
-            current_starts.append(current_starts[-1] + len(self._get_section_text(s)))
+            current_starts.append(current_starts[-1] + len(self._get_alignment_text(s)))
         
         # Assign target sections to current sections
         mapping_dict = defaultdict(list)
@@ -271,19 +338,66 @@ class SectionNormalizer:
                 prev_end = validated[-1]
             else:
                 prev_end = 0
-            last_word_slice = current_txt[prev_end:pt].rstrip().split()[-1:]
-            last_word_tmpl = template_txt.rstrip().split()[-1:]
-            if last_word_slice and last_word_tmpl and last_word_slice[0].lower() != last_word_tmpl[0].lower():
-                # try moving boundary left until words align or max 30 chars
-                adjust = 0
-                while adjust < 30 and pt > 0 and not current_txt[pt - 1].isspace():
-                    pt -= 1
-                    adjust += 1
-                logger.info(f"        🔧 Nudged {adjust} chars for word‑match correction")
+            
+            # Safety check: ensure valid slice indices
+            if prev_end < pt and pt <= len(current_txt):
+                last_word_slice = current_txt[prev_end:pt].rstrip().split()[-1:]
+                last_word_tmpl = template_txt.rstrip().split()[-1:]
+                if last_word_slice and last_word_tmpl and last_word_slice[0].lower() != last_word_tmpl[0].lower():
+                    # try moving boundary left until words align or max 30 chars
+                    adjust = 0
+                    while adjust < 30 and pt > 0 and not current_txt[pt - 1].isspace():
+                        pt -= 1
+                        adjust += 1
+                    logger.info(f"        🔧 Nudged {adjust} chars for word‑match correction")
             
             validated.append(pt)
             start = pt
         return validated[:-1]  # last element is len(current_txt) – not stored
+
+    def _audit_boundary(self, prev_txt: str, next_txt: str,
+                        tmpl_prev: str, tmpl_next: str,
+                        original: str, start_char: int) -> int:
+        """
+        Check if the last token of prev / first token of next
+        really match their respective templates.
+        If not, walk left ≤20 chars or right ≤20 chars to find the
+        first position that satisfies both tail & head similarity.
+        Return the corrected char-offset or None when already good.
+        """
+        tokens_prev = prev_txt.rstrip().split()
+        tokens_next = next_txt.lstrip().split()
+        if not tokens_prev or not tokens_next:
+            return start_char
+
+        tail, head = tokens_prev[-1], tokens_next[0]
+        t_tail = tmpl_prev.rstrip().split()[-1] if tmpl_prev else ""
+        t_head = tmpl_next.lstrip().split()[0] if tmpl_next else ""
+
+        if _words_similar(tail, t_tail) and _words_similar(head, t_head):
+            return start_char          # looks good
+
+        # search window
+        for delta in range(1, 21):
+            # ← left
+            if start_char - delta > 0 and original[start_char-delta] == " ":
+                new_prev = original[: start_char-delta]
+                new_next = original[start_char-delta :]
+                if (new_prev.rstrip().split() and new_next.lstrip().split() and
+                    _words_similar(new_prev.rstrip().split()[-1], t_tail) and
+                    _words_similar(new_next.lstrip().split()[0],  t_head)):
+                    logger.info(f"        🔧 Audit: moved boundary left by {delta} chars")
+                    return start_char - delta
+            # → right
+            if start_char+delta < len(original) and start_char+delta > 0 and original[start_char+delta-1] == " ":
+                new_prev = original[: start_char+delta]
+                new_next = original[start_char+delta :]
+                if (new_prev.rstrip().split() and new_next.lstrip().split() and
+                    _words_similar(new_prev.rstrip().split()[-1], t_tail) and
+                    _words_similar(new_next.lstrip().split()[0],  t_head)):
+                    logger.info(f"        🔧 Audit: moved boundary right by {delta} chars")
+                    return start_char + delta
+        return start_char
 
     def _split_sections_using_mapping(self, current_sections: List[Dict], target_sections: List[Dict], 
                                       mapping: List[Tuple[int, List[int]]]) -> List[Dict]:
@@ -353,80 +467,54 @@ class SectionNormalizer:
         return normalized
     
     def _split_single_section(self, current_section: Dict, target_group: List[Dict], target_indices: List[int]) -> List[Dict]:
-        """Split one section into multiple using alignment."""
-        local_text = self._get_section_text(current_section)
-        group_texts = [self._get_section_text(s) for s in target_group]
-        group_full = ''.join(group_texts)
+        """Split one section into multiple using token-based boundary scoring."""
+        local_text = self._get_alignment_text(current_section)
+        group_texts = [self._get_alignment_text(s) for s in target_group]
         
-        sm = difflib.SequenceMatcher(None, group_full, local_text)
+        # Tokenize once, with positions
+        tokens, starts = _tokenise_with_pos(local_text)
+        tmpl_tokens = [gt.split() for gt in group_texts]
         
-        group_starts = [0]
-        for gt in group_texts[:-1]:
-            group_starts.append(group_starts[-1] + len(gt))
+        split_points = []
+        start_tok = 0
         
-        if sm.real_quick_ratio() < self.sim_threshold:
-            logger.warning("      ⚠️ Low similarity for split, using proportional")
-            total = len(group_full)
-            split_points = []
-            cum = 0
-            for l in [len(gt) for gt in group_texts[:-1]]:
-                cum += l
-                pos = int((cum / total) * len(local_text))
-                # Snap proportional splits to boundaries too
-                pos = self._snap_to_boundary(local_text, pos)
-                split_points.append(pos)
-        else:
-            # ➊ Get raw split positions
-            raw_points = [self._map_position(p, sm) for p in group_starts[1:]]
-            # ➋ Snap to whitespace boundaries
-            split_points = [self._snap_to_boundary(local_text, p)
-                            for p in raw_points]
-            # ➌ Sanity-check & tweak with n-gram validation
-            split_points = self._validate_split_points(
-                local_text, group_texts, split_points)
-        
-        # Clamp and sort split points to ensure order
-        split_points = sorted([max(0, min(len(local_text), p)) for p in split_points])
-        
-        # Create sections - ensure we create exactly len(target_indices) sections
-        split_sections = []
-        start = 0
-        
-        for i, t_idx in enumerate(target_indices):
-            if i < len(split_points):
-                end = split_points[i]
-            else:
-                end = len(local_text)
+        for i in range(len(target_group) - 1):
+            left_tmpl = tmpl_tokens[i]
+            right_tmpl = tmpl_tokens[i + 1]
             
-            section_text = local_text[start:end].strip()
+            # Find best boundary
+            best_k = self._best_boundary(tokens[start_tok:], left_tmpl, right_tmpl)
             
+            # Convert to character position using real offsets
+            char_pos = starts[start_tok + best_k]  # exact location in original text
+            
+            # Optional: still snap to whitespace if needed
+            char_pos = self._snap_to_boundary(local_text, char_pos)
+            
+            split_points.append(char_pos)
+            start_tok += best_k
+        
+        # Create sections from split points
+        sections = []
+        prev_pos = 0
+        
+        for i, pos in enumerate(split_points + [len(local_text)]):
+            section_text = local_text[prev_pos:pos].strip()
             if section_text:
+                hdr = current_section.get('header') if i == 0 else None
+                # Strip header from body if it's duplicated
+                if hdr and section_text.startswith(hdr):
+                    section_text = section_text[len(hdr):].strip()
+                
                 new_section = {
-                    "id": t_idx + 1,  # Use the target index for correct ID
+                    "id": target_indices[i] + 1,
                     "body": section_text,
-                    "header": current_section.get('header') if i == 0 else None
+                    "header": hdr
                 }
-                split_sections.append(new_section)
-                logger.info(f"      ✂️ Created section {t_idx + 1}: {len(section_text)} chars")
-            
-            start = end
+                sections.append(new_section)
+            prev_pos = pos
         
-        # Ensure we have the right number of sections
-        if len(split_sections) != len(target_indices):
-            logger.warning(f"      ⚠️ Expected {len(target_indices)} sections, created {len(split_sections)}")
-        
-        return split_sections
-    
-    def _get_section_text(self, section: Dict) -> str:
-        """Extract full text from section without duplication."""
-        header = section.get('header', '')
-        body = section.get('body', '')
-        if header and body.startswith(header):
-            return body
-        elif header:
-            return f"{header} {body}"
-        else:
-            return body
+        return sections
     
     def _reconstruct_draft_json(self, original_draft: Dict[str, Any], normalized_sections: List[Dict]) -> Dict[str, Any]:
         """Reconstruct draft JSON with normalized sections."""
