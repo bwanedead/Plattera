@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from .alignment_config import ANCHOR_PATTERNS
 from .alignment_utils import encode_tokens_for_alignment
 from .format_mapping import FormatMapper, FormatMapping, TokenPosition
-from .section_normalizer import SectionNormalizer
 
 logger = logging.getLogger(__name__)
 
@@ -65,11 +64,8 @@ class JsonDraftTokenizer:
         self.compiled_anchor_patterns = {name: re.compile(pattern) 
                                        for name, pattern in ANCHOR_PATTERNS.items()}
         
-        # NEW: Initialize format mapper for preserving formatting
+        # Initialize format mapper for preserving formatting
         self.format_mapper = FormatMapper()
-        
-        # NEW: Initialize section normalizer
-        self.section_normalizer = SectionNormalizer()
     
     def process_json_drafts(self, draft_jsons: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -77,6 +73,7 @@ class JsonDraftTokenizer:
         
         Args:
             draft_jsons: List of draft dictionaries with 'draft_id' and 'blocks'
+                        (can be output from section normalizer or original input)
             
         Returns:
             Dict containing processed data ready for BioPython alignment
@@ -86,12 +83,8 @@ class JsonDraftTokenizer:
         # Validate input format
         self._validate_json_format(draft_jsons)
         
-        # NEW: Normalize section counts before processing
-        logger.info("🔧 SECTION NORMALIZATION ► Checking for section count consistency")
-        normalized_draft_jsons = self.section_normalizer.normalize_draft_sections(draft_jsons)
-        
-        # Organize blocks by ID across drafts (use normalized drafts)
-        blocks_by_id = self._organize_blocks_by_id(normalized_draft_jsons)
+        # Organize blocks by ID across drafts
+        blocks_by_id = self._organize_blocks_by_id(draft_jsons)
         logger.info(f"   📋 Found {len(blocks_by_id)} unique blocks across drafts")
         
         # Process each block independently
@@ -331,7 +324,7 @@ class JsonDraftTokenizer:
             logger.info(f"   📝 {draft_id} PROCESSING ► {len(text)} chars")
             logger.info(f"      Original text: {text[:100]}...")
             
-            # NEW: Use unified tokenization path
+            # Use unified tokenization path
             formatted_tokens, normalized_tokens, token_mappings = self._tokenize_with_unified_path(text)
             
             logger.info(f"   🔧 {draft_id} UNIFIED RESULTS:")
@@ -343,7 +336,7 @@ class JsonDraftTokenizer:
             for i, mapping in enumerate(token_mappings[:5]):
                 logger.info(f"      [{mapping.token_id}]: '{mapping.formatted_token}' → {mapping.normalized_tokens}")
             
-            # NEW: Sanity check for multi-span tokens
+            # Sanity check for multi-span tokens
             logger.info(f"   🔍 {draft_id} MULTI-SPAN TOKENS:")
             for dm in token_mappings:
                 if len(dm.normalized_tokens) > 1:
@@ -353,7 +346,7 @@ class JsonDraftTokenizer:
                 'draft_id': draft_id,
                 'tokens': normalized_tokens,           # For alignment (same as before)
                 'original_tokens': formatted_tokens,   # For format preservation 
-                'token_mappings': token_mappings,      # NEW: Direct mapping
+                'token_mappings': token_mappings,      # Direct mapping
                 'text': text,
                 'token_count': len(normalized_tokens)
             })
@@ -404,15 +397,14 @@ class JsonDraftTokenizer:
                 'text': draft_data['text'],
                 'token_count': draft_data['token_count'],
                 'original_text': draft_data['text'],
-                # NEW: Add direct token mappings for perfect traceability
+                # Add direct token mappings for perfect traceability
                 'token_mappings': draft_data['token_mappings'],
                 'original_tokens': draft_data['original_tokens']
             })
         
-        # Replace the format mapping creation section with:
+        # Create format mapping using direct token mappings
         format_mappings = {}
         for draft_data in tokenized_drafts:
-            # NEW: Create format mapping using direct token mappings (no guesswork!)
             mapping = self._create_direct_format_mapping(
                 draft_data['draft_id'],
                 draft_data['text'],
