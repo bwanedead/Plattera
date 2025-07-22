@@ -16,9 +16,9 @@ from nltk.tokenize import word_tokenize
 import os
 from dataclasses import dataclass
 
-from .alignment_config import ANCHOR_PATTERNS
-from .alignment_utils import encode_tokens_for_alignment
-from .format_mapping import FormatMapper, FormatMapping, TokenPosition
+from alignment.alignment_config import ANCHOR_PATTERNS
+from alignment.alignment_utils import encode_tokens_for_alignment
+from alignment.format_mapping import FormatMapper, FormatMapping, TokenPosition
 
 logger = logging.getLogger(__name__)
 

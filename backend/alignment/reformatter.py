@@ -4,9 +4,9 @@ ORCHESTRATOR ONLY - delegates to completely separate Type 1 and Type 2 formatter
 """
 
 from typing import Dict, List, Any, Tuple, Optional
-from .format_mapping import FormatMapping
-from .type1_exact_formatter import Type1ExactFormatter
-from .type2_display_formatter import Type2DisplayFormatter, Type2ConsensusAnalyzer
+from alignment.format_mapping import FormatMapping
+from alignment.type1_exact_formatter import Type1ExactFormatter
+from alignment.type2_display_formatter import Type2DisplayFormatter, Type2ConsensusAnalyzer
 import logging
 
 logger = logging.getLogger(__name__)

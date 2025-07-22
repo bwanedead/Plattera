@@ -9,7 +9,7 @@ This formatter is COMPLETELY UNAWARE of Type 2 formatting and has NO DEPENDENCIE
 """
 
 from typing import Dict, List, Any, Optional, Set, Tuple
-from .format_mapping import FormatMapping
+from alignment.format_mapping import FormatMapping
 import logging
 
 logger = logging.getLogger(__name__)
@@ -53,6 +53,12 @@ class Type1ExactFormatter:
             # Fallback: simple space-separated text
             non_gap_tokens = [token for token in aligned_tokens if token != '-']
             logger.warning("   ⚠️ No format mapping, using fallback")
+            return ' '.join(non_gap_tokens)
+        
+        # 🔧 FIX: Handle case where original_to_alignment is missing or empty
+        if not original_to_alignment:
+            logger.warning("   ⚠️ No original_to_alignment mapping, using fallback")
+            non_gap_tokens = [token for token in aligned_tokens if token != '-']
             return ' '.join(non_gap_tokens)
         
         # Build reverse mapping: alignment position -> original token indices

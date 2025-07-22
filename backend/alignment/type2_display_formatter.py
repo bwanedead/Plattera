@@ -10,7 +10,7 @@ This formatter is COMPLETELY UNAWARE of Type 1 formatting and has NO DEPENDENCIE
 
 from typing import Dict, List, Any, Optional, Set
 from collections import defaultdict
-from .format_mapping import FormatMapping
+from alignment.format_mapping import FormatMapping
 import logging
 
 logger = logging.getLogger(__name__)

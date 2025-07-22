@@ -10,13 +10,13 @@ import logging
 from typing import Dict, List, Any, Optional
 import time
 
-from .alignment_utils import check_dependencies, AlignmentError, log_alignment_statistics
-from .json_draft_tokenizer import JsonDraftTokenizer, create_sample_json_drafts
-from .consistency_aligner import ConsistencyBasedAligner
-from .confidence_scorer import BioPythonConfidenceScorer
-from .format_mapping import FormatMapper
-from .reformatter import Reformatter  # NEW: Import the reformatter
-# REMOVED: from .section_normalizer import SectionNormalizer  # ❌ Remove this import
+from alignment.alignment_utils import check_dependencies, AlignmentError, log_alignment_statistics
+from alignment.json_draft_tokenizer import JsonDraftTokenizer, create_sample_json_drafts
+from alignment.consistency_aligner import ConsistencyBasedAligner
+from alignment.confidence_scorer import BioPythonConfidenceScorer
+from alignment.format_mapping import FormatMapper
+from alignment.reformatter import Reformatter  # NEW: Import the reformatter
+# REMOVED: from alignment.section_normalizer import SectionNormalizer  # ❌ Remove this import
 
 logger = logging.getLogger(__name__)
 
@@ -366,7 +366,7 @@ class BioPythonAlignmentEngine:
             return ""
         
         # Create a temporary FormatMapping object from the serialized data
-        from .format_mapping import FormatMapping, TokenPosition
+        from alignment.format_mapping import FormatMapping, TokenPosition
         
         token_positions = []
         for pos_data in format_mapping_data.get('token_positions', []):
