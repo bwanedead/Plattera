@@ -1,3 +1,4 @@
+
 """
 Section Normalizer Test Script
 ==============================
@@ -140,73 +141,101 @@ def save_essay_format_files(drafts: List[Dict], normalized_drafts: List[Dict], o
     files_created = 0
     
     for i, (original, normalized) in enumerate(zip(drafts, normalized_drafts)):
-        original_count = len(original['sections'])
-        normalized_count = len(normalized['sections'])
+        original_count = len(original.get('sections', []))
+        normalized_count = len(normalized.get('sections', []))
         
-        # Only create files for drafts that actually changed
-        if original_count == normalized_count:
-            print(f"   ⏭️ {original['draft_id']}: No changes needed ({original_count} sections)")
-            continue
+        # DEBUG: Add detailed logging to see what's happening
+        print(f"    DEBUG {original['draft_id']}: Original={original_count}, Normalized={normalized_count}")
         
-        draft_id = original['draft_id']
-        filename = original['filename']
+        # Check if sections were actually changed OR if the section normalizer attempted normalization
+        # Even if the final count is the same, we want to show what happened during the process
+        target_count = max(len(d.get('sections', [])) for d in drafts)
         
-        # Create single comprehensive file for this draft
-        content = f"""# SECTION NORMALIZATION: {draft_id}
+        # Create files for drafts that were processed (even if they ended up with same count)
+        if original_count != target_count:
+            draft_id = original['draft_id']
+            filename = original.get('filename', 'unknown')
+            
+            # Create single comprehensive file for this draft
+            content = f"""# SECTION NORMALIZATION: {draft_id}
 Filename: {filename}
 Document ID: {original.get('documentId', 'unknown')}
 
 ## SUMMARY
 - Original sections: {original_count}
 - Normalized sections: {normalized_count}
-- Action: Split {original_count} → {normalized_count} sections
+- Target sections: {target_count}
+- Action: Attempted to normalize {original_count} → {target_count} sections
+- Result: {'✅ Success' if normalized_count == target_count else '❌ Failed - got ' + str(normalized_count)}
 
 {'='*80}
 
 ## ORIGINAL TEXT ({original_count} sections)
 """
-        
-        # Add original text
-        original_essay = format_section_as_essay(original['sections'], "")
-        content += original_essay
-        
-        content += f"""
+            
+            # Add original text
+            original_essay = format_section_as_essay(original['sections'], "")
+            content += original_essay
+            
+            content += f"""
 
 {'='*80}
 
 ## NORMALIZED TEXT ({normalized_count} sections)
 """
-        
-        # Add normalized text
-        normalized_essay = format_section_as_essay(normalized['sections'], "")
-        content += normalized_essay
-        
-        content += f"""
+            
+            # Add normalized text
+            normalized_essay = format_section_as_essay(normalized['sections'], "")
+            content += normalized_essay
+            
+            content += f"""
 
 {'='*80}
 
-## SPLIT ANALYSIS
-This draft was normalized to match the target section count of {max(len(d['sections']) for d in drafts)} sections.
+## NORMALIZATION ANALYSIS
+This draft was processed to match the target section count of {target_count} sections.
 
-The following changes were made:
-"""
-        
-        # Show which sections were split
-        for j, section in enumerate(original['sections'], 1):
-            content += f"- Section {j}: Split into multiple parts\n"
-        
-        content += f"""
+Original section count: {original_count}
+Normalized section count: {normalized_count}
+Target section count: {target_count}
 
-Target achieved: All drafts now have {normalized_count} sections.
+Status: {'✅ SUCCESS' if normalized_count == target_count else '❌ FAILED'}
+
+The following changes were attempted:
 """
-        
-        # Save the single comprehensive file
-        output_file = os.path.join(output_dir, f"{draft_id}_NORMALIZED.txt")
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(content)
-        
-        print(f"   📄 {draft_id}: Normalization file created ({original_count} → {normalized_count} sections)")
-        files_created += 1
+            
+            # Show which sections were processed
+            for j, section in enumerate(original['sections'], 1):
+                content += f"- Section {j}: Processed for normalization\n"
+            
+            if normalized_count != target_count:
+                content += f"""
+
+⚠️ ISSUE DETECTED:
+The section normalizer failed to create the expected {target_count} sections.
+This may be due to:
+1. Mapping issues in the alignment algorithm
+2. Empty sections being filtered out
+3. Target section indices not being properly mapped
+
+Please check the section normalizer logs for more details.
+"""
+            else:
+                content += f"""
+
+✅ SUCCESS:
+All drafts now have {normalized_count} sections as expected.
+"""
+            
+            # Save the single comprehensive file
+            output_file = os.path.join(output_dir, f"{draft_id}_NORMALIZED.txt")
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            print(f"   {draft_id}: Normalization file created ({original_count} → {normalized_count} sections)")
+            files_created += 1
+        else:
+            print(f"   ⏭️ {original['draft_id']}: No normalization needed ({original_count} sections)")
     
     if files_created == 0:
         print(f"   ✅ No drafts needed normalization - all already have the same section count")
@@ -275,6 +304,10 @@ def test_section_normalizer():
     # Test section normalization
     print("\n🔄 Testing Section Normalization...")
     try:
+        # FIX: Create deep copies of original drafts before normalization
+        import copy
+        original_drafts = [copy.deepcopy(draft) for draft in drafts]
+        
         normalized_drafts = normalizer.normalize_draft_sections(drafts)
         
         print(f"\n✅ Normalization completed successfully!")
@@ -285,7 +318,7 @@ def test_section_normalizer():
         master_results = []
         
         # Add each original and normalized draft sequentially
-        for i, (original, normalized) in enumerate(zip(drafts, normalized_drafts)):
+        for i, (original, normalized) in enumerate(zip(original_drafts, normalized_drafts)):
             # Add original draft
             original_draft = {
                 "type": "ORIGINAL",
@@ -317,12 +350,12 @@ def test_section_normalizer():
         
         print(f"\n💾 Saved master results: {master_file}")
         
-        # Generate essay format files
-        save_essay_format_files(drafts, normalized_drafts, output_dir)
+        # Generate essay format files using the original copies
+        save_essay_format_files(original_drafts, normalized_drafts, output_dir)
         
         # Analyze results
         print("\n📊 NORMALIZATION RESULTS:")
-        for i, (original, normalized) in enumerate(zip(drafts, normalized_drafts)):
+        for i, (original, normalized) in enumerate(zip(original_drafts, normalized_drafts)):
             original_count = len(original.get('sections', []))
             normalized_count = len(normalized.get('sections', []))
             
@@ -335,13 +368,13 @@ def test_section_normalizer():
                 print(f"     Action: Split {original_count} → {normalized_count}")
         
         # Show detailed analysis of first draft
-        if drafts:
+        if original_drafts:
             print("\n" + "="*50)
-            analyze_draft_sections(drafts[0], "ORIGINAL")
+            analyze_draft_sections(original_drafts[0], "ORIGINAL")
             analyze_draft_sections(normalized_drafts[0], "NORMALIZED")
         
         # Show detailed analysis of a draft that was split
-        split_drafts = [(i, d, n) for i, (d, n) in enumerate(zip(drafts, normalized_drafts)) 
+        split_drafts = [(i, d, n) for i, (d, n) in enumerate(zip(original_drafts, normalized_drafts)) 
                        if len(d.get('sections', [])) != len(n.get('sections', []))]
         
         if split_drafts:
@@ -354,8 +387,7 @@ def test_section_normalizer():
         
         print(f"\n📁 Output files created:")
         print(f"   📄 Master JSON: {master_file}")
-        print(f"   📝 Essay files: {output_dir}/*_essay.txt")
-        print(f"   🔍 Comparison files: {output_dir}/*_COMPARISON_essay.txt")
+        print(f"   📝 Individual files: {output_dir}/*_NORMALIZED.txt")
         print(f"   📋 Format: Original → Normalized → Original → Normalized...")
         
         return True
@@ -411,5 +443,5 @@ if __name__ == "__main__":
     print("\n✅ Test completed!")
     print("📁 Check the 'normalized_drafts_output/' folder for:")
     print("   📄 MASTER_SECTION_NORMALIZATION_RESULTS.json (JSON format)")
-    print("   📝 *_essay.txt files (human-readable format)")
-    print("   🔍 Comparison files: {output_dir}/*_COMPARISON_essay.txt") 
+    print("   📝 Individual files: {output_dir}/*_NORMALIZED.txt")
+    print(f"   🔍 Comparison files: {output_dir}/*_COMPARISON_essay.txt") 
