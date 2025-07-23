@@ -13,6 +13,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import time
 
+# 🔧 FIX: Add environment loading (was accidentally removed during import changes)
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file
+
 from api.router import api_router
 from utils.health_monitor import get_health_monitor
 
