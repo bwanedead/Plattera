@@ -61,14 +61,18 @@ class Type1ExactFormatter:
             non_gap_tokens = [token for token in aligned_tokens if token != '-']
             return ' '.join(non_gap_tokens)
         
-        # Build reverse mapping: alignment position -> original token indices
-        alignment_to_original = self._build_alignment_to_original_mapping(
+        # 🔧 FIX: The format mapping is now based on normalized text, so we need to work with that
+        # The original_to_alignment maps normalized token indices to alignment positions
+        # The format_mapping.token_positions are based on the normalized text
+        
+        # Build reverse mapping: alignment position -> normalized token indices
+        alignment_to_normalized = self._build_alignment_to_normalized_mapping(
             original_to_alignment, len(aligned_tokens)
         )
         
-        logger.info(f"   🗺️ Built alignment-to-original mapping: {len(alignment_to_original)} entries")
+        logger.info(f"   🗺️ Built alignment-to-normalized mapping: {len(alignment_to_normalized)} entries")
         
-        # Collect original text portions in order
+        # Collect text portions in order
         text_portions = []
         seen_spans: Set[Tuple[int, int]] = set()  # 🔑 Track already-used character spans
         
@@ -80,20 +84,20 @@ class Type1ExactFormatter:
                 logger.debug(f"     Position {align_pos}: Skipping gap")
                 continue  # Skip gaps
             
-            # Get original indices for this alignment position
-            original_indices = alignment_to_original.get(align_pos, [])
-            logger.debug(f"     Position {align_pos}: Token '{token}' → Original indices {original_indices}")
+            # Get normalized indices for this alignment position
+            normalized_indices = alignment_to_normalized.get(align_pos, [])
+            logger.debug(f"     Position {align_pos}: Token '{token}' → Normalized indices {normalized_indices}")
             
-            if not original_indices:
-                logger.debug(f"       ❌ No original index mapping for aligned position {align_pos}")
+            if not normalized_indices:
+                logger.debug(f"       ❌ No normalized index mapping for aligned position {align_pos}")
                 continue
             
-            # Use the first original index (order doesn't matter for duplicates)
-            orig_idx = original_indices[0]
-            token_pos = format_mapping.get_position_for_token(orig_idx)
+            # Use the first normalized index (order doesn't matter for duplicates)
+            norm_idx = normalized_indices[0]
+            token_pos = format_mapping.get_position_for_token(norm_idx)
             
             if not token_pos:
-                logger.warning(f"       ❌ No position found for original index {orig_idx}")
+                logger.warning(f"       ❌ No position found for normalized index {norm_idx}")
                 continue
             
             # 🔑 Check if we've already processed this character span
@@ -110,7 +114,7 @@ class Type1ExactFormatter:
                 'text': token_pos.original_text,
                 'start_char': token_pos.start_char,
                 'end_char': token_pos.end_char,
-                'original_idx': orig_idx
+                'normalized_idx': norm_idx
             })
             
             logger.debug(f"       ✅ Added to text portions (total: {len(text_portions)})")
@@ -124,18 +128,18 @@ class Type1ExactFormatter:
         
         return result
     
-    def _build_alignment_to_original_mapping(self, original_to_alignment: List[int], 
-                                           alignment_length: int) -> Dict[int, List[int]]:
-        """Build reverse mapping from alignment position to list of original token indices."""
+    def _build_alignment_to_normalized_mapping(self, original_to_alignment: List[int], 
+                                         alignment_length: int) -> Dict[int, List[int]]:
+        """Build reverse mapping from alignment position to list of normalized token indices."""
         from collections import defaultdict
         
-        alignment_to_original = defaultdict(list)
+        alignment_to_normalized = defaultdict(list)
         
-        for orig_idx, align_pos in enumerate(original_to_alignment):
+        for norm_idx, align_pos in enumerate(original_to_alignment):
             if align_pos != -1 and align_pos < alignment_length:
-                alignment_to_original[align_pos].append(orig_idx)
+                alignment_to_normalized[align_pos].append(norm_idx)
         
-        return dict(alignment_to_original)
+        return dict(alignment_to_normalized)
     
     def _reconstruct_with_exact_spacing(self, text_portions: List[Dict], original_text: str) -> str:
         """
