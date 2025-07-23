@@ -14,6 +14,7 @@ import difflib
 import bisect
 import re
 import unicodedata
+import gc
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,11 @@ class SectionNormalizer:
     
     def __init__(self, similarity_threshold: float = 0.6):
         self.sim_threshold = similarity_threshold
+        self._processing_stats = {
+            'total_drafts_processed': 0,
+            'total_sections_normalized': 0,
+            'memory_cleanup_count': 0
+        }
     
     # ---------------------------------------------------------------------
     #  A.  Text used for ALIGNMENT     (header+body for FIRST section only)
@@ -103,39 +109,77 @@ class SectionNormalizer:
         """
         logger.info(f"🔧 SECTION NORMALIZER ► Processing {len(draft_jsons)} drafts for section consistency")
         
-        # Extract section data from each draft
-        draft_sections = []
-        for i, draft_json in enumerate(draft_jsons):
-            sections = self._extract_sections_from_draft(draft_json, f"Draft_{i+1}")
-            draft_sections.append(sections)
-            logger.info(f"   📋 Draft {i+1}: {len(sections)} sections")
-        
-        # Check if normalization is needed
-        section_counts = [len(sections) for sections in draft_sections]
-        if len(set(section_counts)) <= 1:
-            logger.info(f"   ✅ All drafts have the same section count ({section_counts[0]}), no normalization needed")
-            return draft_jsons
-        
-        # Find the draft with the most sections (our target)
-        max_sections = max(section_counts)
-        target_draft_idx = section_counts.index(max_sections)
-        target_sections = draft_sections[target_draft_idx]
-        
-        logger.info(f"🎯 TARGET DRAFT ► Draft {target_draft_idx + 1} with {max_sections} sections will be the template")
-        
-        # Normalize drafts that need it
-        normalized_drafts = []
-        for i, (draft_json, sections) in enumerate(zip(draft_jsons, draft_sections)):
-            if len(sections) == max_sections:
-                logger.info(f"   ✅ Draft {i+1}: Already has {max_sections} sections, no changes")
-                normalized_drafts.append(draft_json)
-            else:
-                logger.info(f"   🔄 Draft {i+1}: Normalizing {len(sections)} → {max_sections} sections")
-                normalized_draft = self._normalize_single_draft(draft_json, sections, target_sections, f"Draft_{i+1}")
-                normalized_drafts.append(normalized_draft)
-        
-        logger.info(f"✅ NORMALIZATION COMPLETE ► All drafts now have {max_sections} sections")
-        return normalized_drafts
+        try:
+            # Extract section data from each draft
+            draft_sections = []
+            for i, draft_json in enumerate(draft_jsons):
+                sections = self._extract_sections_from_draft(draft_json, f"Draft_{i+1}")
+                draft_sections.append(sections)
+                logger.info(f"   📋 Draft {i+1}: {len(sections)} sections")
+            
+            # Check if normalization is needed
+            section_counts = [len(sections) for sections in draft_sections]
+            if len(set(section_counts)) <= 1:
+                logger.info(f"   ✅ All drafts have the same section count ({section_counts[0]}), no normalization needed")
+                self._update_stats(len(draft_jsons), 0)
+                return draft_jsons
+            
+            # Find the draft with the most sections (our target)
+            max_sections = max(section_counts)
+            target_draft_idx = section_counts.index(max_sections)
+            target_sections = draft_sections[target_draft_idx]
+            
+            logger.info(f"🎯 TARGET DRAFT ► Draft {target_draft_idx + 1} with {max_sections} sections will be the template")
+            
+            # Normalize drafts that need it
+            normalized_drafts = []
+            total_normalized = 0
+            
+            for i, (draft_json, sections) in enumerate(zip(draft_jsons, draft_sections)):
+                if len(sections) == max_sections:
+                    logger.info(f"   ✅ Draft {i+1}: Already has {max_sections} sections, no changes")
+                    normalized_drafts.append(draft_json)
+                else:
+                    logger.info(f"   🔄 Draft {i+1}: Normalizing {len(sections)} → {max_sections} sections")
+                    normalized_draft = self._normalize_single_draft(draft_json, sections, target_sections, f"Draft_{i+1}")
+                    normalized_drafts.append(normalized_draft)
+                    total_normalized += 1
+                    
+                    # Perform memory cleanup after each normalization
+                    self._perform_memory_cleanup()
+            
+            self._update_stats(len(draft_jsons), total_normalized)
+            logger.info(f"✅ NORMALIZATION COMPLETE ► All drafts now have {max_sections} sections")
+            return normalized_drafts
+            
+        except Exception as e:
+            logger.error(f"❌ SECTION NORMALIZER ERROR: {e}")
+            # Emergency cleanup on error
+            self._perform_memory_cleanup(force=True)
+            raise
+        finally:
+            # Final cleanup
+            self._perform_memory_cleanup(force=True)
+    
+    def _update_stats(self, drafts_processed: int, sections_normalized: int) -> None:
+        """Update processing statistics."""
+        self._processing_stats['total_drafts_processed'] += drafts_processed
+        self._processing_stats['total_sections_normalized'] += sections_normalized
+    
+    def _perform_memory_cleanup(self, force: bool = False) -> None:
+        """Perform memory cleanup to prevent accumulation."""
+        try:
+            # Force garbage collection
+            collected = gc.collect()
+            if collected > 0 or force:
+                self._processing_stats['memory_cleanup_count'] += 1
+                logger.debug(f"🧹 MEMORY CLEANUP ► Freed {collected} objects (cleanup #{self._processing_stats['memory_cleanup_count']})")
+        except Exception as e:
+            logger.warning(f"⚠️ Memory cleanup failed: {e}")
+    
+    def get_processing_stats(self) -> Dict[str, Any]:
+        """Get processing statistics."""
+        return self._processing_stats.copy()
     
     def _extract_sections_from_draft(self, draft_json: Dict[str, Any], draft_id: str) -> List[Dict[str, Any]]:
         """Extract section data from a draft JSON."""

@@ -1,0 +1,334 @@
+/* Processing Status and Health Monitoring Styles */
+
+.processing-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin: 1rem 0;
+}
+
+.processing-spinner {
+  margin-bottom: 1rem;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #e3e3e3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.processing-text h3 {
+  margin: 0 0 0.5rem 0;
+  color: #333;
+  font-size: 1.2rem;
+}
+
+.processing-text p {
+  margin: 0 0 1rem 0;
+  color: #666;
+}
+
+.progress-bar {
+  width: 200px;
+  height: 8px;
+  background: #e3e3e3;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #007bff, #0056b3);
+  transition: width 0.3s ease;
+}
+
+/* Error State */
+.processing-status.error {
+  background: #fff5f5;
+  border: 1px solid #fed7d7;
+}
+
+.error-icon {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+
+.error-text h3 {
+  color: #c53030;
+  margin-bottom: 0.5rem;
+}
+
+.error-text p {
+  color: #e53e3e;
+  margin-bottom: 1rem;
+}
+
+.retry-button {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.retry-button:hover {
+  background: #0056b3;
+}
+
+/* Health Monitoring */
+.health-monitoring {
+  background: white;
+  border: 1px solid #e3e3e3;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin: 1rem 0;
+}
+
+.health-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e3e3e3;
+}
+
+.health-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 1.1rem;
+}
+
+.health-check-button {
+  background: #28a745;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.health-check-button:hover {
+  background: #218838;
+}
+
+.health-check-button:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+}
+
+.health-status {
+  margin-bottom: 1rem;
+}
+
+.health-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+.health-icon {
+  font-size: 1.2rem;
+}
+
+.health-text {
+  font-size: 1rem;
+}
+
+.text-green-600 { color: #059669; }
+.text-yellow-600 { color: #d97706; }
+.text-orange-600 { color: #ea580c; }
+.text-red-600 { color: #dc2626; }
+.text-gray-600 { color: #4b5563; }
+
+.health-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.metric-label {
+  font-size: 0.8rem;
+  color: #666;
+  margin-bottom: 0.25rem;
+}
+
+.metric-value {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.health-recommendations {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 6px;
+}
+
+.health-recommendations h4 {
+  margin: 0 0 0.5rem 0;
+  color: #856404;
+  font-size: 0.9rem;
+}
+
+.health-recommendations ul {
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.health-recommendations li {
+  color: #856404;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.health-actions {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.details-button {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.details-button:hover {
+  background: #5a6268;
+}
+
+.cleanup-button {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.cleanup-button:hover {
+  background: #c82333;
+}
+
+.cleanup-button:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+}
+
+.health-details {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e3e3e3;
+}
+
+.health-details h4 {
+  margin: 0 0 0.5rem 0;
+  color: #333;
+  font-size: 0.9rem;
+}
+
+.health-details pre {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #666;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cleanup-result {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 6px;
+}
+
+.cleanup-result h4 {
+  margin: 0 0 0.5rem 0;
+  color: #155724;
+  font-size: 0.9rem;
+}
+
+.cleanup-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.cleanup-actions h5 {
+  margin: 0 0 0.5rem 0;
+  color: #155724;
+  font-size: 0.85rem;
+}
+
+.cleanup-actions ul {
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.cleanup-actions li {
+  color: #155724;
+  font-size: 0.8rem;
+  margin-bottom: 0.25rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .health-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: stretch;
+  }
+  
+  .health-metrics {
+    grid-template-columns: 1fr;
+  }
+  
+  .health-actions {
+    flex-direction: column;
+  }
+  
+  .cleanup-metrics {
+    grid-template-columns: 1fr;
+  }
+} 

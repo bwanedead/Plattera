@@ -6,8 +6,8 @@ import os
 import importlib
 import glob
 from typing import Dict, Any, List, Union
-from .llm.base import LLMService
-from .ocr.base import OCRService
+from services.llm.base import LLMService
+from services.ocr.base import OCRService
 
 class ServiceRegistry:
     """Central registry that auto-discovers and manages all services"""

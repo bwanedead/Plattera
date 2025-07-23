@@ -9,6 +9,7 @@ Handles preprocessing, alignment, and post-processing.
 import logging
 from typing import Dict, List, Any, Optional
 import time
+import gc
 
 # ABSOLUTE IMPORTS ONLY - never relative imports
 from alignment.section_normalizer import SectionNormalizer
@@ -86,7 +87,7 @@ class AlignmentService:
                         alignment_results['confidence_results'], 
                         consensus_strategy
                     )
-                    logger.info(f"✅ CONSENSUS COMPLETE ► Generated {len(consensus_text)} character text")
+                    logger.info("✅ Consensus generation completed")
                 except Exception as e:
                     logger.warning(f"⚠️ Consensus generation failed: {e}")
                     # Continue without consensus - it's optional
@@ -105,6 +106,9 @@ class AlignmentService:
                 }
             }
             
+            # Simple cleanup
+            gc.collect()
+            
             logger.info(f"✅ ALIGNMENT SERVICE COMPLETE ► Total time: {total_processing_time:.2f}s")
             return final_results
             
@@ -117,24 +121,4 @@ class AlignmentService:
                 'success': False,
                 'error': f"Service processing error: {str(e)}",
                 'processing_time': time.time() - start_time
-            }
-    
-    def check_service_status(self) -> Dict[str, Any]:
-        """Check the health and status of the alignment service"""
-        try:
-            dependencies_available, missing_packages = check_dependencies()
-            engine_info = self.alignment_engine.get_engine_info()
-            
-            return {
-                'service_status': 'healthy',
-                'dependencies_available': dependencies_available,
-                'missing_dependencies': missing_packages,
-                'section_normalizer_available': True,
-                'biopython_engine_info': engine_info
-            }
-            
-        except Exception as e:
-            return {
-                'service_status': 'error',
-                'error': str(e)
             } 

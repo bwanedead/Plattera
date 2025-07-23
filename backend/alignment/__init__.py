@@ -10,28 +10,28 @@ multiple sequence alignment of legal document drafts.
 """
 
 # Configuration
-from .alignment_config import (
+from alignment.alignment_config import (
     ANCHOR_PATTERNS,
     TOKENIZATION,
 )
 
 # BioPython alignment engine
-from .biopython_engine import (
+from alignment.biopython_engine import (
     BioPythonAlignmentEngine,
     test_biopython_engine,
     check_biopython_engine_status
 )
 
-from .json_draft_tokenizer import (
+from alignment.json_draft_tokenizer import (
     JsonDraftTokenizer,
     create_sample_json_drafts,
     validate_json_draft_format
 )
 
-from .consistency_aligner import ConsistencyBasedAligner
-from .confidence_scorer import BioPythonConfidenceScorer
-from .alignment_utils import check_dependencies, AlignmentError
-from .section_normalizer import SectionNormalizer
+from alignment.consistency_aligner import ConsistencyBasedAligner
+from alignment.confidence_scorer import BioPythonConfidenceScorer
+from alignment.alignment_utils import check_dependencies, AlignmentError
+from alignment.section_normalizer import SectionNormalizer
 
 __all__ = [
     # Configuration

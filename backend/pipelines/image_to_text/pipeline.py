@@ -79,8 +79,8 @@ import base64
 from pathlib import Path
 import logging
 from typing import Tuple
-from .image_processor import enhance_for_character_recognition
-from .redundancy import RedundancyProcessor
+from pipelines.image_to_text.image_processor import enhance_for_character_recognition
+from pipelines.image_to_text.redundancy import RedundancyProcessor
 
 logger = logging.getLogger(__name__)
 

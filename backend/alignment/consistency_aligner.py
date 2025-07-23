@@ -77,6 +77,9 @@ class ConsistencyBasedAligner:
         Save complete alignment table with ALL blocks to debug folder.
         This is called once with all blocks together.
         """
+        debug_file = None
+        temp_file = None
+        
         try:
             # Use the absolute path you specified
             debug_dir = Path(r"C:\projects\Plattera\backend\raw_alignment_tables")
@@ -87,12 +90,14 @@ class ConsistencyBasedAligner:
             
             # Use a fixed filename that gets overwritten each time
             debug_file = debug_dir / "raw_alignment_results.txt"
+            temp_file = debug_file.with_suffix('.tmp')
             
             logger.info(f"📝 SAVING COMPLETE DEBUG OUTPUT ► {debug_file}")
             
             all_blocks = all_alignment_results.get('blocks', {})
             
-            with open(debug_file, 'w', encoding='utf-8') as f:
+            # Write to temporary file first to prevent corruption
+            with open(temp_file, 'w', encoding='utf-8') as f:
                 f.write("=" * 80 + "\n")
                 f.write(f"COMPLETE RAW ALIGNMENT TABLE - ALL BLOCKS\n")
                 f.write(f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -250,12 +255,35 @@ class ConsistencyBasedAligner:
                 f.write(f"Total gap positions: {total_gaps}\n")
                 f.write(f"Overall similarity: {((total_positions - total_differences) / max(total_positions, 1)) * 100:.1f}%\n")
             
-            logger.info(f"✅ COMPLETE DEBUG OUTPUT SAVED ► {debug_file}")
-            logger.info(f"📁 Full path: {debug_file.absolute()}")
+            # Atomic move to prevent corruption
+            if temp_file.exists():
+                temp_file.replace(debug_file)
+                logger.info(f"✅ COMPLETE DEBUG OUTPUT SAVED ► {debug_file}")
+                logger.info(f"📁 Full path: {debug_file.absolute()}")
+            else:
+                logger.error("❌ Temporary file was not created successfully")
             
         except Exception as e:
             logger.error(f"❌ Failed to save complete debug alignment table: {e}")
             logger.error(f"   Tried to write to: C:\\projects\\Plattera\\backend\\raw_alignment_tables")
+            
+            # Clean up any partial files
+            if temp_file and temp_file.exists():
+                try:
+                    temp_file.unlink()
+                    logger.info("🧹 Cleaned up temporary file")
+                except Exception as cleanup_error:
+                    logger.error(f"❌ Failed to clean up temporary file: {cleanup_error}")
+            
+            if debug_file and debug_file.exists():
+                try:
+                    debug_file.unlink()
+                    logger.info("🧹 Cleaned up corrupted debug file")
+                except Exception as cleanup_error:
+                    logger.error(f"❌ Failed to clean up debug file: {cleanup_error}")
+        finally:
+            # Ensure file handles are closed
+            pass
     
     def align_multiple_sequences(self, block_data: Dict[str, Any]) -> Dict[str, Any]:
         """

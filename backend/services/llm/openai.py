@@ -83,7 +83,7 @@ import os
 import base64
 import json
 from typing import Dict, Any, List, Optional, Union
-from .base import LLMService
+from services.llm.base import LLMService
 from pydantic import BaseModel
 import time
 import logging

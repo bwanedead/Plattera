@@ -1,74 +1,51 @@
 """
-Plattera Backend API v2.0
-Clean architecture with central API hub
-"""
-from dotenv import load_dotenv
-load_dotenv()  # Load .env file
+Main FastAPI Application
+=======================
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-import numpy as np
-import json
-from api.router import api_router
+Entry point for the Plattera backend API server.
+"""
+
+import uvicorn
 import logging
 import sys
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import time
 
-# Custom JSON encoder to handle NumPy types
-class NumpyEncoder(json.JSONEncoder):
-    """Special json encoder for numpy types"""
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return json.JSONEncoder.default(self, obj)
+from api.router import api_router
+from utils.health_monitor import get_health_monitor
 
-# Custom JSON Response class using our encoder
-class NumpyJSONResponse(JSONResponse):
-    """Custom JSONResponse to handle numpy types in API responses."""
-    def render(self, content: any) -> bytes:
-        return json.dumps(
-            content,
-            ensure_ascii=False,
-            allow_nan=False,
-            indent=None,
-            separators=(",", ":"),
-            cls=NumpyEncoder,
-        ).encode("utf-8")
-
-# Configure enhanced logging with visual indicators
+# Custom colored formatter for better log readability
 class ColoredFormatter(logging.Formatter):
-    """Custom formatter with colors and visual indicators"""
+    """Custom formatter with colors and emojis for better log readability"""
     
-    # ANSI color codes
     COLORS = {
-        'DEBUG': '\033[36m',      # Cyan
-        'INFO': '\033[32m',       # Green
-        'WARNING': '\033[33m',    # Yellow
-        'ERROR': '\033[31m',      # Red
-        'CRITICAL': '\033[35m',   # Magenta
-        'RESET': '\033[0m',       # Reset
-        'BOLD': '\033[1m',        # Bold
+        'DEBUG': '\033[36m',    # Cyan
+        'INFO': '\033[32m',     # Green
+        'WARNING': '\033[33m',  # Yellow
+        'ERROR': '\033[31m',    # Red
+        'CRITICAL': '\033[35m', # Magenta
+        'RESET': '\033[0m'      # Reset
+    }
+    
+    EMOJIS = {
+        'DEBUG': '🔍',
+        'INFO': 'ℹ️',
+        'WARNING': '⚠️',
+        'ERROR': '❌',
+        'CRITICAL': '🚨'
     }
     
     def format(self, record):
-        # Check if the message contains visual indicators
-        visual_indicators = ['🔍', '✅', '🔧', '🧬', '🔥', '⚡', '📊', '🎯', '🔄', '❌', '⚠️', '🏆', '📋', '📄', '🎨', '🚀', '💡']
-        has_indicator = any(indicator in record.getMessage() for indicator in visual_indicators)
+        # Add emoji and color to log level
+        emoji = self.EMOJIS.get(record.levelname, '')
+        color = self.COLORS.get(record.levelname, '')
+        reset = self.COLORS['RESET']
         
-        if has_indicator:
-            # For messages with visual indicators, use bold green for level only
-            level_color = self.COLORS['BOLD'] + self.COLORS['INFO']
-            reset = self.COLORS['RESET']
-            formatted = f"{level_color}[{record.levelname}]{reset} {record.getMessage()}"
-        else:
-            # For regular messages, use normal formatting
-            formatted = f"[{record.levelname}] {record.getMessage()}"
-        
-        return formatted
+        # Format the message
+        record.levelname = f"{color}{emoji} {record.levelname}{reset}"
+        return super().format(record)
 
 # Set up the custom logger
 def setup_logging():
@@ -108,72 +85,120 @@ def setup_logging():
 setup_logging()
 logger = logging.getLogger(__name__)
 
-# Create FastAPI application
+# Create FastAPI app
 app = FastAPI(
     title="Plattera API",
-    description="Legal document processing with modular LLM and OCR services",
+    description="Legal document processing and alignment API",
     version="2.0.0",
     docs_url="/docs",
-    redoc_url="/redoc",
-    default_response_class=NumpyJSONResponse
+    redoc_url="/redoc"
 )
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["*"],  # Configure appropriately for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include the central API router
+# Include API router
 app.include_router(api_router)
+
+# Global health monitor instance
+health_monitor = None
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize services on startup"""
-    logger.info("Starting Plattera API v2.0...")
+    """Initialize application on startup"""
+    global health_monitor
+    logger.info("🚀 Starting Plattera API Server")
     
-    # Import here to trigger service discovery
-    from services.registry import get_registry
-    registry = get_registry()
+    # Initialize health monitor
+    health_monitor = get_health_monitor()
+    logger.info("🏥 Health monitoring initialized")
     
-    logger.info("🔍 Discovering services...")
+    # Perform initial health check
+    health_status = health_monitor.check_system_health()
+    logger.info(f"🏥 Initial health check: {health_status['overall_status']}")
     
-    # Get detailed service information
-    llm_services = registry.get_llm_services()
-    ocr_services = registry.get_ocr_services()
-    service_info = registry.get_service_info()
+    logger.info("✅ Plattera API Server started successfully")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown"""
+    global health_monitor
+    logger.info("🛑 Shutting down Plattera API Server")
     
-    # Log LLM services with detailed model info
-    for name, service in llm_services.items():
-        models = service.get_models()
-        logger.info(f"✅ LLM: {name} ({len(models)} models)")
-        for model_id in models.keys():
-            logger.info(f"    🤖 {model_id}")
+    try:
+        # Perform final cleanup
+        if health_monitor:
+            logger.info("🧹 Performing final cleanup...")
+            cleanup_results = health_monitor.perform_cleanup(force=True)
+            if cleanup_results['status'] == 'completed':
+                logger.info("✅ Final cleanup completed successfully")
+            else:
+                logger.warning(f"⚠️ Final cleanup issues: {cleanup_results.get('errors', [])}")
+        
+        # Force garbage collection
+        import gc
+        collected = gc.collect()
+        logger.info(f"🧹 Final garbage collection: freed {collected} objects")
+        
+        logger.info("✅ Plattera API Server shutdown complete")
+        
+    except Exception as e:
+        logger.error(f"❌ Error during shutdown: {e}")
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    """Add processing time header to responses"""
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    return response
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Global exception handler with cleanup"""
+    logger.error(f"❌ Unhandled exception: {exc}")
     
-    # Log OCR services with detailed model info
-    for name, service in ocr_services.items():
-        models = service.get_models()
-        logger.info(f"✅ OCR: {name} ({len(models)} models)")
-        for model_id in models.keys():
-            logger.info(f"    🤖 {model_id}")
+    # Perform emergency cleanup on unhandled exceptions
+    try:
+        if health_monitor:
+            health_monitor.perform_cleanup(force=True)
+    except Exception as cleanup_error:
+        logger.error(f"❌ Emergency cleanup failed: {cleanup_error}")
     
-    logger.info(f"✅ Loaded {len(llm_services)} LLM services, {len(ocr_services)} OCR services")
-    logger.info(f"📊 Total models available: {service_info['total_models']}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "detail": str(exc) if app.debug else "An unexpected error occurred"
+        }
+    )
 
 @app.get("/")
 async def root():
     """Root endpoint"""
     return {
-        "message": "Plattera API v2.0 - Legal Document Processing",
+        "message": "Plattera API v2.0",
         "status": "running",
-        "documentation": "/docs",
-        "api_root": "/api"
+        "docs": "/docs",
+        "health": "/api/health"
     }
 
 if __name__ == "__main__":
-    import uvicorn
-    logger.info("Starting Plattera API v2.0...")
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    logger.info("🔧 Starting Plattera API Server in development mode")
+    
+    # Configure uvicorn settings
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info",
+        access_log=True
+    ) 
