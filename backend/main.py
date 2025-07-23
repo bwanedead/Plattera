@@ -75,11 +75,8 @@ def setup_logging():
     logging.getLogger('pipelines.image_to_text.alignment_engines.contextual_engine').setLevel(logging.WARNING)
     logging.getLogger('pipelines.image_to_text.alignment_engines.comparison_engine').setLevel(logging.WARNING)
     
-    # Force apply the custom formatter to all existing loggers
-    for logger_name in logging.Logger.manager.loggerDict:
-        logger_obj = logging.getLogger(logger_name)
-        logger_obj.handlers = []  # Clear handlers
-        logger_obj.addHandler(console_handler)  # Add our custom handler
+    # REMOVED: The problematic loop that was adding handlers to every logger
+    # This was causing triplicate logging due to propagation
 
 # Initialize logging
 setup_logging()
@@ -198,7 +195,7 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
+        reload=False,  # ← This will fix it
         log_level="info",
         access_log=True
     ) 

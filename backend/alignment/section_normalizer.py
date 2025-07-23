@@ -22,6 +22,20 @@ logger = logging.getLogger(__name__)
 _pat = re.compile(r"[^\w']+")
 _token_re = re.compile(r"\S+")
 
+# ----------------------------------------------------------------------
+#  ✂️  ESCAPE‑CODE / NEW‑LINE ARTIFACT REMOVAL
+# ----------------------------------------------------------------------
+_ARTIFACT_RE = re.compile(r"(?:\\\\?n\\\\?n|\\\\?n|/n/n|/n)+", re.IGNORECASE)
+
+def _clean_artifacts(text: str) -> str:
+    """
+    Collapse stray '\\n', '/n', '\\n\\n', '/n/n' etc.:
+        • replace each run with a single real newline
+        • then collapse any newline runs to one space
+    """
+    text = _ARTIFACT_RE.sub("\n", text)
+    return re.sub(r"\n+", " ", text).strip()
+
 def _norm(w: str) -> str:
     """lower + strip diacritics + remove punct"""
     w = unicodedata.normalize("NFKD", w).encode("ascii", "ignore").decode()
@@ -70,14 +84,15 @@ class SectionNormalizer:
     #  A.  Text used for ALIGNMENT     (header+body for FIRST section only)
     # ---------------------------------------------------------------------
     def _get_alignment_text(self, section: Dict) -> str:
-        hdr, body = section.get('header', ''), section.get('body', '')
-        return (hdr + " " + body).strip() if hdr else body
+        hdr, body = section.get("header", ""), section.get("body", "")
+        raw = (hdr + " " + body).strip() if hdr else body
+        return _clean_artifacts(raw)
 
     # ---------------------------------------------------------------------
     #  B.  Text saved back into JSON   (body-only, header lives in `header`)
     # ---------------------------------------------------------------------
     def _get_section_text(self, section: Dict) -> str:
-        return section.get('body', '')
+        return _clean_artifacts(section.get("body", ""))
     
     def _best_boundary(self,
                        tokens: list[str],
@@ -557,6 +572,28 @@ class SectionNormalizer:
                 }
                 sections.append(new_section)
             prev_pos = pos
+        
+        # ------------------------------------------------------------------
+        # 🛡️  Sanity check – verify we kept every character
+        joined = "".join(
+            (s["header"] + " " if s["header"] else "") + s["body"] for s in sections
+        ).strip()
+
+        if _norm(joined) != _norm(local_text):
+            logger.warning("⚠️  Split dropped content – reverting to single chunk")
+            sections = [{
+                "id": target_indices[0] + 1,
+                "header": current_section.get("header"),
+                "body": local_text.strip()
+            }]
+            # placeholders so section‑count still matches template
+            for extra_idx in target_indices[1:]:
+                sections.append({
+                    "id": extra_idx + 1,
+                    "header": None,
+                    "body": "[Content folded into previous section]"
+                })
+        # ------------------------------------------------------------------
         
         return sections
     
