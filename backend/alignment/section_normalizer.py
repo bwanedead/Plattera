@@ -25,7 +25,7 @@ _token_re = re.compile(r"\S+")
 # ----------------------------------------------------------------------
 #  ✂️  ESCAPE‑CODE / NEW‑LINE ARTIFACT REMOVAL
 # ----------------------------------------------------------------------
-_ARTIFACT_RE = re.compile(r"(?:\\\\?n\\\\?n|\\\\?n|/n/n|/n)+", re.IGNORECASE)
+_ARTIFACT_RE = re.compile(r"(?:\r\n|\r|\n|\\+n|/n)+", re.IGNORECASE)
 
 def _clean_artifacts(text: str) -> str:
     """
@@ -40,6 +40,10 @@ def _norm(w: str) -> str:
     """lower + strip diacritics + remove punct"""
     w = unicodedata.normalize("NFKD", w).encode("ascii", "ignore").decode()
     return _pat.sub("", w.lower())
+
+def _norm_nospace(t: str) -> str:
+    """normalize with space normalization"""
+    return _norm(re.sub(r"\s+", " ", t).strip())
 
 def _jaccard(a: list[str], b: list[str]) -> float:
     """Compute Jaccard similarity between two token lists."""
@@ -101,6 +105,9 @@ class SectionNormalizer:
         """
         Return token-index that maximises suffix/prefix Jaccard similarity.
         """
+        # Dynamic Jaccard window based on template lengths
+        window = max(4, min(8, len(left_tmpl)//2, len(right_tmpl)//2))
+        
         best_k, best_score = 0, -1.0
         for k in range(1, len(tokens)):             # gap between tokens[k-1] | tokens[k]
             left_slice  = tokens[max(0, k-window):k]
@@ -164,6 +171,15 @@ class SectionNormalizer:
             
             self._update_stats(len(draft_jsons), total_normalized)
             logger.info(f"✅ NORMALIZATION COMPLETE ► All drafts now have {max_sections} sections")
+            
+            # Global invariant check
+            for d in normalized_drafts:
+                if len(d["sections"]) != max_sections:
+                    raise RuntimeError(
+                        f"Invariant failed: {len(d['sections'])} vs {max_sections} "
+                        f"({d.get('draft_id','?')})"
+                    )
+            
             return normalized_drafts
             
         except Exception as e:
@@ -289,6 +305,10 @@ class SectionNormalizer:
             last_current = len(current_sections) - 1
             mapping_dict[last_current].extend(sorted(unmapped_targets))
             logger.info(f"   🔧 Added unmapped targets {sorted(unmapped_targets)} to current section {last_current}")
+        
+        # Guarantee first-section mapping without duplication
+        if 0 not in mapping_dict[0]:
+            mapping_dict[0].insert(0, 0)
         
         mapping = [(k, sorted(mapping_dict[k])) for k in sorted(mapping_dict) if mapping_dict[k]]
         
@@ -457,6 +477,62 @@ class SectionNormalizer:
                     return start_char + delta
         return start_char
 
+    def _split_single_section(self, current_section: Dict, target_group: List[Dict], target_indices: List[int]) -> List[Dict]:
+        """Split one section into multiple using token-based boundary scoring."""
+        local_text = self._get_alignment_text(current_section)
+        group_texts = [self._get_alignment_text(s) for s in target_group]
+        
+        # Tokenize once, with positions
+        tokens, starts = _tokenise_with_pos(local_text)
+        tmpl_tokens = [gt.split() for gt in group_texts]
+        
+        start_tok = 0
+        split_points = []
+        
+        for i in range(len(target_group) - 1):
+            left_tmpl = tmpl_tokens[i]
+            right_tmpl = tmpl_tokens[i + 1]
+            
+            # Find best boundary
+            best_k = self._best_boundary(tokens[start_tok:], left_tmpl, right_tmpl)
+            
+            # Convert to character position using real offsets
+            char_pos = starts[start_tok + best_k]  # exact location in original text
+            
+            # Optional: still snap to whitespace if needed
+            char_pos = self._snap_to_boundary(local_text, char_pos)
+            
+            split_points.append(char_pos)
+            start_tok += best_k
+        
+        # Validate split points before slicing
+        split_points = self._validate_split_points(local_text, group_texts, split_points)
+        
+        # Create sections from split points
+        sections = []
+        prev_pos = 0
+        
+        for i, pos in enumerate(split_points + [len(local_text)]):
+            section_text = local_text[prev_pos:pos]
+            if section_text:
+                new_section = {
+                    "id": target_indices[i] + 1,
+                    "body": section_text
+                }
+                sections.append(new_section)
+            prev_pos = pos
+        
+        # ------------------------------------------------------------------
+        # 🛡️  Sanity check – verify we kept every character
+        joined = "".join(s["body"] for s in sections)
+
+        if _clean_artifacts(joined) != _clean_artifacts(local_text):
+            logger.error("Split dropped/altered bytes – reverting")
+            return [{"id": target_indices[0]+1, "body": local_text}]
+        # ------------------------------------------------------------------
+        
+        return sections
+
     def _split_sections_using_mapping(self, current_sections: List[Dict], target_sections: List[Dict], 
                                       mapping: List[Tuple[int, List[int]]]) -> List[Dict]:
         """Split sections based on mapping."""
@@ -508,13 +584,28 @@ class SectionNormalizer:
         # Handle any remaining None values by creating placeholder sections
         for i, section in enumerate(all_sections):
             if section is None:
-                logger.warning(f"   🔧 Creating placeholder section for missing target {i}")
-                all_sections[i] = {
-                    "id": i + 1,
-                    "body": f"[Placeholder section {i + 1}]"
-                }
+                raise RuntimeError(f"Unfillable target slot {i} – split failed; aborting to avoid placeholders")
         
-        # Remove None values and return (should be none now)
+        # collapse norm‑identical duplicates
+        seen = {}
+        for i, s in enumerate(all_sections):
+            if s is None:
+                continue
+            norm = _norm(s["body"])
+            if norm in seen:
+                # keep longer body
+                if len(s["body"]) > len(all_sections[seen[norm]]["body"]):
+                    all_sections[seen[norm]] = s
+                all_sections[i] = None
+            else:
+                seen[norm] = i
+        
+        # Dedup re-ID
+        for i, s in enumerate(all_sections):
+            if s is not None:
+                s['id'] = i + 1
+        
+        # Remove None values and return
         normalized = [section for section in all_sections if section is not None]
         
         # Ensure we have the right number of sections
@@ -522,68 +613,6 @@ class SectionNormalizer:
             logger.warning(f"   ⚠️ Expected {len(target_sections)} sections, got {len(normalized)}")
         
         return normalized
-    
-    def _split_single_section(self, current_section: Dict, target_group: List[Dict], target_indices: List[int]) -> List[Dict]:
-        """Split one section into multiple using token-based boundary scoring."""
-        local_text = self._get_alignment_text(current_section)
-        group_texts = [self._get_alignment_text(s) for s in target_group]
-        
-        # Tokenize once, with positions
-        tokens, starts = _tokenise_with_pos(local_text)
-        tmpl_tokens = [gt.split() for gt in group_texts]
-        
-        split_points = []
-        start_tok = 0
-        
-        for i in range(len(target_group) - 1):
-            left_tmpl = tmpl_tokens[i]
-            right_tmpl = tmpl_tokens[i + 1]
-            
-            # Find best boundary
-            best_k = self._best_boundary(tokens[start_tok:], left_tmpl, right_tmpl)
-            
-            # Convert to character position using real offsets
-            char_pos = starts[start_tok + best_k]  # exact location in original text
-            
-            # Optional: still snap to whitespace if needed
-            char_pos = self._snap_to_boundary(local_text, char_pos)
-            
-            split_points.append(char_pos)
-            start_tok += best_k
-        
-        # Create sections from split points
-        sections = []
-        prev_pos = 0
-        
-        for i, pos in enumerate(split_points + [len(local_text)]):
-            section_text = local_text[prev_pos:pos].strip()
-            if section_text:
-                new_section = {
-                    "id": target_indices[i] + 1,
-                    "body": section_text
-                }
-                sections.append(new_section)
-            prev_pos = pos
-        
-        # ------------------------------------------------------------------
-        # 🛡️  Sanity check – verify we kept every character
-        joined = "".join(s["body"] for s in sections).strip()
-
-        if _norm(joined) != _norm(local_text):
-            logger.warning("⚠️  Split dropped content – reverting to single chunk")
-            sections = [{
-                "id": target_indices[0] + 1,
-                "body": local_text.strip()
-            }]
-            # placeholders so section‑count still matches template
-            for extra_idx in target_indices[1:]:
-                sections.append({
-                    "id": extra_idx + 1,
-                    "body": "[Content folded into previous section]"
-                })
-        # ------------------------------------------------------------------
-        
-        return sections
     
     def _reconstruct_draft_json(self, original_draft: Dict[str, Any], normalized_sections: List[Dict]) -> Dict[str, Any]:
         """Reconstruct draft JSON with normalized sections."""
