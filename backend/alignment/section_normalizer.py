@@ -120,76 +120,77 @@ class SectionNormalizer:
 
     def normalize_draft_sections(self, draft_jsons: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Main entry point: normalize section counts across all drafts.
+        Normalize all drafts to have the same section count as the most granular draft.
         
         Args:
-            draft_jsons: List of draft dictionaries
+            draft_jsons: List of draft JSON objects
             
         Returns:
-            List of normalized draft dictionaries with consistent section counts
+            List of normalized draft JSON objects with consistent section counts
         """
         logger.info(f"🔧 SECTION NORMALIZER ► Processing {len(draft_jsons)} drafts for section consistency")
         
-        try:
-            # Extract section data from each draft
-            draft_sections = []
-            for i, draft_json in enumerate(draft_jsons):
+        # Add draft_id to each draft if missing
+        for i, draft in enumerate(draft_jsons):
+            if 'draft_id' not in draft:
+                draft['draft_id'] = f"Draft_{i+1}"
+        
+        # Parse sections from each draft
+        parsed_drafts = []
+        for i, draft_json in enumerate(draft_jsons):
+            try:
                 sections = self._extract_sections_from_draft(draft_json, f"Draft_{i+1}")
-                draft_sections.append(sections)
+                parsed_drafts.append({
+                    'draft_json': draft_json,
+                    'sections': sections,
+                    'draft_id': draft_json.get('draft_id', f'Draft_{i+1}')
+                })
+                logger.info(f"Draft {draft_json.get('draft_id', f'Draft_{i+1}')}: Found {len(sections)} pre-parsed sections")
                 logger.info(f"   📋 Draft {i+1}: {len(sections)} sections")
+            except Exception as e:
+                logger.warning(f"Draft {draft_json.get('draft_id', f'Draft_{i+1}')}: Could not parse JSON: {e}")
+                logger.info(f"   📋 Draft {i+1}: 0 sections")
+                parsed_drafts.append({
+                    'draft_json': draft_json,
+                    'sections': [],
+                    'draft_id': draft_json.get('draft_id', f'Draft_{i+1}')
+                })
+        
+        # Find the draft with the most sections (target template)
+        target_draft = max(parsed_drafts, key=lambda x: len(x['sections']))
+        target_sections = target_draft['sections']
+        max_sections = len(target_sections)
+        
+        logger.info(f"🎯 TARGET DRAFT ► {target_draft['draft_id']} with {max_sections} sections will be the template")
+        
+        # Normalize each draft
+        normalized_drafts = []
+        for i, parsed_draft in enumerate(parsed_drafts):
+            current_sections = parsed_draft['sections']
+            current_draft_json = parsed_draft['draft_json']
+            draft_id = parsed_draft['draft_id']
             
-            # Check if normalization is needed
-            section_counts = [len(sections) for sections in draft_sections]
-            if len(set(section_counts)) <= 1:
-                logger.info(f"   ✅ All drafts have the same section count ({section_counts[0]}), no normalization needed")
-                self._update_stats(len(draft_jsons), 0)
-                return draft_jsons
-            
-            # Find the draft with the most sections (our target)
-            max_sections = max(section_counts)
-            target_draft_idx = section_counts.index(max_sections)
-            target_sections = draft_sections[target_draft_idx]
-            
-            logger.info(f"🎯 TARGET DRAFT ► Draft {target_draft_idx + 1} with {max_sections} sections will be the template")
-            
-            # Normalize drafts that need it
-            normalized_drafts = []
-            total_normalized = 0
-            
-            for i, (draft_json, sections) in enumerate(zip(draft_jsons, draft_sections)):
-                if len(sections) == max_sections:
-                    logger.info(f"   ✅ Draft {i+1}: Already has {max_sections} sections, no changes")
-                    normalized_drafts.append(draft_json)
-                else:
-                    logger.info(f"   🔄 Draft {i+1}: Normalizing {len(sections)} → {max_sections} sections")
-                    normalized_draft = self._normalize_single_draft(draft_json, sections, target_sections, f"Draft_{i+1}")
-                    normalized_drafts.append(normalized_draft)
-                    total_normalized += 1
-                    
-                    # Perform memory cleanup after each normalization
-                    self._perform_memory_cleanup()
-            
-            self._update_stats(len(draft_jsons), total_normalized)
-            logger.info(f"✅ NORMALIZATION COMPLETE ► All drafts now have {max_sections} sections")
-            
-            # Global invariant check
-            for d in normalized_drafts:
-                if len(d["sections"]) != max_sections:
-                    raise RuntimeError(
-                        f"Invariant failed: {len(d['sections'])} vs {max_sections} "
-                        f"({d.get('draft_id','?')})"
-                    )
-            
-            return normalized_drafts
-            
-        except Exception as e:
-            logger.error(f"❌ SECTION NORMALIZER ERROR: {e}")
-            # Emergency cleanup on error
-            self._perform_memory_cleanup(force=True)
-            raise
-        finally:
-            # Final cleanup
-            self._perform_memory_cleanup(force=True)
+            if len(current_sections) == max_sections:
+                logger.info(f"   ✅ {draft_id}: Already has {max_sections} sections, no changes")
+                # Just ensure draft_id is preserved
+                normalized_draft = self._reconstruct_draft_json(current_draft_json, current_sections)
+                normalized_drafts.append(normalized_draft)
+            else:
+                logger.info(f"   🔄 {draft_id}: Normalizing {len(current_sections)} → {max_sections} sections")
+                normalized_draft = self._normalize_single_draft(
+                    current_draft_json, current_sections, target_sections, draft_id
+                )
+                normalized_drafts.append(normalized_draft)
+        
+        # Global invariant check
+        for d in normalized_drafts:
+            # Check both possible field names for sections
+            sections = d.get('sections', [])
+            if len(sections) != max_sections:
+                raise RuntimeError(f"Invariant violation: Draft {d.get('draft_id', 'Unknown')} has {len(sections)} sections, expected {max_sections}")
+        
+        logger.info(f"✅ NORMALIZATION COMPLETE ► All drafts now have {max_sections} sections")
+        return normalized_drafts
     
     def _update_stats(self, drafts_processed: int, sections_normalized: int) -> None:
         """Update processing statistics."""
@@ -615,15 +616,27 @@ class SectionNormalizer:
         return normalized
     
     def _reconstruct_draft_json(self, original_draft: Dict[str, Any], normalized_sections: List[Dict]) -> Dict[str, Any]:
-        """Reconstruct draft JSON with normalized sections."""
+        """Reconstruct draft JSON with normalized sections in alignment pipeline format."""
         reconstructed = original_draft.copy()
+        
+        # Convert sections to blocks format expected by alignment pipeline
+        blocks = []
+        for section in normalized_sections:
+            section_id = section.get('id', 1)
+            section_body = section.get('body', '')
+            blocks.append({
+                'id': f'section_{section_id}',
+                'text': section_body
+            })
+        
+        # Update with normalized blocks
+        reconstructed['blocks'] = blocks
+        
+        # Preserve sections for compatibility
         reconstructed['sections'] = normalized_sections
         
-        # Reassign consecutive IDs
-        for i, section in enumerate(reconstructed['sections']):
-            section['id'] = i + 1
-        
+        # Ensure draft_id is preserved (critical for alignment pipeline)
         if 'draft_id' not in reconstructed:
-            reconstructed['draft_id'] = f"normalized_draft_{id(reconstructed)}"
+            reconstructed['draft_id'] = f"Draft_{len(reconstructed.get('sections', []))}"
         
         return reconstructed 

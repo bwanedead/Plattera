@@ -59,13 +59,16 @@ Schema:
 
 SECTIONING RULES:
 1. Use consecutive integers starting at 1 for "id".
-2. Break the document into logical sections based on clear, major content boundaries (such as new paragraphs, major clauses, or explicit section titles).
-3. **Include titles and headers in the body text** - don't separate them into headers.
+2. **COMBINE HEADERS WITH FIRST SECTION**: Any document title, header, or document ID should be included at the beginning of section 1's body text. Do NOT create separate sections for headers, titles, or document identifiers.
+3. **Section on natural breaks**: Create new sections based on:
+   - Clear paragraph breaks and line breaks
+   - Major clauses or distinct legal concepts
+   - Logical content divisions in the document
+   - Substantial changes in content flow
 4. **Keep section boundaries consistent:** If you see a similar structure or repeated format, use the same sectioning logic for each occurrence.
-5. **Avoid splitting sections for minor formatting changes** (such as line indents, small context shifts, or single blank lines). Only split when there is a clear, meaningful break in content.
-6. Each "body" must contain the actual transcribed text content, preserving original line breaks.
-7. Never insert or omit a section arbitrarily; reflect every change in the numbering.
-8. Ensure ultra-precise transcription—every number, figure, and detail must be preserved exactly.
+5. Each "body" must contain the actual transcribed text content, preserving original line breaks.
+6. Never insert or omit a section arbitrarily; reflect every change in the numbering.
+7. Ensure ultra-precise transcription—every number, figure, and detail must be preserved exactly.
 
 **Consistency is critical:** Imagine that multiple experts are transcribing the same document in parallel. Your sectioning should be so clear and logical that all experts would produce the same number and boundaries of sections.
 
