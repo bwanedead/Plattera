@@ -81,15 +81,14 @@ class SectionNormalizer:
         }
     
     # ---------------------------------------------------------------------
-    #  A.  Text used for ALIGNMENT     (header+body for FIRST section only)
+    #  A.  Text used for ALIGNMENT     (body only, no header)
     # ---------------------------------------------------------------------
     def _get_alignment_text(self, section: Dict) -> str:
-        hdr, body = section.get("header", ""), section.get("body", "")
-        raw = (hdr + " " + body).strip() if hdr else body
-        return _clean_artifacts(raw)
+        body = section.get("body", "")
+        return _clean_artifacts(body)
 
     # ---------------------------------------------------------------------
-    #  B.  Text saved back into JSON   (body-only, header lives in `header`)
+    #  B.  Text saved back into JSON   (body-only)
     # ---------------------------------------------------------------------
     def _get_section_text(self, section: Dict) -> str:
         return _clean_artifacts(section.get("body", ""))
@@ -512,7 +511,6 @@ class SectionNormalizer:
                 logger.warning(f"   🔧 Creating placeholder section for missing target {i}")
                 all_sections[i] = {
                     "id": i + 1,
-                    "header": None,
                     "body": f"[Placeholder section {i + 1}]"
                 }
         
@@ -560,37 +558,27 @@ class SectionNormalizer:
         for i, pos in enumerate(split_points + [len(local_text)]):
             section_text = local_text[prev_pos:pos].strip()
             if section_text:
-                hdr = current_section.get('header') if i == 0 else None
-                # Strip header from body if it's duplicated
-                if hdr and section_text.startswith(hdr):
-                    section_text = section_text[len(hdr):].strip()
-                
                 new_section = {
                     "id": target_indices[i] + 1,
-                    "body": section_text,
-                    "header": hdr
+                    "body": section_text
                 }
                 sections.append(new_section)
             prev_pos = pos
         
         # ------------------------------------------------------------------
         # 🛡️  Sanity check – verify we kept every character
-        joined = "".join(
-            (s["header"] + " " if s["header"] else "") + s["body"] for s in sections
-        ).strip()
+        joined = "".join(s["body"] for s in sections).strip()
 
         if _norm(joined) != _norm(local_text):
             logger.warning("⚠️  Split dropped content – reverting to single chunk")
             sections = [{
                 "id": target_indices[0] + 1,
-                "header": current_section.get("header"),
                 "body": local_text.strip()
             }]
             # placeholders so section‑count still matches template
             for extra_idx in target_indices[1:]:
                 sections.append({
                     "id": extra_idx + 1,
-                    "header": None,
                     "body": "[Content folded into previous section]"
                 })
         # ------------------------------------------------------------------

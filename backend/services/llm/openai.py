@@ -311,10 +311,9 @@ class OpenAIService(LLMService):
                                             "type": "object",
                                             "properties": {
                                                 "id": {"type": "integer"},
-                                                "header": {"type": ["string", "null"]},
                                                 "body": {"type": "string"}
                                             },
-                                            "required": ["id", "header", "body"],
+                                            "required": ["id", "body"],
                                             "additionalProperties": False
                                         }
                                     }
@@ -526,14 +525,11 @@ class OpenAIService(LLMService):
                                             "id": {
                                                 "type": "integer"
                                             },
-                                            "header": {
-                                                "type": ["string", "null"]
-                                            },
                                             "body": {
                                                 "type": "string"
                                             }
                                         },
-                                        "required": ["id", "header", "body"],
+                                        "required": ["id", "body"],
                                         "additionalProperties": False
                                     }
                                 }

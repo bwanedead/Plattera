@@ -181,10 +181,9 @@ class JsonDraftTokenizer:
                     if section_id is None:
                         continue
                     
-                    # Combine header and body to form the text for this section.
-                    header = section.get('header') or ""
+                    # Use body text directly (no header combination needed)
                     body = section.get('body') or ""
-                    section_text = f"{header} {body}".strip()
+                    section_text = body.strip()
 
                     # Use a consistent block ID, e.g., "section_1"
                     block_id_key = f"section_{section_id}"
