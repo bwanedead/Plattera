@@ -123,19 +123,57 @@ export const alignDraftsAPI = async (drafts: AlignmentDraft[], consensusStrategy
     return data;
   } catch (error) {
     console.error('Alignment API error:', error);
+    // Fix the property name in the fallback object
     return {
       success: false,
       processing_time: 0,
       summary: {
-        total_positions: 0,
-        total_differences: 0,
-        average_confidence: 0,
+        total_positions_analyzed: 0,  // ← Fix: Change from total_positions to total_positions_analyzed
+        total_differences_found: 0,   // ← Fix: Change from total_differences to total_differences_found
+        average_confidence_score: 0,  // ← Fix: Change from average_confidence to average_confidence_score
         quality_assessment: 'Failed',
-        high_confidence_positions: 0,
-        medium_confidence_positions: 0,
-        low_confidence_positions: 0
+        confidence_distribution: {     // ← Fix: Use the correct structure
+          high: 0,
+          medium: 0,
+          low: 0
+        }
       },
       error: error instanceof Error ? error.message : 'Unknown alignment error'
     };
   }
+}; 
+
+// Update the API call to use the new endpoint
+
+export const selectFinalDraftAPI = async (
+  redundancyAnalysis: any,
+  selectedDraft: number | 'consensus' | 'best',
+  alignmentResult?: any,
+  editedDraftContent?: string,
+  editedFromDraft?: number | 'consensus' | 'best'
+): Promise<any> => {
+  const formData = new FormData();
+  formData.append('redundancy_analysis', JSON.stringify(redundancyAnalysis));
+  formData.append('selected_draft', selectedDraft.toString());
+  
+  if (alignmentResult) {
+    formData.append('alignment_result', JSON.stringify(alignmentResult));
+  }
+  if (editedDraftContent) {
+    formData.append('edited_draft_content', editedDraftContent);
+  }
+  if (editedFromDraft) {
+    formData.append('edited_from_draft', editedFromDraft.toString());
+  }
+
+  const response = await fetch('http://localhost:8000/api/final-draft/select-final-draft', {
+    method: 'POST',
+    body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  return response.json();
 }; 

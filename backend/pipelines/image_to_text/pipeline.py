@@ -78,7 +78,7 @@ from prompts.image_to_text import get_image_to_text_prompt
 import base64
 from pathlib import Path
 import logging
-from typing import Tuple
+from typing import Tuple, Dict, Any, Optional, Union
 from pipelines.image_to_text.image_processor import enhance_for_character_recognition
 from pipelines.image_to_text.redundancy import RedundancyProcessor
 
@@ -345,5 +345,42 @@ class ImageToTextPipeline:
                 "success": False,
                 "error": f"Redundancy processing failed: {str(e)}"
             }
+
+    async def select_final_draft(
+        self,
+        redundancy_analysis: Dict[str, Any],
+        alignment_result: Optional[Dict[str, Any]] = None,
+        selected_draft: Union[int, str] = 'consensus',
+        edited_draft_content: Optional[str] = None,
+        edited_from_draft: Optional[Union[int, str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Select the final draft output from the image-to-text pipeline.
+        
+        Args:
+            redundancy_analysis: Results from redundancy analysis
+            alignment_result: Optional alignment results (for consensus)
+            selected_draft: Which draft to select ('consensus', 'best', or draft index)
+            edited_draft_content: Optional edited content
+            edited_from_draft: Which draft was edited (if applicable)
+            
+        Returns:
+            Final draft selection result
+        """
+        logger.info(f" FINAL DRAFT SELECTION REQUEST ► Draft: {selected_draft}")
+        
+        from .final_draft_selector import FinalDraftSelector
+        selector = FinalDraftSelector()
+        
+        final_result = selector.select_final_draft(
+            redundancy_analysis=redundancy_analysis,
+            alignment_result=alignment_result,
+            selected_draft=selected_draft,
+            edited_draft_content=edited_draft_content,
+            edited_from_draft=edited_from_draft
+        )
+        
+        logger.info(f"✅ FINAL DRAFT SELECTION COMPLETE ► Method: {final_result['selection_method']}")
+        return final_result
 
  

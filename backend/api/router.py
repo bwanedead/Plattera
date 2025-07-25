@@ -3,7 +3,7 @@ Central API Router
 Combines all API endpoints into a single router for main.py
 """
 from fastapi import APIRouter
-from api.endpoints import models, processing, system, alignment, consensus
+from api.endpoints import models, processing, system, alignment, consensus, final_draft
 
 # Create the main API router
 api_router = APIRouter()
@@ -14,6 +14,7 @@ api_router.include_router(processing.router, prefix="/api", tags=["processing"])
 api_router.include_router(system.router, prefix="/api", tags=["system"])
 api_router.include_router(alignment.router, prefix="/api/alignment", tags=["alignment"])
 api_router.include_router(consensus.router, prefix="/api/consensus", tags=["consensus"])
+api_router.include_router(final_draft.router, prefix="/api/final-draft", tags=["final-draft"])
 
 # Quick access to pipeline-specific endpoints for backwards compatibility
 api_router.include_router(models.router, prefix="/api/image-to-text", tags=["image-to-text"])
@@ -31,6 +32,7 @@ async def api_root():
             "processing": "/api/process - Process content through pipelines",
             "alignment": "/api/alignment/align-drafts - Align legal document drafts",
             "consensus": "/api/consensus/generate-consensus - Generate consensus drafts from alignment results",
+            "final_draft": "/api/final-draft/select-final-draft - Select final draft output",
             "health": "/api/health - System health check",
             "services": "/api/services - Service status",
             "processing_types": "/api/process/types - Available processing types"
