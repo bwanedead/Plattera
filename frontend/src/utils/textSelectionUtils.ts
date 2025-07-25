@@ -54,9 +54,17 @@ const extractFormattedTextFromAlignment = (alignmentResult: any, selectedDraft: 
         console.log(`🔍 FRONTEND DEBUG: Using fallback array index ${selectedDraft}`);
         selectedSequence = alignedSequences[selectedDraft];
       }
-    } else if (selectedDraft === 'consensus' || selectedDraft === 'best') {
-      console.log(`🔍 FRONTEND DEBUG: Using first sequence for ${selectedDraft}`);
-      // For consensus/best, use the first sequence as default
+    } else if (selectedDraft === 'consensus') {
+      console.log(`🔍 FRONTEND DEBUG: Looking for consensus sequence`);
+      // Find consensus sequence specifically
+      selectedSequence = alignedSequences.find((seq: any) => seq.draft_id === 'consensus');
+      if (!selectedSequence) {
+        console.log(`⚠️ FRONTEND DEBUG: No consensus sequence found, using first sequence as fallback`);
+        selectedSequence = alignedSequences[0];
+      }
+    } else if (selectedDraft === 'best') {
+      console.log(`🔍 FRONTEND DEBUG: Using first sequence for best`);
+      // For best, use the first sequence as default
       selectedSequence = alignedSequences[0];
     }
 

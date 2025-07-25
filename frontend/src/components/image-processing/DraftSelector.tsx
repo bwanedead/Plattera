@@ -125,6 +125,7 @@ If this component breaks, heatmap feature will lose:
 
 import React, { useState } from 'react';
 import { AnimatedBorder } from '../AnimatedBorder';
+import { AlignmentResult } from '../../types/imageProcessing';
 
 // CRITICAL INTERFACE - Required for heatmap feature data flow
 interface DraftSelectorProps {
@@ -142,12 +143,14 @@ interface DraftSelectorProps {
   };
   onDraftSelect: (draftIndex: number | 'consensus' | 'best') => void; // ← CRITICAL: Heatmap text switching
   selectedDraft: number | 'consensus' | 'best';                       // ← CRITICAL: Heatmap display coordination
+  alignmentResult?: AlignmentResult | null;                           // ← NEW: Optional - only available after alignment
 }
 
 export const DraftSelector: React.FC<DraftSelectorProps> = ({
   redundancyAnalysis,
   onDraftSelect,
-  selectedDraft
+  selectedDraft,
+  alignmentResult
 }) => {
   // CRITICAL STATE VARIABLES - DO NOT RENAME (heatmap positioning depends on these)
   const [isVisible, setIsVisible] = useState(false);
@@ -163,6 +166,12 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
   const totalDrafts = successfulResults.length;
   const bestDraftIndex = redundancyAnalysis.best_result_index;
 
+  // Check for consensus availability from alignment results (only if alignmentResult exists)
+  const hasAlignmentConsensus = alignmentResult?.alignment_results?.blocks && 
+    Object.values(alignmentResult.alignment_results.blocks).some((block: any) => 
+      block.aligned_sequences?.some((seq: any) => seq.draft_id === 'consensus')
+    );
+
   // Show selector even for single draft (transparency about what user is viewing)
   // Only hide if no successful results at all
   if (totalDrafts === 0) {
@@ -175,9 +184,11 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
     setIsDropdownOpen(false);
   };
 
-  // CRITICAL LABELING FUNCTION - Updated to remove "best" option and add stars
+  // CRITICAL LABELING FUNCTION - Updated to support consensus from alignment
   const getCurrentDraftLabel = () => {
-    if (selectedDraft === 'consensus') return 'Consensus';
+    if (selectedDraft === 'consensus') {
+      return hasAlignmentConsensus ? 'Consensus Draft 🎯' : 'Consensus';
+    }
     if (selectedDraft === 'best') return `Draft ${bestDraftIndex + 1} ⭐`; // Fallback for existing "best" selections
     const draftNumber = selectedDraft + 1;
     const isBest = selectedDraft === bestDraftIndex;
@@ -206,7 +217,8 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
             onMouseEnter={() => setIsHovered(true)}    // ← CRITICAL: AnimatedBorder dependency
             onMouseLeave={() => setIsHovered(false)}   // ← CRITICAL: AnimatedBorder dependency
           >
-            {totalDrafts}  {/* ← CRITICAL: Heatmap feature depends on draft count display */}
+            {totalDrafts}
+            {hasAlignmentConsensus && <span className="consensus-indicator">+C</span>}
           </button>
         </AnimatedBorder>
       </div>
@@ -216,11 +228,14 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
   // CRITICAL EXPANDED STATE - Position: top: 60px, right: 40px (DO NOT MODIFY)
   return (
     <div className="draft-selector-expanded">  {/* ← CRITICAL CSS CLASS - positioning reference */}
-      <div className="draft-selector-header">
-        <div className="draft-header-left">
-          <span className="draft-label">Drafts</span>
-          <span className="draft-count-badge">{totalDrafts}</span>  {/* ← CRITICAL: Heatmap needs draft count */}
-        </div>
+                <div className="draft-selector-header">
+            <div className="draft-header-left">
+              <span className="draft-label">Drafts</span>
+              <span className="draft-count-badge">
+                {totalDrafts}
+                {hasAlignmentConsensus && <span className="consensus-indicator">+C</span>}
+              </span>  {/* ← CRITICAL: Heatmap needs draft count */}
+            </div>
         <button 
           className="draft-close-btn"
           onClick={toggleVisibility}
@@ -258,14 +273,18 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
             );
           })}
           
-          {/* OPTIONAL: Keep consensus option if available */}
-          {redundancyAnalysis.consensus_text && (
+          {/* Consensus option - show if available from alignment or redundancy */}
+          {(hasAlignmentConsensus || redundancyAnalysis.consensus_text) && (
             <div 
-              className={`draft-item ${selectedDraft === 'consensus' ? 'active' : ''}`}
+              className={`draft-item consensus-item ${selectedDraft === 'consensus' ? 'active' : ''}`}
               onClick={() => handleDraftSelect('consensus')}
             >
-              <span className="draft-name">Consensus</span>
-              <span className="draft-desc">Combined</span>
+              <span className="draft-name">
+                {hasAlignmentConsensus ? 'Consensus Draft 🎯' : 'Consensus'}
+              </span>
+              <span className="draft-desc">
+                {hasAlignmentConsensus ? 'From alignment' : 'Combined'}
+              </span>
             </div>
           )}
         </div>

@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { AlignmentState, AlignmentDraft, AlignmentResult } from '../types/imageProcessing';
 import { alignDraftsAPI } from '../services/imageProcessingApi';
+import { generateConsensusDrafts } from '../services/consensusApi';
 
 export const useAlignmentState = () => {
   const [alignmentState, setAlignmentState] = useState<AlignmentState>({
@@ -45,6 +46,20 @@ export const useAlignmentState = () => {
       const alignmentResult = await alignDraftsAPI(drafts, selectedConsensusStrategy);
 
       console.log('📊 Alignment result received:', alignmentResult);
+
+      // Generate consensus drafts after successful alignment
+      if (alignmentResult.success && alignmentResult.alignment_results) {
+        try {
+          const consensusResult = await generateConsensusDrafts(alignmentResult.alignment_results);
+          if (consensusResult.success && consensusResult.enhanced_alignment_results) {
+            // Update the alignment result with consensus data
+            alignmentResult.alignment_results = consensusResult.enhanced_alignment_results;
+          }
+        } catch (error) {
+          console.warn('Failed to generate consensus drafts:', error);
+          // Continue with original alignment result if consensus fails
+        }
+      }
 
       setAlignmentState(prev => ({
         ...prev,

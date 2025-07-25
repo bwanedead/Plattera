@@ -232,6 +232,23 @@ If this CSS breaks, heatmap feature will lose:
   font-weight: 600;
   padding: 1px 5px;
   border-radius: 8px;
+  position: relative;
+}
+
+.consensus-indicator {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background: #22c55e;
+  color: white;
+  border-radius: 50%;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: bold;
 }
 
 .draft-close-btn {

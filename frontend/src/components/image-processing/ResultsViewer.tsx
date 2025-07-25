@@ -187,6 +187,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   }
                   onDraftSelect={onDraftSelect}
                   selectedDraft={selectedDraft}
+                  alignmentResult={alignmentResult}  // ← NEW: Pass alignmentResult (may be null initially)
                 />
 
                 {/* Edit Toggle Button - shown when there are unsaved changes */}
