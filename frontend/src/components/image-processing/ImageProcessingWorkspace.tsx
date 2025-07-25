@@ -15,6 +15,7 @@ import { useDraftSelection } from '../../hooks/useDraftSelection';
 import { useEditableDraft } from '../../hooks/useEditableDraft';
 import { isJsonResult, formatJsonAsText } from '../../utils/jsonFormatter';
 import { getCurrentText, getRawText, getOriginalJsonText, getNormalizedSectionsText, hasNormalizedSections } from '../../utils/textSelectionUtils';
+import { FinalDraftSelector } from './FinalDraftSelector';
 
 
 interface ImageProcessingWorkspaceProps {
@@ -233,6 +234,24 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     alignmentState.resetAlignmentState();
   };
 
+  // NEW: State for final draft
+  const [finalDraftText, setFinalDraftText] = useState<string | null>(null);
+  const [finalDraftMetadata, setFinalDraftMetadata] = useState<any | null>(null);
+
+  // NEW: Handler for final draft selection
+  const handleFinalDraftSelected = useCallback((finalText: string, metadata: any) => {
+    console.log('🎯 Final draft selected in workspace:', {
+      finalTextLength: finalText.length,
+      metadata
+    });
+    
+    setFinalDraftText(finalText);
+    setFinalDraftMetadata(metadata);
+    
+    // Could add toast notification or other feedback here
+    // Could also trigger navigation to next step (Text to Schema)
+  }, []);
+
   // Calculate Allotment sizes based on alignment panel visibility
   const getAllotmentSizes = () => {
     if (alignmentState.alignmentState.showAlignmentPanel) {
@@ -366,6 +385,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             onSaveAsOriginal={editableDraft.saveAsOriginal}
             showEditedVersion={showEditedVersion}
             onToggleEditedVersion={() => setShowEditedVersion(!showEditedVersion)}
+            onFinalDraftSelected={handleFinalDraftSelected}
             />
         </Allotment.Pane>
       </Allotment>

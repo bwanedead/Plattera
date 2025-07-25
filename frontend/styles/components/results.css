@@ -2219,3 +2219,89 @@ If this CSS breaks, heatmap feature will lose:
 .normalized-sections-text::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-secondary);
 } 
+
+/* Final Draft Selector Styles */
+.final-draft-selector {
+  position: absolute;
+  top: 60px;
+  right: 80px; /* Position to the right of DraftSelector (40px + 40px spacing) */
+  z-index: 10;
+}
+
+.final-draft-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 100px;
+  justify-content: center;
+}
+
+.final-draft-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.final-draft-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.final-draft-button.selected {
+  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+}
+
+.final-draft-button.selected:hover {
+  background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+}
+
+.final-draft-button.processing {
+  background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+  cursor: wait;
+}
+
+.final-draft-icon {
+  font-size: 14px;
+}
+
+.final-draft-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.loading-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .final-draft-selector {
+    right: 70px;
+  }
+  
+  .final-draft-button {
+    min-width: 90px;
+    padding: 5px 10px;
+  }
+  
+  .final-draft-label {
+    font-size: 10px;
+  }
+} 

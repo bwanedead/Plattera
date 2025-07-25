@@ -152,6 +152,13 @@ export const selectFinalDraftAPI = async (
   editedDraftContent?: string,
   editedFromDraft?: number | 'consensus' | 'best'
 ): Promise<any> => {
+  console.log('🎯 Calling selectFinalDraftAPI with:', {
+    selectedDraft,
+    hasAlignmentResult: !!alignmentResult,
+    hasEditedContent: !!editedDraftContent,
+    editedFromDraft
+  });
+
   const formData = new FormData();
   formData.append('redundancy_analysis', JSON.stringify(redundancyAnalysis));
   formData.append('selected_draft', selectedDraft.toString());
@@ -166,14 +173,22 @@ export const selectFinalDraftAPI = async (
     formData.append('edited_from_draft', editedFromDraft.toString());
   }
 
+  console.log('📤 Sending FormData with keys:', Array.from(formData.keys()));
+
   const response = await fetch('http://localhost:8000/api/final-draft/select-final-draft', {
     method: 'POST',
     body: formData
   });
 
+  console.log(' Response status:', response.status, response.statusText);
+
   if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
+    const errorText = await response.text();
+    console.error('❌ API Error Response:', errorText);
+    throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  console.log('✅ API Response:', data);
+  return data;
 }; 

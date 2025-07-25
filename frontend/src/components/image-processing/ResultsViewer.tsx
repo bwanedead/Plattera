@@ -8,6 +8,7 @@ import { AlignmentButton } from './AlignmentButton';
 import { ConfidenceHeatmapViewer } from './ConfidenceHeatmapViewer';
 import { formatJsonPretty } from '../../utils/jsonFormatter';
 import { AlignmentResult, ConfidenceWord } from '../../types/imageProcessing';
+import { FinalDraftSelector } from './FinalDraftSelector';
 
 // Define interfaces for props to ensure type safety
 interface ResultsViewerProps {
@@ -52,6 +53,7 @@ interface ResultsViewerProps {
   // Toggle functionality for showing original vs edited versions
   showEditedVersion?: boolean;
   onToggleEditedVersion?: () => void;
+  onFinalDraftSelected?: (finalText: string, metadata: any) => void;
 }
 
 export const ResultsViewer: React.FC<ResultsViewerProps> = ({
@@ -83,6 +85,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   onSaveAsOriginal,
   showEditedVersion = true,
   onToggleEditedVersion,
+  onFinalDraftSelected,
 }) => {
   const [activeTab, setActiveTab] = useState('text');
   const [showAlignedText, setShowAlignedText] = useState(false);
@@ -188,6 +191,15 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   onDraftSelect={onDraftSelect}
                   selectedDraft={selectedDraft}
                   alignmentResult={alignmentResult}  // ← NEW: Pass alignmentResult (may be null initially)
+                />
+
+                {/* NEW: Final Draft Selector - positioned to the right of DraftSelector */}
+                <FinalDraftSelector
+                  redundancyAnalysis={selectedResult.result?.metadata?.redundancy_analysis}
+                  alignmentResult={alignmentResult}
+                  selectedDraft={selectedDraft}
+                  onFinalDraftSelected={onFinalDraftSelected}
+                  isProcessing={isProcessing}
                 />
 
                 {/* Edit Toggle Button - shown when there are unsaved changes */}

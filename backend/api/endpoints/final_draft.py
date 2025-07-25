@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Form
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, Union
 import logging
+import json
 
 # Import the pipeline
 from pipelines.image_to_text.pipeline import ImageToTextPipeline
@@ -41,11 +42,11 @@ class FinalDraftResponse(BaseModel):
 
 @router.post("/select-final-draft", response_model=FinalDraftResponse)
 async def select_final_draft(
-    redundancy_analysis: Dict[str, Any] = Form(...),
+    redundancy_analysis: str = Form(...),
     selected_draft: str = Form("consensus"),  # 'consensus', 'best', or draft number
     edited_draft_content: Optional[str] = Form(None),
     edited_from_draft: Optional[str] = Form(None),
-    alignment_result: Optional[Dict[str, Any]] = Form(None)
+    alignment_result: Optional[str] = Form(None)
 ):
     """
     Select the final draft output from image-to-text processing.
@@ -77,12 +78,18 @@ async def select_final_draft(
             else:
                 edited_from_draft_parsed = edited_from_draft
         
+        # Parse JSON strings
+        redundancy_analysis_parsed = json.loads(redundancy_analysis)
+        alignment_result_parsed = None
+        if alignment_result:
+            alignment_result_parsed = json.loads(alignment_result)
+        
         # Use pipeline to select final draft
         pipeline = ImageToTextPipeline()
         
         final_result = await pipeline.select_final_draft(
-            redundancy_analysis=redundancy_analysis,
-            alignment_result=alignment_result,
+            redundancy_analysis=redundancy_analysis_parsed,
+            alignment_result=alignment_result_parsed,
             selected_draft=selected_draft_int,
             edited_draft_content=edited_draft_content,
             edited_from_draft=edited_from_draft_parsed
@@ -98,6 +105,16 @@ async def select_final_draft(
             metadata=final_result["metadata"]
         )
         
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ JSON parsing error: {e}")
+        return FinalDraftResponse(
+            success=False,
+            final_text="",
+            selection_method="error",
+            selected_draft=selected_draft,
+            metadata={},
+            error=f"Invalid JSON format: {str(e)}"
+        )
     except Exception as e:
         logger.error(f"❌ Final draft selection failed: {e}")
         return FinalDraftResponse(
