@@ -37,7 +37,7 @@ export interface WorkspaceState {
 const defaultImageProcessingState: ImageProcessingState = {
   sessionResults: [],
   selectedResult: null,
-  selectedDraft: 0,
+  selectedDraft: 'consensus', // Changed from 0 to 'consensus'
   alignmentResult: null,
   finalDraftText: null,
   finalDraftMetadata: null,

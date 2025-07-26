@@ -2,6 +2,8 @@ import { useState, useCallback } from 'react';
 import { AlignmentState, AlignmentDraft, AlignmentResult } from '../types/imageProcessing';
 import { alignDraftsAPI } from '../services/imageProcessingApi';
 import { generateConsensusDrafts } from '../services/consensusApi';
+import { selectFinalDraftAPI } from '../services/imageProcessingApi';
+import { workspaceStateManager } from '../services/workspaceStateManager';
 
 export const useAlignmentState = () => {
   const [alignmentState, setAlignmentState] = useState<AlignmentState>({
@@ -67,6 +69,36 @@ export const useAlignmentState = () => {
         alignmentResult,
         showAlignmentPanel: true
       }));
+
+      // NEW: Automatically select consensus draft for text-to-schema
+      if (alignmentResult.success) {
+        try {
+          console.log('🎯 Auto-selecting consensus draft for text-to-schema');
+          const finalDraftResult = await selectFinalDraftAPI(
+            redundancyAnalysis,
+            'consensus', // Always select consensus by default
+            alignmentResult
+          );
+
+          if (finalDraftResult.success) {
+            console.log('✅ Auto-selected consensus draft:', {
+              finalTextLength: finalDraftResult.final_text?.length,
+              selectionMethod: finalDraftResult.selection_method
+            });
+            
+            // Sync with text-to-schema workspace
+            workspaceStateManager.syncFinalDraft(
+              finalDraftResult.final_text, 
+              finalDraftResult.metadata
+            );
+          } else {
+            console.warn('⚠️ Failed to auto-select consensus draft:', finalDraftResult.error);
+          }
+        } catch (error) {
+          console.warn('⚠️ Error auto-selecting consensus draft:', error);
+          // Don't fail the alignment if auto-selection fails
+        }
+      }
 
     } catch (error) {
       console.error('💥 Error during alignment:', error);

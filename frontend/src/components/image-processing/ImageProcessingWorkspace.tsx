@@ -47,7 +47,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   
   // Initialize draft selection with persisted state
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>(
-    workspaceState.selectedDraft
+    workspaceState.selectedDraft || 'consensus' // Default to consensus if not set
   );
   
   // Initialize editable draft hook with new signature
