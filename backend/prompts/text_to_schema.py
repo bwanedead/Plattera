@@ -7,6 +7,11 @@ Edit these prompts to adjust how LLMs convert text to structured parcel data
 PARCEL_SCHEMA = """
 Convert the following legal property description text into structured JSON data following the PlatteraParcel schema.
 
+The legal description contains two main types of information:
+
+1. **PLSS Description** (Public Land Survey System): Location reference information including township, range, section, and corner data
+2. **Metes and Bounds**: Boundary course information with bearings, distances, and traverse descriptions
+
 You must extract and organize the information into this exact structure:
 
 {
@@ -19,18 +24,18 @@ You must extract and organize the information into this exact structure:
     "zone": "integer or null - UTM zone 1-60",
     "easting_m": "number or null - easting in meters",
     "northing_m": "number or null - northing in meters",
-    "t": "integer or null - township number",
-    "r": "integer or null - range number", 
-    "section": "integer or null - section number 1-36",
-    "corner": "string or null - NW, NE, SW, SE, or null",
+    "t": "integer or null - township number (PLSS Description)",
+    "r": "integer or null - range number (PLSS Description)", 
+    "section": "integer or null - section number 1-36 (PLSS Description)",
+    "corner": "string or null - NW, NE, SW, SE, or null (PLSS Description)",
     "offset_m": "number or null - offset distance in meters",
     "offset_bearing_deg": "number or null - offset bearing 0-360 degrees",
     "note": "string or null - additional notes about origin"
   },
   "legs": [
     {
-      "bearing_deg": "number - bearing in degrees 0-360",
-      "distance": "number - distance value as stated",
+      "bearing_deg": "number - bearing in degrees 0-360 (Metes and Bounds)",
+      "distance": "number - distance value as stated (Metes and Bounds)",
       "distance_units": "string - feet, meters, yards, chains, rods, miles, or kilometers",
       "distance_sigma": "number or null - uncertainty in measurement",
       "raw_text": "string - exact text describing this boundary segment",
@@ -43,14 +48,15 @@ You must extract and organize the information into this exact structure:
 }
 
 IMPORTANT INSTRUCTIONS:
-1. Extract each boundary segment (leg) from the legal description with bearing and distance
-2. Convert all bearings to degrees (0-360), distances to their stated units
-3. Set confidence scores based on clarity of the text (0.9+ for clear, 0.7-0.8 for somewhat clear, <0.7 for unclear)
-4. Use the raw_text field to capture the exact words describing each boundary segment
-5. Determine coordinate reference system from context (PLSS for township/range, UTM for coordinates, etc.)
-6. If information is missing or unclear, use null for optional fields
-7. Generate a meaningful parcel_id if not provided in the text
-8. Return only valid JSON without any additional commentary
+1. **PLSS Description Extraction**: Look for township (T), range (R), section numbers, and corner references (NW, NE, SW, SE)
+2. **Metes and Bounds Extraction**: Extract each boundary segment with precise bearings and distances
+3. Convert all bearings to degrees (0-360), distances to their stated units
+4. Set confidence scores based on clarity of the text (0.9+ for clear, 0.7-0.8 for somewhat clear, <0.7 for unclear)
+5. Use the raw_text field to capture the exact words describing each boundary segment
+6. Determine coordinate reference system from context (PLSS for township/range, UTM for coordinates, etc.)
+7. If information is missing or unclear, use null for optional fields
+8. Generate a meaningful parcel_id if not provided in the text
+9. Return only valid JSON without any additional commentary
 
 Legal Description Text:
 """

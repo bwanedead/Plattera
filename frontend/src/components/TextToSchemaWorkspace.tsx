@@ -1,11 +1,15 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
-import { ParcelTracerLoader } from './image-processing/ParcelTracerLoader';
 import { AnimatedBorder } from './AnimatedBorder';
-import { CopyButton } from './CopyButton';
 import { useTextToSchemaState, useWorkspaceNavigation } from '../hooks/useWorkspaceState';
-import { workspaceStateManager } from '../services/workspaceStateManager';
+import { convertTextToSchema, getTextToSchemaModels } from '../services/textToSchemaApi';
+import { TextToSchemaControlPanel } from './text-to-schema/TextToSchemaControlPanel';
+import { SchemaResultsTabs } from './text-to-schema/SchemaResultsTabs';
+import { OriginalTextTab } from './text-to-schema/OriginalTextTab';
+import { JsonSchemaTab } from './text-to-schema/JsonSchemaTab';
+import { FieldViewTab } from './text-to-schema/FieldViewTab';
+import { SchemaTab, TextToSchemaResult } from '../types/textToSchema';
 
 interface TextToSchemaWorkspaceProps {
   onExit: () => void;
@@ -24,6 +28,17 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   const [homeHovered, setHomeHovered] = useState(false);
   const [imageTextHovered, setImageTextHovered] = useState(false);
   const [availableModels, setAvailableModels] = useState<Record<string, any>>({});
+  const [selectedTab, setSelectedTab] = useState<SchemaTab>('original');
+
+  // Debug the final draft text
+  useEffect(() => {
+    console.log('🔍 TEXT-TO-SCHEMA DEBUG: Final draft text type and value:', {
+      type: typeof state.finalDraftText,
+      value: state.finalDraftText,
+      isString: typeof state.finalDraftText === 'string',
+      length: state.finalDraftText ? state.finalDraftText.length : 'null'
+    });
+  }, [state.finalDraftText]);
 
   // Set active workspace when component mounts
   useEffect(() => {
@@ -32,57 +47,49 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
 
   // Load models on mount
   useEffect(() => {
-    fetchModelsAPI().then(setAvailableModels);
+    loadAvailableModels();
   }, []);
 
-  // API call for text-to-schema processing
-  const processTextToSchema = async (text: string, model: string) => {
-    console.log(' Starting text-to-schema processing:', {
-      textLength: text.length,
-      model
-    });
-
+  // Load available models
+  const loadAvailableModels = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/process', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          content_type: 'text-to-schema',
-          text: text,
-          model: model,
-          cleanup_after: true
-        })
-      });
-
-      const data = await response.json();
-      console.log('📊 Schema processing response:', data);
-
-      if (data.status === 'success') {
-        return {
-          success: true,
-          structured_data: data.structured_data,
-          metadata: {
-            model_used: data.model_used,
-            service_type: data.service_type,
-            tokens_used: data.tokens_used,
-            confidence_score: data.confidence_score,
-            ...data.metadata
-          }
-        };
-      } else {
-        throw new Error(data.error || 'Processing failed');
+      const response = await getTextToSchemaModels();
+      if (response.status === 'success' && response.models) {
+        setAvailableModels(response.models);
       }
     } catch (error) {
-      console.error('❌ Schema processing error:', error);
-      throw error;
+      console.warn('Failed to load models, using defaults:', error);
+      setAvailableModels({
+        "gpt-4o": { name: "GPT-4o", provider: "openai" },
+        "gpt-4": { name: "GPT-4", provider: "openai" },
+      });
     }
   };
 
-  // Handle start text-to-schema processing
-  const handleStartTextToSchema = async () => {
-    if (!state.finalDraftText) {
+  // Handle model selection change
+  const handleModelChange = useCallback((model: string) => {
+    updateState({ selectedModel: model });
+  }, [updateState]);
+
+  // Handle tab change
+  const handleTabChange = useCallback((tab: SchemaTab) => {
+    setSelectedTab(tab);
+  }, []);
+
+  // Handle text-to-schema processing
+  const handleStartTextToSchema = useCallback(async () => {
+    // Ensure we have a valid string for final draft text
+    const finalText = typeof state.finalDraftText === 'string' 
+      ? state.finalDraftText 
+      : String(state.finalDraftText || '');
+
+    console.log('🔍 TEXT-TO-SCHEMA PROCESSING: Starting with text:', {
+      originalType: typeof state.finalDraftText,
+      processedText: finalText,
+      length: finalText.length
+    });
+
+    if (!finalText.trim()) {
       console.warn('No final draft available for processing');
       return;
     }
@@ -90,45 +97,87 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     updateState({ isProcessing: true, schemaResults: null });
 
     try {
-      const result = await processTextToSchema(state.finalDraftText, state.selectedModel);
+      const response = await convertTextToSchema({
+        text: finalText,
+        model: state.selectedModel,
+        parcel_id: `parcel-${Date.now()}`
+      });
+
+      const result: TextToSchemaResult = {
+        success: response.status === 'success',
+        structured_data: response.structured_data,
+        original_text: response.original_text,
+        model_used: response.model_used,
+        service_type: response.service_type,
+        tokens_used: response.tokens_used,
+        confidence_score: response.confidence_score,
+        validation_warnings: response.validation_warnings,
+        metadata: response.metadata
+      };
+
       updateState({ schemaResults: result, isProcessing: false });
       console.log('✅ Schema processing completed:', result);
+      
+      // Auto-switch to JSON tab when results come in
+      setSelectedTab('json');
     } catch (error) {
+      const errorResult: TextToSchemaResult = {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      
       updateState({
-        schemaResults: {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        },
+        schemaResults: errorResult,
         isProcessing: false
       });
       console.error('❌ Schema processing failed:', error);
     }
-  };
+  }, [state.finalDraftText, state.selectedModel, updateState]);
 
-  // API call for fetching models
-  const fetchModelsAPI = async () => {
-    try {
-      const response = await fetch('http://localhost:8000/api/models');
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.status === 'success' && data.models) {
-        return data.models;
-      } else {
-        throw new Error(data.error || 'Invalid response format');
-      }
-    } catch (error) {
-      console.warn('Failed to load models from API, using defaults:', error);
-      return {
-        "gpt-4o": { name: "GPT-4o", provider: "openai" },
-        "gpt-4": { name: "GPT-4", provider: "openai" },
-      };
+  // Render the appropriate tab content
+  const renderTabContent = () => {
+    // Ensure we have a valid string for display
+    const finalText = typeof state.finalDraftText === 'string' 
+      ? state.finalDraftText 
+      : String(state.finalDraftText || '');
+
+    switch (selectedTab) {
+      case 'original':
+        return finalText ? (
+          <OriginalTextTab text={finalText} />
+        ) : (
+          <div className="processing-placeholder">
+            <p>No final draft available. Complete image-to-text processing to continue.</p>
+          </div>
+        );
+
+      case 'json':
+        return (
+          <JsonSchemaTab
+            schemaData={state.schemaResults?.structured_data}
+            isSuccess={state.schemaResults?.success || false}
+            error={state.schemaResults?.error}
+          />
+        );
+
+      case 'fields':
+        return (
+          <FieldViewTab
+            schemaData={state.schemaResults?.structured_data || null}
+            isSuccess={state.schemaResults?.success || false}
+            error={state.schemaResults?.error}
+          />
+        );
+
+      default:
+        return null;
     }
   };
+
+  // Ensure we have a valid string for the control panel
+  const finalText = typeof state.finalDraftText === 'string' 
+    ? state.finalDraftText 
+    : String(state.finalDraftText || '');
 
   return (
     <div className="text-to-schema-workspace">
@@ -166,89 +215,26 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       <Allotment defaultSizes={[300, 700]} vertical={false}>
         {/* Control Panel (Left) */}
         <Allotment.Pane minSize={250} maxSize={400}>
-          <div className="control-panel">
-            <h2>Text to Schema</h2>
-            
-            {/* Final Draft Status */}
-            <div className="final-draft-status">
-              <h3>Final Draft Status</h3>
-              {state.finalDraftText ? (
-                <div className="draft-available">
-                  <div className="status-indicator available">✅ Available</div>
-                  <div className="draft-info">
-                    <span className="draft-length">{state.finalDraftText.length} characters</span>
-                    {state.finalDraftMetadata && (
-                      <span className="draft-method">
-                        Method: {state.finalDraftMetadata.selection_method || 'Unknown'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="draft-unavailable">
-                  <div className="status-indicator unavailable">❌ Not Available</div>
-                  <p className="draft-hint">
-                    Complete image-to-text processing and select a final draft to continue.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Model Selection */}
-            <div className="model-section">
-              <label>Model Selection</label>
-              <select 
-                value={state.selectedModel} 
-                onChange={(e) => updateState({ selectedModel: e.target.value })}
-                className="model-selector"
-              >
-                {Object.entries(availableModels).map(([key, model]) => (
-                  <option key={key} value={key}>
-                    {model.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Process Button */}
-            <button 
-              onClick={handleStartTextToSchema}
-              disabled={!state.finalDraftText || state.isProcessing}
-              className="process-btn"
-            >
-              {state.isProcessing ? (
-                <>
-                  <ParcelTracerLoader />
-                  <span>Processing Schema...</span>
-                </>
-              ) : (
-                'Start Text to Schema'
-              )}
-            </button>
-
-            {/* Processing Status */}
-            {state.isProcessing && (
-              <div className="processing-status">
-                <div className="status-message">
-                  Converting legal text to structured JSON...
-                </div>
-                <div className="status-details">
-                  This may take a few moments depending on the text length.
-                </div>
-              </div>
-            )}
-          </div>
+          <TextToSchemaControlPanel
+            finalDraftText={finalText}
+            finalDraftMetadata={state.finalDraftMetadata}
+            selectedModel={state.selectedModel}
+            availableModels={availableModels}
+            isProcessing={state.isProcessing}
+            onModelChange={handleModelChange}
+            onStartProcessing={handleStartTextToSchema}
+          />
         </Allotment.Pane>
 
         {/* Results Viewer (Right) */}
         <Allotment.Pane>
           <div className="results-viewer-panel">
-            {!state.finalDraftText && !state.schemaResults && (
+            {!finalText && !state.schemaResults && (
               <div className="placeholder-view">
                 <div className="placeholder-content">
                   <h3>Text to Schema Processing</h3>
                   <p>
-                    Convert your final legal text into structured JSON data.
+                    Convert your final legal text into structured JSON data with organized PLSS Description and Metes & Bounds information.
                   </p>
                   <div className="placeholder-steps">
                     <div className="step">
@@ -268,51 +254,23 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
               </div>
             )}
 
-            {state.finalDraftText && !state.schemaResults && (
-              <div className="final-draft-viewer">
-                <div className="viewer-header">
-                  <h3>Final Draft Content</h3>
-                  <CopyButton
-                    onCopy={() => navigator.clipboard.writeText(state.finalDraftText!)}
-                    title="Copy final draft"
-                  />
-                </div>
-                <div className="draft-content">
-                  <pre className="draft-text">
-                    {state.finalDraftText}
-                  </pre>
-                </div>
-              </div>
-            )}
-
-            {state.schemaResults && (
+            {(finalText || state.schemaResults) && (
               <div className="schema-results-viewer">
                 <div className="viewer-header">
-                  <h3>Schema Results</h3>
-                  <CopyButton
-                    onCopy={() => navigator.clipboard.writeText(JSON.stringify(state.schemaResults.structured_data, null, 2))}
-                    title="Copy schema JSON"
-                  />
+                  <h3>Processing Results</h3>
                 </div>
                 
-                {state.schemaResults.success ? (
-                  <div className="schema-content">
-                    <div className="schema-tabs">
-                      <button className="tab active">JSON Schema</button>
-                      <button className="tab">Metadata</button>
-                    </div>
-                    <div className="schema-output">
-                      <pre className="json-schema">
-                        {JSON.stringify(state.schemaResults.structured_data, null, 2)}
-                      </pre>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="error-display">
-                    <h4>Processing Error</h4>
-                    <p>{state.schemaResults.error}</p>
-                  </div>
-                )}
+                {/* Tab Navigation */}
+                <SchemaResultsTabs
+                  selectedTab={selectedTab}
+                  onTabChange={handleTabChange}
+                  hasResults={state.schemaResults?.success || false}
+                />
+
+                {/* Tab Content */}
+                <div className="tab-content">
+                  {renderTabContent()}
+                </div>
               </div>
             )}
           </div>
@@ -320,4 +278,4 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       </Allotment>
     </div>
   );
-}; 
+};
