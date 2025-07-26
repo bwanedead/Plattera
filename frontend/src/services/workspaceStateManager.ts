@@ -80,7 +80,7 @@ class WorkspaceStateManager {
   // State persistence
   private loadState(): WorkspaceState {
     try {
-      const savedState = localStorage.getItem('plattera_workspace_state');
+      const savedState = sessionStorage.getItem('plattera_workspace_state');
       if (savedState) {
         const parsed = JSON.parse(savedState);
         // Merge with defaults to handle missing properties
@@ -94,7 +94,7 @@ class WorkspaceStateManager {
 
   private saveState(): void {
     try {
-      localStorage.setItem('plattera_workspace_state', JSON.stringify(this.state));
+      sessionStorage.setItem('plattera_workspace_state', JSON.stringify(this.state));
     } catch (error) {
       console.warn('Failed to save workspace state:', error);
     }
