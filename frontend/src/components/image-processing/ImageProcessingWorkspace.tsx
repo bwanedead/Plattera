@@ -13,6 +13,8 @@ import { useImageProcessing } from '../../hooks/useImageProcessing';
 import { useAlignmentState } from '../../hooks/useAlignmentState';
 import { useDraftSelection } from '../../hooks/useDraftSelection';
 import { useEditableDraft } from '../../hooks/useEditableDraft';
+import { useImageProcessingState, useWorkspaceNavigation } from '../../hooks/useWorkspaceState';
+import { workspaceStateManager } from '../../services/workspaceStateManager';
 import { isJsonResult, formatJsonAsText } from '../../utils/jsonFormatter';
 import { getCurrentText, getRawText, getOriginalJsonText, getNormalizedSectionsText, hasNormalizedSections } from '../../utils/textSelectionUtils';
 import { FinalDraftSelector } from './FinalDraftSelector';
@@ -27,21 +29,26 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   onExit, 
   onNavigateToTextSchema 
 }) => {
-  // State hooks for UI
-  const [isHistoryVisible, setIsHistoryVisible] = useState(false);
+  // State persistence hooks
+  const { state: workspaceState, updateState: updateWorkspaceState } = useImageProcessingState();
+  const { setActiveWorkspace } = useWorkspaceNavigation();
+
+  // Local UI state (not persisted)
   const [homeHovered, setHomeHovered] = useState(false);
   const [textSchemaHovered, setTextSchemaHovered] = useState(false);
   const [showEnhancementModal, setShowEnhancementModal] = useState(false);
   const [showDraftLoader, setShowDraftLoader] = useState(false);
   const [draftCount, setDraftCount] = useState(0);
-  const [showEditedVersion, setShowEditedVersion] = useState(true); // Toggle between original and edited versions
+  const [showEditedVersion, setShowEditedVersion] = useState(true);
 
   // Custom hooks for state management
   const imageProcessing = useImageProcessing();
   const alignmentState = useAlignmentState();
   
-  // Initialize draft selection first
-  const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>(0);
+  // Initialize draft selection with persisted state
+  const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>(
+    workspaceState.selectedDraft
+  );
   
   // Initialize editable draft hook with new signature
   const editableDraft = useEditableDraft(
@@ -50,6 +57,81 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     selectedDraft,
     alignmentState.selectedConsensusStrategy
   );
+
+  // Sync state with workspace state manager
+  useEffect(() => {
+    // Set active workspace when component mounts
+    setActiveWorkspace('image-processing');
+    
+    // Load persisted state into image processing
+    if (workspaceState.sessionResults.length > 0) {
+      imageProcessing.setSessionResults(workspaceState.sessionResults);
+    }
+    
+    if (workspaceState.selectedResult) {
+      imageProcessing.selectResult(workspaceState.selectedResult);
+    }
+    
+    if (workspaceState.alignmentResult) {
+      // Update alignment state directly
+      alignmentState.alignmentState.alignmentResult = workspaceState.alignmentResult;
+    }
+    
+    if (workspaceState.showHeatmap !== undefined) {
+      alignmentState.toggleHeatmap(workspaceState.showHeatmap);
+    }
+    
+    if (workspaceState.showAlignmentPanel !== undefined) {
+      if (workspaceState.showAlignmentPanel) {
+        // Panel will be shown when alignment result is set
+      } else {
+        alignmentState.closeAlignmentPanel();
+      }
+    }
+    
+    if (workspaceState.showAlignmentTable !== undefined) {
+      alignmentState.toggleAlignmentTable(workspaceState.showAlignmentTable);
+    }
+  }, []);
+
+  // Persist state changes
+  useEffect(() => {
+    updateWorkspaceState({
+      sessionResults: imageProcessing.sessionResults,
+      selectedResult: imageProcessing.selectedResult,
+      selectedDraft: selectedDraft,
+      alignmentResult: alignmentState.alignmentState.alignmentResult,
+      isHistoryVisible: workspaceState.isHistoryVisible,
+      showHeatmap: alignmentState.alignmentState.showHeatmap,
+      showAlignmentPanel: alignmentState.alignmentState.showAlignmentPanel,
+      showAlignmentTable: alignmentState.showAlignmentTable,
+    });
+  }, [
+    imageProcessing.sessionResults,
+    imageProcessing.selectedResult,
+    selectedDraft,
+    alignmentState.alignmentState.alignmentResult,
+    alignmentState.alignmentState.showHeatmap,
+    alignmentState.alignmentState.showAlignmentPanel,
+    alignmentState.showAlignmentTable,
+  ]);
+
+  // Handler for final draft selection with state persistence
+  const handleFinalDraftSelected = useCallback((finalText: string, metadata: any) => {
+    console.log('🎯 Final draft selected in workspace:', {
+      finalTextLength: finalText.length,
+      metadata
+    });
+    
+    // Update workspace state
+    updateWorkspaceState({
+      finalDraftText: finalText,
+      finalDraftMetadata: metadata
+    });
+    
+    // Sync with text-to-schema workspace
+    workspaceStateManager.syncFinalDraft(finalText, metadata);
+  }, [updateWorkspaceState]);
 
   // Text retrieval functions with edit-aware logic
   const getCurrentTextCallback = useCallback(() => {
@@ -235,22 +317,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   };
 
   // NEW: State for final draft
-  const [finalDraftText, setFinalDraftText] = useState<string | null>(null);
-  const [finalDraftMetadata, setFinalDraftMetadata] = useState<any | null>(null);
 
-  // NEW: Handler for final draft selection
-  const handleFinalDraftSelected = useCallback((finalText: string, metadata: any) => {
-    console.log('🎯 Final draft selected in workspace:', {
-      finalTextLength: finalText.length,
-      metadata
-    });
-    
-    setFinalDraftText(finalText);
-    setFinalDraftMetadata(metadata);
-    
-    // Could add toast notification or other feedback here
-    // Could also trigger navigation to next step (Text to Schema)
-  }, []);
 
   // Calculate Allotment sizes based on alignment panel visibility
   const getAllotmentSizes = () => {
@@ -346,8 +413,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
               setSelectedDraft(0); // Reset to Draft 1
               alignmentState.resetAlignmentState();
                 }}
-                isHistoryVisible={isHistoryVisible}
-                onToggleHistory={setIsHistoryVisible}
+                            isHistoryVisible={workspaceState.isHistoryVisible}
+            onToggleHistory={(visible) => updateWorkspaceState({ isHistoryVisible: visible })}
             getCurrentText={getCurrentTextCallback}
             getRawText={getRawTextCallback}
             getOriginalJsonText={getOriginalJsonTextCallback}

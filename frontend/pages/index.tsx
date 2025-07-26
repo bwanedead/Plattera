@@ -1,10 +1,11 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import TextBatchProcessor from '../src/components/TextBatchProcessor'
 import ImageBatchProcessor from '../src/components/ImageBatchProcessor'
 import ResultsViewer from '../src/components/ResultsViewer'
 import { ImageProcessingWorkspace } from '../src/components/image-processing/ImageProcessingWorkspace';
 import { TextToSchemaWorkspace } from '../src/components/TextToSchemaWorkspace'
+import { useWorkspaceNavigation } from '../src/hooks/useWorkspaceState'
 
 type ProcessingMode = 'text' | 'image' | null
 
@@ -23,6 +24,9 @@ const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode>('home')
   const [results, setResults] = useState<ProcessingResult[]>([])
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null)
+  
+  // Navigation state management
+  const { lastActiveWorkspace, setActiveWorkspace } = useWorkspaceNavigation()
 
   const handleResults = (newResults: Omit<ProcessingResult, 'id' | 'name'>[]) => {
     const formattedResults = newResults.map(r => ({
@@ -39,17 +43,39 @@ const App: React.FC = () => {
   
   const selectedResult = results.find(r => r.id === selectedResultId)
 
+  // Restore last active workspace on mount
+  useEffect(() => {
+    if (lastActiveWorkspace) {
+      setMode(lastActiveWorkspace === 'image-processing' ? 'image-processing' : 'text-processing')
+    }
+  }, [lastActiveWorkspace])
+
+  const handleNavigateToImageProcessing = () => {
+    setMode('image-processing')
+    setActiveWorkspace('image-processing')
+  }
+
+  const handleNavigateToTextProcessing = () => {
+    setMode('text-processing')
+    setActiveWorkspace('text-processing')
+  }
+
+  const handleExitToHome = () => {
+    setMode('home')
+    setActiveWorkspace(null)
+  }
+
   const renderContent = () => {
     switch (mode) {
       case 'image-processing':
         return <ImageProcessingWorkspace 
-          onExit={() => setMode('home')} 
-          onNavigateToTextSchema={() => setMode('text-processing')}
+          onExit={handleExitToHome} 
+          onNavigateToTextSchema={handleNavigateToTextProcessing}
         />
       case 'text-processing':
         return <TextToSchemaWorkspace 
-          onExit={() => setMode('home')} 
-          onNavigateToImageText={() => setMode('image-processing')}
+          onExit={handleExitToHome} 
+          onNavigateToImageText={handleNavigateToImageProcessing}
         />
       case 'home':
       default:
@@ -61,14 +87,14 @@ const App: React.FC = () => {
             </div>
             <div className="home-options">
               {/* Image to Text Card (Left) */}
-              <div className="pipeline-card" onClick={() => setMode('image-processing')}>
+              <div className="pipeline-card" onClick={handleNavigateToImageProcessing}>
                 <h3>Image to Text</h3>
                 <p>Extract text from scanned documents using advanced AI vision models.</p>
                 <button>Launch Workspace</button>
               </div>
 
               {/* Text to Schema Card (Right) */}
-              <div className="pipeline-card" onClick={() => setMode('text-processing')}>
+              <div className="pipeline-card" onClick={handleNavigateToTextProcessing}>
                 <h3>Text to Schema</h3>
                 <p>Convert blocks of legal text into structured JSON for analysis.</p>
                 <button>Launch Workspace</button>

@@ -1,18 +1,47 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { useDropzone } from 'react-dropzone';
 import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { ParcelTracerLoader } from './image-processing/ParcelTracerLoader';
 import { AnimatedBorder } from './AnimatedBorder';
+import { CopyButton } from './CopyButton';
+import { useTextToSchemaState, useWorkspaceNavigation } from '../hooks/useWorkspaceState';
+import { workspaceStateManager } from '../services/workspaceStateManager';
 
-// Real API call for text-to-schema processing
-const processTextAPI = async (texts: string[], model: string) => {
-  console.log(`Processing ${texts.length} text(s) with model: ${model}`);
+interface TextToSchemaWorkspaceProps {
+  onExit: () => void;
+  onNavigateToImageText?: () => void;
+}
+
+export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({ 
+  onExit, 
+  onNavigateToImageText 
+}) => {
+  // State persistence hooks
+  const { state, updateState } = useTextToSchemaState();
+  const { setActiveWorkspace } = useWorkspaceNavigation();
   
-  const results = [];
-  
-  for (let i = 0; i < texts.length; i++) {
-    const text = texts[i];
+  // Local UI state (not persisted)
+  const [homeHovered, setHomeHovered] = useState(false);
+  const [imageTextHovered, setImageTextHovered] = useState(false);
+  const [availableModels, setAvailableModels] = useState<Record<string, any>>({});
+
+  // Set active workspace when component mounts
+  useEffect(() => {
+    setActiveWorkspace('text-to-schema');
+  }, [setActiveWorkspace]);
+
+  // Load models on mount
+  useEffect(() => {
+    fetchModelsAPI().then(setAvailableModels);
+  }, []);
+
+  // API call for text-to-schema processing
+  const processTextToSchema = async (text: string, model: string) => {
+    console.log(' Starting text-to-schema processing:', {
+      textLength: text.length,
+      model
+    });
+
     try {
       const response = await fetch('http://localhost:8000/api/process', {
         method: 'POST',
@@ -28,161 +57,82 @@ const processTextAPI = async (texts: string[], model: string) => {
       });
 
       const data = await response.json();
+      console.log('📊 Schema processing response:', data);
 
       if (data.status === 'success') {
-        results.push({
-          input: `Text ${i + 1}`,
-          status: 'completed' as const,
-          result: {
-            structured_data: data.structured_data,
-            metadata: {
-              model_used: data.model_used,
-              service_type: data.service_type,
-              tokens_used: data.tokens_used,
-              confidence_score: data.confidence_score,
-              ...data.metadata
-            }
+        return {
+          success: true,
+          structured_data: data.structured_data,
+          metadata: {
+            model_used: data.model_used,
+            service_type: data.service_type,
+            tokens_used: data.tokens_used,
+            confidence_score: data.confidence_score,
+            ...data.metadata
           }
-        });
+        };
       } else {
-        results.push({
-          input: `Text ${i + 1}`,
-          status: 'error' as const,
-          result: null,
-          error: data.error || 'Processing failed'
-        });
+        throw new Error(data.error || 'Processing failed');
       }
     } catch (error) {
-      results.push({
-        input: `Text ${i + 1}`,
-        status: 'error' as const,
-        result: null,
-        error: error instanceof Error ? error.message : 'Unknown error'
+      console.error('❌ Schema processing error:', error);
+      throw error;
+    }
+  };
+
+  // Handle start text-to-schema processing
+  const handleStartTextToSchema = async () => {
+    if (!state.finalDraftText) {
+      console.warn('No final draft available for processing');
+      return;
+    }
+
+    updateState({ isProcessing: true, schemaResults: null });
+
+    try {
+      const result = await processTextToSchema(state.finalDraftText, state.selectedModel);
+      updateState({ schemaResults: result, isProcessing: false });
+      console.log('✅ Schema processing completed:', result);
+    } catch (error) {
+      updateState({
+        schemaResults: {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        },
+        isProcessing: false
       });
+      console.error('❌ Schema processing failed:', error);
     }
-  }
-  
-  return results;
-};
+  };
 
-// Real API call for fetching models
-const fetchModelsAPI = async () => {
-  try {
-    const response = await fetch('http://localhost:8000/api/models');
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    if (data.status === 'success' && data.models) {
-      return data.models;
-    } else {
-      throw new Error(data.error || 'Invalid response format');
-    }
-  } catch (error) {
-    console.warn('Failed to load models from API, using defaults:', error);
-    // Fallback to default models suitable for structured output
-    return {
-      "gpt-4o": { name: "GPT-4o", provider: "openai" },
-      "gpt-4": { name: "GPT-4", provider: "openai" },
-    };
-  }
-};
-
-// Fetch previously processed image-to-text results
-const fetchImageToTextResults = async () => {
-  // This would fetch from a session store or API
-  // For now, return empty array - implement based on your session management
-  return [];
-};
-
-interface TextToSchemaWorkspaceProps {
-  onExit: () => void;
-  onNavigateToImageText?: () => void;
-}
-
-export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({ onExit, onNavigateToImageText }) => {
-  const [stagedTexts, setStagedTexts] = useState<string[]>([]);
-  const [manualText, setManualText] = useState('');
-  const [sessionResults, setSessionResults] = useState<any[]>([]);
-  const [selectedResult, setSelectedResult] = useState<any | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isHistoryVisible, setIsHistoryVisible] = useState(true);
-  const [availableModels, setAvailableModels] = useState<Record<string, any>>({});
-  const [selectedModel, setSelectedModel] = useState('gpt-4o');
-  const [activeTab, setActiveTab] = useState('json');
-  const [imageToTextResults, setImageToTextResults] = useState<any[]>([]);
-  
-  // Navigation button hover states
-  const [homeHovered, setHomeHovered] = useState(false);
-  const [imageTextHovered, setImageTextHovered] = useState(false);
-
-  // File drop for text files
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    acceptedFiles.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target?.result as string;
-        if (text) {
-          setStagedTexts(prev => [...prev, text]);
-        }
+  // API call for fetching models
+  const fetchModelsAPI = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/models');
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.status === 'success' && data.models) {
+        return data.models;
+      } else {
+        throw new Error(data.error || 'Invalid response format');
+      }
+    } catch (error) {
+      console.warn('Failed to load models from API, using defaults:', error);
+      return {
+        "gpt-4o": { name: "GPT-4o", provider: "openai" },
+        "gpt-4": { name: "GPT-4", provider: "openai" },
       };
-      reader.readAsText(file);
-    });
-  }, []);
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop: onDrop,
-    accept: {
-      'text/*': ['.txt', '.md', '.doc', '.docx']
-    },
-    multiple: true
-  });
-
-  const handleAddManualText = () => {
-    if (manualText.trim()) {
-      setStagedTexts(prev => [...prev, manualText.trim()]);
-      setManualText('');
     }
   };
-
-  const handleProcess = async () => {
-    if (stagedTexts.length === 0) return;
-    setIsProcessing(true);
-    setSelectedResult(null);
-    
-    const newResults = await processTextAPI(stagedTexts, selectedModel);
-    
-    setSessionResults(prev => [...newResults, ...prev]);
-    
-    const firstSuccessful = newResults.find(r => r.status === 'completed') || newResults[0];
-    if (firstSuccessful) {
-      setSelectedResult(firstSuccessful);
-    }
-    
-    setStagedTexts([]);
-    setIsProcessing(false);
-  };
-  
-  const removeStagedText = (index: number) => {
-    setStagedTexts(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const importFromImageToText = (result: any) => {
-    if (result.result?.extracted_text) {
-      setStagedTexts(prev => [...prev, result.result.extracted_text]);
-    }
-  };
-
-  useEffect(() => {
-    fetchModelsAPI().then(setAvailableModels);
-    fetchImageToTextResults().then(setImageToTextResults);
-  }, []);
 
   return (
     <div className="text-to-schema-workspace">
+      {/* Navigation Header */}
       <div className="workspace-nav">
         <AnimatedBorder
           isHovered={homeHovered}
@@ -212,94 +162,44 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({ on
         </AnimatedBorder>
       </div>
 
-      <Allotment defaultSizes={[300, 700]}>
+      {/* Main Content Area */}
+      <Allotment defaultSizes={[300, 700]} vertical={false}>
+        {/* Control Panel (Left) */}
         <Allotment.Pane minSize={250} maxSize={400}>
           <div className="control-panel">
             <h2>Text to Schema</h2>
             
-            {/* Import from Image-to-Text Section */}
-            {imageToTextResults.length > 0 && (
-              <div className="import-section">
-                <label>Import from Image-to-Text</label>
-                <div className="image-to-text-results">
-                  {imageToTextResults.map((result, index) => (
-                    <div key={index} className="result-item">
-                      <span className="result-name">{result.input}</span>
-                      <button 
-                        className="import-btn"
-                        onClick={() => importFromImageToText(result)}
-                      >
-                        Import
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Manual Text Input Section */}
-            <div className="import-section">
-              <label>Manual Text Input</label>
-              <textarea
-                value={manualText}
-                onChange={(e) => setManualText(e.target.value)}
-                placeholder="Paste your legal text here..."
-                rows={6}
-                className="manual-text-input"
-              />
-              <button 
-                onClick={handleAddManualText}
-                disabled={!manualText.trim()}
-                className="add-text-btn"
-              >
-                Add Text
-              </button>
-            </div>
-
-            {/* File Import Section */}
-            <div className="import-section">
-              <label>Import Text Files</label>
-              <div 
-                {...getRootProps()} 
-                className={`file-drop-zone ${isDragActive ? 'drag-active' : ''}`}
-              >
-                <input {...getInputProps()} />
-                <div className="drop-zone-content">
-                  <div className="drop-icon">📝</div>
-                  <div className="drop-text">
-                    <strong>Click to select files</strong> or drag and drop
+            {/* Final Draft Status */}
+            <div className="final-draft-status">
+              <h3>Final Draft Status</h3>
+              {state.finalDraftText ? (
+                <div className="draft-available">
+                  <div className="status-indicator available">✅ Available</div>
+                  <div className="draft-info">
+                    <span className="draft-length">{state.finalDraftText.length} characters</span>
+                    {state.finalDraftMetadata && (
+                      <span className="draft-method">
+                        Method: {state.finalDraftMetadata.selection_method || 'Unknown'}
+                      </span>
+                    )}
                   </div>
-                  <div className="drop-hint">TXT, MD, DOC, DOCX</div>
                 </div>
-              </div>
+              ) : (
+                <div className="draft-unavailable">
+                  <div className="status-indicator unavailable">❌ Not Available</div>
+                  <p className="draft-hint">
+                    Complete image-to-text processing and select a final draft to continue.
+                  </p>
+                </div>
+              )}
             </div>
-
-            {/* Staged Texts */}
-            {stagedTexts.length > 0 && (
-              <div className="staged-texts">
-                <label>Staged Texts ({stagedTexts.length})</label>
-                {stagedTexts.map((text, index) => (
-                  <div key={index} className="staged-text">
-                    <div className="text-preview">
-                      {text.substring(0, 100)}...
-                    </div>
-                    <button 
-                      className="remove-text"
-                      onClick={() => removeStagedText(index)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
 
             {/* Model Selection */}
             <div className="model-section">
               <label>Model Selection</label>
               <select 
-                value={selectedModel} 
-                onChange={(e) => setSelectedModel(e.target.value)}
+                value={state.selectedModel} 
+                onChange={(e) => updateState({ selectedModel: e.target.value })}
                 className="model-selector"
               >
                 {Object.entries(availableModels).map(([key, model]) => (
@@ -312,125 +212,107 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({ on
 
             {/* Process Button */}
             <button 
-              onClick={handleProcess}
-              disabled={stagedTexts.length === 0 || isProcessing}
+              onClick={handleStartTextToSchema}
+              disabled={!state.finalDraftText || state.isProcessing}
               className="process-btn"
             >
-              {isProcessing ? (
-                <ParcelTracerLoader />
+              {state.isProcessing ? (
+                <>
+                  <ParcelTracerLoader />
+                  <span>Processing Schema...</span>
+                </>
               ) : (
-                `Process ${stagedTexts.length} Text${stagedTexts.length !== 1 ? 's' : ''}`
+                'Start Text to Schema'
               )}
             </button>
 
-            {/* Results History */}
-            <div className="results-history">
-              <div className="history-header">
-                <h3>Session Results</h3>
-                <button
-                  onClick={() => setIsHistoryVisible(!isHistoryVisible)}
-                  className="toggle-history"
-                >
-                  {isHistoryVisible ? '▼' : '▶'}
-                </button>
-              </div>
-              
-              {isHistoryVisible && (
-                <div className="history-list">
-                  {sessionResults.map((result, index) => (
-                    <div 
-                      key={index}
-                      className={`history-item ${selectedResult === result ? 'selected' : ''} ${result.status}`}
-                      onClick={() => setSelectedResult(result)}
-                    >
-                      <div className="result-info">
-                        <span className="result-name">{result.input}</span>
-                        <span className={`status-badge ${result.status}`}>
-                          {result.status}
-                        </span>
-                      </div>
-                      {result.error && (
-                        <div className="error-message">{result.error}</div>
-                      )}
-                    </div>
-                  ))}
+            {/* Processing Status */}
+            {state.isProcessing && (
+              <div className="processing-status">
+                <div className="status-message">
+                  Converting legal text to structured JSON...
                 </div>
-              )}
-            </div>
+                <div className="status-details">
+                  This may take a few moments depending on the text length.
+                </div>
+              </div>
+            )}
           </div>
         </Allotment.Pane>
 
+        {/* Results Viewer (Right) */}
         <Allotment.Pane>
-          <div className="results-panel">
-            {selectedResult ? (
-              <>
-                <div className="result-header">
-                  <h3>{selectedResult.input}</h3>
-                  <div className="result-tabs">
-                    <button 
-                      className={`tab ${activeTab === 'json' ? 'active' : ''}`}
-                      onClick={() => setActiveTab('json')}
-                    >
-                      JSON Schema
-                    </button>
-                    <button 
-                      className={`tab ${activeTab === 'metadata' ? 'active' : ''}`}
-                      onClick={() => setActiveTab('metadata')}
-                    >
-                      Metadata
-                    </button>
-                  </div>
-                </div>
-
-                <div className="result-content">
-                  {activeTab === 'json' && (
-                    <div className="json-viewer">
-                      {selectedResult.status === 'completed' ? (
-                        <pre className="json-output">
-                          {JSON.stringify(selectedResult.result.structured_data, null, 2)}
-                        </pre>
-                      ) : (
-                        <div className="error-display">
-                          <h4>Processing Error</h4>
-                          <p>{selectedResult.error}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {activeTab === 'metadata' && selectedResult.result?.metadata && (
-                    <div className="metadata-viewer">
-                      <div className="metadata-grid">
-                        {Object.entries(selectedResult.result.metadata).map(([key, value]) => (
-                          <div key={key} className="metadata-item">
-                            <span className="metadata-key">{key.replace(/_/g, ' ')}</span>
-                            <span className="metadata-value">
-                              {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="no-selection">
+          <div className="results-viewer-panel">
+            {!state.finalDraftText && !state.schemaResults && (
+              <div className="placeholder-view">
                 <div className="placeholder-content">
                   <h3>Text to Schema Processing</h3>
                   <p>
-                    Convert legal descriptions and documents into structured JSON data.
+                    Convert your final legal text into structured JSON data.
                   </p>
-                  <ul>
-                    <li>Paste text directly or import from files</li>
-                    <li>Pull results from Image-to-Text processing</li>
-                    <li>Advanced AI models extract structured data</li>
-                    <li>JSON output ready for mapping applications</li>
-                  </ul>
-                  <p className="start-hint">
-                    Add some text and click "Process" to get started.
-                  </p>
+                  <div className="placeholder-steps">
+                    <div className="step">
+                      <span className="step-number">1</span>
+                      <span className="step-text">Complete image-to-text processing</span>
+                    </div>
+                    <div className="step">
+                      <span className="step-number">2</span>
+                      <span className="step-text">Select a final draft</span>
+                    </div>
+                    <div className="step">
+                      <span className="step-number">3</span>
+                      <span className="step-text">Convert to structured schema</span>
+                    </div>
+                  </div>
                 </div>
+              </div>
+            )}
+
+            {state.finalDraftText && !state.schemaResults && (
+              <div className="final-draft-viewer">
+                <div className="viewer-header">
+                  <h3>Final Draft Content</h3>
+                  <CopyButton
+                    onCopy={() => navigator.clipboard.writeText(state.finalDraftText!)}
+                    title="Copy final draft"
+                  />
+                </div>
+                <div className="draft-content">
+                  <pre className="draft-text">
+                    {state.finalDraftText}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {state.schemaResults && (
+              <div className="schema-results-viewer">
+                <div className="viewer-header">
+                  <h3>Schema Results</h3>
+                  <CopyButton
+                    onCopy={() => navigator.clipboard.writeText(JSON.stringify(state.schemaResults.structured_data, null, 2))}
+                    title="Copy schema JSON"
+                  />
+                </div>
+                
+                {state.schemaResults.success ? (
+                  <div className="schema-content">
+                    <div className="schema-tabs">
+                      <button className="tab active">JSON Schema</button>
+                      <button className="tab">Metadata</button>
+                    </div>
+                    <div className="schema-output">
+                      <pre className="json-schema">
+                        {JSON.stringify(state.schemaResults.structured_data, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="error-display">
+                    <h4>Processing Error</h4>
+                    <p>{state.schemaResults.error}</p>
+                  </div>
+                )}
               </div>
             )}
           </div>
