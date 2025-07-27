@@ -3,60 +3,68 @@ Centralized Text-to-Schema Prompts
 Edit these prompts to adjust how LLMs convert text to structured parcel data
 """
 
-# Main parcel schema conversion prompt using the exact parcel_v0.1.json structure
+# Main parcel schema conversion prompt - EXACT TRANSCRIPTION FOR PROGRAMMATIC USE
 PARCEL_SCHEMA = """
-Convert the following legal property description text into structured JSON data following the PlatteraParcel schema.
+Convert the following legal property description text into structured JSON data following the parcel schema.
 
-The legal description contains two main types of information:
+CRITICAL RULE: TRANSCRIBE EXACTLY - NO CONVERSIONS
+- Extract ONLY the exact text as written in the legal description
+- Do NOT convert bearings to degrees
+- Do NOT convert units
+- Do NOT calculate or compute anything
+- Do NOT infer missing information
+- If something is not explicitly stated, use null
 
-1. **PLSS Description** (Public Land Survey System): Location reference information including township, range, section, and corner data
-2. **Metes and Bounds**: Boundary course information with bearings, distances, and traverse descriptions
-
-You must extract and organize the information into this exact structure:
+Return the data in this exact structure:
 
 {
   "parcel_id": "string - unique identifier for this parcel",
-  "crs": "string - coordinate reference system: LOCAL, EPSG:4326, UTM, or PLSS",
-  "origin": {
-    "type": "string - latlon, utm, plss, or local",
-    "lat": "number or null - latitude if available",
-    "lon": "number or null - longitude if available", 
-    "zone": "integer or null - UTM zone 1-60",
-    "easting_m": "number or null - easting in meters",
-    "northing_m": "number or null - northing in meters",
-    "t": "integer or null - township number (PLSS Description)",
-    "r": "integer or null - range number (PLSS Description)", 
-    "section": "integer or null - section number 1-36 (PLSS Description)",
-    "corner": "string or null - NW, NE, SW, SE, or null (PLSS Description)",
-    "offset_m": "number or null - offset distance in meters",
-    "offset_bearing_deg": "number or null - offset bearing 0-360 degrees",
-    "note": "string or null - additional notes about origin"
+  "plss_description": {
+    "state": "string - state name (e.g., 'Wyoming')",
+    "county": "string - county name (e.g., 'Albany County')", 
+    "principal_meridian": "string - principal meridian (e.g., 'Sixth Principal Meridian')",
+    "township": "string - township exactly as written (e.g., 'Township Fourteen (14) North')",
+    "range": "string - range exactly as written (e.g., 'Range Seventy-five (75) West')", 
+    "section": "string - section exactly as written (e.g., 'Section Two (2)')",
+    "quarter_section": "string or null - quarter section exactly as written (e.g., 'Southwest Quarter of the Northwest Quarter')",
+    "starting_point": {
+      "description": "string - starting point exactly as written",
+      "reference": "string or null - primary reference exactly as written (e.g., '50 feet S.21°30'E from center line of South Canal')",
+      "additional_reference": "string or null - secondary reference exactly as written (e.g., 'whence the Northwest corner bears N. 4°00'W., 1,638 feet distant')",
+      "lat": "number or null - latitude only if stated in deed",
+      "lon": "number or null - longitude only if stated in deed",
+      "raw_text": "string - the full clause about POB from deed"
+    },
+    "stated_area_acres": "number or null - area in acres only if given in deed",
+    "raw_text": "string - all PLSS description text as in deed"
   },
-  "legs": [
-    {
-      "bearing_deg": "number - bearing in degrees 0-360 (Metes and Bounds)",
-      "distance": "number - distance value as stated (Metes and Bounds)",
-      "distance_units": "string - feet, meters, yards, chains, rods, miles, or kilometers",
-      "distance_sigma": "number or null - uncertainty in measurement",
-      "raw_text": "string - exact text describing this boundary segment",
-      "confidence": "number - your confidence in this extraction 0-1"
-    }
-  ],
-  "close": "boolean - does the description close back to starting point",
-  "stated_area_ac": "number or null - area in acres if mentioned",
-  "source": "string or null - source document reference"
+  "metes_and_bounds": {
+    "boundary_courses": [
+      {
+        "course": "string - course exactly as written (e.g., 'N. 68°30'E.')",
+        "bearing_degrees": null - DO NOT CONVERT, leave as null,
+        "distance": "number - distance value as stated",
+        "distance_units": "string - units exactly as written (e.g., 'feet')",
+        "raw_text": "string - exact leg text from deed",
+        "description": "string or null - context exactly as written (e.g., 'parallel to and 50 feet distant from center line')",
+        "confidence": "number or null - extraction confidence (0-1), optional"
+      }
+    ],
+    "closes_to_start": "boolean - whether description closes back to starting point",
+    "raw_text": "string - full legal boundary text from deed"
+  },
+  "source": "string or null - deed reference/citation if stated"
 }
 
-IMPORTANT INSTRUCTIONS:
-1. **PLSS Description Extraction**: Look for township (T), range (R), section numbers, and corner references (NW, NE, SW, SE)
-2. **Metes and Bounds Extraction**: Extract each boundary segment with precise bearings and distances
-3. Convert all bearings to degrees (0-360), distances to their stated units
-4. Set confidence scores based on clarity of the text (0.9+ for clear, 0.7-0.8 for somewhat clear, <0.7 for unclear)
-5. Use the raw_text field to capture the exact words describing each boundary segment
-6. Determine coordinate reference system from context (PLSS for township/range, UTM for coordinates, etc.)
-7. If information is missing or unclear, use null for optional fields
-8. Generate a meaningful parcel_id if not provided in the text
-9. Return only valid JSON without any additional commentary
+EXTRACTION RULES:
+1. **Exact Transcription**: Copy text exactly as written, no changes
+2. **No Conversions**: Do not convert bearings, units, or any measurements
+3. **Required Fields**: state, county, principal_meridian, township, range, section are required
+4. **Starting Point**: Extract all reference information for the Point of Beginning
+5. **Boundary Courses**: Extract each course with exact bearing, distance, and units
+6. **Raw Text Everywhere**: Include exact original text in raw_text fields
+7. **Null for Missing**: Use null for anything not explicitly stated
+8. **No Inferences**: Do not guess, calculate, or infer anything
 
 Legal Description Text:
 """

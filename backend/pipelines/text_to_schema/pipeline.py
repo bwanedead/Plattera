@@ -41,7 +41,7 @@ class TextToSchemaPipeline:
                     "error": f"No service available for model: {model}"
                 }
             
-            # Get the prompt for parcel extraction
+            # Get the prompt for parcel extraction (dynamic from text_to_schema.py)
             prompt = get_text_to_schema_prompt("parcel", model)
             
             # Process using structured outputs
@@ -90,7 +90,7 @@ class TextToSchemaPipeline:
             }
     
     def _load_parcel_schema(self) -> dict:
-        """Load the parcel schema from parcel_v0.1.json"""
+        """Load the parcel schema from parcel_v0.1.json (dynamic schema loading)"""
         try:
             schema_path = Path(__file__).parent.parent.parent / "schema" / "parcel_v0.1.json"
             with open(schema_path, 'r') as f:
@@ -132,34 +132,42 @@ class TextToSchemaPipeline:
         return None
     
     def _validate_parcel_data(self, data: dict) -> dict:
-        """Basic validation of parcel data against schema requirements"""
+        """Basic validation of parcel data against NEW schema requirements"""
         errors = []
         warnings = []
         
-        # Check required fields from schema
-        required_fields = ["parcel_id", "crs", "origin", "legs", "close", "stated_area_ac", "source"]
+        # Check required fields from NEW schema
+        required_fields = ["parcel_id", "plss_description", "metes_and_bounds"]
         
         for field in required_fields:
             if field not in data or data[field] is None:
-                if field in ["parcel_id", "crs", "origin", "legs", "close"]:
-                    errors.append(f"Missing required field: {field}")
-                else:
-                    warnings.append(f"Missing optional field: {field}")
+                errors.append(f"Missing required field: {field}")
         
-        # Validate legs array
-        if "legs" in data and isinstance(data["legs"], list):
-            if len(data["legs"]) < 1:
-                errors.append("Legs array must have at least 1 item")
-            
-            for i, leg in enumerate(data["legs"]):
-                if not isinstance(leg, dict):
-                    errors.append(f"Leg {i} must be an object")
-                    continue
-                    
-                leg_required = ["bearing_deg", "distance", "distance_units", "distance_sigma", "raw_text", "confidence"]
-                for field in leg_required:
-                    if field not in leg:
-                        errors.append(f"Leg {i} missing required field: {field}")
+        # Validate plss_description
+        if "plss_description" in data and isinstance(data["plss_description"], dict):
+            plss_required = ["state", "county", "principal_meridian", "township", "range", "section", "starting_point", "raw_text"]
+            for field in plss_required:
+                if field not in data["plss_description"]:
+                    errors.append(f"PLSS description missing required field: {field}")
+        
+        # Validate metes_and_bounds
+        if "metes_and_bounds" in data and isinstance(data["metes_and_bounds"], dict):
+            if "boundary_courses" not in data["metes_and_bounds"]:
+                errors.append("Metes and bounds missing boundary_courses")
+            elif not isinstance(data["metes_and_bounds"]["boundary_courses"], list):
+                errors.append("Boundary courses must be an array")
+            elif len(data["metes_and_bounds"]["boundary_courses"]) < 1:
+                errors.append("Boundary courses must have at least 1 item")
+            else:
+                for i, course in enumerate(data["metes_and_bounds"]["boundary_courses"]):
+                    if not isinstance(course, dict):
+                        errors.append(f"Boundary course {i} must be an object")
+                        continue
+                        
+                    course_required = ["course", "distance", "distance_units", "raw_text"]
+                    for field in course_required:
+                        if field not in course:
+                            errors.append(f"Boundary course {i} missing required field: {field}")
         
         return {
             "valid": len(errors) == 0,

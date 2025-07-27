@@ -2,73 +2,153 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "PlatteraParcel",
     "type": "object",
-    "required": ["parcel_id", "crs", "origin", "legs", "close", "stated_area_ac", "source"],
+    "required": ["parcel_id", "plss_description", "metes_and_bounds"],
+    "additionalProperties": false,
     "properties": {
       "parcel_id": { 
         "type": "string", 
-        "description": "Unique id you assign (slug, UUID, etc.)" 
+        "description": "Unique parcel identifier" 
       },
   
-      "crs": {
-        "type": "string",
-        "description": "Coordinate reference system for the origin",
-        "enum": ["LOCAL", "EPSG:4326", "UTM", "PLSS"]
-      },
-  
-      "origin": {
+      "plss_description": {
         "type": "object",
-        "description": "Starting point for all legs",
-        "required": ["type", "lat", "lon", "zone", "easting_m", "northing_m", "t", "r", "section", "corner", "offset_m", "offset_bearing_deg", "note"],
+        "description": "Public Land Survey System location information",
+        "required": ["state", "county", "principal_meridian", "township", "range", "section", "starting_point", "raw_text"],
+        "additionalProperties": false,
         "properties": {
-          "type": {
-            "type": "string",
-            "enum": ["latlon", "utm", "plss", "local"]
+          "state": { 
+            "type": "string", 
+            "description": "State name (e.g., 'Wyoming')" 
           },
-          "lat":  { "type": ["number", "null"] },
-          "lon":  { "type": ["number", "null"] },
-          "zone": { "type": ["integer", "null"], "minimum": 1, "maximum": 60 },
-          "easting_m":  { "type": ["number", "null"] },
-          "northing_m": { "type": ["number", "null"] },
-          "t":       { "type": ["integer", "null"], "description": "Township number" },
-          "r":       { "type": ["integer", "null"], "description": "Range number" },
-          "section": { "type": ["integer", "null"], "minimum": 1, "maximum": 36 },
-          "corner":  { "type": ["string", "null"], "enum": ["NW","NE","SW","SE", null] },
-          "offset_m":           { "type": ["number", "null"] },
-          "offset_bearing_deg": { "type": ["number", "null"], "minimum": 0, "maximum": 360 },
-          "note": { "type": ["string", "null"] }
-        },
-        "additionalProperties": false
-      },
-  
-      "legs": {
-        "type": "array",
-        "minItems": 1,
-        "items": {
-          "type": "object",
-          "required": ["bearing_deg", "distance", "distance_units", "distance_sigma", "raw_text", "confidence"],
-          "properties": {
-            "bearing_deg":  { "type": "number", "minimum": 0, "maximum": 360 },
-            "distance":     { "type": "number", "exclusiveMinimum": 0, "description": "Distance value as stated in legal description" },
-            "distance_units": { 
-              "type": "string", 
-              "enum": ["feet", "meters", "yards", "chains", "rods", "miles", "kilometers"],
-              "description": "Unit of measurement for the distance"
-            },
-            "distance_sigma": { "type": ["number", "null"], "minimum": 0, "description": "Uncertainty in distance measurement" },
-            "raw_text":     { "type": "string" },
-            "confidence":   { "type": "number", "minimum": 0, "maximum": 1 }
+          "county": { 
+            "type": "string", 
+            "description": "County name (e.g., 'Albany County')" 
           },
-          "additionalProperties": false
+          "principal_meridian": { 
+            "type": "string", 
+            "description": "Principal meridian (e.g., 'Sixth Principal Meridian')" 
+          },
+          "township": { 
+            "type": "string", 
+            "description": "Township exactly as written (e.g., 'Township Fourteen (14) North')" 
+          },
+          "range": { 
+            "type": "string", 
+            "description": "Range exactly as written (e.g., 'Range Seventy-five (75) West')" 
+          },
+          "section": { 
+            "type": "string", 
+            "description": "Section exactly as written (e.g., 'Section Two (2)')" 
+          },
+          "quarter_section": { 
+            "type": ["string", "null"], 
+            "description": "Quarter section exactly as written (e.g., 'Southwest Quarter of the Northwest Quarter')" 
+          },
+          "starting_point": {
+            "type": "object",
+            "required": ["description", "raw_text", "reference", "additional_reference", "lat", "lon"],
+            "additionalProperties": false,
+            "properties": {
+              "description": { 
+                "type": "string", 
+                "description": "Starting point exactly as written" 
+              },
+              "reference": { 
+                "type": ["string", "null"], 
+                "description": "Primary reference (e.g., '50 feet S.21°30'E from center line of South Canal')" 
+              },
+              "additional_reference": { 
+                "type": ["string", "null"], 
+                "description": "Secondary reference (e.g., 'whence the Northwest corner bears N. 4°00'W., 1,638 feet distant')" 
+              },
+              "lat": { 
+                "type": ["number", "null"], 
+                "description": "Latitude only if stated in deed" 
+              },
+              "lon": { 
+                "type": ["number", "null"], 
+                "description": "Longitude only if stated in deed" 
+              },
+              "raw_text": { 
+                "type": "string", 
+                "description": "The full clause about POB from deed" 
+              }
+            }
+          },
+          "stated_area_acres": { 
+            "type": ["number", "null"], 
+            "description": "Area in acres only if given in deed" 
+          },
+          "raw_text": { 
+            "type": "string", 
+            "description": "All PLSS description text as in deed" 
+          }
         }
       },
   
-      "close": { "type": "boolean" },
+      "metes_and_bounds": {
+        "type": "object",
+        "description": "Property boundary course information",
+        "required": ["boundary_courses", "raw_text"],
+        "additionalProperties": false,
+        "properties": {
+          "boundary_courses": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["course", "distance", "distance_units", "raw_text", "bearing_degrees", "description", "confidence"],
+              "additionalProperties": false,
+              "properties": {
+                "course": { 
+                  "type": "string", 
+                  "description": "Course exactly as written (e.g., 'N. 68°30'E.')" 
+                },
+                "bearing_degrees": { 
+                  "type": ["number", "null"], 
+                  "description": "DO NOT CONVERT - leave as null for LLM extraction" 
+                },
+                "distance": { 
+                  "type": "number", 
+                  "description": "Distance value as stated" 
+                },
+                "distance_units": { 
+                  "type": "string", 
+                  "description": "Units exactly as written (e.g., 'feet')" 
+                },
+                "raw_text": { 
+                  "type": "string", 
+                  "description": "Exact leg text from deed" 
+                },
+                "description": { 
+                  "type": ["string", "null"], 
+                  "description": "Context exactly as written (e.g., 'parallel to and 50 feet distant from center line')" 
+                },
+                "confidence": { 
+                  "type": ["number", "null"], 
+                  "minimum": 0, 
+                  "maximum": 1, 
+                  "description": "Extraction confidence (0-1), optional" 
+                }
+              }
+            }
+          },
+          "closes_to_start": { 
+            "type": "boolean", 
+            "description": "Whether description closes back to starting point" 
+          },
+          "raw_text": { 
+            "type": "string", 
+            "description": "Full legal boundary text from deed" 
+          }
+        }
+      },
   
-      "stated_area_ac": { "type": ["number", "null"], "minimum": 0 },
-  
-      "source": { "type": ["string", "null"] }
-    },
-    "additionalProperties": false
+      "source": { 
+        "type": ["string", "null"], 
+        "description": "Deed reference/citation if stated" 
+      }
+    }
   }
 
 

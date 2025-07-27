@@ -29,12 +29,38 @@ export interface ParcelLeg {
 
 export interface ParcelSchema {
   parcel_id: string;
-  crs: string; // "LOCAL", "EPSG:4326", "UTM", "PLSS"
-  origin: ParcelOrigin;
-  legs: ParcelLeg[];
-  close: boolean;
-  stated_area_ac?: number;
-  source?: string;
+  plss_description: {
+    state?: string | null;
+    county?: string | null;
+    principal_meridian?: string | null;
+    township: string;
+    range: string;
+    section: number | string;
+    quarter_section?: string | null;
+    starting_point: {
+      description: string;
+      reference?: string | null;
+      lat?: number | null;
+      lon?: number | null;
+      raw_text: string;
+    };
+    stated_area_acres?: number | null;
+    raw_text: string;
+  };
+  metes_and_bounds: {
+    boundary_courses: Array<{
+      course: string;
+      bearing_degrees?: number | null;
+      distance?: number | null;
+      distance_units?: string | null;
+      raw_text: string;
+      description?: string | null;
+      confidence?: number | null;
+    }>;
+    closes_to_start: boolean;
+    raw_text: string;
+  };
+  source?: string | null;
 }
 
 export interface TextToSchemaResult {

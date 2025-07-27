@@ -88,6 +88,7 @@ from pydantic import BaseModel
 import time
 import logging
 import random
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -98,38 +99,10 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-# Add this Pydantic model for the parcel schema
-class ParcelOrigin(BaseModel):
-    type: str  # "latlon", "utm", "plss", "local"
-    lat: Optional[float] = None
-    lon: Optional[float] = None
-    zone: Optional[int] = None
-    easting_m: Optional[float] = None
-    northing_m: Optional[float] = None
-    t: Optional[int] = None  # Township
-    r: Optional[int] = None  # Range
-    section: Optional[int] = None
-    corner: Optional[str] = None  # "NW", "NE", "SW", "SE"
-    offset_m: Optional[float] = None
-    offset_bearing_deg: Optional[float] = None
-    note: Optional[str] = None
-
-class ParcelLeg(BaseModel):
-    bearing_deg: float  # 0-360
-    distance: float
-    distance_units: str  # "feet", "meters", "yards", "chains", "rods", "miles", "kilometers"
-    distance_sigma: Optional[float] = None
-    raw_text: str
-    confidence: float  # 0-1
-
-class PlatteraParcel(BaseModel):
-    parcel_id: str
-    crs: str  # "LOCAL", "EPSG:4326", "UTM", "PLSS"
-    origin: ParcelOrigin
-    legs: List[ParcelLeg]
-    close: bool
-    stated_area_ac: Optional[float] = None
-    source: Optional[str] = None
+# Remove the hardcoded Pydantic models (lines 103-133)
+# class ParcelOrigin(BaseModel):  # DELETE THESE
+# class ParcelLeg(BaseModel):     # DELETE THESE  
+# class PlatteraParcel(BaseModel): # DELETE THESE
 
 class OpenAIService(LLMService):
     """OpenAI LLM service provider"""
@@ -443,7 +416,7 @@ class OpenAIService(LLMService):
             return result
     
     def call_structured_pydantic(self, prompt: str, input_text: str, model: str, parcel_id: Optional[str] = None, **kwargs) -> Dict[str, Any]:
-        """Make structured output API call using Pydantic model (recommended approach)"""
+        """Make structured output API call using dynamic schema (recommended approach)"""
         try:
             api_model_name = self._get_api_model_name(model)
             
@@ -455,18 +428,30 @@ class OpenAIService(LLMService):
             
             messages = [{"role": "user", "content": full_prompt}]
             
-            # Use the beta.chat.completions.parse method for structured outputs
+            # Use dynamic schema from file (like image-to-text uses dynamic prompts)
+            schema = self._load_parcel_schema()
+            
+            # Format the schema properly for OpenAI API
+            formatted_schema = {
+                "name": "parcel_schema",  # ✅ Add required name field
+                "schema": schema,         # ✅ Use the loaded schema
+                "strict": True            # ✅ Make it strict
+            }
+            
             completion = self.client.beta.chat.completions.parse(
                 model=api_model_name,
                 messages=messages,
-                response_format=PlatteraParcel,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": formatted_schema  # ✅ Use formatted schema
+                },
                 temperature=kwargs.get("temperature", 0.1),
                 max_tokens=kwargs.get("max_tokens", 4000)
             )
             
             # Parse the structured response
             if completion.choices[0].message.parsed:
-                structured_data = completion.choices[0].message.parsed.model_dump()
+                structured_data = completion.choices[0].message.parsed
                 response_text = completion.choices[0].message.content
             else:
                 # Handle refusal
@@ -493,6 +478,16 @@ class OpenAIService(LLMService):
                 "model": model
             }
     
+    def _load_parcel_schema(self) -> dict:
+        """Load the parcel schema from parcel_v0.1.json (like image-to-text loads prompts)"""
+        try:
+            schema_path = Path(__file__).parent.parent.parent / "schema" / "parcel_v0.1.json"
+            with open(schema_path, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            logger.error(f"Parcel schema file not found at {schema_path}")
+            return {}
+    
     def call_structured(self, prompt: str, input_text: str, schema: dict, model: str, **kwargs) -> Dict[str, Any]:
         """Make structured output API call using JSON schema (fallback method)"""
         try:
@@ -503,42 +498,13 @@ class OpenAIService(LLMService):
             
             messages = [{"role": "user", "content": full_prompt}]
             
-            # Build parameters for structured output
+            # Use the passed-in schema parameter (dynamic) instead of hardcoded
             completion_params = {
                 "model": api_model_name,
                 "messages": messages,
                 "response_format": {
                     "type": "json_schema",
-                    "json_schema": {
-                        "name": "document_transcription",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "documentId": {
-                                    "type": "string"
-                                },
-                                "sections": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "id": {
-                                                "type": "integer"
-                                            },
-                                            "body": {
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["id", "body"],
-                                        "additionalProperties": False
-                                    }
-                                }
-                            },
-                            "required": ["documentId", "sections"],
-                            "additionalProperties": False
-                        },
-                        "strict": True
-                    }
+                    "json_schema": schema  # ✅ Use passed-in schema
                 },
                 "temperature": kwargs.get("temperature", 0.1),
                 "max_tokens": kwargs.get("max_tokens", 4000)
