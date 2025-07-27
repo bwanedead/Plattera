@@ -1,45 +1,188 @@
 import React from 'react';
 
-interface ParcelLeg {
-  bearing_deg: number;
-  distance: number;
-  distance_units: string;
-  distance_sigma?: number;
-  raw_text: string;
-  confidence: number;
-}
-
-interface ParcelOrigin {
-  type: string;
-  lat?: number;
-  lon?: number;
-  zone?: number;
-  easting_m?: number;
-  northing_m?: number;
-  t?: number; // Township
-  r?: number; // Range
-  section?: number;
-  corner?: string;
-  offset_m?: number;
-  offset_bearing_deg?: number;
-  note?: string;
-}
-
-interface ParcelSchema {
-  parcel_id: string;
-  crs: string;
-  origin: ParcelOrigin;
-  legs: ParcelLeg[];
-  close: boolean;
-  stated_area_ac?: number;
-  source?: string;
-}
-
 interface FieldViewTabProps {
-  schemaData: ParcelSchema | null;
+  schemaData: any;
   isSuccess: boolean;
   error?: string;
 }
+
+// Utility function to convert field names to human-readable labels
+const formatFieldLabel = (fieldName: string): string => {
+  return fieldName
+    .replace(/_/g, ' ')
+    .replace(/([A-Z])/g, ' $1')
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+    .trim();
+};
+
+// Utility function to get section icons based on field names
+const getSectionIcon = (fieldName: string): string => {
+  const iconMap: Record<string, string> = {
+    'plss_description': '📍',
+    'metes_and_bounds': '🗺️',
+    'boundary_courses': '🧭',
+    'starting_point': '📌',
+    'parcel': '🏞️',
+    'location': '🌍',
+    'coordinates': '📐',
+    'source': '📄',
+    'metadata': 'ℹ️'
+  };
+  
+  const lowerField = fieldName.toLowerCase();
+  for (const [key, icon] of Object.entries(iconMap)) {
+    if (lowerField.includes(key)) {
+      return icon;
+    }
+  }
+  return '📋';
+};
+
+// Component to render individual field values
+const FieldValue: React.FC<{ value: any; fieldName: string }> = ({ value, fieldName }) => {
+  if (value === null || value === undefined) {
+    return <span className="field-value null-value">Not specified</span>;
+  }
+  
+  if (typeof value === 'boolean') {
+    return (
+      <span className={`field-value boolean-value ${value ? 'true' : 'false'}`}>
+        {value ? 'Yes' : 'No'}
+      </span>
+    );
+  }
+  
+  if (typeof value === 'number') {
+    // Special formatting for certain field types
+    if (fieldName.toLowerCase().includes('confidence') && value <= 1) {
+      return (
+        <span 
+          className="field-value confidence-value"
+          style={{
+            backgroundColor: value > 0.8 ? '#4ade80' : value > 0.6 ? '#fbbf24' : '#f87171',
+            color: 'white',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            fontSize: '0.9em'
+          }}
+        >
+          {Math.round(value * 100)}% confidence
+        </span>
+      );
+    }
+    
+    if (fieldName.toLowerCase().includes('acres')) {
+      return <span className="field-value number-value">{value} acres</span>;
+    }
+    
+    if (fieldName.toLowerCase().includes('distance')) {
+      return <span className="field-value number-value">{value}</span>;
+    }
+    
+    return <span className="field-value number-value">{value}</span>;
+  }
+  
+  if (typeof value === 'string') {
+    // Special formatting for raw text
+    if (fieldName.toLowerCase().includes('raw_text') || fieldName.toLowerCase().includes('description')) {
+      return (
+        <span className="field-value raw-text" style={{ fontStyle: 'italic', color: '#666' }}>
+          "{value}"
+        </span>
+      );
+    }
+    
+    return <span className="field-value string-value">{value}</span>;
+  }
+  
+  return <span className="field-value unknown-value">{String(value)}</span>;
+};
+
+// Component to render object fields
+const ObjectField: React.FC<{ data: any; title: string; level?: number }> = ({ 
+  data, 
+  title, 
+  level = 0 
+}) => {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+
+  const isArray = Array.isArray(data);
+  const icon = getSectionIcon(title);
+  
+  return (
+    <div className={`field-section level-${level}`}>
+      <h4 className="section-title">
+        {icon} {formatFieldLabel(title)}
+      </h4>
+      
+      {isArray ? (
+        <div className="array-field">
+          {data.length === 0 ? (
+            <p className="empty-array">No items found</p>
+          ) : (
+            data.map((item, index) => (
+              <div key={index} className="array-item">
+                <div className="array-item-header">
+                  <span className="array-item-number">
+                    {formatFieldLabel(title).slice(0, -1)} {index + 1}
+                  </span>
+                </div>
+                <div className="array-item-content">
+                  {typeof item === 'object' ? (
+                    <ObjectField data={item} title={`item_${index}`} level={level + 1} />
+                  ) : (
+                    <div className="field-item">
+                      <span className="field-label">Value:</span>
+                      <FieldValue value={item} fieldName={title} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      ) : (
+        <div className="field-group">
+          {Object.entries(data).map(([key, value]) => {
+            if (value && typeof value === 'object' && !Array.isArray(value)) {
+              // Nested object - render as subsection
+              return (
+                <ObjectField 
+                  key={key} 
+                  data={value} 
+                  title={key} 
+                  level={level + 1}
+                />
+              );
+            } else if (Array.isArray(value)) {
+              // Array - render as subsection
+              return (
+                <ObjectField 
+                  key={key} 
+                  data={value} 
+                  title={key} 
+                  level={level + 1}
+                />
+              );
+            } else {
+              // Primitive value - render as field
+              return (
+                <div key={key} className="field-item">
+                  <span className="field-label">{formatFieldLabel(key)}:</span>
+                  <FieldValue value={value} fieldName={key} />
+                </div>
+              );
+            }
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const FieldViewTab: React.FC<FieldViewTabProps> = ({ 
   schemaData, 
@@ -70,92 +213,7 @@ export const FieldViewTab: React.FC<FieldViewTabProps> = ({
   return (
     <div className="field-view-tab">
       <div className="field-view">
-        {/* PLSS Description Section */}
-        <div className="field-section">
-          <h4>📍 PLSS Description</h4>
-          <div className="field-group">
-            <div className="field-item">
-              <span className="field-label">Township:</span>
-              <span className="field-value">{schemaData.origin.t ? `${schemaData.origin.t}` : 'Not specified'}</span>
-            </div>
-            <div className="field-item">
-              <span className="field-label">Range:</span>
-              <span className="field-value">{schemaData.origin.r ? `${schemaData.origin.r}` : 'Not specified'}</span>
-            </div>
-            <div className="field-item">
-              <span className="field-label">Section:</span>
-              <span className="field-value">{schemaData.origin.section || 'Not specified'}</span>
-            </div>
-            <div className="field-item">
-              <span className="field-label">Corner:</span>
-              <span className="field-value">{schemaData.origin.corner || 'Not specified'}</span>
-            </div>
-            <div className="field-item">
-              <span className="field-label">CRS:</span>
-              <span className="field-value">{schemaData.crs}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Metes and Bounds Section */}
-        <div className="field-section">
-          <h4>🗺️ Metes and Bounds</h4>
-          <div className="field-group">
-            {schemaData.legs && schemaData.legs.length > 0 ? (
-              schemaData.legs.map((leg, index) => (
-                <div key={index} className="leg-item">
-                  <div className="leg-header">
-                    <span className="leg-number">Leg {index + 1}</span>
-                    <span className="confidence-badge" style={{
-                      backgroundColor: leg.confidence > 0.8 ? '#4ade80' : leg.confidence > 0.6 ? '#fbbf24' : '#f87171'
-                    }}>
-                      {Math.round(leg.confidence * 100)}% confidence
-                    </span>
-                  </div>
-                  <div className="leg-details">
-                    <div className="field-item">
-                      <span className="field-label">Bearing:</span>
-                      <span className="field-value">{leg.bearing_deg}°</span>
-                    </div>
-                    <div className="field-item">
-                      <span className="field-label">Distance:</span>
-                      <span className="field-value">{leg.distance} {leg.distance_units}</span>
-                    </div>
-                    <div className="field-item">
-                      <span className="field-label">Raw Text:</span>
-                      <span className="field-value raw-text">"{leg.raw_text}"</span>
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p>No boundary legs found</p>
-            )}
-          </div>
-        </div>
-
-        {/* Property Details Section */}
-        <div className="field-section">
-          <h4>📊 Property Details</h4>
-          <div className="field-group">
-            <div className="field-item">
-              <span className="field-label">Parcel ID:</span>
-              <span className="field-value">{schemaData.parcel_id}</span>
-            </div>
-            <div className="field-item">
-              <span className="field-label">Area:</span>
-              <span className="field-value">{schemaData.stated_area_ac ? `${schemaData.stated_area_ac} acres` : 'Not specified'}</span>
-            </div>
-            <div className="field-item">
-              <span className="field-label">Closes:</span>
-              <span className="field-value">{schemaData.close ? 'Yes' : 'No'}</span>
-            </div>
-            <div className="field-item">
-              <span className="field-label">Source:</span>
-              <span className="field-value">{schemaData.source || 'Not specified'}</span>
-            </div>
-          </div>
-        </div>
+        <ObjectField data={schemaData} title="parcel_data" />
       </div>
     </div>
   );

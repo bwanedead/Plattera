@@ -3,68 +3,70 @@ Centralized Text-to-Schema Prompts
 Edit these prompts to adjust how LLMs convert text to structured parcel data
 """
 
-# Main parcel schema conversion prompt - EXACT TRANSCRIPTION FOR PROGRAMMATIC USE
+# Main parcel schema conversion prompt - ULTRA-STRICT FOR OPENAI JSON SCHEMA
 PARCEL_SCHEMA = """
-Convert the following legal property description text into structured JSON data following the parcel schema.
+Convert the following legal property description text into structured JSON data.
 
-CRITICAL RULE: TRANSCRIBE EXACTLY - NO CONVERSIONS
-- Extract ONLY the exact text as written in the legal description
-- Do NOT convert bearings to degrees
-- Do NOT convert units
-- Do NOT calculate or compute anything
-- Do NOT infer missing information
-- If something is not explicitly stated, use null
+CRITICAL RULES FOR OPENAI JSON SCHEMA COMPLIANCE:
 
-Return the data in this exact structure:
+1. **EXACT TRANSCRIPTION ONLY** - Copy text exactly as written, no changes
+2. **NO CONVERSIONS** - Do not convert bearings, units, or any measurements
+3. **REQUIRED FIELDS** - Every required field must be present, even if null
+4. **CORRECT TYPES** - Numbers must be numbers, strings must be strings
+5. **NO EXTRA FIELDS** - Only include fields specified in the schema
+6. **NULL FOR MISSING** - If not explicitly stated, use null (not empty string)
 
+EXTRACTION GUIDELINES:
+- For "distance" fields: Extract ONLY the numeric value (e.g., "542 feet more or less" → distance: 542)
+- For "distance_units" fields: Extract ONLY the unit (e.g., "542 feet more or less" → distance_units: "feet")
+- For "course" fields: Extract the exact bearing text (e.g., "N. 68°30'E.")
+- For "raw_text" fields: Include the complete original text for that section
+- For "description" fields: Include context if present, null if not
+- For "bearing_degrees" fields: Always null (no conversion)
+- For "confidence" fields: null (no confidence scoring)
+- For "lat"/"lon" fields: null (coordinates not in legal descriptions)
+- For "quarter_section" fields: Extract if present, null if not
+- For "stated_area_acres" fields: Extract numeric value if present, null if not
+
+EXAMPLE OUTPUT STRUCTURE:
 {
-  "parcel_id": "string - unique identifier for this parcel",
+  "parcel_id": "parcel-123",
   "plss_description": {
-    "state": "string - state name (e.g., 'Wyoming')",
-    "county": "string - county name (e.g., 'Albany County')", 
-    "principal_meridian": "string - principal meridian (e.g., 'Sixth Principal Meridian')",
-    "township": "string - township exactly as written (e.g., 'Township Fourteen (14) North')",
-    "range": "string - range exactly as written (e.g., 'Range Seventy-five (75) West')", 
-    "section": "string - section exactly as written (e.g., 'Section Two (2)')",
-    "quarter_section": "string or null - quarter section exactly as written (e.g., 'Southwest Quarter of the Northwest Quarter')",
+    "state": "Wyoming",
+    "county": "Albany County", 
+    "principal_meridian": "Sixth Principal Meridian",
+    "township": "Township Fourteen (14) North",
+    "range": "Range Seventy-five (75) West",
+    "section": "Section Two (2)",
+    "quarter_section": "Southwest Quarter of the Northwest Quarter",
     "starting_point": {
-      "description": "string - starting point exactly as written",
-      "reference": "string or null - primary reference exactly as written (e.g., '50 feet S.21°30'E from center line of South Canal')",
-      "additional_reference": "string or null - secondary reference exactly as written (e.g., 'whence the Northwest corner bears N. 4°00'W., 1,638 feet distant')",
-      "lat": "number or null - latitude only if stated in deed",
-      "lon": "number or null - longitude only if stated in deed",
-      "raw_text": "string - the full clause about POB from deed"
+      "description": "Beginning at a point on the west boundary of Section Two (2)...",
+      "reference": "50 feet S.21°30'E. from the center line of the South Canal",
+      "additional_reference": "whence the Northwest corner bears N. 4°00'W., 1,638 feet distant",
+      "lat": null,
+      "lon": null,
+      "raw_text": "Beginning at a point on the west boundary of Section Two (2)..."
     },
-    "stated_area_acres": "number or null - area in acres only if given in deed",
-    "raw_text": "string - all PLSS description text as in deed"
+    "stated_area_acres": 1.9,
+    "raw_text": "Situated in the Southwest Quarter of the Northwest Quarter..."
   },
   "metes_and_bounds": {
     "boundary_courses": [
       {
-        "course": "string - course exactly as written (e.g., 'N. 68°30'E.')",
-        "bearing_degrees": null - DO NOT CONVERT, leave as null,
-        "distance": "number - distance value as stated",
-        "distance_units": "string - units exactly as written (e.g., 'feet')",
-        "raw_text": "string - exact leg text from deed",
-        "description": "string or null - context exactly as written (e.g., 'parallel to and 50 feet distant from center line')",
-        "confidence": "number or null - extraction confidence (0-1), optional"
+        "course": "N. 68°30'E.",
+        "bearing_degrees": null,
+        "distance": 542,
+        "distance_units": "feet",
+        "raw_text": "thence N. 68°30'E. parallel to and 50 feet distant from the center line of said canal 542 feet more or less",
+        "description": "parallel to and 50 feet distant from the center line of said canal",
+        "confidence": null
       }
     ],
-    "closes_to_start": "boolean - whether description closes back to starting point",
-    "raw_text": "string - full legal boundary text from deed"
+    "closes_to_start": true,
+    "raw_text": "Beginning at a point... thence N. 68°30'E..."
   },
-  "source": "string or null - deed reference/citation if stated"
+  "source": "Right of Way Deed, August 3, 1915"
 }
-
-EXTRACTION RULES:
-1. **Exact Transcription**: Copy text exactly as written, no changes
-2. **No Conversions**: Do not convert bearings, units, or any measurements
-3. **Required Fields**: state, county, principal_meridian, township, range, section are required
-4. **Starting Point**: Extract all reference information for the Point of Beginning
-5. **Boundary Courses**: Extract each course with exact bearing, distance, and units
-6. **Raw Text Everywhere**: Include exact original text in raw_text fields
-7. **Null for Missing**: Use null for anything not explicitly stated
-8. **No Inferences**: Do not guess, calculate, or infer anything
 
 Legal Description Text:
 """

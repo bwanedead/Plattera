@@ -44,6 +44,9 @@ class TextToSchemaPipeline:
             # Get the prompt for parcel extraction (dynamic from text_to_schema.py)
             prompt = get_text_to_schema_prompt("parcel", model)
             
+            # Always reload schema from disk to get latest version
+            current_schema = self._load_parcel_schema()
+            
             # Process using structured outputs
             if hasattr(service, 'call_structured_pydantic'):
                 # Use the new Pydantic-based structured output method (preferred)
@@ -58,7 +61,7 @@ class TextToSchemaPipeline:
                 result = service.call_structured(
                     prompt=prompt,
                     input_text=text,
-                    schema=self._convert_to_strict_schema(self.parcel_schema),
+                    schema=self._convert_to_strict_schema(current_schema),  # Use current_schema instead of self.parcel_schema
                     model=model
                 )
                 
@@ -198,7 +201,8 @@ class TextToSchemaPipeline:
     
     def get_schema_template(self) -> dict:
         """Get the parcel schema template"""
-        return self.parcel_schema
+        # Reload schema from disk to get latest version
+        return self._load_parcel_schema()
     
     def get_available_models(self) -> dict:
         """Get models available for text-to-schema processing"""

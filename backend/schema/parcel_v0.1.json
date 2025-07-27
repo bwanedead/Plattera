@@ -2,7 +2,7 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "PlatteraParcel",
     "type": "object",
-    "required": ["parcel_id", "plss_description", "metes_and_bounds"],
+    "required": ["parcel_id", "plss_description", "metes_and_bounds", "source"],
     "additionalProperties": false,
     "properties": {
       "parcel_id": { 
@@ -13,7 +13,7 @@
       "plss_description": {
         "type": "object",
         "description": "Public Land Survey System location information",
-        "required": ["state", "county", "principal_meridian", "township", "range", "section", "starting_point", "raw_text"],
+        "required": ["state", "county", "principal_meridian", "township", "range", "section", "quarter_section", "starting_point", "stated_area_acres", "raw_text"],
         "additionalProperties": false,
         "properties": {
           "state": { 
@@ -46,7 +46,7 @@
           },
           "starting_point": {
             "type": "object",
-            "required": ["description", "raw_text", "reference", "additional_reference", "lat", "lon"],
+            "required": ["description", "reference", "additional_reference", "lat", "lon", "raw_text"],
             "additionalProperties": false,
             "properties": {
               "description": { 
@@ -89,7 +89,7 @@
       "metes_and_bounds": {
         "type": "object",
         "description": "Property boundary course information",
-        "required": ["boundary_courses", "raw_text"],
+        "required": ["boundary_courses", "closes_to_start", "raw_text"],
         "additionalProperties": false,
         "properties": {
           "boundary_courses": {
@@ -97,7 +97,7 @@
             "minItems": 1,
             "items": {
               "type": "object",
-              "required": ["course", "distance", "distance_units", "raw_text", "bearing_degrees", "description", "confidence"],
+              "required": ["course", "bearing_degrees", "distance", "distance_units", "raw_text", "description", "confidence"],
               "additionalProperties": false,
               "properties": {
                 "course": { 
@@ -110,7 +110,7 @@
                 },
                 "distance": { 
                   "type": "number", 
-                  "description": "Distance value as stated" 
+                  "description": "Distance value as stated (extract only the number)" 
                 },
                 "distance_units": { 
                   "type": "string", 
@@ -143,13 +143,13 @@
           }
         }
       },
-  
       "source": { 
         "type": ["string", "null"], 
         "description": "Deed reference/citation if stated" 
       }
-    }
-  }
+    },
+    "version": "parcel_v0.1"
+}
 
 
 

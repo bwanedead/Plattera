@@ -1,0 +1,155 @@
+/* Dynamic Field View Styles */
+.field-view-tab {
+  padding: 20px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.field-view {
+  max-width: 100%;
+}
+
+.field-section {
+  margin-bottom: 24px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.field-section.level-0 {
+  background: #ffffff;
+}
+
+.field-section.level-1 {
+  background: #f9fafb;
+  margin: 16px 0;
+  border-left: 3px solid #3b82f6;
+}
+
+.field-section.level-2 {
+  background: #f3f4f6;
+  margin: 12px 0;
+  border-left: 3px solid #10b981;
+}
+
+.section-title {
+  background: linear-gradient(90deg, #f3f4f6 0%, #e5e7eb 100%);
+  padding: 12px 16px;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  border-bottom: 1px solid #e5e7eb;
+  color: #374151;
+}
+
+.field-group {
+  padding: 16px;
+}
+
+.field-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 8px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.field-item:last-child {
+  border-bottom: none;
+}
+
+.field-label {
+  font-weight: 500;
+  color: #6b7280;
+  min-width: 120px;
+  margin-right: 16px;
+}
+
+.field-value {
+  flex: 1;
+  text-align: right;
+  word-break: break-word;
+}
+
+.field-value.null-value {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.field-value.boolean-value.true {
+  color: #10b981;
+  font-weight: 500;
+}
+
+.field-value.boolean-value.false {
+  color: #ef4444;
+  font-weight: 500;
+}
+
+.field-value.number-value {
+  color: #3b82f6;
+  font-weight: 500;
+}
+
+.field-value.string-value {
+  color: #111827;
+}
+
+.field-value.raw-text {
+  color: #6b7280;
+  font-style: italic;
+  text-align: left;
+  max-width: 300px;
+}
+
+.field-value.confidence-value {
+  border-radius: 12px;
+  padding: 4px 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.array-field {
+  padding: 16px;
+}
+
+.array-item {
+  margin-bottom: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.array-item-header {
+  background: #f9fafb;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.array-item-number {
+  font-weight: 600;
+  color: #374151;
+  font-size: 0.9rem;
+}
+
+.array-item-content {
+  padding: 12px;
+}
+
+.empty-array {
+  color: #9ca3af;
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
+}
+
+.error-display, .processing-placeholder {
+  text-align: center;
+  padding: 40px 20px;
+  color: #6b7280;
+}
+
+.error-display h4 {
+  color: #ef4444;
+  margin-bottom: 8px;
+} 

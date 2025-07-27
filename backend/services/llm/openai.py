@@ -420,60 +420,67 @@ class OpenAIService(LLMService):
         try:
             api_model_name = self._get_api_model_name(model)
             
-            # Create the full prompt with parcel_id if provided
-            if parcel_id:
-                full_prompt = f"{prompt}\n\nUse '{parcel_id}' as the parcel_id.\n\nLegal Description Text:\n{input_text}"
-            else:
-                full_prompt = f"{prompt}\n\nLegal Description Text:\n{input_text}"
+            # Load schema dynamically
+            schema_path = Path(__file__).parent.parent.parent / "schema" / "parcel_v0.1.json"
+            with open(schema_path, 'r') as f:
+                schema_dict = json.load(f)
             
-            messages = [{"role": "user", "content": full_prompt}]
-            
-            # Use dynamic schema from file (like image-to-text uses dynamic prompts)
-            schema = self._load_parcel_schema()
-            
-            # Format the schema properly for OpenAI API
-            formatted_schema = {
-                "name": "parcel_schema",  # ✅ Add required name field
-                "schema": schema,         # ✅ Use the loaded schema
-                "strict": True            # ✅ Make it strict
+            # Create the proper OpenAI JSON schema structure
+            response_format = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "plattera_parcel",
+                    "schema": schema_dict,
+                    "strict": True
+                }
             }
             
-            completion = self.client.beta.chat.completions.parse(
+            # Create the full prompt
+            full_prompt = f"{prompt}\n\nLegal Description Text:\n{input_text}"
+            
+            # Generate parcel ID if not provided
+            if not parcel_id:
+                parcel_id = f"parcel-{int(time.time() * 1000)}"
+            
+            # Make the API call
+            completion = self.client.chat.completions.create(
                 model=api_model_name,
-                messages=messages,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": formatted_schema  # ✅ Use formatted schema
-                },
-                temperature=kwargs.get("temperature", 0.1),
-                max_tokens=kwargs.get("max_tokens", 4000)
+                messages=[
+                    {"role": "user", "content": full_prompt}
+                ],
+                response_format=response_format,
+                temperature=0,
+                max_tokens=4000
             )
             
-            # Parse the structured response
-            if completion.choices[0].message.parsed:
-                structured_data = completion.choices[0].message.parsed
-                response_text = completion.choices[0].message.content
-            else:
-                # Handle refusal
+            # Extract the response
+            response_content = completion.choices[0].message.content
+            
+            # Parse the JSON response
+            try:
+                structured_data = json.loads(response_content)
+                structured_data['parcel_id'] = parcel_id  # Ensure parcel_id is set
+                
+                # Return standardized response format
                 return {
-                    "success": False,
-                    "error": f"Model refused to process: {completion.choices[0].message.refusal}",
-                    "structured_data": None,
+                    "success": True,
+                    "structured_data": structured_data,
+                    "text": response_content,
+                    "tokens_used": completion.usage.total_tokens,
                     "model": model
                 }
-            
-            return {
-                "success": True,
-                "structured_data": structured_data,
-                "text": response_text,
-                "tokens_used": completion.usage.total_tokens,
-                "model": model
-            }
-            
+            except json.JSONDecodeError as e:
+                return {
+                    "success": False,
+                    "error": f"Failed to parse LLM response as JSON: {e}",
+                    "text": response_content,
+                    "model": model
+                }
+                
         except Exception as e:
             return {
                 "success": False,
-                "error": str(e),
+                "error": f"OpenAI structured extraction failed: {str(e)}",
                 "structured_data": None,
                 "model": model
             }
