@@ -1,0 +1,64 @@
+/*
+🎯 CORE POSITIONING CONSTANTS
+============================
+PURPOSE: Critical positioning values used by all results components
+DEPENDENCIES: None (foundational)
+CRITICAL: These values are referenced by multiple components - coordinate changes carefully
+
+POSITIONING SYSTEM:
+- Controls positioned relative to navigation and viewport edges
+- Draft selector at right: 40px is the reference point for all other controls
+- Each control offset by 40px spacing for clean alignment
+- Standard 28x28px size for all control bubbles
+
+Z-INDEX LAYERS:
+- Content: 1
+- Controls: 10  
+- Dropdowns: 100
+- Popups: 1000+
+- Modals: 2000+
+*/
+
+:root {
+  /* CRITICAL NAVIGATION REFERENCE POINTS */
+  --nav-height: 50px;
+  --control-top-offset: 60px;        /* nav-height + 10px margin */
+  
+  /* CRITICAL HORIZONTAL POSITIONING */
+  --control-right-base: 40px;        /* scrollbar (16px) + safe margin (24px) */
+  --control-spacing: 40px;           /* spacing between controls */
+  --draft-selector-right: 40px;      /* reference point for all controls */
+  --heatmap-toggle-right: 80px;      /* draft-selector + spacing */
+  --alignment-toggle-right: 120px;   /* heatmap-toggle + spacing */
+  --final-draft-right: 80px;         /* positioned between toggles and selector */
+  
+  /* CRITICAL SIZING STANDARDS */
+  --control-size: 28px;              /* standard control bubble size */
+  --control-border-radius: 6px;      /* standard border radius */
+  
+  /* Z-INDEX HIERARCHY */
+  --z-content: 1;
+  --z-controls: 10;                  /* draft selector, toggles, etc. */
+  --z-dropdowns: 100;                /* dropdown menus */
+  --z-popups: 1000;                  /* confidence popups, tooltips */
+  --z-modals: 2000;                  /* modal overlays */
+}
+
+/* RESPONSIVE POSITIONING ADJUSTMENTS */
+@media (max-width: 1200px) {
+  :root {
+    --control-spacing: 35px;
+    --final-draft-right: 70px;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --control-spacing: 30px;
+    --control-right-base: 20px;
+    --draft-selector-right: 20px;
+    --heatmap-toggle-right: 60px;
+    --alignment-toggle-right: 100px;
+    --final-draft-right: 50px;
+  }
+} 

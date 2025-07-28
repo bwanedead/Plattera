@@ -1,0 +1,372 @@
+/*
+📋 RESULTS LIST COMPONENT
+=========================
+PURPOSE: Results viewer, history panel, results items, and status indicators
+DEPENDENCIES: core/color-schemes.css
+COORDINATES WITH: modal-system.css (result item interactions)
+SAFE TO MODIFY: Layout, colors, spacing, item styling
+*/
+
+/* RESULTS HISTORY PANEL */
+.results-history-panel {
+  width: 300px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  transition: all var(--transition-base);
+}
+
+.results-history-panel:not(.visible) {
+  width: 0;
+  padding: 0;
+  border-right: none;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--spacing-lg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.history-header h3,
+.history-header h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.toggle-history {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  transition: color var(--transition-base);
+}
+
+.toggle-history:hover {
+  color: var(--text-primary);
+}
+
+/* HISTORY ITEMS */
+.history-list {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.history-item {
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.history-item:hover {
+  border-color: var(--accent-primary);
+}
+
+.history-item.selected {
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+  border-color: var(--accent-primary);
+}
+
+.result-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.result-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+/* STATUS BADGES */
+.status-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  text-transform: uppercase;
+}
+
+.status-badge.completed {
+  background-color: var(--status-success);
+  color: var(--bg-primary);
+}
+
+.status-badge.error {
+  background-color: var(--status-error);
+  color: var(--bg-primary);
+}
+
+.status-badge.processing {
+  background-color: var(--status-warning);
+  color: var(--bg-primary);
+}
+
+/* RESULTS VIEWER */
+.results-viewer {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.results-header h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1.5rem;
+}
+
+.results-summary {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.success-count {
+  color: var(--status-success);
+  font-weight: 600;
+}
+
+.error-count {
+  color: var(--status-error);
+  font-weight: 600;
+}
+
+/* RESULTS LIST */
+.results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.result-item {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  transition: all 0.2s ease;
+}
+
+.result-item:hover {
+  border-color: var(--accent-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.result-item.error {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.02);
+}
+
+.result-item.completed {
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.result-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.result-info h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.format-badge {
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.format-badge.json {
+  background: rgba(147, 51, 234, 0.1);
+  color: rgb(147, 51, 234);
+}
+
+.view-button {
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.view-button:hover {
+  background: rgba(var(--accent-primary-rgb), 0.8);
+  transform: translateY(-1px);
+}
+
+.error-message {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.error-message p {
+  margin: 0;
+  color: var(--status-error);
+  font-size: 0.875rem;
+}
+
+.result-preview {
+  margin-top: 1rem;
+}
+
+.text-preview {
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.text-preview p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.result-stats {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.result-stats span {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* RESULT TABS */
+.result-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.result-tabs .tab {
+  padding: 0.75rem 1.5rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all var(--transition-base);
+}
+
+.result-tabs .tab.active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+}
+
+.result-tabs .tab:hover:not(.active) {
+  color: var(--text-primary);
+}
+
+/* NORMALIZED SECTIONS TAB STYLING */
+.normalized-sections-display {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  background-color: var(--bg-secondary);
+}
+
+.normalized-sections-header {
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.normalized-sections-header h4 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.normalized-sections-header p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.normalized-sections-content {
+  flex: 1;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background-color: var(--bg-primary);
+}
+
+.normalized-sections-text {
+  height: 100%;
+  overflow-y: auto;
+  padding: 1rem;
+  margin: 0;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background-color: transparent;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.normalized-sections-text::-webkit-scrollbar {
+  width: 8px;
+}
+
+.normalized-sections-text::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+.normalized-sections-text::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.normalized-sections-text::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+} 

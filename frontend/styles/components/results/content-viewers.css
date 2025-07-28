@@ -1,0 +1,212 @@
+/*
+📄 CONTENT VIEWERS COMPONENT
+=============================
+PURPOSE: Text, JSON, and metadata view modes within modals
+DEPENDENCIES: modal-system.css (modal structure)
+COORDINATES WITH: results-list.css (result item interactions)
+SAFE TO MODIFY: View layouts, text formatting, button styling, scrollbars
+*/
+
+/* TEXT VIEW */
+.text-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.text-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.text-actions button {
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.text-actions button:hover {
+  background: rgba(var(--accent-primary-rgb), 0.8);
+}
+
+.format-info {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.formatted-text {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  line-height: 1.6;
+}
+
+.text-line {
+  margin: 0 0 1rem 0;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.section-divider {
+  border: none;
+  height: 1px;
+  background: var(--border-color);
+  margin: 1.5rem 0;
+}
+
+.line-break {
+  height: 1rem;
+}
+
+/* JSON VIEW */
+.json-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.json-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.json-actions button {
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.json-actions button:hover {
+  background: rgba(var(--accent-primary-rgb), 0.8);
+}
+
+.json-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  background: var(--bg-tertiary);
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  margin: 0;
+  border-radius: 0 0 12px 12px;
+}
+
+/* METADATA VIEW */
+.metadata-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.metadata-actions {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.metadata-actions button {
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.metadata-actions button:hover {
+  background: rgba(var(--accent-primary-rgb), 0.8);
+}
+
+.metadata-grid {
+  padding: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.metadata-item {
+  background: var(--bg-secondary);
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.metadata-key {
+  display: block;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.metadata-value {
+  display: block;
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.raw-metadata {
+  flex: 1;
+  padding: 0 1.5rem 1.5rem 1.5rem;
+  overflow-y: auto;
+}
+
+.raw-metadata h4 {
+  margin: 0 0 1rem 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.metadata-json {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-primary);
+  margin: 0;
+  overflow-x: auto;
+}
+
+/* RESPONSIVE CONTENT VIEWERS */
+@media (max-width: 768px) {
+  .metadata-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .text-actions,
+  .json-actions,
+  .metadata-actions {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+} 

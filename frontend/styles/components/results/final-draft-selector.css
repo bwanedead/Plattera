@@ -1,0 +1,99 @@
+/*
+🏆 FINAL DRAFT SELECTOR COMPONENT
+==================================
+PURPOSE: Final draft selection button with gradient styling and status states
+DEPENDENCIES: core/positioning.css, core/color-schemes.css
+COORDINATES WITH: draft-selector.css (positioning reference)
+SAFE TO MODIFY: Colors, gradients, animations, button sizing
+DO NOT MODIFY: Positioning values (breaks coordinate system)
+*/
+
+/* FINAL DRAFT SELECTOR POSITIONING */
+.final-draft-selector {
+  position: absolute;
+  top: var(--control-top-offset);     /* 60px - Must align with other controls */
+  right: var(--final-draft-right);    /* 80px - Between toggles and draft selector */
+  z-index: var(--z-controls);        /* 10 - Same layer as other controls */
+}
+
+/* FINAL DRAFT BUTTON DESIGN */
+.final-draft-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: var(--control-border-radius);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 100px;
+  justify-content: center;
+}
+
+.final-draft-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.final-draft-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* FINAL DRAFT BUTTON STATES */
+.final-draft-button.selected {
+  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+}
+
+.final-draft-button.selected:hover {
+  background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+}
+
+.final-draft-button.processing {
+  background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+  cursor: wait;
+}
+
+/* FINAL DRAFT BUTTON CONTENT */
+.final-draft-icon {
+  font-size: 14px;
+}
+
+.final-draft-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* LOADING SPINNER ANIMATION */
+.loading-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* RESPONSIVE ADJUSTMENTS */
+@media (max-width: 1200px) {
+  .final-draft-selector {
+    right: 70px;
+  }
+  
+  .final-draft-button {
+    min-width: 90px;
+    padding: 5px 10px;
+  }
+  
+  .final-draft-label {
+    font-size: 10px;
+  }
+} 

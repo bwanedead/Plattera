@@ -1,0 +1,247 @@
+/*
+📝 DRAFT SELECTOR COMPONENT
+===========================
+PURPOSE: Compact collapsible draft selection with animated border
+DEPENDENCIES: core/positioning.css, core/color-schemes.css
+CRITICAL POSITIONING: Reference point for heatmap toggle and alignment controls
+SAFE TO MODIFY: Colors, transitions, hover effects, text styling
+DO NOT MODIFY: top, right, z-index, width, height values (breaks coordinate system)
+*/
+
+/* CRITICAL COLLAPSED STATE POSITIONING - HEATMAP REFERENCE POINT */
+.draft-selector-collapsed {
+  position: absolute;
+  top: var(--control-top-offset);     /* 60px - Navigation clearance + margin */
+  right: var(--draft-selector-right); /* 40px - Scrollbar clearance + safe margin */
+  z-index: var(--z-controls);        /* 10 - Above content, below popups */
+}
+
+/* CRITICAL EXPANDED STATE POSITIONING - HEATMAP COORDINATION POINT */
+.draft-selector-expanded {
+  position: absolute;
+  top: var(--control-top-offset);     /* Must align with collapsed state */
+  right: var(--draft-selector-right); /* Must align with collapsed state */
+  z-index: var(--z-controls);        /* Same layer as collapsed state */
+  min-width: 200px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--control-border-radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* CRITICAL BUBBLE SIZING - HEATMAP TOGGLE MUST MATCH */
+.draft-selector-bubble {
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  border-radius: var(--control-border-radius);
+  width: var(--control-size);         /* 28px - Standard control size */
+  height: var(--control-size);        /* 28px - Standard control size */
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.draft-selector-bubble:hover {
+  background: rgba(var(--accent-primary-rgb), 0.3);
+  color: var(--accent-primary);
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.draft-selector-bubble:active {
+  transform: scale(0.95);
+}
+
+/* DRAFT SELECTOR HEADER */
+.draft-selector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  border-radius: var(--control-border-radius) var(--control-border-radius) 0 0;
+}
+
+.draft-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.draft-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* CRITICAL COLOR USAGE - Heatmap toggle must use same accent color */
+.draft-count-badge {
+  background: var(--accent-primary);  /* Heatmap toggle must match this color */
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 8px;
+  position: relative;
+}
+
+.consensus-indicator {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background: var(--status-success);
+  color: white;
+  border-radius: 50%;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: bold;
+}
+
+.draft-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: background-color 0.2s ease;
+}
+
+.draft-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+/* CURRENT SELECTION AREA */
+.draft-current-selection {
+  padding: 4px;
+}
+
+.draft-current-btn {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.draft-current-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.current-draft-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.dropdown-arrow {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease;
+}
+
+.dropdown-arrow.open {
+  transform: rotate(180deg);
+}
+
+/* CRITICAL DROPDOWN Z-INDEX - Must be below heatmap popups */
+.draft-dropdown {
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  border-radius: 0 0 var(--control-border-radius) var(--control-border-radius);
+  max-height: 200px;
+  overflow-y: auto;
+  /* z-index inherited from parent (10) - heatmap popups must use 1000+ */
+}
+
+.draft-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background-color 0.2s ease;
+}
+
+.draft-item:hover {
+  background: var(--bg-tertiary);
+}
+
+/* CRITICAL ACTIVE STATE STYLING - Heatmap must coordinate with this */
+.draft-item.active {
+  background: var(--interactive-active-bg);    /* Heatmap active states should match */
+  border-left: 3px solid var(--accent-primary); /* Heatmap may use similar indicators */
+}
+
+.draft-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.draft-desc {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+/* CRITICAL INDICATOR STYLING - Heatmap may use similar patterns */
+.recommended,
+.best-indicator {
+  color: var(--quality-gold);         /* Gold color for quality indicators */
+  font-size: 0.8rem;
+}
+
+.draft-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 4px 0;
+}
+
+/* DARK THEME ADJUSTMENTS */
+@media (prefers-color-scheme: dark) {
+  .draft-selector-bubble {
+    background: rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  
+  .draft-selector-bubble:hover {
+    background: rgba(0, 0, 0, 0.5);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+  
+  .draft-selector-bubble.expanded {
+    background: rgba(0, 0, 0, 0.6);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+  
+  .draft-selector-dropdown {
+    background: rgba(0, 0, 0, 0.7);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+} 
