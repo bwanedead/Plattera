@@ -11,9 +11,28 @@ DO NOT MODIFY: Positioning values (breaks coordinate system)
 /* FINAL DRAFT SELECTOR POSITIONING */
 .final-draft-selector {
   position: absolute;
-  top: var(--control-top-offset);     /* 60px - Must align with other controls */
-  right: var(--final-draft-right);    /* 80px - Between toggles and draft selector */
-  z-index: var(--z-controls);        /* 10 - Same layer as other controls */
+  top: var(--control-top-offset);     /* Must align with other controls */
+  right: var(--final-draft-right);    /* 80px - Between toggles and selector */
+  z-index: var(--z-controls);        /* Same layer as other controls */
+  transition: right 0.3s ease;        /* Smooth sliding animation */
+}
+
+/* DYNAMIC POSITIONING - Two levels of expansion */
+/* Level 1: Draft selector expanded (header only) */
+.draft-selector-expanded ~ .final-draft-selector,
+body:has(.draft-selector-expanded) .final-draft-selector {
+  right: 240px;                       /* Slide left for basic expansion */
+}
+
+/* Level 2: Draft selector + dropdown open (larger box) */
+.draft-selector-expanded:has(.draft-dropdown) ~ .final-draft-selector,
+body:has(.draft-selector-expanded .draft-dropdown) .final-draft-selector {
+  right: 280px;                       /* Slide even further left for dropdown */
+}
+
+/* Fallback: Detect when dropdown is visible */
+body:has(.dropdown-arrow.open) .final-draft-selector {
+  right: 280px;                       /* Use dropdown arrow state as indicator */
 }
 
 /* FINAL DRAFT BUTTON DESIGN */
@@ -86,6 +105,17 @@ DO NOT MODIFY: Positioning values (breaks coordinate system)
 @media (max-width: 1200px) {
   .final-draft-selector {
     right: 70px;
+  }
+  
+  .draft-selector-expanded ~ .final-draft-selector,
+  body:has(.draft-selector-expanded) .final-draft-selector {
+    right: 220px;
+  }
+  
+  .draft-selector-expanded:has(.draft-dropdown) ~ .final-draft-selector,
+  body:has(.draft-selector-expanded .draft-dropdown) .final-draft-selector,
+  body:has(.dropdown-arrow.open) .final-draft-selector {
+    right: 260px;
   }
   
   .final-draft-button {

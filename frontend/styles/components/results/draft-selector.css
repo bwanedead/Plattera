@@ -11,9 +11,9 @@ DO NOT MODIFY: top, right, z-index, width, height values (breaks coordinate syst
 /* CRITICAL COLLAPSED STATE POSITIONING - HEATMAP REFERENCE POINT */
 .draft-selector-collapsed {
   position: absolute;
-  top: var(--control-top-offset);     /* 60px - Navigation clearance + margin */
-  right: var(--draft-selector-right); /* 40px - Scrollbar clearance + safe margin */
-  z-index: var(--z-controls);        /* 10 - Above content, below popups */
+  top: var(--control-top-offset);     /* Navigation clearance + margin */
+  right: var(--draft-selector-right); /* Scrollbar clearance + safe margin */
+  z-index: var(--z-controls);        /* Above content, below popups */
 }
 
 /* CRITICAL EXPANDED STATE POSITIONING - HEATMAP COORDINATION POINT */
@@ -27,6 +27,11 @@ DO NOT MODIFY: top, right, z-index, width, height values (breaks coordinate syst
   border: 1px solid var(--border-color);
   border-radius: var(--control-border-radius);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* HIDE CONSENSUS INDICATOR IN EXPANDED STATE - Prevents visual distortion */
+.draft-selector-expanded .consensus-indicator {
+  display: none !important;
 }
 
 /* CRITICAL BUBBLE SIZING - HEATMAP TOGGLE MUST MATCH */
@@ -92,6 +97,7 @@ DO NOT MODIFY: top, right, z-index, width, height values (breaks coordinate syst
   position: relative;
 }
 
+/* CONSENSUS INDICATOR - Only visible in collapsed state */
 .consensus-indicator {
   position: absolute;
   top: -2px;
@@ -174,7 +180,6 @@ DO NOT MODIFY: top, right, z-index, width, height values (breaks coordinate syst
   border-radius: 0 0 var(--control-border-radius) var(--control-border-radius);
   max-height: 200px;
   overflow-y: auto;
-  /* z-index inherited from parent (10) - heatmap popups must use 1000+ */
 }
 
 .draft-item {
@@ -221,27 +226,4 @@ DO NOT MODIFY: top, right, z-index, width, height values (breaks coordinate syst
   height: 1px;
   background: var(--border-color);
   margin: 4px 0;
-}
-
-/* DARK THEME ADJUSTMENTS */
-@media (prefers-color-scheme: dark) {
-  .draft-selector-bubble {
-    background: rgba(0, 0, 0, 0.4);
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-  
-  .draft-selector-bubble:hover {
-    background: rgba(0, 0, 0, 0.5);
-    border-color: rgba(255, 255, 255, 0.12);
-  }
-  
-  .draft-selector-bubble.expanded {
-    background: rgba(0, 0, 0, 0.6);
-    border-color: rgba(255, 255, 255, 0.15);
-  }
-  
-  .draft-selector-dropdown {
-    background: rgba(0, 0, 0, 0.7);
-    border-color: rgba(255, 255, 255, 0.1);
-  }
 } 

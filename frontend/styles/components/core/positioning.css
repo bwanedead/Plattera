@@ -6,10 +6,11 @@ DEPENDENCIES: None (foundational)
 CRITICAL: These values are referenced by multiple components - coordinate changes carefully
 
 POSITIONING SYSTEM:
-- Controls positioned relative to navigation and viewport edges
+- Controls positioned relative to tabs bar (not navigation)
 - Draft selector at right: 40px is the reference point for all other controls
 - Each control offset by 40px spacing for clean alignment
 - Standard 28x28px size for all control bubbles
+- Buttons dock to bottom of tabs bar to prevent overlap
 
 Z-INDEX LAYERS:
 - Content: 1
@@ -20,9 +21,11 @@ Z-INDEX LAYERS:
 */
 
 :root {
-  /* CRITICAL NAVIGATION REFERENCE POINTS */
+  /* CRITICAL TABS BAR REFERENCE POINTS */
   --nav-height: 50px;
-  --control-top-offset: 60px;        /* nav-height + 10px margin */
+  --tabs-bar-height: 48px;           /* Height of the tabs bar */
+  --tabs-bar-bottom: 98px;           /* nav-height + tabs-bar-height */
+  --control-top-offset: 98px;        /* Position buttons at bottom of tabs bar */
   
   /* CRITICAL HORIZONTAL POSITIONING */
   --control-right-base: 40px;        /* scrollbar (16px) + safe margin (24px) */
