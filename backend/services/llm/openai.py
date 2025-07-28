@@ -415,15 +415,16 @@ class OpenAIService(LLMService):
             # CRITICAL: Preserve error response format
             return result
     
-    def call_structured_pydantic(self, prompt: str, input_text: str, model: str, parcel_id: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+    def call_structured_pydantic(self, prompt: str, input_text: str, model: str, parcel_id: Optional[str] = None, schema: dict = None, **kwargs) -> Dict[str, Any]:
         """Make structured output API call using dynamic schema (recommended approach)"""
         try:
             api_model_name = self._get_api_model_name(model)
             
-            # Load schema dynamically
-            schema_path = Path(__file__).parent.parent.parent / "schema" / "parcel_v0.1.json"
-            with open(schema_path, 'r') as f:
-                schema_dict = json.load(f)
+            # Use provided schema or load default fallback (GENERIC)
+            if schema:
+                schema_dict = schema
+            else:
+                schema_dict = self._load_parcel_schema()  # Fallback
             
             # Create the proper OpenAI JSON schema structure
             response_format = {
@@ -486,9 +487,10 @@ class OpenAIService(LLMService):
             }
     
     def _load_parcel_schema(self) -> dict:
-        """Load the parcel schema from parcel_v0.1.json (like image-to-text loads prompts)"""
+        """Load the parcel schema as fallback (matches pipeline schema)"""
         try:
-            schema_path = Path(__file__).parent.parent.parent / "schema" / "parcel_v0.1.json"
+            # Updated to match pipeline schema file
+            schema_path = Path(__file__).parent.parent.parent / "schema" / "plss_m_and_b.json"
             with open(schema_path, 'r') as f:
                 return json.load(f)
         except FileNotFoundError:

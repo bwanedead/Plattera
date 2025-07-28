@@ -54,14 +54,15 @@ class TextToSchemaPipeline:
                     prompt=prompt,
                     input_text=text,
                     model=model,
-                    parcel_id=parcel_id
+                    parcel_id=parcel_id,
+                    schema=current_schema  # Pass schema to service
                 )
             elif hasattr(service, 'call_structured'):
                 # Fallback to JSON schema structured output
                 result = service.call_structured(
                     prompt=prompt,
                     input_text=text,
-                    schema=self._convert_to_strict_schema(current_schema),  # Use current_schema instead of self.parcel_schema
+                    schema=self._convert_to_strict_schema(current_schema),
                     model=model
                 )
                 
@@ -75,8 +76,11 @@ class TextToSchemaPipeline:
                     "error": f"Service {service.__class__.__name__} doesn't support structured outputs"
                 }
             
-            # Validate against schema
+            # Apply completeness validation AFTER LLM processing
             if result.get("success") and "structured_data" in result:
+                result["structured_data"] = self._validate_and_mark_completeness(result["structured_data"])
+                
+                # Validate against schema
                 validation_result = self._validate_parcel_data(result["structured_data"])
                 if not validation_result["valid"]:
                     logger.warning(f"Schema validation warnings: {validation_result['errors']}")
@@ -93,14 +97,42 @@ class TextToSchemaPipeline:
             }
     
     def _load_parcel_schema(self) -> dict:
-        """Load the parcel schema from parcel_v0.1.json (dynamic schema loading)"""
+        """Load the parcel schema from plss_m_and_b.json (dynamic schema loading)"""
         try:
-            schema_path = Path(__file__).parent.parent.parent / "schema" / "parcel_v0.1.json"
+            # UPDATED: Use the new schema file
+            schema_path = Path(__file__).parent.parent.parent / "schema" / "plss_m_and_b.json"
             with open(schema_path, 'r') as f:
                 return json.load(f)
         except FileNotFoundError:
             logger.error(f"Parcel schema file not found at {schema_path}")
             return {}
+    
+    def _validate_and_mark_completeness(self, parcel_data: dict) -> dict:
+        """
+        Validate and mark completeness for all descriptions in a parcel
+        This is the business logic for completeness - not hardcoded in OpenAI service
+        """
+        if 'descriptions' not in parcel_data:
+            return parcel_data
+            
+        ESSENTIAL_PLSS = ["state", "county", "principal_meridian",
+                          "township_number", "township_direction",
+                          "range_number", "range_direction", "section_number"]
+        
+        for desc in parcel_data['descriptions']:
+            if 'plss' in desc and 'metes_and_bounds' in desc:
+                # Check PLSS completeness
+                plss_ok = all(desc["plss"].get(k) is not None for k in ESSENTIAL_PLSS)
+                
+                # Check metes and bounds completeness (need at least 3 courses for polygon)
+                mb_ok = len(desc["metes_and_bounds"].get("boundary_courses", [])) >= 3
+                
+                # Update completeness flag
+                desc["is_complete"] = plss_ok and mb_ok
+                
+                logger.info(f"Description {desc.get('description_id')}: PLSS={plss_ok}, M&B={mb_ok}, Complete={desc['is_complete']}")
+        
+        return parcel_data
     
     def _convert_to_strict_schema(self, schema: dict) -> dict:
         """Convert the parcel schema to strict structured output format"""
@@ -135,42 +167,58 @@ class TextToSchemaPipeline:
         return None
     
     def _validate_parcel_data(self, data: dict) -> dict:
-        """Basic validation of parcel data against NEW schema requirements"""
+        """Basic validation of parcel data against NEW v0.2 schema requirements"""
         errors = []
         warnings = []
         
-        # Check required fields from NEW schema
-        required_fields = ["parcel_id", "plss_description", "metes_and_bounds"]
+        # Check required fields from NEW schema (v0.2)
+        required_fields = ["parcel_id", "descriptions", "source"]
         
         for field in required_fields:
             if field not in data or data[field] is None:
                 errors.append(f"Missing required field: {field}")
         
-        # Validate plss_description
-        if "plss_description" in data and isinstance(data["plss_description"], dict):
-            plss_required = ["state", "county", "principal_meridian", "township", "range", "section", "starting_point", "raw_text"]
-            for field in plss_required:
-                if field not in data["plss_description"]:
-                    errors.append(f"PLSS description missing required field: {field}")
-        
-        # Validate metes_and_bounds
-        if "metes_and_bounds" in data and isinstance(data["metes_and_bounds"], dict):
-            if "boundary_courses" not in data["metes_and_bounds"]:
-                errors.append("Metes and bounds missing boundary_courses")
-            elif not isinstance(data["metes_and_bounds"]["boundary_courses"], list):
-                errors.append("Boundary courses must be an array")
-            elif len(data["metes_and_bounds"]["boundary_courses"]) < 1:
-                errors.append("Boundary courses must have at least 1 item")
-            else:
-                for i, course in enumerate(data["metes_and_bounds"]["boundary_courses"]):
-                    if not isinstance(course, dict):
-                        errors.append(f"Boundary course {i} must be an object")
-                        continue
-                        
-                    course_required = ["course", "distance", "distance_units", "raw_text"]
-                    for field in course_required:
-                        if field not in course:
-                            errors.append(f"Boundary course {i} missing required field: {field}")
+        # Validate descriptions array
+        if "descriptions" in data and isinstance(data["descriptions"], list):
+            if len(data["descriptions"]) == 0:
+                errors.append("Descriptions array cannot be empty")
+            
+            for i, desc in enumerate(data["descriptions"]):
+                if not isinstance(desc, dict):
+                    errors.append(f"Description {i} must be an object")
+                    continue
+                
+                # Check required description fields
+                desc_required = ["description_id", "is_complete", "plss", "metes_and_bounds"]
+                for field in desc_required:
+                    if field not in desc:
+                        errors.append(f"Description {i} missing required field: {field}")
+                
+                # Validate PLSS structure
+                if "plss" in desc and isinstance(desc["plss"], dict):
+                    plss_required = ["state", "county", "principal_meridian", "township_number", 
+                                   "township_direction", "range_number", "range_direction", 
+                                   "section_number", "starting_point", "raw_text"]
+                    for field in plss_required:
+                        if field not in desc["plss"]:
+                            errors.append(f"Description {i} PLSS missing required field: {field}")
+                
+                # Validate metes_and_bounds structure
+                if "metes_and_bounds" in desc and isinstance(desc["metes_and_bounds"], dict):
+                    if "boundary_courses" not in desc["metes_and_bounds"]:
+                        errors.append(f"Description {i} metes and bounds missing boundary_courses")
+                    elif not isinstance(desc["metes_and_bounds"]["boundary_courses"], list):
+                        errors.append(f"Description {i} boundary courses must be an array")
+                    else:
+                        for j, course in enumerate(desc["metes_and_bounds"]["boundary_courses"]):
+                            if not isinstance(course, dict):
+                                errors.append(f"Description {i} boundary course {j} must be an object")
+                                continue
+                                
+                            course_required = ["course", "distance", "distance_units", "raw_text"]
+                            for field in course_required:
+                                if field not in course:
+                                    errors.append(f"Description {i} boundary course {j} missing required field: {field}")
         
         return {
             "valid": len(errors) == 0,
@@ -182,6 +230,9 @@ class TextToSchemaPipeline:
         """Standardize response format across different services"""
         if not result.get("success", False):
             return result
+        
+        # Get completeness summary for metadata
+        completeness_summary = self._get_completeness_summary(result.get("structured_data", {}))
             
         return {
             "success": True,
@@ -193,10 +244,30 @@ class TextToSchemaPipeline:
             "confidence_score": result.get("confidence_score", 0.8),
             "validation_warnings": result.get("validation_warnings", []),
             "metadata": {
-                "schema_version": "parcel_v0.1",
+                "schema_version": "parcel_v0.2",
+                "completeness_summary": completeness_summary,
                 "processing_time": result.get("processing_time"),
                 **result.get("metadata", {})
             }
+        }
+    
+    def _get_completeness_summary(self, parcel_data: dict) -> dict:
+        """Get summary of completeness status for all descriptions"""
+        if 'descriptions' not in parcel_data:
+            return {"total_descriptions": 0, "complete_descriptions": 0, "incomplete_descriptions": 0}
+        
+        total = len(parcel_data['descriptions'])
+        complete = sum(1 for desc in parcel_data['descriptions'] if desc.get('is_complete', False))
+        incomplete = total - complete
+        incomplete_ids = [desc.get('description_id') for desc in parcel_data['descriptions'] 
+                         if not desc.get('is_complete', False)]
+        
+        return {
+            "total_descriptions": total,
+            "complete_descriptions": complete,
+            "incomplete_descriptions": incomplete,
+            "incomplete_ids": incomplete_ids,
+            "all_complete": incomplete == 0
         }
     
     def get_schema_template(self) -> dict:
