@@ -19,6 +19,9 @@ interface FinalDraftSelectorProps {
   selectedDraft: number | 'consensus' | 'best';
   onFinalDraftSelected?: (finalText: string, metadata: any) => void;
   isProcessing?: boolean;
+  // Add edited draft support
+  editedDraftContent?: string;
+  editedFromDraft?: number | 'consensus' | 'best' | null;
 }
 
 export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
@@ -26,7 +29,9 @@ export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
   alignmentResult,
   selectedDraft,
   onFinalDraftSelected,
-  isProcessing = false
+  isProcessing = false,
+  editedDraftContent,
+  editedFromDraft
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
@@ -45,31 +50,33 @@ export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
       console.log('🎯 Selecting final draft:', {
         selectedDraft,
         hasAlignmentResult: !!alignmentResult,
+        hasEditedContent: !!editedDraftContent,
+        editedFromDraft,
         redundancyAnalysis: !!redundancyAnalysis
       });
 
       const result = await selectFinalDraftAPI(
         redundancyAnalysis,
         selectedDraft,
-        alignmentResult
+        alignmentResult,
+        editedDraftContent, // Pass edited content
+        editedFromDraft     // Pass edited from draft
       );
 
       if (result.success) {
         setHasFinalDraft(true);
         onFinalDraftSelected?.(result.final_text, result.metadata);
         
-        // Show success feedback
         console.log('✅ Final draft selected successfully:', {
           finalText: result.final_text?.substring(0, 100) + '...',
-          metadata: result.metadata
+          metadata: result.metadata,
+          usedEditedContent: !!editedDraftContent
         });
       } else {
         console.error('❌ Failed to select final draft:', result.error);
-        // Could add toast notification here
       }
     } catch (error) {
       console.error('❌ Error selecting final draft:', error);
-      // Could add toast notification here
     } finally {
       setIsSelecting(false);
     }

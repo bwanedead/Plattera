@@ -132,8 +132,8 @@ class TextToSchemaPipeline:
                 sp = desc["plss"]["starting_point"]
                 pob_ok = sp["pob_status"] in {"explicit", "deducible", "resolved"}
 
-                # Add QC flag for range mismatch
-                qc_warnings = []
+                # Add QC advisories (non-blocking)
+                qc_advisories = []
                 if pob_ok and sp["pob_status"] == "deducible" and sp.get("tie_to_corner"):
                     main_range = desc["plss"].get("range_number")
                     tie_corner = sp["tie_to_corner"].get("corner_label", "")
@@ -142,14 +142,32 @@ class TextToSchemaPipeline:
                     range_match = re.search(r'R(\d+)W', tie_corner)
                     if range_match and main_range:
                         tie_range = int(range_match.group(1))
-                        if tie_range != main_range:
-                            qc_warnings.append(f"Range mismatch: PLSS={main_range}W vs tie_corner={tie_range}W")
+                        range_diff = abs(tie_range - main_range)
+                        
+                        if range_diff == 1:
+                            # Adjacent range - normal survey practice
+                            qc_advisories.append({
+                                "type": "range_adjacent",
+                                "severity": "info",
+                                "field": "starting_point.tie_to_corner",
+                                "message": f"POB tied to adjacent range corner (R{tie_range}W) while parcel is in R{main_range}W—normal survey practice",
+                                "blocking": False
+                            })
+                        elif range_diff > 1:
+                            # Potentially problematic range difference
+                            qc_advisories.append({
+                                "type": "range_mismatch",
+                                "severity": "warning", 
+                                "field": "starting_point.tie_to_corner",
+                                "message": f"Range difference of {range_diff} between PLSS (R{main_range}W) and tie corner (R{tie_range}W)—review if unexpected",
+                                "blocking": False
+                            })
 
-                # Add warnings to description
-                if qc_warnings:
-                    desc["qc_warnings"] = qc_warnings
+                # Add advisories to description (non-blocking)
+                if qc_advisories:
+                    desc["qc_advisories"] = qc_advisories
 
-                # Update completeness flag
+                # Update completeness flag (advisories don't affect completeness)
                 desc["is_complete"] = plss_ok and mb_ok and pob_ok
                 
                 logger.info(f"Description {desc.get('description_id')}: PLSS={plss_ok}, M&B={mb_ok}, POB={pob_ok}, Complete={desc['is_complete']}")

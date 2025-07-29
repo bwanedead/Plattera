@@ -150,7 +150,7 @@ export const selectFinalDraftAPI = async (
   selectedDraft: number | 'consensus' | 'best',
   alignmentResult?: any,
   editedDraftContent?: string,
-  editedFromDraft?: number | 'consensus' | 'best'
+  editedFromDraft?: number | 'consensus' | 'best' | null  // Add null here
 ): Promise<any> => {
   console.log('🎯 Calling selectFinalDraftAPI with:', {
     selectedDraft,
@@ -169,7 +169,7 @@ export const selectFinalDraftAPI = async (
   if (editedDraftContent) {
     formData.append('edited_draft_content', editedDraftContent);
   }
-  if (editedFromDraft) {
+  if (editedFromDraft !== null && editedFromDraft !== undefined) {  // Check for null explicitly
     formData.append('edited_from_draft', editedFromDraft.toString());
   }
 

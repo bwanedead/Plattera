@@ -200,6 +200,11 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   selectedDraft={selectedDraft}
                   onFinalDraftSelected={onFinalDraftSelected}
                   isProcessing={isProcessing}
+                  editedDraftContent={editableDraftState?.hasUnsavedChanges && 
+                     editableDraftState?.editedFromDraft === selectedDraft 
+                     ? editableDraftState.editedDraft.content 
+                     : undefined}
+                  editedFromDraft={editableDraftState?.editedFromDraft}
                 />
 
                 {/* Edit Toggle Button - shown when there are unsaved changes */}

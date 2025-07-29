@@ -118,8 +118,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       updateState({ schemaResults: result, isProcessing: false });
       console.log('✅ Schema processing completed:', result);
       
-      // Auto-switch to JSON tab when results come in
-      setSelectedTab('json');
+      // Auto-switch to Field View tab when results come in
+      setSelectedTab('fields');
     } catch (error) {
       const errorResult: TextToSchemaResult = {
         success: false,
