@@ -8,6 +8,7 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from pathlib import Path
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -127,10 +128,31 @@ class TextToSchemaPipeline:
                 # Check metes and bounds completeness (need at least 3 courses for polygon)
                 mb_ok = len(desc["metes_and_bounds"].get("boundary_courses", [])) >= 3
                 
+                # Check POB completeness
+                sp = desc["plss"]["starting_point"]
+                pob_ok = sp["pob_status"] in {"explicit", "deducible", "resolved"}
+
+                # Add QC flag for range mismatch
+                qc_warnings = []
+                if pob_ok and sp["pob_status"] == "deducible" and sp.get("tie_to_corner"):
+                    main_range = desc["plss"].get("range_number")
+                    tie_corner = sp["tie_to_corner"].get("corner_label", "")
+                    
+                    # Extract range from corner label (e.g., "NW corner Sec 2 T14N R74W")
+                    range_match = re.search(r'R(\d+)W', tie_corner)
+                    if range_match and main_range:
+                        tie_range = int(range_match.group(1))
+                        if tie_range != main_range:
+                            qc_warnings.append(f"Range mismatch: PLSS={main_range}W vs tie_corner={tie_range}W")
+
+                # Add warnings to description
+                if qc_warnings:
+                    desc["qc_warnings"] = qc_warnings
+
                 # Update completeness flag
-                desc["is_complete"] = plss_ok and mb_ok
+                desc["is_complete"] = plss_ok and mb_ok and pob_ok
                 
-                logger.info(f"Description {desc.get('description_id')}: PLSS={plss_ok}, M&B={mb_ok}, Complete={desc['is_complete']}")
+                logger.info(f"Description {desc.get('description_id')}: PLSS={plss_ok}, M&B={mb_ok}, POB={pob_ok}, Complete={desc['is_complete']}")
         
         return parcel_data
     

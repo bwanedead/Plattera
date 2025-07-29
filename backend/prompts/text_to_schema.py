@@ -31,6 +31,16 @@ CRITICAL RULES FOR OPENAI JSON SCHEMA COMPLIANCE:
 9. **COMPLETENESS FLAG**
    • If any essential mapping fields are missing for a description, set `"is_complete": false`.
 
+10. **POINT OF BEGINNING TAGGING**
+   • If deed states lat/lon → pob_status = "explicit"; tie_to_corner = null.
+   • If deed gives a bearing+distance from a PLSS corner → pob_status = "deducible"
+     and fill tie_to_corner with:
+       - corner_label  (e.g. "NW corner Sec 2 T14N R74W")
+       - bearing_raw   (copy exactly: "N. 4°00'W.")
+       - distance_value (numeric only)
+       - distance_units ("feet", "chains", etc.)
+   • If neither is true or text is contradictory → pob_status = "ambiguous"; tie_to_corner = null.
+
 EXTRACTION GUIDELINES:
 - For "distance" fields: Extract ONLY the numeric value (e.g., "542 feet more or less" → distance: 542)
 - For "distance_units" fields: Extract ONLY the unit (e.g., "542 feet more or less" → distance_units: "feet")
@@ -69,7 +79,14 @@ EXAMPLE OUTPUT STRUCTURE:
           "additional_reference": "whence the Northwest corner bears N. 4°00'W., 1,638 feet distant",
           "lat": null,
           "lon": null,
-          "raw_text": "Beginning at a point on the west boundary of Section Two (2)..."
+          "raw_text": "Beginning at a point on the west boundary of Section Two (2)...",
+          "pob_status": "deducible",
+          "tie_to_corner": {
+            "corner_label": "NW corner Sec 2 T14N R74W",
+            "bearing_raw": "N. 4°00'W.",
+            "distance_value": 1638,
+            "distance_units": "feet"
+          }
         },
         "stated_area_acres": 1.9,
         "raw_text": "Situated in the Southwest Quarter of the Northwest Quarter..."

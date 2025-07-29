@@ -80,7 +80,7 @@
                 },
                 "starting_point": {
                   "type": "object",
-                  "required": ["description", "reference", "additional_reference", "lat", "lon", "raw_text"],
+                  "required": ["description", "reference", "additional_reference", "lat", "lon", "raw_text", "pob_status", "tie_to_corner"],
                   "additionalProperties": false,
                   "properties": {
                     "description": { 
@@ -106,6 +106,23 @@
                     "raw_text": { 
                       "type": ["string", "null"], 
                       "description": "The full clause about POB from deed" 
+                    },
+                    "pob_status": {
+                      "type": "string",
+                      "enum": ["explicit", "deducible", "ambiguous", "resolved"],
+                      "description": "How the POB value can be obtained"
+                    },
+                    "tie_to_corner": {
+                      "type": ["object", "null"],
+                      "required": ["corner_label", "bearing_raw", "distance_value", "distance_units"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "corner_label":   { "type": "string" },
+                        "bearing_raw":    { "type": "string" },
+                        "distance_value": { "type": "number" },
+                        "distance_units": { "type": "string" }
+                      },
+                      "description": "Only present when pob_status = 'deducible'"
                     }
                   }
                 },
