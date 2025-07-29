@@ -41,7 +41,7 @@ const defaultImageProcessingState: ImageProcessingState = {
   alignmentResult: null,
   finalDraftText: null,
   finalDraftMetadata: null,
-  isHistoryVisible: true,
+  isHistoryVisible: false,
   showHeatmap: false,
   showAlignmentPanel: false,
   showAlignmentTable: false,

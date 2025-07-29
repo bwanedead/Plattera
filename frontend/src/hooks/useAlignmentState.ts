@@ -70,6 +70,13 @@ export const useAlignmentState = () => {
         showAlignmentPanel: true
       }));
 
+      // Save alignment state for persistence across page navigation
+      workspaceStateManager.setImageProcessingState({
+        alignmentResult,
+        showAlignmentPanel: true,
+        showHeatmap: false
+      });
+
       // NEW: Automatically select consensus draft for text-to-schema
       if (alignmentResult.success) {
         try {
