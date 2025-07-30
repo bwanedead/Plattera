@@ -9,7 +9,6 @@ from pathlib import Path
 import json
 
 from .draw_polygon import PolygonDrawer, DrawingError
-from utils.response_models import ProcessingResult
 
 logger = logging.getLogger(__name__)
 

@@ -1,0 +1,327 @@
+/* Polygon Viewer Modal Styles - DARK MODE */
+.polygon-viewer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.polygon-viewer-modal {
+  background: #1a1a1a;
+  border-radius: 12px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  width: 90vw;
+  height: 85vh;
+  max-width: 1400px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #333;
+}
+
+.polygon-viewer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid #333;
+  background: #262626;
+}
+
+.polygon-title h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #e5e5e5;
+}
+
+.polygon-subtitle {
+  font-size: 0.875rem;
+  color: #a3a3a3;
+  margin-top: 0.25rem;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #a3a3a3;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.close-button:hover {
+  background: #333;
+  color: #e5e5e5;
+}
+
+.polygon-viewer-content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.polygon-canvas-container {
+  flex: 1;
+  background: #0d1117;
+  position: relative;
+  overflow: hidden;
+  border-right: 1px solid #333;
+}
+
+.polygon-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.polygon-info-panel {
+  width: 320px;
+  background: #1a1a1a;
+  padding: 1.5rem;
+  overflow-y: auto;
+  border-left: 1px solid #333;
+}
+
+.info-section {
+  margin-bottom: 2rem;
+}
+
+.info-section h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e5e5e5;
+}
+
+.info-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.info-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #a3a3a3;
+}
+
+.info-value {
+  font-size: 0.875rem;
+  color: #e5e5e5;
+  font-weight: 500;
+}
+
+.info-value.success {
+  color: #22c55e;
+}
+
+.info-value.error {
+  color: #ef4444;
+}
+
+.info-secondary {
+  font-size: 0.8rem;
+  color: #a3a3a3;
+  font-weight: normal;
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.coordinate-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.coordinate-type {
+  font-family: 'Monaco', 'Menlo', monospace;
+  background: #333;
+  color: #e5e5e5;
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.origin-details {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.origin-label {
+  font-size: 0.875rem;
+  color: #a3a3a3;
+}
+
+.origin-type {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #e5e5e5;
+}
+
+.polygon-viewer-footer {
+  padding: 1.5rem 2rem;
+  border-top: 1px solid #333;
+  background: #262626;
+}
+
+.viewer-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.secondary-button {
+  background: #404040;
+  color: #e5e5e5;
+  border: none;
+  padding: 0.5rem 1.5rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.secondary-button:hover {
+  background: #525252;
+}
+
+/* MINIMAL POLYGON DRAWING CONTROLS - DARK MODE */
+.polygon-drawing-controls-minimal {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+.controls-header-minimal {
+  margin-bottom: 0.75rem;
+}
+
+.controls-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e5e5e5;
+}
+
+.polygon-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.polygon-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: #262626;
+  border-radius: 4px;
+  border: 1px solid #333;
+}
+
+.polygon-item-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.description-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #e5e5e5;
+}
+
+.course-info {
+  font-size: 0.75rem;
+  color: #a3a3a3;
+}
+
+.polygon-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.draw-btn, .view-btn {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 60px;
+  justify-content: center;
+}
+
+.draw-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.draw-btn:disabled {
+  background: #6b7280;
+  cursor: not-allowed;
+}
+
+.view-btn {
+  background: #22c55e;
+}
+
+.view-btn:hover {
+  background: #16a34a;
+}
+
+.error-text {
+  font-size: 0.75rem;
+  color: #ef4444;
+  margin-top: 0.25rem;
+}
+
+.result-info {
+  font-size: 0.75rem;
+  color: #22c55e;
+  margin-top: 0.25rem;
+}
+
+.mini-spinner {
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-top: 1px solid white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Legacy styles for backward compatibility */
+.polygon-drawing-controls {
+  display: none;
+} 

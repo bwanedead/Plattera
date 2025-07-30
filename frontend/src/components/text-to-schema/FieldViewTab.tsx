@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { PolygonDrawingControls } from '../polygon/PolygonDrawingControls';
 
 interface FieldViewTabProps {
   schemaData: any;
@@ -307,6 +308,12 @@ export const FieldViewTab: React.FC<FieldViewTabProps> = ({
           onDismiss={() => handleDismissAdvisory(advisory)}
         />
       ))}
+      
+      {/* ADD: Polygon Drawing Controls */}
+      <PolygonDrawingControls 
+        schemaData={schemaData}
+        isVisible={isSuccess && !!schemaData}
+      />
       
       <div className="field-view">
         <ObjectField data={schemaData} title="parcel_data" />
