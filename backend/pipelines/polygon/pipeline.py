@@ -306,7 +306,7 @@ class PolygonPipeline:
             # Convert to standard units (feet)
             distance_feet = self._convert_distance_to_feet(distance_value, distance_units)
             
-            # Parse bearing (simplified - assumes format like "N. 4°00'W.")
+            # Parse bearing (simplified - assumes format like "N45E")
             bearing_degrees = self._parse_bearing_to_degrees(bearing_raw)
             
             # Calculate offset from assumed corner at (0,0)
@@ -353,49 +353,52 @@ class PolygonPipeline:
     
     def _parse_bearing_to_degrees(self, bearing_raw: str) -> float:
         """Parse surveyor bearing to degrees from north"""
-        # This is a simplified parser - would need to be more robust for production
         try:
             import re
             
-            # Pattern for bearings like "N. 4°00'W." or "S. 87°35'E."
+            # Normalize the bearing string first
+            bearing_normalized = bearing_raw.strip()
+            
+            # Remove extra spaces and standardize format
+            # Convert "N. 4° 00' W." → "N. 4°00'W."
+            bearing_normalized = re.sub(r'\s+', ' ', bearing_normalized)  # Multiple spaces → single space
+            bearing_normalized = re.sub(r'°\s+', '°', bearing_normalized)  # Remove space after degree
+            bearing_normalized = re.sub(r'\s+\'', '\'', bearing_normalized)  # Remove space before prime
+            
+            logger.debug(f"Normalized bearing: '{bearing_raw}' → '{bearing_normalized}'")
+            
+            # Now use the simple regex pattern
             pattern = r'([NS])\.\s*(\d+)°(\d+)\'([EW])\.'
-            match = re.match(pattern, bearing_raw.strip())
+            match = re.match(pattern, bearing_normalized)
             
             if not match:
-                # Try simpler pattern without minutes
-                pattern = r'([NS])\.\s*(\d+)°([EW])\.'
-                match = re.match(pattern, bearing_raw.strip())
-                if match:
-                    ns, degrees, ew = match.groups()
-                    minutes = 0
-                else:
-                    raise ValueError(f"Could not parse bearing: {bearing_raw}")
-            else:
-                ns, degrees, minutes, ew = match.groups()
-                minutes = int(minutes)
+                raise ValueError(f"Could not parse bearing: {bearing_raw}")
             
-            degrees = int(degrees)
+            direction, degrees, minutes, east_west = match.groups()
+            degrees_val = int(degrees)
+            minutes_val = int(minutes)
             
             # Convert to decimal degrees
-            decimal_degrees = degrees + minutes / 60.0
+            decimal_degrees = degrees_val + (minutes_val / 60.0)
             
-            # Convert to azimuth (degrees clockwise from north)
-            if ns == 'N' and ew == 'E':
-                azimuth = decimal_degrees
-            elif ns == 'S' and ew == 'E':
-                azimuth = 180 - decimal_degrees
-            elif ns == 'S' and ew == 'W':
-                azimuth = 180 + decimal_degrees
-            elif ns == 'N' and ew == 'W':
-                azimuth = 360 - decimal_degrees
-            else:
-                raise ValueError(f"Invalid bearing direction: {ns}{ew}")
+            # Convert to azimuth from north
+            if direction == 'N':
+                if east_west == 'E':
+                    azimuth = decimal_degrees
+                else:  # W
+                    azimuth = 360 - decimal_degrees
+            else:  # S
+                if east_west == 'E':
+                    azimuth = 180 - decimal_degrees
+                else:  # W
+                    azimuth = 180 + decimal_degrees
             
+            logger.debug(f"Parsed bearing '{bearing_raw}' → {azimuth}°")
             return azimuth
             
         except Exception as e:
-            logger.warning(f"Failed to parse bearing '{bearing_raw}': {str(e)}")
-            return 0.0  # Default to north
+            logger.error(f"Failed to parse bearing '{bearing_raw}': {str(e)}")
+            raise ValueError(f"Could not parse bearing: {bearing_raw}")
     
     def _calculate_offset(self, bearing_degrees: float, distance_feet: float) -> Tuple[float, float]:
         """Calculate x,y offset from bearing and distance"""

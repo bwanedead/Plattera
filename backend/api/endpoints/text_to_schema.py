@@ -50,14 +50,25 @@ async def convert_text_to_schema(request: TextToSchemaRequest):
         logger.info(f"📝 Converting text to schema with model: {request.model}")
         logger.info(f"📏 Text content length: {len(request.text)} characters")
         
-        # Import and use the text-to-schema pipeline
-        from pipelines.text_to_schema.pipeline import TextToSchemaPipeline
-        pipeline = TextToSchemaPipeline()
+        # Add detailed import debugging
+        try:
+            logger.info("🔍 Attempting to import TextToSchemaPipeline...")
+            from pipelines.text_to_schema.pipeline import TextToSchemaPipeline
+            logger.info("✅ Successfully imported TextToSchemaPipeline")
+            
+            logger.info("🔍 Attempting to create pipeline instance...")
+            pipeline = TextToSchemaPipeline()
+            logger.info("✅ Successfully created pipeline instance")
+            
+        except Exception as import_error:
+            logger.error(f"❌ Failed to import/create pipeline: {str(import_error)}")
+            logger.exception("Full import traceback:")
+            raise HTTPException(status_code=500, detail=f"Pipeline import failed: {str(import_error)}")
         
         # Process the text to extract structured data
+        logger.info("🔍 Starting pipeline processing...")
         result = pipeline.process(request.text, request.model, request.parcel_id)
-        
-        logger.info(f"📊 Pipeline result success: {result.get('success', False)}")
+        logger.info(f"✅ Pipeline processing completed, success: {result.get('success', False)}")
         
         if not result.get("success", False):
             logger.error(f"❌ Pipeline failed: {result.get('error', 'Unknown error')}")

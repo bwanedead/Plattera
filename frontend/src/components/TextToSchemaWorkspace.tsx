@@ -77,20 +77,20 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   }, []);
 
   // Handle text-to-schema processing
-  const handleStartTextToSchema = useCallback(async () => {
-    // Ensure we have a valid string for final draft text
-    const finalText = typeof state.finalDraftText === 'string' 
+  const handleStartTextToSchema = useCallback(async (directText?: string) => {
+    // Use direct text if provided, otherwise use final draft text
+    const textToProcess = directText || (typeof state.finalDraftText === 'string' 
       ? state.finalDraftText 
-      : String(state.finalDraftText || '');
+      : String(state.finalDraftText || ''));
 
     console.log('🔍 TEXT-TO-SCHEMA PROCESSING: Starting with text:', {
-      originalType: typeof state.finalDraftText,
-      processedText: finalText,
-      length: finalText.length
+      isDirectInput: !!directText,
+      textSource: directText ? 'direct-input' : 'final-draft',
+      textLength: textToProcess.length
     });
 
-    if (!finalText.trim()) {
-      console.warn('No final draft available for processing');
+    if (!textToProcess.trim()) {
+      console.warn('No text available for processing');
       return;
     }
 
@@ -98,7 +98,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
 
     try {
       const response = await convertTextToSchema({
-        text: finalText,
+        text: textToProcess,
         model: state.selectedModel,
         parcel_id: `parcel-${Date.now()}`
       });
@@ -222,7 +222,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             availableModels={availableModels}
             isProcessing={state.isProcessing}
             onModelChange={handleModelChange}
-            onStartProcessing={handleStartTextToSchema}
+            onStartProcessing={handleStartTextToSchema} // Now accepts optional text parameter
           />
         </Allotment.Pane>
 

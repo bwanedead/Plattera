@@ -100,12 +100,33 @@ class TextToSchemaPipeline:
     def _load_parcel_schema(self) -> dict:
         """Load the parcel schema from plss_m_and_b.json (dynamic schema loading)"""
         try:
-            # UPDATED: Use the new schema file
-            schema_path = Path(__file__).parent.parent.parent / "schema" / "plss_m_and_b.json"
+            # Use more robust path resolution
+            current_file = Path(__file__)
+            backend_dir = current_file.parent.parent.parent  # Go up to backend/
+            schema_path = backend_dir / "schema" / "plss_m_and_b.json"
+            
+            # Ensure the path is absolute and resolved
+            schema_path = schema_path.resolve()
+            
+            logger.debug(f"Loading parcel schema from: {schema_path}")
+            
+            if not schema_path.exists():
+                logger.error(f"Schema file does not exist: {schema_path}")
+                return {}
+                
             with open(schema_path, 'r') as f:
-                return json.load(f)
+                schema_data = json.load(f)
+                logger.debug(f"Loaded schema with {len(schema_data)} keys")
+                return schema_data
+                
         except FileNotFoundError:
             logger.error(f"Parcel schema file not found at {schema_path}")
+            return {}
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in schema file: {str(e)}")
+            return {}
+        except Exception as e:
+            logger.error(f"Error loading parcel schema: {str(e)}")
             return {}
     
     def _validate_and_mark_completeness(self, parcel_data: dict) -> dict:

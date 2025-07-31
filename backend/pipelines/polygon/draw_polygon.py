@@ -80,13 +80,37 @@ class PolygonDrawer:
                     processing_notes.append(f"Course {i+1} error: {str(e)}")
                     continue
             
+            # Ensure we have at least 3 points to form a polygon
             if len(coordinates) < 3:
                 raise DrawingError(f"Insufficient valid courses for polygon: {len(coordinates)-1} courses processed")
+            
+            # Add closure leg to complete the polygon
+            start_point = coordinates[0]
+            end_point = coordinates[-1]
+            
+            # Calculate closure distance
+            closure_distance = math.sqrt(
+                (end_point[0] - start_point[0])**2 + 
+                (end_point[1] - start_point[1])**2
+            )
+            
+            # Add closure information to notes
+            if closure_distance > 0.1:  # If there's any meaningful gap
+                closure_bearing = self.coordinate_calculator.calculate_bearing_between_points(
+                    end_point, start_point
+                )
+                processing_notes.append(
+                    f"Closure leg: {closure_bearing:.1f}° bearing, {closure_distance:.1f} feet"
+                )
+                total_distance += closure_distance
+            
+            # Ensure polygon is closed by adding start point at the end
+            coordinates.append(start_point)
             
             # Calculate polygon properties
             area_sqft = self._calculate_area(coordinates)
             perimeter_feet = self._calculate_perimeter(coordinates)
-            closure_error_feet = self._calculate_closure_error(coordinates)
+            closure_error_feet = closure_distance  # This is now the actual closure error
             
             return {
                 "success": True,
