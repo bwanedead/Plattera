@@ -48,12 +48,21 @@ EXTRACTION GUIDELINES:
 - For "raw_text" fields: Include the complete original text for that section
 - For "description" fields: Include context if present, null if not
 - For "bearing_degrees" fields: Always null (no conversion)
-- For "confidence" fields: null (no confidence scoring)
 - For "lat"/"lon" fields: null (coordinates not in legal descriptions)
 - For "quarter_section_raw" fields: Extract if present, null if not
 - For "quarter_section_tokens" fields: Parse into array like ["SW", "NW"] if present, null if not
 - For "stated_area_acres" fields: Extract numeric value if present, null if not
 - If a description is incomplete, still extract whatever is present; leave missing items null.
+
+11. **LEG NUMBERING**
+    • For every `boundary_courses` element add `"leg_id": <1-based index>`.
+    • After you finish the array set `"legs_total"` to the number of legs.
+    • Count each explicit course/bearing mentioned in the text as a separate leg.
+
+12. **MULTIPLE DESCRIPTIONS DETECTION**
+    • Scan for each "Beginning at", "Commencing at", "And beginning", etc.
+    • Each separate beginning clause = separate description object.
+    • Your example deed has TWO descriptions - make sure to capture both!
 
 EXAMPLE OUTPUT STRUCTURE:
 {
@@ -94,13 +103,13 @@ EXAMPLE OUTPUT STRUCTURE:
       "metes_and_bounds": {
         "boundary_courses": [
           {
+            "leg_id": 1,
             "course": "N. 68°30'E.",
             "bearing_degrees": null,
             "distance": 542,
             "distance_units": "feet",
             "raw_text": "thence N. 68°30'E. parallel to and 50 feet distant from the center line of said canal 542 feet more or less",
-            "description": "parallel to and 50 feet distant from the center line of said canal",
-            "confidence": null
+            "description": "parallel to and 50 feet distant from the center line of said canal"
           }
         ],
         "closes_to_start": true,

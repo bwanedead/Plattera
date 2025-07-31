@@ -236,7 +236,9 @@ class BearingParser:
                     "error": "Empty bearing text"
                 }
             
-            bearing = bearing_text.strip()
+            # Normalize the bearing text first
+            bearing = self._normalize_bearing(bearing_text.strip())
+            logger.debug(f"Normalized bearing: '{bearing_text}' → '{bearing}'")
             
             # Try full format with minutes: "N. 68°30'E."
             pattern1 = r'([NS])\.\s*(\d+)°(\d+)\'([EW])\.'
@@ -267,7 +269,7 @@ class BearingParser:
                     else:
                         return {
                             "success": False,
-                            "error": f"Could not parse bearing format: '{bearing}'"
+                            "error": f"Could not parse bearing format: '{bearing}' (original: '{bearing_text}')"
                         }
             
             # Convert to decimal degrees
@@ -320,6 +322,36 @@ class BearingParser:
                 "success": False,
                 "error": f"Bearing parsing error: {str(e)}"
             }
+    
+    def _normalize_bearing(self, bearing_text: str) -> str:
+        """
+        Normalize bearing text to standard format
+        
+        Args:
+            bearing_text: Raw bearing text like "N. 4° 00' W."
+            
+        Returns:
+            str: Normalized bearing like "N. 4°00'W."
+        """
+        # Remove extra spaces and standardize format
+        normalized = bearing_text
+        
+        # Remove multiple spaces
+        normalized = re.sub(r'\s+', ' ', normalized)
+        
+        # Remove space after degree symbol
+        normalized = re.sub(r'°\s+', '°', normalized)
+        
+        # Remove space before prime symbol
+        normalized = re.sub(r'\s+\'', '\'', normalized)
+        
+        # Remove space before direction
+        normalized = re.sub(r'\s+([EW])\.', r'\1.', normalized)
+        
+        # Ensure proper spacing around direction letters
+        normalized = re.sub(r'([NS])\.\s*', r'\1. ', normalized)
+        
+        return normalized.strip()
 
 class CoordinateCalculator:
     """Calculator for coordinate geometry operations"""

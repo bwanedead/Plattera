@@ -183,27 +183,50 @@ class PolygonPipeline:
         
         return default_options
     
-    def _process_single_description(self, desc: dict, options: dict) -> dict:
-        """Process a single complete description into a polygon"""
+    def _process_single_description(self, description: dict, options: dict) -> dict:
+        """Process a single description into polygon coordinates"""
         try:
-            description_id = desc.get("description_id", "unknown")
+            desc_id = description.get("description_id", 1)
+            logger.info(f"🔍 Processing description {desc_id}")
             
-            # Determine starting point
-            origin_result = self._determine_origin(desc["plss"]["starting_point"], options)
+            # Extract metes and bounds
+            mb = description.get("metes_and_bounds", {})
+            courses = mb.get("boundary_courses", [])
+            
+            # Use legs_total with backward compatibility
+            legs_total = mb.get("legs_total", len(courses))
+            logger.info(f"📏 Description {desc_id}: {legs_total} legs total")
+            
+            # Add leg_id for backward compatibility
+            for j, course in enumerate(courses, 1):
+                course.setdefault("leg_id", j)
+            
+            if not courses:
+                logger.warning(f"⚠️ Description {desc_id}: No boundary courses found")
+                return {
+                    "success": False,
+                    "error": f"Description {desc_id}: No boundary courses provided"
+                }
+            
+            # Determine origin coordinates
+            origin_result = self._determine_origin(description["plss"]["starting_point"], options)
             if not origin_result["success"]:
+                logger.error(f"❌ Description {desc_id}: Failed to determine origin - {origin_result['error']}")
                 return {
                     "success": False,
                     "error": f"Could not determine origin: {origin_result['error']}"
                 }
             
-            # Generate polygon from metes and bounds
+            # Generate polygon using the drawing engine
+            logger.info(f"🎨 Description {desc_id}: Drawing polygon with {legs_total} legs")
             polygon_result = self.drawer.draw_polygon(
-                origin=origin_result["origin"],
-                boundary_courses=desc["metes_and_bounds"]["boundary_courses"],
-                options=options
+                origin_result["origin"],
+                courses,
+                options
             )
             
             if not polygon_result["success"]:
+                logger.error(f"❌ Description {desc_id}: Polygon generation failed - {polygon_result['error']}")
                 return {
                     "success": False,
                     "error": f"Polygon generation failed: {polygon_result['error']}"
@@ -212,24 +235,27 @@ class PolygonPipeline:
             # Validate polygon quality
             quality_result = self._validate_polygon_quality(
                 polygon_result["coordinates"],
-                desc,
+                description,
                 options
             )
             
+            logger.info(f"✅ Description {desc_id}: Polygon generated successfully")
+            
+            # Return in the expected format with "polygon" and "metadata" keys
             return {
                 "success": True,
                 "polygon": {
-                    "description_id": description_id,
+                    "description_id": desc_id,
                     "coordinates": polygon_result["coordinates"],
                     "geometry_type": "Polygon",
                     "coordinate_system": options["coordinate_system"],
                     "origin": origin_result["origin"],
                     "properties": {
                         "area_calculated": polygon_result.get("area_calculated"),
-                        "area_stated": desc["plss"].get("stated_area_acres"),
+                        "area_stated": description.get("area_stated"),
                         "perimeter": polygon_result.get("perimeter"),
                         "closure_error": polygon_result.get("closure_error"),
-                        "courses_count": len(desc["metes_and_bounds"]["boundary_courses"])
+                        "courses_count": len(courses)
                     }
                 },
                 "metadata": {
@@ -241,9 +267,10 @@ class PolygonPipeline:
             }
             
         except Exception as e:
+            logger.error(f"💥 Description processing error: {str(e)}")
             return {
                 "success": False,
-                "error": f"Processing failed: {str(e)}"
+                "error": f"Failed to process description: {str(e)}"
             }
     
     def _determine_origin(self, starting_point: dict, options: dict) -> dict:
@@ -306,8 +333,18 @@ class PolygonPipeline:
             # Convert to standard units (feet)
             distance_feet = self._convert_distance_to_feet(distance_value, distance_units)
             
-            # Parse bearing (simplified - assumes format like "N45E")
-            bearing_degrees = self._parse_bearing_to_degrees(bearing_raw)
+            # Use the business logic layer for bearing parsing
+            from .draw_polygon import BearingParser
+            bearing_parser = BearingParser()
+            bearing_result = bearing_parser.parse_bearing(bearing_raw)
+            
+            if not bearing_result["success"]:
+                return {
+                    "success": False,
+                    "error": f"Failed to parse bearing: {bearing_result['error']}"
+                }
+            
+            bearing_degrees = bearing_result["bearing_degrees"]
             
             # Calculate offset from assumed corner at (0,0)
             offset_x, offset_y = self._calculate_offset(bearing_degrees, distance_feet)
@@ -351,55 +388,6 @@ class PolygonPipeline:
         factor = conversion_factors.get(units_lower, 1.0)
         return value * factor
     
-    def _parse_bearing_to_degrees(self, bearing_raw: str) -> float:
-        """Parse surveyor bearing to degrees from north"""
-        try:
-            import re
-            
-            # Normalize the bearing string first
-            bearing_normalized = bearing_raw.strip()
-            
-            # Remove extra spaces and standardize format
-            # Convert "N. 4° 00' W." → "N. 4°00'W."
-            bearing_normalized = re.sub(r'\s+', ' ', bearing_normalized)  # Multiple spaces → single space
-            bearing_normalized = re.sub(r'°\s+', '°', bearing_normalized)  # Remove space after degree
-            bearing_normalized = re.sub(r'\s+\'', '\'', bearing_normalized)  # Remove space before prime
-            
-            logger.debug(f"Normalized bearing: '{bearing_raw}' → '{bearing_normalized}'")
-            
-            # Now use the simple regex pattern
-            pattern = r'([NS])\.\s*(\d+)°(\d+)\'([EW])\.'
-            match = re.match(pattern, bearing_normalized)
-            
-            if not match:
-                raise ValueError(f"Could not parse bearing: {bearing_raw}")
-            
-            direction, degrees, minutes, east_west = match.groups()
-            degrees_val = int(degrees)
-            minutes_val = int(minutes)
-            
-            # Convert to decimal degrees
-            decimal_degrees = degrees_val + (minutes_val / 60.0)
-            
-            # Convert to azimuth from north
-            if direction == 'N':
-                if east_west == 'E':
-                    azimuth = decimal_degrees
-                else:  # W
-                    azimuth = 360 - decimal_degrees
-            else:  # S
-                if east_west == 'E':
-                    azimuth = 180 - decimal_degrees
-                else:  # W
-                    azimuth = 180 + decimal_degrees
-            
-            logger.debug(f"Parsed bearing '{bearing_raw}' → {azimuth}°")
-            return azimuth
-            
-        except Exception as e:
-            logger.error(f"Failed to parse bearing '{bearing_raw}': {str(e)}")
-            raise ValueError(f"Could not parse bearing: {bearing_raw}")
-    
     def _calculate_offset(self, bearing_degrees: float, distance_feet: float) -> Tuple[float, float]:
         """Calculate x,y offset from bearing and distance"""
         # Convert bearing to radians
@@ -432,7 +420,7 @@ class PolygonPipeline:
                     quality_score *= 0.8
             
             # Check for stated vs calculated area if available
-            stated_area = desc.get("plss", {}).get("stated_area_acres")
+            stated_area = desc.get("area_stated")
             if stated_area:
                 # Would calculate actual area here and compare
                 pass
