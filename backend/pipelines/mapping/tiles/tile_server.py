@@ -1,29 +1,41 @@
 """
 Tile Server
-Handles fetching tiles from remote tile servers
+Handles fetching tiles from remote tile servers with proper rate limiting
 """
 import logging
 import urllib.request
 import urllib.error
 from typing import Dict, Any
 import time
+import threading
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
 class TileServer:
     """
-    Fetches map tiles from remote tile servers
+    Fetches map tiles from remote tile servers with provider-specific rate limiting
     """
     
     def __init__(self):
-        """Initialize tile server"""
+        """Initialize tile server with rate limiting"""
         self.request_timeout = 30  # 30 second timeout
         self.retry_count = 3
         self.retry_delay = 1  # 1 second between retries
         
+        # Rate limiting per provider
+        self.rate_limits = {
+            "osm_standard": {"requests_per_second": 2, "last_request": 0},
+            "usgs_topo": {"requests_per_second": 10, "last_request": 0},  # More permissive for government source
+            "usgs_imagery": {"requests_per_second": 10, "last_request": 0}
+        }
+        
+        # Thread lock for rate limiting
+        self._rate_limit_lock = threading.Lock()
+        
     def fetch_tile(self, x: int, y: int, z: int, provider_config: dict) -> dict:
         """
-        Fetch a single tile from remote server
+        Fetch a single tile from remote server with rate limiting
         
         Args:
             x: Tile X coordinate
@@ -35,6 +47,10 @@ class TileServer:
             dict: Result with tile data or error
         """
         try:
+            # Apply rate limiting
+            provider_name = self._get_provider_name_from_config(provider_config)
+            self._apply_rate_limit(provider_name)
+            
             # Build tile URL from template
             tile_url = self._build_tile_url(x, y, z, provider_config)
             logger.debug(f"🌐 Fetching tile: {tile_url}")
@@ -76,6 +92,45 @@ class TileServer:
                 "error": f"Tile fetch error: {str(e)}"
             }
     
+    def _apply_rate_limit(self, provider_name: str):
+        """Apply rate limiting for the specified provider"""
+        if provider_name not in self.rate_limits:
+            return  # No rate limiting for unknown providers
+        
+        with self._rate_limit_lock:
+            rate_config = self.rate_limits[provider_name]
+            requests_per_second = rate_config["requests_per_second"]
+            last_request = rate_config["last_request"]
+            
+            # Calculate minimum time between requests
+            min_interval = 1.0 / requests_per_second
+            
+            # Calculate time since last request
+            current_time = time.time()
+            time_since_last = current_time - last_request
+            
+            # Wait if necessary
+            if time_since_last < min_interval:
+                wait_time = min_interval - time_since_last
+                logger.debug(f"⏳ Rate limiting: waiting {wait_time:.2f}s for {provider_name}")
+                time.sleep(wait_time)
+            
+            # Update last request time
+            self.rate_limits[provider_name]["last_request"] = time.time()
+    
+    def _get_provider_name_from_config(self, provider_config: dict) -> str:
+        """Extract provider name from config for rate limiting"""
+        url_template = provider_config.get("url_template", "")
+        
+        if "openstreetmap.org" in url_template:
+            return "osm_standard"
+        elif "nationalmap.gov" in url_template and "USGSTopo" in url_template:
+            return "usgs_topo"  
+        elif "nationalmap.gov" in url_template and "Imagery" in url_template:
+            return "usgs_imagery"
+        else:
+            return "unknown"
+    
     def _build_tile_url(self, x: int, y: int, z: int, provider_config: dict) -> str:
         """Build tile URL from provider template"""
         url_template = provider_config["url_template"]
@@ -93,12 +148,12 @@ class TileServer:
         return tile_url
     
     def _fetch_tile_data(self, url: str, provider_config: dict) -> dict:
-        """Fetch raw tile data from URL"""
+        """Fetch raw tile data from URL with proper headers"""
         try:
             # Create request with headers
             request = urllib.request.Request(url)
             
-            # Add user agent
+            # Add user agent (required for OSM)
             user_agent = provider_config.get("user_agent", "Plattera/1.0 (Mapping Application)")
             request.add_header("User-Agent", user_agent)
             

@@ -48,8 +48,7 @@ class TileProviders:
             "osm_standard": {
                 "name": "OpenStreetMap Standard",
                 "description": "Standard OpenStreetMap tiles",
-                "url_template": "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                "subdomains": ["a", "b", "c"],
+                "url_template": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
                 "attribution": "© OpenStreetMap contributors",
                 "tile_size": 256,
                 "min_zoom": 1,

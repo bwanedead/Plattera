@@ -291,3 +291,142 @@ async def get_cache_stats() -> Dict[str, Any]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get cache stats: {str(e)}"
         )
+
+@router.get("/ensure-plss/{state}")
+async def ensure_plss_data(state: str) -> Dict[str, Any]:
+    """
+    Ensure PLSS data is available for the specified state
+    Downloads from BLM CadNSDI if not already cached
+    
+    Args:
+        state: State name (e.g., "Wyoming", "Colorado")
+        
+    Returns:
+        dict: Result with data availability status
+    """
+    try:
+        logger.info(f"📦 Ensuring PLSS data availability for {state}")
+        
+        # Import PLSS data manager
+        from pipelines.mapping.plss.data_manager import PLSSDataManager
+        
+        # Ensure data is available
+        data_manager = PLSSDataManager()
+        result = data_manager.ensure_state_data(state)
+        
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to ensure PLSS data for {state}: {result['error']}"
+            )
+        
+        logger.info(f"✅ PLSS data ready for {state}")
+        return {
+            "success": True,
+            "state": state,
+            "data_status": "ready",
+            "data_source": result.get("source", "unknown"),
+            "vector_data_info": result.get("vector_data", {})
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ PLSS data ensuring failed for {state}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"PLSS data operation failed: {str(e)}"
+        )
+
+@router.get("/tile/{provider}/{z}/{x}/{y}")
+async def get_tile(provider: str, z: int, x: int, y: int) -> Dict[str, Any]:
+    """
+    Get a specific map tile, serving from cache or fetching from provider
+    
+    Args:
+        provider: Tile provider name (e.g., "usgs_topo", "osm_standard")
+        z: Zoom level
+        x: Tile X coordinate
+        y: Tile Y coordinate
+        
+    Returns:
+        dict: Tile information and local path
+    """
+    try:
+        logger.debug(f"🗺️ Getting tile {provider}/{z}/{x}/{y}")
+        
+        # Import tile components
+        from pipelines.mapping.tiles.providers import TileProviders
+        from pipelines.mapping.tiles.cache_manager import TileCacheManager
+        from pipelines.mapping.tiles.tile_server import TileServer
+        
+        # Get provider configuration
+        providers = TileProviders()
+        provider_result = providers.get_provider_config(provider)
+        
+        if not provider_result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown tile provider: {provider}"
+            )
+        
+        provider_config = provider_result["config"]
+        
+        # Check cache first
+        cache_manager = TileCacheManager()
+        cache_result = cache_manager.get_cached_tile(x, y, z, provider)
+        
+        if cache_result["success"]:
+            logger.debug(f"💾 Cache hit for tile {x}/{y}/{z}")
+            return {
+                "success": True,
+                "tile_path": cache_result["local_path"],
+                "source": "cache",
+                "provider": provider,
+                "coordinates": {"x": x, "y": y, "z": z}
+            }
+        
+        # Fetch from remote server
+        tile_server = TileServer()
+        fetch_result = tile_server.fetch_tile(x, y, z, provider_config)
+        
+        if not fetch_result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to fetch tile: {fetch_result['error']}"
+            )
+        
+        # Cache the fetched tile
+        cache_result = cache_manager.cache_tile(x, y, z, provider, fetch_result["tile_data"])
+        
+        if cache_result["success"]:
+            return {
+                "success": True,
+                "tile_path": cache_result["local_path"],
+                "source": "remote",
+                "provider": provider,
+                "coordinates": {"x": x, "y": y, "z": z},
+                "size_bytes": fetch_result["size_bytes"],
+                "remote_url": fetch_result["remote_url"]
+            }
+        else:
+            # Even if caching failed, we can still return the tile data
+            logger.warning(f"Tile fetched but caching failed: {cache_result.get('error')}")
+            return {
+                "success": True,
+                "tile_data": fetch_result["tile_data"],  # Raw binary data
+                "source": "remote_uncached",
+                "provider": provider,
+                "coordinates": {"x": x, "y": y, "z": z},
+                "size_bytes": fetch_result["size_bytes"],
+                "cache_warning": cache_result.get("error")
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Tile request failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Tile request failed: {str(e)}"
+        )
