@@ -1,6 +1,6 @@
 ================================================================================
 COMPLETE RAW ALIGNMENT TABLE - ALL BLOCKS
-Generated: 2025-07-31 14:58:02
+Generated: 2025-08-01 15:28:12
 Total Blocks: 4
 ================================================================================
 
@@ -34,7 +34,7 @@ Position  Draft_1                  Draft_2                  Draft_3
  16       and                      and                      and                      
  17       between                  between                  between                  
  18       harriet                  harriet                  harriet                  
- 19       rickard                  pickard                  rickard                  
+ 19       rickard                  rickard                  rickard                  
  20       a                        a                        a                        
  21       widow                    widow                    widow                    
  22       of                       of                       of                       
@@ -210,7 +210,7 @@ Draft_2 (76 tokens):
   [16] and
   [17] between
   [18] harriet
-  [19] pickard
+  [19] rickard
   [20] a
   [21] widow
   [22] of
@@ -350,13 +350,12 @@ Draft_3 (76 tokens):
 📊 ANALYSIS - section_1
 ============================================================
 
-DIFF at pos 19: ['pickard', 'rickard']
 
 BLOCK SUMMARY:
   Total positions: 76
-  Positions with differences: 1
+  Positions with differences: 0
   Positions with gaps: 0
-  Alignment similarity: 98.7%
+  Alignment similarity: 100.0%
 
 ================================================================================
 BLOCK: section_2
@@ -414,7 +413,7 @@ Position  Draft_1                  Draft_2                  Draft_3
  42       receipt                  receipt                  receipt                  
  43       of                       of                       of                       
  44       which                    which                    which                    
- 45       considerations           consideration            considerations           
+ 45       considerations           considerations           considerations           
  46       is                       is                       is                       
  47       hereby                   hereby                   hereby                   
  48       acknowledged             acknowledged             acknowledged             
@@ -424,7 +423,7 @@ Position  Draft_1                  Draft_2                  Draft_3
  52       granted                  granted                  granted                  
  53       and                      and                      and                      
  54       conveyed                 conveyed                 conveyed                 
- 55       unto                     into                     into                     
+ 55       unto                     unto                     unto                     
  56       the                      the                      the                      
  57       party                    party                    party                    
  58       of                       of                       of                       
@@ -466,7 +465,7 @@ Position  Draft_1                  Draft_2                  Draft_3
  94       of                       of                       of                       
  95       the                      the                      the                      
  96       sixth                    sixth                    sixth                    
- 97       principal                principal                principle                
+ 97       principal                principal                principal                
  98       meridian                 meridian                 meridian                 
  99       in                       in                       in                       
 100       the                      the                      the                      
@@ -674,7 +673,7 @@ Draft_2 (118 tokens):
   [42] receipt
   [43] of
   [44] which
-  [45] consideration
+  [45] considerations
   [46] is
   [47] hereby
   [48] acknowledged
@@ -684,7 +683,7 @@ Draft_2 (118 tokens):
   [52] granted
   [53] and
   [54] conveyed
-  [55] into
+  [55] unto
   [56] the
   [57] party
   [58] of
@@ -804,7 +803,7 @@ Draft_3 (118 tokens):
   [52] granted
   [53] and
   [54] conveyed
-  [55] into
+  [55] unto
   [56] the
   [57] party
   [58] of
@@ -846,7 +845,7 @@ Draft_3 (118 tokens):
   [94] of
   [95] the
   [96] sixth
-  [97] principle
+  [97] principal
   [98] meridian
   [99] in
   [100] the
@@ -872,15 +871,12 @@ Draft_3 (118 tokens):
 📊 ANALYSIS - section_2
 ============================================================
 
-DIFF at pos 45: ['consideration', 'considerations']
-DIFF at pos 55: ['into', 'unto']
-DIFF at pos 97: ['principal', 'principle']
 
 BLOCK SUMMARY:
   Total positions: 118
-  Positions with differences: 3
+  Positions with differences: 0
   Positions with gaps: 0
-  Alignment similarity: 97.5%
+  Alignment similarity: 100.0%
 
 ================================================================================
 BLOCK: section_3
@@ -932,7 +928,7 @@ Position  Draft_1                  Draft_2                  Draft_3
  36       feet                     feet                     feet                     
  37       s                        s                        s                        
  38       21                       21                       21                       
- 39       30                       30                       30                       
+ 39       30                       30                       36                       
  40       e                        e                        e                        
  41       from                     from                     from                     
  42       the                      the                      the                      
@@ -948,7 +944,7 @@ Position  Draft_1                  Draft_2                  Draft_3
  52       thence                   thence                   thence                   
  53       n                        n                        n                        
  54       68                       68                       68                       
- 55       30                       30                       30                       
+ 55       30                       30                       36                       
  56       east                     east                     east                     
  57       parallel                 parallel                 parallel                 
  58       to                       to                       to                       
@@ -1017,7 +1013,7 @@ Position  Draft_1                  Draft_2                  Draft_3
 121       quarter                  quarter                  quarter                  
 122       of                       of                       of                       
 123       the                      the                      the                      
-124       northwest                northeast                northwest                
+124       northwest                northwest                northwest                
 125       quarter                  quarter                  quarter                  
 126       thence                   thence                   thence                   
 127       s                        s                        s                        
@@ -1048,7 +1044,7 @@ Position  Draft_1                  Draft_2                  Draft_3
 152       of                       of                       of                       
 153       land                     land                     land                     
 154       containing               containing               containing               
-155       14                       19                       19                       
+155       14                       14                       19                       
 156       acres                    acres                    acres                    
 157       more                     more                     more                     
 158       or                       or                       or                       
@@ -1361,7 +1357,7 @@ Draft_2 (160 tokens):
   [121] quarter
   [122] of
   [123] the
-  [124] northeast
+  [124] northwest
   [125] quarter
   [126] thence
   [127] s
@@ -1392,7 +1388,7 @@ Draft_2 (160 tokens):
   [152] of
   [153] land
   [154] containing
-  [155] 19
+  [155] 14
   [156] acres
   [157] more
   [158] or
@@ -1438,7 +1434,7 @@ Draft_3 (160 tokens):
   [36] feet
   [37] s
   [38] 21
-  [39] 30
+  [39] 36
   [40] e
   [41] from
   [42] the
@@ -1454,7 +1450,7 @@ Draft_3 (160 tokens):
   [52] thence
   [53] n
   [54] 68
-  [55] 30
+  [55] 36
   [56] east
   [57] parallel
   [58] to
@@ -1564,14 +1560,15 @@ Draft_3 (160 tokens):
 📊 ANALYSIS - section_3
 ============================================================
 
-DIFF at pos 124: ['northeast', 'northwest']
+DIFF at pos 39: ['30', '36']
+DIFF at pos 55: ['30', '36']
 DIFF at pos 155: ['19', '14']
 
 BLOCK SUMMARY:
   Total positions: 160
-  Positions with differences: 2
+  Positions with differences: 3
   Positions with gaps: 0
-  Alignment similarity: 98.8%
+  Alignment similarity: 98.1%
 
 ================================================================================
 BLOCK: section_4
@@ -1626,7 +1623,7 @@ Position  Draft_1                  Draft_2                  Draft_3
  39       2                        2                        2                        
  40       bears                    bears                    bears                    
  41       n                        n                        n                        
- 42       37                       3                        37                       
+ 42       3                        3                        37                       
  43       00                       00                       00                       
  44       w                        w                        w                        
  45       1275                     1275                     1275                     
@@ -1738,7 +1735,7 @@ Draft_1 (90 tokens):
   [39] 2
   [40] bears
   [41] n
-  [42] 37
+  [42] 3
   [43] 00
   [44] w
   [45] 1275
@@ -1989,6 +1986,6 @@ BLOCK SUMMARY:
 
 Total blocks processed: 4
 Total alignment positions: 444
-Total differences found: 7
+Total differences found: 4
 Total gap positions: 0
-Overall similarity: 98.4%
+Overall similarity: 99.1%
