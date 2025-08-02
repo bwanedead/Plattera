@@ -4,7 +4,7 @@
  */
 import React, { useState, useMemo } from 'react';
 import { drawPolygonFromSchema, PolygonResult } from '../../services/polygonApi';
-import { PolygonViewer } from './PolygonViewer';
+import { VisualizationWorkspace } from '../visualization/VisualizationWorkspace';
 
 interface Description {
   description_id: number;
@@ -155,9 +155,9 @@ export const PolygonDrawingControls: React.FC<PolygonDrawingControlsProps> = ({
         </div>
       </div>
 
-      {/* Polygon Viewer Modal */}
+      {/* Visualization Workspace */}
       {viewingPolygon && (
-        <PolygonViewer
+        <VisualizationWorkspace
           polygon={viewingPolygon}
           isOpen={!!viewingPolygon}
           onClose={() => setViewingPolygon(null)}

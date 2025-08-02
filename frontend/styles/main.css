@@ -18,6 +18,7 @@
 @import './components/alignment.css';
 @import './components/suggestion-popup.css';
 @import './components/polygon-viewer.css';
+@import './components/visualization-workspace.css';
 
 /* 5. Workspace-Specific Styles */
 @import './workspaces/image-to-text.css';
