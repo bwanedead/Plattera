@@ -80,15 +80,19 @@ class WorkspaceStateManager {
   // State persistence
   private loadState(): WorkspaceState {
     try {
-      const savedState = sessionStorage.getItem('plattera_workspace_state');
-      if (savedState) {
-        const parsed = JSON.parse(savedState);
-        // Merge with defaults to handle missing properties
-        return this.mergeWithDefaults(parsed);
+      // Check if we're in a browser environment where sessionStorage exists
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const savedState = sessionStorage.getItem('plattera_workspace_state');
+        if (savedState) {
+          const parsed = JSON.parse(savedState);
+          // Merge with defaults to handle missing properties
+          return this.mergeWithDefaults(parsed);
+        }
       }
     } catch (error) {
       console.warn('Failed to load workspace state:', error);
     }
+    // Always return default state if no sessionStorage, no saved state, or error
     return defaultWorkspaceState;
   }
 
