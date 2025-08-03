@@ -246,9 +246,11 @@ class PolygonPipeline:
                 "success": True,
                 "polygon": {
                     "description_id": desc_id,
-                    "coordinates": polygon_result["coordinates"],
+                    "coordinates": polygon_result["coordinates"],  # Now display-ready
                     "geometry_type": "Polygon",
-                    "coordinate_system": options["coordinate_system"],
+                    "coordinate_system": "display_ready",
+                    "orientation": "north_up",
+                    "coordinate_system_info": polygon_result.get("coordinate_system_info"),
                     "origin": origin_result["origin"],
                     "properties": {
                         "area_calculated": polygon_result.get("area_calculated"),
@@ -478,31 +480,15 @@ class PolygonPipeline:
         }
     
     def get_available_options(self) -> dict:
-        """Get available processing options and their descriptions"""
+        """Get available polygon drawing options"""
         return {
-            "coordinate_system": {
-                "description": "Output coordinate system",
-                "options": ["local", "utm", "geographic"],
-                "default": "local"
-            },
-            "origin_method": {
-                "description": "Method for determining polygon origin",
-                "options": ["auto", "plss_corner", "explicit"],
-                "default": "auto"
-            },
-            "distance_units": {
-                "description": "Default distance units if not specified",
-                "options": ["feet", "meters", "chains"],
-                "default": "feet"
-            },
-            "closure_tolerance_feet": {
-                "description": "Tolerance for polygon closure validation in feet",
-                "type": "float",
-                "default": 1.0
-            },
-            "output_format": {
-                "description": "Output coordinate format",
-                "options": ["geojson", "wkt", "coordinates"],
-                "default": "geojson"
+            "coordinate_systems": ["local", "utm", "geographic"],
+            "distance_units": ["feet", "meters", "chains", "rods"],
+            "output_formats": ["coordinates", "geojson", "wkt"],
+            "default_options": {
+                "coordinate_system": "local",
+                "distance_units": "feet",
+                "closure_tolerance_feet": 1.0,
+                "output_format": "coordinates"
             }
         }

@@ -1,9 +1,14 @@
 /**
  * Grid Background Component
- * Renders SVG grid background (extracted from original PolygonViewer)
+ * Renders grid for display-ready coordinates (already north-up oriented)
  */
 import React, { useMemo } from 'react';
 import { PolygonResult } from '../../../services/polygonApi';
+import { 
+  normalizeCoordinates, 
+  calculateBounds, 
+  calculateViewBox 
+} from '../../../utils/coordinateUtils';
 
 interface GridBackgroundProps {
   polygon?: PolygonResult;
@@ -11,74 +16,35 @@ interface GridBackgroundProps {
   showLabels: boolean;
 }
 
-// Helper function to normalize coordinates
-const normalizeCoordinates = (coords: any[]): {x: number, y: number}[] => {
-  return coords.map(coord => {
-    if (Array.isArray(coord)) {
-      return { x: coord[0], y: coord[1] };
-    } else if (coord && typeof coord === 'object' && 'x' in coord && 'y' in coord) {
-      return { x: coord.x, y: coord.y };
-    } else {
-      console.error('Invalid coordinate format:', coord);
-      return { x: 0, y: 0 };
-    }
-  });
-};
-
 export const GridBackground: React.FC<GridBackgroundProps> = ({
   polygon,
   showGrid,
   showLabels
 }) => {
-  // Normalize coordinates
-  const normalizedCoordinates = useMemo(() => {
+  // Normalize coordinates (already display-ready from backend)
+  const displayCoordinates = useMemo(() => {
     if (!polygon?.coordinates || polygon.coordinates.length === 0) {
       return [];
     }
     return normalizeCoordinates(polygon.coordinates);
   }, [polygon?.coordinates]);
 
-  // Calculate polygon bounds and scaling (from original PolygonViewer)
+  // Calculate bounds and viewBox
   const polygonData = useMemo(() => {
-    if (!normalizedCoordinates || normalizedCoordinates.length === 0) {
-      // Default view for when there's no polygon
-      return {
-        bounds: { minX: -100, maxX: 100, minY: -100, maxY: 100, width: 200, height: 200 },
-        viewBox: { x: -150, y: -150, width: 300, height: 300 },
-        padding: 50
-      };
-    }
+    const bounds = displayCoordinates.length > 0 
+      ? calculateBounds(displayCoordinates)
+      : { minX: -100, maxX: 100, minY: -100, maxY: 100 };
+    
+    const viewBox = calculateViewBox(bounds);
+    
+    console.log('🎨 GridBackground display coordinates:', displayCoordinates);
+    console.log('🎨 GridBackground bounds:', bounds);
+    console.log('🎨 GridBackground viewBox:', viewBox);
+    
+    return { bounds, viewBox };
+  }, [displayCoordinates]);
 
-    const coords = normalizedCoordinates;
-    
-    const minX = Math.min(...coords.map(c => c.x));
-    const maxX = Math.max(...coords.map(c => c.x));
-    const minY = Math.min(...coords.map(c => c.y));
-    const maxY = Math.max(...coords.map(c => c.y));
-    
-    const width = maxX - minX;
-    const height = maxY - minY;
-    
-    const paddingPercent = Math.max(width, height) * 0.2;
-    const paddingMin = 50;
-    const padding = Math.max(paddingPercent, paddingMin);
-    
-    const viewMinX = minX - padding;
-    const viewMaxX = maxX + padding;
-    const viewMinY = minY - padding;
-    const viewMaxY = maxY + padding;
-    
-    const viewWidth = viewMaxX - viewMinX;
-    const viewHeight = viewMaxY - viewMinY;
-    
-    return {
-      bounds: { minX, maxX, minY, maxY, width, height },
-      viewBox: { x: viewMinX, y: viewMinY, width: viewWidth, height: viewHeight },
-      padding
-    };
-  }, [normalizedCoordinates]);
-
-  // Generate grid lines (from original PolygonViewer)
+  // Generate grid lines (no transforms needed)
   const gridLines = useMemo(() => {
     if (!polygonData) return { major: [], minor: [], labels: [] };
     
@@ -89,7 +55,7 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
     const lines: { x1: number; y1: number; x2: number; y2: number; type: 'major' | 'minor' }[] = [];
     const labels: { x: number; y: number; text: string; type: 'x' | 'y' }[] = [];
     
-    // Vertical lines
+    // Vertical lines (East-West)
     const startX = Math.floor(viewBox.x / gridSpacing) * gridSpacing;
     for (let x = startX; x <= viewBox.x + viewBox.width; x += gridSpacing) {
       const isMajor = Math.abs(x % (gridSpacing * 5)) < 0.001;
@@ -104,14 +70,14 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
       if (isMajor && showLabels) {
         labels.push({
           x: x,
-          y: viewBox.y + viewBox.height - 20,
-          text: `${x.toFixed(0)}`,
+          y: viewBox.y + 20,
+          text: `${x.toFixed(0)}E`,
           type: 'x'
         });
       }
     }
     
-    // Horizontal lines
+    // Horizontal lines (North-South) 
     const startY = Math.floor(viewBox.y / gridSpacing) * gridSpacing;
     for (let y = startY; y <= viewBox.y + viewBox.height; y += gridSpacing) {
       const isMajor = Math.abs(y % (gridSpacing * 5)) < 0.001;
@@ -127,7 +93,7 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
         labels.push({
           x: viewBox.x + 20,
           y: y,
-          text: `${y.toFixed(0)}`,
+          text: `${y.toFixed(0)}N`,
           type: 'y'
         });
       }
@@ -146,11 +112,15 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
         className="grid-svg"
         viewBox={`${polygonData.viewBox.x} ${polygonData.viewBox.y} ${polygonData.viewBox.width} ${polygonData.viewBox.height}`}
         preserveAspectRatio="xMidYMid meet"
-        style={{ width: '100%', height: '100%' }}
+        style={{ 
+          width: '100%', 
+          height: '100%'
+        }}
       >
-        {/* Grid - Minor Lines */}
+        {/* No transforms needed - coordinates are already display-ready */}
         {showGrid && (
-          <g className="grid-minor">
+          <g className="grid-lines">
+            {/* Minor grid lines */}
             {gridLines.minor.map((line, i) => (
               <line
                 key={`minor-${i}`}
@@ -158,16 +128,13 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
                 y1={line.y1}
                 x2={line.x2}
                 y2={line.y2}
-                stroke="#404040"
+                stroke="#4a5568"
                 strokeWidth="0.5"
+                opacity="0.6"
               />
             ))}
-          </g>
-        )}
-
-        {/* Grid - Major Lines */}
-        {showGrid && (
-          <g className="grid-major">
+            
+            {/* Major grid lines */}
             {gridLines.major.map((line, i) => (
               <line
                 key={`major-${i}`}
@@ -175,14 +142,15 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
                 y1={line.y1}
                 x2={line.x2}
                 y2={line.y2}
-                stroke="#606060"
+                stroke="#718096"
                 strokeWidth="1"
+                opacity="0.8"
               />
             ))}
           </g>
         )}
-
-        {/* Grid Labels */}
+        
+        {/* Simple labels (no coordinate system adjustments needed) */}
         {showLabels && (
           <g className="grid-labels">
             {gridLines.labels.map((label, i) => (
@@ -190,10 +158,10 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
                 key={`label-${i}`}
                 x={label.x}
                 y={label.y}
-                fill="#888888"
-                fontSize="14"
+                fill="#a0aec0"
+                fontSize="12"
                 textAnchor={label.type === 'x' ? 'middle' : 'start'}
-                dominantBaseline={label.type === 'x' ? 'auto' : 'middle'}
+                dominantBaseline={label.type === 'x' ? 'hanging' : 'middle'}
               >
                 {label.text}
               </text>
@@ -203,7 +171,4 @@ export const GridBackground: React.FC<GridBackgroundProps> = ({
       </svg>
     </div>
   );
-};
-
-// Export the polygon data calculation for use by PolygonLayer
-export { normalizeCoordinates }; 
+}; 

@@ -107,18 +107,27 @@ class PolygonDrawer:
             # Ensure polygon is closed by adding start point at the end
             coordinates.append(start_point)
             
-            # Calculate polygon properties
+            # Calculate polygon properties using survey coordinates
             area_sqft = self._calculate_area(coordinates)
             perimeter_feet = self._calculate_perimeter(coordinates)
             closure_error_feet = closure_distance  # This is now the actual closure error
             
+            # Convert to display-ready coordinates (north-up orientation)
+            display_coordinates = self.coordinate_calculator.convert_to_display_coordinates(coordinates)
+            
             return {
                 "success": True,
-                "coordinates": coordinates,
+                "coordinates": display_coordinates,  # Now display-ready
                 "area_calculated": area_sqft,
                 "perimeter": perimeter_feet,
                 "closure_error": closure_error_feet,
-                "notes": processing_notes
+                "notes": processing_notes,
+                "coordinate_system_info": {
+                    "input_system": "survey_coordinates",
+                    "output_system": "display_coordinates", 
+                    "orientation": "north_up",
+                    "description": "Coordinates are pre-oriented for north-up display"
+                }
             }
             
         except DrawingError as e:
@@ -406,3 +415,22 @@ class CoordinateCalculator:
         x2, y2 = point2
         
         return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+    
+    def convert_to_display_coordinates(self, survey_coordinates: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        """
+        Convert survey coordinates to display-ready coordinates
+        Survey frame: +Y = North, +X = East
+        Display frame: +Y = North (up on screen), +X = East (right on screen)
+        
+        For screen display where +Y naturally goes down, we flip Y coordinates
+        so that north points up when rendered.
+        """
+        display_coordinates = []
+        
+        for x, y in survey_coordinates:
+            # For north-up display, flip Y coordinate
+            display_x = x
+            display_y = -y  # Flip Y so north points up on screen
+            display_coordinates.append((display_x, display_y))
+        
+        return display_coordinates

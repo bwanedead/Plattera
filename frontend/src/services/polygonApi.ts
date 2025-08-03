@@ -18,11 +18,20 @@ export interface PolygonCoordinate {
   y: number;
 }
 
+export interface CoordinateSystemInfo {
+  input_system: string;
+  output_system: string;
+  orientation: string;
+  description: string;
+}
+
 export interface PolygonResult {
   description_id: number;
   coordinates: PolygonCoordinate[];
   geometry_type: string;
   coordinate_system: string;
+  orientation: string;
+  coordinate_system_info?: CoordinateSystemInfo;
   origin: any;
   properties: {
     area_calculated: number;

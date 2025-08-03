@@ -1,10 +1,14 @@
 /**
  * Polygon Layer Component  
- * Renders polygon as overlay that can be placed over any background
+ * Renders polygon coordinates that are already oriented for north-up display
  */
 import React, { useMemo } from 'react';
 import { PolygonResult } from '../../../services/polygonApi';
-import { normalizeCoordinates } from '../backgrounds/GridBackground';
+import { 
+  normalizeCoordinates, 
+  calculateBounds, 
+  calculateViewBox
+} from '../../../utils/coordinateUtils';
 
 interface PolygonLayerProps {
   polygon: PolygonResult;
@@ -17,65 +21,50 @@ export const PolygonLayer: React.FC<PolygonLayerProps> = ({
   showOrigin,
   viewMode
 }) => {
-  // Normalize coordinates
-  const normalizedCoordinates = useMemo(() => {
+  // Normalize coordinates (already display-ready from backend)
+  const displayCoordinates = useMemo(() => {
     if (!polygon?.coordinates || polygon.coordinates.length === 0) {
       return [];
     }
     return normalizeCoordinates(polygon.coordinates);
   }, [polygon?.coordinates]);
 
-  // Calculate polygon bounds for viewBox (same logic as GridBackground)
+  // Calculate bounds and viewBox for display coordinates
   const polygonData = useMemo(() => {
-    if (!normalizedCoordinates || normalizedCoordinates.length === 0) {
+    if (displayCoordinates.length === 0) {
       return null;
     }
 
-    const coords = normalizedCoordinates;
+    const bounds = calculateBounds(displayCoordinates);
+    const viewBox = calculateViewBox(bounds);
     
-    const minX = Math.min(...coords.map(c => c.x));
-    const maxX = Math.max(...coords.map(c => c.x));
-    const minY = Math.min(...coords.map(c => c.y));
-    const maxY = Math.max(...coords.map(c => c.y));
+    console.log('🎨 PolygonLayer display coordinates:', displayCoordinates);
+    console.log('🎨 PolygonLayer bounds:', bounds);
+    console.log('🎨 PolygonLayer viewBox:', viewBox);
     
-    const width = maxX - minX;
-    const height = maxY - minY;
-    
-    const paddingPercent = Math.max(width, height) * 0.2;
-    const paddingMin = 50;
-    const padding = Math.max(paddingPercent, paddingMin);
-    
-    const viewMinX = minX - padding;
-    const viewMaxX = maxX + padding;
-    const viewMinY = minY - padding;
-    const viewMaxY = maxY + padding;
-    
-    const viewWidth = viewMaxX - viewMinX;
-    const viewHeight = viewMaxY - viewMinY;
-    
-    return {
-      bounds: { minX, maxX, minY, maxY, width, height },
-      viewBox: { x: viewMinX, y: viewMinY, width: viewWidth, height: viewHeight },
-      padding
-    };
-  }, [normalizedCoordinates]);
+    return { bounds, viewBox };
+  }, [displayCoordinates]);
 
-  // Generate polygon path
+  // Generate polygon path (no transforms needed)
   const polygonPath = useMemo(() => {
-    if (!normalizedCoordinates || normalizedCoordinates.length === 0) return '';
-    
-    const coords = normalizedCoordinates;
-    let path = `M ${coords[0].x} ${coords[0].y}`;
-    
-    for (let i = 1; i < coords.length; i++) {
-      path += ` L ${coords[i].x} ${coords[i].y}`;
+    if (displayCoordinates.length === 0) {
+      return '';
     }
     
-    path += ' Z'; // Close the path
+    let path = `M ${displayCoordinates[0].x} ${displayCoordinates[0].y}`;
+    
+    for (let i = 1; i < displayCoordinates.length; i++) {
+      path += ` L ${displayCoordinates[i].x} ${displayCoordinates[i].y}`;
+    }
+    
+    path += ' Z';
+    console.log('🎨 PolygonLayer display-ready path:', path);
     return path;
-  }, [normalizedCoordinates]);
+  }, [displayCoordinates]);
 
-  if (!polygonData) return null;
+  if (!polygonData) {
+    return null;
+  }
 
   return (
     <div className="polygon-layer">
@@ -89,10 +78,10 @@ export const PolygonLayer: React.FC<PolygonLayerProps> = ({
           position: 'absolute',
           top: 0,
           left: 0,
-          pointerEvents: 'none' // Allow interaction with background
+          pointerEvents: 'none'
         }}
       >
-        {/* Polygon */}
+        {/* No transforms needed - coordinates are already display-ready */}
         <g className="polygon-group">
           <path
             d={polygonPath}
@@ -103,7 +92,7 @@ export const PolygonLayer: React.FC<PolygonLayerProps> = ({
           />
           
           {/* Polygon vertices */}
-          {normalizedCoordinates.map((coord, i) => (
+          {displayCoordinates.map((coord, i) => (
             <circle
               key={`vertex-${i}`}
               cx={coord.x}
