@@ -159,6 +159,7 @@ export const PolygonDrawingControls: React.FC<PolygonDrawingControlsProps> = ({
       {viewingPolygon && (
         <VisualizationWorkspace
           polygon={viewingPolygon}
+          schemaData={schemaData} // Add schema data
           isOpen={!!viewingPolygon}
           onClose={() => setViewingPolygon(null)}
         />

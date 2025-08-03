@@ -27,8 +27,10 @@ class TileCacheManager:
         if cache_directory:
             self.cache_dir = Path(cache_directory)
         else:
-            # Default to user's home directory
-            self.cache_dir = Path.home() / ".plattera" / "tiles"
+            # Use project directory instead of hidden home directory
+            # Navigate up from backend/pipelines/mapping/tiles/ to project root
+            project_root = Path(__file__).parent.parent.parent.parent.parent
+            self.cache_dir = project_root / "tiles"
         
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_file = self.cache_dir / "cache_metadata.json"

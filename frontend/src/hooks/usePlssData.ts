@@ -1,117 +1,85 @@
 /**
- * PLSS Data Hook
- * Manages PLSS data fetching and state
+ * PLSS Data Hook - State management for PLSS data
+ * Separates state logic from UI components
  */
-import { useState, useEffect, useCallback } from 'react';
-import { mappingApi, PLSSDescription, PLSSResolveResponse } from '../services/mappingApi';
+import { useState, useEffect } from 'react';
+import { plssDataService, PLSSDataState } from '../services/plssDataService';
 
-export interface PlssState {
-  isLoading: boolean;
-  error: string | null;
-  availableStates: string[];
-  resolvedCoordinates: PLSSResolveResponse | null;
-}
-
-export interface UsePlssDataReturn {
-  state: PlssState;
-  resolveCoordinates: (plssDescription: PLSSDescription) => Promise<PLSSResolveResponse>;
-  clearError: () => void;
-  resetState: () => void;
-}
-
-export const usePlssData = (): UsePlssDataReturn => {
-  const [state, setState] = useState<PlssState>({
-    isLoading: false,
+export function usePLSSData(schemaData: any) {
+  const [state, setState] = useState<PLSSDataState>({
+    status: 'unknown',
+    state: null,
     error: null,
-    availableStates: [],
-    resolvedCoordinates: null
+    progress: null,
   });
 
-  // Load available states on mount
   useEffect(() => {
-    const loadAvailableStates = async () => {
-      try {
-        setState(prev => ({ ...prev, isLoading: true, error: null }));
-        
-        const response = await mappingApi.getPLSSStates();
-        
-        setState(prev => ({
-          ...prev,
-          isLoading: false,
-          availableStates: response.available_states || []
+    const initializeData = async () => {
+      if (!schemaData) return;
+
+      setState(prev => ({ ...prev, status: 'checking' }));
+
+      // Use the new schema-based extraction
+      const plssState = await plssDataService.extractStateFromSchema(schemaData);
+      if (!plssState) {
+        setState(prev => ({ 
+          ...prev, 
+          status: 'error', 
+          error: 'Unable to determine state from schema data' 
         }));
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        setState(prev => ({
-          ...prev,
-          isLoading: false,
-          error: `Failed to load available states: ${errorMessage}`
-        }));
+        return;
       }
+
+      setState(prev => ({ ...prev, state: plssState }));
+
+      const statusResult = await plssDataService.checkDataStatus(plssState);
+      if (statusResult.error) {
+        setState(prev => ({ 
+          ...prev, 
+          status: 'error', 
+          error: statusResult.error || 'Unknown error' // Fix: ensure error is string | null
+        }));
+        return;
+      }
+
+      setState(prev => ({ 
+        ...prev, 
+        status: statusResult.available ? 'ready' : 'missing' 
+      }));
     };
 
-    loadAvailableStates();
-  }, []);
+    initializeData();
+  }, [schemaData]);
 
-  // Resolve PLSS coordinates
-  const resolveCoordinates = useCallback(async (plssDescription: PLSSDescription): Promise<PLSSResolveResponse> => {
-    try {
-      setState(prev => ({ ...prev, isLoading: true, error: null }));
+  const downloadData = async () => {
+    if (!state.state) return;
 
-      const response = await mappingApi.resolvePLSSCoordinates({
-        plss_description: plssDescription
-      });
-
-      if (response.success) {
-        setState(prev => ({
-          ...prev,
-          isLoading: false,
-          resolvedCoordinates: response
-        }));
-      } else {
-        setState(prev => ({
-          ...prev,
-          isLoading: false,
-          error: response.error || 'Failed to resolve PLSS coordinates'
-        }));
-      }
-
-      return response;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const errorResponse: PLSSResolveResponse = {
-        success: false,
-        error: errorMessage
-      };
-
-      setState(prev => ({
-        ...prev,
-        isLoading: false,
-        error: `PLSS resolution error: ${errorMessage}`
-      }));
-
-      return errorResponse;
-    }
-  }, []);
-
-  // Clear error
-  const clearError = useCallback(() => {
-    setState(prev => ({ ...prev, error: null }));
-  }, []);
-
-  // Reset state
-  const resetState = useCallback(() => {
-    setState(prev => ({
-      ...prev,
-      error: null,
-      resolvedCoordinates: null
+    setState(prev => ({ 
+      ...prev, 
+      status: 'downloading', 
+      progress: 'Downloading PLSS data...' 
     }));
-  }, []);
+
+    const result = await plssDataService.ensureData(state.state);
+    
+    if (result.success) {
+      setState(prev => ({ 
+        ...prev, 
+        status: 'ready', 
+        progress: null 
+      }));
+    } else {
+      setState(prev => ({ 
+        ...prev, 
+        status: 'error', 
+        error: result.error || 'Download failed',
+        progress: null 
+      }));
+    }
+  };
 
   return {
-    state,
-    resolveCoordinates,
-    clearError,
-    resetState
+    ...state,
+    downloadData,
   };
-};
+}

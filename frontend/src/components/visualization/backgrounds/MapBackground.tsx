@@ -1,36 +1,48 @@
 /**
- * Map Background Component
- * Renders map tiles using our mapping APIs (placeholder for now)
+ * Map Background - Pure presentation component
+ * Uses hook for state management, delegates UI to specialized components
  */
 import React from 'react';
-import { PolygonResult } from '../../../services/polygonApi';
+import { usePLSSData } from '../../../hooks/usePLSSData';
+import { PLSSDownloadPrompt } from '../../mapping/PLSSDownloadPrompt';
+import { MapStatusDisplay } from '../../mapping/MapStatusDisplay';
 
 interface MapBackgroundProps {
-  polygon?: PolygonResult;
+  schemaData?: any; // Changed from polygon to schemaData
   showGrid?: boolean;
 }
 
 export const MapBackground: React.FC<MapBackgroundProps> = ({
-  polygon,
+  schemaData, // Changed from polygon to schemaData
   showGrid
 }) => {
+  const { status, state, error, progress, downloadData } = usePLSSData(schemaData);
+
+  const renderContent = () => {
+    if (status === 'missing' && state) {
+      return (
+        <PLSSDownloadPrompt 
+          state={state} 
+          onDownload={downloadData} 
+        />
+      );
+    }
+
+    return (
+      <MapStatusDisplay
+        status={status}
+        state={state}
+        error={error}
+        progress={progress}
+        onRetry={downloadData}
+      />
+    );
+  };
+
   return (
     <div className="map-background">
-      <div style={{ 
-        width: '100%', 
-        height: '100%', 
-        backgroundColor: '#f0f0f0',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#666',
-        fontSize: '18px'
-      }}>
-        🗺️ Map View - Coming Soon
-        <br />
-        <small style={{ fontSize: '14px' }}>
-          Will integrate with /api/mapping/tile endpoints
-        </small>
+      <div className="map-container">
+        {renderContent()}
       </div>
     </div>
   );

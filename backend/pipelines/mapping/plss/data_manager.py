@@ -30,8 +30,10 @@ class PLSSDataManager:
         if data_directory:
             self.data_dir = Path(data_directory)
         else:
-            # Default to user's home directory
-            self.data_dir = Path.home() / ".plattera" / "plss"
+            # Use project directory instead of hidden home directory
+            # Navigate up from backend/pipelines/mapping/plss/ to project root
+            project_root = Path(__file__).parent.parent.parent.parent.parent
+            self.data_dir = project_root / "plss"
         
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_file = self.data_dir / "metadata.json"

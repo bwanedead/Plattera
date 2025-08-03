@@ -9,6 +9,9 @@ import logging
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Fix: Import the get_registry function
+from services.registry import get_registry
+
 @router.post("/project-polygon")
 async def project_polygon_to_map(request: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -16,81 +19,61 @@ async def project_polygon_to_map(request: Dict[str, Any]) -> Dict[str, Any]:
     
     Args:
         request: JSON with local_coordinates, plss_anchor, and options
-        
+    
     Returns:
-        dict: Geographic polygon data for map overlay
+        dict: Projected coordinates and metadata
     """
     try:
-        # Extract request components
-        local_coordinates = request.get("local_coordinates")
-        plss_anchor = request.get("plss_anchor")
+        logger.info("Received polygon projection request")
+        
+        # Extract request data
+        local_coordinates = request.get("local_coordinates", [])
+        plss_anchor = request.get("plss_anchor", {})
         options = request.get("options", {})
         
         if not local_coordinates:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Missing local_coordinates in request"
+                detail="local_coordinates are required"
             )
         
         if not plss_anchor:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Missing plss_anchor in request"
+                detail="plss_anchor information is required"
             )
         
-        logger.info("🗺️ Starting polygon projection to geographic coordinates")
+        # Fix: Use get_registry() function
+        registry = get_registry()
+        projection_pipeline = registry.get_pipeline("projection")
         
-        # Import pipelines
-        from pipelines.mapping.plss.pipeline import PLSSPipeline
-        from pipelines.mapping.projection.pipeline import ProjectionPipeline
+        # Process projection
+        result = await projection_pipeline.process({
+            "local_coordinates": local_coordinates,
+            "plss_anchor": plss_anchor,
+            "options": options
+        })
         
-        # Resolve PLSS anchor to geographic coordinates
-        plss_pipeline = PLSSPipeline()
-        anchor_result = plss_pipeline.resolve_starting_point(plss_anchor)
-        
-        if not anchor_result["success"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"PLSS anchor resolution failed: {anchor_result['error']}"
-            )
-        
-        # Project local coordinates to geographic
-        projection_pipeline = ProjectionPipeline()
-        projection_result = projection_pipeline.project_polygon_to_geographic(
-            local_coordinates,
-            anchor_result["anchor_point"],
-            options
-        )
-        
-        if not projection_result["success"]:
+        if not result.get("success"):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Polygon projection failed: {projection_result['error']}"
+                detail=f"Projection failed: {result.get('error', 'Unknown error')}"
             )
-        
-        logger.info("✅ Polygon projection completed successfully")
         
         return {
             "success": True,
-            "geographic_polygon": {
-                "type": "Polygon",
-                "coordinates": [projection_result["geographic_coordinates"]],  # GeoJSON format
-                "bounds": projection_result["bounds"]
-            },
-            "anchor_info": {
-                "plss_reference": anchor_result["metadata"]["plss_reference"],
-                "resolved_coordinates": anchor_result["anchor_point"]
-            },
-            "projection_metadata": projection_result["metadata"]
+            "projected_coordinates": result["projected_coordinates"],
+            "coordinate_system": result.get("coordinate_system"),
+            "metadata": result.get("metadata", {})
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"❌ Polygon projection failed: {str(e)}")
+        logger.error(f"Error in polygon projection: {str(e)}")
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Polygon projection failed: {str(e)}"
+            detail=f"Internal server error: {str(e)}"
         )
 
 @router.post("/get-map-tiles")
@@ -430,3 +413,41 @@ async def get_tile(provider: str, z: int, x: int, y: int) -> Dict[str, Any]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Tile request failed: {str(e)}"
         )
+
+@router.post("/extract-plss-info")
+async def extract_plss_info(request: dict) -> dict:
+    """
+    Extract PLSS mapping information from schema data
+    Independent of polygon processing
+    """
+    try:
+        # Fix: Use absolute import
+        from pipelines.mapping.plss.plss_extractor import PLSSExtractor
+        
+        extractor = PLSSExtractor()
+        result = extractor.extract_mapping_info(request)
+        
+        if not result["success"]:
+            return result
+        
+        # Check if PLSS data is available for the required state
+        state = result["mapping_data"]["state"]
+        # Fix: Use get_registry() function
+        registry = get_registry()
+        plss_cache = registry.get_service("plss_cache")
+        
+        data_status = await plss_cache.check_state_data(state)
+        
+        return {
+            "success": True,
+            "plss_info": result["mapping_data"],
+            "data_requirements": result["data_requirements"], 
+            "data_status": data_status
+        }
+        
+    except Exception as e:
+        logger.error(f"PLSS info extraction failed: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Failed to extract PLSS info: {str(e)}"
+        }

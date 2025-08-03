@@ -18,12 +18,14 @@ interface LayerSettings {
 
 interface VisualizationWorkspaceProps {
   polygon?: PolygonResult;
+  schemaData?: any; // Add schema data
   isOpen: boolean;
   onClose: () => void;
 }
 
 export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
   polygon,
+  schemaData, // Add schema data parameter
   isOpen,
   onClose
 }) => {
@@ -110,13 +112,13 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
                 
                 {viewMode === 'map' && (
                   <MapBackground 
-                    polygon={polygon}
+                    schemaData={schemaData} // Pass schema data instead of polygon
                   />
                 )}
                 
                 {viewMode === 'hybrid' && (
                   <MapBackground 
-                    polygon={polygon}
+                    schemaData={schemaData} // Pass schema data instead of polygon
                     showGrid={layers.showGrid}
                   />
                 )}

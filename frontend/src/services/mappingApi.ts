@@ -164,6 +164,40 @@ export interface CacheStatsResponse {
   error?: string;
 }
 
+/**
+ * Extract PLSS information from schema for mapping
+ * Independent of polygon processing
+ */
+export async function extractPLSSInfo(schemaData: any): Promise<{
+  success: boolean;
+  plss_info?: any;
+  data_requirements?: any;
+  data_status?: any;
+  error?: string;
+}> {
+  try {
+    console.log('🗺️ Extracting PLSS info for mapping:', schemaData);
+    
+    const response = await fetch('/api/mapping/extract-plss-info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(schemaData)
+    });
+    
+    const result = await response.json();
+    console.log('📍 PLSS extraction result:', result);
+    
+    return result;
+    
+  } catch (error) {
+    console.error('❌ PLSS extraction failed:', error);
+    return {
+      success: false,
+      error: `PLSS extraction failed: ${error.message}`
+    };
+  }
+}
+
 class MappingApiService {
   /**
    * Project local polygon coordinates to geographic coordinates
