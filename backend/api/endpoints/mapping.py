@@ -12,6 +12,12 @@ router = APIRouter()
 # Fix: Import the get_registry function
 from services.registry import get_registry
 
+@router.get("/test")
+async def test_mapping_endpoint():
+    """Simple test to verify mapping router is working"""
+    logger.info("🧪 TEST: Mapping router is working!")
+    return {"message": "Mapping router is working", "success": True}
+
 @router.post("/project-polygon")
 async def project_polygon_to_map(request: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -275,7 +281,9 @@ async def get_cache_stats() -> Dict[str, Any]:
             detail=f"Failed to get cache stats: {str(e)}"
         )
 
+# FIX THE ENSURE-PLSS ENDPOINT - ADD BOTH VERSIONS
 @router.get("/ensure-plss/{state}")
+@router.get("/ensure-plss/{state}/")
 async def ensure_plss_data(state: str) -> Dict[str, Any]:
     """
     Ensure PLSS data is available for the specified state
@@ -451,3 +459,90 @@ async def extract_plss_info(request: dict) -> dict:
             "success": False,
             "error": f"Failed to extract PLSS info: {str(e)}"
         }
+
+@router.get("/check-plss/{state}")
+@router.get("/check-plss/{state}/")
+async def check_plss_data_status(state: str) -> Dict[str, Any]:
+    """
+    Check if PLSS data exists locally for the specified state
+    Does NOT download - only checks existing data
+    
+    Args:
+        state: State name (e.g., "Wyoming", "Colorado")
+        
+    Returns:
+        dict: Status of local data availability
+    """
+    try:
+        logger.info(f"🔍 Checking local PLSS data for {state}")
+        
+        from pipelines.mapping.plss.data_manager import PLSSDataManager
+        
+        data_manager = PLSSDataManager()
+        
+        # Check if data exists locally (without downloading)
+        state_dir = data_manager.data_dir / state.lower()
+        sections_file = state_dir / "sections.geojson"
+        
+        data_exists = sections_file.exists() and sections_file.stat().st_size > 0
+        
+        logger.info(f"📁 PLSS data for {state}: {'Found' if data_exists else 'Not found'}")
+        
+        return {
+            "success": True,
+            "state": state,
+            "data_available": data_exists,
+            "data_path": str(state_dir) if data_exists else None,
+            "message": f"PLSS data for {state} {'is available' if data_exists else 'needs to be downloaded'}"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ PLSS data check failed for {state}: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Failed to check PLSS data: {str(e)}"
+        }
+
+@router.post("/download-plss/{state}")
+@router.post("/download-plss/{state}/")
+async def download_plss_data(state: str) -> Dict[str, Any]:
+    """
+    Download PLSS data for the specified state
+    Only called when user explicitly requests download
+    
+    Args:
+        state: State name (e.g., "Wyoming", "Colorado")
+        
+    Returns:
+        dict: Download result with status
+    """
+    try:
+        logger.info(f"⬇️ User requested PLSS data download for {state}")
+        
+        from pipelines.mapping.plss.data_manager import PLSSDataManager
+        
+        data_manager = PLSSDataManager()
+        result = data_manager.ensure_state_data(state)  # This actually downloads
+        
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to download PLSS data for {state}: {result['error']}"
+            )
+        
+        logger.info(f"✅ PLSS data downloaded for {state}")
+        return {
+            "success": True,
+            "state": state,
+            "data_status": "ready",
+            "message": f"PLSS data successfully downloaded for {state}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ PLSS download failed for {state}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Download failed: {str(e)}"
+        )

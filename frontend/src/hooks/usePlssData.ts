@@ -19,7 +19,7 @@ export function usePLSSData(schemaData: any) {
 
       setState(prev => ({ ...prev, status: 'checking' }));
 
-      // Use the new schema-based extraction
+      // Extract state from schema
       const plssState = await plssDataService.extractStateFromSchema(schemaData);
       if (!plssState) {
         setState(prev => ({ 
@@ -32,16 +32,18 @@ export function usePLSSData(schemaData: any) {
 
       setState(prev => ({ ...prev, state: plssState }));
 
+      // Check if data exists locally (NO auto-download)
       const statusResult = await plssDataService.checkDataStatus(plssState);
       if (statusResult.error) {
         setState(prev => ({ 
           ...prev, 
           status: 'error', 
-          error: statusResult.error || 'Unknown error' // Fix: ensure error is string | null
+          error: statusResult.error
         }));
         return;
       }
 
+      // Set status based on availability
       setState(prev => ({ 
         ...prev, 
         status: statusResult.available ? 'ready' : 'missing' 
@@ -51,35 +53,23 @@ export function usePLSSData(schemaData: any) {
     initializeData();
   }, [schemaData]);
 
+  // Download function for when user clicks download
   const downloadData = async () => {
     if (!state.state) return;
 
+    setState(prev => ({ ...prev, status: 'downloading' }));
+
+    const result = await plssDataService.downloadData(state.state);
+    
     setState(prev => ({ 
       ...prev, 
-      status: 'downloading', 
-      progress: 'Downloading PLSS data...' 
+      status: result.success ? 'ready' : 'error',
+      error: result.error || null
     }));
-
-    const result = await plssDataService.ensureData(state.state);
-    
-    if (result.success) {
-      setState(prev => ({ 
-        ...prev, 
-        status: 'ready', 
-        progress: null 
-      }));
-    } else {
-      setState(prev => ({ 
-        ...prev, 
-        status: 'error', 
-        error: result.error || 'Download failed',
-        progress: null 
-      }));
-    }
   };
 
   return {
     ...state,
-    downloadData,
+    downloadData, // Expose download function
   };
 }

@@ -3,7 +3,7 @@
  * Handles API calls for geographic mapping functionality
  */
 
-const API_BASE = '/api/mapping';
+const API_BASE = 'http://localhost:8000/api/mapping';
 
 export interface PLSSDescription {
   state: string;
