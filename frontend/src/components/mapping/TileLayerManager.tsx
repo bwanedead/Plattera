@@ -1,8 +1,10 @@
 /**
  * Tile Layer Manager Component
- * Manages and renders map tile layers
+ * Manages and renders map tile layers with backend integration
  */
 import React, { useState, useEffect, useMemo } from 'react';
+import { tileService, type TileInfo } from '../../services/mapping';
+import { TileUtils } from '../../utils/coordinateProjection';
 
 interface TileLayerManagerProps {
   bounds: {
@@ -16,14 +18,7 @@ interface TileLayerManagerProps {
   geoToScreen: (lat: number, lon: number) => { x: number; y: number } | null;
 }
 
-interface TileInfo {
-  x: number;
-  y: number;
-  z: number;
-  url?: string;
-  isLoading: boolean;
-  hasError: boolean;
-}
+// TileInfo interface now imported from tileService
 
 export const TileLayerManager: React.FC<TileLayerManagerProps> = ({
   bounds,
@@ -34,66 +29,36 @@ export const TileLayerManager: React.FC<TileLayerManagerProps> = ({
   const [tiles, setTiles] = useState<TileInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Calculate required tiles for current view
+  // Calculate required tiles for current view using tile service
   const requiredTiles = useMemo(() => {
-    const tileSize = 256; // Standard tile size
-    const tilesNeeded: TileInfo[] = [];
-
-    // Calculate tile coordinates for bounds
-    const minTileX = Math.floor(longitudeToTileX(bounds.min_lon, zoom));
-    const maxTileX = Math.floor(longitudeToTileX(bounds.max_lon, zoom));
-    const minTileY = Math.floor(latitudeToTileY(bounds.max_lat, zoom)); // Note: Y is inverted
-    const maxTileY = Math.floor(latitudeToTileY(bounds.min_lat, zoom));
-
-    for (let x = minTileX; x <= maxTileX; x++) {
-      for (let y = minTileY; y <= maxTileY; y++) {
-        tilesNeeded.push({
-          x,
-          y,
-          z: zoom,
-          isLoading: true,
-          hasError: false
-        });
-      }
-    }
-
-    return tilesNeeded;
+    return tileService.calculateTiles(bounds, zoom);
   }, [bounds, zoom]);
 
-  // Fetch tiles when requirements change
+  // Initialize tile service and fetch tiles when requirements change
   useEffect(() => {
     const fetchTiles = async () => {
       setIsLoading(true);
       
       try {
-        // Create request for tile pipeline
-        const tileRequest = {
-          bbox: bounds,
-          zoom_level: zoom,
-          provider: provider
-        };
-
-        // In a real implementation, this would call the mapping API
-        // For now, we'll simulate tile loading
-        console.log('🗺️ Fetching tiles:', tileRequest);
+        // Initialize tile service (loads provider configs)
+        await tileService.initialize();
         
-        // Simulate API call delay
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Update tiles with mock URLs (in production, these would come from the API)
-        const updatedTiles = requiredTiles.map(tile => ({
-          ...tile,
-          url: generateMockTileUrl(tile.x, tile.y, tile.z, provider),
-          isLoading: false
-        }));
-
-        setTiles(updatedTiles);
+        console.log(`🗺️ Loading ${requiredTiles.length} tiles for ${provider} at zoom ${zoom}`);
+        
+        // Use tile service for efficient batch loading
+        const loadedTiles = await tileService.loadTiles(requiredTiles, provider);
+        
+        setTiles(loadedTiles);
+        console.log(`✅ Successfully loaded ${loadedTiles.filter(t => !t.hasError).length}/${loadedTiles.length} tiles`);
+        
       } catch (error) {
-        console.error('Failed to fetch tiles:', error);
+        console.error('❌ Failed to fetch tiles:', error);
         
-        // Mark tiles as error
+        // Mark all tiles as error
         const errorTiles = requiredTiles.map(tile => ({
           ...tile,
+          provider,
+          url: '',
           isLoading: false,
           hasError: true
         }));
@@ -104,17 +69,19 @@ export const TileLayerManager: React.FC<TileLayerManagerProps> = ({
       }
     };
 
-    fetchTiles();
+    if (requiredTiles.length > 0) {
+      fetchTiles();
+    }
   }, [requiredTiles, provider]);
 
   // Render individual tile
   const renderTile = (tile: TileInfo) => {
-    // Calculate tile bounds in geographic coordinates
+    // Calculate tile bounds in geographic coordinates using TileUtils
     const tileBounds = {
-      min_lat: tileYToLatitude(tile.y + 1, tile.z),
-      max_lat: tileYToLatitude(tile.y, tile.z),
-      min_lon: tileXToLongitude(tile.x, tile.z),
-      max_lon: tileXToLongitude(tile.x + 1, tile.z)
+      min_lat: TileUtils.tileYToLatitude(tile.y + 1, tile.z),
+      max_lat: TileUtils.tileYToLatitude(tile.y, tile.z),
+      min_lon: TileUtils.tileXToLongitude(tile.x, tile.z),
+      max_lon: TileUtils.tileXToLongitude(tile.x + 1, tile.z)
     };
 
     // Convert to screen coordinates
@@ -189,41 +156,4 @@ export const TileLayerManager: React.FC<TileLayerManagerProps> = ({
   );
 };
 
-// Utility functions for tile coordinate conversion
-function longitudeToTileX(lon: number, zoom: number): number {
-  return ((lon + 180) / 360) * Math.pow(2, zoom);
-}
-
-function latitudeToTileY(lat: number, zoom: number): number {
-  const latRad = (lat * Math.PI) / 180;
-  return ((1 - Math.asinh(Math.tan(latRad)) / Math.PI) / 2) * Math.pow(2, zoom);
-}
-
-function tileXToLongitude(x: number, zoom: number): number {
-  return (x / Math.pow(2, zoom)) * 360 - 180;
-}
-
-function tileYToLatitude(y: number, zoom: number): number {
-  const n = Math.PI - (2 * Math.PI * y) / Math.pow(2, zoom);
-  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
-}
-
-function generateMockTileUrl(x: number, y: number, z: number, provider: string): string {
-  // In production, this would use real tile URLs from the provider configuration
-  const baseUrls: Record<string, string> = {
-    'usgs_topo': 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile',
-    'usgs_imagery': 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile',
-    'osm_standard': 'https://tile.openstreetmap.org',
-    'esri_world_topo': 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile',
-    'esri_world_imagery': 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile'
-  };
-
-  const baseUrl = baseUrls[provider] || baseUrls['osm_standard'];
-  
-  // Different URL patterns for different providers
-  if (provider.startsWith('usgs_') || provider.startsWith('esri_')) {
-    return `${baseUrl}/${z}/${y}/${x}`;
-  } else {
-    return `${baseUrl}/${z}/${x}/${y}.png`;
-  }
-}
+// Tile coordinate utilities now provided by TileUtils from coordinateProjection

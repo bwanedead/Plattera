@@ -21,41 +21,77 @@ class TileProviders:
         return {
             "usgs_topo": {
                 "name": "USGS Topographic",
-                "description": "USGS topographic maps",
+                "description": "USGS National Map topographic maps with contours, boundaries, and geographic names",
                 "url_template": "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
-                "attribution": "USGS",
+                "attribution": "© USGS | The National Map",
                 "tile_size": 256,
-                "min_zoom": 1,
+                "min_zoom": 0,
                 "max_zoom": 16,
                 "format": "png",
-                "user_agent": "Plattera/1.0 (USGS Topo)",
-                "headers": {}
+                "user_agent": "Plattera/1.0 (+https://plattera.app)",
+                "headers": {},
+                "rate_limit_per_second": 10,
+                "cors_enabled": True
             },
             
-            "usgs_imagery": {
-                "name": "USGS Imagery",
-                "description": "USGS aerial imagery",
+            "usgs_imagery_only": {
+                "name": "USGS Imagery Only",
+                "description": "USGS high-resolution orthoimagery from NAIP and other sources",
                 "url_template": "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}",
-                "attribution": "USGS",
+                "attribution": "© USGS | The National Map",
                 "tile_size": 256,
-                "min_zoom": 1,
-                "max_zoom": 18,
+                "min_zoom": 0,
+                "max_zoom": 23,
                 "format": "png",
-                "user_agent": "Plattera/1.0 (USGS Imagery)",
-                "headers": {}
+                "user_agent": "Plattera/1.0 (+https://plattera.app)",
+                "headers": {},
+                "rate_limit_per_second": 10,
+                "cors_enabled": True
+            },
+            
+            "usgs_imagery_topo": {
+                "name": "USGS Imagery + Topo",
+                "description": "USGS hybrid combining orthoimagery with topographic vector data",
+                "url_template": "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}",
+                "attribution": "© USGS | The National Map",
+                "tile_size": 256,
+                "min_zoom": 0,
+                "max_zoom": 23,
+                "format": "png",
+                "user_agent": "Plattera/1.0 (+https://plattera.app)",
+                "headers": {},
+                "rate_limit_per_second": 10,
+                "cors_enabled": True
+            },
+            
+            "usgs_shaded_relief": {
+                "name": "USGS Shaded Relief",
+                "description": "USGS hillshade and shaded relief from 3D Elevation Program",
+                "url_template": "https://basemap.nationalmap.gov/arcgis/rest/services/USGSShadedReliefOnly/MapServer/tile/{z}/{y}/{x}",
+                "attribution": "© USGS | The National Map",
+                "tile_size": 256,
+                "min_zoom": 0,
+                "max_zoom": 16,
+                "format": "png",
+                "user_agent": "Plattera/1.0 (+https://plattera.app)",
+                "headers": {},
+                "rate_limit_per_second": 10,
+                "cors_enabled": True
             },
             
             "osm_standard": {
                 "name": "OpenStreetMap Standard",
-                "description": "Standard OpenStreetMap tiles",
+                "description": "Standard OpenStreetMap tiles (fallback provider)",
                 "url_template": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
                 "attribution": "© OpenStreetMap contributors",
                 "tile_size": 256,
-                "min_zoom": 1,
+                "min_zoom": 0,
                 "max_zoom": 19,
                 "format": "png",
-                "user_agent": "Plattera/1.0 (OSM Standard)",
-                "headers": {}
+                "user_agent": "Plattera/1.0 (+https://plattera.app)",
+                "headers": {},
+                "rate_limit_per_second": 2,
+                "usage_policy": "Respect OSM tile usage policy: max 2 requests/sec, descriptive User-Agent"
             },
             
             "esri_world_topo": {

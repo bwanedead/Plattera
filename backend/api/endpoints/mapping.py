@@ -3,8 +3,10 @@ Mapping API Endpoints
 Geographic mapping functionality for converting polygons to real-world coordinates
 """
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import FileResponse
 from typing import Optional, Dict, Any, List
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -330,28 +332,29 @@ async def ensure_plss_data(state: str) -> Dict[str, Any]:
         )
 
 @router.get("/tile/{provider}/{z}/{x}/{y}")
-async def get_tile(provider: str, z: int, x: int, y: int) -> Dict[str, Any]:
+async def serve_tile(provider: str, z: int, x: int, y: int):
     """
-    Get a specific map tile, serving from cache or fetching from provider
+    Serve a specific map tile with high-performance streaming and caching
     
     Args:
         provider: Tile provider name (e.g., "usgs_topo", "osm_standard")
         z: Zoom level
-        x: Tile X coordinate
+        x: Tile X coordinate  
         y: Tile Y coordinate
         
     Returns:
-        dict: Tile information and local path
+        FileResponse: PNG tile with optimal caching headers
     """
     try:
-        logger.debug(f"🗺️ Getting tile {provider}/{z}/{x}/{y}")
+        logger.debug(f"🗺️ Serving tile {provider}/{z}/{x}/{y}")
         
         # Import tile components
         from pipelines.mapping.tiles.providers import TileProviders
         from pipelines.mapping.tiles.cache_manager import TileCacheManager
         from pipelines.mapping.tiles.tile_server import TileServer
+        from pipelines.mapping.tiles.config import tile_config
         
-        # Get provider configuration
+        # Validate provider
         providers = TileProviders()
         provider_result = providers.get_provider_config(provider)
         
@@ -363,63 +366,90 @@ async def get_tile(provider: str, z: int, x: int, y: int) -> Dict[str, Any]:
         
         provider_config = provider_result["config"]
         
+        # Validate zoom level against provider limits
+        if z < provider_config.get("min_zoom", 0) or z > provider_config.get("max_zoom", 19):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Zoom level {z} outside valid range for {provider} ({provider_config.get('min_zoom', 0)}-{provider_config.get('max_zoom', 19)})"
+            )
+        
+        # Check if tile proxy is enabled
+        if not tile_config.tiles_proxy_enabled:
+            # Return redirect to direct provider URL for high-traffic scenarios
+            direct_url = provider_config["url_template"].format(z=z, x=x, y=y)
+            return {"redirect": direct_url, "cors_enabled": provider_config.get("cors_enabled", False)}
+        
         # Check cache first
         cache_manager = TileCacheManager()
         cache_result = cache_manager.get_cached_tile(x, y, z, provider)
         
         if cache_result["success"]:
-            logger.debug(f"💾 Cache hit for tile {x}/{y}/{z}")
-            return {
-                "success": True,
-                "tile_path": cache_result["local_path"],
-                "source": "cache",
-                "provider": provider,
-                "coordinates": {"x": x, "y": y, "z": z}
-            }
+            tile_path = Path(cache_result["local_path"])
+            if tile_path.exists():
+                logger.debug(f"💾 Cache hit for tile {x}/{y}/{z}")
+                return FileResponse(
+                    path=str(tile_path),
+                    media_type="image/png",
+                    headers={
+                        "Cache-Control": "public, max-age=31536000",  # 1 year cache
+                        "X-Tile-Source": "cache",
+                        "X-Tile-Provider": provider
+                    }
+                )
         
-        # Fetch from remote server
+        # Fetch from remote server with rate limiting
         tile_server = TileServer()
         fetch_result = tile_server.fetch_tile(x, y, z, provider_config)
         
         if not fetch_result["success"]:
             raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Failed to fetch tile: {fetch_result['error']}"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Tile not available: {fetch_result.get('error', 'Unknown error')}"
             )
         
         # Cache the fetched tile
-        cache_result = cache_manager.cache_tile(x, y, z, provider, fetch_result["tile_data"])
+        cache_result = cache_manager.cache_tile(
+            x, y, z, provider, fetch_result["tile_data"]
+        )
         
         if cache_result["success"]:
-            return {
-                "success": True,
-                "tile_path": cache_result["local_path"],
-                "source": "remote",
-                "provider": provider,
-                "coordinates": {"x": x, "y": y, "z": z},
-                "size_bytes": fetch_result["size_bytes"],
-                "remote_url": fetch_result["remote_url"]
-            }
+            tile_path = Path(cache_result["local_path"])
+            logger.debug(f"🆕 Cached and serving tile {x}/{y}/{z}")
+            return FileResponse(
+                path=str(tile_path),
+                media_type="image/png",
+                headers={
+                    "Cache-Control": "public, max-age=31536000",  # 1 year cache
+                    "X-Tile-Source": "remote",
+                    "X-Tile-Provider": provider
+                }
+            )
         else:
-            # Even if caching failed, we can still return the tile data
-            logger.warning(f"Tile fetched but caching failed: {cache_result.get('error')}")
-            return {
-                "success": True,
-                "tile_data": fetch_result["tile_data"],  # Raw binary data
-                "source": "remote_uncached",
-                "provider": provider,
-                "coordinates": {"x": x, "y": y, "z": z},
-                "size_bytes": fetch_result["size_bytes"],
-                "cache_warning": cache_result.get("error")
-            }
+            # Fallback: serve directly from fetch result if caching failed
+            temp_path = fetch_result.get("local_path")
+            if temp_path and Path(temp_path).exists():
+                return FileResponse(
+                    path=temp_path,
+                    media_type="image/png",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "X-Tile-Source": "temporary",
+                        "X-Tile-Provider": provider
+                    }
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to serve tile"
+                )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Tile request failed: {str(e)}")
+        logger.error(f"❌ Tile serving failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Tile request failed: {str(e)}"
+            detail=f"Tile serving failed: {str(e)}"
         )
 
 @router.post("/extract-plss-info")

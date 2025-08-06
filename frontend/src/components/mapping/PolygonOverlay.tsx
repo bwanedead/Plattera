@@ -1,8 +1,9 @@
 /**
  * Polygon Overlay Component
- * Renders polygon overlays on the geographic map
+ * Renders polygon overlays on the geographic map with Web Mercator projection
  */
 import React, { useMemo } from 'react';
+import { PolygonProjection, latLonToWebMercator } from '../../utils/coordinateProjection';
 
 interface PolygonOverlayProps {
   polygonData: any;
@@ -20,20 +21,53 @@ export const PolygonOverlay: React.FC<PolygonOverlayProps> = ({
   geoToScreen,
   mapBounds
 }) => {
-  // Convert geographic polygon coordinates to screen coordinates
+  // Convert polygon coordinates to screen coordinates with Web Mercator projection
   const screenPolygons = useMemo(() => {
-    if (!polygonData || !polygonData.geographic_polygon) return [];
+    if (!polygonData) return [];
 
-    const geoCoords = polygonData.geographic_polygon.coordinates[0]; // GeoJSON format
+    let geoCoords: [number, number][] = [];
+
+    // Handle different polygon data formats
+    if (polygonData.geographic_polygon?.coordinates?.[0]) {
+      // GeoJSON format: coordinates[0] is the outer ring
+      geoCoords = polygonData.geographic_polygon.coordinates[0];
+    } else if (polygonData.coordinates) {
+      // Direct coordinates format
+      geoCoords = polygonData.coordinates;
+    } else if (polygonData.display_coordinates) {
+      // Display coordinates format (already processed by backend)
+      // Convert display coordinates to geographic if needed
+      console.log('🎨 Using display-ready coordinates from backend');
+      const screenCoords = [];
+      
+      for (const coord of polygonData.display_coordinates) {
+        const [x, y] = coord;
+        // For display coordinates, we need to convert them through geoToScreen
+        // These coordinates are already in the correct orientation from backend
+        screenCoords.push({ x, y });
+      }
+      
+      return screenCoords.length >= 3 ? [screenCoords] : [];
+    } else {
+      console.warn('⚠️ No recognized polygon coordinate format found');
+      return [];
+    }
+
+    // Project geographic coordinates to screen via Web Mercator for map accuracy
     const screenCoords = [];
-
+    
     for (const coord of geoCoords) {
-      const [lon, lat] = coord; // GeoJSON is [lon, lat]
+      const [lon, lat] = coord; // GeoJSON format: [lon, lat]
+      
+      // Convert to Web Mercator first for accurate map projection
+      const [mercatorX, mercatorY] = latLonToWebMercator(lon, lat);
+      
+      // Then convert to screen coordinates
       const screenPos = geoToScreen(lat, lon);
       
       if (screenPos) {
-        // Check if point is within visible bounds (with some tolerance)
-        const tolerance = 100; // pixels
+        // Add tolerance for off-screen coordinates that might become visible
+        const tolerance = 200; // pixels
         if (screenPos.x >= -tolerance && screenPos.x <= window.innerWidth + tolerance &&
             screenPos.y >= -tolerance && screenPos.y <= window.innerHeight + tolerance) {
           screenCoords.push(screenPos);
@@ -41,6 +75,7 @@ export const PolygonOverlay: React.FC<PolygonOverlayProps> = ({
       }
     }
 
+    console.log(`🗺️ Projected ${geoCoords.length} coordinates to ${screenCoords.length} screen points`);
     return screenCoords.length >= 3 ? [screenCoords] : [];
   }, [polygonData, geoToScreen, mapBounds]);
 
@@ -137,12 +172,13 @@ export const PolygonOverlay: React.FC<PolygonOverlayProps> = ({
         </g>
       )}
 
-      {/* Anchor Point Marker */}
+      {/* Anchor Point Marker (Point of Beginning) */}
       {polygonData.anchor_info && polygonData.anchor_info.resolved_coordinates && (() => {
-        const anchorScreen = geoToScreen(
-          polygonData.anchor_info.resolved_coordinates.lat,
-          polygonData.anchor_info.resolved_coordinates.lon
-        );
+        const { lat, lon } = polygonData.anchor_info.resolved_coordinates;
+        
+        // Project anchor point through Web Mercator for map accuracy
+        const [mercatorX, mercatorY] = latLonToWebMercator(lon, lat);
+        const anchorScreen = geoToScreen(lat, lon);
         
         return anchorScreen ? (
           <g className="anchor-marker">
@@ -164,6 +200,20 @@ export const PolygonOverlay: React.FC<PolygonOverlayProps> = ({
             >
               POB
             </text>
+            
+            {/* Additional coordinate info for debugging */}
+            {process.env.NODE_ENV === 'development' && (
+              <text
+                x={anchorScreen.x}
+                y={anchorScreen.y + 20}
+                textAnchor="middle"
+                fill="#666"
+                fontSize="8"
+                fontFamily="monospace"
+              >
+                {lat.toFixed(6)}, {lon.toFixed(6)}
+              </text>
+            )}
           </g>
         ) : null;
       })()}
