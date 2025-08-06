@@ -1,10 +1,11 @@
 /**
  * Map Background Component
- * Uses modal for PLSS download instead of embedded message
+ * Renders live map tiles with PLSS integration
  */
-import React from 'react';
+import React, { useMemo } from 'react';
 import { usePLSSData } from '../../../hooks/usePLSSData';
 import { PLSSDownloadModal } from '../../ui';
+import { TileLayerManager } from '../../mapping/TileLayerManager';
 
 interface MapBackgroundProps {
   schemaData: any;
@@ -12,6 +13,27 @@ interface MapBackgroundProps {
 
 export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData }) => {
   const { status, state, error, modalDismissed, downloadData, dismissModal } = usePLSSData(schemaData);
+
+  // Move ALL hooks to the top level - this fixes the "more hooks than previous render" error
+  const mapBounds = useMemo(() => {
+    // Default to Wyoming area if no specific bounds available
+    return {
+      min_lat: 41.0,
+      max_lat: 45.0,
+      min_lon: -111.0,
+      max_lon: -104.0
+    };
+  }, []);
+
+  // Simple geographic to screen coordinate conversion
+  const geoToScreen = useMemo(() => {
+    return (lat: number, lon: number) => {
+      // Basic conversion for now - this will be enhanced
+      const x = ((lon + 107.5) / 7.0) * 800; // Rough Wyoming bounds
+      const y = ((45.0 - lat) / 4.0) * 600;
+      return { x, y };
+    };
+  }, []);
 
   const handleDownload = () => {
     downloadData();
@@ -46,11 +68,28 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData }) => {
   // Show map when ready
   if (status === 'ready') {
     return (
-      <div className="map-ready">
-        <p>🗺️ Map Ready</p>
-        <p>PLSS data loaded for {state}</p>
-        <p>Full map visualization coming soon!</p>
-        <p>Will show polygon overlay on USGS topographic base map.</p>
+      <div className="map-container" style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <TileLayerManager
+          bounds={mapBounds}
+          zoom={8} // Start with zoom level 8 for state-wide view
+          provider="usgs_topo"
+          geoToScreen={geoToScreen}
+        />
+        
+        {/* Status overlay */}
+        <div style={{
+          position: 'absolute',
+          top: 10,
+          left: 10,
+          background: 'rgba(0,0,0,0.7)',
+          color: 'white',
+          padding: '8px 12px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          zIndex: 1000
+        }}>
+          🗺️ USGS Topo | {state} | Zoom: 8
+        </div>
       </div>
     );
   }
