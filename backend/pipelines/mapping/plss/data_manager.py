@@ -7,7 +7,7 @@ import os
 import requests
 import geopandas as gpd
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import json
 import zipfile
 import io

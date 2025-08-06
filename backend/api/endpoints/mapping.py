@@ -463,86 +463,74 @@ async def extract_plss_info(request: dict) -> dict:
 @router.get("/check-plss/{state}")
 @router.get("/check-plss/{state}/")
 async def check_plss_data_status(state: str) -> Dict[str, Any]:
-    """
-    Check if PLSS data exists locally for the specified state
-    Does NOT download - only checks existing data
-    
-    Args:
-        state: State name (e.g., "Wyoming", "Colorado")
-        
-    Returns:
-        dict: Status of local data availability
-    """
+    """Check if PLSS data exists for a state without downloading"""
     try:
-        logger.info(f"🔍 Checking local PLSS data for {state}")
-        
+        # Import and create data manager directly
         from pipelines.mapping.plss.data_manager import PLSSDataManager
-        
         data_manager = PLSSDataManager()
         
-        # Check if data exists locally (without downloading)
-        state_dir = data_manager.data_dir / state.lower()
-        sections_file = state_dir / "sections.geojson"
-        
-        data_exists = sections_file.exists() and sections_file.stat().st_size > 0
-        
-        logger.info(f"📁 PLSS data for {state}: {'Found' if data_exists else 'Not found'}")
+        # Check if data exists locally  
+        has_data = data_manager._is_data_current(state)
         
         return {
-            "success": True,
+            "available": has_data,
             "state": state,
-            "data_available": data_exists,
-            "data_path": str(state_dir) if data_exists else None,
-            "message": f"PLSS data for {state} {'is available' if data_exists else 'needs to be downloaded'}"
+            "message": f"PLSS data for {state} {'is available' if has_data else 'needs to be downloaded'}"
         }
-        
     except Exception as e:
-        logger.error(f"❌ PLSS data check failed for {state}: {str(e)}")
-        return {
-            "success": False,
-            "error": f"Failed to check PLSS data: {str(e)}"
-        }
+        logger.error(f"❌ Error checking PLSS data status for {state}: {str(e)}")
+        return {"available": False, "error": str(e)}
 
 @router.post("/download-plss/{state}")
 @router.post("/download-plss/{state}/")
 async def download_plss_data(state: str) -> Dict[str, Any]:
-    """
-    Download PLSS data for the specified state
-    Only called when user explicitly requests download
-    
-    Args:
-        state: State name (e.g., "Wyoming", "Colorado")
-        
-    Returns:
-        dict: Download result with status
-    """
+    """Download PLSS data for a state (explicit user action)"""
     try:
-        logger.info(f"⬇️ User requested PLSS data download for {state}")
-        
+        logger.info(f"📦 User requested download of PLSS data for {state}")
+        # Import and create data manager directly
         from pipelines.mapping.plss.data_manager import PLSSDataManager
-        
         data_manager = PLSSDataManager()
-        result = data_manager.ensure_state_data(state)  # This actually downloads
         
-        if not result["success"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to download PLSS data for {state}: {result['error']}"
-            )
+        # Perform the download
+        result = data_manager.ensure_state_data(state)
         
-        logger.info(f"✅ PLSS data downloaded for {state}")
-        return {
-            "success": True,
-            "state": state,
-            "data_status": "ready",
-            "message": f"PLSS data successfully downloaded for {state}"
-        }
-        
-    except HTTPException:
-        raise
+        if result.get('success'):
+            logger.info(f"✅ PLSS data download completed for {state}")
+            return {
+                "success": True,
+                "state": state,
+                "message": f"PLSS data for {state} downloaded successfully",
+                "features_count": result.get('features_count', 0)
+            }
+        else:
+            return {"success": False, "error": result.get('error', 'Unknown error')}
+            
     except Exception as e:
-        logger.error(f"❌ PLSS download failed for {state}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Download failed: {str(e)}"
-        )
+        logger.error(f"❌ PLSS data download failed for {state}: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+@router.get("/test-plss-debug")
+async def test_plss_debug() -> Dict[str, Any]:
+    """Debug endpoint to isolate the List error"""
+    try:
+        logger.info("🔍 Testing PLSSDataManager import...")
+        
+        # Test step 1: Basic import
+        from pipelines.mapping.plss.data_manager import PLSSDataManager
+        logger.info("✅ PLSSDataManager imported successfully")
+        
+        # Test step 2: Create instance
+        data_manager = PLSSDataManager()
+        logger.info("✅ PLSSDataManager instance created successfully")
+        
+        # Test step 3: Call the method
+        result = data_manager._is_data_current("Wyoming")
+        logger.info(f"✅ _is_data_current returned: {result}")
+        
+        return {"success": True, "result": result}
+        
+    except Exception as e:
+        logger.error(f"❌ Test failed at: {str(e)}")
+        import traceback
+        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
+        return {"success": False, "error": str(e)}

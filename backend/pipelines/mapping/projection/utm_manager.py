@@ -4,7 +4,7 @@ Handles UTM zone determination and management
 """
 import logging
 import math
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
 
 logger = logging.getLogger(__name__)
 

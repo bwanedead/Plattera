@@ -17,50 +17,34 @@ export class PLSSDataService {
 
   async checkDataStatus(state: string): Promise<{ available: boolean; error?: string }> {
     try {
-      console.log(`🔍 Checking if ${state} PLSS data exists locally...`);
-      
-      // Use the new check-only endpoint
       const response = await fetch(`${this.apiBase}/check-plss/${state}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
       const data = await response.json();
-      
-      console.log(`📁 ${state} PLSS data:`, data.data_available ? 'Available' : 'Missing');
-      
-      return { 
-        available: data.success && data.data_available === true 
-      };
+      return { available: data.available, error: data.error };
     } catch (error) {
-      console.error(`❌ Failed to check ${state} PLSS data:`, error);
-      return { 
-        available: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      };
+      console.error('Error checking PLSS data status:', error);
+      return { available: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 
   async downloadData(state: string): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log(`⬇️ Starting download of ${state} PLSS data...`);
-      
-      // Use the new download endpoint (POST request)
       const response = await fetch(`${this.apiBase}/download-plss/${state}`, {
-        method: 'POST'
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
       });
       
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
       
       const data = await response.json();
-      
-      console.log(`✅ ${state} PLSS data download completed`);
-      
-      return { success: data.success };
+      return { success: data.success, error: data.error };
     } catch (error) {
-      console.error(`❌ Failed to download ${state} PLSS data:`, error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      };
+      console.error('Error downloading PLSS data:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 

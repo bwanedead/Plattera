@@ -5,19 +5,25 @@
 import { useState, useEffect } from 'react';
 import { plssDataService, PLSSDataState } from '../services/plssDataService';
 
+// Extend the state to include modal dismissal
+interface ExtendedPLSSDataState extends PLSSDataState {
+  modalDismissed: boolean;
+}
+
 export function usePLSSData(schemaData: any) {
-  const [state, setState] = useState<PLSSDataState>({
+  const [state, setState] = useState<ExtendedPLSSDataState>({
     status: 'unknown',
     state: null,
     error: null,
     progress: null,
+    modalDismissed: false, // Add dismissal tracking
   });
 
   useEffect(() => {
     const initializeData = async () => {
       if (!schemaData) return;
 
-      setState(prev => ({ ...prev, status: 'checking' }));
+      setState(prev => ({ ...prev, status: 'checking', modalDismissed: false }));
 
       // Extract state from schema
       const plssState = await plssDataService.extractStateFromSchema(schemaData);
@@ -38,7 +44,7 @@ export function usePLSSData(schemaData: any) {
         setState(prev => ({ 
           ...prev, 
           status: 'error', 
-          error: statusResult.error
+          error: statusResult.error || null
         }));
         return;
       }
@@ -68,8 +74,14 @@ export function usePLSSData(schemaData: any) {
     }));
   };
 
+  // Function to dismiss the modal
+  const dismissModal = () => {
+    setState(prev => ({ ...prev, modalDismissed: true }));
+  };
+
   return {
     ...state,
-    downloadData, // Expose download function
+    downloadData,
+    dismissModal, // Expose dismiss function
   };
 }
