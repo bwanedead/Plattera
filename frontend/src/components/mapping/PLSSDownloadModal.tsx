@@ -20,22 +20,22 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
 
   // Render modal at document root level using portal
   return createPortal(
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Download Required</h2>
-          <button className="modal-close" onClick={onCancel} aria-label="Close">
+    <div className="plss-modal-overlay" onClick={onCancel}>
+      <div className="plss-modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="plss-modal-header">
+          <h2 className="plss-modal-title">Download Required</h2>
+          <button className="plss-modal-close" onClick={onCancel} aria-label="Close">
             ×
           </button>
         </div>
         
-        <div className="modal-body">
+        <div className="plss-modal-body">
           <p>
             To display the map for <strong>{state}</strong>, we need to download 
             Public Land Survey System (PLSS) data from the Bureau of Land Management.
           </p>
           
-          <div className="download-info">
+          <div className="plss-download-info">
             <h3>What will be downloaded:</h3>
             <ul>
               <li>Official PLSS township and section boundaries</li>
@@ -44,7 +44,7 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
               <li>One-time download, stored locally</li>
             </ul>
             
-            <div className="data-source">
+            <div className="plss-data-source">
               <strong>Data Source:</strong> Bureau of Land Management (BLM) - Official Government Data
             </div>
           </div>
@@ -55,22 +55,22 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
           </p>
         </div>
         
-        <div className="modal-footer">
+        <div className="plss-modal-footer">
           <button 
-            className="btn-cancel" 
+            className="plss-btn-cancel" 
             onClick={onCancel}
             disabled={isDownloading}
           >
             Cancel
           </button>
           <button 
-            className="btn-download" 
+            className="plss-btn-download" 
             onClick={onDownload}
             disabled={isDownloading}
           >
             {isDownloading ? (
               <>
-                <div className="spinner"></div>
+                <div className="plss-spinner"></div>
                 Downloading...
               </>
             ) : (

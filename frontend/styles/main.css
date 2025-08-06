@@ -20,6 +20,16 @@
 @import './components/polygon-viewer.css';
 @import './components/visualization-workspace.css';
 
+/* 4.1. Modal Components */
+@import './components/modals/plss-download-modal.css';
+
+/* 4.2. Mapping Components */
+@import './components/mapping/map-viewer.css';
+@import './components/mapping/map-controls.css';
+@import './components/mapping/coordinate-display.css';
+@import './components/mapping/polygon-overlay.css';
+@import './components/mapping/loading-states.css';
+
 /* 5. Workspace-Specific Styles */
 @import './workspaces/image-to-text.css';
 @import './workspaces/text-to-schema.css'; 

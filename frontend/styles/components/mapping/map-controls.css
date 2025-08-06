@@ -1,0 +1,184 @@
+/**
+ * Map Controls Styles
+ * Zoom controls, layer controls, and additional map controls
+ */
+
+/* Map Controls */
+.map-controls {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Zoom Controls */
+.zoom-controls {
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.zoom-button {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: white;
+  color: #333;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.zoom-button:hover:not(:disabled) {
+  background-color: #f5f5f5;
+}
+
+.zoom-button:disabled {
+  color: #ccc;
+  cursor: not-allowed;
+}
+
+.zoom-level {
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-top: 1px solid #e9ecef;
+  border-bottom: 1px solid #e9ecef;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  color: #495057;
+}
+
+/* Layer Controls */
+.layer-controls {
+  position: relative;
+}
+
+.layer-toggle {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: white;
+  color: #333;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.layer-toggle:hover {
+  background-color: #f5f5f5;
+}
+
+.layer-toggle.active {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.layer-panel {
+  position: absolute;
+  top: 0;
+  right: 48px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  min-width: 240px;
+  z-index: 30;
+}
+
+.layer-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.layer-panel-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.close-panel {
+  border: none;
+  background: none;
+  color: #666;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.close-panel:hover {
+  background-color: #f5f5f5;
+}
+
+.layer-list {
+  padding: 8px;
+}
+
+.layer-option {
+  padding: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border: 2px solid transparent;
+}
+
+.layer-option:hover {
+  background-color: #f8f9fa;
+}
+
+.layer-option.active {
+  background-color: #e3f2fd;
+  border-color: #3b82f6;
+}
+
+.layer-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.layer-description {
+  font-size: 12px;
+  color: #666;
+}
+
+/* Additional Controls */
+.additional-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.control-button {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: white;
+  color: #333;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}

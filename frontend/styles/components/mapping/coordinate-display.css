@@ -1,0 +1,87 @@
+/**
+ * Coordinate Display Styles
+ * Styles for coordinate information panels and displays
+ */
+
+/* Coordinate Display */
+.coordinate-display {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 12px;
+  border-radius: 6px;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  min-width: 280px;
+  z-index: 20;
+}
+
+.coordinate-section {
+  margin-bottom: 12px;
+}
+
+.coordinate-section:last-child {
+  margin-bottom: 0;
+}
+
+.coordinate-label {
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: #fff;
+  font-size: 12px;
+}
+
+.coordinate-values {
+  margin-left: 8px;
+}
+
+.coordinate-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 2px;
+  gap: 8px;
+}
+
+.coord-type {
+  min-width: 30px;
+  color: #ccc;
+}
+
+.coord-value {
+  font-weight: 600;
+  color: #fff;
+  min-width: 80px;
+}
+
+.coord-dms {
+  color: #aaa;
+  font-size: 10px;
+}
+
+.no-coordinates {
+  color: #888;
+  font-style: italic;
+}
+
+.coordinate-actions {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #444;
+}
+
+.copy-coords-button {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.copy-coords-button:hover {
+  background: #2563eb;
+}
