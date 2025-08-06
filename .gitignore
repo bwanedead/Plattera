@@ -227,3 +227,19 @@ frontend/src-tauri/target/
 # Test JSON drafts for section normalizer testing
 json_drafts_section_normalizer/
 
+
+# ========================
+# Mapping Data & Caches
+# ========================
+
+# PLSS Data - Downloaded from BLM (Bureau of Land Management)
+# Large geospatial files (10MB+ per state) downloaded on-demand
+plss/
+
+# Tile Cache - Downloaded map tiles for performance
+# Generated at runtime, can be recreated
+tiles/
+
+# Note: Users download their own PLSS data as needed via the app
+# This prevents committing large binary geospatial files to the repo
+

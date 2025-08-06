@@ -12,18 +12,7 @@ interface PLSSDownloadModalProps {
 /**
  * PLSS Download Confirmation Modal
  * 
- * Reusable modal for PLSS data download confirmation.
- * Uses React Portal for proper z-index layering.
- * 
- * @component
- * @example
- * <PLSSDownloadModal
- *   isOpen={true}
- *   state="Wyoming"
- *   onDownload={handleDownload}
- *   onCancel={handleCancel}
- *   isDownloading={false}
- * />
+ * Clean, minimal modal for PLSS data download confirmation.
  */
 export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
   isOpen,
@@ -34,53 +23,28 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  // Render modal at document root level using portal
   return createPortal(
     <div className="plss-modal-overlay" onClick={onCancel}>
       <div className="plss-modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="plss-modal-header">
-          <h2 className="plss-modal-title">Download Required</h2>
-          <button className="plss-modal-close" onClick={onCancel} aria-label="Close">
-            ×
-          </button>
-        </div>
-        
-        <div className="plss-modal-body">
+        <div className="plss-modal-message">
           <p>
-            To display the map for <strong>{state}</strong>, we need to download 
-            Public Land Survey System (PLSS) data from the Bureau of Land Management.
+            Need to download PLSS data for <strong>{state}</strong> from BLM.
           </p>
-          
-          <div className="plss-download-info">
-            <h3>What will be downloaded:</h3>
-            <ul>
-              <li>Official PLSS township and section boundaries</li>
-              <li>Survey grid data for accurate mapping</li>
-              <li>Approximately 2-10MB of vector data</li>
-              <li>One-time download, stored locally</li>
-            </ul>
-            
-            <div className="plss-data-source">
-              <strong>Data Source:</strong> Bureau of Land Management (BLM) - Official Government Data
-            </div>
-          </div>
-          
-          <p>
-            This is a <strong>one-time download</strong> that will be stored in your 
-            project directory for future use.
+          <p className="plss-modal-details">
+            One-time download, stored locally for future use.
           </p>
         </div>
         
-        <div className="plss-modal-footer">
+        <div className="plss-modal-actions">
           <button 
-            className="plss-btn-cancel" 
+            className="plss-btn plss-btn-cancel" 
             onClick={onCancel}
             disabled={isDownloading}
           >
             Cancel
           </button>
           <button 
-            className="plss-btn-download" 
+            className="plss-btn plss-btn-download" 
             onClick={onDownload}
             disabled={isDownloading}
           >
@@ -90,12 +54,12 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
                 Downloading...
               </>
             ) : (
-              'Download PLSS Data'
+              'Download'
             )}
           </button>
         </div>
       </div>
     </div>,
-    document.body // Render at document body level
+    document.body
   );
 };
