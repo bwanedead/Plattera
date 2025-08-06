@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { usePLSSData } from '../../../hooks/usePLSSData';
-import { PLSSDownloadModal } from '../../mapping/PLSSDownloadModal';
+import { PLSSDownloadModal } from '../../ui';
 
 interface MapBackgroundProps {
   schemaData: any;

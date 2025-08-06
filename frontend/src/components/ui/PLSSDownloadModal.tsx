@@ -9,6 +9,22 @@ interface PLSSDownloadModalProps {
   isDownloading: boolean;
 }
 
+/**
+ * PLSS Download Confirmation Modal
+ * 
+ * Reusable modal for PLSS data download confirmation.
+ * Uses React Portal for proper z-index layering.
+ * 
+ * @component
+ * @example
+ * <PLSSDownloadModal
+ *   isOpen={true}
+ *   state="Wyoming"
+ *   onDownload={handleDownload}
+ *   onCancel={handleCancel}
+ *   isDownloading={false}
+ * />
+ */
 export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
   isOpen,
   state,

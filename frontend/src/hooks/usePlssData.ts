@@ -3,7 +3,7 @@
  * Separates state logic from UI components
  */
 import { useState, useEffect } from 'react';
-import { plssDataService, PLSSDataState } from '../services/plssDataService';
+import { plssDataService, PLSSDataState } from '../services/plss';
 
 // Extend the state to include modal dismissal
 interface ExtendedPLSSDataState extends PLSSDataState {
