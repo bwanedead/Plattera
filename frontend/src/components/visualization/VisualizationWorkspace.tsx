@@ -6,6 +6,7 @@ import { PolygonResult } from '../../services/polygonApi';
 import { GridBackground } from './backgrounds/GridBackground';
 import { MapBackground } from './backgrounds/MapBackground';
 import { PolygonLayer } from './layers/PolygonLayer';
+import { mappingApi } from '../../services/mapping';
 
 type ViewMode = 'grid' | 'map' | 'hybrid';
 
@@ -37,6 +38,9 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
     showOrigin: true
   });
 
+  // Georeferenced polygon for map overlay
+  const [geoPolygonData, setGeoPolygonData] = useState<any | null>(null);
+
   const toggleLayer = (layer: keyof LayerSettings) => {
     setLayers(prev => ({ ...prev, [layer]: !prev[layer] }));
   };
@@ -51,6 +55,67 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
       return () => document.removeEventListener('keydown', handleKeyDown);
     }
   }, [isOpen, onClose]);
+
+  // When in map/hybrid mode and we have polygon + schema, request georeferencing
+  useEffect(() => {
+    const runGeoref = async () => {
+      try {
+        if (!polygon || !schemaData) {
+          setGeoPolygonData(null);
+          return;
+        }
+        if (!(viewMode === 'map' || viewMode === 'hybrid')) {
+          setGeoPolygonData(null);
+          return;
+        }
+
+        // Extract PLSS from the first complete description; fallback to first
+        const descriptions = Array.isArray(schemaData?.descriptions) ? schemaData.descriptions : [];
+        const chosen = descriptions.find((d: any) => d?.is_complete && d?.plss) || descriptions[0];
+        const plss = chosen?.plss;
+        if (!plss) {
+          setGeoPolygonData(null);
+          return;
+        }
+
+        const req = mappingApi.convertPolygonForMapping(polygon, {
+          state: plss.state,
+          county: plss.county,
+          principal_meridian: plss.principal_meridian,
+          township_number: plss.township_number,
+          township_direction: plss.township_direction,
+          range_number: plss.range_number,
+          range_direction: plss.range_direction,
+          section_number: plss.section_number,
+          quarter_sections: plss.quarter_sections,
+        });
+        if (!req) {
+          setGeoPolygonData(null);
+          return;
+        }
+
+        // Include starting_point if present on schema (tie_to_corner)
+        if (chosen?.plss?.starting_point?.tie_to_corner) {
+          req.starting_point = { tie_to_corner: chosen.plss.starting_point.tie_to_corner };
+        }
+
+        const projected = await mappingApi.projectPolygonToMap(req);
+        if (projected.success && projected.geographic_polygon) {
+          setGeoPolygonData({
+            geographic_polygon: projected.geographic_polygon,
+            anchor_info: projected.anchor_info,
+          });
+        } else {
+          setGeoPolygonData(null);
+        }
+      } catch (e) {
+        console.error('❌ Georeference failed:', e);
+        setGeoPolygonData(null);
+      }
+    };
+
+    runGeoref();
+  }, [viewMode, polygon, schemaData]);
 
   if (!isOpen) return null;
 
@@ -112,20 +177,22 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
                 
                 {viewMode === 'map' && (
                   <MapBackground 
-                    schemaData={schemaData} // Pass schema data instead of polygon
+                    schemaData={schemaData}
+                    polygonData={geoPolygonData}
                   />
                 )}
                 
                 {viewMode === 'hybrid' && (
                   <MapBackground 
-                    schemaData={schemaData} // Pass schema data instead of polygon
+                    schemaData={schemaData}
+                    polygonData={geoPolygonData}
                     showGrid={layers.showGrid}
                   />
                 )}
               </div>
 
               {/* Polygon Layer */}
-              {polygon && layers.showPolygon && (
+              {polygon && layers.showPolygon && viewMode === 'grid' && (
                 <div className="polygon-layer">
                   <PolygonLayer 
                     polygon={polygon}

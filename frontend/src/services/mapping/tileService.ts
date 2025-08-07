@@ -133,7 +133,10 @@ class TileService {
       const response = await fetch(url);
       
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Graceful: mark error and return, do not throw to avoid Promise.allSettled churn
+        tileInfo.isLoading = false;
+        tileInfo.hasError = true;
+        return tileInfo;
       }
 
       // Check if response is a redirect (CORS bypass mode)
@@ -180,20 +183,21 @@ class TileService {
     console.log(`🗺️ Loading ${tiles.length} tiles from ${provider}`);
     
     // Load tiles in parallel for better performance
-    const tilePromises = tiles.map(({ x, y, z }) => 
-      this.loadTile(provider, z, x, y)
-    );
+    // Hard limit to avoid requesting excessive tiles when view bounds are huge
+    const MAX_TILE_BATCH = 64;
+    const limitedTiles = tiles.slice(0, MAX_TILE_BATCH);
+    const tilePromises = limitedTiles.map(({ x, y, z }) => this.loadTile(provider, z, x, y));
 
     try {
       const results = await Promise.allSettled(tilePromises);
       
-      return results.map((result, index) => {
+      const loaded = results.map((result, index) => {
         if (result.status === 'fulfilled') {
           return result.value;
         } else {
           console.error(`❌ Failed to load tile ${tiles[index].x}/${tiles[index].y}/${tiles[index].z}:`, result.reason);
           return {
-            ...tiles[index],
+            ...limitedTiles[index],
             provider,
             url: '',
             isLoading: false,
@@ -201,6 +205,12 @@ class TileService {
           };
         }
       });
+      // If we truncated, pad rest as errors to keep lengths consistent for callers that expect same length
+      if (tiles.length > limitedTiles.length) {
+        const remaining = tiles.slice(limitedTiles.length).map(t => ({ ...t, provider, url: '', isLoading: false, hasError: true }));
+        return [...loaded, ...remaining];
+      }
+      return loaded;
     } catch (error) {
       console.error('❌ Batch tile loading failed:', error);
       throw error;

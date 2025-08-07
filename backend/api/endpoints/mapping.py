@@ -51,29 +51,24 @@ async def project_polygon_to_map(request: Dict[str, Any]) -> Dict[str, Any]:
                 detail="plss_anchor information is required"
             )
         
-        # Fix: Use get_registry() function
-        registry = get_registry()
-        projection_pipeline = registry.get_pipeline("projection")
-        
-        # Process projection
-        result = await projection_pipeline.process({
+        # Use dedicated GeoreferencePipeline for PLSS+tie+projection orchestration
+        from pipelines.mapping.georeference.pipeline import GeoreferencePipeline
+
+        georef = GeoreferencePipeline()
+        result = georef.project({
             "local_coordinates": local_coordinates,
             "plss_anchor": plss_anchor,
-            "options": options
+            "starting_point": request.get("starting_point", {}),
+            "options": options,
         })
-        
+
         if not result.get("success"):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Projection failed: {result.get('error', 'Unknown error')}"
             )
-        
-        return {
-            "success": True,
-            "projected_coordinates": result["projected_coordinates"],
-            "coordinate_system": result.get("coordinate_system"),
-            "metadata": result.get("metadata", {})
-        }
+
+        return result
         
     except Exception as e:
         logger.error(f"Error in polygon projection: {str(e)}")

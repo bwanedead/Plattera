@@ -38,6 +38,14 @@ export interface ProjectPolygonRequest {
     intermediate_crs?: string;
     precision_meters?: number;
   };
+  starting_point?: {
+    tie_to_corner?: {
+      corner_label?: string;
+      bearing_raw?: string;
+      distance_value?: number;
+      distance_units?: string;
+    }
+  };
 }
 
 export interface ProjectPolygonResponse {
@@ -433,7 +441,7 @@ class MappingApiService {
         quarter_sections: plssData.quarter_sections
       };
 
-      return {
+      const request: ProjectPolygonRequest = {
         local_coordinates: localCoordinates,
         plss_anchor: plssAnchor,
         options: {
@@ -443,6 +451,20 @@ class MappingApiService {
           precision_meters: 1.0
         }
       };
+
+      // Pass through starting_point info if available (for tie_to_corner)
+      if (polygonResult?.origin?.reference_corner || polygonResult?.origin?.bearing || polygonResult?.origin?.distance_feet) {
+        request.starting_point = {
+          tie_to_corner: {
+            corner_label: polygonResult?.origin?.reference_corner,
+            bearing_raw: polygonResult?.origin?.bearing,
+            distance_value: polygonResult?.origin?.distance_feet,
+            distance_units: 'feet'
+          }
+        };
+      }
+
+      return request;
     } catch (error) {
       console.error('❌ Error converting polygon for mapping:', error);
       return null;

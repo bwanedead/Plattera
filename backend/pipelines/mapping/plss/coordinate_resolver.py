@@ -31,6 +31,7 @@ class PLSSCoordinateResolver:
         range_direction: str,
         section: int,
         quarter_sections: Optional[str] = None,
+        principal_meridian: Optional[str] = None,
         vector_data: Optional[dict] = None
     ) -> dict:
         """
@@ -56,7 +57,7 @@ class PLSSCoordinateResolver:
             if vector_data and "layers" in vector_data:
                 vector_result = self._resolve_from_vector_data(
                     township, township_direction, range_number, range_direction, 
-                    section, quarter_sections, vector_data
+                    section, quarter_sections, principal_meridian, vector_data
                 )
                 if vector_result["success"]:
                     return vector_result
@@ -82,6 +83,7 @@ class PLSSCoordinateResolver:
         township: int, township_direction: str,
         range_number: int, range_direction: str, 
         section: int, quarter_sections: Optional[str],
+        principal_meridian: Optional[str],
         vector_data: dict
     ) -> dict:
         """Resolve coordinates using real BLM CadNSDI vector data"""
@@ -102,7 +104,7 @@ class PLSSCoordinateResolver:
             plss_query = self._build_plss_query(township, township_direction, range_number, range_direction, section)
             
             # Query the geodataframe for matching section
-            matching_sections = self._query_sections(gdf, plss_query)
+            matching_sections = self._query_sections(gdf, plss_query, principal_meridian)
             
             if len(matching_sections) == 0:
                 logger.warning(f"No matching sections found for {plss_query}")
@@ -168,7 +170,7 @@ class PLSSCoordinateResolver:
             "section": section
         }
     
-    def _query_sections(self, gdf: gpd.GeoDataFrame, plss_query: dict) -> gpd.GeoDataFrame:
+    def _query_sections(self, gdf: gpd.GeoDataFrame, plss_query: dict, principal_meridian: Optional[str] = None) -> gpd.GeoDataFrame:
         """Query sections GeoDataFrame for matching PLSS description"""
         try:
             # Common BLM CadNSDI field mappings (may vary by dataset)
@@ -187,6 +189,13 @@ class PLSSCoordinateResolver:
             
             # Build filter conditions
             conditions = []
+            # Some datasets include a principal meridian or meridian code; try to match if provided
+            if principal_meridian:
+                possible_pm_fields = ['PRIN_MER', 'MERIDIAN', 'PM', 'PMCODE', 'MERIDIANCD']
+                pm_field = self._find_field(gdf.columns, possible_pm_fields)
+                if pm_field:
+                    # Try a flexible contains match to tolerate naming differences
+                    conditions.append(f"{pm_field}.str.contains(@principal_meridian, case=False, na=False)")
             
             if township_field:
                 conditions.append(f"{township_field} == {plss_query['township']}")

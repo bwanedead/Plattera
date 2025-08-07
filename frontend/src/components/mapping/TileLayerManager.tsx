@@ -2,7 +2,7 @@
  * Tile Layer Manager Component
  * Manages and renders map tile layers with backend integration
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { tileService, type TileInfo } from '../../services/mapping';
 import { TileUtils, lonLatToPixel, TILE_SIZE } from '../../utils/coordinateProjection';
 
@@ -28,16 +28,25 @@ export const TileLayerManager: React.FC<TileLayerManagerProps> = ({
 }) => {
   const [tiles, setTiles] = useState<TileInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const debounceTimer = useRef<number | null>(null);
+
+  // Clamp zoom to provider limits to avoid invalid requests
+  const effectiveZoom = useMemo(() => {
+    const cfg = tileService.getProvider(provider);
+    const minZ = cfg?.min_zoom ?? 0;
+    const maxZ = cfg?.max_zoom ?? 16;
+    return Math.max(minZ, Math.min(maxZ, Math.round(zoom)));
+  }, [provider, zoom]);
 
   // Pixel-space origin at the top-left of the current view bounds
   const originPixel = useMemo(() => {
-    return lonLatToPixel(bounds.min_lon, bounds.max_lat, zoom);
-  }, [bounds.min_lon, bounds.max_lat, zoom]);
+    return lonLatToPixel(bounds.min_lon, bounds.max_lat, effectiveZoom);
+  }, [bounds.min_lon, bounds.max_lat, effectiveZoom]);
 
   // Calculate required tiles for current view using tile service
   const requiredTiles = useMemo(() => {
-    return tileService.calculateTiles(bounds, zoom);
-  }, [bounds, zoom]);
+    return tileService.calculateTiles(bounds, effectiveZoom);
+  }, [bounds, effectiveZoom]);
 
   // Initialize tile service and fetch tiles when requirements change
   useEffect(() => {
@@ -45,7 +54,7 @@ export const TileLayerManager: React.FC<TileLayerManagerProps> = ({
       setIsLoading(true);
       try {
         await tileService.initialize();
-        console.log(`🗺️ Loading ${requiredTiles.length} tiles for ${provider} at zoom ${zoom}`);
+        console.log(`🗺️ Loading ${requiredTiles.length} tiles for ${provider} at zoom ${effectiveZoom}`);
         const loadedTiles = await tileService.loadTiles(requiredTiles, provider);
         setTiles(loadedTiles);
         console.log(`✅ Successfully loaded ${loadedTiles.filter(t => !t.hasError).length}/${loadedTiles.length} tiles`);
@@ -64,10 +73,22 @@ export const TileLayerManager: React.FC<TileLayerManagerProps> = ({
       }
     };
 
-    if (requiredTiles.length > 0) {
-      fetchTiles();
+    if (debounceTimer.current) {
+      window.clearTimeout(debounceTimer.current);
     }
-  }, [requiredTiles, provider, zoom]);
+    // Debounce tile fetch a bit to avoid hammering while panning
+    debounceTimer.current = window.setTimeout(() => {
+      if (requiredTiles.length > 0) {
+        fetchTiles();
+      }
+    }, 120);
+
+    return () => {
+      if (debounceTimer.current) {
+        window.clearTimeout(debounceTimer.current);
+      }
+    };
+  }, [requiredTiles, provider, effectiveZoom]);
 
   // Render individual tile using pixel math
   const renderTile = (tile: TileInfo) => {

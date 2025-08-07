@@ -57,6 +57,7 @@ class PLSSPipeline:
             range_dir = plss_description.get("range_direction")
             section = plss_description.get("section_number")
             quarter_sections = plss_description.get("quarter_sections")
+            principal_meridian = plss_description.get("principal_meridian")
             
             logger.info(f"📍 Resolving: T{township}{township_dir} R{range_num}{range_dir} Sec {section} {quarter_sections}")
             
@@ -77,6 +78,7 @@ class PLSSPipeline:
                 range_direction=range_dir,
                 section=section,
                 quarter_sections=quarter_sections,
+                principal_meridian=principal_meridian,
                 vector_data=data_result["vector_data"]
             )
             

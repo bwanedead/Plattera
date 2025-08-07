@@ -2,17 +2,23 @@
  * Map Background Component
  * Renders live map tiles with PLSS integration
  */
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { usePLSSData } from '../../../hooks/usePLSSData';
 import { PLSSDownloadModal } from '../../ui';
 import { TileLayerManager } from '../../mapping/TileLayerManager';
-import { lonLatToPixel, TILE_SIZE } from '../../../utils/coordinateProjection';
+import { lonLatToPixel, pixelToLonLat } from '../../../utils/coordinateProjection';
+import { PolygonOverlay } from '../../mapping/PolygonOverlay';
 
 interface MapBackgroundProps {
   schemaData: any;
+  polygonData?: any | null; // georeferenced polygon for overlay (optional)
+  showGrid?: boolean; // present in hybrid mode but unused here
 }
 
-export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData }) => {
+export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData, polygonData }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const { status, state, error, modalDismissed, downloadData, dismissModal } = usePLSSData(schemaData);
 
   // Move ALL hooks to the top level - this fixes the "more hooks than previous render" error
@@ -26,14 +32,130 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData }) => {
     };
   }, []);
 
-  // Simple geographic to screen coordinate conversion
+  // Determine view (bounds + zoom) based on projected polygon if available
+  const initialView = useMemo(() => {
+    // Determine center
+    let centerLat = (mapBounds.min_lat + mapBounds.max_lat) / 2;
+    let centerLon = (mapBounds.min_lon + mapBounds.max_lon) / 2;
+    let zoom = 8;
+
+    if (polygonData?.geographic_polygon?.bounds) {
+      const b = polygonData.geographic_polygon.bounds;
+      centerLat = (b.min_lat + b.max_lat) / 2;
+      centerLon = (b.min_lon + b.max_lon) / 2;
+      zoom = 16; // tighten to make polygon visible by default
+    }
+    // enforce integer zoom to align with tile grid
+    zoom = Math.round(zoom);
+
+    const viewportW = containerRef.current?.clientWidth || Math.min(window.innerWidth, 1200);
+    const viewportH = containerRef.current?.clientHeight || Math.min(window.innerHeight, 800);
+
+    // Compute top-left pixel so that center stays in the middle of viewport
+    const centerPx = lonLatToPixel(centerLon, centerLat, zoom);
+    const originPx = { x: centerPx.x - viewportW / 2, y: centerPx.y - viewportH / 2 };
+
+    // Convert viewport corners back to lon/lat to get bounds
+    const [minLon, maxLat] = pixelToLonLat(originPx.x, originPx.y, zoom);
+    const [maxLon, minLat] = pixelToLonLat(originPx.x + viewportW, originPx.y + viewportH, zoom);
+
+    return {
+      bounds: {
+        min_lat: minLat,
+        max_lat: maxLat,
+        min_lon: minLon,
+        max_lon: maxLon,
+      },
+      zoom,
+      originPx,
+    };
+  }, [polygonData, mapBounds, containerRef.current]);
+
+  const [view, setView] = useState(initialView);
+
+  // Re-initialize view when inputs change / container sized
+  useEffect(() => {
+    setView(initialView);
+  }, [initialView]);
+
+  // Geographic to screen conversion consistent with current view
   const geoToScreen = useMemo(() => {
+    const z = Math.round(view.zoom);
+    const origin = lonLatToPixel(view.bounds.min_lon, view.bounds.max_lat, z);
     return (lat: number, lon: number) => {
-      const origin = lonLatToPixel(mapBounds.min_lon, mapBounds.max_lat, 8);
-      const p = lonLatToPixel(lon, lat, 8);
+      const p = lonLatToPixel(lon, lat, z);
       return { x: p.x - origin.x, y: p.y - origin.y };
     };
-  }, [mapBounds]);
+  }, [view]);
+
+  // Helper to map screen pixel -> lon/lat for current view
+  const screenToGeo = useCallback((x: number, y: number) => {
+    const z = Math.round(view.zoom);
+    const origin = lonLatToPixel(view.bounds.min_lon, view.bounds.max_lat, z);
+    const [lon, lat] = pixelToLonLat(origin.x + x, origin.y + y, z);
+    return { lat, lon };
+  }, [view]);
+
+  // Wheel zoom handler (zoom around pointer)
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    const focusGeo = screenToGeo(px, py);
+
+    // Integer zoom steps to align with tile grid; prevents overlay drift
+    const delta = e.deltaY > 0 ? -1 : 1;
+    const newZoom = Math.max(4, Math.min(18, Math.round(view.zoom + delta)));
+
+    // Compute new origin so focusGeo stays under the pointer
+    const focusPxNew = lonLatToPixel(focusGeo.lon, focusGeo.lat, newZoom);
+    const originX = focusPxNew.x - px;
+    const originY = focusPxNew.y - py;
+    const rectW = rect.width, rectH = rect.height;
+    const [minLon, maxLat] = pixelToLonLat(originX, originY, newZoom);
+    const [maxLon, minLat] = pixelToLonLat(originX + rectW, originY + rectH, newZoom);
+
+    setView({
+      bounds: { min_lat: minLat, max_lat: maxLat, min_lon: minLon, max_lon: maxLon },
+      zoom: newZoom,
+      originPx: { x: originX, y: originY }
+    });
+  }, [view, screenToGeo]);
+
+  // Drag panning
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    dragStartRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    setIsDragging(true);
+  }, []);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+    dragStartRef.current = null;
+  }, []);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging || !containerRef.current || !dragStartRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const dx = x - dragStartRef.current.x;
+    const dy = y - dragStartRef.current.y;
+
+    // Translate bounds by pixel delta using integer zoom to match tiles
+    const z = Math.round(view.zoom);
+    const origin = lonLatToPixel(view.bounds.min_lon, view.bounds.max_lat, z);
+    const originX = origin.x - dx;
+    const originY = origin.y - dy;
+    const [minLon, maxLat] = pixelToLonLat(originX, originY, z);
+    const [maxLon, minLat] = pixelToLonLat(originX + rect.width, originY + rect.height, z);
+
+    setView({ bounds: { min_lat: minLat, max_lat: maxLat, min_lon: minLon, max_lon: maxLon }, zoom: view.zoom, originPx: { x: originX, y: originY } });
+    dragStartRef.current = { x, y };
+  }, [isDragging, view]);
 
   const handleDownload = () => {
     downloadData();
@@ -68,16 +190,35 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData }) => {
   // Show map when ready
   if (status === 'ready') {
     return (
-      <div className="map-container" style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div
+        ref={containerRef}
+        className="map-container"
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        style={{ position: 'relative', width: '100%', height: '100%', cursor: isDragging ? 'grabbing' : 'grab' }}
+      >
         <TileLayerManager
-          bounds={mapBounds}
-          zoom={8} // Start with zoom level 8 for state-wide view
+          bounds={view.bounds}
+          zoom={view.zoom}
           provider="usgs_topo"
           geoToScreen={geoToScreen}
         />
+
+        {/* Geographic polygon overlay (only if georeferenced) */}
+        {polygonData && (
+          <PolygonOverlay
+            polygonData={polygonData}
+            geoToScreen={geoToScreen}
+            mapBounds={mapBounds}
+          />
+        )}
         
         {/* Status overlay */}
-        <div style={{
+        {/* Status overlay removed for cleaner UX */}
+        {/* <div style={{
           position: 'absolute',
           top: 10,
           left: 10,
@@ -88,8 +229,8 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData }) => {
           fontSize: '12px',
           zIndex: 1000
         }}>
-          🗺️ USGS Topo | {state} | Zoom: 8
-        </div>
+          🗺️ USGS Topo | {state} | Zoom: {view.zoom}
+        </div> */}
       </div>
     );
   }

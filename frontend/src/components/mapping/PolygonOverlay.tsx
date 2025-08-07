@@ -31,25 +31,8 @@ export const PolygonOverlay: React.FC<PolygonOverlayProps> = ({
     if (polygonData.geographic_polygon?.coordinates?.[0]) {
       // GeoJSON format: coordinates[0] is the outer ring
       geoCoords = polygonData.geographic_polygon.coordinates[0];
-    } else if (polygonData.coordinates) {
-      // Direct coordinates format
-      geoCoords = polygonData.coordinates;
-    } else if (polygonData.display_coordinates) {
-      // Display coordinates format (already processed by backend)
-      // Convert display coordinates to geographic if needed
-      console.log('🎨 Using display-ready coordinates from backend');
-      const screenCoords = [];
-      
-      for (const coord of polygonData.display_coordinates) {
-        const [x, y] = coord;
-        // For display coordinates, we need to convert them through geoToScreen
-        // These coordinates are already in the correct orientation from backend
-        screenCoords.push({ x, y });
-      }
-      
-      return screenCoords.length >= 3 ? [screenCoords] : [];
     } else {
-      console.warn('⚠️ No recognized polygon coordinate format found');
+      // No geographic polygon: skip rendering on map overlay
       return [];
     }
 
@@ -146,7 +129,8 @@ export const PolygonOverlay: React.FC<PolygonOverlayProps> = ({
       ))}
 
       {/* Polygon Label */}
-      {polygonCenter && polygonData.anchor_info && (
+      {/* Remove floating label box for cleaner UX */}
+      {false && polygonCenter && polygonData.anchor_info && (
         <g className="polygon-label">
           {/* Label Background */}
           <rect
@@ -173,8 +157,10 @@ export const PolygonOverlay: React.FC<PolygonOverlayProps> = ({
       )}
 
       {/* Anchor Point Marker (Point of Beginning) */}
-      {polygonData.anchor_info && polygonData.anchor_info.resolved_coordinates && (() => {
-        const { lat, lon } = polygonData.anchor_info.resolved_coordinates;
+      {polygonData.anchor_info && (polygonData.anchor_info.pob_coordinates || polygonData.anchor_info.resolved_coordinates) && (() => {
+        // Prefer POB, fall back to resolved section reference if POB missing
+        const source = polygonData.anchor_info.pob_coordinates || polygonData.anchor_info.resolved_coordinates;
+        const { lat, lon } = source;
         
         // Project anchor point through Web Mercator for map accuracy
         const [mercatorX, mercatorY] = latLonToWebMercator(lon, lat);
