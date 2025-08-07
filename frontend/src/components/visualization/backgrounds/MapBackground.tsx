@@ -6,6 +6,7 @@ import React, { useMemo } from 'react';
 import { usePLSSData } from '../../../hooks/usePLSSData';
 import { PLSSDownloadModal } from '../../ui';
 import { TileLayerManager } from '../../mapping/TileLayerManager';
+import { lonLatToPixel, TILE_SIZE } from '../../../utils/coordinateProjection';
 
 interface MapBackgroundProps {
   schemaData: any;
@@ -28,12 +29,11 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData }) => {
   // Simple geographic to screen coordinate conversion
   const geoToScreen = useMemo(() => {
     return (lat: number, lon: number) => {
-      // Basic conversion for now - this will be enhanced
-      const x = ((lon + 107.5) / 7.0) * 800; // Rough Wyoming bounds
-      const y = ((45.0 - lat) / 4.0) * 600;
-      return { x, y };
+      const origin = lonLatToPixel(mapBounds.min_lon, mapBounds.max_lat, 8);
+      const p = lonLatToPixel(lon, lat, 8);
+      return { x: p.x - origin.x, y: p.y - origin.y };
     };
-  }, []);
+  }, [mapBounds]);
 
   const handleDownload = () => {
     downloadData();
