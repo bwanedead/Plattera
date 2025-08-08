@@ -71,6 +71,57 @@ def parse_tie_feet(tie: Dict[str, Any]) -> Tuple[float, float]:
     return dx_feet, dy_feet
 
 
+def needs_reciprocal_bearing(raw_text: str | None) -> bool:
+    """Heuristic: detect deed phrasing 'whence the [corner] bears ... distant'.
+
+    In that grammar, the bearing is from the POB to the corner. To apply a tie
+    from the corner to the POB, we must add 180° (reciprocal).
+    """
+    if not raw_text:
+        return False
+    import re
+    text = raw_text.lower()
+    return bool(re.search(r"\bwhence\b.*\bbears\b.*\bdistant\b", text))
+
+
+def parse_tie_with_azimuth(tie: Dict[str, Any]) -> Tuple[float, float, float, bool]:
+    """Parse tie and return (dx_ft, dy_ft, azimuth_deg_used, reciprocal_applied).
+
+    Applies 180° reciprocal if deed raw_text matches the 'whence ... bears ... distant' pattern.
+    """
+    if not tie:
+        return (0.0, 0.0, 0.0, False)
+
+    bearing_raw = (tie.get("bearing_raw") or tie.get("bearing") or "").strip()
+    distance_value = float(tie.get("distance_value") or tie.get("distance_feet") or 0.0)
+    units = (tie.get("distance_units") or "feet").lower()
+
+    if units in ("meter", "meters", "m"):
+        distance_feet = distance_value / FEET_TO_METERS
+    elif units in ("chain", "chains"):
+        distance_feet = distance_value * 66.0
+    elif units in ("rod", "rods"):
+        distance_feet = distance_value * 16.5
+    else:
+        distance_feet = distance_value
+
+    parser = BearingParser()
+    parsed = parser.parse_bearing(bearing_raw)
+    if not parsed.get("success"):
+        return (0.0, 0.0, 0.0, False)
+
+    azimuth_deg = float(parsed["bearing_degrees"])  # clockwise from north
+    apply_recip = needs_reciprocal_bearing(tie.get("raw_text"))
+    if apply_recip:
+        azimuth_deg = (azimuth_deg + 180.0) % 360.0
+
+    import math
+    theta = math.radians(azimuth_deg)
+    dx_feet = distance_feet * math.sin(theta)
+    dy_feet = distance_feet * math.cos(theta)
+    return dx_feet, dy_feet, azimuth_deg, apply_recip
+
+
 def parse_corner_plss(corner_label: str) -> Dict[str, Any] | None:
     """Parse TRS tokens out of a tie corner label like 'NW corner Sec 2 T14N R74W'.
 

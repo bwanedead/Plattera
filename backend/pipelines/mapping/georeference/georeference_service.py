@@ -19,6 +19,9 @@ class GeoreferenceService:
         plss_anchor = request.get("plss_anchor") or {}
         starting_point = request.get("starting_point") or {}
         tie = starting_point.get("tie_to_corner") or {}
+        # Pass through raw_text from starting_point so we can detect 'whence ... bears ... distant'
+        if starting_point.get("raw_text") and "raw_text" not in tie:
+            tie["raw_text"] = starting_point.get("raw_text")
 
         if not local or len(local) < 3:
             return {"success": False, "error": "At least 3 local coordinates required"}
@@ -64,6 +67,7 @@ class GeoreferenceService:
                 **({"pob_coordinates": pob_geo} if pob_geo else {}),
             },
             "projection_metadata": {"utm_zone": utm_zone, "vertex_count": len(geo_ring)},
+            **({"debug": res.get("debug")} if res.get("debug") else {}),
         }
 
 

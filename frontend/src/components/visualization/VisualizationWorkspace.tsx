@@ -108,9 +108,15 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
           return;
         }
 
-        // Include starting_point if present on schema (tie_to_corner)
+        // Include starting_point if present on schema (tie_to_corner) and pass raw_text for reciprocal detection
         if (chosen?.plss?.starting_point?.tie_to_corner) {
-          req.starting_point = { tie_to_corner: chosen.plss.starting_point.tie_to_corner };
+          req.starting_point = { 
+            tie_to_corner: {
+              ...chosen.plss.starting_point.tie_to_corner,
+              raw_text: chosen.plss.starting_point?.raw_text || null
+            },
+            raw_text: chosen.plss.starting_point?.raw_text || null
+          };
         }
 
         const projected = await mappingApi.projectPolygonToMap(req);

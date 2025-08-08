@@ -10,7 +10,12 @@ import logging
 from pipelines.mapping.projection.pipeline import ProjectionPipeline
 from pipelines.mapping.plss.pipeline import PLSSPipeline
 from pipelines.mapping.common.units import FEET_TO_METERS
-from .pob_math import flip_display_to_survey, normalize_local, parse_tie_feet, parse_corner_plss
+from .pob_math import (
+    flip_display_to_survey,
+    normalize_local,
+    parse_tie_with_azimuth,
+    parse_corner_plss,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,14 +73,19 @@ class POBResolver:
         if not anchor_utm.get("success"):
             return {"success": False, "error": f"UTM transform failed: {anchor_utm.get('error')}"}
 
-        tie_dx_ft, tie_dy_ft = parse_tie_feet(tie_to_corner or {})
+        # Parse tie and auto-apply reciprocal if deed phrasing indicates corner is bearing FROM POB
+        tie_dx_ft, tie_dy_ft, az_used, recip = parse_tie_with_azimuth(tie_to_corner or {})
+        invert_tie_y = bool((tie_to_corner or {}).get("debug_invert_tie_y", False))
+        skip_normalize = bool((tie_to_corner or {}).get("debug_skip_normalize", False))
+        if invert_tie_y:
+            tie_dy_ft = -tie_dy_ft
         pob_utm_x = anchor_utm["utm_x"] + tie_dx_ft * FEET_TO_METERS
         pob_utm_y = anchor_utm["utm_y"] + tie_dy_ft * FEET_TO_METERS
 
         survey_feet = flip_display_to_survey(local_display_coords)
         if survey_feet and survey_feet[0] != survey_feet[-1]:
             survey_feet = survey_feet + [survey_feet[0]]
-        normalized_feet = normalize_local(survey_feet)
+        normalized_feet = survey_feet if skip_normalize else normalize_local(survey_feet)
 
         utm_vertices: List[Tuple[float, float]] = [
             (pob_utm_x + x_ft * FEET_TO_METERS, pob_utm_y + y_ft * FEET_TO_METERS) for (x_ft, y_ft) in normalized_feet
@@ -87,6 +97,15 @@ class POBResolver:
             "pob_utm": {"x": pob_utm_x, "y": pob_utm_y},
             "anchor_geo": anchor_geo,
             "utm_vertices": utm_vertices,
+            "debug": {
+                "tie_dx_ft": tie_dx_ft,
+                "tie_dy_ft": tie_dy_ft,
+                "tie_azimuth_deg": az_used,
+                "reciprocal_applied": recip,
+                "invert_tie_y": invert_tie_y,
+                "skip_normalize": skip_normalize,
+                **({"corner_debug": corner_res.get("debug")} if corner_label and corner_res.get("debug") else {}),
+            }
         }
 
 

@@ -68,6 +68,28 @@ async def project_polygon_to_map(request: Dict[str, Any]) -> Dict[str, Any]:
                 detail=f"Projection failed: {result.get('error', 'Unknown error')}"
             )
 
+        # Verbose debug logging for POB + PLSS anchoring
+        dbg = result.get("debug") or {}
+        anc = result.get("anchor_info") or {}
+        if dbg:
+            logger.info(
+                "🔍 Georef Debug → corner=%s | tie azimuth=%.3f° (recip=%s) | tie_dx_ft=%.3f tie_dy_ft=%.3f",
+                (anc.get("plss_reference")),
+                dbg.get("tie_azimuth_deg", -1.0),
+                dbg.get("reciprocal_applied", False),
+                dbg.get("tie_dx_ft", 0.0),
+                dbg.get("tie_dy_ft", 0.0),
+            )
+            cd = (dbg.get("corner_debug") or {})
+            if cd:
+                logger.info(
+                    "🔍 Corner centroid=(%.6f, %.6f) target=%.1f° candidates=%s",
+                    (cd.get("centroid") or {}).get("lat", 0.0),
+                    (cd.get("centroid") or {}).get("lon", 0.0),
+                    cd.get("target_azimuth", -1.0),
+                    cd.get("candidates"),
+                )
+
         return result
         
     except Exception as e:
