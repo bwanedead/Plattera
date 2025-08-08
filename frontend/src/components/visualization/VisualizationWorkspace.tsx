@@ -78,6 +78,20 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
           return;
         }
 
+        // Debug: log outgoing PLSS request
+        console.log('📤 PLSS request', {
+          state: plss.state,
+          county: plss.county,
+          principal_meridian: plss.principal_meridian,
+          township_number: plss.township_number,
+          township_direction: plss.township_direction,
+          range_number: plss.range_number,
+          range_direction: plss.range_direction,
+          section_number: plss.section_number,
+          quarter_sections: plss.quarter_sections,
+          starting_point: chosen?.plss?.starting_point?.tie_to_corner || null,
+        });
+
         const req = mappingApi.convertPolygonForMapping(polygon, {
           state: plss.state,
           county: plss.county,
@@ -101,6 +115,14 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
 
         const projected = await mappingApi.projectPolygonToMap(req);
         if (projected.success && projected.geographic_polygon) {
+          // Debug: log returned polygon bounds and anchor info
+          if (projected.geographic_polygon.bounds) {
+            const b = projected.geographic_polygon.bounds;
+            console.log(
+              `📥 Projected polygon bounds: (${b.min_lat.toFixed(5)}, ${b.min_lon.toFixed(5)}) .. (${b.max_lat.toFixed(5)}, ${b.max_lon.toFixed(5)})`,
+              { anchor: projected.anchor_info }
+            );
+          }
           setGeoPolygonData({
             geographic_polygon: projected.geographic_polygon,
             anchor_info: projected.anchor_info,

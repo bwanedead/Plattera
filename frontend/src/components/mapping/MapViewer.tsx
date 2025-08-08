@@ -7,12 +7,16 @@ import { PolygonOverlay } from './PolygonOverlay';
 import { MapControls } from './MapControls';
 import { CoordinateDisplay } from './CoordinateDisplay';
 import { TileLayerManager } from './TileLayerManager';
+import { lonLatToPixel } from '../../utils/coordinateProjection';
+import { mappingApi, type PLSSDescription } from '../../services/mappingApi';
 
 interface MapViewerProps {
   polygonData?: any;
   initialCenter?: { lat: number; lon: number };
   initialZoom?: number;
   className?: string;
+  plssAnchor?: PLSSDescription; // Optional: center tiles from PLSS section view
+  plssPadding?: number; // Optional padding for section view bounds
 }
 
 interface MapState {
@@ -32,7 +36,9 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   polygonData,
   initialCenter = { lat: 41.5, lon: -107.5 }, // Default Wyoming coordinates
   initialZoom = 10,
-  className = ""
+  className = "",
+  plssAnchor,
+  plssPadding = 0.2
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [mapState, setMapState] = useState<MapState>({
@@ -91,6 +97,16 @@ export const MapViewer: React.FC<MapViewerProps> = ({
 
     return { x, y };
   }, [mapState.bounds, mapDimensions]);
+
+  // Shared Web Mercator pixel origin and toScreen that matches tile math
+  const originPixel = React.useMemo(() => {
+    return lonLatToPixel(mapState.bounds.min_lon, mapState.bounds.max_lat, Math.round(mapState.zoom));
+  }, [mapState.bounds.min_lon, mapState.bounds.max_lat, mapState.zoom]);
+
+  const toScreen = React.useCallback((lat: number, lon: number) => {
+    const px = lonLatToPixel(lon, lat, Math.round(mapState.zoom));
+    return { x: px.x - originPixel.x, y: px.y - originPixel.y };
+  }, [mapState.zoom, originPixel]);
 
   // Handle mouse movement for coordinate display
   const handleMouseMove = useCallback((event: React.MouseEvent) => {
@@ -151,6 +167,28 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     setDragStart(null);
   }, []);
 
+  // If PLSS anchor is provided, center map using section view (decouples tiles from georef output)
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!plssAnchor) return;
+      try {
+        const res = await mappingApi.getPLSSSectionView(plssAnchor, plssPadding);
+        if (!cancelled && res.success && res.bounds && res.center) {
+          setMapState(prev => ({
+            ...prev,
+            center: res.center!,
+            bounds: res.bounds
+          }));
+        }
+      } catch (e) {
+        // Ignore; keep previous state
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [plssAnchor, plssPadding]);
+
   // Handle zoom
   const handleZoom = useCallback((zoomDelta: number) => {
     setMapState(prev => {
@@ -185,9 +223,9 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     setMapState(prev => ({ ...prev, tileProvider: provider }));
   }, []);
 
-  // Center map on polygon if provided
+  // Center map on polygon if provided AND no PLSS anchor (PLSS-driven tiles take precedence)
   useEffect(() => {
-    if (polygonData && polygonData.bounds) {
+    if (!plssAnchor && polygonData && polygonData.bounds) {
       const bounds = polygonData.bounds;
       const centerLat = (bounds.min_lat + bounds.max_lat) / 2;
       const centerLon = (bounds.min_lon + bounds.max_lon) / 2;
@@ -207,7 +245,7 @@ export const MapViewer: React.FC<MapViewerProps> = ({
         }
       }));
     }
-  }, [polygonData]);
+  }, [polygonData, plssAnchor]);
 
   return (
     <div className={`map-viewer ${className}`}>
@@ -234,13 +272,14 @@ export const MapViewer: React.FC<MapViewerProps> = ({
           zoom={mapState.zoom}
           provider={mapState.tileProvider}
           geoToScreen={geoToScreen}
+          originPixel={originPixel}
         />
 
         {/* Polygon Overlay */}
         {polygonData && (
           <PolygonOverlay
             polygonData={polygonData}
-            geoToScreen={geoToScreen}
+            toScreen={toScreen}
             mapBounds={mapState.bounds}
           />
         )}

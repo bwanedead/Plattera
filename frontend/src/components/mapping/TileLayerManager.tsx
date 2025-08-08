@@ -16,6 +16,7 @@ interface TileLayerManagerProps {
   zoom: number;
   provider: string;
   geoToScreen: (lat: number, lon: number) => { x: number; y: number } | null;
+  originPixel?: { x: number; y: number };
 }
 
 // TileInfo interface now imported from tileService
@@ -24,7 +25,8 @@ export const TileLayerManager: React.FC<TileLayerManagerProps> = ({
   bounds,
   zoom,
   provider,
-  geoToScreen
+  geoToScreen,
+  originPixel: originPixelProp
 }) => {
   const [tiles, setTiles] = useState<TileInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -40,12 +42,26 @@ export const TileLayerManager: React.FC<TileLayerManagerProps> = ({
 
   // Pixel-space origin at the top-left of the current view bounds
   const originPixel = useMemo(() => {
+    if (originPixelProp && typeof originPixelProp.x === 'number' && typeof originPixelProp.y === 'number') {
+      return originPixelProp;
+    }
     return lonLatToPixel(bounds.min_lon, bounds.max_lat, effectiveZoom);
-  }, [bounds.min_lon, bounds.max_lat, effectiveZoom]);
+  }, [originPixelProp, bounds.min_lon, bounds.max_lat, effectiveZoom]);
 
   // Calculate required tiles for current view using tile service
   const requiredTiles = useMemo(() => {
-    return tileService.calculateTiles(bounds, effectiveZoom);
+    const tiles = tileService.calculateTiles(bounds, effectiveZoom);
+    // Debug: tile ranges and counts
+    const minX = Math.min(...tiles.map(t => t.x));
+    const maxX = Math.max(...tiles.map(t => t.x));
+    const minY = Math.min(...tiles.map(t => t.y));
+    const maxY = Math.max(...tiles.map(t => t.y));
+    console.log(
+      `🧩 Tiles required -> provider: ${provider}, z: ${effectiveZoom}, ` +
+      `bounds: (${bounds.min_lat.toFixed(5)}, ${bounds.min_lon.toFixed(5)})..(${bounds.max_lat.toFixed(5)}, ${bounds.max_lon.toFixed(5)}), ` +
+      `x:[${minX}-${maxX}] y:[${minY}-${maxY}] count:${tiles.length}`
+    );
+    return tiles;
   }, [bounds, effectiveZoom]);
 
   // Initialize tile service and fetch tiles when requirements change
@@ -54,6 +70,8 @@ export const TileLayerManager: React.FC<TileLayerManagerProps> = ({
       setIsLoading(true);
       try {
         await tileService.initialize();
+        // Reset tile array on each fetch to avoid accumulation across pans/zooms/providers
+        setTiles([]);
         console.log(`🗺️ Loading ${requiredTiles.length} tiles for ${provider} at zoom ${effectiveZoom}`);
         const loadedTiles = await tileService.loadTiles(requiredTiles, provider);
         setTiles(loadedTiles);

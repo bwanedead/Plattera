@@ -9,6 +9,7 @@ from pathlib import Path
 from .data_manager import PLSSDataManager
 from .coordinate_resolver import PLSSCoordinateResolver
 from .vector_processor import PLSSVectorProcessor
+from .section_view import SectionView
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class PLSSPipeline:
         self.data_manager = PLSSDataManager(data_directory)
         self.coordinate_resolver = PLSSCoordinateResolver()
         self.vector_processor = PLSSVectorProcessor()
+        self.section_view = SectionView()
         
     def resolve_starting_point(self, plss_description: dict) -> dict:
         """
@@ -59,7 +61,11 @@ class PLSSPipeline:
             quarter_sections = plss_description.get("quarter_sections")
             principal_meridian = plss_description.get("principal_meridian")
             
-            logger.info(f"📍 Resolving: T{township}{township_dir} R{range_num}{range_dir} Sec {section} {quarter_sections}")
+            logger.info(
+                f"📍 Resolving: T{township}{township_dir} R{range_num}{range_dir} Sec {section} {quarter_sections}"
+            )
+            if principal_meridian:
+                logger.info(f"🧭 Principal Meridian: {principal_meridian}")
             
             # Ensure PLSS data is available for state
             data_result = self.data_manager.ensure_state_data(state)
@@ -88,7 +94,9 @@ class PLSSPipeline:
                     "error": f"Coordinate resolution failed: {resolution_result['error']}"
                 }
             
-            logger.info(f"✅ PLSS resolution successful: {resolution_result['coordinates']}")
+            logger.info(
+                f"✅ PLSS resolution successful: {resolution_result['coordinates']} method={resolution_result.get('method')}"
+            )
             
             return {
                 "success": True,
@@ -156,3 +164,27 @@ class PLSSPipeline:
     def get_state_coverage(self, state: str) -> dict:
         """Get coverage information for a specific state"""
         return self.data_manager.get_state_coverage(state)
+
+    def get_section_view(self, plss_description: dict) -> dict:
+        """Expose section centroid/bounds from vector data"""
+        try:
+            state = plss_description.get("state")
+            data_result = self.data_manager.ensure_state_data(state)
+            if not data_result.get("success"):
+                return data_result
+            return self.section_view.get_section_view(data_result["vector_data"], plss_description)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_section_corner(self, plss_description: dict, corner_label: str) -> dict:
+        """Expose specific section corner (NW/NE/SE/SW) from vector geometry"""
+        try:
+            state = plss_description.get("state")
+            data_result = self.data_manager.ensure_state_data(state)
+            if not data_result.get("success"):
+                return data_result
+            return self.section_view.get_section_corner(
+                data_result["vector_data"], plss_description, corner_label
+            )
+        except Exception as e:
+            return {"success": False, "error": str(e)}

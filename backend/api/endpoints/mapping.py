@@ -51,10 +51,10 @@ async def project_polygon_to_map(request: Dict[str, Any]) -> Dict[str, Any]:
                 detail="plss_anchor information is required"
             )
         
-        # Use dedicated GeoreferencePipeline for PLSS+tie+projection orchestration
-        from pipelines.mapping.georeference.pipeline import GeoreferencePipeline
+        # Use new GeoreferenceService (POB-first design)
+        from pipelines.mapping.georeference.georeference_service import GeoreferenceService
 
-        georef = GeoreferencePipeline()
+        georef = GeoreferenceService()
         result = georef.project({
             "local_coordinates": local_coordinates,
             "plss_anchor": plss_anchor,
@@ -197,6 +197,41 @@ async def get_tile_providers() -> Dict[str, Any]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get tile providers: {str(e)}"
         )
+
+@router.post("/plss/section-view")
+async def plss_section_view(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Given a PLSS description, return section centroid and bounds in EPSG:4326 for map centering and tile retrieval.
+    Body: { "plss_description": { state, township_number, township_direction, range_number, range_direction, section_number, principal_meridian?, quarter_sections? }, "padding": 0.1? }
+    """
+    try:
+        plss_description = request.get("plss_description")
+        padding = float(request.get("padding", 0.1))
+        if not plss_description:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing plss_description")
+
+        from pipelines.mapping.plss.pipeline import PLSSPipeline
+        plss = PLSSPipeline()
+        res = plss.get_section_view(plss_description)
+        if not res.get("success"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("error", "PLSS section lookup failed"))
+
+        center = res["center"]
+        b = res["bounds"]
+        lat_pad = (b["max_lat"] - b["min_lat"]) * padding
+        lon_pad = (b["max_lon"] - b["min_lon"]) * padding
+        padded_bounds = {
+            "min_lat": b["min_lat"] - lat_pad,
+            "max_lat": b["max_lat"] + lat_pad,
+            "min_lon": b["min_lon"] - lon_pad,
+            "max_lon": b["max_lon"] + lon_pad,
+        }
+        return {"success": True, "center": center, "bounds": padded_bounds}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"plss_section_view error: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 @router.get("/plss-states")
 async def get_plss_states() -> Dict[str, Any]:

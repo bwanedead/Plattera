@@ -76,6 +76,15 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData, polygo
   // Re-initialize view when inputs change / container sized
   useEffect(() => {
     setView(initialView);
+    // Debug: log initial map view
+    console.log(
+      `🧭 Map view init -> zoom: ${initialView.zoom}, bounds: ` +
+      `(${initialView.bounds.min_lat.toFixed(5)}, ${initialView.bounds.min_lon.toFixed(5)}) .. ` +
+      `(${initialView.bounds.max_lat.toFixed(5)}, ${initialView.bounds.max_lon.toFixed(5)})`,
+      polygonData?.geographic_polygon?.bounds
+        ? { polygonBounds: polygonData.geographic_polygon.bounds }
+        : undefined
+    );
   }, [initialView]);
 
   // Geographic to screen conversion consistent with current view
@@ -122,6 +131,13 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData, polygo
       zoom: newZoom,
       originPx: { x: originX, y: originY }
     });
+    // Debug: log zoom change
+    if (newZoom !== view.zoom) {
+      console.log(
+        `🔎 Zoom change ${view.zoom} -> ${newZoom}, bounds: ` +
+        `(${minLat.toFixed(5)}, ${minLon.toFixed(5)}) .. (${maxLat.toFixed(5)}, ${maxLon.toFixed(5)})`
+      );
+    }
   }, [view, screenToGeo]);
 
   // Drag panning

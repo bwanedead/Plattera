@@ -51,7 +51,11 @@ class PLSSCoordinateResolver:
             dict: Result with lat/lon coordinates
         """
         try:
-            logger.info(f"🧭 Resolving coordinates for T{township}{township_direction} R{range_number}{range_direction} Sec {section}")
+            logger.info(
+                f"🧭 Resolving coordinates for T{township}{township_direction} R{range_number}{range_direction} Sec {section}"
+            )
+            if principal_meridian:
+                logger.info(f"🧭 Principal Meridian (hint): {principal_meridian}")
             
             # Try precise vector lookup first
             if vector_data and "layers" in vector_data:
@@ -62,14 +66,11 @@ class PLSSCoordinateResolver:
                 if vector_result["success"]:
                     return vector_result
             
-            # Fall back to calculated approximation
-            logger.info("📐 Using calculated coordinate approximation")
-            calculated_result = self._calculate_approximate_coordinates(
-                state, township, township_direction, range_number, 
-                range_direction, section, quarter_sections
-            )
-            
-            return calculated_result
+            # Do NOT fall back to coarse approximation to avoid wrong placement
+            return {
+                "success": False,
+                "error": "Vector lookup failed; coarse approximation disabled to prevent misplacement"
+            }
             
         except Exception as e:
             logger.error(f"❌ Coordinate resolution failed: {str(e)}")
@@ -99,12 +100,15 @@ class PLSSCoordinateResolver:
             
             # Load sections GeoDataFrame
             gdf = gpd.read_file(sections_file)
+            logger.debug(f"Vector data columns: {list(gdf.columns)}")
             
             # Build PLSS query to match section
             plss_query = self._build_plss_query(township, township_direction, range_number, range_direction, section)
             
             # Query the geodataframe for matching section
             matching_sections = self._query_sections(gdf, plss_query, principal_meridian)
+            logger.debug(f"Vector PLSS query: {plss_query} with principal_meridian={principal_meridian}")
+            logger.debug(f"Match count: {len(matching_sections)}")
             
             if len(matching_sections) == 0:
                 logger.warning(f"No matching sections found for {plss_query}")
@@ -215,8 +219,44 @@ class PLSSCoordinateResolver:
             # Apply filters
             query_string = " & ".join(conditions)
             logger.debug(f"Vector query: {query_string}")
-            
-            return gdf.query(query_string)
+            try:
+                result = gdf.query(query_string)
+            except Exception as e:
+                logger.debug(f"Primary query failed, attempting fallback: {e}")
+                result = gdf.iloc[0:0]
+
+            # Fallback: try tolerant comparisons if no matches
+            if len(result) == 0:
+                try:
+                    df = gdf.copy()
+                    if township_field and df[township_field].dtype != 'int64':
+                        df[township_field] = pd.to_numeric(df[township_field], errors='coerce').astype('Int64')
+                    if range_field and df[range_field].dtype != 'int64':
+                        df[range_field] = pd.to_numeric(df[range_field], errors='coerce').astype('Int64')
+                    if section_field and df[section_field].dtype != 'int64':
+                        df[section_field] = pd.to_numeric(df[section_field], errors='coerce').astype('Int64')
+
+                    conds = []
+                    if township_field:
+                        conds.append(df[township_field] == int(plss_query['township']))
+                    if township_dir_field:
+                        conds.append(df[township_dir_field].astype(str).str.upper() == plss_query['township_direction'])
+                    if range_field:
+                        conds.append(df[range_field] == int(plss_query['range']))
+                    if range_dir_field:
+                        conds.append(df[range_dir_field].astype(str).str.upper() == plss_query['range_direction'])
+                    if section_field:
+                        conds.append(df[section_field] == int(plss_query['section']))
+
+                    if conds:
+                        mask = conds[0]
+                        for c in conds[1:]:
+                            mask = mask & c
+                        result = df[mask]
+                except Exception as e2:
+                    logger.debug(f"Fallback tolerant filter failed: {e2}")
+
+            return result
             
         except Exception as e:
             logger.error(f"Section query failed: {str(e)}")

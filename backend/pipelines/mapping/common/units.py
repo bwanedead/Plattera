@@ -1,0 +1,3 @@
+FEET_TO_METERS = 0.3048
+
+

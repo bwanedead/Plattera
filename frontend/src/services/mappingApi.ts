@@ -333,6 +333,30 @@ class MappingApiService {
   }
 
   /**
+   * Get a PLSS section-centered view (center + padded bounds) for tile retrieval independent of deed georef.
+   */
+  async getPLSSSectionView(
+    plss: PLSSDescription,
+    padding: number = 0.1
+  ): Promise<{ success: boolean; center?: { lat: number; lon: number }; bounds?: GeographicBounds; error?: string }>{
+    try {
+      const response = await fetch(`${API_BASE}/plss/section-view`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plss_description: plss, padding })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || `HTTP ${response.status}`);
+      }
+      return await response.json();
+    } catch (e: any) {
+      console.error('❌ getPLSSSectionView error:', e);
+      return { success: false, error: e?.message || 'Unknown error' };
+    }
+  }
+
+  /**
    * Clear mapping cache
    */
   async clearCache(cacheType: 'plss' | 'tiles' | 'all' = 'all'): Promise<{ success: boolean; error?: string }> {

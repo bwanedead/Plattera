@@ -182,29 +182,31 @@ class TileService {
   ): Promise<TileInfo[]> {
     console.log(`🗺️ Loading ${tiles.length} tiles from ${provider}`);
     
-    // Load tiles in parallel for better performance
     // Hard limit to avoid requesting excessive tiles when view bounds are huge
-    const MAX_TILE_BATCH = 64;
+    const MAX_TILE_BATCH = 48;
     const limitedTiles = tiles.slice(0, MAX_TILE_BATCH);
-    const tilePromises = limitedTiles.map(({ x, y, z }) => this.loadTile(provider, z, x, y));
+    // Tighter concurrency to reduce network pressure and UI jank
+    const CONCURRENCY = 8;
+    const loaded: TileInfo[] = [];
 
     try {
-      const results = await Promise.allSettled(tilePromises);
-      
-      const loaded = results.map((result, index) => {
-        if (result.status === 'fulfilled') {
-          return result.value;
-        } else {
-          console.error(`❌ Failed to load tile ${tiles[index].x}/${tiles[index].y}/${tiles[index].z}:`, result.reason);
-          return {
-            ...limitedTiles[index],
-            provider,
-            url: '',
-            isLoading: false,
-            hasError: true
-          };
+      for (let i = 0; i < limitedTiles.length; i += CONCURRENCY) {
+        const chunk = limitedTiles.slice(i, i + CONCURRENCY);
+        console.debug(`📦 Loading tile chunk ${Math.floor(i / CONCURRENCY) + 1}/${Math.ceil(limitedTiles.length / CONCURRENCY)} (size ${chunk.length})`);
+        const settled = await Promise.allSettled(
+          chunk.map(({ x, y, z }) => this.loadTile(provider, z, x, y))
+        );
+        for (let j = 0; j < settled.length; j++) {
+          const result = settled[j];
+          const t = chunk[j];
+          if (result.status === 'fulfilled') {
+            loaded.push(result.value as TileInfo);
+          } else {
+            console.error(`❌ Failed to load tile ${t.x}/${t.y}/${t.z}:`, result.reason);
+            loaded.push({ ...t, provider, url: '', isLoading: false, hasError: true });
+          }
         }
-      });
+      }
       // If we truncated, pad rest as errors to keep lengths consistent for callers that expect same length
       if (tiles.length > limitedTiles.length) {
         const remaining = tiles.slice(limitedTiles.length).map(t => ({ ...t, provider, url: '', isLoading: false, hasError: true }));
@@ -241,6 +243,9 @@ class TileService {
         tiles.push({ x, y, z: zoom });
       }
     }
+
+    // Debug: log tile range and count
+    console.debug(`🧮 Tile range z=${zoom} x:[${minTileX}-${maxTileX}] y:[${minTileY}-${maxTileY}] -> ${tiles.length} tiles`);
 
     return tiles;
   }

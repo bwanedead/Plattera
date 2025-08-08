@@ -7,7 +7,8 @@ import { PolygonProjection, latLonToWebMercator } from '../../utils/coordinatePr
 
 interface PolygonOverlayProps {
   polygonData: any;
-  geoToScreen: (lat: number, lon: number) => { x: number; y: number } | null;
+  toScreen?: (lat: number, lon: number) => { x: number; y: number } | null;
+  geoToScreen?: (lat: number, lon: number) => { x: number; y: number } | null;
   mapBounds: {
     min_lat: number;
     max_lat: number;
@@ -18,6 +19,7 @@ interface PolygonOverlayProps {
 
 export const PolygonOverlay: React.FC<PolygonOverlayProps> = ({
   polygonData,
+  toScreen,
   geoToScreen,
   mapBounds
 }) => {
@@ -37,16 +39,12 @@ export const PolygonOverlay: React.FC<PolygonOverlayProps> = ({
     }
 
     // Project geographic coordinates to screen via Web Mercator for map accuracy
-    const screenCoords = [];
+    const screenCoords: { x: number; y: number }[] = [];
+    const projectPoint = toScreen || geoToScreen || (() => null);
     
     for (const coord of geoCoords) {
       const [lon, lat] = coord; // GeoJSON format: [lon, lat]
-      
-      // Convert to Web Mercator first for accurate map projection
-      const [mercatorX, mercatorY] = latLonToWebMercator(lon, lat);
-      
-      // Then convert to screen coordinates
-      const screenPos = geoToScreen(lat, lon);
+      const screenPos = projectPoint(lat, lon);
       
       if (screenPos) {
         // Add tolerance for off-screen coordinates that might become visible
@@ -162,9 +160,7 @@ export const PolygonOverlay: React.FC<PolygonOverlayProps> = ({
         const source = polygonData.anchor_info.pob_coordinates || polygonData.anchor_info.resolved_coordinates;
         const { lat, lon } = source;
         
-        // Project anchor point through Web Mercator for map accuracy
-        const [mercatorX, mercatorY] = latLonToWebMercator(lon, lat);
-        const anchorScreen = geoToScreen(lat, lon);
+        const anchorScreen = (toScreen || geoToScreen || (() => null))(lat, lon);
         
         return anchorScreen ? (
           <g className="anchor-marker">

@@ -108,6 +108,12 @@ class GeoreferencePipeline:
                 return {"success": False, "error": "At least 3 local coordinates required"}
 
             # 1) Resolve PLSS anchor to a geographic coordinate (section-based reference)
+            logger.info(
+                "📍 Georef: Resolving PLSS -> "
+                f"T{plss_anchor.get('township_number')}{plss_anchor.get('township_direction')} "
+                f"R{plss_anchor.get('range_number')}{plss_anchor.get('range_direction')} "
+                f"Sec {plss_anchor.get('section_number')} | PM: {plss_anchor.get('principal_meridian')}"
+            )
             plss_result = self.plss.resolve_starting_point(plss_anchor)
             if not plss_result.get("success"):
                 return {"success": False, "error": f"PLSS resolution failed: {plss_result.get('error')}"}
@@ -118,6 +124,7 @@ class GeoreferencePipeline:
             # 2) Compute POB from tie (if provided) in UTM
             # Determine UTM zone for anchor
             utm_zone = self.projection.utm_manager.get_utm_zone(anchor_geo["lat"], anchor_geo["lon"])  # e.g., "13N"
+            logger.info(f"🧭 Georef: Anchor {anchor_geo['lat']:.6f}, {anchor_geo['lon']:.6f} -> UTM zone {utm_zone}")
 
             # Anchor in UTM
             anchor_utm = self.projection.transformer.geographic_to_utm(anchor_geo["lat"], anchor_geo["lon"], utm_zone)
@@ -128,6 +135,9 @@ class GeoreferencePipeline:
             tie_dx_feet, tie_dy_feet = self._parse_tie(tie_to_corner)
             pob_utm_x = anchor_utm["utm_x"] + tie_dx_feet * FeetToMeters
             pob_utm_y = anchor_utm["utm_y"] + tie_dy_feet * FeetToMeters
+            logger.info(
+                f"📌 Georef: POB tie (dx,dy ft)=({tie_dx_feet:.2f},{tie_dy_feet:.2f}) -> UTM ({pob_utm_x:.2f}, {pob_utm_y:.2f})"
+            )
 
             # 3) Convert display coordinates back to survey frame and walk vertices in UTM
             survey_coords_feet: List[Tuple[float, float]] = self._flip_display_to_survey(local_coords_raw)
@@ -163,6 +173,9 @@ class GeoreferencePipeline:
             pob_geo = None
             if pob_geo_res.get("success"):
                 pob_geo = {"lat": pob_geo_res["lat"], "lon": pob_geo_res["lon"]}
+                logger.info(
+                    f"📌 Georef: POB geographic {pob_geo['lat']:.6f}, {pob_geo['lon']:.6f}"
+                )
 
             # 5) Compute bounds
             lons = [pt[0] for pt in geographic_ring]
@@ -173,6 +186,10 @@ class GeoreferencePipeline:
                 "min_lat": min(lats),
                 "max_lat": max(lats),
             }
+            logger.info(
+                f"🗺️ Georef: Polygon bounds lon/lat -> "
+                f"({bounds['min_lat']:.6f},{bounds['min_lon']:.6f}) .. ({bounds['max_lat']:.6f},{bounds['max_lon']:.6f})"
+            )
 
             plss_ref = f"T{plss_anchor.get('township_number')}{plss_anchor.get('township_direction')} " \
                        f"R{plss_anchor.get('range_number')}{plss_anchor.get('range_direction')} Sec {plss_anchor.get('section_number')}"
