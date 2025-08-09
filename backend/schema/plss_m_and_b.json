@@ -102,16 +102,30 @@
                       "type": ["number", "null"], 
                       "description": "If explicit coordinates given" 
                     },
-                    "tie_to_corner": {
+                      "tie_to_corner": {
                       "type": ["object", "null"],
                       "description": "If deducible from PLSS corner",
-                      "required": ["corner_label", "bearing_raw", "distance_value", "distance_units"],
+                       "required": ["corner_label", "bearing_raw", "distance_value", "distance_units", "reference_plss", "tie_direction"],
                       "additionalProperties": false,
                       "properties": {
                         "corner_label": { 
                           "type": "string", 
                           "description": "PLSS corner description exactly as written" 
                         },
+                         "reference_plss": {
+                           "type": ["object", "null"],
+                           "description": "If the tie references a different TRS than the container parcel",
+                           "required": ["principal_meridian", "section_number", "township_number", "township_direction", "range_number", "range_direction"],
+                           "additionalProperties": false,
+                           "properties": {
+                             "principal_meridian": { "type": ["string", "null"], "description": "Principal meridian for the reference corner" },
+                             "section_number": { "type": "integer", "minimum": 1, "maximum": 36 },
+                             "township_number": { "type": "integer", "minimum": 1 },
+                             "township_direction": { "type": "string", "enum": ["N", "S"] },
+                             "range_number": { "type": "integer", "minimum": 1 },
+                             "range_direction": { "type": "string", "enum": ["E", "W"] }
+                           }
+                         },
                         "bearing_raw": { 
                           "type": "string", 
                           "description": "Bearing exactly as written (e.g., 'N. 4°00'W.')" 
@@ -123,7 +137,12 @@
                         "distance_units": { 
                           "type": "string", 
                           "description": "Distance units exactly as written" 
-                        }
+                         },
+                         "tie_direction": {
+                           "type": ["string", "null"],
+                           "enum": ["corner_bears_from_pob", "pob_bears_from_corner", null],
+                           "description": "Disambiguate deed grammar. If 'corner_bears_from_pob', add 180° to compute POB from corner."
+                         }
                       }
                     },
                     "raw_text": { 
@@ -138,9 +157,13 @@
             "metes_and_bounds": {
               "type": "object",
               "description": "Property boundary course information",
-              "required": ["boundary_courses", "legs_total", "closes_to_start", "raw_text"],
               "additionalProperties": false,
               "properties": {
+                "pob_vertex_index": {
+                  "type": ["integer", "null"],
+                  "minimum": 0,
+                  "description": "Index of POB in boundary sequence; if set, backend will avoid renormalizing to vertex 0"
+                },
                 "legs_total": {
                   "type": "integer",
                   "minimum": 1,
@@ -197,7 +220,8 @@
                   "type": ["string", "null"], 
                   "description": "Full legal boundary text from deed" 
                 }
-              }
+              },
+              "required": ["boundary_courses", "legs_total", "closes_to_start", "raw_text", "pob_vertex_index"]
             }
           }
         }

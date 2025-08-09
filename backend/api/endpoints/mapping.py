@@ -204,6 +204,48 @@ async def resolve_plss_coordinates(request: Dict[str, Any]) -> Dict[str, Any]:
             detail=f"PLSS resolution failed: {str(e)}"
         )
 
+@router.post("/plss/overlay")
+async def plss_overlay(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Return PLSS overlay geometry for visualization (section, optional township, quarter splits).
+    Body: { "plss_description": { ... } }
+    """
+    try:
+        plss_description = request.get("plss_description")
+        if not plss_description:
+            raise HTTPException(status_code=400, detail="Missing plss_description")
+
+        from pipelines.mapping.plss.pipeline import PLSSPipeline
+        from shapely.geometry import shape
+
+        plss = PLSSPipeline()
+        data = plss.data_manager.ensure_state_data(plss_description.get("state"))
+        if not data.get("success"):
+            raise HTTPException(status_code=400, detail=data.get("error", "PLSS data unavailable"))
+
+        sec_geo = plss.section_view.get_section_geometry(data["vector_data"], plss_description)
+        if not sec_geo.get("success"):
+            raise HTTPException(status_code=400, detail=sec_geo.get("error"))
+
+        splits = plss.section_view.get_section_splits(data["vector_data"], plss_description)
+        twp_geo = plss.section_view.get_township_geometry(data["vector_data"], plss_description)
+
+        sec_shape = shape(sec_geo["geometry"])
+        minx, miny, maxx, maxy = sec_shape.bounds
+
+        return {
+            "success": True,
+            "section": sec_geo["geometry"],
+            "township": twp_geo["geometry"] if twp_geo.get("success") else None,
+            "splits": splits.get("lines", []),
+            "bounds": {"min_lon": minx, "min_lat": miny, "max_lon": maxx, "max_lat": maxy},
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"plss_overlay error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/tile-providers")
 async def get_tile_providers() -> Dict[str, Any]:
     """Get available tile providers"""
@@ -270,6 +312,27 @@ async def get_plss_states() -> Dict[str, Any]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get PLSS states: {str(e)}"
         )
+
+@router.post("/validate-georef")
+async def validate_georef(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Validate a georeferenced polygon against PLSS.
+    Body: { "plss_description": {...}, "geographic_polygon": {GeoJSON Polygon} }
+    """
+    try:
+        plss_desc = request.get("plss_description")
+        polygon = request.get("geographic_polygon")
+        if not plss_desc or not polygon:
+            raise HTTPException(status_code=400, detail="Missing plss_description or geographic_polygon")
+
+        from pipelines.mapping.georeference.validator import validate_polygon_against_plss
+        res = validate_polygon_against_plss(plss_desc, polygon)
+        return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"validate_georef error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/cache/clear")
 async def clear_mapping_cache(request: Dict[str, Any]) -> Dict[str, Any]:

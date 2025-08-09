@@ -8,18 +8,33 @@ import { PLSSDownloadModal } from '../../ui';
 import { TileLayerManager } from '../../mapping/TileLayerManager';
 import { lonLatToPixel, pixelToLonLat } from '../../../utils/coordinateProjection';
 import { PolygonOverlay } from '../../mapping/PolygonOverlay';
+import { PLSSOverlay } from '../../mapping/PLSSOverlay';
+import { mappingApi } from '../../../services/mapping';
 
 interface MapBackgroundProps {
   schemaData: any;
   polygonData?: any | null; // georeferenced polygon for overlay (optional)
   showGrid?: boolean; // present in hybrid mode but unused here
+  showSectionOverlay?: boolean;
+  showTownshipOverlay?: boolean;
+  showQuarterSplits?: boolean;
+  showValidationBanner?: boolean;
 }
 
-export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData, polygonData }) => {
+export const MapBackground: React.FC<MapBackgroundProps> = ({ 
+  schemaData, 
+  polygonData,
+  showSectionOverlay = true,
+  showTownshipOverlay = true,
+  showQuarterSplits = true,
+  showValidationBanner = true,
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const { status, state, error, modalDismissed, downloadData, dismissModal } = usePLSSData(schemaData);
+  const [overlay, setOverlay] = useState<any | null>(null);
+  const [validation, setValidation] = useState<any | null>(null);
 
   // Move ALL hooks to the top level - this fixes the "more hooks than previous render" error
   const mapBounds = useMemo(() => {
@@ -181,6 +196,30 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData, polygo
     dismissModal(); // Properly dismiss the modal
   };
 
+  // Load PLSS overlay + validation when ready
+  useEffect(() => {
+    const loadOverlay = async () => {
+      try {
+        if (status !== 'ready') return;
+        const plss = schemaData?.descriptions?.[0]?.plss || null;
+        if (!plss) return;
+        const res = await mappingApi.getPLSSOverlay(plss);
+        if (res.success) {
+          setOverlay({ section: res.section, township: res.township, splits: res.splits });
+        }
+        if (polygonData?.geographic_polygon) {
+          const val = await mappingApi.validateGeoref(plss, polygonData.geographic_polygon);
+          setValidation(val);
+        } else {
+          setValidation(null);
+        }
+      } catch (e) {
+        console.warn('Overlay/validation load failed', e);
+      }
+    };
+    loadOverlay();
+  }, [status, schemaData, polygonData]);
+
   // Show modal when data is missing AND not dismissed
   const shouldShowModal = status === 'missing' && !modalDismissed;
 
@@ -223,6 +262,18 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData, polygo
           geoToScreen={geoToScreen}
         />
 
+        {/* PLSS overlays */}
+        {overlay && (
+          <PLSSOverlay
+            overlay={{
+              section: showSectionOverlay ? overlay.section : null,
+              township: showTownshipOverlay ? overlay.township : null,
+              splits: showQuarterSplits ? overlay.splits : [],
+            }}
+            geoToScreen={geoToScreen}
+          />
+        )}
+
         {/* Geographic polygon overlay (only if georeferenced) */}
         {polygonData && (
           <PolygonOverlay
@@ -230,6 +281,15 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({ schemaData, polygo
             geoToScreen={geoToScreen}
             mapBounds={mapBounds}
           />
+        )}
+        {showValidationBanner && validation?.checks && (
+          <div style={{
+            position: 'absolute', bottom: 10, left: 10, background: 'rgba(0,0,0,0.55)',
+            color: '#fff', padding: '6px 8px', borderRadius: 4, fontSize: 11, pointerEvents: 'none'
+          }}>
+            In Section: {validation.checks.centroid_inside_section ? 'Yes' : 'No'} | Coverage: {(validation.checks.section_coverage_ratio*100).toFixed(0)}%
+            {validation.checks.quarter_quarter_inferred && ` | Inferred: ${validation.checks.quarter_quarter_inferred}`}
+          </div>
         )}
         
         {/* Status overlay */}

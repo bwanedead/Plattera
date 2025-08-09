@@ -38,10 +38,21 @@ class POBResolver:
         - Build UTM vertices at POB origin
         """
         corner_label = ((tie_to_corner or {}).get("corner_label") or "").strip()
-        # If the corner label encodes its own TRS (e.g., R74W), override for the corner query
-        override_plss = parse_corner_plss(corner_label) if corner_label else None
+        # Prefer explicit reference_plss if provided on the tie; else fall back to parsing tokens from label
+        ref_plss = (tie_to_corner or {}).get("reference_plss") or None
+        override_plss = parse_corner_plss(corner_label) if (corner_label and not ref_plss) else None
         plss_for_corner = dict(plss_anchor)
-        if override_plss:
+        if ref_plss:
+            # Explicit corner TRS override (section/range/township may differ from container)
+            plss_for_corner.update({
+                "section_number": ref_plss.get("section_number", plss_for_corner.get("section_number")),
+                "township_number": ref_plss.get("township_number", plss_for_corner.get("township_number")),
+                "township_direction": ref_plss.get("township_direction", plss_for_corner.get("township_direction")),
+                "range_number": ref_plss.get("range_number", plss_for_corner.get("range_number")),
+                "range_direction": ref_plss.get("range_direction", plss_for_corner.get("range_direction")),
+                "principal_meridian": ref_plss.get("principal_meridian", plss_for_corner.get("principal_meridian")),
+            })
+        elif override_plss:
             plss_for_corner.update(override_plss)
 
         anchor_geo: Dict[str, float]

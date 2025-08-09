@@ -357,6 +357,61 @@ class MappingApiService {
   }
 
   /**
+   * Get PLSS overlay geometry (section, township, quarter splits)
+   */
+  async getPLSSOverlay(plss: PLSSDescription): Promise<{
+    success: boolean;
+    section?: any;
+    township?: any | null;
+    splits?: any[];
+    bounds?: GeographicBounds;
+    error?: string;
+  }> {
+    try {
+      const res = await fetch(`${API_BASE}/plss/overlay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plss_description: plss }),
+      });
+      if (!res.ok) {
+        const e = await res.json();
+        throw new Error(e.detail || `HTTP ${res.status}`);
+      }
+      return await res.json();
+    } catch (e: any) {
+      console.error('❌ getPLSSOverlay error:', e);
+      return { success: false, error: e?.message || 'Unknown error' };
+    }
+  }
+
+  /**
+   * Validate georeferenced polygon against PLSS
+   */
+  async validateGeoref(plss: PLSSDescription, geographicPolygon: any): Promise<{
+    success: boolean;
+    checks?: any;
+    section_bounds?: GeographicBounds;
+    issues?: string[];
+    error?: string;
+  }> {
+    try {
+      const res = await fetch(`${API_BASE}/validate-georef`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plss_description: plss, geographic_polygon: geographicPolygon }),
+      });
+      if (!res.ok) {
+        const e = await res.json();
+        throw new Error(e.detail || `HTTP ${res.status}`);
+      }
+      return await res.json();
+    } catch (e: any) {
+      console.error('❌ validateGeoref error:', e);
+      return { success: false, error: e?.message || 'Unknown error' };
+    }
+  }
+
+  /**
    * Clear mapping cache
    */
   async clearCache(cacheType: 'plss' | 'tiles' | 'all' = 'all'): Promise<{ success: boolean; error?: string }> {

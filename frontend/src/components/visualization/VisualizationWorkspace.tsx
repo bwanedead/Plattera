@@ -15,6 +15,10 @@ interface LayerSettings {
   showGrid: boolean;
   showLabels: boolean;
   showOrigin: boolean;
+  showSectionOverlay: boolean;
+  showTownshipOverlay: boolean;
+  showQuarterSplits: boolean;
+  showValidationBanner: boolean;
 }
 
 interface VisualizationWorkspaceProps {
@@ -35,7 +39,11 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
     showPolygon: true,
     showGrid: true,
     showLabels: true,
-    showOrigin: true
+    showOrigin: true,
+    showSectionOverlay: true,
+    showTownshipOverlay: true,
+    showQuarterSplits: true,
+    showValidationBanner: true,
   });
 
   // Georeferenced polygon for map overlay
@@ -108,14 +116,13 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
           return;
         }
 
-        // Include starting_point if present on schema (tie_to_corner) and pass raw_text for reciprocal detection
+        // Include starting_point if present on schema (tie_to_corner) and pass raw_text inside tie for reciprocal detection
         if (chosen?.plss?.starting_point?.tie_to_corner) {
           req.starting_point = { 
             tie_to_corner: {
               ...chosen.plss.starting_point.tie_to_corner,
               raw_text: chosen.plss.starting_point?.raw_text || null
-            },
-            raw_text: chosen.plss.starting_point?.raw_text || null
+            }
           };
         }
 
@@ -207,6 +214,10 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
                   <MapBackground 
                     schemaData={schemaData}
                     polygonData={geoPolygonData}
+                    showSectionOverlay={layers.showSectionOverlay}
+                    showTownshipOverlay={layers.showTownshipOverlay}
+                    showQuarterSplits={layers.showQuarterSplits}
+                    showValidationBanner={layers.showValidationBanner}
                   />
                 )}
                 
@@ -215,6 +226,10 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
                     schemaData={schemaData}
                     polygonData={geoPolygonData}
                     showGrid={layers.showGrid}
+                    showSectionOverlay={layers.showSectionOverlay}
+                    showTownshipOverlay={layers.showTownshipOverlay}
+                    showQuarterSplits={layers.showQuarterSplits}
+                    showValidationBanner={layers.showValidationBanner}
                   />
                 )}
               </div>
@@ -271,6 +286,42 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
                   />
                   Origin
                 </label>
+                {(viewMode === 'map' || viewMode === 'hybrid') && (
+                  <>
+                    <label className="toggle-control">
+                      <input 
+                        type="checkbox" 
+                        checked={layers.showSectionOverlay}
+                        onChange={() => toggleLayer('showSectionOverlay')}
+                      />
+                      Section Overlay
+                    </label>
+                    <label className="toggle-control">
+                      <input 
+                        type="checkbox" 
+                        checked={layers.showTownshipOverlay}
+                        onChange={() => toggleLayer('showTownshipOverlay')}
+                      />
+                      Township Overlay
+                    </label>
+                    <label className="toggle-control">
+                      <input 
+                        type="checkbox" 
+                        checked={layers.showQuarterSplits}
+                        onChange={() => toggleLayer('showQuarterSplits')}
+                      />
+                      Quarter Splits
+                    </label>
+                    <label className="toggle-control">
+                      <input 
+                        type="checkbox" 
+                        checked={layers.showValidationBanner}
+                        onChange={() => toggleLayer('showValidationBanner')}
+                      />
+                      Validation Banner
+                    </label>
+                  </>
+                )}
               </div>
             </div>
 

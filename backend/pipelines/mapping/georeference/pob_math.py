@@ -111,7 +111,18 @@ def parse_tie_with_azimuth(tie: Dict[str, Any]) -> Tuple[float, float, float, bo
         return (0.0, 0.0, 0.0, False)
 
     azimuth_deg = float(parsed["bearing_degrees"])  # clockwise from north
-    apply_recip = needs_reciprocal_bearing(tie.get("raw_text"))
+
+    # Explicit tie direction override if provided
+    apply_recip = False
+    dir_hint = (tie.get("tie_direction") or "").strip().lower()
+    if dir_hint == "corner_bears_from_pob":
+        apply_recip = True
+    elif dir_hint == "pob_bears_from_corner":
+        apply_recip = False
+    else:
+        # Fallback heuristic from raw_text
+        apply_recip = needs_reciprocal_bearing(tie.get("raw_text"))
+
     if apply_recip:
         azimuth_deg = (azimuth_deg + 180.0) % 360.0
 
@@ -123,26 +134,43 @@ def parse_tie_with_azimuth(tie: Dict[str, Any]) -> Tuple[float, float, float, bo
 
 
 def parse_corner_plss(corner_label: str) -> Dict[str, Any] | None:
-    """Parse TRS tokens out of a tie corner label like 'NW corner Sec 2 T14N R74W'.
+    """Extract TRS from natural-language corner labels.
 
-    Returns dict with keys: section_number, township_number, township_direction, range_number, range_direction
-    when all tokens are present; otherwise None.
+    Supports verbose forms like:
+      '... Section Two (2), Township Fourteen (14) North, Range Seventy-four (74) West ...'
+    and compact tokens like 'Sec 2 T14N R74W'.
+    Returns dict with: section_number, township_number, township_direction, range_number, range_direction.
     """
     if not corner_label:
         return None
     import re
     text = corner_label.strip()
-    sec_m = re.search(r"\bS(?:ec(?:tion)?)?\s*(\d{1,2})\b", text, flags=re.IGNORECASE)
-    twp_m = re.search(r"\bT\s*(\d{1,2})\s*([NS])\b", text, flags=re.IGNORECASE)
-    rng_m = re.search(r"\bR\s*(\d{1,3})\s*([EW])\b", text, flags=re.IGNORECASE)
-    if not (sec_m and twp_m and rng_m):
-        return None
-    return {
-        "section_number": int(sec_m.group(1)),
-        "township_number": int(twp_m.group(1)),
-        "township_direction": twp_m.group(2).upper(),
-        "range_number": int(rng_m.group(1)),
-        "range_direction": rng_m.group(2).upper(),
-    }
+
+    # Prefer numeric values inside parentheses when present
+    sec_m = re.search(r"Section\s+[^\(]*\((\d{1,2})\)", text, flags=re.IGNORECASE)
+    twp_m = re.search(r"Township\s+[^\(]*\((\d{1,2})\)\s*(North|South)", text, flags=re.IGNORECASE)
+    rng_m = re.search(r"Range\s+[^\(]*\((\d{1,3})\)\s*(West|East)", text, flags=re.IGNORECASE)
+    if sec_m and twp_m and rng_m:
+        return {
+            "section_number": int(sec_m.group(1)),
+            "township_number": int(twp_m.group(1)),
+            "township_direction": twp_m.group(2)[0].upper(),
+            "range_number": int(rng_m.group(1)),
+            "range_direction": rng_m.group(2)[0].upper(),
+        }
+
+    # Fallback to compact tokens
+    sec_m2 = re.search(r"\bS(?:ec(?:tion)?)?\s*(\d{1,2})\b", text, flags=re.IGNORECASE)
+    twp_m2 = re.search(r"\bT\s*(\d{1,2})\s*([NS])\b", text, flags=re.IGNORECASE)
+    rng_m2 = re.search(r"\bR\s*(\d{1,3})\s*([EW])\b", text, flags=re.IGNORECASE)
+    if sec_m2 and twp_m2 and rng_m2:
+        return {
+            "section_number": int(sec_m2.group(1)),
+            "township_number": int(twp_m2.group(1)),
+            "township_direction": twp_m2.group(2).upper(),
+            "range_number": int(rng_m2.group(1)),
+            "range_direction": rng_m2.group(2).upper(),
+        }
+    return None
 
 
