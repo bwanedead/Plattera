@@ -79,8 +79,9 @@ export const getTextToSchemaModels = async (): Promise<SchemaModelsResponse> => 
     return {
       status: 'success',
       models: {
-        "gpt-4o": { name: "GPT-4o", provider: "openai" },
-        "gpt-4": { name: "GPT-4", provider: "openai" },
+        "gpt-5-mini": { name: "GPT-5 Mini", provider: "openai" },
+        "gpt-5": { name: "GPT-5", provider: "openai" },
+        "gpt-4o": { name: "GPT-4o", provider: "openai" }
       }
     };
   }

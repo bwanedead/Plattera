@@ -142,6 +142,24 @@ class OpenAIService(LLMService):
             "capabilities": ["text"],
             "description": "High-quality text processing model",
             "verification_required": False
+        },
+        "gpt-5": {
+            "name": "GPT-5",
+            "provider": "openai",
+            "cost_tier": "standard",
+            "capabilities": ["text"],
+            "description": "General GPT-5 model suitable for structured outputs",
+            "verification_required": False,
+            "api_model_name": "gpt-5"
+        },
+        "gpt-5-mini": {
+            "name": "GPT-5 Mini",
+            "provider": "openai",
+            "cost_tier": "budget",
+            "capabilities": ["text"],
+            "description": "Fast, lightweight model for structured extraction (text-only)",
+            "verification_required": False,
+            "api_model_name": "gpt-5-mini"
         }
     }
     
@@ -170,8 +188,8 @@ class OpenAIService(LLMService):
                 "messages": [{"role": "user", "content": prompt}]
             }
             
-            # o4-mini has specific parameter requirements
-            if "o4-mini" in api_model_name:
+            # Some small models require max_completion_tokens (no temperature)
+            if ("o4-mini" in api_model_name) or ("gpt-5-mini" in api_model_name) or ("gpt-5" in api_model_name) or ("gpt-5-nano" in api_model_name):
                 # o4-mini only supports default temperature (1), so don't include it
                 completion_params["max_completion_tokens"] = kwargs.get("max_tokens", 4000)
                 # Set reasoning effort to high for maximum accuracy
@@ -444,15 +462,19 @@ class OpenAIService(LLMService):
                 parcel_id = f"parcel-{int(time.time() * 1000)}"
             
             # Make the API call
-            completion = self.client.chat.completions.create(
-                model=api_model_name,
-                messages=[
-                    {"role": "user", "content": full_prompt}
-                ],
-                response_format=response_format,
-                temperature=0,
-                max_tokens=4000
-            )
+            # Build completion params with model-specific token field
+            completion_params = {
+                "model": api_model_name,
+                "messages": [{"role": "user", "content": full_prompt}],
+                "response_format": response_format,
+            }
+            if ("o4-mini" in api_model_name) or ("gpt-5-mini" in api_model_name) or ("gpt-5" in api_model_name) or ("gpt-5-nano" in api_model_name):
+                completion_params["max_completion_tokens"] = 4000
+            else:
+                completion_params["temperature"] = 0
+                completion_params["max_tokens"] = 4000
+
+            completion = self.client.chat.completions.create(**completion_params)
             
             # Extract the response
             response_content = completion.choices[0].message.content
@@ -515,9 +537,12 @@ class OpenAIService(LLMService):
                     "type": "json_schema",
                     "json_schema": schema  # ✅ Use passed-in schema
                 },
-                "temperature": kwargs.get("temperature", 0.1),
-                "max_tokens": kwargs.get("max_tokens", 4000)
             }
+            if ("o4-mini" in api_model_name) or ("gpt-5-mini" in api_model_name) or ("gpt-5" in api_model_name) or ("gpt-5-nano" in api_model_name):
+                completion_params["max_completion_tokens"] = kwargs.get("max_tokens", 4000)
+            else:
+                completion_params["temperature"] = kwargs.get("temperature", 0.1)
+                completion_params["max_tokens"] = kwargs.get("max_tokens", 4000)
             
             response = self.client.chat.completions.create(**completion_params)
             

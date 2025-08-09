@@ -339,11 +339,18 @@ class TextToSchemaPipeline:
     def get_available_models(self) -> dict:
         """Get models available for text-to-schema processing"""
         all_models = self.registry.get_all_models()
-        
-        # Filter for models that can process text
-        text_models = {}
-        for model_id, model_info in all_models.items():
-            if "text" in model_info.get("capabilities", []):
-                text_models[model_id] = model_info
-                
-        return text_models 
+
+        # Whitelist for Text-to-Schema task
+        allowed = [
+            "gpt-5-mini",  # default
+            "gpt-5",       # first fallback
+            "gpt-4o",      # second fallback
+        ]
+
+        filtered: dict = {}
+        for mid in allowed:
+            info = all_models.get(mid)
+            if info and ("text" in info.get("capabilities", [])):
+                filtered[mid] = info
+
+        return filtered
