@@ -39,7 +39,7 @@
             "plss": {
               "type": "object",
               "description": "Public Land Survey System information",
-              "required": ["state", "county", "principal_meridian", "township_number", "township_direction", "range_number", "range_direction", "section_number", "quarter_sections", "starting_point"],
+              "required": ["state", "county", "principal_meridian", "township_number", "township_direction", "range_number", "range_direction", "section_number", "quarter_sections", "starting_point", "raw_text"],
               "additionalProperties": false,
               "properties": {
                 "state": { 
@@ -81,6 +81,10 @@
                 "quarter_sections": { 
                   "type": ["string", "null"], 
                   "description": "Quarter-section description exactly as written" 
+                },
+                "raw_text": { 
+                  "type": ["string", "null"], 
+                  "description": "Full PLSS clause text as written" 
                 },
                 
                 "starting_point": {

@@ -143,6 +143,8 @@ class TextToSchemaPipeline:
         
         for desc in parcel_data['descriptions']:
             if 'plss' in desc and 'metes_and_bounds' in desc:
+                # Reset advisories for this description
+                qc_advisories = []
                 # Check PLSS completeness
                 plss_ok = all(desc["plss"].get(k) is not None for k in ESSENTIAL_PLSS)
                 
@@ -153,36 +155,34 @@ class TextToSchemaPipeline:
                 sp = desc["plss"]["starting_point"]
                 pob_ok = sp["pob_status"] in {"explicit", "deducible", "resolved"}
 
-                # Add QC advisories (non-blocking)
-                qc_advisories = []
-                if pob_ok and sp["pob_status"] == "deducible" and sp.get("tie_to_corner"):
-                    main_range = desc["plss"].get("range_number")
-                    tie_corner = sp["tie_to_corner"].get("corner_label", "")
-                    
-                    # Extract range from corner label (e.g., "NW corner Sec 2 T14N R74W")
-                    range_match = re.search(r'R(\d+)W', tie_corner)
-                    if range_match and main_range:
-                        tie_range = int(range_match.group(1))
-                        range_diff = abs(tie_range - main_range)
-                        
-                        if range_diff == 1:
-                            # Adjacent range - normal survey practice
-                            qc_advisories.append({
-                                "type": "range_adjacent",
-                                "severity": "info",
-                                "field": "starting_point.tie_to_corner",
-                                "message": f"POB tied to adjacent range corner (R{tie_range}W) while parcel is in R{main_range}W—normal survey practice",
-                                "blocking": False
-                            })
-                        elif range_diff > 1:
-                            # Potentially problematic range difference
-                            qc_advisories.append({
-                                "type": "range_mismatch",
-                                "severity": "warning", 
-                                "field": "starting_point.tie_to_corner",
-                                "message": f"Range difference of {range_diff} between PLSS (R{main_range}W) and tie corner (R{tie_range}W)—review if unexpected",
-                                "blocking": False
-                            })
+                # Strengthen for deducible POB:
+                if pob_ok and sp["pob_status"] == "deducible":
+                    tie = sp.get("tie_to_corner") or {}
+                    required_tie = ["corner_label", "bearing_raw", "distance_value", "distance_units", "tie_direction"]
+                    tie_fields_ok = all(tie.get(k) is not None for k in required_tie)
+
+                    if not tie_fields_ok:
+                        pob_ok = False
+
+                    # If the tie corner label indicates a different range, require reference_plss
+                    if tie_fields_ok:
+                        corner_label = tie.get("corner_label", "")
+                        range_match = re.search(r'R(\d+)([EW])', corner_label, flags=re.IGNORECASE)
+                        if range_match:
+                            tie_range = int(range_match.group(1))
+                            tie_rdir = range_match.group(2).upper()
+                            main_range = desc["plss"].get("range_number")
+                            main_rdir = (desc["plss"].get("range_direction") or "").upper()
+                            if main_range and main_rdir and (tie_range != main_range or tie_rdir != main_rdir):
+                                if not tie.get("reference_plss"):
+                                    pob_ok = False
+                                    qc_advisories.append({
+                                        "type": "missing_reference_plss",
+                                        "severity": "warning",
+                                        "field": "starting_point.tie_to_corner.reference_plss",
+                                        "message": "Tie corner appears to be in a different TRS; reference_plss is required for disambiguation.",
+                                        "blocking": False
+                                    })
 
                 # Add advisories to description (non-blocking)
                 if qc_advisories:

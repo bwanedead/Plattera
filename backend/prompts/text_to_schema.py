@@ -28,18 +28,44 @@ CRITICAL RULES FOR OPENAI JSON SCHEMA COMPLIANCE:
    • section_number = integer
    Do NOT include words like "Township" or "Range".
 
+8.1 CONTAINER VS. REFERENCE TRS
+   • plss.* represents the container TRS where the parcel described in this description sits.
+   • If the deed ties the POB to a corner in a different TRS, you MUST populate:
+     plss.starting_point.tie_to_corner.reference_plss with:
+       - principal_meridian (string)
+       - section_number (integer 1–36)
+       - township_number (integer), township_direction ("N" or "S")
+       - range_number (integer), range_direction ("E" or "W")
+   • Do NOT merge container and reference TRS; keep them separate. Do NOT overwrite container fields with the tie’s TRS.
+
+8.2 QUARTER SECTIONS
+   • Keep quarter_sections exactly as written; do not derive or expand.
+
+8.3 NO MERGING
+   • Never combine container plss.* with reference_plss; both must be output if tie references a different TRS.
+
 9. **COMPLETENESS FLAG**
-   • If any essential mapping fields are missing for a description, set `"is_complete": false`.
+   • A description is complete ONLY if:
+     (a) plss has non-null essential fields:
+         state, county, principal_meridian, township_number, township_direction,
+         range_number, range_direction, section_number
+     (b) metes_and_bounds.boundary_courses has at least 3 legs
+     (c) A valid POB:
+         - pob_status = "explicit" with latitude+longitude, OR
+         - pob_status = "deducible" AND tie_to_corner includes:
+           corner_label, bearing_raw, distance_value, distance_units, tie_direction.
+           If the tie references a different TRS, reference_plss MUST be present.
+   • If any of (a), (b), or (c) is not satisfied, set "is_complete": false.
 
 10. **POINT OF BEGINNING TAGGING**
-   • If deed states lat/lon → pob_status = "explicit"; tie_to_corner = null.
-   • If deed gives a bearing+distance from a PLSS corner → pob_status = "deducible"
-     and fill tie_to_corner with:
-       - corner_label  (e.g. "NW corner Sec 2 T14N R74W")
-       - bearing_raw   (copy exactly: "N. 4°00'W.")
-       - distance_value (numeric only)
-       - distance_units ("feet", "chains", etc.)
-   • If neither is true or text is contradictory → pob_status = "ambiguous"; tie_to_corner = null.
+   • If a tie references a corner in a different TRS than the container, include
+     plss.starting_point.tie_to_corner.reference_plss exactly (see 8.1).
+   • Set metes_and_bounds.pob_vertex_index = 0 if the boundary sequence begins at the deed POB; otherwise null.
+   • tie_direction:
+     - "corner_bears_from_pob" when the deed says "whence the [corner] bears ... distant"
+       (bearing stated from the POB to the corner; implies reciprocal in georeferencing).
+     - "pob_bears_from_corner" when bearing is stated from the corner to the POB (no reciprocal).
+     Do NOT leave tie_direction null when a tie is present.
 
 EXTRACTION GUIDELINES:
 - For "distance" fields: Extract ONLY the numeric value (e.g., "542 feet more or less" → distance: 542)
@@ -92,15 +118,25 @@ EXAMPLE OUTPUT STRUCTURE:
           "pob_status": "deducible",
           "tie_to_corner": {
             "corner_label": "NW corner Sec 2 T14N R74W",
+            "reference_plss": {
+              "principal_meridian": "Sixth Principal Meridian",
+              "section_number": 2,
+              "township_number": 14,
+              "township_direction": "N",
+              "range_number": 74,
+              "range_direction": "W"
+            },
             "bearing_raw": "N. 4°00'W.",
             "distance_value": 1638,
-            "distance_units": "feet"
+            "distance_units": "feet",
+            "tie_direction": "corner_bears_from_pob"
           }
         },
         "stated_area_acres": 1.9,
-        "raw_text": "Situated in the Southwest Quarter of the Northwest Quarter..."
+        "raw_text": "Situated in the Southwest Quarter of the Northwest Quarter of Section Two (2), Township Fourteen (14) North, Range Seventy-five (75) West of the Sixth Principal Meridian, Albany County, Wyoming."
       },
       "metes_and_bounds": {
+        "pob_vertex_index": 0,
         "boundary_courses": [
           {
             "leg_id": 1,
@@ -113,7 +149,7 @@ EXAMPLE OUTPUT STRUCTURE:
           }
         ],
         "closes_to_start": true,
-        "raw_text": "Beginning at a point... thence N. 68°30'E..."
+        "raw_text": "Beginning at a point on the west boundary … thence N. 68°30'E. … thence S. 87° 35' W. … thence S. 4° 00' E. … to the point of beginning"
       }
     }
   ],
