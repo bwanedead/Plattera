@@ -101,23 +101,32 @@ export const alignDraftsAPI = async (drafts: AlignmentDraft[], consensusStrategy
   try {
     console.log(`Aligning ${drafts.length} drafts with strategy: ${consensusStrategy}`);
     
-    const response = await fetch('http://localhost:8000/api/alignment/align-drafts', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        drafts,
-        generate_visualization: true,
-        consensus_strategy: consensusStrategy
-      })
-    });
+    const attempt = async () => {
+      const response = await fetch('http://localhost:8000/api/alignment/align-drafts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          drafts,
+          generate_visualization: true,
+          consensus_strategy: consensusStrategy
+        })
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return response.json();
+    };
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    let data;
+    try {
+      data = await attempt();
+    } catch (e) {
+      // brief backoff and retry once
+      await new Promise(r => setTimeout(r, 300));
+      data = await attempt();
     }
-
-    const data = await response.json();
     console.log("Alignment API response:", data);
 
     return data;

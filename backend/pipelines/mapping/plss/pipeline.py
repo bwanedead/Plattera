@@ -74,6 +74,8 @@ class PLSSPipeline:
                     "success": False,
                     "error": f"Failed to load PLSS data for {state}: {data_result['error']}"
                 }
+            # Bulk FGDB mode: use vector_data as-is
+            prepared_vector = {"success": True, "vector_data": data_result["vector_data"]}
             
             # Resolve coordinates using vector data
             resolution_result = self.coordinate_resolver.resolve_coordinates(
@@ -85,7 +87,7 @@ class PLSSPipeline:
                 section=section,
                 quarter_sections=quarter_sections,
                 principal_meridian=principal_meridian,
-                vector_data=data_result["vector_data"]
+                vector_data=prepared_vector["vector_data"]
             )
             
             if not resolution_result["success"]:
@@ -122,6 +124,30 @@ class PLSSPipeline:
                 "success": False,
                 "error": f"PLSS pipeline error: {str(e)}"
             }
+
+    def _prepare_vector_data_for_township(self, vector_data: dict, plss_description: dict) -> dict:
+        """Ensure per-township sections exist and return updated vector_data with sections path.
+
+        Keeps townships statewide file reference intact.
+        """
+        try:
+            state = plss_description.get("state")
+            t = int(plss_description.get("township_number"))
+            td = (plss_description.get("township_direction") or "").upper()
+            r = int(plss_description.get("range_number"))
+            rd = (plss_description.get("range_direction") or "").upper()
+
+            ensure = self.data_manager.ensure_township_sections(state, t, td, r, rd)
+            if not ensure.get("success"):
+                return {"success": False, "error": ensure.get("error", "Unable to ensure township sections")}
+
+            updated = dict(vector_data)
+            layers = dict(vector_data.get("layers", {}))
+            layers["sections"] = ensure["output_path"]
+            updated["layers"] = layers
+            return {"success": True, "vector_data": updated}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
     
     def _validate_plss_description(self, plss_description: dict) -> dict:
         """Validate PLSS description has required fields"""
@@ -183,8 +209,6 @@ class PLSSPipeline:
             data_result = self.data_manager.ensure_state_data(state)
             if not data_result.get("success"):
                 return data_result
-            return self.section_view.get_section_corner(
-                data_result["vector_data"], plss_description, corner_label
-            )
+            return self.section_view.get_section_corner(data_result["vector_data"], plss_description, corner_label)
         except Exception as e:
             return {"success": False, "error": str(e)}

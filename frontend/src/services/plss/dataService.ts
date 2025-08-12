@@ -61,11 +61,17 @@ export class PLSSDataService {
   /**
    * Download PLSS data for a given state
    */
-  async downloadData(state: string): Promise<PLSSDataDownloadResult> {
+  async downloadData(state: string, plssHint?: {
+    township_number: number;
+    township_direction: string;
+    range_number: number;
+    range_direction: string;
+  }): Promise<PLSSDataDownloadResult> {
     try {
       const response = await fetch(`${this.apiBase}/download-plss/${state}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(plssHint ? { plss_hint: plssHint } : {})
       });
       
       if (!response.ok) {
@@ -80,6 +86,39 @@ export class PLSSDataService {
         success: false, 
         error: error instanceof Error ? error.message : 'Unknown error' 
       };
+    }
+  }
+
+  /** Start background download for state */
+  async startBackgroundDownload(state: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetch(`${this.apiBase}/download-plss/${state}/start`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Unknown error' };
+    }
+  }
+
+  /** Poll progress for current download */
+  async getDownloadProgress(state: string): Promise<{ success: boolean; stage?: string; overall?: { downloaded: number; total: number; percent: number }; error?: string }>{
+    try {
+      const res = await fetch(`${this.apiBase}/download-plss/${state}/progress`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Unknown error' };
+    }
+  }
+
+  /** Request cancel of current download */
+  async cancelDownload(state: string): Promise<{ success: boolean; error?: string }>{
+    try {
+      const res = await fetch(`${this.apiBase}/download-plss/${state}/cancel`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Unknown error' };
     }
   }
 

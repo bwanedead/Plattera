@@ -2,7 +2,7 @@
 Mapping API Endpoints
 Geographic mapping functionality for converting polygons to real-world coordinates
 """
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Body
 from fastapi.responses import FileResponse
 from typing import Optional, Dict, Any, List
 import logging
@@ -223,12 +223,17 @@ async def plss_overlay(request: Dict[str, Any]) -> Dict[str, Any]:
         if not data.get("success"):
             raise HTTPException(status_code=400, detail=data.get("error", "PLSS data unavailable"))
 
-        sec_geo = plss.section_view.get_section_geometry(data["vector_data"], plss_description)
+        # Ensure per-township sections are present for this request
+        prepared = plss._prepare_vector_data_for_township(data["vector_data"], plss_description)
+        if not prepared.get("success"):
+            raise HTTPException(status_code=400, detail=prepared.get("error", "Sections unavailable"))
+
+        sec_geo = plss.section_view.get_section_geometry(prepared["vector_data"], plss_description)
         if not sec_geo.get("success"):
             raise HTTPException(status_code=400, detail=sec_geo.get("error"))
 
-        splits = plss.section_view.get_section_splits(data["vector_data"], plss_description)
-        twp_geo = plss.section_view.get_township_geometry(data["vector_data"], plss_description)
+        splits = plss.section_view.get_section_splits(prepared["vector_data"], plss_description)
+        twp_geo = plss.section_view.get_township_geometry(prepared["vector_data"], plss_description)
 
         sec_shape = shape(sec_geo["geometry"])
         minx, miny, maxx, maxy = sec_shape.bounds
@@ -628,7 +633,7 @@ async def check_plss_data_status(state: str) -> Dict[str, Any]:
 
 @router.post("/download-plss/{state}")
 @router.post("/download-plss/{state}/")
-async def download_plss_data(state: str) -> Dict[str, Any]:
+async def download_plss_data(state: str, request: Dict[str, Any] | None = Body(default=None)) -> Dict[str, Any]:
     """Download PLSS data for a state (explicit user action)"""
     try:
         logger.info(f"📦 User requested download of PLSS data for {state}")
@@ -636,22 +641,52 @@ async def download_plss_data(state: str) -> Dict[str, Any]:
         from pipelines.mapping.plss.data_manager import PLSSDataManager
         data_manager = PLSSDataManager()
         
-        # Perform the download
+        # Perform the download (bulk FGDB for WY)
         result = data_manager.ensure_state_data(state)
         
         if result.get('success'):
+            # Optional: prefetch sections for the hinted township/range
+            # In bulk FGDB mode, no per-township prefetch is required
             logger.info(f"✅ PLSS data download completed for {state}")
             return {
                 "success": True,
                 "state": state,
                 "message": f"PLSS data for {state} downloaded successfully",
-                "features_count": result.get('features_count', 0)
+                "features_count": result.get('features_count', 0),
+                "prefetch": result.get("prefetch_sections")
             }
         else:
             return {"success": False, "error": result.get('error', 'Unknown error')}
             
     except Exception as e:
         logger.error(f"❌ PLSS data download failed for {state}: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+@router.post("/download-plss/{state}/start")
+async def start_download_plss_background(state: str) -> Dict[str, Any]:
+    try:
+        from pipelines.mapping.plss.data_manager import PLSSDataManager
+        dm = PLSSDataManager()
+        return dm.start_bulk_install_background(state)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@router.get("/download-plss/{state}/progress")
+async def get_download_progress(state: str) -> Dict[str, Any]:
+    try:
+        from pipelines.mapping.plss.data_manager import PLSSDataManager
+        dm = PLSSDataManager()
+        return dm.get_progress(state)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@router.post("/download-plss/{state}/cancel")
+async def cancel_download(state: str) -> Dict[str, Any]:
+    try:
+        from pipelines.mapping.plss.data_manager import PLSSDataManager
+        dm = PLSSDataManager()
+        return dm.request_cancel(state)
+    except Exception as e:
         return {"success": False, "error": str(e)}
 
 @router.get("/test-plss-debug")

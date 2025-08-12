@@ -7,6 +7,8 @@ interface PLSSDownloadModalProps {
   onDownload: () => void;
   onCancel: () => void;
   isDownloading: boolean;
+  progressText?: string | null;
+  onHardCancel?: () => void;
 }
 
 /**
@@ -19,7 +21,9 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
   state,
   onDownload,
   onCancel,
-  isDownloading
+  isDownloading,
+  progressText,
+  onHardCancel
 }) => {
   if (!isOpen) return null;
 
@@ -31,7 +35,8 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
             Need to download PLSS data for <strong>{state}</strong> from BLM.
           </p>
           <p className="plss-modal-details">
-            One-time download, stored locally for future use.
+            This will download Wyoming PLSS bulk data (Townships, Sections, Subdivisions) for offline use.
+            Approximate size: ~700MB download; ~0.8–1.6GB on disk after install.
           </p>
         </div>
         
@@ -51,13 +56,42 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
             {isDownloading ? (
               <>
                 <div className="plss-spinner"></div>
-                Downloading...
+                {progressText || 'Downloading...'}
               </>
             ) : (
               'Download'
             )}
           </button>
         </div>
+
+        {isDownloading && (
+          <div className="plss-progress-bar" style={{ marginTop: 12 }}>
+            <div className="plss-progress-track" style={{ height: 6, background: '#222', borderRadius: 4 }}>
+              <div
+                className="plss-progress-fill"
+                style={{
+                  height: 6,
+                  width: `${(() => {
+                    const m = /([0-9]{1,3})%/.exec(progressText || '')?.[1];
+                    const p = m ? parseInt(m, 10) : 0;
+                    return Math.max(0, Math.min(p, 100));
+                  })()}%`,
+                  background: 'linear-gradient(90deg, #6ee7ff, #7c3aed)',
+                  borderRadius: 4,
+                  transition: 'width 300ms ease'
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#aaa', marginTop: 6 }}>
+              <span>{progressText || 'Preparing...'}</span>
+              {onHardCancel && (
+                <button className="plss-btn small" onClick={onHardCancel} style={{ background: 'transparent', color: '#bbb' }}>
+                  Stop
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>,
     document.body

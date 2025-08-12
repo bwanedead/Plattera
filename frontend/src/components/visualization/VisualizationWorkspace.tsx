@@ -7,6 +7,7 @@ import { GridBackground } from './backgrounds/GridBackground';
 import { MapBackground } from './backgrounds/MapBackground';
 import { PolygonLayer } from './layers/PolygonLayer';
 import { mappingApi } from '../../services/mapping';
+import { usePLSSData } from '../../hooks/usePLSSData';
 
 type ViewMode = 'grid' | 'map' | 'hybrid';
 
@@ -49,6 +50,9 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
   // Georeferenced polygon for map overlay
   const [geoPolygonData, setGeoPolygonData] = useState<any | null>(null);
 
+  // PLSS data readiness (prevents backend auto-download on project attempt)
+  const { status: plssStatus } = usePLSSData(schemaData);
+
   const toggleLayer = (layer: keyof LayerSettings) => {
     setLayers(prev => ({ ...prev, [layer]: !prev[layer] }));
   };
@@ -73,6 +77,12 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
           return;
         }
         if (!(viewMode === 'map' || viewMode === 'hybrid')) {
+          setGeoPolygonData(null);
+          return;
+        }
+
+        // Require PLSS data to be ready to avoid triggering backend auto-download
+        if (plssStatus !== 'ready') {
           setGeoPolygonData(null);
           return;
         }
@@ -150,7 +160,7 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
     };
 
     runGeoref();
-  }, [viewMode, polygon, schemaData]);
+  }, [viewMode, polygon, schemaData, plssStatus]);
 
   if (!isOpen) return null;
 

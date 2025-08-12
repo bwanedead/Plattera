@@ -1,11 +1,18 @@
 """
 PLSS Data Manager
-Handles downloading, caching, and management of PLSS vector data using BLM CadNSDI REST API
+Handles downloading, caching, and management of PLSS vector data
+
+Bulk FGDB approach for Wyoming (stable, offline):
+- Downloads statewide File Geodatabases (FGDB) for Townships, Sections (First Division), and Subdivisions
+- Installs to plss/<state>/fgdb/
+- Creates processed summary with FGDB layer references for consumers
 """
 import logging
+import threading
 import os
 import requests
 import geopandas as gpd
+import fiona
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import json
@@ -38,15 +45,19 @@ class PLSSDataManager:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_file = self.data_dir / "metadata.json"
         
-        # BLM CadNSDI REST API configuration
-        self.blm_mapserver_base = "https://gis.blm.gov/arcgis/rest/services/Cadastral/BLM_Natl_PLSS_CadNSDI/MapServer"
-        
-        # Layer definitions from BLM CadNSDI
-        self.blm_layers = {
-            "township": 0,      # Township/Range polygons  
-            "section": 1,       # Section (1st div) polygons & centroids
-            "special": 3        # Special surveys/lots
-        }
+        # BLM ArcGIS Hub FGDB endpoints for Wyoming
+        # Townships (PLSS Township)
+        self.wy_fgdb_townships_url = (
+            "https://gbp-blm-egis.hub.arcgis.com/api/download/v1/items/94fc3c33aea845399966ca777ec71089/filegdb?layers=0"
+        )
+        # First Division (Sections)
+        self.wy_fgdb_sections_url = (
+            "https://gbp-blm-egis.hub.arcgis.com/api/download/v1/items/164a262d820540a4a956a0db169d14b5/filegdb?layers=1"
+        )
+        # Second/Third Division (quarters, QQ, gov lots)
+        self.wy_fgdb_subdivisions_url = (
+            "https://gbp-blm-egis.hub.arcgis.com/api/download/v1/items/f484aef3642d4756a352cf2b63d5009d/filegdb?layers=0"
+        )
         
         # State abbreviations mapping  
         self.state_abbrevs = {
@@ -88,9 +99,9 @@ class PLSSDataManager:
                 logger.info(f"✅ Using cached PLSS data for {state}")
                 return self._load_cached_data(state)
             
-            # Download and cache data from BLM CadNSDI
-            logger.info(f"⬇️ Downloading PLSS data for {state} from BLM CadNSDI")
-            download_result = self._download_state_data_from_blm(state, state_abbr)
+            # Download and cache data (Bulk FGDB for Wyoming)
+            logger.info(f"⬇️ Downloading PLSS data for {state} (bulk FGDB)")
+            download_result = self._download_state_data_bulk_fgdb(state, state_abbr)
             if not download_result["success"]:
                 return download_result
             
@@ -112,44 +123,276 @@ class PLSSDataManager:
                 "error": f"Data management error: {str(e)}"
             }
     
-    def _download_state_data_from_blm(self, state: str, state_abbr: str) -> dict:
-        """Download PLSS data for state from BLM CadNSDI REST API"""
+    # ---- Progress & cancel helpers ----
+    def _progress_path(self, state: str) -> Path:
+        return (self.data_dir / state.lower()) / "download_progress.json"
+
+    def _cancel_flag_path(self, state: str) -> Path:
+        return (self.data_dir / state.lower()) / "cancel.flag"
+
+    def _write_progress(self, state: str, progress: dict) -> None:
         try:
-            state_dir = self.data_dir / state.lower()
-            
-            # Download sections (most commonly used layer)
-            sections_result = self._download_layer_data(
-                state_abbr, 
-                self.blm_layers["section"], 
-                state_dir / "sections.geojson"
-            )
-            if not sections_result["success"]:
-                return sections_result
-            
-            # Download townships for broader context
-            townships_result = self._download_layer_data(
-                state_abbr,
-                self.blm_layers["township"],
-                state_dir / "townships.geojson"
-            )
-            if not townships_result["success"]:
-                logger.warning(f"Township download failed: {townships_result['error']}")
-                # Continue without townships - sections are sufficient
-            
-            return {
-                "success": True,
-                "downloaded_layers": ["sections", "townships"],
-                "source": "BLM_CadNSDI"
+            p = self._progress_path(state)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with open(p, 'w') as f:
+                json.dump(progress, f)
+        except Exception:
+            pass
+
+    def get_progress(self, state: str) -> dict:
+        try:
+            p = self._progress_path(state)
+            if not p.exists():
+                return {"success": True, "stage": "idle"}
+            with open(p, 'r') as f:
+                data = json.load(f)
+            return {"success": True, **data}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def request_cancel(self, state: str) -> dict:
+        try:
+            flag = self._cancel_flag_path(state)
+            flag.write_text("cancel")
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def start_bulk_install_background(self, state: str) -> dict:
+        try:
+            if state not in self.state_abbrevs:
+                return {"success": False, "error": f"Unsupported state: {state}"}
+            # Clear previous cancel flag
+            flag = self._cancel_flag_path(state)
+            if flag.exists():
+                try:
+                    flag.unlink()
+                except Exception:
+                    pass
+            # Start background thread
+            t = threading.Thread(target=self.ensure_state_data, args=(state,), daemon=True)
+            t.start()
+            return {"success": True, "started": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def _download_state_data_bulk_fgdb(self, state: str, state_abbr: str) -> dict:
+        """Download and install statewide FGDBs for Wyoming."""
+        try:
+            if state != "Wyoming" or state_abbr != "WY":
+                return {"success": False, "error": f"Bulk FGDB not configured for {state}"}
+
+            base_dir = self.data_dir / state.lower()
+            raw_dir = base_dir / "raw"
+            fgdb_dir = base_dir / "fgdb"
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            fgdb_dir.mkdir(parents=True, exist_ok=True)
+
+            # Initialize progress file
+            progress = {
+                "stage": "initializing",
+                "files": [],
+                "overall": {"downloaded": 0, "total": 0, "percent": 0}
             }
+            self._write_progress(state, progress)
+
+            downloads = [
+                (self.wy_fgdb_townships_url, raw_dir / "wy_townships_fgdb.zip"),
+                (self.wy_fgdb_sections_url, raw_dir / "wy_sections_fgdb.zip"),
+                (self.wy_fgdb_subdivisions_url, raw_dir / "wy_subdivisions_fgdb.zip"),
+            ]
+
+            # Pre-fetch content-lengths (may be inaccurate or zero; we'll correct dynamically on stream begin)
+            sizes = []
+            for url, _ in downloads:
+                sizes.append(self._head_content_length(url) or 0)
+            total_bytes = sum(sizes)
+            progress["overall"]["total"] = total_bytes
+            self._write_progress(state, progress)
+
+            downloaded_cumulative = 0
+            for (idx, (url, out_zip)) in enumerate(downloads):
+                file_label = out_zip.name
+                file_total = sizes[idx]
+                # Cancellation check
+                if self._cancel_flag_path(state).exists():
+                    progress.update({"stage": "canceled"})
+                    self._write_progress(state, progress)
+                    if out_zip.exists():
+                        try:
+                            out_zip.unlink()
+                        except Exception:
+                            pass
+                    return {"success": False, "error": "Canceled by user"}
+                progress.update({"stage": f"downloading:{file_label}"})
+                self._write_progress(state, progress)
+
+                def on_prog(written_bytes: int):
+                    # written_bytes includes resume offset + current file writes
+                    per_file_downloaded = written_bytes
+                    # Estimate overall downloaded
+                    overall_downloaded = downloaded_cumulative + per_file_downloaded
+                    # Keep percent below 100% during active download to avoid UI stall when HEAD is unreliable
+                    est_total = total_bytes if total_bytes > 0 else (overall_downloaded + 1)
+                    pct = int(overall_downloaded * 100 / est_total)
+                    if pct >= 100:
+                        pct = 99
+                    self._write_progress(state, {
+                        "stage": f"downloading:{file_label}",
+                        "files": [{
+                            "file": file_label,
+                            "downloaded": int(per_file_downloaded),
+                            "total": int(file_total)
+                        }],
+                        "overall": {"downloaded": int(overall_downloaded), "total": int(total_bytes), "percent": pct}
+                    })
+
+                # Allow dynamic correction of file size once streaming begins
+                def on_begin(total_for_file: int, resume_bytes: int):
+                    nonlocal file_total, total_bytes
+                    if total_for_file and total_for_file > file_total:
+                        delta = total_for_file - file_total
+                        file_total = total_for_file
+                        total_bytes += delta
+                        self._write_progress(state, {
+                            "stage": f"downloading:{file_label}",
+                            "files": [{"file": file_label, "downloaded": int(resume_bytes), "total": int(file_total)}],
+                            "overall": {"downloaded": int(downloaded_cumulative + resume_bytes), "total": int(total_bytes), "percent": min(99, int((downloaded_cumulative + resume_bytes) * 100 / (total_bytes or 1)))}
+                        })
+
+                ok = self._download_with_resume(
+                    url,
+                    out_zip,
+                    total_size=file_total,
+                    on_progress=on_prog,
+                    cancel_flag=self._cancel_flag_path(state),
+                    on_cancel=lambda: self._write_progress(state, {"stage": "canceled"}),
+                    on_begin=on_begin,
+                )
+                if not ok:
+                    return {"success": False, "error": f"Failed to download {url}"}
+                downloaded_cumulative += file_total or out_zip.stat().st_size
+                # Post-file progress write
+                self._write_progress(state, {
+                    "stage": f"downloaded:{file_label}",
+                    "files": [{"file": file_label, "downloaded": int(file_total or out_zip.stat().st_size), "total": int(file_total)}],
+                    "overall": {"downloaded": int(downloaded_cumulative), "total": int(total_bytes), "percent": min(99, int(downloaded_cumulative * 100 / total_bytes) if total_bytes else 99)}
+                })
+                # Cancellation check before unzip
+                if self._cancel_flag_path(state).exists():
+                    self._write_progress(state, {"stage": "canceled"})
+                    return {"success": False, "error": "Canceled by user"}
+                self._unzip_file(out_zip, fgdb_dir)
+
+            # Validate FGDBs exist by opening layers (best-effort)
+            self._write_progress(state, {"stage": "validating"})
+            validation = self._validate_wy_fgdb_layers(fgdb_dir)
+            if not validation["success"]:
+                return validation
+            self._write_progress(state, {"stage": "finalizing"})
+
+            # Process and write manifest; then mark complete so UI can stop polling
+            proc = self._process_state_data(state)
+            if not proc.get("success"):
+                return proc
+            self._write_progress(state, {"stage": "complete"})
+
+            return {"success": True, "installed": True, "fgdb_path": str(fgdb_dir)}
             
         except Exception as e:
-            return {
-                "success": False,
-                "error": f"BLM download failed: {str(e)}"
-            }
+            return {"success": False, "error": str(e)}
+
+    def _download_with_resume(self, url: str, dest: Path, chunk_size: int = 2 * 1024 * 1024, total_size: int | None = None, on_progress=None, cancel_flag: Path | None = None, on_cancel=None, on_begin=None) -> bool:
+        """Download a file with HTTP Range resume support."""
+        try:
+            headers = {"User-Agent": "Plattera/1.0 (PLSS Bulk Installer)"}
+            mode = "ab" if dest.exists() else "wb"
+            resume_at = dest.stat().st_size if dest.exists() else 0
+            if resume_at > 0:
+                headers["Range"] = f"bytes={resume_at}-"
+            with requests.get(url, headers=headers, stream=True, timeout=300) as r:
+                if r.status_code in (200, 206):
+                    # If server provides a reliable length, correct totals
+                    try:
+                        cl = r.headers.get('Content-Length') or r.headers.get('content-length')
+                        if cl and on_begin:
+                            on_begin(int(cl) + resume_at, resume_at)
+                    except Exception:
+                        pass
+                    written = resume_at
+                    with open(dest, mode) as f:
+                        for chunk in r.iter_content(chunk_size=chunk_size):
+                            if not chunk:
+                                continue
+                            if cancel_flag is not None and cancel_flag.exists():
+                                # Cleanup partial file and return
+                                try:
+                                    f.flush()
+                                    f.close()
+                                except Exception:
+                                    pass
+                                try:
+                                    dest.unlink()
+                                except Exception:
+                                    pass
+                                if on_cancel:
+                                    try:
+                                        on_cancel()
+                                    except Exception:
+                                        pass
+                                return False
+                            f.write(chunk)
+                            written += len(chunk)
+                            if on_progress:
+                                try:
+                                    on_progress(written)
+                                except Exception:
+                                    pass
+                    return True
+                else:
+                    logger.error(f"Download failed {url}: HTTP {r.status_code}")
+                    return False
+        except Exception as e:
+            logger.error(f"Download error for {url}: {e}")
+            return False
+
+    def _unzip_file(self, zip_path: Path, out_dir: Path) -> None:
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(out_dir)
+        except Exception as e:
+            logger.warning(f"Unzip failed for {zip_path}: {e}")
+
+    def _head_content_length(self, url: str) -> Optional[int]:
+        try:
+            r = requests.head(url, timeout=30)
+            if r.status_code < 400:
+                cl = r.headers.get('Content-Length') or r.headers.get('content-length')
+                if cl:
+                    return int(cl)
+        except Exception:
+            return None
+        return None
+
+    def _validate_wy_fgdb_layers(self, fgdb_dir: Path) -> dict:
+        """Basic validation: ensure at least one .gdb exists and is readable.
+        We defer exact layer selection to _process_state_data which inspects layers.
+        """
+        try:
+            gdbs = list(fgdb_dir.glob('**/*.gdb'))
+            if not gdbs:
+                return {"success": False, "error": "No FGDB directories found"}
+            # Try listing layers from the first gdb as a sanity check
+            try:
+                _ = fiona.listlayers(str(gdbs[0]))
+            except Exception as e:
+                return {"success": False, "error": f"Failed to open FGDB: {e}"}
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
     
     def _download_layer_data(self, state_abbr: str, layer_id: int, output_path: Path) -> dict:
-        """Download specific layer data from BLM CadNSDI"""
+        """Download specific layer data from BLM CadNSDI (single-shot)."""
         try:
             # Build query URL for BLM CadNSDI
             query_url = f"{self.blm_mapserver_base}/{layer_id}/query"
@@ -205,6 +448,62 @@ class PLSSDataManager:
                 "success": False,
                 "error": f"Layer download error: {str(e)}"
             }
+
+    # Legacy REST helpers removed from main path; retained only if needed elsewhere
+    def _get_layer_info(self, layer_id: int) -> dict:
+        return {}
+
+    def _discover_layer_ids(self) -> None:
+        return
+
+    def _find_field_case_insensitive(self, fields_meta: List[dict], candidates: List[str]) -> Optional[str]:
+        """Return the first matching field name from candidates, case-insensitive."""
+        if not fields_meta:
+            return None
+        existing = {f.get("name"): f for f in fields_meta if isinstance(f, dict) and f.get("name")}
+        upper_map = {name.upper(): name for name in existing.keys()}
+        for cand in candidates:
+            if cand.upper() in upper_map:
+                return upper_map[cand.upper()]
+        return None
+
+    def _find_column_case_insensitive(self, columns: List[str], candidates: List[str]) -> Optional[str]:
+        """Return the first matching column from a list of strings (case-insensitive)."""
+        upper_map = {c.upper(): c for c in columns}
+        for cand in candidates:
+            if cand.upper() in upper_map:
+                return upper_map[cand.upper()]
+        return None
+
+    def _build_state_where(self, info: dict, state_abbr: str) -> Optional[str]:
+        """Construct a WHERE clause for filtering to a state using available field names."""
+        fields_meta = info.get("fields") or []
+        candidates = [
+            "STATEABBR", "STATE", "STATE_CODE", "STATE_CD", "STATE_ALPHA",
+            "ST", "STATEABBREV", "STATEABBRV", "STUSPS"
+        ]
+        field = self._find_field_case_insensitive(fields_meta, candidates)
+        if field:
+            return f"UPPER({field})='{state_abbr.upper()}'"
+        return None
+
+    def _download_layer_data_paginated(self, state_abbr: str, layer_id: int, output_path: Path) -> dict:
+        return {"success": False, "error": "REST pagination disabled in bulk FGDB mode"}
+
+    def ensure_township_sections(self, state: str, township: int, tdir: str, rng: int, rdir: str) -> dict:
+        """Deprecated in bulk mode: sections are available locally via FGDB."""
+        try:
+            state_dir = self.data_dir / state.lower()
+            processed_file = state_dir / "processed_plss.json"
+            if not processed_file.exists():
+                return {"success": False, "error": "Processed data not found"}
+            with open(processed_file, 'r') as f:
+                meta = json.load(f)
+            if meta.get("layers", {}).get("sections_fgdb"):
+                return {"success": True, "output_path": meta["layers"]["sections_fgdb"], "cached": True}
+            return {"success": False, "error": "Sections FGDB not available"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
     
     def _is_data_current(self, state: str) -> bool:
         """Check if cached data exists and is current"""
@@ -221,37 +520,66 @@ class PLSSDataManager:
             
             # Check if files exist
             state_dir = self.data_dir / state.lower()
-            sections_file = state_dir / "sections.geojson"
             processed_file = state_dir / "processed_plss.json"
-            
-            return sections_file.exists() and processed_file.exists()
+            fgdb_dir = state_dir / "fgdb"
+            return processed_file.exists() and fgdb_dir.exists()
             
         except Exception as e:
             logger.warning(f"Error checking data currency: {str(e)}")
             return False
     
     def _process_state_data(self, state: str) -> dict:
-        """Process downloaded GeoJSON data into usable format"""
+        """Process installed FGDBs into a lightweight manifest for consumers."""
         try:
-            logger.info(f"⚙️ Processing PLSS data for {state}")
-            
+            logger.info(f"⚙️ Processing PLSS FGDB data for {state}")
             state_dir = self.data_dir / state.lower()
-            sections_file = state_dir / "sections.geojson"
-            
-            if not sections_file.exists():
-                return {
-                    "success": False,
-                    "error": "Sections data file not found"
-                }
-            
-            # Load and process GeoJSON with GeoPandas
-            gdf = gpd.read_file(sections_file)
-            
-            # Calculate bounds and summary statistics
-            bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
-            feature_count = len(gdf)
-            
-            # Create processed summary
+            fgdb_dir = state_dir / "fgdb"
+            if not fgdb_dir.exists():
+                return {"success": False, "error": "FGDB directory not found"}
+
+            # Attempt to locate FGDB directories and infer layer names
+            fgdb_paths = list(fgdb_dir.glob("**/*.gdb"))
+            townships_layer = None
+            sections_layer = None
+            subdivisions_layer = None
+            townships_fgdb = None
+            sections_fgdb = None
+            subdivisions_fgdb = None
+
+            # Heuristic: open each FGDB and list layers; pick likely matches by name
+            for gdb in fgdb_paths:
+                try:
+                    layers = fiona.listlayers(str(gdb))
+                except Exception:
+                    continue
+                lower = [l.lower() for l in layers]
+                if any("township" in l for l in lower):
+                    townships_fgdb = str(gdb)
+                    townships_layer = layers[lower.index(next(l for l in lower if "township" in l))]
+                if any(("first" in l and "division" in l) or "section" in l for l in lower):
+                    sections_fgdb = str(gdb)
+                    # prefer explicit 'section' if present
+                    if "section" in lower:
+                        sections_layer = layers[lower.index("section")]
+                    else:
+                        sections_layer = layers[lower.index(next(l for l in lower if ("first" in l and "division" in l) or "section" in l))]
+                if any("second" in l or "third" in l or "qtr" in l or "quarter" in l for l in lower):
+                    subdivisions_fgdb = str(gdb)
+                    subdivisions_layer = layers[lower.index(next(l for l in lower if ("second" in l or "third" in l or "qtr" in l or "quarter" in l)))]
+
+            if not townships_fgdb or not townships_layer:
+                return {"success": False, "error": "Failed to locate Townships FGDB/layer"}
+            if not sections_fgdb or not sections_layer:
+                return {"success": False, "error": "Failed to locate Sections FGDB/layer"}
+
+            # Compute extent using townships (cheapest)
+            try:
+                gdf_bounds = gpd.read_file(townships_fgdb, layer=townships_layer)
+                bounds = gdf_bounds.total_bounds
+                feature_count = len(gdf_bounds)
+            except Exception as e:
+                return {"success": False, "error": f"Failed to read FGDB: {e}"}
+
             processed_data = {
                 "format": "processed_plss",
                 "crs": "EPSG:4326",
@@ -260,10 +588,14 @@ class PLSSDataManager:
                     "min_lat": float(bounds[1]), "max_lat": float(bounds[3]),
                     "min_lon": float(bounds[0]), "max_lon": float(bounds[2])
                 },
-                "data_source": "BLM_CadNSDI",
+                "data_source": "BLM_FGDB",
                 "layers": {
-                    "sections": str(sections_file),
-                    "townships": str(state_dir / "townships.geojson") if (state_dir / "townships.geojson").exists() else None
+                    "townships_fgdb": townships_fgdb,
+                    "townships_layer": townships_layer,
+                    "sections_fgdb": sections_fgdb,
+                    "sections_layer": sections_layer,
+                    "subdivisions_fgdb": subdivisions_fgdb,
+                    "subdivisions_layer": subdivisions_layer
                 }
             }
             
@@ -272,13 +604,9 @@ class PLSSDataManager:
             with open(processed_file, 'w') as f:
                 json.dump(processed_data, f, indent=2)
             
-            logger.info(f"✅ Processed {feature_count} PLSS features for {state}")
+            logger.info(f"✅ Processed PLSS FGDB for {state}")
             
-            return {
-                "success": True,
-                "processed_file": str(processed_file),
-                "feature_count": feature_count
-            }
+            return {"success": True, "processed_file": str(processed_file)}
             
         except Exception as e:
             return {
@@ -329,8 +657,8 @@ class PLSSDataManager:
                 "downloaded": datetime.now().isoformat(),
                 "status": "ready",
                 "state_abbreviation": state_abbr,
-                "source": "BLM_CadNSDI",
-                "mapserver_url": self.blm_mapserver_base
+                "source": "BLM_FGDB",
+                "mapserver_url": None
             }
             
             with open(self.metadata_file, 'w') as f:

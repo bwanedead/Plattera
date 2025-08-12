@@ -21,12 +21,11 @@ export const PLSSDownloadPrompt: React.FC<PLSSDownloadPromptProps> = ({
         data for <strong>{state}</strong>.
       </p>
       <div className="download-info">
-        <h4>One-time setup:</h4>
+        <h4>One-time setup (offline):</h4>
         <ul>
-          <li>Downloads official PLSS data from the Bureau of Land Management</li>
-          <li>Data is cached locally for future use</li>
-          <li>Download size: ~10-50MB depending on state</li>
-          <li>Only needs to be done once per state</li>
+          <li>Downloads official Wyoming PLSS as File Geodatabases (Townships, Sections, Subdivisions)</li>
+          <li>No live server limits; faster and more reliable mapping</li>
+          <li>Approximate size: ~700MB compressed; ~0.8–1.6GB installed</li>
         </ul>
       </div>
       <button 
@@ -35,9 +34,7 @@ export const PLSSDownloadPrompt: React.FC<PLSSDownloadPromptProps> = ({
       >
         📦 Download Map Data for {state}
       </button>
-      <p className="disclaimer">
-        Data source: Bureau of Land Management CadNSDI
-      </p>
+      <p className="disclaimer">Data source: BLM ArcGIS Hub (CadNSDI)</p>
     </div>
   );
 }; 

@@ -6,9 +6,10 @@ import { useState, useEffect } from 'react';
 import { plssDataService, PLSSDataState } from '../services/plss';
 
 // Extend the state to include modal dismissal
-interface ExtendedPLSSDataState extends PLSSDataState {
+  interface ExtendedPLSSDataState extends PLSSDataState {
   modalDismissed: boolean;
-}
+  mappingEnabled: boolean;
+ }
 
 export function usePLSSData(schemaData: any) {
   const [state, setState] = useState<ExtendedPLSSDataState>({
@@ -17,6 +18,7 @@ export function usePLSSData(schemaData: any) {
     error: null,
     progress: null,
     modalDismissed: false, // Add dismissal tracking
+    mappingEnabled: false,
   });
 
   useEffect(() => {
@@ -63,15 +65,42 @@ export function usePLSSData(schemaData: any) {
   const downloadData = async () => {
     if (!state.state) return;
 
-    setState(prev => ({ ...prev, status: 'downloading' }));
+    setState(prev => ({ ...prev, status: 'downloading', progress: 'Starting...' }));
 
-    const result = await plssDataService.downloadData(state.state);
-    
-    setState(prev => ({ 
-      ...prev, 
-      status: result.success ? 'ready' : 'error',
-      error: result.error || null
-    }));
+    // Start background download
+    await plssDataService.startBackgroundDownload(state.state);
+
+    // Poll progress until done
+    let done = false;
+    while (!done) {
+      const p = await plssDataService.getDownloadProgress(state.state);
+      if (p.error) {
+        setState(prev => ({ ...prev, status: 'error', error: p.error }));
+        return;
+      }
+      const stage = p.stage || 'working';
+      const overall = p.overall || { downloaded: 0, total: 0, percent: 0 };
+      setState(prev => ({ ...prev, progress: `${stage} ${overall.percent || 0}%` }));
+      if (stage === 'canceled') {
+        setState(prev => ({ ...prev, status: 'missing', error: 'Download canceled', progress: null }));
+        return;
+      }
+      // Poll cadence
+      await new Promise(r => setTimeout(r, 800));
+      // Check ready
+      const check = await plssDataService.checkDataStatus(state.state);
+      if (check.available) {
+        done = true;
+      }
+    }
+
+    setState(prev => ({ ...prev, status: 'ready', progress: null }));
+  };
+
+  // Cancel current download
+  const cancelDownload = async () => {
+    if (!state.state) return;
+    await plssDataService.cancelDownload(state.state);
   };
 
   // Function to dismiss the modal
@@ -79,9 +108,20 @@ export function usePLSSData(schemaData: any) {
     setState(prev => ({ ...prev, modalDismissed: true }));
   };
 
+  // Explicit gate for enabling mapping after download completes
+  const enableMapping = () => {
+    setState(prev => ({ ...prev, mappingEnabled: true }));
+  };
+  const disableMapping = () => {
+    setState(prev => ({ ...prev, mappingEnabled: false }));
+  };
+
   return {
     ...state,
     downloadData,
+    cancelDownload,
     dismissModal, // Expose dismiss function
+    enableMapping,
+    disableMapping,
   };
 }

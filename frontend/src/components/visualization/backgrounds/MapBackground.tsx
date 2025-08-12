@@ -32,7 +32,7 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
-  const { status, state, error, modalDismissed, downloadData, dismissModal } = usePLSSData(schemaData);
+  const { status, state, error, modalDismissed, downloadData, dismissModal, mappingEnabled, enableMapping, progress, cancelDownload } = usePLSSData(schemaData);
   const [overlay, setOverlay] = useState<any | null>(null);
   const [validation, setValidation] = useState<any | null>(null);
 
@@ -189,18 +189,26 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({
   }, [isDragging, view]);
 
   const handleDownload = () => {
-    downloadData();
+    const plss = schemaData?.descriptions?.[0]?.plss || null;
+    const hint = plss ? {
+      township_number: plss.township_number,
+      township_direction: (plss.township_direction || '').toUpperCase(),
+      range_number: plss.range_number,
+      range_direction: (plss.range_direction || '').toUpperCase(),
+    } : undefined;
+    // @ts-ignore extended signature supports hint
+    downloadData(state || '', hint);
   };
 
   const handleCancel = () => {
     dismissModal(); // Properly dismiss the modal
   };
 
-  // Load PLSS overlay + validation when ready
+  // Load PLSS overlay + validation when ready and mapping is explicitly enabled
   useEffect(() => {
     const loadOverlay = async () => {
       try {
-        if (status !== 'ready') return;
+        if (status !== 'ready' || !mappingEnabled) return;
         const plss = schemaData?.descriptions?.[0]?.plss || null;
         if (!plss) return;
         const res = await mappingApi.getPLSSOverlay(plss);
@@ -218,7 +226,7 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({
       }
     };
     loadOverlay();
-  }, [status, schemaData, polygonData]);
+  }, [status, mappingEnabled, schemaData, polygonData]);
 
   // Show modal when data is missing AND not dismissed
   const shouldShowModal = status === 'missing' && !modalDismissed;
@@ -237,13 +245,15 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({
           onDownload={handleDownload}
           onCancel={handleCancel}
           isDownloading={true}
+          progressText={progress}
+          onHardCancel={cancelDownload}
         />
       </>
     );
   }
 
-  // Show map when ready
-  if (status === 'ready') {
+  // Show map when ready AND mapping enabled
+  if (status === 'ready' && mappingEnabled) {
     return (
       <div
         ref={containerRef}
@@ -324,19 +334,29 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({
     );
   }
 
-  // Default: show modal for missing data
+  // Default: show modal for missing data or post-download enable button
   return (
     <>
-      <div className="map-placeholder">
-        <p>Preparing map view...</p>
-      </div>
-      <PLSSDownloadModal
-        isOpen={shouldShowModal}
-        state={state || 'Unknown'}
-        onDownload={handleDownload}
-        onCancel={handleCancel}
-        isDownloading={false}
-      />
+      {status === 'ready' && !mappingEnabled ? (
+        <div className="map-placeholder" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <p>PLSS data downloaded. Enable mapping when ready.</p>
+          <button className="download-button primary" onClick={enableMapping}>Enable Mapping</button>
+        </div>
+      ) : (
+        <>
+          <div className="map-placeholder">
+            <p>Preparing map view...</p>
+          </div>
+          <PLSSDownloadModal
+            isOpen={shouldShowModal}
+            state={state || 'Unknown'}
+            onDownload={handleDownload}
+            onCancel={handleCancel}
+            isDownloading={false}
+            progressText={null}
+          />
+        </>
+      )}
     </>
   );
 };
