@@ -25,7 +25,7 @@ export const PLSSDownloadPrompt: React.FC<PLSSDownloadPromptProps> = ({
         <ul>
           <li>Downloads official Wyoming PLSS as File Geodatabases (Townships, Sections, Subdivisions)</li>
           <li>No live server limits; faster and more reliable mapping</li>
-          <li>Approximate size: ~700MB compressed; ~0.8–1.6GB installed</li>
+          <li>Size: ~252 MB compressed; ~484 MB installed</li>
         </ul>
       </div>
       <button 

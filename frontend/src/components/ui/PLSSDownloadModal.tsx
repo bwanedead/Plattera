@@ -36,7 +36,7 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
           </p>
           <p className="plss-modal-details">
             This will download Wyoming PLSS bulk data (Townships, Sections, Subdivisions) for offline use.
-            Approximate size: ~700MB download; ~0.8–1.6GB on disk after install.
+            Download size: ~252 MB; Installed size: ~484 MB on disk after install.
           </p>
         </div>
         

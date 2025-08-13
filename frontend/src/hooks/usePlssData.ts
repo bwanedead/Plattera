@@ -54,7 +54,8 @@ export function usePLSSData(schemaData: any) {
       // Set status based on availability
       setState(prev => ({ 
         ...prev, 
-        status: statusResult.available ? 'ready' : 'missing' 
+        status: statusResult.available ? 'ready' : 'missing',
+        mappingEnabled: statusResult.available ? true : prev.mappingEnabled
       }));
     };
 
@@ -94,7 +95,7 @@ export function usePLSSData(schemaData: any) {
       }
     }
 
-    setState(prev => ({ ...prev, status: 'ready', progress: null }));
+    setState(prev => ({ ...prev, status: 'ready', progress: null, mappingEnabled: true }));
   };
 
   // Cancel current download

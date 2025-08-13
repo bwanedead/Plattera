@@ -223,17 +223,14 @@ async def plss_overlay(request: Dict[str, Any]) -> Dict[str, Any]:
         if not data.get("success"):
             raise HTTPException(status_code=400, detail=data.get("error", "PLSS data unavailable"))
 
-        # Ensure per-township sections are present for this request
-        prepared = plss._prepare_vector_data_for_township(data["vector_data"], plss_description)
-        if not prepared.get("success"):
-            raise HTTPException(status_code=400, detail=prepared.get("error", "Sections unavailable"))
-
-        sec_geo = plss.section_view.get_section_geometry(prepared["vector_data"], plss_description)
+        # Use vector data directly (FGDB mode)
+        vec = data["vector_data"]
+        sec_geo = plss.section_view.get_section_geometry(vec, plss_description)
         if not sec_geo.get("success"):
             raise HTTPException(status_code=400, detail=sec_geo.get("error"))
 
-        splits = plss.section_view.get_section_splits(prepared["vector_data"], plss_description)
-        twp_geo = plss.section_view.get_township_geometry(prepared["vector_data"], plss_description)
+        splits = plss.section_view.get_section_splits(vec, plss_description)
+        twp_geo = plss.section_view.get_township_geometry(vec, plss_description)
 
         sec_shape = shape(sec_geo["geometry"])
         minx, miny, maxx, maxy = sec_shape.bounds

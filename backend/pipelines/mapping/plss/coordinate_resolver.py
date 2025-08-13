@@ -6,6 +6,7 @@ import logging
 import geopandas as gpd
 import pandas as pd
 from typing import Dict, Any, Optional, Tuple
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -89,39 +90,95 @@ class PLSSCoordinateResolver:
     ) -> dict:
         """Resolve coordinates using real BLM CadNSDI vector data"""
         try:
-            logger.info("🗺️ Attempting vector data lookup")
-            
-            sections_file = vector_data["layers"].get("sections")
-            if not sections_file or not Path(sections_file).exists():
-                return {
-                    "success": False,
-                    "error": "Sections vector data not available"
-                }
-            
-            # Load sections GeoDataFrame
-            gdf = gpd.read_file(sections_file)
-            logger.debug(f"Vector data columns: {list(gdf.columns)}")
-            
-            # Build PLSS query to match section
-            plss_query = self._build_plss_query(township, township_direction, range_number, range_direction, section)
-            
-            # Query the geodataframe for matching section
-            matching_sections = self._query_sections(gdf, plss_query, principal_meridian)
-            logger.debug(f"Vector PLSS query: {plss_query} with principal_meridian={principal_meridian}")
-            logger.debug(f"Match count: {len(matching_sections)}")
-            
-            if len(matching_sections) == 0:
-                logger.warning(f"No matching sections found for {plss_query}")
-                return {
-                    "success": False,
-                    "error": f"No sections found matching: {plss_query}"
-                }
-            
-            if len(matching_sections) > 1:
-                logger.warning(f"Multiple sections found for {plss_query}, using first match")
-            
-            # Get the best match
-            section_row = matching_sections.iloc[0]
+            logger.info("🗺️ Attempting vector data lookup (FGDB)")
+
+            layers = vector_data.get("layers", {})
+            sections_fgdb = layers.get("sections_fgdb")
+            sections_layer = layers.get("sections_layer")
+            townships_fgdb = layers.get("townships_fgdb")
+            townships_layer = layers.get("townships_layer")
+
+            if not (sections_fgdb and sections_layer and townships_fgdb and townships_layer):
+                return {"success": False, "error": "FGDB layers missing (sections or townships)"}
+
+            # Load FGDB layers
+            sec_gdf = gpd.read_file(sections_fgdb, layer=sections_layer)
+            twp_gdf = gpd.read_file(townships_fgdb, layer=townships_layer)
+
+            # Normalize CRS to EPSG:4326 when possible
+            try:
+                if sec_gdf.crs is not None and sec_gdf.crs.to_epsg() != 4326:
+                    sec_gdf = sec_gdf.to_crs(4326)
+                if twp_gdf.crs is not None and twp_gdf.crs.to_epsg() != 4326:
+                    twp_gdf = twp_gdf.to_crs(4326)
+            except Exception:
+                pass
+
+            # Exact field names for WY FGDB
+            T_FIELD = 'TWNSHPNO'
+            TD_FIELD = 'TWNSHPDIR'
+            R_FIELD = 'RANGENO'
+            RD_FIELD = 'RANGEDIR'
+            PM_TEXT_FIELD = 'PRINMER'
+            PM_CODE_FIELD = 'PRINMERCD'
+            SEC_NO_FIELD = 'FRSTDIVNO'
+
+            # Select township
+            twp_mask = (
+                (twp_gdf[T_FIELD].astype(int) == int(township)) &
+                (twp_gdf[TD_FIELD].astype(str).str.upper().str[0] == township_direction.upper()) &
+                (twp_gdf[R_FIELD].astype(int) == int(range_number)) &
+                (twp_gdf[RD_FIELD].astype(str).str.upper().str[0] == range_direction.upper())
+            )
+            if principal_meridian:
+                pm_norm = self._normalize_pm_tokens(principal_meridian)
+                pm_mask = twp_gdf[PM_TEXT_FIELD].astype(str).str.contains(pm_norm['text'], case=False, na=False)
+                try:
+                    pm_code = int(pm_norm['code']) if pm_norm['code'] is not None else None
+                except Exception:
+                    pm_code = None
+                if pm_code is not None and PM_CODE_FIELD in twp_gdf.columns:
+                    pm_mask = pm_mask | (twp_gdf[PM_CODE_FIELD].astype('Int64') == pm_code)
+                twp_mask = twp_mask & pm_mask
+
+            twp_sel = twp_gdf[twp_mask]
+            if len(twp_sel) == 0 and principal_meridian:
+                # Retry without PM if that over-constrained
+                twp_sel = twp_gdf[
+                    (twp_gdf[T_FIELD].astype(int) == int(township)) &
+                    (twp_gdf[TD_FIELD].astype(str).str.upper().str[0] == township_direction.upper()) &
+                    (twp_gdf[R_FIELD].astype(int) == int(range_number)) &
+                    (twp_gdf[RD_FIELD].astype(str).str.upper().str[0] == range_direction.upper())
+                ]
+            if len(twp_sel) == 0:
+                return {"success": False, "error": "Township not found in FGDB"}
+
+            twp_geom = twp_sel.iloc[0].geometry
+
+            # Filter sections by section number and intersect with township
+            sec_num = int(section)
+            sec_pref = sec_gdf[sec_gdf[SEC_NO_FIELD].astype('Int64') == sec_num]
+            if len(sec_pref) == 0:
+                return {"success": False, "error": "No sections with that number in FGDB"}
+
+            try:
+                candidates = sec_pref[sec_pref.intersects(twp_geom)]
+            except Exception:
+                candidates = sec_pref
+            if len(candidates) == 0:
+                # Fallback: pick nearest to township centroid
+                try:
+                    cen = twp_geom.centroid
+                    candidates = sec_pref.assign(_d=sec_pref.distance(cen)).sort_values('_d').head(1).drop(columns=['_d'])
+                except Exception:
+                    candidates = sec_pref.head(1)
+
+            # Choose largest area
+            try:
+                candidates = candidates.assign(_a=candidates.geometry.area).sort_values('_a', ascending=False)
+            except Exception:
+                pass
+            section_row = candidates.iloc[0]
             
             # Calculate centroid or use existing centroid fields
             if hasattr(section_row.geometry, 'centroid'):
@@ -178,11 +235,29 @@ class PLSSCoordinateResolver:
         """Query sections GeoDataFrame for matching PLSS description"""
         try:
             # Common BLM CadNSDI field mappings (may vary by dataset)
-            possible_township_fields = ['TWNSHPNO', 'TOWNSHIP', 'TWP', 'TWPNO']
-            possible_township_dir_fields = ['TWNSHPDIR', 'TOWNSHIP_DIR', 'TWP_DIR', 'TDIR']
-            possible_range_fields = ['RANGENO', 'RANGE', 'RNG', 'RNGNO'] 
-            possible_range_dir_fields = ['RANGEDIR', 'RANGE_DIR', 'RNG_DIR', 'RDIR']
-            possible_section_fields = ['SECNO', 'SECTION', 'SEC', 'SECTNO']
+            possible_township_fields = [
+                'TWNSHPNO', 'TOWNSHIP', 'TWP', 'TWPNO',
+                'TOWNSHIPNO', 'TOWNSHIP_NO', 'TWP_NO', 'TWP_NUM', 'TOWN_NO', 'TOWN_NUM', 'TWN', 'TWN_NO', 'TWN_NUM'
+            ]
+            possible_township_dir_fields = [
+                'TWNSHPDIR', 'TOWNSHIP_DIR', 'TWP_DIR', 'TDIR',
+                'TOWNSHIPDIRECTION', 'TOWNSHIP_DIRECTION', 'TWP_DIRECTION', 'TWN_DIR',
+                'NS', 'NS_DIR', 'TWP_NS', 'TOWNSHIP_NS'
+            ]
+            possible_range_fields = [
+                'RANGENO', 'RANGE', 'RNG', 'RNGNO',
+                'RANGE_NO', 'RANGE_NUM', 'RNG_NO', 'RNG_NUM'
+            ] 
+            possible_range_dir_fields = [
+                'RANGEDIR', 'RANGE_DIR', 'RNG_DIR', 'RDIR',
+                'RANGE_DIRECTION', 'RNG_DIRECTION',
+                'EW', 'EW_DIR', 'RNG_EW', 'RANGE_EW'
+            ]
+            possible_section_fields = [
+                'SECNO', 'SECTION', 'SEC', 'SECTNO',
+                'SECTION_NO', 'SECTION_NUM', 'SEC_NO', 'SEC_NUM', 'SECT_NUM',
+                'SEC_NBR', 'SECTION_NBR', 'SECNUMBER', 'SEC_NUMB'
+            ]
             
             # Find actual field names in the dataset
             township_field = self._find_field(gdf.columns, possible_township_fields)
@@ -195,26 +270,46 @@ class PLSSCoordinateResolver:
             conditions = []
             # Some datasets include a principal meridian or meridian code; try to match if provided
             if principal_meridian:
-                possible_pm_fields = ['PRIN_MER', 'MERIDIAN', 'PM', 'PMCODE', 'MERIDIANCD']
+                possible_pm_fields = ['PRIN_MER', 'MERIDIAN', 'PM', 'PMCODE', 'MERIDIANCD', 'PRINCIPALMERIDIAN', 'PRINMER', 'PRIN_MERID']
                 pm_field = self._find_field(gdf.columns, possible_pm_fields)
                 if pm_field:
-                    # Try a flexible contains match to tolerate naming differences
-                    conditions.append(f"{pm_field}.str.contains(@principal_meridian, case=False, na=False)")
+                    # Try flexible contains and numeric code matching
+                    pm_tokens = self._normalize_pm_tokens(principal_meridian)
+                    # Best-effort: if the column is numeric, try equality against numeric tokens; else contains()
+                    try:
+                        # Pandas query cannot easily mix types; defer type handling to tolerant pass below
+                        conditions.append(f"{pm_field}.astype(str).str.contains(@pm_tokens['text'], case=False, na=False)")
+                    except Exception:
+                        pass
             
             if township_field:
                 conditions.append(f"{township_field} == {plss_query['township']}")
             if township_dir_field:
-                conditions.append(f"{township_dir_field} == '{plss_query['township_direction']}'")
+                # Map NS/EW style fields to single-letter N/S
+                if township_dir_field.upper() in ['NS', 'NS_DIR', 'TWP_NS', 'TOWNSHIP_NS']:
+                    conditions.append(f"{township_dir_field}.astype(str).str.upper().str[0] == '{plss_query['township_direction']}'")
+                else:
+                    conditions.append(f"{township_dir_field} == '{plss_query['township_direction']}'")
             if range_field:
                 conditions.append(f"{range_field} == {plss_query['range']}")
             if range_dir_field:
-                conditions.append(f"{range_dir_field} == '{plss_query['range_direction']}'")
+                if range_dir_field.upper() in ['EW', 'EW_DIR', 'RNG_EW', 'RANGE_EW']:
+                    conditions.append(f"{range_dir_field}.astype(str).str.upper().str[0] == '{plss_query['range_direction']}'")
+                else:
+                    conditions.append(f"{range_dir_field} == '{plss_query['range_direction']}'")
             if section_field:
                 conditions.append(f"{section_field} == {plss_query['section']}")
             
             if not conditions:
                 logger.warning("No matching field names found in vector data")
-                return gpd.GeoDataFrame()
+                # Try composite TRS string fallback matching
+                composite = self._fallback_match_trs_composite(
+                    gdf,
+                    plss_query['township'], plss_query['township_direction'],
+                    plss_query['range'], plss_query['range_direction'],
+                    plss_query['section']
+                )
+                return composite
             
             # Apply filters
             query_string = " & ".join(conditions)
@@ -237,6 +332,18 @@ class PLSSCoordinateResolver:
                         df[section_field] = pd.to_numeric(df[section_field], errors='coerce').astype('Int64')
 
                     conds = []
+                    # Principal meridian tolerant match: try numeric mapping and contains text
+                    if principal_meridian:
+                        pm_field = self._find_field(df.columns, possible_pm_fields)
+                        if pm_field:
+                            pm_norm = self._normalize_pm_tokens(principal_meridian)
+                            try:
+                                # Numeric code match if column convertible
+                                pm_numeric = pd.to_numeric(df[pm_field], errors='coerce')
+                                pm_mask = (pm_numeric == pm_norm['code']) if pm_norm['code'] is not None else pd.Series([True]*len(df))
+                            except Exception:
+                                pm_mask = df[pm_field].astype(str).str.contains(pm_norm['text'], case=False, na=False)
+                            conds.append(pm_mask)
                     if township_field:
                         conds.append(df[township_field] == int(plss_query['township']))
                     if township_dir_field:
@@ -256,6 +363,15 @@ class PLSSCoordinateResolver:
                 except Exception as e2:
                     logger.debug(f"Fallback tolerant filter failed: {e2}")
 
+            # If still nothing, try composite TRS fallback
+            if len(result) == 0:
+                result = self._fallback_match_trs_composite(
+                    gdf,
+                    plss_query['township'], plss_query['township_direction'],
+                    plss_query['range'], plss_query['range_direction'],
+                    plss_query['section']
+                )
+
             return result
             
         except Exception as e:
@@ -268,6 +384,71 @@ class PLSSCoordinateResolver:
             if col.upper() in [name.upper() for name in possible_names]:
                 return col
         return None
+
+    def _normalize_pm_tokens(self, principal_meridian: str) -> dict:
+        """Normalize principal meridian into text and numeric code tokens for matching."""
+        text = (principal_meridian or '').strip()
+        low = text.lower()
+        code = None
+        # crude mapping for common meridians
+        if 'sixth' in low or '6th' in low:
+            code = 6
+        elif 'fifth' in low or '5th' in low:
+            code = 5
+        elif 'fourth' in low or '4th' in low:
+            code = 4
+        elif 'third' in low or '3rd' in low:
+            code = 3
+        elif 'second' in low or '2nd' in low:
+            code = 2
+        elif 'first' in low or '1st' in low:
+            code = 1
+        return {"text": text, "code": code}
+
+    def _fallback_match_trs_composite(
+        self,
+        gdf: gpd.GeoDataFrame,
+        township: int, tdir: str,
+        rng: int, rdir: str,
+        sec: int
+    ) -> gpd.GeoDataFrame:
+        """Fallback matching using composite TRS text columns (e.g., 'TRS', 'TWNSHPRGSEC')."""
+        try:
+            df = gdf.copy()
+            upper_cols = {c: c for c in df.columns}
+            # Candidate string columns that might carry composite TRS values
+            candidates = [
+                c for c in df.columns
+                if df[c].dtype == 'object' and any(tok in c.upper() for tok in ['TRS', 'TWP', 'TWN', 'RNG', 'RANGE', 'SEC'])
+            ]
+            if not candidates:
+                return df.iloc[0:0]
+
+            # Build tolerant patterns
+            t_pat = re.escape(f"T{int(township)}{tdir.upper()}")
+            r_no_pad = re.escape(f"R{int(rng)}{rdir.upper()}")
+            r_pad = re.escape(f"R{int(rng):03d}{rdir.upper()}")
+            sec_num = int(sec)
+            sec_pat = rf"\b(SEC(TION)?\s*0*{sec_num}\b|\bS\s*0*{sec_num}\b|\b0*{sec_num}\b)"
+
+            # Evaluate contains for each candidate; union results
+            masks = []
+            for col in candidates:
+                s = df[col].astype(str).str.upper()
+                m = (
+                    s.str.contains(t_pat, regex=True, na=False) &
+                    (s.str.contains(r_no_pad, regex=True, na=False) | s.str.contains(r_pad, regex=True, na=False)) &
+                    s.str.contains(sec_pat, regex=True, na=False)
+                )
+                masks.append(m)
+            if not masks:
+                return df.iloc[0:0]
+            mask_union = masks[0]
+            for m in masks[1:]:
+                mask_union = mask_union | m
+            return df[mask_union]
+        except Exception:
+            return gdf.iloc[0:0]
     
     def _calculate_approximate_coordinates(
         self,
