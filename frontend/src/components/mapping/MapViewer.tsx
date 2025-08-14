@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import maplibregl, { Map as MapLibreMap, LngLatBoundsLike } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { mappingApi, type PLSSDescription } from '../../services/mappingApi';
@@ -24,6 +24,46 @@ export const MapViewer: React.FC<MapViewerProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+
+  // Determine the best center coordinates based on available data
+  const bestCenter = useMemo(() => {
+    // 1. If we have polygon data with georeferenced coordinates, use that
+    if (polygonData?.anchor_info?.resolved_coordinates) {
+      const coords = polygonData.anchor_info.resolved_coordinates;
+      return { lat: coords.lat, lon: coords.lon };
+    }
+    
+    // 2. If we have polygon bounds, use the center of those bounds
+    if (polygonData?.bounds) {
+      const b = polygonData.bounds;
+    return {
+        lat: (b.min_lat + b.max_lat) / 2,
+        lon: (b.min_lon + b.max_lon) / 2
+      };
+    }
+    
+    // 3. Fall back to initial center
+    return initialCenter;
+  }, [polygonData, initialCenter]);
+
+  // Determine the best zoom level based on available data
+  const bestZoom = useMemo(() => {
+    // If we have polygon bounds, calculate appropriate zoom
+    if (polygonData?.bounds) {
+      const b = polygonData.bounds;
+      const latSpan = b.max_lat - b.min_lat;
+      const lonSpan = b.max_lon - b.min_lon;
+      const maxSpan = Math.max(latSpan, lonSpan);
+      
+      // Rough zoom calculation - adjust based on span
+      if (maxSpan > 0.1) return 10;      // Large area
+      if (maxSpan > 0.01) return 14;     // Medium area
+      if (maxSpan > 0.001) return 16;    // Small area
+      return 18;                         // Very small area
+    }
+    
+    return initialZoom;
+  }, [polygonData, initialZoom]);
 
   const setGeoJSONSource = (id: string, data: any) => {
     const map = mapRef.current;
@@ -63,21 +103,26 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     }
   };
 
+  // Initialize map once with best available center and zoom
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+
+    console.log(`🗺️ Initializing map at center: ${bestCenter.lat}, ${bestCenter.lon}, zoom: ${bestZoom}`);
 
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: { version: 8, sources: {}, layers: [] } as any,
-      center: [initialCenter.lon, initialCenter.lat],
-      zoom: initialZoom,
+      center: [bestCenter.lon, bestCenter.lat],
+      zoom: bestZoom,
       attributionControl: true
     });
+
     mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
     map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left');
 
     map.on('load', () => {
+      // Add basemap tiles
       const provider = 'usgs_topo';
       const rasterId = 'basemap';
       if (!map.getSource(rasterId)) {
@@ -91,6 +136,8 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       if (!map.getLayer(rasterId)) {
         map.addLayer({ id: rasterId, type: 'raster', source: rasterId });
       }
+
+      // If polygon already available, add its layer
       if (polygonData?.geographic_polygon) {
         setGeoJSONSource('parcel', polygonData.geographic_polygon);
         ensureFillLayer('parcel', 'parcel');
@@ -101,8 +148,9 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       map.remove();
       mapRef.current = null;
     };
-  }, [initialCenter.lat, initialCenter.lon, initialZoom]);
+  }, [bestCenter.lat, bestCenter.lon, bestZoom]);
 
+  // Load PLSS overlays when plssAnchor is provided
   useEffect(() => {
     const map = mapRef.current;
     let cancelled = false;
@@ -110,15 +158,19 @@ export const MapViewer: React.FC<MapViewerProps> = ({
 
     (async () => {
       try {
+        console.log('🗺️ Loading PLSS section overlay for:', plssAnchor);
+        
         const sec = await mappingApi.getPLSSSectionView(plssAnchor, plssPadding);
         if (!sec?.success || !sec.bounds) return;
         if (cancelled) return;
+        
         const b = sec.bounds;
         const bounds: LngLatBoundsLike = [ [b.min_lon, b.min_lat], [b.max_lon, b.max_lat] ];
         map.fitBounds(bounds, { padding: 24, duration: 0 });
 
         const overlay = await mappingApi.getPLSSOverlay(plssAnchor);
         if (cancelled || !overlay?.success) return;
+        
         if (overlay.section) {
           setGeoJSONSource('plss-section', overlay.section);
           ensureLineLayer('plss-section-outline', 'plss-section', '#666', 1.5, 'parcel-fill');
@@ -131,19 +183,24 @@ export const MapViewer: React.FC<MapViewerProps> = ({
           setGeoJSONSource('plss-splits', { type: 'FeatureCollection', features: overlay.splits });
           ensureLineLayer('plss-splits-lines', 'plss-splits', '#bbb', 0.75, 'plss-township-outline');
         }
-      } catch {
-        // ignore
+      } catch (error) {
+        console.warn('PLSS overlay load failed:', error);
       }
     })();
 
     return () => { cancelled = true; };
   }, [plssAnchor, plssPadding]);
 
+  // Update polygon display when polygonData changes
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !polygonData?.geographic_polygon) return;
+    
+    console.log('🏠 Adding parcel polygon to map');
     setGeoJSONSource('parcel', polygonData.geographic_polygon);
     ensureFillLayer('parcel', 'parcel', 'plss-splits-lines');
+    
+    // If we have polygon bounds and no PLSS anchor, fit to polygon bounds
     if (!plssAnchor && polygonData?.bounds) {
       const b = polygonData.bounds;
       const bounds: LngLatBoundsLike = [ [b.min_lon, b.min_lat], [b.max_lon, b.max_lat] ];
@@ -152,8 +209,10 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   }, [polygonData, plssAnchor]);
 
   return (
-    <div className={`map-viewer ${className}`} style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
-    </div>
+    <div 
+      ref={containerRef} 
+      className={`map-viewer ${className}`}
+      style={{ width: '100%', height: '100%' }}
+    />
   );
 };

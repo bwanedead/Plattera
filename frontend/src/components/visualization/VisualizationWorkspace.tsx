@@ -4,10 +4,10 @@
 import React, { useState, useEffect } from 'react';
 import { PolygonResult } from '../../services/polygonApi';
 import { GridBackground } from './backgrounds/GridBackground';
-import { MapBackground } from './backgrounds/MapBackground';
+import { CleanMapBackground } from './backgrounds/CleanMapBackground';
 import { PolygonLayer } from './layers/PolygonLayer';
-import { mappingApi } from '../../services/mapping';
-import { usePLSSData } from '../../hooks/usePLSSData';
+import { cleanMappingApi } from '../../services/cleanMappingApi';
+// Global CSS imports must live in pages/_app.tsx per Next.js rules
 
 type ViewMode = 'grid' | 'map' | 'hybrid';
 
@@ -50,9 +50,6 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
   // Georeferenced polygon for map overlay
   const [geoPolygonData, setGeoPolygonData] = useState<any | null>(null);
 
-  // PLSS data readiness (prevents backend auto-download on project attempt)
-  const { status: plssStatus } = usePLSSData(schemaData);
-
   const toggleLayer = (layer: keyof LayerSettings) => {
     setLayers(prev => ({ ...prev, [layer]: !prev[layer] }));
   };
@@ -68,99 +65,12 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
     }
   }, [isOpen, onClose]);
 
-  // When in map/hybrid mode and we have polygon + schema, request georeferencing
+  // Clear geo data when switching away from map modes
   useEffect(() => {
-    const runGeoref = async () => {
-      try {
-        if (!polygon || !schemaData) {
-          setGeoPolygonData(null);
-          return;
-        }
-        if (!(viewMode === 'map' || viewMode === 'hybrid')) {
-          setGeoPolygonData(null);
-          return;
-        }
-
-        // Require PLSS data to be ready to avoid triggering backend auto-download
-        if (plssStatus !== 'ready') {
-          setGeoPolygonData(null);
-          return;
-        }
-
-        // Extract PLSS from the first complete description; fallback to first
-        const descriptions = Array.isArray(schemaData?.descriptions) ? schemaData.descriptions : [];
-        const chosen = descriptions.find((d: any) => d?.is_complete && d?.plss) || descriptions[0];
-        const plss = chosen?.plss;
-        if (!plss) {
-          setGeoPolygonData(null);
-          return;
-        }
-
-        // Debug: log outgoing PLSS request
-        console.log('📤 PLSS request', {
-          state: plss.state,
-          county: plss.county,
-          principal_meridian: plss.principal_meridian,
-          township_number: plss.township_number,
-          township_direction: plss.township_direction,
-          range_number: plss.range_number,
-          range_direction: plss.range_direction,
-          section_number: plss.section_number,
-          quarter_sections: plss.quarter_sections,
-          starting_point: chosen?.plss?.starting_point?.tie_to_corner || null,
-        });
-
-        const req = mappingApi.convertPolygonForMapping(polygon, {
-          state: plss.state,
-          county: plss.county,
-          principal_meridian: plss.principal_meridian,
-          township_number: plss.township_number,
-          township_direction: plss.township_direction,
-          range_number: plss.range_number,
-          range_direction: plss.range_direction,
-          section_number: plss.section_number,
-          quarter_sections: plss.quarter_sections,
-        });
-        if (!req) {
-          setGeoPolygonData(null);
-          return;
-        }
-
-        // Include starting_point if present on schema (tie_to_corner) and pass raw_text inside tie for reciprocal detection
-        if (chosen?.plss?.starting_point?.tie_to_corner) {
-          req.starting_point = { 
-            tie_to_corner: {
-              ...chosen.plss.starting_point.tie_to_corner,
-              raw_text: chosen.plss.starting_point?.raw_text || null
-            }
-          };
-        }
-
-        const projected = await mappingApi.projectPolygonToMap(req);
-        if (projected.success && projected.geographic_polygon) {
-          // Debug: log returned polygon bounds and anchor info
-          if (projected.geographic_polygon.bounds) {
-            const b = projected.geographic_polygon.bounds;
-            console.log(
-              `📥 Projected polygon bounds: (${b.min_lat.toFixed(5)}, ${b.min_lon.toFixed(5)}) .. (${b.max_lat.toFixed(5)}, ${b.max_lon.toFixed(5)})`,
-              { anchor: projected.anchor_info }
-            );
-          }
-          setGeoPolygonData({
-            geographic_polygon: projected.geographic_polygon,
-            anchor_info: projected.anchor_info,
-          });
-        } else {
-          setGeoPolygonData(null);
-        }
-      } catch (e) {
-        console.error('❌ Georeference failed:', e);
-        setGeoPolygonData(null);
-      }
-    };
-
-    runGeoref();
-  }, [viewMode, polygon, schemaData, plssStatus]);
+    if (viewMode === 'grid') {
+      setGeoPolygonData(null);
+    }
+  }, [viewMode]);
 
   if (!isOpen) return null;
 
@@ -221,25 +131,18 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
                 )}
                 
                 {viewMode === 'map' && (
-                  <MapBackground 
+                  <CleanMapBackground 
                     schemaData={schemaData}
-                    polygonData={geoPolygonData}
-                    showSectionOverlay={layers.showSectionOverlay}
-                    showTownshipOverlay={layers.showTownshipOverlay}
-                    showQuarterSplits={layers.showQuarterSplits}
-                    showValidationBanner={layers.showValidationBanner}
+                    polygonData={polygon}
+                    onPolygonUpdate={setGeoPolygonData}
                   />
                 )}
                 
                 {viewMode === 'hybrid' && (
-                  <MapBackground 
+                  <CleanMapBackground 
                     schemaData={schemaData}
-                    polygonData={geoPolygonData}
-                    showGrid={layers.showGrid}
-                    showSectionOverlay={layers.showSectionOverlay}
-                    showTownshipOverlay={layers.showTownshipOverlay}
-                    showQuarterSplits={layers.showQuarterSplits}
-                    showValidationBanner={layers.showValidationBanner}
+                    polygonData={polygon}
+                    onPolygonUpdate={setGeoPolygonData}
                   />
                 )}
               </div>

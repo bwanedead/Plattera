@@ -33,6 +33,9 @@ async def project_polygon_to_map(request: Dict[str, Any]) -> Dict[str, Any]:
     """
     try:
         logger.info("Received polygon projection request")
+        logger.info(f"Request keys: {list(request.keys())}")
+        if request.get("plss_anchor"):
+            logger.info(f"PLSS state: {request['plss_anchor'].get('state')}")
         
         # Extract request data
         local_coordinates = request.get("local_coordinates", [])
@@ -51,55 +54,64 @@ async def project_polygon_to_map(request: Dict[str, Any]) -> Dict[str, Any]:
                 detail="plss_anchor information is required"
             )
         
-        # Use new GeoreferenceService (POB-first design)
-        from pipelines.mapping.georeference.georeference_service import GeoreferenceService
+        # Use new clean ProjectionService
+        from pipelines.mapping.projection.projection_service import ProjectionService
 
-        georef = GeoreferenceService()
-        result = georef.project({
+        projection_service = ProjectionService()
+        result = projection_service.project_polygon({
             "local_coordinates": local_coordinates,
             "plss_anchor": plss_anchor,
             "starting_point": request.get("starting_point", {}),
             "options": options,
         })
 
+        # Log the actual error from projection service
         if not result.get("success"):
+            error_msg = result.get('error', 'Unknown error')
+            logger.error(f"Projection service failed: {error_msg}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Projection failed: {result.get('error', 'Unknown error')}"
+                detail=f"Projection failed: {error_msg}"
             )
-
-        # Verbose debug logging for POB + PLSS anchoring
-        dbg = result.get("debug") or {}
-        anc = result.get("anchor_info") or {}
-        if dbg:
-            logger.info(
-                "🔍 Georef Debug → corner=%s | tie azimuth=%.3f° (recip=%s) | tie_dx_ft=%.3f tie_dy_ft=%.3f",
-                (anc.get("plss_reference")),
-                dbg.get("tie_azimuth_deg", -1.0),
-                dbg.get("reciprocal_applied", False),
-                dbg.get("tie_dx_ft", 0.0),
-                dbg.get("tie_dy_ft", 0.0),
-            )
-            cd = (dbg.get("corner_debug") or {})
-            if cd:
-                logger.info(
-                    "🔍 Corner centroid=(%.6f, %.6f) target=%.1f° candidates=%s",
-                    (cd.get("centroid") or {}).get("lat", 0.0),
-                    (cd.get("centroid") or {}).get("lon", 0.0),
-                    cd.get("target_azimuth", -1.0),
-                    cd.get("candidates"),
-                )
+        # Log successful projection
+        if result.get("success"):
+            try:
+                anchor = result.get("anchor_info", {})
+                coords = anchor.get("resolved_coordinates", {})
+                method = result.get("projection_metadata", {}).get("method", "unknown")
+                lat_val = coords.get("lat", 0.0)
+                lon_val = coords.get("lon", 0.0)
+                lat = float(lat_val) if lat_val is not None else 0.0
+                lon = float(lon_val) if lon_val is not None else 0.0
+                logger.info(f"✅ Fast projection complete using {method} method at {lat:.6f}, {lon:.6f}")
+            except Exception as log_err:
+                logger.warning(f"Projection succeeded but logging failed: {log_err}")
 
         return result
         
     except Exception as e:
-        logger.error(f"Error in polygon projection: {str(e)}")
+        # Include traceback for better diagnostics and ensure a helpful error message
+        import traceback
+        tb = traceback.format_exc()
+        msg = str(e) if str(e) else "Unknown error (see server logs)"
+        logger.error(f"Error in polygon projection: {msg}\n{tb}")
         if isinstance(e, HTTPException):
             raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
+            detail=f"Internal server error: {msg}"
         )
+
+@router.get("/tile-cache/stats")
+async def get_tile_cache_stats():
+    """Get tile cache statistics"""
+    try:
+        from pipelines.mapping.tiles.smart_cache import SmartTileCache
+        cache = SmartTileCache()
+        return cache.get_stats()
+    except Exception as e:
+        logger.error(f"Cache stats error: {e}")
+        return {"error": str(e)}
 
 @router.post("/get-map-tiles")
 async def get_map_tiles(request: Dict[str, Any]) -> Dict[str, Any]:
@@ -223,24 +235,34 @@ async def plss_overlay(request: Dict[str, Any]) -> Dict[str, Any]:
         if not data.get("success"):
             raise HTTPException(status_code=400, detail=data.get("error", "PLSS data unavailable"))
 
-        # Use vector data directly (FGDB mode)
-        vec = data["vector_data"]
-        sec_geo = plss.section_view.get_section_geometry(vec, plss_description)
-        if not sec_geo.get("success"):
-            raise HTTPException(status_code=400, detail=sec_geo.get("error"))
+        # Use new coordinate service for simplified section bounds
+        section_result = plss.get_section_view(plss_description)
+        if not section_result.get("success"):
+            raise HTTPException(status_code=400, detail=section_result.get("error"))
 
-        splits = plss.section_view.get_section_splits(vec, plss_description)
-        twp_geo = plss.section_view.get_township_geometry(vec, plss_description)
-
-        sec_shape = shape(sec_geo["geometry"])
-        minx, miny, maxx, maxy = sec_shape.bounds
-
+        # Create approximate bounds around the section centroid (1 square mile ≈ 0.014° x 0.014°)
+        centroid = section_result["centroid"]
+        lat, lon = centroid["lat"], centroid["lon"]
+        bounds_size = 0.007  # Half a section in degrees (approximate)
+        
         return {
             "success": True,
-            "section": sec_geo["geometry"],
-            "township": twp_geo["geometry"] if twp_geo.get("success") else None,
-            "splits": splits.get("lines", []),
-            "bounds": {"min_lon": minx, "min_lat": miny, "max_lon": maxx, "max_lat": maxy},
+            "section": {
+                "type": "Polygon",
+                "coordinates": [[[lon - bounds_size, lat - bounds_size],
+                               [lon + bounds_size, lat - bounds_size],
+                               [lon + bounds_size, lat + bounds_size],
+                               [lon - bounds_size, lat + bounds_size],
+                               [lon - bounds_size, lat - bounds_size]]]
+            },
+            "township": None,  # Simplified - no township overlay for now
+            "splits": [],      # Simplified - no quarter splits for now
+            "bounds": {
+                "min_lon": lon - bounds_size, 
+                "min_lat": lat - bounds_size,
+                "max_lon": lon + bounds_size, 
+                "max_lat": lat + bounds_size
+            },
         }
     except HTTPException:
         raise

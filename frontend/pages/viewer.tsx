@@ -1,8 +1,8 @@
 import React from 'react'
 import dynamic from 'next/dynamic'
 
-// Dynamically import MapViewer (MapLibre) to avoid SSR issues
-const MapViewer = dynamic(() => import('../src/components/mapping/MapViewer'), {
+// Dynamically import CleanMap (MapLibre) to avoid SSR issues
+const CleanMap = dynamic(() => import('../src/components/mapping/CleanMap').then(mod => ({ default: mod.CleanMap })), {
   ssr: false
 })
 
@@ -11,7 +11,9 @@ const ViewerPage: React.FC = () => {
     <div className="page">
       <div className="container">
         <h1>Boundary Viewer</h1>
-        <MapViewer />
+        <div style={{ height: '600px', width: '100%' }}>
+          <CleanMap />
+        </div>
       </div>
     </div>
   )

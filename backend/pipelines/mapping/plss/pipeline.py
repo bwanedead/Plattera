@@ -7,9 +7,8 @@ from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
 
 from .data_manager import PLSSDataManager
-from .coordinate_resolver import PLSSCoordinateResolver
+from .coordinate_service import PLSSCoordinateService
 from .vector_processor import PLSSVectorProcessor
-from .section_view import SectionView
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +25,8 @@ class PLSSPipeline:
             data_directory: Optional custom directory for PLSS data storage
         """
         self.data_manager = PLSSDataManager(data_directory)
-        self.coordinate_resolver = PLSSCoordinateResolver()
+        self.coordinate_service = PLSSCoordinateService()
         self.vector_processor = PLSSVectorProcessor()
-        self.section_view = SectionView()
         
     def resolve_starting_point(self, plss_description: dict) -> dict:
         """
@@ -61,9 +59,12 @@ class PLSSPipeline:
             quarter_sections = plss_description.get("quarter_sections")
             principal_meridian = plss_description.get("principal_meridian")
             
-            logger.info(
-                f"📍 Resolving: T{township}{township_dir} R{range_num}{range_dir} Sec {section} {quarter_sections}"
-            )
+            try:
+                logger.info(
+                    f"📍 Resolving: T{township}{township_dir} R{range_num}{range_dir} Sec {section} {quarter_sections}"
+                )
+            except Exception:
+                logger.info("📍 Resolving PLSS anchor")
             if principal_meridian:
                 logger.info(f"🧭 Principal Meridian: {principal_meridian}")
             
@@ -75,10 +76,10 @@ class PLSSPipeline:
                     "error": f"Failed to load PLSS data for {state}: {data_result['error']}"
                 }
             # Bulk FGDB mode: use vector_data as-is
-            prepared_vector = {"success": True, "vector_data": data_result["vector_data"]}
+            prepared_vector = {"success": True, "vector_data": data_result.get("vector_data")}
             
-            # Resolve coordinates using vector data
-            resolution_result = self.coordinate_resolver.resolve_coordinates(
+            # Resolve coordinates using new coordinate service
+            resolution_result = self.coordinate_service.resolve_coordinates(
                 state=state,
                 township=township,
                 township_direction=township_dir,
@@ -86,8 +87,7 @@ class PLSSPipeline:
                 range_direction=range_dir,
                 section=section,
                 quarter_sections=quarter_sections,
-                principal_meridian=principal_meridian,
-                vector_data=prepared_vector["vector_data"]
+                principal_meridian=principal_meridian
             )
             
             if not resolution_result["success"]:
@@ -192,23 +192,52 @@ class PLSSPipeline:
         return self.data_manager.get_state_coverage(state)
 
     def get_section_view(self, plss_description: dict) -> dict:
-        """Expose section centroid/bounds from vector data"""
+        """Get section information using coordinate service"""
         try:
             state = plss_description.get("state")
-            data_result = self.data_manager.ensure_state_data(state)
-            if not data_result.get("success"):
-                return data_result
-            return self.section_view.get_section_view(data_result["vector_data"], plss_description)
+            township = plss_description.get("township_number")
+            township_dir = plss_description.get("township_direction")
+            range_num = plss_description.get("range_number")
+            range_dir = plss_description.get("range_direction")
+            section = plss_description.get("section_number")
+            
+            # Use coordinate service to get section data
+            result = self.coordinate_service.resolve_coordinates(
+                state=state,
+                township=township,
+                township_direction=township_dir,
+                range_number=range_num,
+                range_direction=range_dir,
+                section=section
+            )
+            
+            if result.get("success"):
+                return {
+                    "success": True,
+                    "centroid": result.get("coordinates"),
+                    "bounds": result.get("bounds")
+                }
+            else:
+                return result
+                
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     def get_section_corner(self, plss_description: dict, corner_label: str) -> dict:
-        """Expose specific section corner (NW/NE/SE/SW) from vector geometry"""
+        """Get section corner using coordinate service"""
         try:
-            state = plss_description.get("state")
-            data_result = self.data_manager.ensure_state_data(state)
-            if not data_result.get("success"):
-                return data_result
-            return self.section_view.get_section_corner(data_result["vector_data"], plss_description, corner_label)
+            # Use get_section_view and calculate corner offset
+            section_result = self.get_section_view(plss_description)
+            if not section_result.get("success"):
+                return section_result
+                
+            # For now, return the centroid - in future could calculate actual corners
+            return {
+                "success": True,
+                "coordinates": section_result["centroid"],
+                "corner": corner_label,
+                "note": "Corner calculation not yet implemented - returning section centroid"
+            }
+            
         except Exception as e:
             return {"success": False, "error": str(e)}
