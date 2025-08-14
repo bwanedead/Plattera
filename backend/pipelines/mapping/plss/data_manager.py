@@ -14,30 +14,27 @@ import requests
 import geopandas as gpd
 import fiona
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Set
 import json
 import zipfile
 import io
 from datetime import datetime
+import time
 
 logger = logging.getLogger(__name__)
 
 class PLSSDataManager:
     """
     Manages PLSS vector data downloads from BLM CadNSDI and local caching
+    Thread-safe with processing locks to prevent concurrent downloads
     """
     
     def __init__(self, data_directory: Optional[str] = None):
-        """
-        Initialize data manager
-        
-        Args:
-            data_directory: Custom directory for PLSS data storage
-        """
+        # Fix the data directory path - restore original logic to use project root
         if data_directory:
             self.data_dir = Path(data_directory)
         else:
-            # Use project directory instead of hidden home directory
+            # Use project directory instead of backend directory
             # Navigate up from backend/pipelines/mapping/plss/ to project root
             project_root = Path(__file__).parent.parent.parent.parent.parent
             self.data_dir = project_root / "plss"
@@ -59,80 +56,141 @@ class PLSSDataManager:
             "https://gbp-blm-egis.hub.arcgis.com/api/download/v1/items/f484aef3642d4756a352cf2b63d5009d/filegdb?layers=0"
         )
         
-        # State abbreviations mapping  
+        # Thread safety: locks to prevent concurrent processing of same state
+        self._state_locks: Dict[str, threading.Lock] = {}
+        self._processing_states: Set[str] = set()
+        self._global_lock = threading.Lock()  # For managing the locks dict itself
+        
+        # State abbreviations mapping
         self.state_abbrevs = {
             "Wyoming": "WY", "Colorado": "CO", "Utah": "UT", "Montana": "MT",
-            "New Mexico": "NM", "Idaho": "ID", "Nevada": "NV", "Arizona": "AZ",
-            "California": "CA", "Oregon": "OR", "Washington": "WA", "Alaska": "AK",
-            "North Dakota": "ND", "South Dakota": "SD", "Nebraska": "NE", "Kansas": "KS",
-            "Oklahoma": "OK", "Arkansas": "AR", "Louisiana": "LA", "Mississippi": "MS",
-            "Alabama": "AL", "Florida": "FL", "Wisconsin": "WI", "Minnesota": "MN",
-            "Iowa": "IA", "Missouri": "MO", "Illinois": "IL", "Indiana": "IN",
-            "Michigan": "MI", "Ohio": "OH"
+            "North Dakota": "ND", "South Dakota": "SD", "Nebraska": "NE",
+            "Kansas": "KS", "Oklahoma": "OK", "Texas": "TX", "New Mexico": "NM",
+            "Arizona": "AZ", "Nevada": "NV", "Idaho": "ID", "Washington": "WA",
+            "Oregon": "OR", "California": "CA", "Alaska": "AK", "Minnesota": "MN",
+            "Wisconsin": "WI", "Iowa": "IA", "Missouri": "MO", "Illinois": "IL", 
+            "Indiana": "IN", "Michigan": "MI", "Ohio": "OH"
         }
+        
+    def _get_state_lock(self, state: str) -> threading.Lock:
+        """Thread-safe retrieval of state-specific lock"""
+        with self._global_lock:
+            if state not in self._state_locks:
+                self._state_locks[state] = threading.Lock()
+            return self._state_locks[state]
+    
+    def _log_stage(self, state: str, stage: str, details: str = ""):
+        """Enhanced logging with timestamps and thread info"""
+        thread_id = threading.get_ident()
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        processing_count = len(self._processing_states)
+        
+        if details:
+            logger.info(f"🔄 [{timestamp}][T:{thread_id}][Active:{processing_count}] {state}: {stage} - {details}")
+        else:
+            logger.info(f"🔄 [{timestamp}][T:{thread_id}][Active:{processing_count}] {state}: {stage}")
         
     def ensure_state_data(self, state: str) -> dict:
         """
-        Ensure PLSS data is available for the specified state using BLM CadNSDI API
-        
-        Args:
-            state: State name (e.g., "Wyoming", "Colorado")
-            
-        Returns:
-            dict: Result with vector data path and metadata
+        Thread-safe PLSS data provisioning with detailed logging
+        Prevents concurrent processing of the same state
         """
+        thread_id = threading.get_ident()
+        self._log_stage(state, "ENTRY", f"Thread {thread_id} requesting data")
+        
         try:
-            logger.info(f"📦 Ensuring PLSS data for {state}")
-            
             if state not in self.state_abbrevs:
-                return {
-                    "success": False,
-                    "error": f"PLSS data not available for state: {state}"
-                }
+                self._log_stage(state, "ERROR", "Unsupported state")
+                return {"success": False, "error": f"PLSS data not available for state: {state}"}
             
             state_abbr = self.state_abbrevs[state]
             state_dir = self.data_dir / state.lower()
             state_dir.mkdir(exist_ok=True)
             
-            # Check if data already exists and is current
-            if self._is_data_current(state):
-                logger.info(f"✅ Using cached PLSS data for {state}")
-                return self._load_cached_data(state)
+            # Get state-specific lock
+            state_lock = self._get_state_lock(state)
             
-            # If FGDB already exists locally but processed data is missing/outdated, rebuild without re-downloading
-            fgdb_dir = (self.data_dir / state.lower() / "fgdb")
-            if fgdb_dir.exists():
-                logger.info(f"♻️ Rebuilding processed data for {state} from existing FGDB (no re-download)")
-                processing_result = self._process_state_data(state)
-                if processing_result.get("success"):
-                    # Update metadata and return
-                    self._update_metadata(state, state_abbr)
+            # Check if another thread is processing this state
+            if not state_lock.acquire(blocking=False):
+                self._log_stage(state, "WAITING", f"Another thread processing, waiting...")
+                
+                # Block until the other thread completes
+                with state_lock:
+                    self._log_stage(state, "WAIT_COMPLETE", "Other thread finished, checking results")
+                    
+                    # Check if the other thread successfully completed the work
+                    if self._is_data_current(state):
+                        self._log_stage(state, "SUCCESS_CACHED", "Using data from concurrent thread")
+                        return self._load_cached_data(state)
+                    else:
+                        self._log_stage(state, "WAIT_FAILED", "Other thread failed, will process ourselves")
+                        # Fall through to process it ourselves
+            
+            try:
+                # Mark this state as actively processing
+                with self._global_lock:
+                    self._processing_states.add(state)
+                
+                self._log_stage(state, "LOCK_ACQUIRED", f"Thread {thread_id} acquired processing lock")
+                
+                # Check if data already exists and is current
+                if self._is_data_current(state):
+                    self._log_stage(state, "SUCCESS_EXISTING", "Using cached data")
                     return self._load_cached_data(state)
-                logger.warning(f"Processing from existing FGDB failed, falling back to download: {processing_result.get('error')}")
+                
+                # Clear any stale progress and start fresh
+                self._clear_progress(state)
+                self._write_progress(state, {"stage": "initializing", "thread_id": thread_id})
+                
+                # Check if FGDB exists locally but needs reprocessing
+                fgdb_dir = state_dir / "fgdb"
+                if fgdb_dir.exists():
+                    self._log_stage(state, "REBUILD_START", "Rebuilding from existing FGDB (no download)")
+                    processing_result = self._process_state_data(state)
+                    if processing_result.get("success"):
+                        self._update_metadata(state, state_abbr)
+                        self._log_stage(state, "REBUILD_SUCCESS", "Rebuild completed")
+                        return self._load_cached_data(state)
+                    else:
+                        self._log_stage(state, "REBUILD_FAILED", f"Rebuild failed: {processing_result.get('error')}")
 
-            # Download and cache data (Bulk FGDB for Wyoming)
-            logger.info(f"⬇️ Downloading PLSS data for {state} (bulk FGDB)")
-            download_result = self._download_state_data_bulk_fgdb(state, state_abbr)
-            if not download_result["success"]:
-                return download_result
+                # Full download and processing
+                self._log_stage(state, "DOWNLOAD_START", "Starting fresh download")
+                download_result = self._download_state_data_bulk_fgdb(state, state_abbr)
+                if not download_result["success"]:
+                    self._log_stage(state, "DOWNLOAD_FAILED", download_result.get("error", "Unknown error"))
+                    return download_result
 
-            # Process and validate data
-            processing_result = self._process_state_data(state)
-            if not processing_result["success"]:
-                return processing_result
-            
-            # Update metadata
-            self._update_metadata(state, state_abbr)
-            
-            logger.info(f"✅ PLSS data ready for {state}")
-            return self._load_cached_data(state)
+                # Download method already processed the data, so no need to process again
+                # Just update metadata and mark final completion
+                self._update_metadata(state, state_abbr)
+                
+                self._log_stage(state, "ALL_COMPLETE", "✅ All processing completed successfully")
+                
+                # Write the FINAL completion signal
+                self._write_progress(state, {
+                    "stage": "complete", 
+                    "thread_id": thread_id,
+                    "completed_at": datetime.now().isoformat(),
+                    "final": True,
+                    "all_processing_complete": True
+                })
+                
+                self._log_stage(state, "DOWNLOAD_COMPLETE", "🎉 All downloads and processing finished successfully!")
+                
+                return self._load_cached_data(state)
+                
+            finally:
+                # Always clean up: remove from processing set and release lock
+                with self._global_lock:
+                    self._processing_states.discard(state)
+                
+                self._log_stage(state, "LOCK_RELEASED", f"Thread {thread_id} released processing lock")
+                state_lock.release()
             
         except Exception as e:
-            logger.error(f"❌ Failed to ensure PLSS data for {state}: {str(e)}")
-            return {
-                "success": False,
-                "error": f"Data management error: {str(e)}"
-            }
+            self._log_stage(state, "EXCEPTION", f"Unexpected error: {str(e)}")
+            return {"success": False, "error": f"Data management error: {str(e)}"}
     
     # ---- Progress & cancel helpers ----
     def _progress_path(self, state: str) -> Path:
@@ -141,14 +199,36 @@ class PLSSDataManager:
     def _cancel_flag_path(self, state: str) -> Path:
         return (self.data_dir / state.lower()) / "cancel.flag"
 
+    def _clear_progress(self, state: str) -> None:
+        """Clear any existing progress file to start fresh"""
+        try:
+            p = self._progress_path(state)
+            if p.exists():
+                self._log_stage(state, "PROGRESS_CLEARED", "Removed stale progress file")
+                p.unlink()
+        except Exception as e:
+            self._log_stage(state, "PROGRESS_CLEAR_FAILED", f"Could not clear progress: {e}")
+
     def _write_progress(self, state: str, progress: dict) -> None:
         try:
             p = self._progress_path(state)
             p.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Add metadata for debugging
+            progress.update({
+                "timestamp": datetime.now().isoformat(),
+                "thread_id": threading.get_ident(),
+                "active_processing_count": len(self._processing_states)
+            })
+            
             with open(p, 'w') as f:
-                json.dump(progress, f)
-        except Exception:
-            pass
+                json.dump(progress, f, indent=2)
+                
+            stage = progress.get("stage", "unknown")
+            self._log_stage(state, f"PROGRESS_WRITTEN", f"Stage: {stage}")
+            
+        except Exception as e:
+            self._log_stage(state, "PROGRESS_WRITE_FAILED", f"Could not write progress: {e}")
 
     def get_progress(self, state: str) -> dict:
         try:
@@ -302,11 +382,13 @@ class PLSSDataManager:
                 return validation
             self._write_progress(state, {"stage": "processing:prepare"})
 
-            # Process and write manifest; then mark complete so UI can stop polling
+            # Process and write manifest; but DON'T mark complete here
             proc = self._process_state_data(state)
             if not proc.get("success"):
                 return proc
-            self._write_progress(state, {"stage": "complete"})
+            
+            # REMOVE THIS LINE - let ensure_state_data write the final complete
+            # self._write_progress(state, {"stage": "complete"})
 
             return {"success": True, "installed": True, "fgdb_path": str(fgdb_dir)}
             
@@ -542,7 +624,9 @@ class PLSSDataManager:
     def _process_state_data(self, state: str) -> dict:
         """Process installed FGDBs into a lightweight manifest for consumers."""
         try:
-            logger.info(f"⚙️ Processing PLSS FGDB data for {state}")
+            self._log_stage(state, "PROCESS_START", "Starting FGDB processing")
+            self._write_progress(state, {"stage": "processing:prepare"})
+            
             state_dir = self.data_dir / state.lower()
             fgdb_dir = state_dir / "fgdb"
             if not fgdb_dir.exists():
@@ -610,57 +694,48 @@ class PLSSDataManager:
                 }
             }
 
-            # Build GeoParquet + TRS index for fast runtime lookups (best-effort)
+            # Build GeoParquet + TRS index for fast runtime lookups
             try:
                 from .section_index import SectionIndex
                 idx = SectionIndex(str(self.data_dir))
-                # Inform UI that we're building Parquet/Index
-                try:
-                    self._write_progress(state, {"stage": "building:geoparquet"})
-                except Exception:
-                    pass
+                
+                self._log_stage(state, "GEOPARQUET_START", "Building GeoParquet and index")
+                self._write_progress(state, {"stage": "building:geoparquet"})
+                
                 build = idx.build_index_from_fgdb(state, sections_fgdb, sections_layer, townships_fgdb, townships_layer)
                 if build.get("success"):
-                    try:
-                        self._write_progress(state, {"stage": "building:index"})
-                    except Exception:
-                        pass
+                    self._log_stage(state, "GEOPARQUET_SUCCESS", f"Built GeoParquet ({build.get('rows')} rows)")
+                    self._write_progress(state, {"stage": "building:index"})
+                    
                     processed_data["layers"].update({
                         "sections_parquet": build.get("sections_parquet"),
                         "sections_index": build.get("sections_index"),
                     })
                     if build.get("townships_parquet"):
                         processed_data["layers"]["townships_parquet"] = build.get("townships_parquet")
-                    logger.info(f"✅ Built GeoParquet and section index for {state} ({build.get('rows')} rows)")
                 else:
-                    logger.warning(f"GeoParquet/index build skipped: {build.get('error')}")
+                    self._log_stage(state, "GEOPARQUET_SKIPPED", f"Build failed: {build.get('error')}")
             except Exception as e:
-                logger.warning(f"GeoParquet/index build failed: {e}")
+                self._log_stage(state, "GEOPARQUET_FAILED", f"Exception: {e}")
             
             # Save processed metadata
-            try:
-                self._write_progress(state, {"stage": "writing:manifest"})
-            except Exception:
-                pass
+            self._log_stage(state, "MANIFEST_START", "Writing manifest file")
+            self._write_progress(state, {"stage": "writing:manifest"})
+            
             processed_file = state_dir / "processed_plss.json"
             with open(processed_file, 'w') as f:
                 json.dump(processed_data, f, indent=2)
             
-            logger.info(f"✅ Processed PLSS FGDB for {state}")
+            self._log_stage(state, "MANIFEST_SUCCESS", "Manifest written successfully")
 
-            # Mark progress as complete so UI can dismiss modal
-            try:
-                self._write_progress(state, {"stage": "complete"})
-            except Exception:
-                pass
-
+            # DO NOT write "complete" here - that's only done in ensure_state_data
+            # This allows ensure_state_data to control the final completion signal
+            
             return {"success": True, "processed_file": str(processed_file)}
             
         except Exception as e:
-            return {
-                "success": False,
-                "error": f"Processing failed: {str(e)}"
-            }
+            self._log_stage(state, "PROCESS_FAILED", f"Processing exception: {e}")
+            return {"success": False, "error": f"Processing failed: {str(e)}"}
     
     def _load_cached_data(self, state: str) -> dict:
         """Load cached PLSS data for state"""
