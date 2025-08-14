@@ -1,8 +1,8 @@
 import React from 'react'
 import dynamic from 'next/dynamic'
 
-// Dynamically import MapViewer to avoid SSR issues with Leaflet
-const MapViewer = dynamic(() => import('../src/components/MapViewer'), {
+// Dynamically import MapViewer (MapLibre) to avoid SSR issues
+const MapViewer = dynamic(() => import('../src/components/mapping/MapViewer'), {
   ssr: false
 })
 

@@ -57,20 +57,50 @@ class PLSSCoordinateResolver:
             )
             if principal_meridian:
                 logger.info(f"🧭 Principal Meridian (hint): {principal_meridian}")
-            
-            # Try precise vector lookup first
+
+            # 0) Fast-path: SectionIndex (GeoParquet) if available
+            try:
+                from .section_index import SectionIndex
+                idx = SectionIndex()
+                fast = idx.get_centroid_bounds(state, {
+                    "township_number": township,
+                    "township_direction": township_direction,
+                    "range_number": range_number,
+                    "range_direction": range_direction,
+                    "section_number": section,
+                    "principal_meridian": principal_meridian,
+                })
+                if fast and fast.get("center"):
+                    lat = float(fast["center"]["lat"])
+                    lon = float(fast["center"]["lon"])
+                    # Apply quarter offset if provided (small nudge from center)
+                    if quarter_sections:
+                        qlat, qlon = self._get_quarter_section_offset(quarter_sections)
+                        lat += qlat
+                        lon += qlon
+                    return {
+                        "success": True,
+                        "coordinates": {"lat": lat, "lon": lon},
+                        "method": "section_index",
+                        "accuracy": "high",
+                        "datum": "WGS84",
+                    }
+            except Exception as e:
+                logger.debug(f"SectionIndex fast path skipped: {e}")
+
+            # 1) Vector FGDB lookup (fallback)
             if vector_data and "layers" in vector_data:
                 vector_result = self._resolve_from_vector_data(
-                    township, township_direction, range_number, range_direction, 
+                    township, township_direction, range_number, range_direction,
                     section, quarter_sections, principal_meridian, vector_data
                 )
                 if vector_result["success"]:
                     return vector_result
-            
-            # Do NOT fall back to coarse approximation to avoid wrong placement
+
+            # 2) Final: no coarse approximation to avoid misplacement
             return {
                 "success": False,
-                "error": "Vector lookup failed; coarse approximation disabled to prevent misplacement"
+                "error": "PLSS resolution failed (no index and vector lookup failed)"
             }
             
         except Exception as e:

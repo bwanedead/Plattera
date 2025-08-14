@@ -25,8 +25,8 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({
   schemaData, 
   polygonData,
   showSectionOverlay = true,
-  showTownshipOverlay = true,
-  showQuarterSplits = true,
+  showTownshipOverlay = false,
+  showQuarterSplits = false,
   showValidationBanner = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);

@@ -1,13 +1,6 @@
-/**
- * Main Interactive Map Viewer Component
- * Displays interactive geographic map with polygon overlays
- */
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { PolygonOverlay } from './PolygonOverlay';
-import { MapControls } from './MapControls';
-import { CoordinateDisplay } from './CoordinateDisplay';
-import { TileLayerManager } from './TileLayerManager';
-import { lonLatToPixel } from '../../utils/coordinateProjection';
+import React, { useEffect, useRef } from 'react';
+import maplibregl, { Map as MapLibreMap, LngLatBoundsLike } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { mappingApi, type PLSSDescription } from '../../services/mappingApi';
 
 interface MapViewerProps {
@@ -15,298 +8,152 @@ interface MapViewerProps {
   initialCenter?: { lat: number; lon: number };
   initialZoom?: number;
   className?: string;
-  plssAnchor?: PLSSDescription; // Optional: center tiles from PLSS section view
-  plssPadding?: number; // Optional padding for section view bounds
+  plssAnchor?: PLSSDescription;
+  plssPadding?: number;
 }
 
-interface MapState {
-  center: { lat: number; lon: number };
-  zoom: number;
-  bounds: {
-    min_lat: number;
-    max_lat: number;
-    min_lon: number;
-    max_lon: number;
-  };
-  tileProvider: string;
-  isLoading: boolean;
-}
+const API_BASE = 'http://localhost:8000/api/mapping';
 
 export const MapViewer: React.FC<MapViewerProps> = ({
   polygonData,
-  initialCenter = { lat: 41.5, lon: -107.5 }, // Default Wyoming coordinates
+  initialCenter = { lat: 41.5, lon: -107.5 },
   initialZoom = 10,
-  className = "",
+  className = '',
   plssAnchor,
   plssPadding = 0.2
 }) => {
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const [mapState, setMapState] = useState<MapState>({
-    center: initialCenter,
-    zoom: initialZoom,
-    bounds: {
-      min_lat: initialCenter.lat - 0.1,
-      max_lat: initialCenter.lat + 0.1,
-      min_lon: initialCenter.lon - 0.1,
-      max_lon: initialCenter.lon + 0.1
-    },
-    tileProvider: 'usgs_topo',
-    isLoading: false
-  });
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
 
-  const [mousePosition, setMousePosition] = useState<{ lat: number; lon: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
-
-  // Calculate map dimensions and scaling
-  const mapDimensions = React.useMemo(() => {
-    if (!mapContainerRef.current) return null;
-
-    const rect = mapContainerRef.current.getBoundingClientRect();
-    const width = rect.width;
-    const height = rect.height;
-
-    // Calculate degrees per pixel based on current zoom and center
-    const degreesPerPixelLat = (mapState.bounds.max_lat - mapState.bounds.min_lat) / height;
-    const degreesPerPixelLon = (mapState.bounds.max_lon - mapState.bounds.min_lon) / width;
-
-    return {
-      width,
-      height,
-      degreesPerPixelLat,
-      degreesPerPixelLon
-    };
-  }, [mapState.bounds, mapContainerRef.current]);
-
-  // Convert screen coordinates to geographic coordinates
-  const screenToGeo = useCallback((screenX: number, screenY: number) => {
-    if (!mapDimensions) return null;
-
-    const lat = mapState.bounds.max_lat - (screenY * mapDimensions.degreesPerPixelLat);
-    const lon = mapState.bounds.min_lon + (screenX * mapDimensions.degreesPerPixelLon);
-
-    return { lat, lon };
-  }, [mapState.bounds, mapDimensions]);
-
-  // Convert geographic coordinates to screen coordinates
-  const geoToScreen = useCallback((lat: number, lon: number) => {
-    if (!mapDimensions) return null;
-
-    const x = (lon - mapState.bounds.min_lon) / mapDimensions.degreesPerPixelLon;
-    const y = (mapState.bounds.max_lat - lat) / mapDimensions.degreesPerPixelLat;
-
-    return { x, y };
-  }, [mapState.bounds, mapDimensions]);
-
-  // Shared Web Mercator pixel origin and toScreen that matches tile math
-  const originPixel = React.useMemo(() => {
-    return lonLatToPixel(mapState.bounds.min_lon, mapState.bounds.max_lat, Math.round(mapState.zoom));
-  }, [mapState.bounds.min_lon, mapState.bounds.max_lat, mapState.zoom]);
-
-  const toScreen = React.useCallback((lat: number, lon: number) => {
-    const px = lonLatToPixel(lon, lat, Math.round(mapState.zoom));
-    return { x: px.x - originPixel.x, y: px.y - originPixel.y };
-  }, [mapState.zoom, originPixel]);
-
-  // Handle mouse movement for coordinate display
-  const handleMouseMove = useCallback((event: React.MouseEvent) => {
-    if (!mapContainerRef.current) return;
-
-    const rect = mapContainerRef.current.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-
-    const geoCoords = screenToGeo(x, y);
-    if (geoCoords) {
-      setMousePosition(geoCoords);
+  const setGeoJSONSource = (id: string, data: any) => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (map.getSource(id)) {
+      (map.getSource(id) as any).setData(data);
+    } else {
+      map.addSource(id, { type: 'geojson', data });
     }
+  };
 
-    // Handle dragging
-    if (isDragging && dragStart) {
-      const deltaX = x - dragStart.x;
-      const deltaY = y - dragStart.y;
-
-      if (mapDimensions) {
-        const deltaLat = deltaY * mapDimensions.degreesPerPixelLat;
-        const deltaLon = deltaX * mapDimensions.degreesPerPixelLon;
-
-        setMapState(prev => ({
-          ...prev,
-          center: {
-            lat: prev.center.lat + deltaLat,
-            lon: prev.center.lon - deltaLon
-          },
-          bounds: {
-            min_lat: prev.bounds.min_lat + deltaLat,
-            max_lat: prev.bounds.max_lat + deltaLat,
-            min_lon: prev.bounds.min_lon - deltaLon,
-            max_lon: prev.bounds.max_lon - deltaLon
-          }
-        }));
-
-        setDragStart({ x, y });
-      }
+  const ensureLineLayer = (id: string, source: string, color = '#444', width = 1, before?: string) => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!map.getLayer(id)) {
+      map.addLayer(
+        { id, type: 'line', source, paint: { 'line-color': color, 'line-width': width } },
+        before
+      );
     }
-  }, [screenToGeo, isDragging, dragStart, mapDimensions]);
+  };
 
-  // Handle mouse down for dragging
-  const handleMouseDown = useCallback((event: React.MouseEvent) => {
-    if (!mapContainerRef.current) return;
+  const ensureFillLayer = (id: string, source: string, before?: string) => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!map.getLayer(`${id}-fill`)) {
+      map.addLayer(
+        { id: `${id}-fill`, type: 'fill', source, paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.3 } },
+        before
+      );
+    }
+    if (!map.getLayer(`${id}-outline`)) {
+      map.addLayer(
+        { id: `${id}-outline`, type: 'line', source, paint: { 'line-color': '#3b82f6', 'line-width': 2 } },
+        before
+      );
+    }
+  };
 
-    const rect = mapContainerRef.current.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-
-    setIsDragging(true);
-    setDragStart({ x, y });
-  }, []);
-
-  // Handle mouse up
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-    setDragStart(null);
-  }, []);
-
-  // If PLSS anchor is provided, center map using section view (decouples tiles from georef output)
   useEffect(() => {
-    let cancelled = false;
-    const run = async () => {
-      if (!plssAnchor) return;
-      try {
-        const res = await mappingApi.getPLSSSectionView(plssAnchor, plssPadding);
-        if (!cancelled && res.success && res.bounds && res.center) {
-          setMapState(prev => ({
-            ...prev,
-            center: res.center!,
-            bounds: res.bounds
-          }));
-        }
-      } catch (e) {
-        // Ignore; keep previous state
+    if (!containerRef.current || mapRef.current) return;
+
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: { version: 8, sources: {}, layers: [] } as any,
+      center: [initialCenter.lon, initialCenter.lat],
+      zoom: initialZoom,
+      attributionControl: true
+    });
+    mapRef.current = map;
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left');
+
+    map.on('load', () => {
+      const provider = 'usgs_topo';
+      const rasterId = 'basemap';
+      if (!map.getSource(rasterId)) {
+        map.addSource(rasterId, {
+          type: 'raster',
+          tiles: [`${API_BASE}/tile/${provider}/{z}/{x}/{y}`],
+          tileSize: 256,
+          attribution: '© USGS'
+        });
       }
+      if (!map.getLayer(rasterId)) {
+        map.addLayer({ id: rasterId, type: 'raster', source: rasterId });
+      }
+      if (polygonData?.geographic_polygon) {
+        setGeoJSONSource('parcel', polygonData.geographic_polygon);
+        ensureFillLayer('parcel', 'parcel');
+      }
+    });
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
     };
-    run();
+  }, [initialCenter.lat, initialCenter.lon, initialZoom]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    let cancelled = false;
+    if (!map || !plssAnchor) return;
+
+    (async () => {
+      try {
+        const sec = await mappingApi.getPLSSSectionView(plssAnchor, plssPadding);
+        if (!sec?.success || !sec.bounds) return;
+        if (cancelled) return;
+        const b = sec.bounds;
+        const bounds: LngLatBoundsLike = [ [b.min_lon, b.min_lat], [b.max_lon, b.max_lat] ];
+        map.fitBounds(bounds, { padding: 24, duration: 0 });
+
+        const overlay = await mappingApi.getPLSSOverlay(plssAnchor);
+        if (cancelled || !overlay?.success) return;
+        if (overlay.section) {
+          setGeoJSONSource('plss-section', overlay.section);
+          ensureLineLayer('plss-section-outline', 'plss-section', '#666', 1.5, 'parcel-fill');
+        }
+        if (overlay.township) {
+          setGeoJSONSource('plss-township', overlay.township);
+          ensureLineLayer('plss-township-outline', 'plss-township', '#999', 1, 'plss-section-outline');
+        }
+        if (Array.isArray(overlay.splits) && overlay.splits.length > 0) {
+          setGeoJSONSource('plss-splits', { type: 'FeatureCollection', features: overlay.splits });
+          ensureLineLayer('plss-splits-lines', 'plss-splits', '#bbb', 0.75, 'plss-township-outline');
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
     return () => { cancelled = true; };
   }, [plssAnchor, plssPadding]);
 
-  // Handle zoom
-  const handleZoom = useCallback((zoomDelta: number) => {
-    setMapState(prev => {
-      const newZoom = Math.max(1, Math.min(18, prev.zoom + zoomDelta));
-      const zoomFactor = Math.pow(2, zoomDelta);
-      
-      const latRange = (prev.bounds.max_lat - prev.bounds.min_lat) / zoomFactor;
-      const lonRange = (prev.bounds.max_lon - prev.bounds.min_lon) / zoomFactor;
-
-      return {
-        ...prev,
-        zoom: newZoom,
-        bounds: {
-          min_lat: prev.center.lat - latRange / 2,
-          max_lat: prev.center.lat + latRange / 2,
-          min_lon: prev.center.lon - lonRange / 2,
-          max_lon: prev.center.lon + lonRange / 2
-        }
-      };
-    });
-  }, []);
-
-  // Handle wheel zoom
-  const handleWheel = useCallback((event: React.WheelEvent) => {
-    event.preventDefault();
-    const zoomDelta = event.deltaY > 0 ? -0.5 : 0.5;
-    handleZoom(zoomDelta);
-  }, [handleZoom]);
-
-  // Handle tile provider change
-  const handleProviderChange = useCallback((provider: string) => {
-    setMapState(prev => ({ ...prev, tileProvider: provider }));
-  }, []);
-
-  // Center map on polygon if provided AND no PLSS anchor (PLSS-driven tiles take precedence)
   useEffect(() => {
-    if (!plssAnchor && polygonData && polygonData.bounds) {
-      const bounds = polygonData.bounds;
-      const centerLat = (bounds.min_lat + bounds.max_lat) / 2;
-      const centerLon = (bounds.min_lon + bounds.max_lon) / 2;
-      
-      // Add padding to bounds
-      const latPadding = (bounds.max_lat - bounds.min_lat) * 0.2;
-      const lonPadding = (bounds.max_lon - bounds.min_lon) * 0.2;
-
-      setMapState(prev => ({
-        ...prev,
-        center: { lat: centerLat, lon: centerLon },
-        bounds: {
-          min_lat: bounds.min_lat - latPadding,
-          max_lat: bounds.max_lat + latPadding,
-          min_lon: bounds.min_lon - lonPadding,
-          max_lon: bounds.max_lon + lonPadding
-        }
-      }));
+    const map = mapRef.current;
+    if (!map || !polygonData?.geographic_polygon) return;
+    setGeoJSONSource('parcel', polygonData.geographic_polygon);
+    ensureFillLayer('parcel', 'parcel', 'plss-splits-lines');
+    if (!plssAnchor && polygonData?.bounds) {
+      const b = polygonData.bounds;
+      const bounds: LngLatBoundsLike = [ [b.min_lon, b.min_lat], [b.max_lon, b.max_lat] ];
+      map.fitBounds(bounds, { padding: 24, duration: 0 });
     }
   }, [polygonData, plssAnchor]);
 
   return (
-    <div className={`map-viewer ${className}`}>
-      {/* Map Container */}
-      <div 
-        ref={mapContainerRef}
-        className="map-container"
-        onMouseMove={handleMouseMove}
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
-        style={{
-          width: '100%',
-          height: '100%',
-          position: 'relative',
-          cursor: isDragging ? 'grabbing' : 'grab',
-          overflow: 'hidden'
-        }}
-      >
-        {/* Tile Layer */}
-        <TileLayerManager
-          bounds={mapState.bounds}
-          zoom={mapState.zoom}
-          provider={mapState.tileProvider}
-          geoToScreen={geoToScreen}
-          originPixel={originPixel}
-        />
-
-        {/* Polygon Overlay */}
-        {polygonData && (
-          <PolygonOverlay
-            polygonData={polygonData}
-            toScreen={toScreen}
-            mapBounds={mapState.bounds}
-          />
-        )}
-
-        {/* Loading Indicator */}
-        {mapState.isLoading && (
-          <div className="map-loading">
-            <div className="loading-spinner">Loading map...</div>
-          </div>
-        )}
-      </div>
-
-      {/* Map Controls */}
-      <MapControls
-        zoom={mapState.zoom}
-        onZoomIn={() => handleZoom(1)}
-        onZoomOut={() => handleZoom(-1)}
-        onProviderChange={handleProviderChange}
-        currentProvider={mapState.tileProvider}
-      />
-
-      {/* Coordinate Display */}
-      <CoordinateDisplay
-        mousePosition={mousePosition}
-        mapCenter={mapState.center}
-        zoom={mapState.zoom}
-      />
+    <div className={`map-viewer ${className}`} style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
     </div>
   );
 };

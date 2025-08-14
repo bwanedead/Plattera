@@ -129,14 +129,24 @@ class TileService {
         throw new Error('Invalid zoom level for provider');
       }
 
-      // Fetch tile through backend (which handles caching)
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        // Graceful: mark error and return, do not throw to avoid Promise.allSettled churn
-        tileInfo.isLoading = false;
-        tileInfo.hasError = true;
-        return tileInfo;
+      const attempt = async () => {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp;
+      };
+
+      let response: Response;
+      try {
+        response = await attempt();
+      } catch {
+        // brief backoffs to smooth transient hiccups
+        await new Promise(r => setTimeout(r, 250));
+        try {
+          response = await attempt();
+        } catch {
+          await new Promise(r => setTimeout(r, 500));
+          response = await attempt();
+        }
       }
 
       // Check if response is a redirect (CORS bypass mode)
@@ -220,6 +230,30 @@ class TileService {
   }
 
   /**
+   * Prioritize tiles center-first in rings (for progressive loading)
+   */
+  prioritizeTiles(
+    tiles: Array<{ x: number; y: number; z: number }>,
+  ): { ordered: Array<{ x: number; y: number; z: number }>, center: { x: number; y: number; z: number } | null } {
+    if (tiles.length === 0) return { ordered: [], center: null };
+    const xs = tiles.map(t => t.x);
+    const ys = tiles.map(t => t.y);
+    const zs = tiles.map(t => t.z);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const z = zs[0];
+    const cx = Math.round((minX + maxX) / 2);
+    const cy = Math.round((minY + maxY) / 2);
+    const withRing = tiles.map(t => ({
+      ...t,
+      ring: Math.max(Math.abs(t.x - cx), Math.abs(t.y - cy)),
+      dist: Math.abs(t.x - cx) + Math.abs(t.y - cy)
+    }));
+    withRing.sort((a, b) => a.ring - b.ring || a.dist - b.dist);
+    return { ordered: withRing.map(({ x, y, z }) => ({ x, y, z })), center: { x: cx, y: cy, z } };
+  }
+
+  /**
    * Calculate required tiles for given bounds and zoom
    * 
    * @param bounds Geographic bounds
@@ -231,10 +265,17 @@ class TileService {
     zoom: number
   ): Array<{ x: number; y: number; z: number }> {
     // Convert bounds to tile coordinates
-    const minTileX = Math.floor(this.longitudeToTileX(bounds.min_lon, zoom));
-    const maxTileX = Math.floor(this.longitudeToTileX(bounds.max_lon, zoom));
-    const minTileY = Math.floor(this.latitudeToTileY(bounds.max_lat, zoom)); // Note: Y is flipped
-    const maxTileY = Math.floor(this.latitudeToTileY(bounds.min_lat, zoom));
+    const dim = Math.pow(2, zoom);
+    let minTileX = Math.floor(this.longitudeToTileX(bounds.min_lon, zoom));
+    let maxTileX = Math.floor(this.longitudeToTileX(bounds.max_lon, zoom));
+    let minTileY = Math.floor(this.latitudeToTileY(bounds.max_lat, zoom)); // Note: Y is flipped
+    let maxTileY = Math.floor(this.latitudeToTileY(bounds.min_lat, zoom));
+
+    // Overfetch one tile on each edge to avoid gaps at screen borders
+    minTileX = Math.max(0, minTileX - 1);
+    maxTileX = Math.min(dim - 1, maxTileX + 1);
+    minTileY = Math.max(0, minTileY - 1);
+    maxTileY = Math.min(dim - 1, maxTileY + 1);
 
     const tiles: Array<{ x: number; y: number; z: number }> = [];
     

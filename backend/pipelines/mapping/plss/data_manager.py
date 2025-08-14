@@ -99,12 +99,23 @@ class PLSSDataManager:
                 logger.info(f"✅ Using cached PLSS data for {state}")
                 return self._load_cached_data(state)
             
+            # If FGDB already exists locally but processed data is missing/outdated, rebuild without re-downloading
+            fgdb_dir = (self.data_dir / state.lower() / "fgdb")
+            if fgdb_dir.exists():
+                logger.info(f"♻️ Rebuilding processed data for {state} from existing FGDB (no re-download)")
+                processing_result = self._process_state_data(state)
+                if processing_result.get("success"):
+                    # Update metadata and return
+                    self._update_metadata(state, state_abbr)
+                    return self._load_cached_data(state)
+                logger.warning(f"Processing from existing FGDB failed, falling back to download: {processing_result.get('error')}")
+
             # Download and cache data (Bulk FGDB for Wyoming)
             logger.info(f"⬇️ Downloading PLSS data for {state} (bulk FGDB)")
             download_result = self._download_state_data_bulk_fgdb(state, state_abbr)
             if not download_result["success"]:
                 return download_result
-            
+
             # Process and validate data
             processing_result = self._process_state_data(state)
             if not processing_result["success"]:
@@ -289,7 +300,7 @@ class PLSSDataManager:
             validation = self._validate_wy_fgdb_layers(fgdb_dir)
             if not validation["success"]:
                 return validation
-            self._write_progress(state, {"stage": "finalizing"})
+            self._write_progress(state, {"stage": "processing:prepare"})
 
             # Process and write manifest; then mark complete so UI can stop polling
             proc = self._process_state_data(state)
@@ -598,14 +609,51 @@ class PLSSDataManager:
                     "subdivisions_layer": subdivisions_layer
                 }
             }
+
+            # Build GeoParquet + TRS index for fast runtime lookups (best-effort)
+            try:
+                from .section_index import SectionIndex
+                idx = SectionIndex(str(self.data_dir))
+                # Inform UI that we're building Parquet/Index
+                try:
+                    self._write_progress(state, {"stage": "building:geoparquet"})
+                except Exception:
+                    pass
+                build = idx.build_index_from_fgdb(state, sections_fgdb, sections_layer, townships_fgdb, townships_layer)
+                if build.get("success"):
+                    try:
+                        self._write_progress(state, {"stage": "building:index"})
+                    except Exception:
+                        pass
+                    processed_data["layers"].update({
+                        "sections_parquet": build.get("sections_parquet"),
+                        "sections_index": build.get("sections_index"),
+                    })
+                    if build.get("townships_parquet"):
+                        processed_data["layers"]["townships_parquet"] = build.get("townships_parquet")
+                    logger.info(f"✅ Built GeoParquet and section index for {state} ({build.get('rows')} rows)")
+                else:
+                    logger.warning(f"GeoParquet/index build skipped: {build.get('error')}")
+            except Exception as e:
+                logger.warning(f"GeoParquet/index build failed: {e}")
             
             # Save processed metadata
+            try:
+                self._write_progress(state, {"stage": "writing:manifest"})
+            except Exception:
+                pass
             processed_file = state_dir / "processed_plss.json"
             with open(processed_file, 'w') as f:
                 json.dump(processed_data, f, indent=2)
             
             logger.info(f"✅ Processed PLSS FGDB for {state}")
-            
+
+            # Mark progress as complete so UI can dismiss modal
+            try:
+                self._write_progress(state, {"stage": "complete"})
+            except Exception:
+                pass
+
             return {"success": True, "processed_file": str(processed_file)}
             
         except Exception as e:

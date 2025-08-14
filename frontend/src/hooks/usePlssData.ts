@@ -71,9 +71,8 @@ export function usePLSSData(schemaData: any) {
     // Start background download
     await plssDataService.startBackgroundDownload(state.state);
 
-    // Poll progress until done
-    let done = false;
-    while (!done) {
+    // Poll progress until backend reports complete
+    while (true) {
       const p = await plssDataService.getDownloadProgress(state.state);
       if (p.error) {
         setState(prev => ({ ...prev, status: 'error', error: p.error }));
@@ -81,18 +80,15 @@ export function usePLSSData(schemaData: any) {
       }
       const stage = p.stage || 'working';
       const overall = p.overall || { downloaded: 0, total: 0, percent: 0 };
-      setState(prev => ({ ...prev, progress: `${stage} ${overall.percent || 0}%` }));
+      setState(prev => ({ ...prev, status: 'downloading', progress: `${stage} ${overall.percent || 0}%` }));
       if (stage === 'canceled') {
         setState(prev => ({ ...prev, status: 'missing', error: 'Download canceled', progress: null }));
         return;
       }
-      // Poll cadence
-      await new Promise(r => setTimeout(r, 800));
-      // Check ready
-      const check = await plssDataService.checkDataStatus(state.state);
-      if (check.available) {
-        done = true;
+      if (stage === 'complete') {
+        break;
       }
+      await new Promise(r => setTimeout(r, 800));
     }
 
     setState(prev => ({ ...prev, status: 'ready', progress: null, mappingEnabled: true }));

@@ -73,9 +73,31 @@ export const TileLayerManager: React.FC<TileLayerManagerProps> = ({
         // Reset tile array on each fetch to avoid accumulation across pans/zooms/providers
         setTiles([]);
         console.log(`🗺️ Loading ${requiredTiles.length} tiles for ${provider} at zoom ${effectiveZoom}`);
-        const loadedTiles = await tileService.loadTiles(requiredTiles, provider);
-        setTiles(loadedTiles);
-        console.log(`✅ Successfully loaded ${loadedTiles.filter(t => !t.hasError).length}/${loadedTiles.length} tiles`);
+        const prioritized = tileService.prioritizeTiles(requiredTiles);
+        const ordered = prioritized.ordered;
+        // At high zoom, render center 3x3 first, then background-load the rest
+        const FIRST_RING_COUNT = effectiveZoom >= 14 ? 9 : 16;
+        const first = ordered.slice(0, FIRST_RING_COUNT);
+        const rest = ordered.slice(FIRST_RING_COUNT);
+
+        const firstTiles = await tileService.loadTiles(first, provider);
+        setTiles(firstTiles);
+        // Schedule remaining tiles without blocking first paint
+        if (rest.length > 0) {
+          setTimeout(async () => {
+            const moreTiles = await tileService.loadTiles(rest, provider);
+            setTiles(prev => {
+              // merge unique by key
+              const map = new Map(prev.map(t => [`${t.x}-${t.y}-${t.z}`, t] as const));
+              for (const t of moreTiles) {
+                map.set(`${t.x}-${t.y}-${t.z}`, t);
+              }
+              return Array.from(map.values());
+            });
+          }, 50);
+        }
+        const finalSet = rest.length > 0 ? [...first] : first;
+        console.log(`✅ Initial tiles loaded: ${firstTiles.filter(t => !t.hasError).length}/${firstTiles.length}`);
       } catch (error) {
         console.error('❌ Failed to fetch tiles:', error);
         const errorTiles = requiredTiles.map(tile => ({
