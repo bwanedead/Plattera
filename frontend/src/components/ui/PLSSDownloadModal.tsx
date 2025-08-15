@@ -9,6 +9,10 @@ interface PLSSDownloadModalProps {
   isDownloading: boolean;
   progressText?: string | null;
   onHardCancel?: () => void;
+  // Optional enhanced feedback for parquet finalization
+  parquetPhase?: boolean;
+  parquetStatus?: string | null;
+  estimatedTime?: string | null;
 }
 
 /**
@@ -23,22 +27,43 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
   onCancel,
   isDownloading,
   progressText,
-  onHardCancel
+  onHardCancel,
+  parquetPhase,
+  parquetStatus,
+  estimatedTime
 }) => {
   if (!isOpen) return null;
 
   return createPortal(
     <div className="plss-modal-overlay" onClick={onCancel}>
       <div className="plss-modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="plss-modal-message">
-          <p>
-            Need to download PLSS data for <strong>{state}</strong> from BLM.
-          </p>
-          <p className="plss-modal-details">
-            This will download Wyoming PLSS bulk data (Townships, Sections, Subdivisions) for offline use.
-            Download size: ~252 MB; Installed size: ~484 MB on disk after install.
-          </p>
-        </div>
+        {parquetPhase ? (
+          <div className="plss-modal-message">
+            <p>
+              🔧 Finalizing PLSS data for <strong>{state}</strong>.
+            </p>
+            <p className="plss-modal-details">
+              Building high-performance parquet files for: Townships, Sections, Quarter Sections.
+            </p>
+            <div className="plss-finalizing">
+              <div className="plss-spinner" />
+              <div className="plss-finalizing-text">
+                <div className="plss-status">{parquetStatus || 'Building parquet files...'}</div>
+                <div className="plss-eta">Estimated time: {estimatedTime || '15-20 minutes'}</div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="plss-modal-message">
+            <p>
+              Need to download PLSS data for <strong>{state}</strong> from BLM.
+            </p>
+            <p className="plss-modal-details">
+              This will download Wyoming PLSS bulk data (Townships, Sections, Subdivisions) for offline use.
+              Download size: ~252 MB; Installed size: ~484 MB on disk after install.
+            </p>
+          </div>
+        )}
         
         <div className="plss-modal-actions">
           <button 
@@ -64,7 +89,7 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
           </button>
         </div>
 
-        {isDownloading && (
+        {isDownloading && !parquetPhase && (
           <div className="plss-progress-bar" style={{ marginTop: 12 }}>
             <div className="plss-progress-track" style={{ height: 6, background: '#222', borderRadius: 4 }}>
               <div

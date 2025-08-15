@@ -699,13 +699,35 @@ class PLSSDataManager:
                 from .section_index import SectionIndex
                 idx = SectionIndex(str(self.data_dir))
                 
-                self._log_stage(state, "GEOPARQUET_START", "Building GeoParquet and index")
-                self._write_progress(state, {"stage": "building:geoparquet"})
-                
-                build = idx.build_index_from_fgdb(state, sections_fgdb, sections_layer, townships_fgdb, townships_layer)
+                self._log_stage(state, "GEOPARQUET_START", "Building parquet files (Est. 15-20 min total)")
+                self._write_progress(state, {
+                    "stage": "building:parquet", 
+                    "status": "Building sections and townships parquet...",
+                    "estimated_time": "15-20 minutes total"
+                })
+
+                def progress_callback(message: str):
+                    self._log_stage(state, "PARQUET_PROGRESS", message)
+                    self._write_progress(state, {
+                        "stage": "building:parquet",
+                        "status": message,
+                        "estimated_time": "15-20 minutes total"
+                    })
+
+                build = idx.build_index_from_fgdb(
+                    state, sections_fgdb, sections_layer, 
+                    townships_fgdb, townships_layer,
+                    subdivisions_fgdb, subdivisions_layer,
+                    progress_callback
+                )
+
                 if build.get("success"):
-                    self._log_stage(state, "GEOPARQUET_SUCCESS", f"Built GeoParquet ({build.get('rows')} rows)")
-                    self._write_progress(state, {"stage": "building:index"})
+                    self._log_stage(state, "GEOPARQUET_SUCCESS", f"Built parquet files ({build.get('rows')} section rows)")
+                    self._write_progress(state, {
+                        "stage": "building:index", 
+                        "status": "Building fast lookup index...",
+                        "estimated_time": "2-3 minutes"
+                    })
                     
                     processed_data["layers"].update({
                         "sections_parquet": build.get("sections_parquet"),
@@ -713,6 +735,8 @@ class PLSSDataManager:
                     })
                     if build.get("townships_parquet"):
                         processed_data["layers"]["townships_parquet"] = build.get("townships_parquet")
+                    if build.get("quarter_sections_parquet"):
+                        processed_data["layers"]["quarter_sections_parquet"] = build.get("quarter_sections_parquet")
                 else:
                     self._log_stage(state, "GEOPARQUET_SKIPPED", f"Build failed: {build.get('error')}")
             except Exception as e:

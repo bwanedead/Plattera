@@ -30,7 +30,10 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
     error: plssError,
     downloadData,
     cancelDownload,
-    dismissModal
+    dismissModal,
+    parquetPhase,
+    estimatedTime,
+    parquetStatus
   } = usePLSSData(schemaData);
 
   // Project polygon when we have both polygon and PLSS data ready
@@ -158,6 +161,9 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
           onCancel={cancelDownload}
           isDownloading={true}
           progressText={progress}
+          parquetPhase={!!parquetPhase}
+          parquetStatus={parquetStatus || undefined}
+          estimatedTime={estimatedTime || undefined}
           onHardCancel={cancelDownload}
         />
       </div>

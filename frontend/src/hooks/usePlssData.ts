@@ -9,6 +9,10 @@ import { plssDataService, PLSSDataState } from '../services/plss';
   interface ExtendedPLSSDataState extends PLSSDataState {
   modalDismissed: boolean;
   mappingEnabled: boolean;
+  // Parquet finalization UI signals
+  parquetPhase?: boolean;
+  parquetStatus?: string | null;
+  estimatedTime?: string | null;
  }
 
 export function usePLSSData(schemaData: any) {
@@ -19,6 +23,9 @@ export function usePLSSData(schemaData: any) {
     progress: null,
     modalDismissed: false, // Add dismissal tracking
     mappingEnabled: false,
+    parquetPhase: false,
+    parquetStatus: null,
+    estimatedTime: null,
   });
 
   useEffect(() => {
@@ -80,7 +87,26 @@ export function usePLSSData(schemaData: any) {
       }
       const stage = p.stage || 'working';
       const overall = p.overall || { downloaded: 0, total: 0, percent: 0 };
-      setState(prev => ({ ...prev, status: 'downloading', progress: `${stage} ${overall.percent || 0}%` }));
+      // Detect parquet building phase for better UI
+      if (stage === 'building:parquet') {
+        setState(prev => ({
+          ...prev,
+          status: 'downloading',
+          progress: `${stage} ${overall.percent || 0}%`,
+          parquetPhase: true,
+          parquetStatus: (p as any).status || 'Building parquet files...',
+          estimatedTime: (p as any).estimated_time || '15-20 minutes',
+        }));
+      } else {
+        setState(prev => ({
+          ...prev,
+          status: 'downloading',
+          progress: `${stage} ${overall.percent || 0}%`,
+          parquetPhase: false,
+          parquetStatus: null,
+          estimatedTime: null,
+        }));
+      }
       if (stage === 'canceled') {
         setState(prev => ({ ...prev, status: 'missing', error: 'Download canceled', progress: null }));
         return;
@@ -91,7 +117,7 @@ export function usePLSSData(schemaData: any) {
       await new Promise(r => setTimeout(r, 800));
     }
 
-    setState(prev => ({ ...prev, status: 'ready', progress: null, mappingEnabled: true }));
+    setState(prev => ({ ...prev, status: 'ready', progress: null, mappingEnabled: true, parquetPhase: false, parquetStatus: null, estimatedTime: null }));
   };
 
   // Cancel current download
