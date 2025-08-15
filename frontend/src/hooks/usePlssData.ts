@@ -82,7 +82,7 @@ export function usePLSSData(schemaData: any) {
     while (true) {
       const p = await plssDataService.getDownloadProgress(state.state);
       if (p.error) {
-        setState(prev => ({ ...prev, status: 'error', error: p.error }));
+        setState(prev => ({ ...prev, status: 'error', error: p.error || null }));
         return;
       }
       const stage = p.stage || 'working';
