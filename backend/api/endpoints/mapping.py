@@ -505,12 +505,13 @@ async def serve_tile(provider: str, z: int, x: int, y: int):
         
         provider_config = provider_result["config"]
         
-        # Validate zoom level against provider limits
-        if z < provider_config.get("min_zoom", 0) or z > provider_config.get("max_zoom", 19):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Zoom level {z} outside valid range for {provider} ({provider_config.get('min_zoom', 0)}-{provider_config.get('max_zoom', 19)})"
-            )
+        # Validate and clamp zoom level against provider limits to avoid hard failures
+        provider_min_zoom = provider_config.get("min_zoom", 0)
+        provider_max_zoom = provider_config.get("max_zoom", 19)
+        if z < provider_min_zoom:
+            z = provider_min_zoom
+        elif z > provider_max_zoom:
+            z = provider_max_zoom
         
         # Check if tile proxy is enabled
         if not tile_config.tiles_proxy_enabled:

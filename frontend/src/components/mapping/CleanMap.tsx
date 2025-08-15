@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface CleanMapProps {
   center?: { lat: number; lon: number };
@@ -36,6 +35,8 @@ export const CleanMap: React.FC<CleanMapProps> = ({
             type: 'raster',
             tiles: ['http://localhost:8000/api/mapping/tile/usgs_topo/{z}/{x}/{y}'],
             tileSize: 256,
+            minzoom: 0,
+            maxzoom: 16,
             attribution: '© USGS'
           }
         },
@@ -49,6 +50,7 @@ export const CleanMap: React.FC<CleanMapProps> = ({
       },
       center: [center.lon, center.lat],
       zoom: zoom,
+      maxZoom: 20,
       attributionControl: false
     });
 
