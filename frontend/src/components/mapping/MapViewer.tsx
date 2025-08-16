@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useMemo } from 'react';
 import maplibregl, { Map as MapLibreMap, LngLatBoundsLike } from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
+// CSS is imported globally in pages/_app.tsx
 import { mappingApi, type PLSSDescription } from '../../services/mappingApi';
 
 interface MapViewerProps {

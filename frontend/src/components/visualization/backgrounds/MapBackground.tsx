@@ -5,7 +5,7 @@
 import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { usePLSSData } from '../../../hooks/usePLSSData';
 import { PLSSDownloadModal } from '../../ui';
-import { TileLayerManager } from '../../mapping/TileLayerManager';
+// Legacy TileLayerManager removed; MapLibre handles sources directly in new MapWorkspace
 import { lonLatToPixel, pixelToLonLat } from '../../../utils/coordinateProjection';
 import { PolygonOverlay } from '../../mapping/PolygonOverlay';
 import { PLSSOverlay } from '../../mapping/PLSSOverlay';

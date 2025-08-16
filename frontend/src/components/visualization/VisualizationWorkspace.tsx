@@ -160,8 +160,9 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
             </div>
           </div>
 
-          {/* Controls Panel */}
-          <div className="controls-panel">
+          {/* Controls Panel - replaced by MapWorkspace in map modes */}
+          {viewMode === 'grid' && (
+            <div className="controls-panel">
             
             {/* Layer Controls */}
             <div className="control-section">
@@ -199,61 +200,11 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
                   />
                   Origin
                 </label>
-                {(viewMode === 'map' || viewMode === 'hybrid') && (
-                  <>
-                    <label className="toggle-control">
-                      <input 
-                        type="checkbox" 
-                        checked={layers.showSectionOverlay}
-                        onChange={() => toggleLayer('showSectionOverlay')}
-                      />
-                      Section Overlay
-                    </label>
-                    <label className="toggle-control">
-                      <input 
-                        type="checkbox" 
-                        checked={layers.showTownshipOverlay}
-                        onChange={() => toggleLayer('showTownshipOverlay')}
-                      />
-                      Township Overlay
-                    </label>
-                    <label className="toggle-control">
-                      <input 
-                        type="checkbox" 
-                        checked={layers.showQuarterSplits}
-                        onChange={() => toggleLayer('showQuarterSplits')}
-                      />
-                      Quarter Splits
-                    </label>
-                    <label className="toggle-control">
-                      <input 
-                        type="checkbox" 
-                        checked={layers.showValidationBanner}
-                        onChange={() => toggleLayer('showValidationBanner')}
-                      />
-                      Validation Banner
-                    </label>
-                  </>
-                )}
+
               </div>
             </div>
 
-            {/* Background Selector for Map/Hybrid modes */}
-            {(viewMode === 'map' || viewMode === 'hybrid') && (
-              <div className="control-section">
-                <h4>Background</h4>
-                <div className="background-selector">
-                  <label className="radio-control">
-                    <input type="radio" name="background" value="usgs_topo" defaultChecked />
-                    USGS Topo
-                  </label>
-                  <label className="radio-control">
-                    <input type="radio" name="background" value="osm" />
-                    OpenStreetMap
-                  </label>
-                </div>
-              </div>
-            )}
+
 
             {/* Polygon Properties */}
             {polygon && (
@@ -304,6 +255,7 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
     </div>

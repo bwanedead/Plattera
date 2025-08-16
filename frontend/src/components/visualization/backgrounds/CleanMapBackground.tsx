@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CleanMap } from '../../mapping/CleanMap';
+import { MapWorkspace } from '../../mapping/MapWorkspace';
 import { cleanMappingApi } from '../../../services/cleanMappingApi';
 import { usePLSSData } from '../../../hooks/usePLSSData';
 import { PLSSDownloadModal } from '../../ui';
@@ -222,12 +222,11 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
   // Show the map
   return (
     <div className="clean-map-background">
-      <CleanMap
-        center={mapCenter}
-        zoom={mapZoom}
-        polygonData={geoPolygonData}
+      <MapWorkspace
+        standalone={false}
+        initialParcels={geoPolygonData ? [geoPolygonData] : []}
+        schemaData={schemaData}
         className="full-size"
-        onMapLoad={() => console.log('🗺️ Clean map loaded')}
       />
     </div>
   );

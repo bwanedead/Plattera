@@ -2,7 +2,7 @@
 Mapping API Endpoints
 Geographic mapping functionality for converting polygons to real-world coordinates
 """
-from fastapi import APIRouter, HTTPException, status, Body
+from fastapi import APIRouter, HTTPException, status, Body, Query
 from fastapi.responses import FileResponse
 from typing import Optional, Dict, Any, List
 import logging
@@ -734,3 +734,176 @@ async def test_plss_debug() -> Dict[str, Any]:
         import traceback
         logger.error(f"❌ Full traceback: {traceback.format_exc()}")
         return {"success": False, "error": str(e)}
+
+# -------- Minimal overlay endpoints for PLSS (served from parquet) --------
+@router.get("/overlays/{layer}/{state}")
+async def get_overlay_geojson(
+    layer: str,
+    state: str,
+    min_lon: float | None = Query(None),
+    min_lat: float | None = Query(None),
+    max_lon: float | None = Query(None),
+    max_lat: float | None = Query(None),
+    t: int | None = Query(None, description="Township number"),
+    td: str | None = Query(None, description="Township direction (N/S)"),
+    r: int | None = Query(None, description="Range number"),
+    rd: str | None = Query(None, description="Range direction (E/W)") ,
+    s: int | None = Query(None, description="Section number"),
+):
+    try:
+        from pathlib import Path
+        import geopandas as gpd
+        from shapely.geometry import box
+
+        project_root = Path(__file__).parent.parent.parent.parent
+        pq = project_root / "plss" / state.lower() / "parquet"
+
+        # Map friendly names to filenames
+        file_map = {
+            "townships": pq / "townships.parquet",
+            "sections": pq / "sections.parquet", 
+            "quarter_sections": pq / "quarter_sections.parquet",
+            "ranges": pq / "townships.parquet",  # ranges derived from townships
+        }
+        target = file_map.get(layer)
+        if not target or not target.exists():
+            raise HTTPException(status_code=404, detail="Layer not available")
+
+        gdf = gpd.read_parquet(target)
+
+        # Apply filters if provided and columns exist
+        try:
+            if t is not None and 'TWNSHPNO' in gdf.columns:
+                gdf = gdf[gdf['TWNSHPNO'] == int(t)]
+            if td is not None and 'TWNSHPDIR' in gdf.columns:
+                gdf = gdf[gdf['TWNSHPDIR'] == str(td)]
+            if r is not None and 'RANGENO' in gdf.columns:
+                gdf = gdf[gdf['RANGENO'] == int(r)]
+            if rd is not None and 'RANGEDIR' in gdf.columns:
+                gdf = gdf[gdf['RANGEDIR'] == str(rd)]
+            if s is not None and 'FRSTDIVNO' in gdf.columns:
+                gdf = gdf[gdf['FRSTDIVNO'] == int(s)]
+        except Exception:
+            pass
+
+        # Bounds filter
+        if None not in (min_lon, min_lat, max_lon, max_lat):
+            bbox = box(float(min_lon), float(min_lat), float(max_lon), float(max_lat))
+            gdf = gdf[gdf.geometry.intersects(bbox)]
+
+        # Handle special layer types
+        if layer == "ranges":
+            try:
+                # Group by range columns and aggregate geometries properly
+                grouped = gdf.groupby(['RANGENO', 'RANGEDIR'])['geometry'].apply(lambda x: x.unary_union).reset_index()
+                
+                # Create new GeoDataFrame with dissolved geometries
+                gdf = gpd.GeoDataFrame(grouped, geometry='geometry')
+                
+                # Use buffer and simplify instead of convex hull for cleaner lines
+                gdf['geometry'] = gdf['geometry'].apply(lambda g: 
+                    g.buffer(0.0001).simplify(0.0001) if hasattr(g, 'buffer') else g
+                )
+                
+                print(f"✅ Range dissolving successful: {len(gdf)} ranges created")
+            except Exception as e:
+                print(f"❌ Range dissolving failed: {str(e)}")
+                # Fall back to original townships data if dissolving fails
+                pass
+        elif layer == "grid":
+            # For grid, just use townships - they already show the complete PLSS grid
+            print(f"✅ Using townships as grid: {len(gdf)} features")
+            # No special processing needed - townships already form the grid
+
+        # Basic label enrichment
+        def label_row(row):
+            if layer == "townships" or layer == "grid":
+                t = row.get("TWNSHPNO", "")
+                td = row.get("TWNSHPDIR", "")
+                r = row.get("RANGENO", "")
+                rd = row.get("RANGEDIR", "")
+                return f"T{t}{td} R{r}{rd}"
+            if layer == "ranges":
+                r = row.get("RANGENO", "")
+                rd = row.get("RANGEDIR", "")
+                return f"R{r}{rd}"
+            if layer == "sections":
+                s = row.get("FRSTDIVNO", "")
+                return f"Sec {s}"
+            if layer == "quarter_sections":
+                q = row.get("SECDIVTXT", None) or row.get("SECDIVLAB", "")
+                return q or "Quarter"
+            return ""
+
+        gdf = gdf.copy()
+        gdf["__label"] = gdf.apply(label_row, axis=1)
+
+        # Limit payload size for safety
+        if len(gdf) > 15000:
+            gdf = gdf.sample(15000, random_state=1)
+
+        # Build GeoJSON-like dict
+        features = []
+        for _, r in gdf.iterrows():
+            try:
+                c = r.geometry.centroid
+                features.append({
+                    "type": "Feature",
+                    "properties": {
+                        "label": r.get("__label", "") ,
+                        "label_lat": float(c.y),
+                        "label_lon": float(c.x),
+                    },
+                    "geometry": r.geometry.__geo_interface__,
+                })
+            except Exception:
+                continue
+
+        return {
+            "success": True,
+            "layer": layer,
+            "state": state,
+            "feature_count": len(features),
+            "data": {"type": "FeatureCollection", "features": features},
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Overlay error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/overlays/container/{layer}/{state}")
+async def get_container_overlay_geojson(
+    layer: str,
+    state: str,
+    request: Dict[str, Any]
+):
+    """
+    Get PLSS overlay filtered to container bounds from schema
+    """
+    try:
+        from pipelines.mapping.plss.container_service import PLSSContainerService
+        
+        # Extract request data
+        schema_data = request.get("schema_data", {})
+        container_bounds = request.get("container_bounds")
+        
+        if not container_bounds:
+            raise HTTPException(status_code=400, detail="Container bounds required")
+        
+        # Use the container service
+        container_service = PLSSContainerService()
+        result = container_service.get_container_overlay(
+            layer=layer,
+            state=state,
+            schema_data=schema_data,
+            container_bounds=container_bounds
+        )
+        
+        return result
+        
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"❌ Container overlay endpoint failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
