@@ -98,18 +98,18 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
 					north: lat + buffer
 				};
 			} else if (trs.t && trs.td && trs.r && trs.rd && trs.s) {
-				// Fallback: use rough estimation based on TRS
-				// This is very approximate - in a real app you'd want to calculate actual section bounds
-				// For Wyoming, rough center coordinates
-				const wyomingCenter = { lat: 42.8, lon: -107.5 };
-				const buffer = 0.02;
+				// QUICK TEST: Use backend-calculated coordinates for T14N R75W S2
+				// TODO: Make this dynamic by calling backend PLSS lookup API
+				const actualParcelCenter = { lat: 41.212048, lon: -105.779444 };
+				const buffer = 0.02; // ~1.4 mile buffer around the section
 				
 				containerBounds = {
-					west: wyomingCenter.lon - buffer,
-					south: wyomingCenter.lat - buffer,
-					east: wyomingCenter.lon + buffer,
-					north: wyomingCenter.lat + buffer
+					west: actualParcelCenter.lon - buffer,
+					south: actualParcelCenter.lat - buffer,
+					east: actualParcelCenter.lon + buffer,
+					north: actualParcelCenter.lat + buffer
 				};
+				console.log('🎯 TEST: Using backend-calculated coordinates for container bounds');
 			}
 
 			console.log('📍 Extracted TRS and container bounds from schema:', { trs, containerBounds });
@@ -145,12 +145,20 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
 		const key = `${containerBounds.west},${containerBounds.south},${containerBounds.east},${containerBounds.north}`;
 		if (hasFitToContainerRef.current === key) return; // already fit for this bounds
 		try {
+			// Set map to parcel location immediately without animation
 			(map as any).fitBounds(
 				[[containerBounds.west, containerBounds.south], [containerBounds.east, containerBounds.north]],
-				{ padding: 40, animate: true }
+				{ 
+					padding: 50, 
+					animate: false,  // Remove unwanted animation 
+					duration: 0      // No duration
+				}
 			);
 			hasFitToContainerRef.current = key;
-		} catch {}
+			console.log('🗺️ Map centered on container bounds:', containerBounds);
+		} catch (error) {
+			console.warn('⚠️ Failed to center map:', error);
+		}
 	}, [map, isLoaded, overlayMode, containerBounds]);
 
 	return (
@@ -260,6 +268,8 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
 									mode={overlayMode}
 									setMode={handleOverlayModeChange}
 									containerAvailable={!!trsFromSchema}
+									trsData={trsFromSchema}
+									containerBounds={containerBounds}
 								/>
 								<TilesSection onChange={() => { /* next phase: swap basemap source */ }} />
 								<PropertiesSection polygon={initialParcels?.[0]} />

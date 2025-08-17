@@ -5,9 +5,15 @@ export interface OverlayFeatureCollection {
 	features: Array<any>;
 }
 
+export interface PLSSCoordinates {
+	latitude: number;
+	longitude: number;
+	trs_string: string;
+}
+
 export class PLSSOverlayApi {
 	private baseUrl = 'http://localhost:8000/api/mapping/overlays';
-	private schemaData?: any; // Add schemaData property
+	private schemaData?: any;
 
 	async getOverlay(
 		layer: OverlayLayer, 
@@ -43,7 +49,7 @@ export class PLSSOverlayApi {
 	}
 
 	async getContainerOverlay(
-		layer: OverlayLayer, // Fix type to use OverlayLayer
+		layer: OverlayLayer, 
 		containerBounds: { west: number; south: number; east: number; north: number },
 		schemaData?: any,
 		abortSignal?: AbortSignal
@@ -65,9 +71,48 @@ export class PLSSOverlayApi {
 				throw new Error(`HTTP ${response.status}`);
 			}
 
-			return await response.json();
+			const data = await response.json();
+			return data;
 		} catch (error) {
 			console.error(`❌ Container overlay API failed for ${layer}:`, error);
+			throw error;
+		}
+	}
+
+	// NEW: Get PLSS coordinates from TRS data
+	async getPLSSCoordinates(
+		trs: { t: number; td: string; r: number; rd: string; s?: number },
+		state: string = 'Wyoming'
+	): Promise<PLSSCoordinates> {
+		try {
+			const trsString = `T${trs.t}${trs.td} R${trs.r}${trs.rd}${trs.s ? ` S${trs.s}` : ''}`;
+			console.log(`🔍 Getting PLSS coordinates for: ${trsString}`);
+
+			const response = await fetch('http://localhost:8000/api/mapping/plss-lookup', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					trs_string: trsString,
+					state: state
+				})
+			});
+
+			if (!response.ok) {
+				throw new Error(`HTTP ${response.status}`);
+			}
+
+			const data = await response.json();
+			console.log(`✅ PLSS coordinates for ${trsString}:`, data);
+			
+			return {
+				latitude: data.latitude,
+				longitude: data.longitude,
+				trs_string: trsString
+			};
+		} catch (error) {
+			console.error(`❌ PLSS coordinate lookup failed:`, error);
 			throw error;
 		}
 	}

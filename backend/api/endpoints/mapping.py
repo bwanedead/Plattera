@@ -907,3 +907,45 @@ async def get_container_overlay_geojson(
     except Exception as e:
         logger.error(f"❌ Container overlay endpoint failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/plss-lookup")
+async def get_plss_coordinates(request: Dict[str, Any]):
+    """
+    Get PLSS coordinates from TRS string
+    
+    Args:
+        request: Dict with 'trs_string' (e.g., 'T14N R74W S2') and 'state'
+        
+    Returns:
+        dict: Latitude and longitude coordinates
+    """
+    try:
+        trs_string = request.get("trs_string")
+        state = request.get("state", "Wyoming")
+        
+        if not trs_string:
+            raise HTTPException(status_code=400, detail="TRS string required")
+        
+        logger.info(f"🔍 PLSS lookup request: {trs_string} in {state}")
+        
+        # Use the existing fast index lookup logic from the projection service
+        from pipelines.mapping.georeference.georeference_service import GeoreferenceService
+        
+        georeference_service = GeoreferenceService()
+        result = georeference_service.lookup_plss_fast_index(trs_string, state)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail=f"PLSS coordinates not found for {trs_string}")
+        
+        logger.info(f"✅ PLSS lookup successful: {result}")
+        
+        return {
+            "latitude": result["lat"],
+            "longitude": result["lon"],
+            "trs_string": trs_string,
+            "state": state
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ PLSS lookup failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
