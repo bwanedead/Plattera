@@ -63,11 +63,11 @@ export const PLSSOverlaysSection: React.FC<PLSSOverlaysSectionProps> = ({
 
 	// Container mode filtering strategy
 	const overlayOptions = mode === 'container' ? [
-		{ id: 'showTownship', label: 'Township Box', description: 'Show township containing this parcel' },
-		{ id: 'showRange', label: 'Range Box', description: 'Show range containing this parcel' },
-		{ id: 'showGrid', label: 'Township + Range Grid', description: 'Show full grid containing this parcel' },
-		{ id: 'showSection', label: 'Section Box', description: 'Show section containing this parcel' },
-		{ id: 'showQuarter', label: 'Quarter Section', description: 'Show quarter section containing this parcel' }
+		{ id: 'showTownship', label: 'Township Lines', description: 'Horizontal lines spanning the township containing this parcel' },
+		{ id: 'showRange', label: 'Range Lines', description: 'Vertical lines spanning the range containing this parcel' },
+		{ id: 'showGrid', label: 'Township + Range Cell', description: 'Grid cell (box) where township and range lines intersect' },
+		{ id: 'showSection', label: 'Sections', description: 'Sections within the township-range cell' },
+		{ id: 'showQuarter', label: 'Quarter Sections', description: 'Quarter sections within the township-range cell' }
 	] : [
 		{ id: 'showTownship', label: 'Townships', description: 'Township boundaries (E-W lines)' },
 		{ id: 'showRange', label: 'Ranges', description: 'Range boundaries (N-S lines)' },
