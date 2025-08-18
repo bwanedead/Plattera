@@ -102,6 +102,101 @@ function ensureLabelLayer(map: any, layerId: string, sourceId: string, minzoom: 
 	}
 }
 
+function setLayerVisibility(map: any, layerId: string, visible: boolean) {
+    if (!map || !map.getLayer) return;
+    try {
+        if (map.getLayer(layerId)) {
+            console.log(`🔀 Setting ${layerId} visibility to ${visible ? 'visible' : 'hidden'}`);
+            map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
+        } else {
+            console.warn(`⚠️ Layer ${layerId} not found when setting visibility`);
+        }
+    } catch (error) {
+        console.error(`❌ Failed to set visibility for ${layerId}:`, error);
+    }
+}
+
+function ensureSourcePersistent(map: any, sourceId: string, data: any) {
+    if (!map || !map.getSource) return false;
+    
+    try {
+        if (map.getSource(sourceId)) {
+            console.log(`🔄 Updating existing source ${sourceId}`);
+            map.getSource(sourceId).setData(data);
+        } else {
+            console.log(`➕ Adding new source ${sourceId}`);
+            map.addSource(sourceId, { type: 'geojson', data });
+        }
+        return true;
+    } catch (error) {
+        console.warn(`❌ Failed to add/update source ${sourceId}:`, error);
+        return false;
+    }
+}
+
+// Fix the TypeScript error and implement persistent layers
+function ensureLayerPersistent(map: any, layerId: string, sourceId: string, config: any) {
+    if (!map) return false;
+    
+    try {
+        if (map.getLayer(layerId)) {
+            console.log(`✅ Layer ${layerId} already exists`);
+            return true;
+        }
+        
+        console.log(`➕ Adding layer ${layerId}`);
+        map.addLayer({
+            id: layerId,
+            type: 'line',
+            source: sourceId,
+            paint: { 
+                'line-color': config.color, 
+                'line-width': config.width, 
+                ...(config.dash && { 'line-dasharray': config.dash }) 
+            },
+            layout: { 
+                'line-join': 'round', 
+                'line-cap': 'round',
+                'visibility': 'visible'
+            }
+        });
+        
+        // Mark layer as persistent to prevent removal
+        (map.getLayer(layerId) as any)._persistent = true;
+        
+        return true;
+    } catch (error) {
+        console.warn(`❌ Failed to add layer ${layerId}:`, error);
+        return false;
+    }
+}
+
+// Override map's removeLayer to protect persistent layers
+function protectPersistentLayers(map: any) {
+    if (map._layersProtected) return; // Already protected
+    
+    const originalRemoveLayer = map.removeLayer;
+    map.removeLayer = function(layerId: string) {
+        const layer = this.getLayer(layerId);
+        if (layer && (layer as any)._persistent) {
+            console.log(`🛡️ Protecting persistent layer ${layerId} from removal`);
+            return;
+        }
+        return originalRemoveLayer.call(this, layerId);
+    };
+    
+    const originalRemoveSource = map.removeSource;
+    map.removeSource = function(sourceId: string) {
+        if (sourceId.startsWith('plss-')) {
+            console.log(`🛡️ Protecting PLSS source ${sourceId} from removal`);
+            return;
+        }
+        return originalRemoveSource.call(this, sourceId);
+    };
+    
+    map._layersProtected = true;
+}
+
 function getStyleForLayer(layer: OverlayLayer): { color: string; width: number; dash?: number[]; minzoom: number } {
 	switch (layer) {
 		case 'townships': return { color: '#e74c3c', width: 2, minzoom: 8 };
@@ -227,7 +322,8 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
 				if (sourceSuccess) {
 					ensureLineLayer(currentMap, `${sourceId}-line`, sourceId, color, width, dash);
 					ensureLabelLayer(currentMap, `${sourceId}-labels`, sourceId, minzoom);
-					
+					setLayerVisibility(currentMap, `${sourceId}-line`, true);
+					setLayerVisibility(currentMap, `${sourceId}-labels`, true);
 					if (!activeSources.current.includes(sourceId)) {
 						activeSources.current.push(sourceId);
 					}
@@ -295,6 +391,8 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
 			if (sourceSuccess) {
 				ensureLineLayer(currentMap, `${sourceId}-line`, sourceId, color, width, dash);
 				ensureLabelLayer(currentMap, `${sourceId}-labels`, sourceId, minzoom);
+				setLayerVisibility(currentMap, `${sourceId}-line`, true);
+				setLayerVisibility(currentMap, `${sourceId}-labels`, true);
 
 				if (!activeSources.current.includes(sourceId)) {
 					activeSources.current.push(sourceId);
@@ -348,15 +446,15 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
 			if (!wantLayers.includes(layerType)) {
 			const sourceId = `plss-${layerType}`;
 			try {
-				if (map.getLayer(`${sourceId}-labels`)) map.removeLayer(`${sourceId}-labels`);
-				if (map.getLayer(`${sourceId}-line`)) map.removeLayer(`${sourceId}-line`);
-				if (map.getSource(sourceId)) map.removeSource(sourceId);
+				// Instead of removing sources entirely (causes blink), just hide layers
+				setLayerVisibility(map, `${sourceId}-labels`, false);
+				setLayerVisibility(map, `${sourceId}-line`, false);
+				// Do not remove the source; keep it cached in the style
 			} catch {}
 			}
 		}
 
-		// Clear active sources list; they will be repopulated
-		activeSources.current = [];
+		// Do not clear active sources when layers remain desired; this avoids flicker
 
 		// Check mode requirements
 		if (mode === 'parcel' && !containerBounds) {
@@ -387,13 +485,109 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
 		};
 	}, [debouncedUpdate]);
 
-	// Regional placeholder
+	// Enhanced persistence with layer protection
 	useEffect(() => {
-		if (mode !== 'regional') return;
-		console.log('🌍 Regional overlay mode - future implementation');
-	}, [mode, regional]);
+		if (!map || !isLoaded) return;
 
-	return null;
+		console.log(`🎯 Setting up overlay persistence for mode: ${mode}`);
+		
+		// Protect our layers from being removed
+		protectPersistentLayers(map);
+
+		const reapplyFromCache = (layer: OverlayLayer) => {
+			const sourceId = `plss-${layer}`;
+			console.log(`🔄 Reapplying ${layer} from cache`);
+			
+			const keys = Object.keys(cache.current).filter(k => k.startsWith(`${layer}_`));
+			if (!keys.length) {
+				console.warn(`⚠️ No cache for ${layer}`);
+				return;
+			}
+			
+			const latestKey = keys.sort((a,b)=> (cache.current[b]?.timestamp||0)-(cache.current[a]?.timestamp||0))[0];
+			const entry = cache.current[latestKey];
+			if (!entry) {
+				console.warn(`⚠️ Empty cache entry for ${layer}`);
+				return;
+			}
+			
+			const { color, width, dash } = getStyleForLayer(layer);
+			
+			if (ensureSourcePersistent(map, sourceId, entry.data)) {
+				if (ensureLayerPersistent(map, `${sourceId}-line`, sourceId, { color, width, dash })) {
+					setLayerVisibility(map, `${sourceId}-line`, true);
+					console.log(`✅ Successfully reapplied ${layer}`);
+					
+					if (!activeSources.current.includes(sourceId)) {
+						activeSources.current.push(sourceId);
+					}
+				}
+			}
+		};
+
+		const getDesiredLayers = (): OverlayLayer[] => {
+			const want: OverlayLayer[] = [];
+			if (parcelRelative.showGrid) {
+				want.push('grid');
+			} else {
+				if (parcelRelative.showTownship) want.push('townships');
+				if (parcelRelative.showRange) want.push('ranges');
+			}
+			if (parcelRelative.showSection) want.push('sections');
+			if (parcelRelative.showQuarter) want.push('quarter_sections');
+			return want;
+		};
+
+		// Immediate reapplication on setup
+		const wantedLayers = getDesiredLayers();
+		wantedLayers.forEach(reapplyFromCache);
+
+		const handleStyleData = () => {
+			console.log(`🎨 Style data changed - reapplying overlays`);
+			wantedLayers.forEach(reapplyFromCache);
+		};
+
+		const handleMoveEnd = () => {
+			console.log(`🏁 Move ended - checking overlay visibility`);
+			
+			// Check if layers still exist and are visible
+			wantedLayers.forEach(layer => {
+				const sourceId = `plss-${layer}`;
+				const layerId = `${sourceId}-line`;
+				
+				if (map.getLayer(layerId)) {
+					const visibility = map.getLayoutProperty(layerId, 'visibility');
+					if (visibility === 'none') {
+						console.log(`🔄 Re-showing hidden layer ${layerId}`);
+						setLayerVisibility(map, layerId, true);
+					}
+				} else {
+					console.warn(`⚠️ Layer ${layerId} missing after move - reapplying`);
+					reapplyFromCache(layer);
+				}
+			});
+			
+			// Debounced update for new data
+			debouncedUpdate();
+		};
+
+		// Reduced event handling to minimize interference
+		map.on('styledata', handleStyleData);
+		map.on('moveend', handleMoveEnd);
+		map.on('zoomend', handleMoveEnd);
+
+		return () => {
+			try {
+				map.off('styledata', handleStyleData);
+				map.off('moveend', handleMoveEnd);
+				map.off('zoomend', handleMoveEnd);
+			} catch (error) {
+				console.warn('Error removing event listeners:', error);
+			}
+		};
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [map, isLoaded, parcelRelative, mode]);
+
+	return null; // This component doesn't render anything directly, it manages overlays
 };
-
 
