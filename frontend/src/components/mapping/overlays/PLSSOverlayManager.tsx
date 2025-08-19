@@ -34,6 +34,7 @@ export interface PLSSOverlayManagerProps {
 	mode?: 'parcel' | 'regional';
 	trs?: { t?: number; td?: string; r?: number; rd?: string; s?: number };
 	containerBounds?: { west: number; south: number; east: number; north: number };
+	schemaData?: any; // Add schema data support
 }
 
 function ensureSource(map: any, sourceId: string, data: any) {
@@ -243,7 +244,8 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
 	regional, 
 	mode = 'parcel',
 	trs,
-	containerBounds 
+	containerBounds,
+	schemaData // Add schema data prop
 }) => {
 	const { map, isLoaded, bounds } = useMapContext();
 	const activeSources = useRef<string[]>([]);
@@ -339,7 +341,7 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
 				data = await plssOverlayApi.getContainerOverlay(
 					layer,
 					containerBounds,
-					undefined, // schemaData will be set from context
+					schemaData, // Pass the actual schema data instead of undefined!
 					abortSignal
 				);
 			} else {

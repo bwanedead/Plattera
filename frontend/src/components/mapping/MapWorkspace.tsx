@@ -192,6 +192,7 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
 							mode={overlayMode === 'container' ? 'parcel' : 'regional'}
 							trs={overlayMode === 'container' ? trsFromSchema : undefined}
 							containerBounds={overlayMode === 'container' ? containerBounds : undefined}
+							schemaData={schemaData} // Add schema data prop
 						/>
 					</OverlayManager>
 				</div>

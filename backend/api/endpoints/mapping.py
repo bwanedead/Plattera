@@ -15,9 +15,8 @@ router = APIRouter()
 # Fix: Import the get_registry function
 from services.registry import get_registry
 
-# Import PLSS services
+# Import PLSS services (only what's needed for mapping functionality)
 from services.plss.plss_data_service import PLSSDataService
-from services.plss.plss_overlay_service import PLSSOverlayService
 from services.plss.plss_lookup_service import PLSSLookupService
 from services.plss.plss_section_view_service import PLSSSectionViewService
 from services.plss.plss_overlay_generator_service import PLSSOverlayGeneratorService
@@ -651,81 +650,8 @@ async def test_plss_debug() -> Dict[str, Any]:
         logger.error(f"❌ Full traceback: {traceback.format_exc()}")
         return {"success": False, "error": str(e)}
 
-# -------- Minimal overlay endpoints for PLSS (served from parquet) --------
-@router.get("/overlays/{layer}/{state}")
-async def get_overlay_geojson(
-    layer: str,
-    state: str,
-    min_lon: float | None = Query(None),
-    min_lat: float | None = Query(None),
-    max_lon: float | None = Query(None),
-    max_lat: float | None = Query(None),
-    t: int | None = Query(None, description="Township number"),
-    td: str | None = Query(None, description="Township direction (N/S)"),
-    r: int | None = Query(None, description="Range number"),
-    rd: str | None = Query(None, description="Range direction (E/W)") ,
-    s: int | None = Query(None, description="Section number"),
-):
-    try:
-        # Collect filters into a dictionary
-        filters = {
-            "min_lon": min_lon,
-            "min_lat": min_lat, 
-            "max_lon": max_lon,
-            "max_lat": max_lat,
-            "t": t,
-            "td": td,
-            "r": r,
-            "rd": rd,
-            "s": s
-        }
-        
-        overlay_service = PLSSOverlayService()
-        return overlay_service.get_overlay_geojson(layer, state, filters)
-        
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Layer not available")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Overlay error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/overlays/container/{layer}/{state}")
-async def get_container_overlay_geojson(
-    layer: str,
-    state: str,
-    request: Dict[str, Any]
-):
-    """
-    Get PLSS overlay filtered to container bounds from schema
-    """
-    try:
-        from pipelines.mapping.plss.container_service import PLSSContainerService
-        
-        # Extract request data
-        schema_data = request.get("schema_data", {})
-        container_bounds = request.get("container_bounds")
-        
-        if not container_bounds:
-            raise HTTPException(status_code=400, detail="Container bounds required")
-        
-        # Use the container service
-        container_service = PLSSContainerService()
-        result = container_service.get_container_overlay(
-            layer=layer,
-            state=state,
-            schema_data=schema_data,
-            container_bounds=container_bounds
-        )
-        
-        return result
-        
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.error(f"❌ Container overlay endpoint failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+# -------- PLSS overlay endpoints moved to dedicated plss_overlays.py --------
+# See /api/plss/overlays endpoints for clean PLSS overlay functionality
 
 @router.post("/plss-lookup")
 async def get_plss_coordinates(request: Dict[str, Any]):

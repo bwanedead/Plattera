@@ -3,7 +3,7 @@ Central API Router
 Combines all API endpoints into a single router for main.py
 """
 from fastapi import APIRouter
-from api.endpoints import models, processing, system, alignment, consensus, final_draft, text_to_schema, polygon, mapping
+from api.endpoints import models, processing, system, alignment, consensus, final_draft, text_to_schema, polygon, mapping, plss_overlays
 
 # Create the main API router
 api_router = APIRouter()
@@ -18,6 +18,7 @@ api_router.include_router(final_draft.router, prefix="/api/final-draft", tags=["
 api_router.include_router(text_to_schema.router, prefix="/api/text-to-schema", tags=["text-to-schema"])
 api_router.include_router(polygon.router, prefix="/api/polygon", tags=["polygon"])
 api_router.include_router(mapping.router, prefix="/api/mapping", tags=["mapping"])
+api_router.include_router(plss_overlays.router, prefix="/api/plss", tags=["plss-overlays"])
 
 # Quick access to pipeline-specific endpoints for backwards compatibility
 api_router.include_router(models.router, prefix="/api/image-to-text", tags=["image-to-text"])
@@ -39,6 +40,7 @@ async def api_root():
             "text_to_schema": "/api/text-to-schema/convert - Convert text to structured parcel data",
             "polygon": "/api/polygon/draw - Generate polygon from structured data",
             "mapping": "/api/mapping/project-polygon - Project polygons to geographic coordinates",
+            "plss_overlays": "/api/plss/overlays - PLSS overlay data for mapping visualization",
             "health": "/api/health - System health check",
             "services": "/api/services - Service status",
             "processing_types": "/api/process/types - Available processing types"
