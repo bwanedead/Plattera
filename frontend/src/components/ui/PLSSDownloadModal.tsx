@@ -45,11 +45,28 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
             <p className="plss-modal-details">
               Building high-performance parquet files for: Townships, Sections, Quarter Sections.
             </p>
-            <div className="plss-finalizing">
-              <div className="plss-spinner" />
-              <div className="plss-finalizing-text">
-                <div className="plss-status">{parquetStatus || 'Building parquet files...'}</div>
-                <div className="plss-eta">Estimated time: {estimatedTime || '15-20 minutes'}</div>
+            
+            {/* Progress bar for parquet building */}
+            <div className="plss-progress-bar" style={{ marginTop: 12 }}>
+              <div className="plss-progress-track" style={{ height: 6, background: '#222', borderRadius: 4 }}>
+                <div
+                  className="plss-progress-fill"
+                  style={{
+                    height: 6,
+                    width: `${(() => {
+                      const m = /([0-9]{1,3})%/.exec(progressText || '')?.[1];
+                      const p = m ? parseInt(m, 10) : 0;
+                      return Math.max(0, Math.min(p, 100));
+                    })()}%`,
+                    background: 'linear-gradient(90deg, #6ee7ff, #7c3aed)',
+                    borderRadius: 4,
+                    transition: 'width 300ms ease'
+                  }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#aaa', marginTop: 6 }}>
+                <span>{parquetStatus || 'Building parquet files...'}</span>
+                <span>Est: {estimatedTime || '15-20 minutes'}</span>
               </div>
             </div>
           </div>

@@ -47,7 +47,19 @@ export function usePLSSData(schemaData: any) {
 
       setState(prev => ({ ...prev, state: plssState }));
 
-      // Check if data exists locally (NO auto-download)
+      // Add download active check before enabling mapping
+      const downloadStatus = await plssDataService.checkDownloadActive(plssState);
+      if (downloadStatus.active) {
+        setState(prev => ({ 
+          ...prev, 
+          status: 'downloading',
+          progress: `${downloadStatus.stage || 'processing'}...`,
+          mappingEnabled: false // Explicitly disable mapping
+        }));
+        return;
+      }
+
+      // Only check data availability if download is not active
       const statusResult = await plssDataService.checkDataStatus(plssState);
       if (statusResult.error) {
         setState(prev => ({ 
@@ -62,7 +74,7 @@ export function usePLSSData(schemaData: any) {
       setState(prev => ({ 
         ...prev, 
         status: statusResult.available ? 'ready' : 'missing',
-        mappingEnabled: statusResult.available ? true : prev.mappingEnabled
+        mappingEnabled: statusResult.available ? true : false
       }));
     };
 
@@ -96,6 +108,16 @@ export function usePLSSData(schemaData: any) {
           parquetPhase: true,
           parquetStatus: (p as any).status || 'Building parquet files...',
           estimatedTime: (p as any).estimated_time || '15-20 minutes',
+        }));
+      } else if (stage === 'building:index' || stage === 'writing:manifest') {
+        // Final phase - no percentage, just completion message
+        setState(prev => ({
+          ...prev,
+          status: 'downloading',
+          progress: 'Finishing up...',
+          parquetPhase: true,
+          parquetStatus: (p as any).status || 'Finalizing installation...',
+          estimatedTime: 'Almost done',
         }));
       } else {
         setState(prev => ({

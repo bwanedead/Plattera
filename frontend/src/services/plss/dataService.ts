@@ -122,6 +122,26 @@ export class PLSSDataService {
     }
   }
 
+  /** Check if download/parquet building is currently active */
+  async checkDownloadActive(state: string): Promise<{ active: boolean; stage?: string; error?: string }> {
+    try {
+      const res = await fetch(`${this.apiBase}/download-plss/${state}/status`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      
+      return {
+        active: data.download_active || false,
+        stage: data.current_stage,
+        error: data.error
+      };
+    } catch (e: any) {
+      return { 
+        active: false, // Default to false if we can't check
+        error: e?.message || 'Unknown error' 
+      };
+    }
+  }
+
   /**
    * Extract state information from schema data
    * 

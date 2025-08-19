@@ -706,13 +706,26 @@ class PLSSDataManager:
                     "estimated_time": "15-20 minutes total"
                 })
 
-                def progress_callback(message: str):
-                    self._log_stage(state, "PARQUET_PROGRESS", message)
-                    self._write_progress(state, {
-                        "stage": "building:parquet",
-                        "status": message,
-                        "estimated_time": "15-20 minutes total"
-                    })
+                def progress_callback(message):
+                    if isinstance(message, dict):
+                        # Structured progress data
+                        self._log_stage(state, "PARQUET_PROGRESS", message.get("status", "Processing"))
+                        progress_data = {
+                            "stage": "building:parquet",
+                            "status": message.get("status", "Processing"),
+                            "estimated_time": message.get("estimated_time", "15-20 minutes total")
+                        }
+                        if "overall" in message:
+                            progress_data["overall"] = message["overall"]
+                        self._write_progress(state, progress_data)
+                    else:
+                        # Legacy string message
+                        self._log_stage(state, "PARQUET_PROGRESS", str(message))
+                        self._write_progress(state, {
+                            "stage": "building:parquet",
+                            "status": str(message),
+                            "estimated_time": "15-20 minutes total"
+                        })
 
                 build = idx.build_index_from_fgdb(
                     state, sections_fgdb, sections_layer, 
@@ -725,8 +738,14 @@ class PLSSDataManager:
                     self._log_stage(state, "GEOPARQUET_SUCCESS", f"Built parquet files ({build.get('rows')} section rows)")
                     self._write_progress(state, {
                         "stage": "building:index", 
-                        "status": "Building fast lookup index...",
-                        "estimated_time": "2-3 minutes"
+                        "status": "Finalizing data structures...",
+                        "estimated_time": "Almost done, I promise",
+                        "overall": {
+                            "downloaded": 100,
+                            "total": 100, 
+                            "percent": 100
+                        },
+                        "final_phase": True
                     })
                     
                     processed_data["layers"].update({

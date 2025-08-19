@@ -7,12 +7,20 @@ from fastapi.responses import FileResponse
 from typing import Optional, Dict, Any, List
 import logging
 from pathlib import Path
+import json
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Fix: Import the get_registry function
 from services.registry import get_registry
+
+# Import PLSS services
+from services.plss.plss_data_service import PLSSDataService
+from services.plss.plss_overlay_service import PLSSOverlayService
+from services.plss.plss_lookup_service import PLSSLookupService
+from services.plss.plss_section_view_service import PLSSSectionViewService
+from services.plss.plss_overlay_generator_service import PLSSOverlayGeneratorService
 
 @router.get("/test")
 async def test_mapping_endpoint():
@@ -227,43 +235,14 @@ async def plss_overlay(request: Dict[str, Any]) -> Dict[str, Any]:
         if not plss_description:
             raise HTTPException(status_code=400, detail="Missing plss_description")
 
-        from pipelines.mapping.plss.pipeline import PLSSPipeline
-        from shapely.geometry import shape
-
-        plss = PLSSPipeline()
-        data = plss.data_manager.ensure_state_data(plss_description.get("state"))
-        if not data.get("success"):
-            raise HTTPException(status_code=400, detail=data.get("error", "PLSS data unavailable"))
-
-        # Use new coordinate service for simplified section bounds
-        section_result = plss.get_section_view(plss_description)
-        if not section_result.get("success"):
-            raise HTTPException(status_code=400, detail=section_result.get("error"))
-
-        # Create approximate bounds around the section centroid (1 square mile ≈ 0.014° x 0.014°)
-        centroid = section_result["centroid"]
-        lat, lon = centroid["lat"], centroid["lon"]
-        bounds_size = 0.007  # Half a section in degrees (approximate)
+        overlay_generator = PLSSOverlayGeneratorService()
+        result = overlay_generator.generate_section_overlay(plss_description)
         
-        return {
-            "success": True,
-            "section": {
-                "type": "Polygon",
-                "coordinates": [[[lon - bounds_size, lat - bounds_size],
-                               [lon + bounds_size, lat - bounds_size],
-                               [lon + bounds_size, lat + bounds_size],
-                               [lon - bounds_size, lat + bounds_size],
-                               [lon - bounds_size, lat - bounds_size]]]
-            },
-            "township": None,  # Simplified - no township overlay for now
-            "splits": [],      # Simplified - no quarter splits for now
-            "bounds": {
-                "min_lon": lon - bounds_size, 
-                "min_lat": lat - bounds_size,
-                "max_lon": lon + bounds_size, 
-                "max_lat": lat + bounds_size
-            },
-        }
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error"))
+        
+        return result
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -298,23 +277,13 @@ async def plss_section_view(request: Dict[str, Any]) -> Dict[str, Any]:
         if not plss_description:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing plss_description")
 
-        from pipelines.mapping.plss.pipeline import PLSSPipeline
-        plss = PLSSPipeline()
-        res = plss.get_section_view(plss_description)
-        if not res.get("success"):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("error", "PLSS section lookup failed"))
-
-        center = res["center"]
-        b = res["bounds"]
-        lat_pad = (b["max_lat"] - b["min_lat"]) * padding
-        lon_pad = (b["max_lon"] - b["min_lon"]) * padding
-        padded_bounds = {
-            "min_lat": b["min_lat"] - lat_pad,
-            "max_lat": b["max_lat"] + lat_pad,
-            "min_lon": b["min_lon"] - lon_pad,
-            "max_lon": b["max_lon"] + lon_pad,
-        }
-        return {"success": True, "center": center, "bounds": padded_bounds}
+        section_view_service = PLSSSectionViewService()
+        result = section_view_service.get_section_view(plss_description, padding)
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("error"))
+        
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -599,29 +568,8 @@ async def extract_plss_info(request: dict) -> dict:
     Independent of polygon processing
     """
     try:
-        # Fix: Use absolute import
-        from pipelines.mapping.plss.plss_extractor import PLSSExtractor
-        
-        extractor = PLSSExtractor()
-        result = extractor.extract_mapping_info(request)
-        
-        if not result["success"]:
-            return result
-        
-        # Check if PLSS data is available for the required state
-        state = result["mapping_data"]["state"]
-        # Fix: Use get_registry() function
-        registry = get_registry()
-        plss_cache = registry.get_service("plss_cache")
-        
-        data_status = await plss_cache.check_state_data(state)
-        
-        return {
-            "success": True,
-            "plss_info": result["mapping_data"],
-            "data_requirements": result["data_requirements"], 
-            "data_status": data_status
-        }
+        plss_data_service = PLSSDataService()
+        return await plss_data_service.extract_mapping_info(request)
         
     except Exception as e:
         logger.error(f"PLSS info extraction failed: {str(e)}")
@@ -635,18 +583,8 @@ async def extract_plss_info(request: dict) -> dict:
 async def check_plss_data_status(state: str) -> Dict[str, Any]:
     """Check if PLSS data exists for a state without downloading"""
     try:
-        # Import and create data manager directly
-        from pipelines.mapping.plss.data_manager import PLSSDataManager
-        data_manager = PLSSDataManager()
-        
-        # Check if data exists locally  
-        has_data = data_manager._is_data_current(state)
-        
-        return {
-            "available": has_data,
-            "state": state,
-            "message": f"PLSS data for {state} {'is available' if has_data else 'needs to be downloaded'}"
-        }
+        plss_data_service = PLSSDataService()
+        return plss_data_service.check_state_data_status(state)
     except Exception as e:
         logger.error(f"❌ Error checking PLSS data status for {state}: {str(e)}")
         return {"available": False, "error": str(e)}
@@ -656,27 +594,8 @@ async def check_plss_data_status(state: str) -> Dict[str, Any]:
 async def download_plss_data(state: str, request: Dict[str, Any] | None = Body(default=None)) -> Dict[str, Any]:
     """Download PLSS data for a state (explicit user action)"""
     try:
-        logger.info(f"📦 User requested download of PLSS data for {state}")
-        # Import and create data manager directly
-        from pipelines.mapping.plss.data_manager import PLSSDataManager
-        data_manager = PLSSDataManager()
-        
-        # Perform the download (bulk FGDB for WY)
-        result = data_manager.ensure_state_data(state)
-        
-        if result.get('success'):
-            # Optional: prefetch sections for the hinted township/range
-            # In bulk FGDB mode, no per-township prefetch is required
-            logger.info(f"✅ PLSS data download completed for {state}")
-            return {
-                "success": True,
-                "state": state,
-                "message": f"PLSS data for {state} downloaded successfully",
-                "features_count": result.get('features_count', 0),
-                "prefetch": result.get("prefetch_sections")
-            }
-        else:
-            return {"success": False, "error": result.get('error', 'Unknown error')}
+        plss_data_service = PLSSDataService()
+        return plss_data_service.download_state_data(state, request)
             
     except Exception as e:
         logger.error(f"❌ PLSS data download failed for {state}: {str(e)}")
@@ -685,27 +604,24 @@ async def download_plss_data(state: str, request: Dict[str, Any] | None = Body(d
 @router.post("/download-plss/{state}/start")
 async def start_download_plss_background(state: str) -> Dict[str, Any]:
     try:
-        from pipelines.mapping.plss.data_manager import PLSSDataManager
-        dm = PLSSDataManager()
-        return dm.start_bulk_install_background(state)
+        plss_data_service = PLSSDataService()
+        return plss_data_service.start_background_download(state)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 @router.get("/download-plss/{state}/progress")
 async def get_download_progress(state: str) -> Dict[str, Any]:
     try:
-        from pipelines.mapping.plss.data_manager import PLSSDataManager
-        dm = PLSSDataManager()
-        return dm.get_progress(state)
+        plss_data_service = PLSSDataService()
+        return plss_data_service.get_download_progress(state)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 @router.post("/download-plss/{state}/cancel")
 async def cancel_download(state: str) -> Dict[str, Any]:
     try:
-        from pipelines.mapping.plss.data_manager import PLSSDataManager
-        dm = PLSSDataManager()
-        return dm.request_cancel(state)
+        plss_data_service = PLSSDataService()
+        return plss_data_service.cancel_download(state)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -751,121 +667,24 @@ async def get_overlay_geojson(
     s: int | None = Query(None, description="Section number"),
 ):
     try:
-        from pathlib import Path
-        import geopandas as gpd
-        from shapely.geometry import box
-
-        project_root = Path(__file__).parent.parent.parent.parent
-        pq = project_root / "plss" / state.lower() / "parquet"
-
-        # Map friendly names to filenames
-        file_map = {
-            "townships": pq / "townships.parquet",
-            "sections": pq / "sections.parquet", 
-            "quarter_sections": pq / "quarter_sections.parquet",
-            "ranges": pq / "townships.parquet",  # ranges derived from townships
+        # Collect filters into a dictionary
+        filters = {
+            "min_lon": min_lon,
+            "min_lat": min_lat, 
+            "max_lon": max_lon,
+            "max_lat": max_lat,
+            "t": t,
+            "td": td,
+            "r": r,
+            "rd": rd,
+            "s": s
         }
-        target = file_map.get(layer)
-        if not target or not target.exists():
-            raise HTTPException(status_code=404, detail="Layer not available")
-
-        gdf = gpd.read_parquet(target)
-
-        # Apply filters if provided and columns exist
-        try:
-            if t is not None and 'TWNSHPNO' in gdf.columns:
-                gdf = gdf[gdf['TWNSHPNO'] == int(t)]
-            if td is not None and 'TWNSHPDIR' in gdf.columns:
-                gdf = gdf[gdf['TWNSHPDIR'] == str(td)]
-            if r is not None and 'RANGENO' in gdf.columns:
-                gdf = gdf[gdf['RANGENO'] == int(r)]
-            if rd is not None and 'RANGEDIR' in gdf.columns:
-                gdf = gdf[gdf['RANGEDIR'] == str(rd)]
-            if s is not None and 'FRSTDIVNO' in gdf.columns:
-                gdf = gdf[gdf['FRSTDIVNO'] == int(s)]
-        except Exception:
-            pass
-
-        # Bounds filter
-        if None not in (min_lon, min_lat, max_lon, max_lat):
-            bbox = box(float(min_lon), float(min_lat), float(max_lon), float(max_lat))
-            gdf = gdf[gdf.geometry.intersects(bbox)]
-
-        # Handle special layer types
-        if layer == "ranges":
-            try:
-                # Group by range columns and aggregate geometries properly
-                grouped = gdf.groupby(['RANGENO', 'RANGEDIR'])['geometry'].apply(lambda x: x.unary_union).reset_index()
-                
-                # Create new GeoDataFrame with dissolved geometries
-                gdf = gpd.GeoDataFrame(grouped, geometry='geometry')
-                
-                # Use buffer and simplify instead of convex hull for cleaner lines
-                gdf['geometry'] = gdf['geometry'].apply(lambda g: 
-                    g.buffer(0.0001).simplify(0.0001) if hasattr(g, 'buffer') else g
-                )
-                
-                print(f"✅ Range dissolving successful: {len(gdf)} ranges created")
-            except Exception as e:
-                print(f"❌ Range dissolving failed: {str(e)}")
-                # Fall back to original townships data if dissolving fails
-                pass
-        elif layer == "grid":
-            # For grid, just use townships - they already show the complete PLSS grid
-            print(f"✅ Using townships as grid: {len(gdf)} features")
-            # No special processing needed - townships already form the grid
-
-        # Basic label enrichment
-        def label_row(row):
-            if layer == "townships" or layer == "grid":
-                t = row.get("TWNSHPNO", "")
-                td = row.get("TWNSHPDIR", "")
-                r = row.get("RANGENO", "")
-                rd = row.get("RANGEDIR", "")
-                return f"T{t}{td} R{r}{rd}"
-            if layer == "ranges":
-                r = row.get("RANGENO", "")
-                rd = row.get("RANGEDIR", "")
-                return f"R{r}{rd}"
-            if layer == "sections":
-                s = row.get("FRSTDIVNO", "")
-                return f"Sec {s}"
-            if layer == "quarter_sections":
-                q = row.get("SECDIVTXT", None) or row.get("SECDIVLAB", "")
-                return q or "Quarter"
-            return ""
-
-        gdf = gdf.copy()
-        gdf["__label"] = gdf.apply(label_row, axis=1)
-
-        # Limit payload size for safety
-        if len(gdf) > 15000:
-            gdf = gdf.sample(15000, random_state=1)
-
-        # Build GeoJSON-like dict
-        features = []
-        for _, r in gdf.iterrows():
-            try:
-                c = r.geometry.centroid
-                features.append({
-                    "type": "Feature",
-                    "properties": {
-                        "label": r.get("__label", "") ,
-                        "label_lat": float(c.y),
-                        "label_lon": float(c.x),
-                    },
-                    "geometry": r.geometry.__geo_interface__,
-                })
-            except Exception:
-                continue
-
-        return {
-            "success": True,
-            "layer": layer,
-            "state": state,
-            "feature_count": len(features),
-            "data": {"type": "FeatureCollection", "features": features},
-        }
+        
+        overlay_service = PLSSOverlayService()
+        return overlay_service.get_overlay_geojson(layer, state, filters)
+        
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Layer not available")
     except HTTPException:
         raise
     except Exception as e:
@@ -923,29 +742,70 @@ async def get_plss_coordinates(request: Dict[str, Any]):
         trs_string = request.get("trs_string")
         state = request.get("state", "Wyoming")
         
-        if not trs_string:
-            raise HTTPException(status_code=400, detail="TRS string required")
+        plss_lookup_service = PLSSLookupService()
+        result = plss_lookup_service.lookup_trs_coordinates(trs_string, state)
         
-        logger.info(f"🔍 PLSS lookup request: {trs_string} in {state}")
-        
-        # Use the existing fast index lookup logic from the projection service
-        from pipelines.mapping.georeference.georeference_service import GeoreferenceService
-        
-        georeference_service = GeoreferenceService()
-        result = georeference_service.lookup_plss_fast_index(trs_string, state)
-        
-        if not result:
-            raise HTTPException(status_code=404, detail=f"PLSS coordinates not found for {trs_string}")
-        
-        logger.info(f"✅ PLSS lookup successful: {result}")
+        if not result.get("success"):
+            if "not found" in result.get("error", "").lower():
+                raise HTTPException(status_code=404, detail=result.get("error"))
+            else:
+                raise HTTPException(status_code=400, detail=result.get("error"))
         
         return {
-            "latitude": result["lat"],
-            "longitude": result["lon"],
-            "trs_string": trs_string,
-            "state": state
+            "latitude": result["latitude"],
+            "longitude": result["longitude"],
+            "trs_string": result["trs_string"],
+            "state": result["state"]
         }
         
     except Exception as e:
         logger.error(f"❌ PLSS lookup failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/download-plss/{state}/status")
+async def get_download_status(state: str) -> Dict[str, Any]:
+    """
+    Check if download/parquet building process is active for a state
+    Returns whether the process is active, not the detailed progress
+    """
+    try:
+        plss_data_service = PLSSDataService()
+        
+        # Check if state is in active processing
+        from pipelines.mapping.plss.data_manager import PLSSDataManager
+        data_manager = PLSSDataManager()
+        
+        # Check if currently in processing states
+        is_processing = state in data_manager._processing_states
+        
+        # Check progress file for active stages
+        progress_path = data_manager._progress_path(state)
+        active_stage = None
+        if progress_path.exists():
+            try:
+                with open(progress_path, 'r') as f:
+                    progress_data = json.load(f)
+                stage = progress_data.get("stage", "")
+                if stage in ["initializing", "downloading", "processing:prepare", 
+                           "building:parquet", "building:index", "writing:manifest"]:
+                    active_stage = stage
+            except Exception:
+                pass
+        
+        is_active = is_processing or (active_stage is not None)
+        
+        return {
+            "success": True,
+            "state": state,
+            "download_active": is_active,
+            "current_stage": active_stage,
+            "message": f"Download process {'active' if is_active else 'inactive'} for {state}"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error checking download status for {state}: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "download_active": False  # Default to false on error
+        }
