@@ -234,7 +234,7 @@ json_drafts_section_normalizer/
 
 # PLSS Data - Downloaded from BLM (Bureau of Land Management)
 # Large geospatial files (10MB+ per state) downloaded on-demand
-plss/
+/plss/
 
 # Tile Cache - Downloaded map tiles for performance
 # Generated at runtime, can be recreated

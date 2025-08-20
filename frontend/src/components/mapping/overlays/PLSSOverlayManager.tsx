@@ -104,13 +104,21 @@ function ensureLabelLayer(map: any, layerId: string, sourceId: string, minzoom: 
 }
 
 function setLayerVisibility(map: any, layerId: string, visible: boolean) {
-    if (!map || !map.getLayer) return;
+    // Enhanced validation to prevent map reference errors
+    if (!map || typeof map.getLayer !== 'function' || typeof map.setLayoutProperty !== 'function') {
+        console.warn(`⚠️ Invalid map reference for ${layerId} visibility`);
+        return;
+    }
+    
     try {
-        if (map.getLayer(layerId)) {
+        // FIXED: Check if layer exists before trying to set visibility
+        const layer = map.getLayer(layerId);
+        if (layer) {
             console.log(`🔀 Setting ${layerId} visibility to ${visible ? 'visible' : 'hidden'}`);
             map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
         } else {
-            console.warn(`⚠️ Layer ${layerId} not found when setting visibility`);
+            console.warn(`⚠️ Layer ${layerId} not found when setting visibility - will be created when data loads`);
+            // Don't throw error, just log warning - layer will be created when data loads
         }
     } catch (error) {
         console.error(`❌ Failed to set visibility for ${layerId}:`, error);
@@ -431,16 +439,18 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
 		abortControllerRef.current = new AbortController();
 		const abortSignal = abortControllerRef.current.signal;
 
-		// Determine desired layers based on toggles
-		const wantLayers: OverlayLayer[] = [];
-		if (parcelRelative.showGrid) {
-			wantLayers.push('grid');
-		} else {
-			if (parcelRelative.showTownship) wantLayers.push('townships');
-			if (parcelRelative.showRange) wantLayers.push('ranges');
-		}
-		if (parcelRelative.showSection) wantLayers.push('sections');
-		if (parcelRelative.showQuarter) wantLayers.push('quarter_sections');
+		        // Determine desired layers based on toggles
+        const wantLayers: OverlayLayer[] = [];
+        
+        // FIXED: Show grid when both township and range are selected (specific cell)
+        if (parcelRelative.showGrid || (parcelRelative.showTownship && parcelRelative.showRange)) {
+            wantLayers.push('grid');
+        } else {
+            if (parcelRelative.showTownship) wantLayers.push('townships');
+            if (parcelRelative.showRange) wantLayers.push('ranges');
+        }
+        if (parcelRelative.showSection) wantLayers.push('sections');
+        if (parcelRelative.showQuarter) wantLayers.push('quarter_sections');
 
 		// Remove only layers that are not desired
 		const allLayerTypes: OverlayLayer[] = ['townships','ranges','sections','quarter_sections','grid'];
@@ -527,18 +537,20 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
 			}
 		};
 
-		const getDesiredLayers = (): OverlayLayer[] => {
-			const want: OverlayLayer[] = [];
-			if (parcelRelative.showGrid) {
-				want.push('grid');
-			} else {
-				if (parcelRelative.showTownship) want.push('townships');
-				if (parcelRelative.showRange) want.push('ranges');
-			}
-			if (parcelRelative.showSection) want.push('sections');
-			if (parcelRelative.showQuarter) want.push('quarter_sections');
-			return want;
-		};
+		        const getDesiredLayers = (): OverlayLayer[] => {
+            const want: OverlayLayer[] = [];
+            
+            // FIXED: Show grid when both township and range are selected (specific cell)
+            if (parcelRelative.showGrid || (parcelRelative.showTownship && parcelRelative.showRange)) {
+                want.push('grid');
+            } else {
+                if (parcelRelative.showTownship) want.push('townships');
+                if (parcelRelative.showRange) want.push('ranges');
+            }
+            if (parcelRelative.showSection) want.push('sections');
+            if (parcelRelative.showQuarter) want.push('quarter_sections');
+            return want;
+        };
 
 		// Immediate reapplication on setup
 		const wantedLayers = getDesiredLayers();

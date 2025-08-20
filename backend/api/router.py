@@ -4,6 +4,7 @@ Combines all API endpoints into a single router for main.py
 """
 from fastapi import APIRouter
 from api.endpoints import models, processing, system, alignment, consensus, final_draft, text_to_schema, polygon, mapping, plss_overlays
+from api.endpoints.plss import container_router
 
 # Create the main API router
 api_router = APIRouter()
@@ -19,6 +20,7 @@ api_router.include_router(text_to_schema.router, prefix="/api/text-to-schema", t
 api_router.include_router(polygon.router, prefix="/api/polygon", tags=["polygon"])
 api_router.include_router(mapping.router, prefix="/api/mapping", tags=["mapping"])
 api_router.include_router(plss_overlays.router, prefix="/api/plss", tags=["plss-overlays"])
+api_router.include_router(container_router, prefix="/api/plss", tags=["plss-container"])
 
 # Quick access to pipeline-specific endpoints for backwards compatibility
 api_router.include_router(models.router, prefix="/api/image-to-text", tags=["image-to-text"])
@@ -41,6 +43,7 @@ async def api_root():
             "polygon": "/api/polygon/draw - Generate polygon from structured data",
             "mapping": "/api/mapping/project-polygon - Project polygons to geographic coordinates",
             "plss_overlays": "/api/plss/overlays - PLSS overlay data for mapping visualization",
+            "plss_container": "/api/plss/container - Dedicated container PLSS overlay endpoints",
             "health": "/api/health - System health check",
             "services": "/api/services - Service status",
             "processing_types": "/api/process/types - Available processing types"
