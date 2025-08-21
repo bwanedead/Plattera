@@ -6,7 +6,7 @@ from .pipeline import PLSSPipeline
 from .data_manager import PLSSDataManager
 from .coordinate_service import PLSSCoordinateService
 from .vector_processor import PLSSVectorProcessor
-from .section_index import PLSSSectionIndex
+from .section_index import SectionIndex
 from .plss_extractor import PLSSExtractor
 
 __all__ = [
@@ -14,6 +14,6 @@ __all__ = [
     "PLSSDataManager", 
     "PLSSCoordinateService", 
     "PLSSVectorProcessor",
-    "PLSSSectionIndex",
+    "SectionIndex",
     "PLSSExtractor"
 ]

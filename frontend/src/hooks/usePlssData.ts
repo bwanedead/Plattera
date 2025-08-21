@@ -6,14 +6,14 @@ import { useState, useEffect } from 'react';
 import { plssDataService, PLSSDataState } from '../services/plss';
 
 // Extend the state to include modal dismissal
-  interface ExtendedPLSSDataState extends PLSSDataState {
+interface ExtendedPLSSDataState extends PLSSDataState {
   modalDismissed: boolean;
   mappingEnabled: boolean;
   // Parquet finalization UI signals
   parquetPhase?: boolean;
   parquetStatus?: string | null;
   estimatedTime?: string | null;
- }
+}
 
 export function usePLSSData(schemaData: any) {
   const [state, setState] = useState<ExtendedPLSSDataState>({

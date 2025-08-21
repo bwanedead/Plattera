@@ -14,48 +14,41 @@ logger = logging.getLogger(__name__)
 class ContainerSectionsEngine:
     """Dedicated engine for container section overlays using spatial filtering"""
     
-    def __init__(self, data_dir: str = "plss"):
+    def __init__(self, data_dir: str = "../plss"):
         self.data_dir = data_dir
-        self.sections_file = os.path.join(data_dir, "sections.parquet")
-        self.township_file = os.path.join(data_dir, "townships.parquet")
         
     def get_sections_features(self, container_bounds: Dict[str, float], plss_info: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Get section features for container overlay using spatial intersection
-        
-        Args:
-            container_bounds: Bounding box {west, south, east, north}
-            plss_info: PLSS information {township_number, township_direction, range_number, range_direction}
-            
-        Returns:
-            Dict with GeoJSON features and validation info
-        """
-        logger.info("🏠 CONTAINER SECTIONS ENGINE: Starting section feature retrieval")
+        logger.info("🔲 CONTAINER SECTIONS ENGINE: Starting sections feature retrieval")
         logger.info(f"📍 Container bounds: {container_bounds}")
         logger.info(f"📍 PLSS info: {plss_info}")
         
         try:
-            # Load sections data
-            if not os.path.exists(self.sections_file):
-                logger.error(f"❌ Sections file not found: {self.sections_file}")
-                return self._create_error_response("Sections data file not found")
+            # Get state from PLSS info
+            state = plss_info.get('state', 'Wyoming').lower()
             
-            sections_gdf = gpd.read_parquet(self.sections_file)
+            # Use geometry parquet files for proper shape overlays
+            # The geometry files contain actual shape boundaries, not just centroids
+            sections_file = os.path.join(self.data_dir, state, "parquet", "sections.parquet").replace('\\', '/')
+            
+            # Load sections data from geometry file
+            if not os.path.exists(sections_file):
+                logger.error(f"❌ Sections parquet file not found: {sections_file}")
+                return self._create_error_response("Sections parquet data file not found")
+            
+            # Read parquet file directly with geopandas to handle geometry properly
+            sections_gdf = gpd.read_parquet(sections_file)
             logger.info(f"📊 Loaded sections data: {sections_gdf.shape} features, columns: {list(sections_gdf.columns)}")
             
-            # Load township data to get the specific cell boundary
-            if not os.path.exists(self.township_file):
-                logger.error(f"❌ Township file not found: {self.township_file}")
-                return self._create_error_response("Township data file not found")
+            # Validate geometry column exists
+            if sections_gdf.geometry.name != 'geometry':
+                logger.error("❌ No valid geometry column found in sections data")
+                return self._create_error_response("No valid geometry column found in sections data")
             
-            township_gdf = gpd.read_parquet(self.township_file)
-            logger.info(f"📊 Loaded township data: {township_gdf.shape} features, columns: {list(township_gdf.columns)}")
-            
-            # Get the specific township-range cell boundary
-            cell_boundary = self._get_cell_boundary(township_gdf, plss_info)
+            # Get the specific township-range cell boundary from the sections data
+            cell_boundary = self._get_cell_boundary(sections_gdf, plss_info)
             if cell_boundary is None:
-                logger.error("❌ Could not determine cell boundary")
-                return self._create_error_response("Could not determine cell boundary")
+                logger.error("❌ Could not determine cell boundary from sections data")
+                return self._create_error_response("Could not determine cell boundary from sections data")
             
             logger.info(f"🎯 Cell boundary determined: {cell_boundary}")
             
@@ -81,7 +74,8 @@ class ContainerSectionsEngine:
                     "spatial_validation": spatial_validation,
                     "container_bounds": container_bounds,
                     "engine": "ContainerSectionsEngine",
-                    "filtering_method": "spatial_intersection"
+                    "filtering_method": "spatial_intersection",
+                    "data_source": "sections_parquet"
                 }
             }
             
@@ -89,8 +83,8 @@ class ContainerSectionsEngine:
             logger.error(f"❌ Container sections engine failed: {e}")
             return self._create_error_response(f"Engine error: {str(e)}")
     
-    def _get_cell_boundary(self, township_gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> Optional[Any]:
-        """Get the boundary of the specific township-range cell"""
+    def _get_cell_boundary(self, sections_gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> Optional[Any]:
+        """Get the boundary of the specific township-range cell from townships data"""
         township_num = plss_info.get('township_number')
         township_dir = plss_info.get('township_direction')
         range_num = plss_info.get('range_number')
@@ -98,25 +92,53 @@ class ContainerSectionsEngine:
         
         logger.info(f"🎯 Getting boundary for cell: T{township_num}{township_dir} R{range_num}{range_dir}")
         
-        # Filter to exact township-range cell
-        mask = (
-            (township_gdf['TWNSHPNO'] == township_num) & 
-            (township_gdf['TWNSHPDIR'] == township_dir) &
-            (township_gdf['RANGENO'] == range_num) & 
-            (township_gdf['RANGEDIR'] == range_dir)
-        )
-        
-        cell_gdf = township_gdf[mask].copy()
-        
-        if cell_gdf.empty:
-            logger.error(f"❌ No cell found for T{township_num}{township_dir} R{range_num}{range_dir}")
+        try:
+            # Get state from PLSS info for townships data
+            state = plss_info.get('state', 'Wyoming').lower()
+            
+            # Load townships data to get the cell boundary (NOT sections data)
+            townships_file = os.path.join(self.data_dir, state, "parquet", "townships.parquet").replace('\\', '/')
+            
+            if not os.path.exists(townships_file):
+                logger.error(f"❌ Townships parquet file not found: {townships_file}")
+                return None
+            
+            # Read townships parquet file
+            townships_gdf = gpd.read_parquet(townships_file)
+            logger.info(f"📊 Loaded townships data for cell boundary: {townships_gdf.shape} features, columns: {list(townships_gdf.columns)}")
+            
+            # Convert numbers to zero-padded string format
+            township_str = f"{township_num:03d}" if isinstance(township_num, int) else str(township_num).zfill(3)
+            range_str = f"{range_num:03d}" if isinstance(range_num, int) else str(range_num).zfill(3)
+            logger.info(f"🔧 Converting to string formats: T{township_str}{township_dir} R{range_str}{range_dir}")
+            
+            # Filter to exact township-range cell
+            mask = (
+                (townships_gdf['TWNSHPNO'] == township_str) & 
+                (townships_gdf['TWNSHPDIR'] == township_dir) &
+                (townships_gdf['RANGENO'] == range_str) & 
+                (townships_gdf['RANGEDIR'] == range_dir)
+            )
+            
+            cell_gdf = townships_gdf[mask].copy()
+            logger.info(f"✅ Cell boundary filter applied: {len(cell_gdf)} features found for T{township_str}{township_dir} R{range_str}{range_dir}")
+            
+            if cell_gdf.empty:
+                logger.error(f"❌ No cell boundary found for T{township_str}{township_dir} R{range_str}{range_dir}")
+                return None
+            
+            # Get the geometry of the cell (handle MultiPolygon)
+            cell_geometry = cell_gdf.iloc[0].geometry
+            if hasattr(cell_geometry, 'geom_type') and cell_geometry.geom_type == 'MultiPolygon':
+                cell_geometry = max(cell_geometry.geoms, key=lambda p: p.area)
+                
+            logger.info(f"✅ Cell boundary determined: {cell_geometry}")
+            
+            return cell_geometry
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get cell boundary: {e}")
             return None
-        
-        # Get the geometry of the cell
-        cell_geometry = cell_gdf.iloc[0].geometry
-        logger.info(f"✅ Cell boundary determined: {cell_geometry}")
-        
-        return cell_geometry
     
     def _filter_sections_by_spatial_intersection(self, sections_gdf: gpd.GeoDataFrame, cell_boundary: Any) -> gpd.GeoDataFrame:
         """Filter sections using spatial intersection with the cell boundary"""
@@ -174,11 +196,17 @@ class ContainerSectionsEngine:
         features = []
         
         for idx, row in gdf.iterrows():
+            geom = row.geometry
+            
+            # Handle MultiPolygon by taking the largest polygon
+            if hasattr(geom, 'geom_type') and geom.geom_type == 'MultiPolygon':
+                geom = max(geom.geoms, key=lambda p: p.area)
+            
             feature = {
                 "type": "Feature",
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [list(row.geometry.exterior.coords)]
+                    "coordinates": [list(geom.exterior.coords)]
                 },
                 "properties": {
                     "section_number": row.get('FRSTDIVNO'),

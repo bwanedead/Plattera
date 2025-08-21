@@ -92,18 +92,23 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
   // Calculate map center from polygon data
   const mapCenter = React.useMemo(() => {
     if (geoPolygonData?.anchor_info?.resolved_coordinates) {
-      return {
+      const coords = {
         lat: geoPolygonData.anchor_info.resolved_coordinates.lat,
         lon: geoPolygonData.anchor_info.resolved_coordinates.lon
       };
+      console.log('🎯 CleanMapBackground: Using anchor coordinates for map center:', coords);
+      return coords;
     }
     if (geoPolygonData?.bounds) {
       const b = geoPolygonData.bounds;
-      return {
+      const coords = {
         lat: (b.min_lat + b.max_lat) / 2,
         lon: (b.min_lon + b.max_lon) / 2
       };
+      console.log('🎯 CleanMapBackground: Using bounds center for map center:', coords);
+      return coords;
     }
+    console.log('🎯 CleanMapBackground: Using default Wyoming center');
     return { lat: 41.5, lon: -107.5 }; // Wyoming default
   }, [geoPolygonData]);
 
@@ -115,11 +120,16 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
       const lonSpan = b.max_lon - b.min_lon;
       const maxSpan = Math.max(latSpan, lonSpan);
       
-      if (maxSpan > 0.1) return 10;
-      if (maxSpan > 0.01) return 14;
-      if (maxSpan > 0.001) return 16;
-      return 18;
+      let zoom = 10;
+      if (maxSpan > 0.1) zoom = 6;        // Was 10, now 6 (4 levels lower)
+      else if (maxSpan > 0.01) zoom = 10; // Was 14, now 10 (4 levels lower) 
+      else if (maxSpan > 0.001) zoom = 12; // Was 16, now 12 (4 levels lower)
+      else zoom = 14;                     // Was 18, now 14 (4 levels lower)
+      
+      console.log('🎯 CleanMapBackground: Calculated zoom level:', zoom, 'for span:', maxSpan);
+      return zoom;
     }
+    console.log('🎯 CleanMapBackground: Using default zoom level: 10');
     return 10;
   }, [geoPolygonData]);
 
@@ -226,6 +236,10 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
         standalone={false}
         initialParcels={geoPolygonData ? [geoPolygonData] : []}
         schemaData={schemaData}
+        initialView={{
+          center: mapCenter,
+          zoom: mapZoom
+        }}
         className="full-size"
       />
     </div>

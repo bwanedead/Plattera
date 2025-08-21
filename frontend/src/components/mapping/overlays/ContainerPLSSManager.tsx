@@ -1,15 +1,15 @@
 /**
- * PLSS Overlay Manager
- * Clean, container-only implementation using modular architecture
- * Handles container-based PLSS overlays with dedicated components
+ * Container PLSS Manager
+ * Dedicated manager for container-based PLSS overlays
+ * Clean, focused implementation for parcel-relative overlays
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useMapContext } from '../core/MapContext';
 import ContainerOverlayManager, { ContainerOverlayState } from './ContainerOverlayManager';
 import ContainerOverlayControls from './ContainerOverlayControls';
 
-export interface PLSSOverlayManagerProps {
+export interface ContainerPLSSManagerProps {
   stateName: string;
   schemaData?: any;
   containerBounds?: {
@@ -21,7 +21,7 @@ export interface PLSSOverlayManagerProps {
   className?: string;
 }
 
-export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
+export const ContainerPLSSManager: React.FC<ContainerPLSSManagerProps> = ({
   stateName,
   schemaData,
   containerBounds,
@@ -81,9 +81,9 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
 
   if (!map) {
     return (
-      <div className={`plss-overlay-manager ${className}`}>
+      <div className={`container-plss-manager ${className}`}>
         <div className="bg-yellow-50 border border-yellow-200 rounded p-3">
-          <p className="text-sm text-yellow-800">⚠️ Map not available</p>
+          <p className="text-sm text-yellow-800">Map not available</p>
         </div>
       </div>
     );
@@ -91,10 +91,10 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
 
   if (!hasRequiredData) {
     return (
-      <div className={`plss-overlay-manager ${className}`}>
+      <div className={`container-plss-manager ${className}`}>
         <div className="bg-blue-50 border border-blue-200 rounded p-3">
           <p className="text-sm text-blue-800">
-            📋 Waiting for parcel data...
+            Waiting for parcel data...
           </p>
           <div className="text-xs text-blue-600 mt-1">
             {!schemaData && '• Schema data missing'}
@@ -107,7 +107,7 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
   }
 
   return (
-    <div className={`plss-overlay-manager ${className}`}>
+    <div className={`container-plss-manager ${className}`}>
       {/* Container Overlay Controls */}
       <ContainerOverlayControls
         overlayState={containerOverlayState}
@@ -131,7 +131,7 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
 
       {/* Status Display */}
       <div className="bg-gray-50 border border-gray-200 rounded p-3">
-        <h4 className="text-sm font-medium text-gray-800 mb-2">📊 Status</h4>
+        <h4 className="text-sm font-medium text-gray-800 mb-2">Container Status</h4>
         
         {/* Active Layers */}
         <div className="mb-2">
@@ -152,10 +152,10 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
           </div>
         ))}
 
-        {/* Regional Overlay Notice */}
-        <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded">
-          <p className="text-xs text-blue-800">
-            🌍 Regional overlays coming soon...
+        {/* Container Info */}
+        <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded">
+          <p className="text-xs text-green-800">
+            Container overlays show features relative to your parcel
           </p>
         </div>
       </div>
@@ -163,5 +163,4 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
   );
 };
 
-export default PLSSOverlayManager;
-
+export default ContainerPLSSManager;

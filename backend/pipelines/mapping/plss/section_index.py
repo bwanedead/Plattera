@@ -354,12 +354,12 @@ class SectionIndex:
                             json.dump(manifest, mf)
                     except Exception:
                         pass
-
+                    
                     subdivisions_parquet_path = parts_dir
                     logger.info(f"✅ Built quarter sections parquet parts: {written:,} features in {part_index} files")
                     if progress_callback:
                         progress_callback("Quarter sections parquet complete")
-
+                    
                 except Exception as e:
                     logger.warning(f"Quarter sections parquet build skipped: {e}")
                     if progress_callback:

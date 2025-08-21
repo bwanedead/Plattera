@@ -14,9 +14,8 @@ logger = logging.getLogger(__name__)
 class ContainerGridEngine:
     """Dedicated engine for container grid overlays (specific township-range cell)"""
     
-    def __init__(self, data_dir: str = "plss"):
+    def __init__(self, data_dir: str = "../plss"):
         self.data_dir = data_dir
-        self.township_file = os.path.join(data_dir, "townships.parquet")
         
     def get_grid_features(self, container_bounds: Dict[str, float], plss_info: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -34,20 +33,33 @@ class ContainerGridEngine:
         logger.info(f"📍 PLSS info: {plss_info}")
         
         try:
-            # Load township data (we'll filter to the specific cell)
-            if not os.path.exists(self.township_file):
-                logger.error(f"❌ Township file not found: {self.township_file}")
-                return self._create_error_response("Township data file not found")
+            # Get state from PLSS info
+            state = plss_info.get('state', 'Wyoming').lower()
             
-            gdf = gpd.read_parquet(self.township_file)
+            # Use geometry parquet files for proper shape overlays
+            # The geometry files contain actual shape boundaries, not just centroids
+            township_file = os.path.join(self.data_dir, state, "parquet", "townships.parquet").replace('\\', '/')
+            
+            # Load township data from geometry file
+            if not os.path.exists(township_file):
+                logger.error(f"❌ Township parquet file not found: {township_file}")
+                return self._create_error_response("Township parquet data file not found")
+            
+            # Read parquet file directly with geopandas to handle geometry properly
+            gdf = gpd.read_parquet(township_file)
             logger.info(f"📊 Loaded township data: {gdf.shape} features, columns: {list(gdf.columns)}")
             
-            # Validate required columns
+            # Validate geometry column exists
+            if gdf.geometry.name != 'geometry':
+                logger.error("❌ No valid geometry column found in township data")
+                return self._create_error_response("No valid geometry column found in township data")
+            
+            # Validate required columns - township data should have all the necessary columns
             required_cols = ['TWNSHPNO', 'TWNSHPDIR', 'RANGENO', 'RANGEDIR', 'geometry']
             missing_cols = [col for col in required_cols if col not in gdf.columns]
             if missing_cols:
-                logger.error(f"❌ Missing required columns: {missing_cols}")
-                return self._create_error_response(f"Missing columns: {missing_cols}")
+                logger.error(f"❌ Missing required columns in township data: {missing_cols}")
+                return self._create_error_response(f"Missing columns in township data: {missing_cols}")
             
             # Filter to exact township-range cell
             filtered_gdf = self._filter_exact_cell(gdf, plss_info)
@@ -70,7 +82,8 @@ class ContainerGridEngine:
                     "features_returned": len(geojson),
                     "spatial_validation": spatial_validation,
                     "container_bounds": container_bounds,
-                    "engine": "ContainerGridEngine"
+                    "engine": "ContainerGridEngine",
+                    "data_source": "townships_parquet"
                 }
             }
             
@@ -87,23 +100,29 @@ class ContainerGridEngine:
         
         logger.info(f"🎯 Filtering to exact cell: T{township_num}{township_dir} R{range_num}{range_dir}")
         
+        # CRITICAL FIX: Convert numbers to zero-padded string format
+        township_str = f"{township_num:03d}" if isinstance(township_num, int) else str(township_num).zfill(3)
+        range_str = f"{range_num:03d}" if isinstance(range_num, int) else str(range_num).zfill(3)
+        logger.info(f"🔧 Converting to string formats: T{township_str}{township_dir} R{range_str}{range_dir}")
+        
         # Apply both township and range filters to get the specific cell
         mask = (
-            (gdf['TWNSHPNO'] == township_num) & 
+            (gdf['TWNSHPNO'] == township_str) & 
             (gdf['TWNSHPDIR'] == township_dir) &
-            (gdf['RANGENO'] == range_num) & 
+            (gdf['RANGENO'] == range_str) & 
             (gdf['RANGEDIR'] == range_dir)
         )
         
         filtered = gdf[mask].copy()
-        logger.info(f"✅ Grid cell filter applied: {len(filtered)} features match T{township_num}{township_dir} R{range_num}{range_dir}")
+        logger.info(f"✅ Grid cell filter applied: {len(filtered)} features match T{township_str}{township_dir} R{range_str}{range_dir}")
+        
+        if filtered.empty:
+            logger.warning(f"⚠️ No features found for cell T{township_str}{township_dir} R{range_str}{range_dir}")
         
         # Log sample of filtered features
         if not filtered.empty:
             sample = filtered[['TWNSHPNO', 'TWNSHPDIR', 'RANGENO', 'RANGEDIR']].head(3)
             logger.info(f"📋 Sample filtered features:\n{sample}")
-        else:
-            logger.warning(f"⚠️ No features found for cell T{township_num}{township_dir} R{range_num}{range_dir}")
         
         return filtered
     
@@ -144,11 +163,17 @@ class ContainerGridEngine:
         features = []
         
         for idx, row in gdf.iterrows():
+            geom = row.geometry
+            
+            # Handle MultiPolygon by taking the largest polygon
+            if hasattr(geom, 'geom_type') and geom.geom_type == 'MultiPolygon':
+                geom = max(geom.geoms, key=lambda p: p.area)
+            
             feature = {
                 "type": "Feature",
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [list(row.geometry.exterior.coords)]
+                    "coordinates": [list(geom.exterior.coords)]
                 },
                 "properties": {
                     "township_number": row.get('TWNSHPNO'),

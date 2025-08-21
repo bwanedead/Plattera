@@ -14,9 +14,8 @@ logger = logging.getLogger(__name__)
 class ContainerRangeEngine:
     """Dedicated engine for container range overlays"""
     
-    def __init__(self, data_dir: str = "plss"):
+    def __init__(self, data_dir: str = "../plss"):
         self.data_dir = data_dir
-        self.range_file = os.path.join(data_dir, "ranges.parquet")
         
     def get_range_features(self, container_bounds: Dict[str, float], plss_info: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -34,21 +33,34 @@ class ContainerRangeEngine:
         logger.info(f"📍 PLSS info: {plss_info}")
         
         try:
-            # Load range data
-            if not os.path.exists(self.range_file):
-                logger.error(f"❌ Range file not found: {self.range_file}")
-                return self._create_error_response("Range data file not found")
+            # Get state from PLSS info
+            state = plss_info.get('state', 'Wyoming').lower()
             
-            gdf = gpd.read_parquet(self.range_file)
+            # Use geometry parquet files for proper shape overlays
+            # The geometry files contain actual shape boundaries, not just centroids
+            range_file = os.path.join(self.data_dir, state, "parquet", "ranges.parquet").replace('\\', '/')
+            
+            # Load range data from geometry file
+            if not os.path.exists(range_file):
+                logger.error(f"❌ Range parquet file not found: {range_file}")
+                return self._create_error_response("Range parquet data file not found")
+            
+            # Read parquet file directly with geopandas to handle geometry properly
+            gdf = gpd.read_parquet(range_file)
             logger.info(f"📊 Loaded range data: {gdf.shape} features, columns: {list(gdf.columns)}")
             
-            # Validate required columns
-            required_cols = ['TWNSHPNO', 'TWNSHPDIR', 'RANGENO', 'RANGEDIR', 'geometry']
+            # Validate geometry column exists
+            if gdf.geometry.name != 'geometry':
+                logger.error("❌ No valid geometry column found in range data")
+                return self._create_error_response("No valid geometry column found in range data")
+            
+            # Validate required columns - range data should only need range columns for dissolved data
+            required_cols = ['RANGENO', 'RANGEDIR', 'geometry'] 
             missing_cols = [col for col in required_cols if col not in gdf.columns]
             if missing_cols:
-                logger.error(f"❌ Missing required columns: {missing_cols}")
-                return self._create_error_response(f"Missing columns: {missing_cols}")
-            
+                logger.error(f"❌ Missing required columns in range data: {missing_cols}")
+                return self._create_error_response(f"Missing columns in range data: {missing_cols}")
+
             # Filter to exact range
             filtered_gdf = self._filter_exact_range(gdf, plss_info)
             logger.info(f"🎯 Range filtering result: {filtered_gdf.shape} features")
@@ -69,7 +81,8 @@ class ContainerRangeEngine:
                     "features_returned": len(geojson),
                     "spatial_validation": spatial_validation,
                     "container_bounds": container_bounds,
-                    "engine": "ContainerRangeEngine"
+                    "engine": "ContainerRangeEngine",
+                    "data_source": "ranges_parquet"
                 }
             }
             
@@ -78,25 +91,31 @@ class ContainerRangeEngine:
             return self._create_error_response(f"Engine error: {str(e)}")
     
     def _filter_exact_range(self, gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> gpd.GeoDataFrame:
-        """Filter to exact range with comprehensive logging"""
+        """Filter to exact range boundary (vertical lines)"""
         range_num = plss_info.get('range_number')
         range_dir = plss_info.get('range_direction')
         
-        logger.info(f"🎯 Filtering to exact range: R{range_num}{range_dir}")
+        logger.info(f"🎯 Filtering to exact range boundary: R{range_num}{range_dir}")
         
-        # Apply range filter
+        # CRITICAL FIX: Convert range number to zero-padded string format (e.g., 75 -> '075')
+        range_str = f"{range_num:03d}" if isinstance(range_num, int) else str(range_num).zfill(3)
+        logger.info(f"🔧 Converting range number {range_num} to string format: '{range_str}'")
+        
+        # Apply range filter with corrected format
         mask = (
-            (gdf['RANGENO'] == range_num) & 
+            (gdf['RANGENO'] == range_str) & 
             (gdf['RANGEDIR'] == range_dir)
         )
         
         filtered = gdf[mask].copy()
-        logger.info(f"✅ Range filter applied: {len(filtered)} features match R{range_num}{range_dir}")
+        logger.info(f"✅ Range boundary filter applied: {len(filtered)} features match R{range_str}{range_dir}")
         
-        # Log sample of filtered features
+        # Log sample of filtered features (only range columns since this is dissolved range data)
         if not filtered.empty:
-            sample = filtered[['TWNSHPNO', 'TWNSHPDIR', 'RANGENO', 'RANGEDIR']].head(3)
-            logger.info(f"📋 Sample filtered features:\n{sample}")
+            available_cols = [col for col in ['RANGENO', 'RANGEDIR'] if col in filtered.columns]
+            if available_cols:
+                sample = filtered[available_cols].head(3)
+                logger.info(f"📋 Sample filtered range features:\n{sample}")
         
         return filtered
     

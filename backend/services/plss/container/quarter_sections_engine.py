@@ -14,48 +14,41 @@ logger = logging.getLogger(__name__)
 class ContainerQuarterSectionsEngine:
     """Dedicated engine for container quarter section overlays using spatial filtering"""
     
-    def __init__(self, data_dir: str = "plss"):
+    def __init__(self, data_dir: str = "../plss"):
         self.data_dir = data_dir
-        self.quarter_sections_file = os.path.join(data_dir, "quarter_sections.parquet")
-        self.township_file = os.path.join(data_dir, "townships.parquet")
         
     def get_quarter_sections_features(self, container_bounds: Dict[str, float], plss_info: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Get quarter section features for container overlay using spatial intersection
-        
-        Args:
-            container_bounds: Bounding box {west, south, east, north}
-            plss_info: PLSS information {township_number, township_direction, range_number, range_direction}
-            
-        Returns:
-            Dict with GeoJSON features and validation info
-        """
-        logger.info("🏘️ CONTAINER QUARTER SECTIONS ENGINE: Starting quarter section feature retrieval")
+        logger.info("🔲 CONTAINER QUARTER SECTIONS ENGINE: Starting quarter sections feature retrieval")
         logger.info(f"📍 Container bounds: {container_bounds}")
         logger.info(f"📍 PLSS info: {plss_info}")
         
         try:
-            # Load quarter sections data
-            if not os.path.exists(self.quarter_sections_file):
-                logger.error(f"❌ Quarter sections file not found: {self.quarter_sections_file}")
-                return self._create_error_response("Quarter sections data file not found")
+            # Get state from PLSS info
+            state = plss_info.get('state', 'Wyoming').lower()
             
-            quarter_sections_gdf = gpd.read_parquet(self.quarter_sections_file)
+            # Use geometry parquet files for proper shape overlays
+            # The geometry files contain actual shape boundaries, not just centroids
+            quarter_sections_file = os.path.join(self.data_dir, state, "parquet", "quarter_sections_parts").replace('\\', '/')
+            
+            # Load quarter sections data from geometry directory
+            if not os.path.exists(quarter_sections_file):
+                logger.error(f"❌ Quarter sections parquet directory not found: {quarter_sections_file}")
+                return self._create_error_response("Quarter sections parquet directory not found")
+            
+            # Read parquet file directly with geopandas to handle geometry properly
+            quarter_sections_gdf = gpd.read_parquet(quarter_sections_file)
             logger.info(f"📊 Loaded quarter sections data: {quarter_sections_gdf.shape} features, columns: {list(quarter_sections_gdf.columns)}")
             
-            # Load township data to get the specific cell boundary
-            if not os.path.exists(self.township_file):
-                logger.error(f"❌ Township file not found: {self.township_file}")
-                return self._create_error_response("Township data file not found")
+            # Validate geometry column exists
+            if quarter_sections_gdf.geometry.name != 'geometry':
+                logger.error("❌ No valid geometry column found in quarter sections data")
+                return self._create_error_response("No valid geometry column found in quarter sections data")
             
-            township_gdf = gpd.read_parquet(self.township_file)
-            logger.info(f"📊 Loaded township data: {township_gdf.shape} features, columns: {list(township_gdf.columns)}")
-            
-            # Get the specific township-range cell boundary
-            cell_boundary = self._get_cell_boundary(township_gdf, plss_info)
+            # Get the specific township-range cell boundary from the quarter sections data
+            cell_boundary = self._get_cell_boundary(quarter_sections_gdf, plss_info)
             if cell_boundary is None:
-                logger.error("❌ Could not determine cell boundary")
-                return self._create_error_response("Could not determine cell boundary")
+                logger.error("❌ Could not determine cell boundary from quarter sections data")
+                return self._create_error_response("Could not determine cell boundary from quarter sections data")
             
             logger.info(f"🎯 Cell boundary determined: {cell_boundary}")
             
@@ -81,7 +74,8 @@ class ContainerQuarterSectionsEngine:
                     "spatial_validation": spatial_validation,
                     "container_bounds": container_bounds,
                     "engine": "ContainerQuarterSectionsEngine",
-                    "filtering_method": "spatial_intersection"
+                    "filtering_method": "spatial_intersection",
+                    "data_source": "quarter_sections_parquet"
                 }
             }
             
@@ -89,7 +83,7 @@ class ContainerQuarterSectionsEngine:
             logger.error(f"❌ Container quarter sections engine failed: {e}")
             return self._create_error_response(f"Engine error: {str(e)}")
     
-    def _get_cell_boundary(self, township_gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> Optional[Any]:
+    def _get_cell_boundary(self, quarter_sections_gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> Optional[Any]:
         """Get the boundary of the specific township-range cell"""
         township_num = plss_info.get('township_number')
         township_dir = plss_info.get('township_direction')
@@ -98,18 +92,24 @@ class ContainerQuarterSectionsEngine:
         
         logger.info(f"🎯 Getting boundary for cell: T{township_num}{township_dir} R{range_num}{range_dir}")
         
-        # Filter to exact township-range cell
+        # CRITICAL FIX: Convert numbers to zero-padded string format
+        township_str = f"{township_num:03d}" if isinstance(township_num, int) else str(township_num).zfill(3)
+        range_str = f"{range_num:03d}" if isinstance(range_num, int) else str(range_num).zfill(3)
+        logger.info(f"🔧 Converting to string formats: T{township_str}{township_dir} R{range_str}{range_dir}")
+        
+        # Filter to exact township-range cell with corrected format
         mask = (
-            (township_gdf['TWNSHPNO'] == township_num) & 
-            (township_gdf['TWNSHPDIR'] == township_dir) &
-            (township_gdf['RANGENO'] == range_num) & 
-            (township_gdf['RANGEDIR'] == range_dir)
+            (quarter_sections_gdf['TWNSHPNO'] == township_str) & 
+            (quarter_sections_gdf['TWNSHPDIR'] == township_dir) &
+            (quarter_sections_gdf['RANGENO'] == range_str) & 
+            (quarter_sections_gdf['RANGEDIR'] == range_dir)
         )
         
-        cell_gdf = township_gdf[mask].copy()
+        cell_gdf = quarter_sections_gdf[mask].copy()
+        logger.info(f"✅ Cell boundary filter applied: {len(cell_gdf)} features found for T{township_str}{township_dir} R{range_str}{range_dir}")
         
         if cell_gdf.empty:
-            logger.error(f"❌ No cell found for T{township_num}{township_dir} R{range_num}{range_dir}")
+            logger.error(f"❌ No cell boundary found for T{township_str}{township_dir} R{range_str}{range_dir}")
             return None
         
         # Get the geometry of the cell
@@ -174,11 +174,17 @@ class ContainerQuarterSectionsEngine:
         features = []
         
         for idx, row in gdf.iterrows():
+            geom = row.geometry
+            
+            # Handle MultiPolygon by taking the largest polygon
+            if hasattr(geom, 'geom_type') and geom.geom_type == 'MultiPolygon':
+                geom = max(geom.geoms, key=lambda p: p.area)
+            
             feature = {
                 "type": "Feature",
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [list(row.geometry.exterior.coords)]
+                    "coordinates": [list(geom.exterior.coords)]
                 },
                 "properties": {
                     "quarter_section_number": row.get('FRSTDIVNO'),

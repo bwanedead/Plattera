@@ -2,16 +2,11 @@ import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import { MapContext, type MapContextValue } from './core/MapContext';
 import { MapEngine } from './core/MapEngine';
 import { OverlayManager } from './overlays/OverlayManager';
-import { PLSSOverlayManager } from './overlays/PLSSOverlayManager';
-import { PLSSControlPanel } from './controls/PLSSControls/PLSSControlPanel';
-import { ParcelRelativePanel, type ParcelRelativeConfig } from './controls/PLSSControls/ParcelRelativePanel';
-import { RegionalPanel, type RegionalConfig } from './controls/PLSSControls/RegionalPanel';
-import { SidePanel } from './panels/SidePanel';
-import { PLSSOverlaysSection } from './panels/PLSSOverlaysSection';
+import { PLSSManager } from './overlays/PLSSManager';
+import { SidePanel, SidePanelSection } from './panels/SidePanel';
 import { TilesSection } from './panels/TilesSection';
 import { PropertiesSection } from './panels/PropertiesSection';
 import type maplibregl from 'maplibre-gl';
-import { plssOverlayApi, type OverlayLayer } from '../../services/plssOverlayApi';
 
 interface MapWorkspaceProps {
 	standalone?: boolean;
@@ -48,47 +43,112 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
 
 	const ctx = useMemo<MapContextValue>(() => ({ map, isLoaded, center, zoom, bounds }), [map, isLoaded, center, zoom, bounds]);
 
-	// PLSS overlay state management with proper logging
-	const [overlayMode, setOverlayMode] = useState<'container' | 'regional'>('container');
-	const [parcelCfg, setParcelCfg] = useState<ParcelRelativeConfig>({ 
-		showTownship: false, 
-		showRange: false, 
-		showSection: false, 
-		showQuarter: false,
-		showGrid: false // Add the missing showGrid property
-	});
-	const [regionalCfg, setRegionalCfg] = useState<RegionalConfig>({ 
-		mode: 'all-in-view', 
-		maxFeatures: 10000 
-	});
-
-	// Extract TRS and container bounds from schema for container-based overlays
-	const { trsFromSchema, containerBounds } = useMemo(() => {
-		try {
+  // Extract container bounds and center from schema for container-based overlays
+  const { containerBounds, stateName, parcelCenter } = useMemo(() => {
+    try {
+      console.log('🔍 Schema data structure:', schemaData);
+      console.log('🔍 PLSS data:', schemaData?.plss);
+      console.log('🔍 Descriptions:', schemaData?.descriptions);
+      
+      if (!schemaData) {
+        return { containerBounds: undefined, stateName: undefined, parcelCenter: initialView.center };
+      }
+      
 			const plss = schemaData?.descriptions?.[0]?.plss;
 			if (!plss) {
-				console.log('🔍 No PLSS data found in schema for overlay filtering');
-				return { trsFromSchema: undefined, containerBounds: undefined };
-			}
-			
-			const trs = {
-				t: plss.township_number,
-				td: plss.township_direction,
-				r: plss.range_number, 
-				rd: plss.range_direction,
-				s: plss.section_number
-			};
-
-			// Calculate container bounds - use section-level bounds for PLSS filtering
-			// A section is roughly 1 mile x 1 mile, approximately 0.014° x 0.014°
-			let containerBounds = undefined;
-			
+        console.log('🔍 No PLSS data found in schema for container overlays');
+        return { containerBounds: undefined, stateName: undefined, parcelCenter: initialView.center };
+      }
+      
+      // Debug: Log the schema structure more comprehensively to find coordinates
+      console.log('🔍 Full schema structure:', {
+        hasProjectedCoordinates: !!schemaData?.projected_coordinates,
+        projectedCoordinatesLength: schemaData?.projected_coordinates?.length,
+        projectedCoordinates: schemaData?.projected_coordinates,
+        startingPoint: plss?.starting_point,
+        hasLatLon: !!(plss?.starting_point?.latitude && plss?.starting_point?.longitude),
+        // Check for coordinates in various nested locations
+        topLevelProj: schemaData?.projected_coordinates,
+        descriptionsProj: schemaData?.descriptions?.[0]?.projected_coordinates,
+        descriptions: schemaData?.descriptions,
+        // Add more detailed logging
+        schemaKeys: Object.keys(schemaData || {}),
+        descriptionsKeys: schemaData?.descriptions?.[0] ? Object.keys(schemaData.descriptions[0]) : [],
+        plssKeys: plss ? Object.keys(plss) : []
+      });
+      
+      // Initialize variables
+      let containerBounds: any = undefined;
+      let parcelCenter: any = initialView.center;
+      
+      // First, check if we have projected coordinates from the polygon drawing
+      const projectedCoordinates = schemaData?.projected_coordinates;
+      if (projectedCoordinates && projectedCoordinates.length > 0) {
+        // Use the first projected coordinate as the center
+        const firstCoord = projectedCoordinates[0];
+        console.log('🔍 Checking first projected coord:', firstCoord);
+        if (firstCoord && typeof firstCoord.latitude === 'number' && typeof firstCoord.longitude === 'number') {
+          const lat = firstCoord.latitude;
+          const lon = firstCoord.longitude;
+          const buffer = 0.02; // ~1.4 mile buffer around the point
+          
+          containerBounds = {
+            west: lon - buffer,
+            south: lat - buffer,
+            east: lon + buffer,
+            north: lat + buffer
+          };
+          
+          parcelCenter = { lat, lon };
+          
+          console.log('📍 Using projected coordinates from schema:', { lat, lon });
+        }
+        // Try alternate property names (lat/lon vs latitude/longitude)
+        else if (firstCoord && typeof firstCoord.lat === 'number' && typeof firstCoord.lon === 'number') {
+          const lat = firstCoord.lat;
+          const lon = firstCoord.lon;
+          const buffer = 0.02;
+          
+          containerBounds = {
+            west: lon - buffer,
+            south: lat - buffer,
+            east: lon + buffer,
+            north: lat + buffer
+          };
+          
+          parcelCenter = { lat, lon };
+          
+          console.log('📍 Using projected coordinates (lat/lon) from schema:', { lat, lon });
+        }
+      }
+      // Check if projected coordinates are in descriptions
+      else if (schemaData?.descriptions?.[0]?.projected_coordinates) {
+        const descProjectedCoords = schemaData.descriptions[0].projected_coordinates;
+        if (descProjectedCoords && descProjectedCoords.length > 0) {
+          const firstCoord = descProjectedCoords[0];
+          if (firstCoord && typeof firstCoord.latitude === 'number' && typeof firstCoord.longitude === 'number') {
+            const lat = firstCoord.latitude;
+            const lon = firstCoord.longitude;
+            const buffer = 0.02;
+            
+            containerBounds = {
+              west: lon - buffer,
+              south: lat - buffer,
+              east: lon + buffer,
+              north: lat + buffer
+            };
+            
+            parcelCenter = { lat, lon };
+            
+            console.log('📍 Using projected coordinates from descriptions:', { lat, lon });
+          }
+        }
+      }
 			// Check if we have coordinates from the starting point
-			const startingPoint = plss.starting_point;
-			if (startingPoint?.lat && startingPoint?.lon) {
+      else if (plss.starting_point?.latitude && plss.starting_point?.longitude) {
 				// Use actual coordinates if available
-				const lat = startingPoint.lat;
-				const lon = startingPoint.lon;
+        const lat = plss.starting_point.latitude;
+        const lon = plss.starting_point.longitude;
 				const buffer = 0.02; // ~1.4 mile buffer around the point
 				
 				containerBounds = {
@@ -97,190 +157,76 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
 					east: lon + buffer,
 					north: lat + buffer
 				};
-			} else if (trs.t && trs.td && trs.r && trs.rd && trs.s) {
-				// QUICK TEST: Use backend-calculated coordinates for T14N R75W S2
-				// TODO: Make this dynamic by calling backend PLSS lookup API
-				const actualParcelCenter = { lat: 41.212048, lon: -105.779444 };
-				const buffer = 0.02; // ~1.4 mile buffer around the section
+        
+        // Use the actual parcel coordinates for centering
+        parcelCenter = { lat, lon };
+        
+        console.log('📍 Using actual starting point coordinates:', { lat, lon });
+      } else if (plss.township_number && plss.township_direction && plss.range_number && plss.range_direction && plss.section_number) {
+        // Fallback to estimated bounds based on TRS
+        // This is a rough approximation - in practice, you'd want to use a proper TRS to coordinate conversion
+        const baseLat = 41.5; // Wyoming approximate center
+        const baseLon = -107.5;
+        const buffer = 0.02;
 				
 				containerBounds = {
-					west: actualParcelCenter.lon - buffer,
-					south: actualParcelCenter.lat - buffer,
-					east: actualParcelCenter.lon + buffer,
-					north: actualParcelCenter.lat + buffer
-				};
-				console.log('🎯 TEST: Using backend-calculated coordinates for container bounds');
-			}
+          west: baseLon - buffer,
+          south: baseLat - buffer,
+          east: baseLon + buffer,
+          north: baseLat + buffer
+        };
+        
+        parcelCenter = { lat: baseLat, lon: baseLon };
+        
+        console.log('📍 Using estimated bounds based on TRS');
+      }
 
-			console.log('📍 Extracted TRS and container bounds from schema:', { trs, containerBounds });
-			return { trsFromSchema: trs, containerBounds };
+      const stateName = plss.state || 'Wyoming'; // Default to Wyoming
+      
+      console.log('📦 Container bounds calculated:', containerBounds);
+      console.log('🏛️ State name:', stateName);
+      console.log('🎯 Parcel center:', parcelCenter);
+      
+      return { containerBounds, stateName, parcelCenter };
 		} catch (error) {
-			console.warn('⚠️ Error extracting TRS from schema:', error);
-			return { trsFromSchema: undefined, containerBounds: undefined };
+      console.error('❌ Error extracting container bounds from schema:', error);
+      return { containerBounds: undefined, stateName: undefined, parcelCenter: initialView.center };
 		}
-	}, [schemaData]);
-
-	// Handle overlay mode changes with logging
-	const handleOverlayModeChange = useCallback((mode: 'container' | 'regional') => {
-		console.log(`🔄 Switching overlay mode from ${overlayMode} to ${mode}`);
-		setOverlayMode(mode);
-	}, [overlayMode]);
-
-	const sidePanelWidth = sidePanelCollapsed ? 40 : 320;
-
-	useEffect(() => {
-		// Set schema data on the PLSS overlay API when schema changes
-		if (schemaData) {
-			plssOverlayApi.setSchemaData(schemaData);
-		}
-	}, [schemaData]);
-
-	const hasFitToContainerRef = useRef<string | null>(null);
-
-	// Fit map to container bounds once when they become available; do not override user movement
-	useEffect(() => {
-		if (!map || !isLoaded) return;
-		if (overlayMode !== 'container') return;
-		if (!containerBounds) return;
-		const key = `${containerBounds.west},${containerBounds.south},${containerBounds.east},${containerBounds.north}`;
-		if (hasFitToContainerRef.current === key) return; // already fit for this bounds
-		try {
-			// Set map to parcel location immediately without animation
-			(map as any).fitBounds(
-				[[containerBounds.west, containerBounds.south], [containerBounds.east, containerBounds.north]],
-				{ 
-					padding: 50, 
-					animate: false,  // Remove unwanted animation 
-					duration: 0      // No duration
-				}
-			);
-			hasFitToContainerRef.current = key;
-			console.log('🗺️ Map centered on container bounds:', containerBounds);
-		} catch (error) {
-			console.warn('⚠️ Failed to center map:', error);
-		}
-	}, [map, isLoaded, overlayMode, containerBounds]);
+  }, [schemaData, initialView.center]);
 
 	return (
+    <div className={`map-workspace ${className || ''}`} style={{ display: 'flex', height: '100%', width: '100%' }}>
 		<MapContext.Provider value={ctx}>
-			<div className={className} style={{ 
-				width: '100%', 
-				height: '100%', 
-				display: 'flex',
-				flexDirection: 'row'
-			}}>
-				{/* Main map area - takes remaining space */}
-				<div style={{ 
-					flex: 1,
-					position: 'relative',
-					minWidth: 0 // Important for flex child to shrink
-				}}>
+        <div className="map-container" style={{ flex: 1, position: 'relative' }}>
 					<MapEngine
-						center={center}
+            center={parcelCenter}
 						zoom={zoom}
 						onMapLoad={handleMapLoad}
 						onMapMove={handleMapMove}
-						onBasemapChange={(apply) => {
-							// placeholder; next phase wire to TilesSection onChange
-						}}
-					/>
-					<OverlayManager>
-						<PLSSOverlayManager 
-							stateName={(schemaData?.descriptions?.[0]?.plss?.state || 'Wyoming')} 
-							parcelRelative={parcelCfg} 
-							regional={regionalCfg}
-							mode={overlayMode === 'container' ? 'parcel' : 'regional'}
-							trs={overlayMode === 'container' ? trsFromSchema : undefined}
-							containerBounds={overlayMode === 'container' ? containerBounds : undefined}
-							schemaData={schemaData} // Add schema data prop
-						/>
-					</OverlayManager>
+          />
 				</div>
 
-				{/* Side panel - fixed width, docked to right */}
-				<div style={{ 
-					width: sidePanelWidth,
-					height: '100%',
-					flexShrink: 0,
-					position: 'relative',
-					borderLeft: '1px solid rgba(255, 255, 255, 0.1)'
-				}}>
-					{sidePanelCollapsed ? (
-						// Collapsed state - thin bar with expand button
-						<div style={{
-							width: '100%',
-							height: '100%',
-							background: 'rgba(20,20,25,0.95)',
-							display: 'flex',
-							flexDirection: 'column',
-							alignItems: 'center',
-							padding: '12px 0'
-						}}>
-							<button
-								onClick={() => setSidePanelCollapsed(false)}
-								style={{
-									background: 'rgba(255,255,255,0.1)',
-									border: 'none',
-									color: 'white',
-									padding: '8px',
-									borderRadius: '4px',
-									cursor: 'pointer',
-									fontSize: '16px'
-								}}
-								title="Expand Panel"
-							>
-								◀
-							</button>
-						</div>
-					) : (
-						// Expanded state - full panel
-						<div style={{ 
-							width: '100%', 
-							height: '100%',
-							position: 'relative'
-						}}>
-							{/* Collapse button */}
-							<button
-								onClick={() => setSidePanelCollapsed(true)}
-								style={{
-									position: 'absolute',
-									top: '12px',
-									right: '12px',
-									background: 'rgba(255,255,255,0.1)',
-									border: 'none',
-									color: 'white',
-									padding: '4px 8px',
-									borderRadius: '4px',
-									cursor: 'pointer',
-									fontSize: '12px',
-									zIndex: 10
-								}}
-								title="Collapse Panel"
-							>
-								▶
-							</button>
-
-							<SidePanel>
-								<PLSSOverlaysSection
-									parcelCfg={parcelCfg}
-									setParcelCfg={setParcelCfg}
-									regionalCfg={regionalCfg}
-									setRegionalCfg={setRegionalCfg}
-									mode={overlayMode}
-									setMode={handleOverlayModeChange}
-									containerAvailable={!!trsFromSchema}
-									trsData={trsFromSchema}
+        {/* Side Panel */}
+        <div style={{ width: '300px', minWidth: '300px', maxWidth: '300px', height: '100%', overflowY: 'auto' }}>
+          <SidePanel>
+            <TilesSection />
+            <PropertiesSection polygon={initialParcels?.[0]} />
+            
+            {/* PLSS Overlays Section */}
+            <SidePanelSection title="PLSS Overlays">
+              <PLSSManager
+                stateName={stateName || 'Wyoming'}
+                schemaData={schemaData}
 									containerBounds={containerBounds}
 								/>
-								<TilesSection onChange={() => { /* next phase: swap basemap source */ }} />
-								<PropertiesSection polygon={initialParcels?.[0]} />
+            </SidePanelSection>
 							</SidePanel>
 						</div>
-					)}
-				</div>
+      </MapContext.Provider>
 			</div>
-		</MapContext.Provider>
 	);
 };
+
+export default MapWorkspace;
 
 

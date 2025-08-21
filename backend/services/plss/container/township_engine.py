@@ -14,9 +14,8 @@ logger = logging.getLogger(__name__)
 class ContainerTownshipEngine:
     """Dedicated engine for container township overlays"""
     
-    def __init__(self, data_dir: str = "plss"):
+    def __init__(self, data_dir: str = "../plss"):
         self.data_dir = data_dir
-        self.township_file = os.path.join(data_dir, "townships.parquet")
         
     def get_township_features(self, container_bounds: Dict[str, float], plss_info: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -34,20 +33,33 @@ class ContainerTownshipEngine:
         logger.info(f"📍 PLSS info: {plss_info}")
         
         try:
-            # Load township data
-            if not os.path.exists(self.township_file):
-                logger.error(f"❌ Township file not found: {self.township_file}")
-                return self._create_error_response("Township data file not found")
+            # Get state from PLSS info
+            state = plss_info.get('state', 'Wyoming').lower()
             
-            gdf = gpd.read_parquet(self.township_file)
+            # Use geometry parquet files for proper shape overlays
+            # The geometry files contain actual shape boundaries, not just centroids
+            township_file = os.path.join(self.data_dir, state, "parquet", "townships.parquet").replace('\\', '/')
+            
+            # Load township data from geometry file
+            if not os.path.exists(township_file):
+                logger.error(f"❌ Township parquet file not found: {township_file}")
+                return self._create_error_response("Township parquet data file not found")
+            
+            # Read parquet file directly with geopandas to handle geometry properly
+            gdf = gpd.read_parquet(township_file)
             logger.info(f"📊 Loaded township data: {gdf.shape} features, columns: {list(gdf.columns)}")
             
-            # Validate required columns
+            # Validate geometry column exists
+            if gdf.geometry.name != 'geometry':
+                logger.error("❌ No valid geometry column found in township data")
+                return self._create_error_response("No valid geometry column found in township data")
+            
+            # Validate required columns - township data should have all the necessary columns
             required_cols = ['TWNSHPNO', 'TWNSHPDIR', 'RANGENO', 'RANGEDIR', 'geometry']
             missing_cols = [col for col in required_cols if col not in gdf.columns]
             if missing_cols:
-                logger.error(f"❌ Missing required columns: {missing_cols}")
-                return self._create_error_response(f"Missing columns: {missing_cols}")
+                logger.error(f"❌ Missing required columns in township data: {missing_cols}")
+                return self._create_error_response(f"Missing columns in township data: {missing_cols}")
             
             # Filter to exact township
             filtered_gdf = self._filter_exact_township(gdf, plss_info)
@@ -69,7 +81,8 @@ class ContainerTownshipEngine:
                     "features_returned": len(geojson),
                     "spatial_validation": spatial_validation,
                     "container_bounds": container_bounds,
-                    "engine": "ContainerTownshipEngine"
+                    "engine": "ContainerTownshipEngine",
+                    "data_source": "townships_parquet"
                 }
             }
             
@@ -78,27 +91,63 @@ class ContainerTownshipEngine:
             return self._create_error_response(f"Engine error: {str(e)}")
     
     def _filter_exact_township(self, gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> gpd.GeoDataFrame:
-        """Filter to exact township with comprehensive logging"""
+        """Filter to exact township and dissolve to get township boundaries (horizontal lines)"""
         township_num = plss_info.get('township_number')
         township_dir = plss_info.get('township_direction')
         
-        logger.info(f"🎯 Filtering to exact township: T{township_num}{township_dir}")
+        logger.info(f"🎯 Filtering to exact township for boundary: T{township_num}{township_dir}")
         
-        # Apply township filter
+        # DEBUG: Log sample of actual data values to diagnose filtering issues
+        sample_data = gdf[['TWNSHPNO', 'TWNSHPDIR', 'RANGENO', 'RANGEDIR']].head(10)
+        logger.info(f"🔍 Sample actual data values:\n{sample_data}")
+        
+        # DEBUG: Log unique values to see what's available
+        unique_townships = gdf['TWNSHPNO'].unique()
+        unique_dirs = gdf['TWNSHPDIR'].unique()
+        logger.info(f"🔍 Available township numbers: {sorted(unique_townships[:20]) if len(unique_townships) > 0 else 'None'}")
+        logger.info(f"🔍 Available township directions: {unique_dirs}")
+        
+        # CRITICAL FIX: Convert township number to zero-padded string format (e.g., 14 -> '014')
+        township_str = f"{township_num:03d}" if isinstance(township_num, int) else str(township_num).zfill(3)
+        logger.info(f"🔧 Converting township number {township_num} to string format: '{township_str}'")
+        
+        # Apply township filter - get ALL ranges within this township
         mask = (
-            (gdf['TWNSHPNO'] == township_num) & 
+            (gdf['TWNSHPNO'] == township_str) & 
             (gdf['TWNSHPDIR'] == township_dir)
         )
         
-        filtered = gdf[mask].copy()
-        logger.info(f"✅ Township filter applied: {len(filtered)} features match T{township_num}{township_dir}")
+        township_cells = gdf[mask].copy()
+        logger.info(f"✅ Township filter applied: {len(township_cells)} cells found in T{township_str}{township_dir}")
         
-        # Log sample of filtered features
-        if not filtered.empty:
-            sample = filtered[['TWNSHPNO', 'TWNSHPDIR', 'RANGENO', 'RANGEDIR']].head(3)
-            logger.info(f"📋 Sample filtered features:\n{sample}")
+        if township_cells.empty:
+            logger.error(f"❌ No cells found for township T{township_str}{township_dir}")
+            return township_cells
         
-        return filtered
+        # Dissolve all cells in this township to get the township boundary (horizontal lines)
+        try:
+            logger.info(f"🔄 Dissolving {len(township_cells)} township cells to get boundary")
+            
+            # Clean geometries before dissolving
+            township_cells['geometry'] = township_cells['geometry'].buffer(0)
+            township_cells = township_cells[township_cells['geometry'].is_valid]
+            
+            # Dissolve by township to get the boundary
+            dissolved = township_cells.dissolve(by=['TWNSHPNO', 'TWNSHPDIR'], as_index=False, dropna=True)
+            
+            logger.info(f"✅ Township dissolved: {len(dissolved)} boundary feature created")
+            
+            # Log sample of dissolved features
+            if not dissolved.empty:
+                sample = dissolved[['TWNSHPNO', 'TWNSHPDIR']].head(3)
+                logger.info(f"📋 Sample dissolved township:\n{sample}")
+            
+            return dissolved
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to dissolve township: {e}")
+            # Return original cells if dissolve fails
+            return township_cells
     
     def _validate_spatial_bounds(self, gdf: gpd.GeoDataFrame, container_bounds: Dict[str, float]) -> Dict[str, Any]:
         """Validate that features are within container bounds"""
@@ -137,11 +186,17 @@ class ContainerTownshipEngine:
         features = []
         
         for idx, row in gdf.iterrows():
+            geom = row.geometry
+            
+            # Handle MultiPolygon by taking the largest polygon
+            if hasattr(geom, 'geom_type') and geom.geom_type == 'MultiPolygon':
+                geom = max(geom.geoms, key=lambda p: p.area)
+            
             feature = {
                 "type": "Feature",
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [list(row.geometry.exterior.coords)]
+                    "coordinates": [list(geom.exterior.coords)]
                 },
                 "properties": {
                     "township_number": row.get('TWNSHPNO'),

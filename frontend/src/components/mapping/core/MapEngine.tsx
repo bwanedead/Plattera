@@ -22,7 +22,9 @@ export const MapEngine: React.FC<MapEngineProps> = ({
 }) => {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const mapRef = useRef<MapLibreMap | null>(null);
+	const hasInitiallyPositioned = useRef(false);
 
+	// Create map only once
 	useEffect(() => {
 		if (!containerRef.current || mapRef.current) return;
 
@@ -73,7 +75,22 @@ export const MapEngine: React.FC<MapEngineProps> = ({
 			map.remove();
 			mapRef.current = null;
 		};
-	}, [center.lat, center.lon, zoom, styleConfig, onMapLoad, onMapMove]);
+	}, [styleConfig, onMapLoad, onMapMove]); // REMOVED center/zoom from dependencies
+
+	// Separate effect to position map ONLY when parcel coordinates become available
+	useEffect(() => {
+		const map = mapRef.current;
+		if (map && !hasInitiallyPositioned.current && center.lat !== 41.5 && center.lon !== -107.5) {
+			// Only move the map if we have real coordinates (not the default Wyoming center)
+			console.log('🗺️ MapEngine: Flying to parcel location:', center, 'zoom:', zoom);
+			map.flyTo({
+				center: [center.lon, center.lat],
+				zoom: zoom,
+				duration: 1500
+			});
+			hasInitiallyPositioned.current = true;
+		}
+	}, [center.lat, center.lon, zoom]);
 
 	// Allow external code to inject basemap changes safely
 	useEffect(() => {
