@@ -201,6 +201,9 @@ class ContainerSubdivisionsEngine:
             if hasattr(geom, 'geom_type') and geom.geom_type == 'MultiPolygon':
                 geom = max(geom.geoms, key=lambda p: p.area)
             
+            # Create label for subdivision
+            subdivision_label = f"Sub{row.get('FRSTDIVNO', '?')}" if row.get('FRSTDIVNO') else "Subdivision"
+            
             feature = {
                 "type": "Feature",
                 "geometry": {
@@ -208,11 +211,17 @@ class ContainerSubdivisionsEngine:
                     "coordinates": [list(geom.exterior.coords)]
                 },
                 "properties": {
+                    "subdivision_number": row.get('FRSTDIVNO'),
                     "subdivision_type": row.get('SECDIVTXT'),
-                    "subdivision_number": row.get('SECDIVNO'),
-                    "acres": row.get('GISACRE'),
+                    "township_number": plss_info.get('township_number'),
+                    "township_direction": plss_info.get('township_direction'),
+                    "range_number": plss_info.get('range_number'),
+                    "range_direction": plss_info.get('range_direction'),
                     "feature_type": "subdivision",
-                    "overlay_type": "container"
+                    "overlay_type": "container",
+                    "cell_identifier": f"T{plss_info.get('township_number')}{plss_info.get('township_direction')} R{plss_info.get('range_number')}{plss_info.get('range_direction')}",
+                    "label": subdivision_label,
+                    "display_label": subdivision_label
                 }
             }
             features.append(feature)

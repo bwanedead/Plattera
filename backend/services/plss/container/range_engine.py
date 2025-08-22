@@ -177,11 +177,20 @@ class ContainerRangeEngine:
         features = []
         
         for idx, row in gdf.iterrows():
+            geom = row.geometry
+            
+            # Handle MultiPolygon by taking the largest polygon
+            if hasattr(geom, 'geom_type') and geom.geom_type == 'MultiPolygon':
+                geom = max(geom.geoms, key=lambda p: p.area)
+            
+            # Create label for range
+            range_label = f"R{row.get('RANGENO', '?')}{row.get('RANGEDIR', '')}"
+            
             feature = {
                 "type": "Feature",
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [list(row.geometry.exterior.coords)]
+                    "coordinates": [list(geom.exterior.coords)]
                 },
                 "properties": {
                     "township_number": row.get('TWNSHPNO'),
@@ -189,7 +198,9 @@ class ContainerRangeEngine:
                     "range_number": row.get('RANGENO'),
                     "range_direction": row.get('RANGEDIR'),
                     "feature_type": "range",
-                    "overlay_type": "container"
+                    "overlay_type": "container",
+                    "label": range_label,
+                    "display_label": range_label
                 }
             }
             features.append(feature)

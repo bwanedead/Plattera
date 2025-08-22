@@ -202,6 +202,9 @@ class ContainerSectionsEngine:
             if hasattr(geom, 'geom_type') and geom.geom_type == 'MultiPolygon':
                 geom = max(geom.geoms, key=lambda p: p.area)
             
+            # Create label for section
+            section_label = f"S{row.get('SECTIONNO', '?')}"
+            
             feature = {
                 "type": "Feature",
                 "geometry": {
@@ -209,14 +212,16 @@ class ContainerSectionsEngine:
                     "coordinates": [list(geom.exterior.coords)]
                 },
                 "properties": {
-                    "section_number": row.get('FRSTDIVNO'),
+                    "section_number": row.get('SECTIONNO'),
                     "township_number": plss_info.get('township_number'),
                     "township_direction": plss_info.get('township_direction'),
                     "range_number": plss_info.get('range_number'),
                     "range_direction": plss_info.get('range_direction'),
                     "feature_type": "section",
                     "overlay_type": "container",
-                    "cell_identifier": f"T{plss_info.get('township_number')}{plss_info.get('township_direction')} R{plss_info.get('range_number')}{plss_info.get('range_direction')}"
+                    "cell_identifier": f"T{plss_info.get('township_number')}{plss_info.get('township_direction')} R{plss_info.get('range_number')}{plss_info.get('range_direction')}",
+                    "label": section_label,
+                    "display_label": section_label
                 }
             }
             features.append(feature)

@@ -6,206 +6,165 @@
 
 import React from 'react';
 import { ContainerOverlayState } from './ContainerOverlayManager';
+import { SidePanelSection, ToggleCheckbox } from '../panels/SidePanel';
 
 interface ContainerOverlayControlsProps {
   overlayState: ContainerOverlayState;
-  onOverlayStateChange: (newState: ContainerOverlayState) => void;
-  loadingLayers?: Set<string>;
-  layerErrors?: Map<string, string>;
-  className?: string;
+  onStateChange: (newState: ContainerOverlayState) => void;
 }
 
 export const ContainerOverlayControls: React.FC<ContainerOverlayControlsProps> = ({
   overlayState,
-  onOverlayStateChange,
-  loadingLayers = new Set(),
-  layerErrors = new Map(),
-  className = '',
+  onStateChange,
 }) => {
   const handleToggle = (key: keyof ContainerOverlayState) => {
-    const newState = { ...overlayState };
-    newState[key] = !newState[key];
-    
-    // Special logic for grid vs township/range
-    if (key === 'showGrid') {
-      if (newState.showGrid) {
-        // When grid is enabled, disable individual township/range
-        newState.showTownship = false;
-        newState.showRange = false;
-      }
-    } else if (key === 'showTownship' || key === 'showRange') {
-      // When individual layers are enabled, disable grid
-      newState.showGrid = false;
-    }
-    
-    onOverlayStateChange(newState);
-  };
-
-  const getLayerStatus = (layer: string) => {
-    if (loadingLayers.has(layer)) {
-      return 'loading';
-    }
-    if (layerErrors.has(layer)) {
-      return 'error';
-    }
-    return 'ready';
-  };
-
-  const getStatusIcon = (layer: string) => {
-    const status = getLayerStatus(layer);
-    switch (status) {
-      case 'loading':
-        return '⋯';
-      case 'error':
-        return '!';
-      case 'ready':
-        return '✓';
-      default:
-        return '';
-    }
-  };
-
-  const getStatusColor = (layer: string) => {
-    const status = getLayerStatus(layer);
-    switch (status) {
-      case 'loading':
-        return 'text-blue-500';
-      case 'error':
-        return 'text-red-500';
-      case 'ready':
-        return 'text-green-500';
-      default:
-        return 'text-gray-500';
-    }
+    onStateChange({
+      ...overlayState,
+      [key]: !overlayState[key],
+    });
   };
 
   return (
-    <div className={`container-overlay-controls ${className}`}>
-      <div className="bg-gray-900 rounded-xl shadow-lg border border-gray-700 backdrop-blur-sm">
-        <h3 className="text-lg font-semibold mb-4 text-white px-6 pt-6 tracking-wide">
-          PLSS Overlays
-        </h3>
-        
-        <div className="space-y-4 px-6 pb-6">
-          {/* Grid Control */}
-          <div className="flex items-center py-3 border-b border-gray-700">
-            <div className="flex items-center space-x-3">
-              <input
-                type="checkbox"
-                id="showGrid"
-                checked={overlayState.showGrid}
-                onChange={() => handleToggle('showGrid')}
-                className="w-5 h-5 text-blue-500 border-gray-600 rounded-md focus:ring-blue-500 focus:ring-2 bg-gray-800"
-              />
-              <label htmlFor="showGrid" className="text-sm font-medium text-gray-200 tracking-wide">
-                Grid (Township + Range Cell)
-              </label>
-            </div>
-          </div>
-
-          {/* Township Control */}
-          <div className="flex items-center py-3 border-b border-gray-700">
-            <div className="flex items-center space-x-3">
-              <input
-                type="checkbox"
-                id="showTownship"
-                checked={overlayState.showTownship}
-                onChange={() => handleToggle('showTownship')}
-                disabled={overlayState.showGrid}
-                className="w-5 h-5 text-red-500 border-gray-600 rounded-md focus:ring-red-500 focus:ring-2 bg-gray-800 disabled:opacity-40"
-              />
-              <label htmlFor="showTownship" className="text-sm font-medium text-gray-200 tracking-wide">
-                Township Lines
-              </label>
-            </div>
-          </div>
-
-          {/* Range Control */}
-          <div className="flex items-center py-3 border-b border-gray-700">
-            <div className="flex items-center space-x-3">
-              <input
-                type="checkbox"
-                id="showRange"
-                checked={overlayState.showRange}
-                onChange={() => handleToggle('showRange')}
-                disabled={overlayState.showGrid}
-                className="w-5 h-5 text-green-500 border-gray-600 rounded-md focus:ring-green-500 focus:ring-2 bg-gray-800 disabled:opacity-40"
-              />
-              <label htmlFor="showRange" className="text-sm font-medium text-gray-200 tracking-wide">
-                Range Lines
-              </label>
-            </div>
-          </div>
-
-          {/* Sections Control */}
-          <div className="flex items-center py-3 border-b border-gray-700">
-            <div className="flex items-center space-x-3">
-              <input
-                type="checkbox"
-                id="showSections"
-                checked={overlayState.showSections}
-                onChange={() => handleToggle('showSections')}
-                className="w-5 h-5 text-yellow-500 border-gray-600 rounded-md focus:ring-yellow-500 focus:ring-2 bg-gray-800"
-              />
-              <label htmlFor="showSections" className="text-sm font-medium text-gray-200 tracking-wide">
-                Sections
-              </label>
-            </div>
-          </div>
-
-          {/* Quarter Sections Control */}
-          <div className="flex items-center py-3 border-b border-gray-700">
-            <div className="flex items-center space-x-3">
-              <input
-                type="checkbox"
-                id="showQuarterSections"
-                checked={overlayState.showQuarterSections}
-                onChange={() => handleToggle('showQuarterSections')}
-                className="w-5 h-5 text-purple-500 border-gray-600 rounded-md focus:ring-purple-500 focus:ring-2 bg-gray-800"
-              />
-              <label htmlFor="showQuarterSections" className="text-sm font-medium text-gray-200 tracking-wide">
-                Quarter Sections
-              </label>
-            </div>
-          </div>
-
-          {/* Subdivisions Control */}
-          <div className="flex items-center py-3 border-b border-gray-700">
-            <div className="flex items-center space-x-3">
-              <input
-                type="checkbox"
-                id="showSubdivisions"
-                checked={overlayState.showSubdivisions}
-                onChange={() => handleToggle('showSubdivisions')}
-                className="w-5 h-5 text-indigo-500 border-gray-600 rounded-md focus:ring-indigo-500 focus:ring-2 bg-gray-800"
-              />
-              <label htmlFor="showSubdivisions" className="text-sm font-medium text-gray-200 tracking-wide">
-                Subdivisions
-              </label>
-            </div>
+    <SidePanelSection title="PLSS Overlays">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {/* Column Headers */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
+          <span style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(255, 255, 255, 0.7)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '120px' }}>Feature</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+            <span style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(255, 255, 255, 0.7)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '16px', textAlign: 'center' }}>Overlay</span>
+            <div style={{ width: '1px', height: '12px', backgroundColor: 'rgba(255, 255, 255, 0.2)' }}></div>
+            <span style={{ fontSize: '12px', fontWeight: '600', color: 'rgba(255, 255, 255, 0.7)', textTransform: 'uppercase', letterSpacing: '0.5px', width: '16px', textAlign: 'center' }}>Labels</span>
           </div>
         </div>
 
-        {/* Error Display */}
-        {Array.from(layerErrors.entries()).length > 0 && (
-          <div className="mt-4 mx-6 mb-4 p-3 bg-red-900/20 border border-red-700/30 rounded-lg">
-            <h4 className="text-sm font-medium text-red-300 mb-2">Errors:</h4>
-            {Array.from(layerErrors.entries()).map(([layer, error]) => (
-              <div key={layer} className="text-xs text-red-400 font-mono">
-                <strong>{layer}:</strong> {error}
-              </div>
-            ))}
+        {/* Grid Control */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: '14px', fontWeight: '500', color: 'rgba(255, 255, 255, 0.9)', width: '120px' }}>Grid</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+            <ToggleCheckbox
+              checked={overlayState.showGrid}
+              onChange={() => handleToggle('showGrid')}
+              id="grid-toggle"
+              size="small"
+              type="overlay"
+            />
+            <ToggleCheckbox
+              checked={overlayState.showGridLabels}
+              onChange={() => handleToggle('showGridLabels')}
+              id="grid-labels-toggle"
+              size="small"
+              type="label"
+            />
           </div>
-        )}
+        </div>
 
-        {/* Info */}
-        <div className="px-6 pb-6 text-xs text-gray-400 border-t border-gray-700 pt-4 font-mono">
-          <p>Container overlays show features relative to your parcel</p>
-          <p>Grid shows the specific township-range cell</p>
+        {/* Township Control */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: '14px', fontWeight: '500', color: 'rgba(255, 255, 255, 0.9)', width: '120px' }}>Township</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+            <ToggleCheckbox
+              checked={overlayState.showTownship}
+              onChange={() => handleToggle('showTownship')}
+              id="township-toggle"
+              size="small"
+              type="overlay"
+            />
+            <ToggleCheckbox
+              checked={overlayState.showTownshipLabels}
+              onChange={() => handleToggle('showTownshipLabels')}
+              id="township-labels-toggle"
+              size="small"
+              type="label"
+            />
+          </div>
+        </div>
+
+        {/* Range Control */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: '14px', fontWeight: '500', color: 'rgba(255, 255, 255, 0.9)', width: '120px' }}>Range</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+            <ToggleCheckbox
+              checked={overlayState.showRange}
+              onChange={() => handleToggle('showRange')}
+              id="range-toggle"
+              size="small"
+              type="overlay"
+            />
+            <ToggleCheckbox
+              checked={overlayState.showRangeLabels}
+              onChange={() => handleToggle('showRangeLabels')}
+              id="range-labels-toggle"
+              size="small"
+              type="label"
+            />
+          </div>
+        </div>
+
+        {/* Sections Control */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: '14px', fontWeight: '500', color: 'rgba(255, 255, 255, 0.9)', width: '120px' }}>Sections</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+            <ToggleCheckbox
+              checked={overlayState.showSections}
+              onChange={() => handleToggle('showSections')}
+              id="sections-toggle"
+              size="small"
+              type="overlay"
+            />
+            <ToggleCheckbox
+              checked={overlayState.showSectionLabels}
+              onChange={() => handleToggle('showSectionLabels')}
+              id="section-labels-toggle"
+              size="small"
+              type="label"
+            />
+          </div>
+        </div>
+
+        {/* Quarter Sections Control */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: '14px', fontWeight: '500', color: 'rgba(255, 255, 255, 0.9)', width: '120px' }}>Quarter Sections</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+            <ToggleCheckbox
+              checked={overlayState.showQuarterSections}
+              onChange={() => handleToggle('showQuarterSections')}
+              id="quarter-sections-toggle"
+              size="small"
+              type="overlay"
+            />
+            <ToggleCheckbox
+              checked={overlayState.showQuarterSectionLabels}
+              onChange={() => handleToggle('showQuarterSectionLabels')}
+              id="quarter-section-labels-toggle"
+              size="small"
+              type="label"
+            />
+          </div>
+        </div>
+
+        {/* Subdivisions Control */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: '14px', fontWeight: '500', color: 'rgba(255, 255, 255, 0.9)', width: '120px' }}>Subdivisions</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+            <ToggleCheckbox
+              checked={overlayState.showSubdivisions}
+              onChange={() => handleToggle('showSubdivisions')}
+              id="subdivisions-toggle"
+              size="small"
+              type="overlay"
+            />
+            <ToggleCheckbox
+              checked={overlayState.showSubdivisionLabels}
+              onChange={() => handleToggle('showSubdivisionLabels')}
+              id="subdivision-labels-toggle"
+              size="small"
+              type="label"
+            />
+          </div>
         </div>
       </div>
-    </div>
+    </SidePanelSection>
   );
 };
 
-export default ContainerOverlayControls;
+

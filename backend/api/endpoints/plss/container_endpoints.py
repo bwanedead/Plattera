@@ -15,6 +15,7 @@ from services.plss.container.range_engine import ContainerRangeEngine
 from services.plss.container.grid_engine import ContainerGridEngine
 from services.plss.container.sections_engine import ContainerSectionsEngine
 from services.plss.container.quarter_sections_engine import ContainerQuarterSectionsEngine
+from services.plss.container.subdivisions_engine import ContainerSubdivisionsEngine
 
 # Import query builder for PLSS info extraction
 from services.plss.query_builder import PLSSQueryBuilder
@@ -188,3 +189,37 @@ async def get_container_quarter_sections_overlay(
     except Exception as e:
         logger.error(f"❌ Container quarter sections endpoint failed: {e}")
         raise HTTPException(status_code=500, detail=f"Container quarter sections overlay failed: {str(e)}")
+
+@router.post("/container/subdivisions/{state}")
+async def get_container_subdivisions_overlay(
+    state: str,
+    request: Dict[str, Any]
+):
+    """
+    Get subdivision features for container overlay using spatial intersection
+    """
+    logger.info(f"🔀 CONTAINER SUBDIVISIONS ENDPOINT: Processing request for {state}")
+    
+    try:
+        # Extract PLSS info and container bounds
+        plss_info = PLSSQueryBuilder._extract_plss_info(request.get('schema_data', {}))
+        container_bounds = request.get('container_bounds', {})
+        
+        if not plss_info:
+            logger.error("❌ No PLSS info found in request")
+            raise HTTPException(status_code=400, detail="No PLSS information provided")
+        
+        if not container_bounds:
+            logger.error("❌ No container bounds found in request")
+            raise HTTPException(status_code=400, detail="No container bounds provided")
+        
+        # Initialize engine and get features
+        engine = ContainerSubdivisionsEngine()
+        result = engine.get_subdivisions_features(container_bounds, plss_info)
+        
+        logger.info(f"✅ Container subdivisions endpoint completed: {result['validation']['features_returned']} features")
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Container subdivisions endpoint failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Container subdivisions overlay failed: {str(e)}")

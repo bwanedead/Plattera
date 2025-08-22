@@ -27,10 +27,18 @@ export const TilesSection: React.FC<TilesSectionProps> = ({ onChange }) => {
 
 	return (
 		<SidePanelSection title="Background">
-			<div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+			<div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 				<label>
-					<span style={{ display: 'block', fontSize: 12, color: '#bbb' }}>Source</span>
-					<select value={source} onChange={(e) => setSource(e.target.value as SourceType)} style={{ width: '100%' }}>
+					<span style={{ display: 'block', fontSize: 12, color: 'rgba(255, 255, 255, 0.6)', marginBottom: 4 }}>Source</span>
+					<select value={source} onChange={(e) => setSource(e.target.value as SourceType)} style={{ 
+						width: '100%', 
+						background: 'rgba(255, 255, 255, 0.08)', 
+						border: '1px solid rgba(255, 255, 255, 0.2)', 
+						borderRadius: 6, 
+						padding: '8px 12px', 
+						color: 'rgba(255, 255, 255, 0.9)',
+						fontSize: 13
+					}}>
 						<option>USGS</option>
 						<option>NASA GIBS</option>
 					</select>
@@ -38,8 +46,16 @@ export const TilesSection: React.FC<TilesSectionProps> = ({ onChange }) => {
 
 				{source === 'USGS' && (
 					<label>
-						<span style={{ display: 'block', fontSize: 12, color: '#bbb' }}>Basemap</span>
-						<select value={usgsLayerId} onChange={(e) => setUsgsLayerId(e.target.value)} style={{ width: '100%' }}>
+						<span style={{ display: 'block', fontSize: 12, color: 'rgba(255, 255, 255, 0.6)', marginBottom: 4 }}>Basemap</span>
+						<select value={usgsLayerId} onChange={(e) => setUsgsLayerId(e.target.value)} style={{ 
+							width: '100%', 
+							background: 'rgba(255, 255, 255, 0.08)', 
+							border: '1px solid rgba(255, 255, 255, 0.2)', 
+							borderRadius: 6, 
+							padding: '8px 12px', 
+							color: 'rgba(255, 255, 255, 0.9)',
+							fontSize: 13
+						}}>
 							{USGS_BASEMAPS.map((b) => (
 								<option key={b.id} value={b.id}>{b.name}</option>
 							))}

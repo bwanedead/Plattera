@@ -4,7 +4,13 @@
  * Clean, focused API for parcel-relative overlay data
  */
 
-export type ContainerLayer = 'township' | 'range' | 'grid' | 'sections' | 'quarter-sections' | 'subdivisions';
+export type ContainerLayer = 
+  | 'grid' | 'grid-labels'
+  | 'township' | 'township-labels'
+  | 'range' | 'range-labels'
+  | 'sections' | 'section-labels'
+  | 'quarter-sections' | 'quarter-section-labels'
+  | 'subdivisions' | 'subdivision-labels';
 
 export interface ContainerRequest {
   schema_data: any;

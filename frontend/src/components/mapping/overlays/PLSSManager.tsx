@@ -5,8 +5,9 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import ContainerPLSSManager from './ContainerPLSSManager';
+import { ContainerPLSSManager } from './ContainerPLSSManager';
 import RegionalPLSSManager from './RegionalPLSSManager';
+import { useMapContext } from '../core/MapContext';
 
 export type PLSSMode = 'container' | 'regional';
 
@@ -28,6 +29,7 @@ export const PLSSManager: React.FC<PLSSManagerProps> = ({
   containerBounds,
   className = '',
 }) => {
+  const { map } = useMapContext();
   const [mode, setMode] = useState<PLSSMode>('container');
 
   const handleModeChange = useCallback((newMode: PLSSMode) => {
@@ -38,48 +40,34 @@ export const PLSSManager: React.FC<PLSSManagerProps> = ({
   return (
     <div className={`plss-manager ${className}`}>
       {/* Mode Selector */}
-      <div className="bg-gray-900 rounded-xl shadow-lg border border-gray-700 backdrop-blur-sm mb-4">
-        <h3 className="text-lg font-semibold mb-4 text-white px-6 pt-6 tracking-wide">
-          PLSS Overlays
-        </h3>
-        
-        <div className="flex space-x-1 px-6 pb-6">
-          <button
-            onClick={() => handleModeChange('container')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-              mode === 'container'
-                ? 'bg-blue-600 text-white shadow-lg'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
-            }`}
-          >
-            Container
-          </button>
-          <button
-            onClick={() => handleModeChange('regional')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-              mode === 'regional'
-                ? 'bg-blue-600 text-white shadow-lg'
-                : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
-            }`}
-          >
-            Regional
-          </button>
-        </div>
-
-        {/* Mode Description */}
-        <div className="px-6 pb-6 text-xs text-gray-400 border-t border-gray-700 pt-4 font-mono">
-          {mode === 'container' ? (
-            <p>Container overlays show features relative to your parcel</p>
-          ) : (
-            <p>Regional overlays show features for the entire map view</p>
-          )}
-        </div>
+      <div className="flex space-x-1 mb-4">
+        <button
+          onClick={() => handleModeChange('container')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+            mode === 'container'
+              ? 'bg-blue-600 text-white shadow-lg'
+              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
+          }`}
+        >
+          Container
+        </button>
+        <button
+          onClick={() => handleModeChange('regional')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+            mode === 'regional'
+              ? 'bg-blue-600 text-white shadow-lg'
+              : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
+          }`}
+        >
+          Regional
+        </button>
       </div>
 
       {/* Container Manager */}
-      {mode === 'container' && (
+      {mode === 'container' && map && (
         <ContainerPLSSManager
-          stateName={stateName}
+          map={map}
+          state={stateName}
           schemaData={schemaData}
           containerBounds={containerBounds}
         />

@@ -7,13 +7,21 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ContainerApi, ContainerLayer, ContainerRequest } from '../../../services/plss/containerApi';
 
+
 export interface ContainerOverlayState {
+  showGrid: boolean;
   showTownship: boolean;
   showRange: boolean;
-  showGrid: boolean;
   showSections: boolean;
   showQuarterSections: boolean;
   showSubdivisions: boolean;
+  // Label visibility states
+  showGridLabels: boolean;
+  showTownshipLabels: boolean;
+  showRangeLabels: boolean;
+  showSectionLabels: boolean;
+  showQuarterSectionLabels: boolean;
+  showSubdivisionLabels: boolean;
 }
 
 interface ContainerOverlayManagerProps {
@@ -201,19 +209,127 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
     }
   }, [map]);
 
+  // Add label layers to map
+  const addLabelLayer = useCallback((layerId: string, features: any[], color: string) => {
+    console.log(`🚀 Starting label layer creation for ${layerId}`);
+    console.log(`📊 Input features: ${features.length}`);
+    console.log(`🎨 Label color: ${color}`);
+    
+    if (!map) {
+      console.log('❌ Map not available for label layer');
+      return;
+    }
+    
+    const labelLayerId = `${layerId}-labels`;
+    
+    // Remove existing label layer if it exists
+    if (map.getLayer(labelLayerId)) {
+      map.removeLayer(labelLayerId);
+    }
+    if (map.getSource(labelLayerId)) {
+      map.removeSource(labelLayerId);
+    }
+    
+    // Create multiple label points along feature boundaries with offset
+    const labelFeatures: any[] = [];
+    features.forEach(feature => {
+      console.log('🔍 Feature properties:', feature.properties);
+      const label = feature.properties.label || feature.properties.display_label || 'Label';
+      console.log('🏷️ Using label:', label);
+      const coordinates = feature.geometry.coordinates[0];
+      
+      // Create multiple label points along the boundary with offset
+      const numLabels = Math.min(6, Math.floor(coordinates.length / 3)); // More labels for better coverage
+      for (let i = 0; i < numLabels; i++) {
+        const index = Math.floor((i + 1) * coordinates.length / (numLabels + 1));
+        const coord = coordinates[index];
+        
+        // Calculate offset perpendicular to the boundary
+        const prevIndex = (index - 1 + coordinates.length) % coordinates.length;
+        const nextIndex = (index + 1) % coordinates.length;
+        
+        const prevCoord = coordinates[prevIndex];
+        const nextCoord = coordinates[nextIndex];
+        
+        // Calculate direction vector
+        const dx = nextCoord[0] - prevCoord[0];
+        const dy = nextCoord[1] - prevCoord[1];
+        const length = Math.sqrt(dx * dx + dy * dy);
+        
+        // Normalize and create perpendicular vector (offset direction)
+        if (length > 0) {
+          const offsetDistance = 0.0001; // Small offset in degrees
+          const perpX = -dy / length * offsetDistance;
+          const perpY = dx / length * offsetDistance;
+          
+          // Create offset point
+          const offsetCoord = [coord[0] + perpX, coord[1] + perpY];
+          
+          labelFeatures.push({
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: offsetCoord
+            },
+            properties: {
+              label: label,
+              angle: Math.atan2(dy, dx) * 180 / Math.PI
+            }
+          });
+        }
+      }
+    });
+    
+    console.log('📝 Created label features:', labelFeatures.length);
+    
+    // Add label source
+    map.addSource(labelLayerId, {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: labelFeatures
+      }
+    });
+    
+    // Use a simple circle layer instead of text to avoid glyphs requirement
+    console.log(`🎯 Creating circle markers for ${labelLayerId}`);
+    
+    // Add a simple circle layer to show label positions
+    map.addLayer({
+      id: labelLayerId,
+      type: 'circle',
+      source: labelLayerId,
+      paint: {
+        'circle-radius': 8,
+        'circle-color': color,
+        'circle-stroke-color': 'white',
+        'circle-stroke-width': 2,
+        'circle-opacity': 0.8
+      }
+    });
+    
+    console.log(`✅ Created circle markers for ${labelLayerId} with ${labelFeatures.length} points`);
+    
+    console.log(`🎨 Label color: ${color}`);
+    console.log(`📝 Final label features: ${labelFeatures.length}`);
+    
+    // Verify the layer was actually added
+    setTimeout(() => {
+      if (map.getLayer(labelLayerId)) {
+        console.log(`✅ Confirmed: Label layer ${labelLayerId} exists on map`);
+      } else {
+        console.log(`❌ ERROR: Label layer ${labelLayerId} was not added to map`);
+      }
+    }, 100);
+  }, [map]);
+
   // Determine which layers should be active based on overlay state
   const getDesiredLayers = useCallback((): ContainerLayer[] => {
     const layers: ContainerLayer[] = [];
     
-    // Show grid only when explicitly enabled, not automatically when both township+range are on
-    if (overlayState.showGrid) {
-      layers.push('grid');
-    }
-    
-    // Show individual layers independently
+    if (overlayState.showGrid) layers.push('grid');
     if (overlayState.showTownship) layers.push('township');
     if (overlayState.showRange) layers.push('range');
-    
     if (overlayState.showSections) layers.push('sections');
     if (overlayState.showQuarterSections) layers.push('quarter-sections');
     if (overlayState.showSubdivisions) layers.push('subdivisions');
@@ -244,7 +360,55 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
         loadLayer(layer);
       }
     });
-  }, [overlayState, getDesiredLayers, loadLayer, unloadLayer]); // Simplified dependencies
+  }, [overlayState, getDesiredLayers, loadLayer, unloadLayer, activeLayers, loadingLayers]);
+
+  // Handle label visibility changes
+  useEffect(() => {
+    if (!map) return;
+    
+    console.log('🔄 Label visibility changed:', {
+      showGridLabels: overlayState.showGridLabels,
+      showTownshipLabels: overlayState.showTownshipLabels,
+      showRangeLabels: overlayState.showRangeLabels,
+      showSectionLabels: overlayState.showSectionLabels,
+      showQuarterSectionLabels: overlayState.showQuarterSectionLabels,
+      showSubdivisionLabels: overlayState.showSubdivisionLabels
+    });
+    
+    // Check each layer for label visibility
+    const labelStates = [
+      { layer: 'grid', show: overlayState.showGridLabels },
+      { layer: 'township', show: overlayState.showTownshipLabels },
+      { layer: 'range', show: overlayState.showRangeLabels },
+      { layer: 'sections', show: overlayState.showSectionLabels },
+      { layer: 'quarter-sections', show: overlayState.showQuarterSectionLabels },
+      { layer: 'subdivisions', show: overlayState.showSubdivisionLabels }
+    ];
+    
+    labelStates.forEach(({ layer, show }) => {
+      const layerId = `container-${layer}`;
+      const labelLayerId = `${layerId}-labels`;
+      
+      console.log(`🎯 Processing label for ${layer}:`, { show, hasData: layerData.has(layer as ContainerLayer) });
+      
+      if (show && layerData.has(layer as ContainerLayer)) {
+        // Add label layer
+        const features = layerData.get(layer as ContainerLayer) || [];
+        const color = getLayerColor(layer as ContainerLayer);
+        console.log(`✅ Adding label layer for ${layer} with ${features.length} features`);
+        addLabelLayer(layerId, features, color);
+      } else {
+        // Remove label layer
+        if (map.getLayer(labelLayerId)) {
+          console.log(`🗑️ Removing label layer for ${layer}`);
+          map.removeLayer(labelLayerId);
+        }
+        if (map.getSource(labelLayerId)) {
+          map.removeSource(labelLayerId);
+        }
+      }
+    });
+  }, [map, overlayState, layerData, addLabelLayer, getLayerColor]);
 
   // Cleanup on unmount only
   useEffect(() => {
@@ -274,5 +438,3 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
   // Don't render anything - this is a logic-only component
   return null;
 };
-
-export default ContainerOverlayManager;

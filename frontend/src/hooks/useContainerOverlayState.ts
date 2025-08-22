@@ -4,17 +4,38 @@
  */
 
 import { useState, useCallback } from 'react';
-import { ContainerOverlayState } from '../components/mapping/overlays/ContainerOverlayManager';
 
-export const useContainerOverlayState = (initialState?: Partial<ContainerOverlayState>) => {
+export interface ContainerOverlayState {
+  showGrid: boolean;
+  showTownship: boolean;
+  showRange: boolean;
+  showSections: boolean;
+  showQuarterSections: boolean;
+  showSubdivisions: boolean;
+  // Label visibility states
+  showGridLabels: boolean;
+  showTownshipLabels: boolean;
+  showRangeLabels: boolean;
+  showSectionLabels: boolean;
+  showQuarterSectionLabels: boolean;
+  showSubdivisionLabels: boolean;
+}
+
+export const useContainerOverlayState = () => {
   const [overlayState, setOverlayState] = useState<ContainerOverlayState>({
+    showGrid: false,
     showTownship: false,
     showRange: false,
-    showGrid: false,
     showSections: false,
     showQuarterSections: false,
     showSubdivisions: false,
-    ...initialState,
+    // Label visibility states
+    showGridLabels: false,
+    showTownshipLabels: false,
+    showRangeLabels: false,
+    showSectionLabels: false,
+    showQuarterSectionLabels: false,
+    showSubdivisionLabels: false,
   });
 
   const toggleOverlay = useCallback((key: keyof ContainerOverlayState) => {
@@ -42,12 +63,19 @@ export const useContainerOverlayState = (initialState?: Partial<ContainerOverlay
 
   const resetOverlays = useCallback(() => {
     setOverlayState({
+      showGrid: false,
       showTownship: false,
       showRange: false,
-      showGrid: false,
       showSections: false,
       showQuarterSections: false,
       showSubdivisions: false,
+      // Reset label states
+      showGridLabels: false,
+      showTownshipLabels: false,
+      showRangeLabels: false,
+      showSectionLabels: false,
+      showQuarterSectionLabels: false,
+      showSubdivisionLabels: false,
     });
   }, []);
 

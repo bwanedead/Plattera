@@ -70,7 +70,7 @@ class ContainerGridEngine:
             logger.info(f"🔍 Spatial validation: {spatial_validation}")
             
             # Convert to GeoJSON
-            geojson = self._to_geojson(filtered_gdf)
+            geojson = self._to_geojson(filtered_gdf, plss_info)
             
             return {
                 "type": "FeatureCollection",
@@ -180,7 +180,7 @@ class ContainerGridEngine:
         
         return validation
     
-    def _to_geojson(self, gdf: gpd.GeoDataFrame) -> list:
+    def _to_geojson(self, gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> list:
         """Convert GeoDataFrame to GeoJSON features"""
         features = []
         
@@ -191,6 +191,9 @@ class ContainerGridEngine:
             if hasattr(geom, 'geom_type') and geom.geom_type == 'MultiPolygon':
                 geom = max(geom.geoms, key=lambda p: p.area)
             
+            # Create label for grid cell
+            grid_label = f"T{plss_info.get('township_number')}{plss_info.get('township_direction')} R{plss_info.get('range_number')}{plss_info.get('range_direction')}"
+            
             feature = {
                 "type": "Feature",
                 "geometry": {
@@ -198,13 +201,15 @@ class ContainerGridEngine:
                     "coordinates": [list(geom.exterior.coords)]
                 },
                 "properties": {
-                    "township_number": row.get('TWNSHPNO'),
-                    "township_direction": row.get('TWNSHPDIR'),
-                    "range_number": row.get('RANGENO'),
-                    "range_direction": row.get('RANGEDIR'),
-                    "feature_type": "grid_cell",
+                    "township_number": plss_info.get('township_number'),
+                    "township_direction": plss_info.get('township_direction'),
+                    "range_number": plss_info.get('range_number'),
+                    "range_direction": plss_info.get('range_direction'),
+                    "feature_type": "grid",
                     "overlay_type": "container",
-                    "cell_identifier": f"T{row.get('TWNSHPNO')}{row.get('TWNSHPDIR')} R{row.get('RANGENO')}{row.get('RANGEDIR')}"
+                    "cell_identifier": grid_label,
+                    "label": grid_label,
+                    "display_label": grid_label
                 }
             }
             features.append(feature)

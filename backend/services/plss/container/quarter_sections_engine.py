@@ -163,16 +163,63 @@ class ContainerQuarterSectionsEngine:
     
     def _filter_to_true_quarter_sections(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """Filter to only show true quarter sections, not smaller subdivisions"""
+        logger.info(f"🔍 Starting quarter sections filtering with {len(gdf)} features")
+        
         if 'SECDIVTXT' in gdf.columns:
-            # Only keep quarter sections (NE, NW, SE, SW), filter out smaller subdivisions
-            quarter_section_mask = gdf['SECDIVTXT'].str.contains(
-                r'^(NE|NW|SE|SW)$|^(Northeast|Northwest|Southeast|Southwest)\s+(Quarter|Qtr)$', 
-                case=False, na=False
-            )
-            filtered = gdf[quarter_section_mask].copy()
+            # Log some sample SECDIVTXT values to see what we're working with
+            sample_texts = gdf['SECDIVTXT'].head(10).tolist()
+            logger.info(f"📋 Sample SECDIVTXT values: {sample_texts}")
+            
+            # Also log unique values to see the variety
+            unique_texts = gdf['SECDIVTXT'].unique()[:20].tolist()
+            logger.info(f"🔍 Unique SECDIVTXT values (first 20): {unique_texts}")
+            
+            # Check if we have other columns that might help identify quarter sections
+            logger.info(f"📊 Available columns: {list(gdf.columns)}")
+            
+            # For this data, "Aliquot Part" typically means quarter sections
+            # "Government Lot" means irregular lots (not quarter sections)
+            quarter_section_mask = gdf['SECDIVTXT'] == 'Aliquot Part'
+            
+            # Log how many features match the text pattern
+            text_matches = quarter_section_mask.sum()
+            logger.info(f"🎯 Aliquot Part matches: {text_matches} features")
+            
+            # Also exclude very small subdivisions (less than typical quarter section)
+            if 'GISACRE' in gdf.columns:
+                # Log acreage statistics
+                acre_stats = gdf['GISACRE'].describe()
+                logger.info(f"📊 GISACRE statistics: {acre_stats}")
+                
+                # For quarter sections, we want parcels around 40 acres (quarter-quarter sections)
+                # or 160 acres (quarter sections)
+                size_mask = (gdf['GISACRE'] >= 35) & (gdf['GISACRE'] <= 200)
+                size_matches = size_mask.sum()
+                logger.info(f"🎯 Size filter matches (35-200 acres): {size_matches} features")
+                
+                combined_mask = quarter_section_mask & size_mask
+                combined_matches = combined_mask.sum()
+                logger.info(f"🎯 Combined filter matches: {combined_matches} features")
+            else:
+                logger.warning("⚠️ No GISACRE column found, skipping size filtering")
+                combined_mask = quarter_section_mask
+                combined_matches = combined_mask.sum()
+                logger.info(f"🎯 Text-only filter matches: {combined_matches} features")
+                
+            filtered = gdf[combined_mask].copy()
             logger.info(f"🎯 Filtered to true quarter sections: {len(filtered)} features (was {len(gdf)})")
+            
+            # Log some examples for debugging
+            if not filtered.empty and 'SECDIVTXT' in filtered.columns:
+                sample_texts = filtered['SECDIVTXT'].head(3).tolist()
+                logger.info(f"📋 Sample quarter section names: {sample_texts}")
+            else:
+                logger.warning("⚠️ No quarter sections found after filtering!")
+                
             return filtered
-        return gdf
+        else:
+            logger.warning("⚠️ No SECDIVTXT column found, returning all features")
+            return gdf
     
     def _validate_spatial_bounds(self, gdf: gpd.GeoDataFrame, container_bounds: Dict[str, float]) -> Dict[str, Any]:
         """Validate that features are within container bounds"""
@@ -217,6 +264,9 @@ class ContainerQuarterSectionsEngine:
             if hasattr(geom, 'geom_type') and geom.geom_type == 'MultiPolygon':
                 geom = max(geom.geoms, key=lambda p: p.area)
             
+            # Create label for quarter section
+            quarter_label = f"Q{row.get('FRSTDIVNO', '?')}" if row.get('FRSTDIVNO') else "Quarter"
+            
             feature = {
                 "type": "Feature",
                 "geometry": {
@@ -231,7 +281,9 @@ class ContainerQuarterSectionsEngine:
                     "range_direction": plss_info.get('range_direction'),
                     "feature_type": "quarter_section",
                     "overlay_type": "container",
-                    "cell_identifier": f"T{plss_info.get('township_number')}{plss_info.get('township_direction')} R{plss_info.get('range_number')}{plss_info.get('range_direction')}"
+                    "cell_identifier": f"T{plss_info.get('township_number')}{plss_info.get('township_direction')} R{plss_info.get('range_number')}{plss_info.get('range_direction')}",
+                    "label": quarter_label,
+                    "display_label": quarter_label
                 }
             }
             features.append(feature)

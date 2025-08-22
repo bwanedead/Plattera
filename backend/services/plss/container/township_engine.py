@@ -213,6 +213,9 @@ class ContainerTownshipEngine:
             if hasattr(geom, 'geom_type') and geom.geom_type == 'MultiPolygon':
                 geom = max(geom.geoms, key=lambda p: p.area)
             
+            # Create label for township
+            township_label = f"T{row.get('TWNSHPNO', '?')}{row.get('TWNSHPDIR', '')}"
+            
             feature = {
                 "type": "Feature",
                 "geometry": {
@@ -225,7 +228,9 @@ class ContainerTownshipEngine:
                     "range_number": row.get('RANGENO'),
                     "range_direction": row.get('RANGEDIR'),
                     "feature_type": "township",
-                    "overlay_type": "container"
+                    "overlay_type": "container",
+                    "label": township_label,
+                    "display_label": township_label
                 }
             }
             features.append(feature)
