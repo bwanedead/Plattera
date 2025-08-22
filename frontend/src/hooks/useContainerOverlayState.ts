@@ -13,6 +13,7 @@ export const useContainerOverlayState = (initialState?: Partial<ContainerOverlay
     showGrid: false,
     showSections: false,
     showQuarterSections: false,
+    showSubdivisions: false,
     ...initialState,
   });
 
@@ -21,17 +22,8 @@ export const useContainerOverlayState = (initialState?: Partial<ContainerOverlay
       const newState = { ...prev };
       newState[key] = !newState[key];
       
-      // Special logic for grid vs township/range
-      if (key === 'showGrid') {
-        if (newState.showGrid) {
-          // When grid is enabled, disable individual township/range
-          newState.showTownship = false;
-          newState.showRange = false;
-        }
-      } else if (key === 'showTownship' || key === 'showRange') {
-        // When individual layers are enabled, disable grid
-        newState.showGrid = false;
-      }
+      // REMOVED: No automatic switching to grid when both township and range are on
+      // Users can manually toggle grid if they want to see the cell
       
       return newState;
     });
@@ -42,13 +34,7 @@ export const useContainerOverlayState = (initialState?: Partial<ContainerOverlay
       const newState = { ...prev };
       newState[key] = value;
       
-      // Special logic for grid vs township/range
-      if (key === 'showGrid' && value) {
-        newState.showTownship = false;
-        newState.showRange = false;
-      } else if ((key === 'showTownship' || key === 'showRange') && value) {
-        newState.showGrid = false;
-      }
+      // No automatic switching - let each overlay be set independently
       
       return newState;
     });
@@ -61,6 +47,7 @@ export const useContainerOverlayState = (initialState?: Partial<ContainerOverlay
       showGrid: false,
       showSections: false,
       showQuarterSections: false,
+      showSubdivisions: false,
     });
   }, []);
 

@@ -55,11 +55,11 @@ export const ContainerOverlayControls: React.FC<ContainerOverlayControlsProps> =
     const status = getLayerStatus(layer);
     switch (status) {
       case 'loading':
-        return '⏳';
+        return '⋯';
       case 'error':
-        return '❌';
+        return '!';
       case 'ready':
-        return '✅';
+        return '✓';
       default:
         return '';
     }
@@ -81,116 +81,117 @@ export const ContainerOverlayControls: React.FC<ContainerOverlayControlsProps> =
 
   return (
     <div className={`container-overlay-controls ${className}`}>
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <h3 className="text-lg font-semibold mb-3 text-gray-800 px-4 pt-4">
-          Container Overlays
+      <div className="bg-gray-900 rounded-xl shadow-lg border border-gray-700 backdrop-blur-sm">
+        <h3 className="text-lg font-semibold mb-4 text-white px-6 pt-6 tracking-wide">
+          PLSS Overlays
         </h3>
         
-        <div className="space-y-3 px-4 pb-4">
+        <div className="space-y-4 px-6 pb-6">
           {/* Grid Control */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
+          <div className="flex items-center py-3 border-b border-gray-700">
+            <div className="flex items-center space-x-3">
               <input
                 type="checkbox"
                 id="showGrid"
                 checked={overlayState.showGrid}
                 onChange={() => handleToggle('showGrid')}
-                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                className="w-5 h-5 text-blue-500 border-gray-600 rounded-md focus:ring-blue-500 focus:ring-2 bg-gray-800"
               />
-              <label htmlFor="showGrid" className="text-sm font-medium text-gray-700">
+              <label htmlFor="showGrid" className="text-sm font-medium text-gray-200 tracking-wide">
                 Grid (Township + Range Cell)
               </label>
             </div>
-            <span className={`text-xs ${getStatusColor('grid')}`}>
-              {getStatusIcon('grid')}
-            </span>
           </div>
 
           {/* Township Control */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
+          <div className="flex items-center py-3 border-b border-gray-700">
+            <div className="flex items-center space-x-3">
               <input
                 type="checkbox"
                 id="showTownship"
                 checked={overlayState.showTownship}
                 onChange={() => handleToggle('showTownship')}
                 disabled={overlayState.showGrid}
-                className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500 disabled:opacity-50"
+                className="w-5 h-5 text-red-500 border-gray-600 rounded-md focus:ring-red-500 focus:ring-2 bg-gray-800 disabled:opacity-40"
               />
-              <label htmlFor="showTownship" className="text-sm font-medium text-gray-700">
+              <label htmlFor="showTownship" className="text-sm font-medium text-gray-200 tracking-wide">
                 Township Lines
               </label>
             </div>
-            <span className={`text-xs ${getStatusColor('township')}`}>
-              {getStatusIcon('township')}
-            </span>
           </div>
 
           {/* Range Control */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
+          <div className="flex items-center py-3 border-b border-gray-700">
+            <div className="flex items-center space-x-3">
               <input
                 type="checkbox"
                 id="showRange"
                 checked={overlayState.showRange}
                 onChange={() => handleToggle('showRange')}
                 disabled={overlayState.showGrid}
-                className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 disabled:opacity-50"
+                className="w-5 h-5 text-green-500 border-gray-600 rounded-md focus:ring-green-500 focus:ring-2 bg-gray-800 disabled:opacity-40"
               />
-              <label htmlFor="showRange" className="text-sm font-medium text-gray-700">
+              <label htmlFor="showRange" className="text-sm font-medium text-gray-200 tracking-wide">
                 Range Lines
               </label>
             </div>
-            <span className={`text-xs ${getStatusColor('range')}`}>
-              {getStatusIcon('range')}
-            </span>
           </div>
 
           {/* Sections Control */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
+          <div className="flex items-center py-3 border-b border-gray-700">
+            <div className="flex items-center space-x-3">
               <input
                 type="checkbox"
                 id="showSections"
                 checked={overlayState.showSections}
                 onChange={() => handleToggle('showSections')}
-                className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
+                className="w-5 h-5 text-yellow-500 border-gray-600 rounded-md focus:ring-yellow-500 focus:ring-2 bg-gray-800"
               />
-              <label htmlFor="showSections" className="text-sm font-medium text-gray-700">
+              <label htmlFor="showSections" className="text-sm font-medium text-gray-200 tracking-wide">
                 Sections
               </label>
             </div>
-            <span className={`text-xs ${getStatusColor('sections')}`}>
-              {getStatusIcon('sections')}
-            </span>
           </div>
 
           {/* Quarter Sections Control */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
+          <div className="flex items-center py-3 border-b border-gray-700">
+            <div className="flex items-center space-x-3">
               <input
                 type="checkbox"
                 id="showQuarterSections"
                 checked={overlayState.showQuarterSections}
                 onChange={() => handleToggle('showQuarterSections')}
-                className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                className="w-5 h-5 text-purple-500 border-gray-600 rounded-md focus:ring-purple-500 focus:ring-2 bg-gray-800"
               />
-              <label htmlFor="showQuarterSections" className="text-sm font-medium text-gray-700">
+              <label htmlFor="showQuarterSections" className="text-sm font-medium text-gray-200 tracking-wide">
                 Quarter Sections
               </label>
             </div>
-            <span className={`text-xs ${getStatusColor('quarter-sections')}`}>
-              {getStatusIcon('quarter-sections')}
-            </span>
+          </div>
+
+          {/* Subdivisions Control */}
+          <div className="flex items-center py-3 border-b border-gray-700">
+            <div className="flex items-center space-x-3">
+              <input
+                type="checkbox"
+                id="showSubdivisions"
+                checked={overlayState.showSubdivisions}
+                onChange={() => handleToggle('showSubdivisions')}
+                className="w-5 h-5 text-indigo-500 border-gray-600 rounded-md focus:ring-indigo-500 focus:ring-2 bg-gray-800"
+              />
+              <label htmlFor="showSubdivisions" className="text-sm font-medium text-gray-200 tracking-wide">
+                Subdivisions
+              </label>
+            </div>
           </div>
         </div>
 
         {/* Error Display */}
         {Array.from(layerErrors.entries()).length > 0 && (
-          <div className="mt-3 mx-4 mb-4 p-2 bg-red-50 border border-red-200 rounded">
-            <h4 className="text-sm font-medium text-red-800 mb-1">Errors:</h4>
+          <div className="mt-4 mx-6 mb-4 p-3 bg-red-900/20 border border-red-700/30 rounded-lg">
+            <h4 className="text-sm font-medium text-red-300 mb-2">Errors:</h4>
             {Array.from(layerErrors.entries()).map(([layer, error]) => (
-              <div key={layer} className="text-xs text-red-700">
+              <div key={layer} className="text-xs text-red-400 font-mono">
                 <strong>{layer}:</strong> {error}
               </div>
             ))}
@@ -198,7 +199,7 @@ export const ContainerOverlayControls: React.FC<ContainerOverlayControlsProps> =
         )}
 
         {/* Info */}
-        <div className="px-4 pb-4 text-xs text-gray-500 border-t border-gray-100 pt-3">
+        <div className="px-6 pb-6 text-xs text-gray-400 border-t border-gray-700 pt-4 font-mono">
           <p>Container overlays show features relative to your parcel</p>
           <p>Grid shows the specific township-range cell</p>
         </div>

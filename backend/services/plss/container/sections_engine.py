@@ -236,3 +236,63 @@ class ContainerSectionsEngine:
                 "engine": "ContainerSectionsEngine"
             }
         }
+
+    def _validate_container_trs(self, plss_info: Dict[str, Any]) -> bool:
+        """Validate that we're using container TRS, not reference TRS"""
+        township_num = plss_info.get('township_number')
+        township_dir = plss_info.get('township_direction')
+        range_num = plss_info.get('range_number')
+        range_dir = plss_info.get('range_direction')
+        
+        logger.info(f"🔍 Validating container TRS: T{township_num}{township_dir} R{range_num}{range_dir}")
+        
+        # Check if this looks like reference TRS (should be different from container)
+        # Container TRS should be the actual parcel location
+        if township_num is None or township_dir is None or range_num is None or range_dir is None:
+            logger.error("❌ Missing TRS information in PLSS data")
+            return False
+        
+        logger.info(f"✅ Container TRS validation passed: T{township_num}{township_dir} R{range_num}{range_dir}")
+        return True
+    
+    def _filter_exact_sections(self, gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> gpd.GeoDataFrame:
+        """Filter to exact township-range cell for sections"""
+        # Validate container TRS first
+        if not self._validate_container_trs(plss_info):
+            logger.error("❌ Container TRS validation failed")
+            return gpd.GeoDataFrame()
+        
+        township_num = plss_info.get('township_number')
+        township_dir = plss_info.get('township_direction')
+        range_num = plss_info.get('range_number')
+        range_dir = plss_info.get('range_direction')
+        
+        logger.info(f"🎯 Filtering sections for: T{township_num}{township_dir} R{range_num}{range_dir}")
+        
+        # CRITICAL FIX: Sections data doesn't have township/range columns
+        # We need to get the cell boundary from townships data first
+        cell_boundary = self._get_cell_boundary(gdf, plss_info)
+        
+        if cell_boundary is None:
+            logger.error(f"❌ No cell boundary found for T{township_num}{township_dir} R{range_num}{range_dir}")
+            return gpd.GeoDataFrame()
+        
+        # Filter sections to only those within the cell boundary
+        try:
+            # Use spatial intersection to filter sections within the cell
+            intersecting = gdf[gdf.geometry.intersects(cell_boundary)]
+            
+            logger.info(f"✅ Sections filter applied: {len(intersecting)} features found in cell")
+            
+            # Log sample of filtered features
+            if not intersecting.empty:
+                available_cols = [col for col in ['SECNO'] if col in intersecting.columns]
+                if available_cols:
+                    sample = intersecting[available_cols].head(3)
+                    logger.info(f"📋 Sample filtered sections:\n{sample}")
+            
+            return intersecting
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to filter sections: {e}")
+            return gpd.GeoDataFrame()

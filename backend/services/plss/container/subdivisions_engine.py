@@ -1,6 +1,6 @@
 """
-Container Quarter Sections Engine
-Dedicated engine for retrieving quarter section features within container bounds using spatial intersection
+Container Subdivisions Engine
+Dedicated engine for retrieving subdivision features within container bounds using spatial intersection
 """
 import logging
 import geopandas as gpd
@@ -11,14 +11,14 @@ import os
 
 logger = logging.getLogger(__name__)
 
-class ContainerQuarterSectionsEngine:
-    """Dedicated engine for container quarter section overlays using spatial filtering"""
+class ContainerSubdivisionsEngine:
+    """Dedicated engine for container subdivision overlays using spatial filtering"""
     
     def __init__(self, data_dir: str = "../plss"):
         self.data_dir = data_dir
         
-    def get_quarter_sections_features(self, container_bounds: Dict[str, float], plss_info: Dict[str, Any]) -> Dict[str, Any]:
-        logger.info("🔲 CONTAINER QUARTER SECTIONS ENGINE: Starting quarter sections feature retrieval")
+    def get_subdivisions_features(self, container_bounds: Dict[str, float], plss_info: Dict[str, Any]) -> Dict[str, Any]:
+        logger.info("🔲 CONTAINER SUBDIVISIONS ENGINE: Starting subdivisions feature retrieval")
         logger.info(f"📍 Container bounds: {container_bounds}")
         logger.info(f"📍 PLSS info: {plss_info}")
         
@@ -26,27 +26,26 @@ class ContainerQuarterSectionsEngine:
             # Get state from PLSS info
             state = plss_info.get('state', 'Wyoming').lower()
             
-            # Use geometry parquet files for proper shape overlays
-            # The geometry files contain actual shape boundaries, not just centroids
-            quarter_sections_file = os.path.join(self.data_dir, state, "parquet", "quarter_sections_parts").replace('\\', '/')
+            # Use the same data source as current quarter sections (which actually contains subdivisions)
+            subdivisions_file = os.path.join(self.data_dir, state, "parquet", "quarter_sections_parts").replace('\\', '/')
             
-            # Load quarter sections data from geometry directory
-            if not os.path.exists(quarter_sections_file):
-                logger.error(f"❌ Quarter sections parquet directory not found: {quarter_sections_file}")
-                return self._create_error_response("Quarter sections parquet directory not found")
+            # Load subdivisions data from geometry directory
+            if not os.path.exists(subdivisions_file):
+                logger.error(f"❌ Subdivisions parquet directory not found: {subdivisions_file}")
+                return self._create_error_response("Subdivisions parquet directory not found")
             
             # Read parquet file directly with geopandas to handle geometry properly
-            quarter_sections_gdf = gpd.read_parquet(quarter_sections_file)
-            logger.info(f"📊 Loaded quarter sections data: {quarter_sections_gdf.shape} features, columns: {list(quarter_sections_gdf.columns)}")
+            subdivisions_gdf = gpd.read_parquet(subdivisions_file)
+            logger.info(f"📊 Loaded subdivisions data: {subdivisions_gdf.shape} features, columns: {list(subdivisions_gdf.columns)}")
             
             # Validate geometry column exists
-            if quarter_sections_gdf.geometry.name != 'geometry':
-                logger.error("❌ No valid geometry column found in quarter sections data")
-                return self._create_error_response("No valid geometry column found in quarter sections data")
+            if subdivisions_gdf.geometry.name != 'geometry':
+                logger.error("❌ No valid geometry column found in subdivisions data")
+                return self._create_error_response("No valid geometry column found in subdivisions data")
             
-            # Filter quarter sections using spatial intersection with the cell boundary
-            filtered_gdf = self._filter_exact_quarter_sections(quarter_sections_gdf, plss_info)
-            logger.info(f"🎯 Quarter sections spatial filtering result: {filtered_gdf.shape} features")
+            # Filter subdivisions using spatial intersection with the cell boundary
+            filtered_gdf = self._filter_exact_subdivisions(subdivisions_gdf, plss_info)
+            logger.info(f"🎯 Subdivisions spatial filtering result: {filtered_gdf.shape} features")
             
             # Validate spatial bounds
             spatial_validation = self._validate_spatial_bounds(filtered_gdf, container_bounds)
@@ -65,57 +64,53 @@ class ContainerQuarterSectionsEngine:
                     "features_returned": len(geojson),
                     "spatial_validation": spatial_validation,
                     "container_bounds": container_bounds,
-                    "engine": "ContainerQuarterSectionsEngine",
+                    "engine": "ContainerSubdivisionsEngine",
                     "filtering_method": "spatial_intersection",
-                    "data_source": "quarter_sections_parquet"
+                    "data_source": "subdivisions_parquet"
                 }
             }
             
         except Exception as e:
-            logger.error(f"❌ Container quarter sections engine failed: {e}")
+            logger.error(f"❌ Container subdivisions engine failed: {e}")
             return self._create_error_response(f"Engine error: {str(e)}")
     
-    def _filter_exact_quarter_sections(self, gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> gpd.GeoDataFrame:
-        """Filter to exact township-range cell for quarter sections"""
+    def _filter_exact_subdivisions(self, gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> gpd.GeoDataFrame:
+        """Filter to exact township-range cell for subdivisions"""
         township_num = plss_info.get('township_number')
         township_dir = plss_info.get('township_direction')
         range_num = plss_info.get('range_number')
         range_dir = plss_info.get('range_direction')
         
-        logger.info(f"🎯 Filtering quarter sections for: T{township_num}{township_dir} R{range_num}{range_dir}")
+        logger.info(f"🎯 Filtering subdivisions for: T{township_num}{township_dir} R{range_num}{range_dir}")
         
-        # CRITICAL FIX: Quarter sections data doesn't have township/range columns
-        # We need to get the cell boundary from townships data first
+        # Get the cell boundary from townships data first
         cell_boundary = self._get_cell_boundary(gdf, plss_info)
         
         if cell_boundary is None:
             logger.error(f"❌ No cell boundary found for T{township_num}{township_dir} R{range_num}{range_dir}")
             return gpd.GeoDataFrame()
         
-        # Filter quarter sections to only those within the cell boundary
+        # Filter subdivisions to only those within the cell boundary
         try:
-            # Use spatial intersection to filter quarter sections within the cell
+            # Use spatial intersection to filter subdivisions within the cell
             intersecting = gdf[gdf.geometry.intersects(cell_boundary)]
             
-            logger.info(f"✅ Quarter sections filter applied: {len(intersecting)} features found in cell")
-            
-            # NEW: Filter to only true quarter sections (NE, NW, SE, SW), not smaller subdivisions
-            true_quarter_sections = self._filter_to_true_quarter_sections(intersecting)
+            logger.info(f"✅ Subdivisions filter applied: {len(intersecting)} features found in cell")
             
             # Log sample of filtered features
-            if not true_quarter_sections.empty:
-                available_cols = [col for col in ['SECDIVTXT', 'SECDIVNO'] if col in true_quarter_sections.columns]
+            if not intersecting.empty:
+                available_cols = [col for col in ['SECDIVTXT', 'SECDIVNO', 'GISACRE'] if col in intersecting.columns]
                 if available_cols:
-                    sample = true_quarter_sections[available_cols].head(3)
-                    logger.info(f"📋 Sample filtered quarter sections:\n{sample}")
+                    sample = intersecting[available_cols].head(3)
+                    logger.info(f"📋 Sample filtered subdivisions:\n{sample}")
             
-            return true_quarter_sections
+            return intersecting
             
         except Exception as e:
-            logger.error(f"❌ Failed to filter quarter sections: {e}")
+            logger.error(f"❌ Failed to filter subdivisions: {e}")
             return gpd.GeoDataFrame()
     
-    def _get_cell_boundary(self, quarter_sections_gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> Optional[Any]:
+    def _get_cell_boundary(self, subdivisions_gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> Optional[Any]:
         """Get the boundary of the specific township-range cell from townships data"""
         township_num = plss_info.get('township_number')
         township_dir = plss_info.get('township_direction')
@@ -161,18 +156,7 @@ class ContainerQuarterSectionsEngine:
             logger.error(f"❌ Failed to get cell boundary: {e}")
             return None
     
-    def _filter_to_true_quarter_sections(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-        """Filter to only show true quarter sections, not smaller subdivisions"""
-        if 'SECDIVTXT' in gdf.columns:
-            # Only keep quarter sections (NE, NW, SE, SW), filter out smaller subdivisions
-            quarter_section_mask = gdf['SECDIVTXT'].str.contains(
-                r'^(NE|NW|SE|SW)$|^(Northeast|Northwest|Southeast|Southwest)\s+(Quarter|Qtr)$', 
-                case=False, na=False
-            )
-            filtered = gdf[quarter_section_mask].copy()
-            logger.info(f"🎯 Filtered to true quarter sections: {len(filtered)} features (was {len(gdf)})")
-            return filtered
-        return gdf
+
     
     def _validate_spatial_bounds(self, gdf: gpd.GeoDataFrame, container_bounds: Dict[str, float]) -> Dict[str, Any]:
         """Validate that features are within container bounds"""
@@ -224,14 +208,11 @@ class ContainerQuarterSectionsEngine:
                     "coordinates": [list(geom.exterior.coords)]
                 },
                 "properties": {
-                    "quarter_section_number": row.get('FRSTDIVNO'),
-                    "township_number": plss_info.get('township_number'),
-                    "township_direction": plss_info.get('township_direction'),
-                    "range_number": plss_info.get('range_number'),
-                    "range_direction": plss_info.get('range_direction'),
-                    "feature_type": "quarter_section",
-                    "overlay_type": "container",
-                    "cell_identifier": f"T{plss_info.get('township_number')}{plss_info.get('township_direction')} R{plss_info.get('range_number')}{plss_info.get('range_direction')}"
+                    "subdivision_type": row.get('SECDIVTXT'),
+                    "subdivision_number": row.get('SECDIVNO'),
+                    "acres": row.get('GISACRE'),
+                    "feature_type": "subdivision",
+                    "overlay_type": "container"
                 }
             }
             features.append(feature)
@@ -248,6 +229,6 @@ class ContainerQuarterSectionsEngine:
                 "status": "error",
                 "message": message,
                 "features_returned": 0,
-                "engine": "ContainerQuarterSectionsEngine"
+                "engine": "ContainerSubdivisionsEngine"
             }
         }

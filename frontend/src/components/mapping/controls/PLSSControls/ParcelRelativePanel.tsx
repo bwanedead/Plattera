@@ -6,6 +6,7 @@ export interface ParcelRelativeConfig {
 	showSection: boolean;
 	showQuarter: boolean;
 	showGrid: boolean; // Add the new grid option
+	showSubdivisions: boolean;
 	selectedParcelId?: string;
 }
 
@@ -36,6 +37,10 @@ export const ParcelRelativePanel: React.FC<ParcelRelativePanelProps> = ({ config
 			<label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
 				<input type="checkbox" checked={config.showQuarter} onChange={(e) => update({ showQuarter: e.target.checked })} />
 				<span>Quarter Section</span>
+			</label>
+			<label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+				<input type="checkbox" checked={config.showSubdivisions} onChange={(e) => update({ showSubdivisions: e.target.checked })} />
+				<span>Subdivisions</span>
 			</label>
 			<label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
 				<input type="checkbox" checked={config.showGrid} onChange={(e) => update({ showGrid: e.target.checked })} />

@@ -36,6 +36,7 @@ export const ContainerPLSSManager: React.FC<ContainerPLSSManagerProps> = ({
     showGrid: false,
     showSections: false,
     showQuarterSections: false,
+    showSubdivisions: false,
   });
 
   // Loading and error states
@@ -130,31 +131,31 @@ export const ContainerPLSSManager: React.FC<ContainerPLSSManagerProps> = ({
       />
 
       {/* Status Display */}
-      <div className="bg-gray-50 border border-gray-200 rounded p-3">
-        <h4 className="text-sm font-medium text-gray-800 mb-2">Container Status</h4>
+      <div className="bg-gray-900 border border-gray-700 rounded-xl p-4">
+        <h4 className="text-sm font-medium text-white mb-3 tracking-wide">Container Status</h4>
         
         {/* Active Layers */}
-        <div className="mb-2">
-          <span className="text-xs text-gray-600">Active layers: </span>
+        <div className="mb-3">
+          <span className="text-xs text-gray-400">Active layers: </span>
           {Array.from(loadedFeatures.keys()).length > 0 ? (
-            <span className="text-xs text-green-600">
+            <span className="text-xs text-green-400 font-mono">
               {Array.from(loadedFeatures.keys()).join(', ')}
             </span>
           ) : (
-            <span className="text-xs text-gray-500">None</span>
+            <span className="text-xs text-gray-500 font-mono">None</span>
           )}
         </div>
 
         {/* Feature Counts */}
         {Array.from(loadedFeatures.entries()).map(([layer, features]) => (
-          <div key={layer} className="text-xs text-gray-600">
+          <div key={layer} className="text-xs text-gray-400 font-mono">
             {layer}: {features.length} features
           </div>
         ))}
 
         {/* Container Info */}
-        <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded">
-          <p className="text-xs text-green-800">
+        <div className="mt-4 p-3 bg-green-900/20 border border-green-700/30 rounded-lg">
+          <p className="text-xs text-green-300 font-mono">
             Container overlays show features relative to your parcel
           </p>
         </div>

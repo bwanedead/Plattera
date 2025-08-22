@@ -4,7 +4,7 @@
  * Clean, focused API for parcel-relative overlay data
  */
 
-export type ContainerLayer = 'township' | 'range' | 'grid' | 'sections' | 'quarter-sections';
+export type ContainerLayer = 'township' | 'range' | 'grid' | 'sections' | 'quarter-sections' | 'subdivisions';
 
 export interface ContainerRequest {
   schema_data: any;
@@ -89,12 +89,16 @@ export class ContainerApi {
     const overlayMap = new Map<ContainerLayer, ContainerResponse>();
 
     results.forEach((result, index) => {
-      if (result.status === 'fulfilled' && !('error' in result.value)) {
-        overlayMap.set(result.value.layer, result.value.result);
+      if (result.status === 'fulfilled') {
+        const value = result.value;
+        if ('error' in value) {
+          console.error(`❌ Container ${value.layer} overlay failed:`, value.error);
+        } else {
+          overlayMap.set(value.layer, value.result);
+        }
       } else {
         const layer = layers[index];
-        const error = result.status === 'rejected' ? result.reason : result.value.error;
-        console.error(`❌ Container ${layer} overlay failed:`, error);
+        console.error(`❌ Container ${layer} overlay failed:`, result.reason);
       }
     });
 

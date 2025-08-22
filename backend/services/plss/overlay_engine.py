@@ -192,6 +192,33 @@ class LayerSpecificEngine:
         
         return intersecting
     
+    def get_subdivisions_container(self, state: str, cell_geometry, bounds: Dict[str, float]) -> gpd.GeoDataFrame:
+        """Get subdivisions within the exact township-range cell using SPATIAL INTERSECTION"""
+        logger.info("🔲 SUBDIVISIONS CONTAINER: Using spatial intersection (no TRS columns available)")
+        
+        # Use the same data source as quarter sections (which actually contains subdivisions)
+        parts_dir = self.data_dir / state.lower() / "parquet" / "quarter_sections_parts"
+        single_file = self.data_dir / state.lower() / "parquet" / "quarter_sections.parquet"
+        
+        if parts_dir.exists():
+            logger.info("📂 Loading from partitioned subdivisions")
+            subdivisions_gdf = self._load_quarter_sections_parts(parts_dir, bounds)
+        elif single_file.exists():
+            logger.info("📄 Loading from single subdivisions file")
+            subdivisions_gdf = gpd.read_parquet(single_file)
+        else:
+            logger.warning("❌ No subdivisions data found")
+            return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+        
+        logger.info(f"📄 Loaded {len(subdivisions_gdf)} total subdivisions")
+        logger.info(f"📊 Subdivisions columns: {list(subdivisions_gdf.columns)}")
+        
+        # SPATIAL INTERSECTION - subdivisions parquet lacks TRS columns
+        intersecting = subdivisions_gdf[subdivisions_gdf.geometry.intersects(cell_geometry)]
+        logger.info(f"🔲 SUBDIVISIONS RESULT: {len(intersecting)} features in cell (spatial intersection)")
+        
+        return intersecting
+    
     def get_grid_container(self, state: str, cell_geometry) -> gpd.GeoDataFrame:
         """Get grid (specific township-range cell only)"""
         logger.info("🌐 GRID CONTAINER: Getting exact cell")
@@ -394,6 +421,8 @@ class PLSSOverlayEngine:
             features_gdf = self.layer_engine.get_sections_container(state, cell_geometry)
         elif layer == "quarter_sections":
             features_gdf = self.layer_engine.get_quarter_sections_container(state, cell_geometry, cell_bounds)
+        elif layer == "subdivisions":
+            features_gdf = self.layer_engine.get_subdivisions_container(state, cell_geometry, cell_bounds)
         elif layer == "grid":
             features_gdf = self.layer_engine.get_grid_container(state, cell_geometry)
         else:

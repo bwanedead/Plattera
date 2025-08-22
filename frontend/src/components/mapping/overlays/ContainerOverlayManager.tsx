@@ -13,6 +13,7 @@ export interface ContainerOverlayState {
   showGrid: boolean;
   showSections: boolean;
   showQuarterSections: boolean;
+  showSubdivisions: boolean;
 }
 
 interface ContainerOverlayManagerProps {
@@ -49,26 +50,28 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
   const containerApi = useRef(new ContainerApi());
   const abortController = useRef<AbortController | null>(null);
 
-  // Get layer color for map styling
+  // Get layer color for map styling - clean, professional colors
   const getLayerColor = useCallback((layer: ContainerLayer): string => {
     switch (layer) {
-      case 'township': return '#ff0000'; // Red
-      case 'range': return '#00ff00';     // Green
-      case 'grid': return '#0000ff';      // Blue
-      case 'sections': return '#ffff00';  // Yellow
-      case 'quarter-sections': return '#ff00ff'; // Magenta
-      default: return '#cccccc';
+      case 'township': return '#D2691E';    // Chocolate
+      case 'range': return '#1E90FF';       // Dodger blue
+      case 'grid': return '#DC143C';        // Crimson
+      case 'sections': return '#228B22';    // Forest green
+      case 'quarter-sections': return '#FF8C00'; // Dark orange
+      case 'subdivisions': return '#9370DB'; // Medium purple
+      default: return '#FF0000';
     }
   }, []);
 
-  // Get layer opacity for map styling
+  // Get layer opacity for map styling - adjusted for better visibility
   const getLayerOpacity = useCallback((layer: ContainerLayer): number => {
     switch (layer) {
-      case 'township': return 0.8;
-      case 'range': return 0.8;
-      case 'grid': return 0.6;
-      case 'sections': return 0.4;
-      case 'quarter-sections': return 0.3;
+      case 'township': return 0.9;        // Higher opacity for main boundaries
+      case 'range': return 0.9;           // Higher opacity for main boundaries
+      case 'grid': return 0.8;            // Strong visibility for grid
+      case 'sections': return 0.6;        // Medium visibility for sections
+      case 'quarter-sections': return 0.4; // Lower for fine detail
+      case 'subdivisions': return 0.3;    // Lower for very fine detail
       default: return 0.5;
     }
   }, []);
@@ -202,15 +205,18 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
   const getDesiredLayers = useCallback((): ContainerLayer[] => {
     const layers: ContainerLayer[] = [];
     
-    if (overlayState.showGrid || (overlayState.showTownship && overlayState.showRange)) {
+    // Show grid only when explicitly enabled, not automatically when both township+range are on
+    if (overlayState.showGrid) {
       layers.push('grid');
-    } else {
-      if (overlayState.showTownship) layers.push('township');
-      if (overlayState.showRange) layers.push('range');
     }
+    
+    // Show individual layers independently
+    if (overlayState.showTownship) layers.push('township');
+    if (overlayState.showRange) layers.push('range');
     
     if (overlayState.showSections) layers.push('sections');
     if (overlayState.showQuarterSections) layers.push('quarter-sections');
+    if (overlayState.showSubdivisions) layers.push('subdivisions');
     
     return layers;
   }, [overlayState]);
@@ -247,7 +253,7 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
         abortController.current.abort();
       }
       // Clean up all layers on unmount
-      ['township', 'range', 'grid', 'sections', 'quarter-sections'].forEach(layer => {
+      ['township', 'range', 'grid', 'sections', 'quarter-sections', 'subdivisions'].forEach(layer => {
         try {
           const layerId = `container-${layer}`;
           const sourceId = `container-${layer}-source`;

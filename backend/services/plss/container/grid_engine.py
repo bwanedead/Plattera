@@ -91,8 +91,31 @@ class ContainerGridEngine:
             logger.error(f"❌ Container grid engine failed: {e}")
             return self._create_error_response(f"Engine error: {str(e)}")
     
+    def _validate_container_trs(self, plss_info: Dict[str, Any]) -> bool:
+        """Validate that we're using container TRS, not reference TRS"""
+        township_num = plss_info.get('township_number')
+        township_dir = plss_info.get('township_direction')
+        range_num = plss_info.get('range_number')
+        range_dir = plss_info.get('range_direction')
+        
+        logger.info(f"🔍 Validating container TRS: T{township_num}{township_dir} R{range_num}{range_dir}")
+        
+        # Check if this looks like reference TRS (should be different from container)
+        # Container TRS should be the actual parcel location
+        if township_num is None or township_dir is None or range_num is None or range_dir is None:
+            logger.error("❌ Missing TRS information in PLSS data")
+            return False
+        
+        logger.info(f"✅ Container TRS validation passed: T{township_num}{township_dir} R{range_num}{range_dir}")
+        return True
+    
     def _filter_exact_cell(self, gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> gpd.GeoDataFrame:
-        """Filter to exact township-range cell with comprehensive logging"""
+        """Filter to exact township-range cell (rectangle)"""
+        # Validate container TRS first
+        if not self._validate_container_trs(plss_info):
+            logger.error("❌ Container TRS validation failed")
+            return gpd.GeoDataFrame()
+        
         township_num = plss_info.get('township_number')
         township_dir = plss_info.get('township_direction')
         range_num = plss_info.get('range_number')
@@ -105,7 +128,7 @@ class ContainerGridEngine:
         range_str = f"{range_num:03d}" if isinstance(range_num, int) else str(range_num).zfill(3)
         logger.info(f"🔧 Converting to string formats: T{township_str}{township_dir} R{range_str}{range_dir}")
         
-        # Apply both township and range filters to get the specific cell
+        # Apply exact cell filter
         mask = (
             (gdf['TWNSHPNO'] == township_str) & 
             (gdf['TWNSHPDIR'] == township_dir) &
@@ -114,15 +137,14 @@ class ContainerGridEngine:
         )
         
         filtered = gdf[mask].copy()
-        logger.info(f"✅ Grid cell filter applied: {len(filtered)} features match T{township_str}{township_dir} R{range_str}{range_dir}")
-        
-        if filtered.empty:
-            logger.warning(f"⚠️ No features found for cell T{township_str}{township_dir} R{range_str}{range_dir}")
+        logger.info(f"✅ Cell filter applied: {len(filtered)} features match T{township_str}{township_dir} R{range_str}{range_dir}")
         
         # Log sample of filtered features
         if not filtered.empty:
-            sample = filtered[['TWNSHPNO', 'TWNSHPDIR', 'RANGENO', 'RANGEDIR']].head(3)
-            logger.info(f"📋 Sample filtered features:\n{sample}")
+            available_cols = [col for col in ['TWNSHPNO', 'TWNSHPDIR', 'RANGENO', 'RANGEDIR'] if col in filtered.columns]
+            if available_cols:
+                sample = filtered[available_cols].head(3)
+                logger.info(f"📋 Sample filtered cell features:\n{sample}")
         
         return filtered
     

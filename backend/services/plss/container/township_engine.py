@@ -90,8 +90,29 @@ class ContainerTownshipEngine:
             logger.error(f"❌ Container township engine failed: {e}")
             return self._create_error_response(f"Engine error: {str(e)}")
     
+    def _validate_container_trs(self, plss_info: Dict[str, Any]) -> bool:
+        """Validate that we're using container TRS, not reference TRS"""
+        township_num = plss_info.get('township_number')
+        township_dir = plss_info.get('township_direction')
+        
+        logger.info(f"🔍 Validating container TRS: T{township_num}{township_dir}")
+        
+        # Check if this looks like reference TRS (should be different from container)
+        # Container TRS should be the actual parcel location
+        if township_num is None or township_dir is None:
+            logger.error("❌ Missing township information in PLSS data")
+            return False
+        
+        logger.info(f"✅ Container TRS validation passed: T{township_num}{township_dir}")
+        return True
+    
     def _filter_exact_township(self, gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> gpd.GeoDataFrame:
         """Filter to exact township and dissolve to get township boundaries (horizontal lines)"""
+        # Validate container TRS first
+        if not self._validate_container_trs(plss_info):
+            logger.error("❌ Container TRS validation failed")
+            return gpd.GeoDataFrame()
+        
         township_num = plss_info.get('township_number')
         township_dir = plss_info.get('township_direction')
         

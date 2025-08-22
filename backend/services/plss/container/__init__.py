@@ -8,11 +8,13 @@ from .range_engine import ContainerRangeEngine
 from .grid_engine import ContainerGridEngine
 from .sections_engine import ContainerSectionsEngine
 from .quarter_sections_engine import ContainerQuarterSectionsEngine
+from .subdivisions_engine import ContainerSubdivisionsEngine
 
 __all__ = [
     "ContainerTownshipEngine",
     "ContainerRangeEngine", 
     "ContainerGridEngine",
     "ContainerSectionsEngine",
-    "ContainerQuarterSectionsEngine"
+    "ContainerQuarterSectionsEngine",
+    "ContainerSubdivisionsEngine"
 ]

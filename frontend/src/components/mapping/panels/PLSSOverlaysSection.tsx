@@ -24,23 +24,36 @@ const ParcelInfoComponent: React.FC<{
 
 	return (
 		<div style={{
-			fontSize: 11,
-			background: 'rgba(0, 100, 200, 0.1)',
-			border: '1px solid rgba(0, 100, 200, 0.2)',
-			borderRadius: '4px',
-			padding: '8px',
-			marginBottom: '12px'
+			fontSize: 12,
+			background: 'rgba(255, 255, 255, 0.08)',
+			border: '1px solid rgba(255, 255, 255, 0.12)',
+			borderRadius: '8px',
+			padding: '12px',
+			marginBottom: '16px',
+			backdropFilter: 'blur(10px)',
+			boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
 		}}>
-			<div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#4a90e2' }}>
-				📍 Parcel Location
+			<div style={{ 
+				fontWeight: '600', 
+				marginBottom: '8px', 
+				color: 'rgba(255, 255, 255, 0.95)',
+				fontSize: '13px',
+				letterSpacing: '0.3px'
+			}}>
+				Parcel Location
 			</div>
-			<div style={{ color: '#ccc', lineHeight: '1.3' }}>
-				<div>
+			<div style={{ color: 'rgba(255, 255, 255, 0.7)', lineHeight: '1.4', fontSize: '11px' }}>
+				<div style={{ marginBottom: '4px' }}>
 					Township: {trs.t || '?'}{trs.td || '?'} | Range: {trs.r || '?'}{trs.rd || '?'}
 				</div>
-				{trs.s && <div>Section: {trs.s}</div>}
+				{trs.s && <div style={{ marginBottom: '4px' }}>Section: {trs.s}</div>}
 				{containerBounds && (
-					<div style={{ fontSize: 10, color: '#888', marginTop: '4px' }}>
+					<div style={{ 
+						fontSize: '10px', 
+						color: 'rgba(255, 255, 255, 0.5)', 
+						marginTop: '6px',
+						fontFamily: 'SF Mono, Monaco, Consolas, monospace'
+					}}>
 						Bounds: {containerBounds.west.toFixed(3)}, {containerBounds.south.toFixed(3)} → {containerBounds.east.toFixed(3)}, {containerBounds.north.toFixed(3)}
 					</div>
 				)}
@@ -67,25 +80,43 @@ export const PLSSOverlaysSection: React.FC<PLSSOverlaysSectionProps> = ({
 		{ id: 'showRange', label: 'Range Lines', description: 'Vertical lines spanning the range containing this parcel' },
 		{ id: 'showGrid', label: 'Township + Range Cell', description: 'Grid cell (box) where township and range lines intersect' },
 		{ id: 'showSection', label: 'Sections', description: 'Sections within the township-range cell' },
-		{ id: 'showQuarter', label: 'Quarter Sections', description: 'Quarter sections within the township-range cell' }
+		{ id: 'showQuarter', label: 'Quarter Sections', description: 'Quarter sections within the township-range cell' },
+		{ id: 'showSubdivisions', label: 'Subdivisions', description: 'All subdivision features within the township-range cell' }
 	] : [
 		{ id: 'showTownship', label: 'Townships', description: 'Township boundaries (E-W lines)' },
 		{ id: 'showRange', label: 'Ranges', description: 'Range boundaries (N-S lines)' },
 		{ id: 'showGrid', label: 'Township + Range Grid', description: 'Complete PLSS grid system' },
 		{ id: 'showSection', label: 'Sections', description: 'Section boundaries' },
-		{ id: 'showQuarter', label: 'Quarter Sections', description: 'Quarter section boundaries' }
+		{ id: 'showQuarter', label: 'Quarter Sections', description: 'Quarter section boundaries' },
+		{ id: 'showSubdivisions', label: 'Subdivisions', description: 'All subdivision features' }
 	];
 
 	return (
 		<SidePanelSection title="PLSS Overlays">
 			{/* Mode Selection */}
-			<div style={{ display: 'flex', gap: 8, marginBottom: 12, fontSize: 12 }}>
+			<div style={{ 
+				display: 'flex', 
+				gap: 2, 
+				marginBottom: 16, 
+				fontSize: 12,
+				background: 'rgba(255, 255, 255, 0.06)',
+				borderRadius: '6px',
+				padding: '2px'
+			}}>
 				<label style={{ 
 					display: 'flex', 
 					alignItems: 'center', 
-					gap: 4,
-					opacity: containerAvailable ? 1 : 0.5,
-					cursor: containerAvailable ? 'pointer' : 'not-allowed'
+					gap: 6,
+					opacity: containerAvailable ? 1 : 0.4,
+					cursor: containerAvailable ? 'pointer' : 'not-allowed',
+					padding: '6px 12px',
+					borderRadius: '4px',
+					background: mode === 'container' ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
+					color: 'rgba(255, 255, 255, 0.9)',
+					fontWeight: mode === 'container' ? '500' : '400',
+					transition: 'all 0.2s ease',
+					fontSize: '11px',
+					letterSpacing: '0.2px'
 				}}>
 					<input 
 						type="radio" 
@@ -93,15 +124,30 @@ export const PLSSOverlaysSection: React.FC<PLSSOverlaysSectionProps> = ({
 						checked={mode === 'container'} 
 						onChange={() => containerAvailable && setMode('container')}
 						disabled={!containerAvailable}
+						style={{ display: 'none' }}
 					/> 
 					Container
 				</label>
-				<label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+				<label style={{ 
+					display: 'flex', 
+					alignItems: 'center', 
+					gap: 6, 
+					cursor: 'pointer',
+					padding: '6px 12px',
+					borderRadius: '4px',
+					background: mode === 'regional' ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
+					color: 'rgba(255, 255, 255, 0.9)',
+					fontWeight: mode === 'regional' ? '500' : '400',
+					transition: 'all 0.2s ease',
+					fontSize: '11px',
+					letterSpacing: '0.2px'
+				}}>
 					<input 
 						type="radio" 
 						name="plss-mode" 
 						checked={mode === 'regional'} 
 						onChange={() => setMode('regional')} 
+						style={{ display: 'none' }}
 					/> 
 					All in View
 				</label>
@@ -116,20 +162,27 @@ export const PLSSOverlaysSection: React.FC<PLSSOverlaysSectionProps> = ({
 			{mode === 'container' && !containerAvailable && (
 				<div style={{ 
 					fontSize: 11, 
-					color: '#ffa500', 
-					marginBottom: 8,
-					padding: '6px 8px',
-					background: 'rgba(255, 165, 0, 0.1)',
-					borderRadius: '4px'
+					color: 'rgba(255, 193, 7, 0.9)', 
+					marginBottom: 12,
+					padding: '10px 12px',
+					background: 'rgba(255, 193, 7, 0.08)',
+					borderRadius: '6px',
+					border: '1px solid rgba(255, 193, 7, 0.2)',
+					backdropFilter: 'blur(10px)'
 				}}>
-					⚠️ Container mode requires schema data with parcel location
+					Container mode requires schema data with parcel location
 				</div>
 			)}
 
 			{/* PLSS Layer Toggles */}
-			<div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+			<div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 				{overlayOptions.map(option => (
-					<div key={option.id} style={{ display: 'flex', flexDirection: 'column' }}>
+					<div key={option.id} style={{ 
+						display: 'flex', 
+						flexDirection: 'column',
+						padding: '8px 0',
+						borderBottom: '1px solid rgba(255, 255, 255, 0.06)'
+					}}>
 						<ToggleCheckbox 
 							checked={parcelCfg[option.id as keyof ParcelRelativeConfig] as boolean} 
 							label={option.label}
@@ -155,9 +208,11 @@ export const PLSSOverlaysSection: React.FC<PLSSOverlaysSectionProps> = ({
 						/>
 						<div style={{ 
 							fontSize: 10, 
-							color: '#666', 
-							marginLeft: '20px', 
-							marginTop: '2px' 
+							color: 'rgba(255, 255, 255, 0.5)', 
+							marginLeft: '24px', 
+							marginTop: '4px',
+							lineHeight: '1.3',
+							fontWeight: '400'
 						}}>
 							{option.description}
 						</div>
@@ -169,15 +224,17 @@ export const PLSSOverlaysSection: React.FC<PLSSOverlaysSectionProps> = ({
 			{mode === 'container' && containerAvailable && (
 				<div style={{ 
 					fontSize: 10, 
-					color: '#888', 
-					marginTop: 8,
-					padding: '4px 6px',
-					background: 'rgba(255,255,255,0.05)',
-					borderRadius: '3px'
+					color: 'rgba(255, 255, 255, 0.4)', 
+					marginTop: 12,
+					padding: '8px 10px',
+					background: 'rgba(255, 255, 255, 0.03)',
+					borderRadius: '6px',
+					border: '1px solid rgba(255, 255, 255, 0.08)',
+					fontFamily: 'SF Mono, Monaco, Consolas, monospace'
 				}}>
-					🎯 Showing PLSS features within parcel bounds
+					Showing PLSS features within parcel bounds
 					{trsData && (
-						<div style={{ marginTop: '4px' }}>
+						<div style={{ marginTop: '6px', fontSize: '9px' }}>
 							TRS Query: T{trsData.t || '?'}{trsData.td || '?'} R{trsData.r || '?'}{trsData.rd || '?'} S{trsData.s || 'all'}
 						</div>
 					)}

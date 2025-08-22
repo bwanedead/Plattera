@@ -213,7 +213,7 @@ class PLSSQueryBuilder:
     @staticmethod
     def _normalize_plss_info(plss_info: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Normalize PLSS information to standard format
+        Normalize PLSS information to standard format with validation
         
         Args:
             plss_info: Raw PLSS information
@@ -252,6 +252,32 @@ class PLSSQueryBuilder:
             for field in ["state", "county", "principal_meridian"]:
                 if plss_info.get(field):
                     normalized[field] = str(plss_info[field])
+            
+            # CRITICAL VALIDATION: Check if we're accidentally using reference TRS instead of container TRS
+            if 'starting_point' in plss_info and plss_info['starting_point']:
+                starting_point = plss_info['starting_point']
+                if 'tie_to_corner' in starting_point and starting_point['tie_to_corner']:
+                    tie = starting_point['tie_to_corner']
+                    if 'reference_plss' in tie and tie['reference_plss']:
+                        ref_plss = tie['reference_plss']
+                        
+                        # Check if container TRS matches reference TRS (this shouldn't happen)
+                        if (normalized.get('township_number') == ref_plss.get('township_number') and
+                            normalized.get('township_direction') == ref_plss.get('township_direction') and
+                            normalized.get('range_number') == ref_plss.get('range_number') and
+                            normalized.get('range_direction') == ref_plss.get('range_direction')):
+                            
+                            logger.warning(f"⚠️ POTENTIAL TRS CONFUSION: Container TRS matches reference TRS. "
+                                         f"Container: T{normalized.get('township_number')}{normalized.get('township_direction')} "
+                                         f"R{normalized.get('range_number')}{normalized.get('range_direction')}, "
+                                         f"Reference: T{ref_plss.get('township_number')}{ref_plss.get('township_direction')} "
+                                         f"R{ref_plss.get('range_number')}{ref_plss.get('range_direction')}")
+                            
+                        # Log for debugging
+                        logger.info(f"🔍 PLSS TRS Validation - Container: T{normalized.get('township_number')}{normalized.get('township_direction')} "
+                                  f"R{normalized.get('range_number')}{normalized.get('range_direction')}, "
+                                  f"Reference: T{ref_plss.get('township_number')}{ref_plss.get('township_direction')} "
+                                  f"R{ref_plss.get('range_number')}{ref_plss.get('range_direction')}")
             
             logger.info(f"✅ Normalized PLSS info: {normalized}")
             

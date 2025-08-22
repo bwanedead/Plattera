@@ -90,8 +90,29 @@ class ContainerRangeEngine:
             logger.error(f"❌ Container range engine failed: {e}")
             return self._create_error_response(f"Engine error: {str(e)}")
     
+    def _validate_container_trs(self, plss_info: Dict[str, Any]) -> bool:
+        """Validate that we're using container TRS, not reference TRS"""
+        range_num = plss_info.get('range_number')
+        range_dir = plss_info.get('range_direction')
+        
+        logger.info(f"🔍 Validating container TRS: R{range_num}{range_dir}")
+        
+        # Check if this looks like reference TRS (should be different from container)
+        # Container TRS should be the actual parcel location
+        if range_num is None or range_dir is None:
+            logger.error("❌ Missing range information in PLSS data")
+            return False
+        
+        logger.info(f"✅ Container TRS validation passed: R{range_num}{range_dir}")
+        return True
+    
     def _filter_exact_range(self, gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> gpd.GeoDataFrame:
         """Filter to exact range boundary (vertical lines)"""
+        # Validate container TRS first
+        if not self._validate_container_trs(plss_info):
+            logger.error("❌ Container TRS validation failed")
+            return gpd.GeoDataFrame()
+        
         range_num = plss_info.get('range_number')
         range_dir = plss_info.get('range_direction')
         

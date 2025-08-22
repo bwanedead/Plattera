@@ -38,28 +38,28 @@ export const PLSSManager: React.FC<PLSSManagerProps> = ({
   return (
     <div className={`plss-manager ${className}`}>
       {/* Mode Selector */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-4">
-        <h3 className="text-lg font-semibold mb-3 text-gray-800 px-4 pt-4">
+      <div className="bg-gray-900 rounded-xl shadow-lg border border-gray-700 backdrop-blur-sm mb-4">
+        <h3 className="text-lg font-semibold mb-4 text-white px-6 pt-6 tracking-wide">
           PLSS Overlays
         </h3>
         
-        <div className="flex space-x-2 px-4 pb-4">
+        <div className="flex space-x-1 px-6 pb-6">
           <button
             onClick={() => handleModeChange('container')}
-            className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
               mode === 'container'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
             }`}
           >
             Container
           </button>
           <button
             onClick={() => handleModeChange('regional')}
-            className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
               mode === 'regional'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
             }`}
           >
             Regional
@@ -67,7 +67,7 @@ export const PLSSManager: React.FC<PLSSManagerProps> = ({
         </div>
 
         {/* Mode Description */}
-        <div className="px-4 pb-4 text-xs text-gray-600 border-t border-gray-100 pt-3">
+        <div className="px-6 pb-6 text-xs text-gray-400 border-t border-gray-700 pt-4 font-mono">
           {mode === 'container' ? (
             <p>Container overlays show features relative to your parcel</p>
           ) : (
