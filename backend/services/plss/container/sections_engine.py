@@ -156,6 +156,38 @@ class ContainerSectionsEngine:
             logger.info(f"📋 Sample filtered sections:\n{sample}")
         else:
             logger.warning("⚠️ No sections found within cell boundary")
+            
+        # Additional filtering: ensure sections are actually within the cell boundary
+        # Some sections might just touch the boundary, we want sections that are mostly inside
+        if not filtered_gdf.empty:
+            # Calculate intersection area ratio for each section
+            def calculate_intersection_ratio(row):
+                try:
+                    intersection = row.geometry.intersection(cell_boundary)
+                    if intersection.is_empty:
+                        return 0.0
+                    intersection_area = intersection.area
+                    section_area = row.geometry.area
+                    if section_area == 0:
+                        return 0.0
+                    return intersection_area / section_area
+                except Exception:
+                    return 0.0
+            
+            filtered_gdf['intersection_ratio'] = filtered_gdf.apply(calculate_intersection_ratio, axis=1)
+            
+            # Only keep sections where at least 50% of the section is within the cell
+            significant_sections = filtered_gdf[filtered_gdf['intersection_ratio'] >= 0.5].copy()
+            
+            logger.info(f"🔍 Significant sections filter: {len(filtered_gdf)} → {len(significant_sections)} (50%+ within cell)")
+            
+            if not significant_sections.empty:
+                sample = significant_sections[['FRSTDIVNO', 'intersection_ratio']].head(5)
+                logger.info(f"📋 Sample significant sections:\n{sample}")
+            
+            # Remove the intersection_ratio column before returning
+            significant_sections = significant_sections.drop(columns=['intersection_ratio'])
+            return significant_sections
         
         return filtered_gdf
     
@@ -202,8 +234,9 @@ class ContainerSectionsEngine:
             if hasattr(geom, 'geom_type') and geom.geom_type == 'MultiPolygon':
                 geom = max(geom.geoms, key=lambda p: p.area)
             
-            # Create label for section
-            section_label = f"S{row.get('SECTIONNO', '?')}"
+            # Create label for section - use FRSTDIVNO which contains the section number
+            section_number = row.get('FRSTDIVNO')
+            section_label = f"S{section_number}" if section_number else "S?"
             
             feature = {
                 "type": "Feature",
@@ -212,7 +245,8 @@ class ContainerSectionsEngine:
                     "coordinates": [list(geom.exterior.coords)]
                 },
                 "properties": {
-                    "section_number": row.get('SECTIONNO'),
+                    "section_number": section_number,
+                    "SECNUM": section_number,  # Alternative field name for compatibility
                     "township_number": plss_info.get('township_number'),
                     "township_direction": plss_info.get('township_direction'),
                     "range_number": plss_info.get('range_number'),

@@ -69,6 +69,8 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
     }
   }, []);
 
+
+
   // 🎯 HELPER FUNCTIONS - Defined first to avoid scope issues
   
   const calculateBoundaryAngle = useCallback((coordinates: number[][], index: number): number => {

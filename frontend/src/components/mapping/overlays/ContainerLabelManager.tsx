@@ -418,13 +418,19 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
     const rangeStr = `R${props.range_number?.toString().padStart(2, '0') || '??'}${props.range_direction || 'W'}`;
     const gridLabel = `${townshipStr} ${rangeStr}`;
     
-    console.log(`🏷️ Generated grid label: ${gridLabel} for feature ${props.feature_type || 'unknown'}`);
+    console.log(`🏷️ Generated township cell label: ${gridLabel} for feature ${props.feature_type || 'unknown'}`);
+    
+    // Position label at the top edge of the township cell
+    const topEdgePoint: [number, number] = [
+      analysis.center[0],
+      analysis.bounds.maxY - (analysis.bounds.maxY - analysis.bounds.minY) * 0.1 // 10% from top
+    ];
     
     return [{
       type: 'Feature',
       geometry: {
         type: 'Point',
-        coordinates: analysis.center as [number, number]
+        coordinates: topEdgePoint
       },
       properties: {
         label: gridLabel,
@@ -536,22 +542,41 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
       }
     }
     
-    const sectionLabel = sectionNumber ? `Section ${sectionNumber}` : 'Section';
+    // If still no section number, try to extract from feature ID or other properties
+    if (!sectionNumber && props.feature_id) {
+      const idMatch = props.feature_id.match(/(\d+)/);
+      if (idMatch) {
+        sectionNumber = parseInt(idMatch[1]);
+      }
+    }
+    
+    // Default to section 1 if no number found
+    if (!sectionNumber) {
+      sectionNumber = 1;
+    }
+    
+    const sectionLabel = `${sectionNumber}`;
     
     console.log(`🏷️ Generated section label: ${sectionLabel} for feature ${props.feature_type || 'unknown'}`);
+    
+    // Position label at the top edge of the section cell with arrow pointing down
+    const topEdgePoint: [number, number] = [
+      analysis.center[0],
+      analysis.bounds.maxY - (analysis.bounds.maxY - analysis.bounds.minY) * 0.1 // 10% from top
+    ];
     
     return [{
       type: 'Feature',
       geometry: {
         type: 'Point',
-        coordinates: analysis.center as [number, number]
+        coordinates: topEdgePoint
       },
       properties: {
         label: sectionLabel,
         type: 'section-primary',
         style: 'section',
         angle: 0,
-        featureId: `${layerType}-${sectionNumber || 'unknown'}`
+        featureId: `${layerType}-${sectionNumber}`
       }
     }];
   }, [analyzeFeatureGeometry, layerType]);
@@ -621,6 +646,20 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
 
   // 🎨 LABEL STYLING
   const getLabelStyle = useCallback((style: string, zoom: number, color: string, angle: number): string => {
+    // Add arrow for section labels to point down to the section
+    const arrowStyle = style === 'section' ? `
+      &::after {
+        content: '▼';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 8px;
+        color: ${color};
+        text-shadow: none;
+      }
+    ` : '';
+    
     const baseStyle = `
       position: absolute;
       pointer-events: none;
@@ -636,6 +675,7 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
       color: white;
       padding: 1px 3px;
       text-shadow: 1px 1px 1px rgba(0,0,0,0.3);
+      ${arrowStyle}
     `;
     
     // Adjust font size based on zoom and style
