@@ -44,8 +44,16 @@ class ContainerQuarterSectionsEngine:
                 logger.error("❌ No valid geometry column found in quarter sections data")
                 return self._create_error_response("No valid geometry column found in quarter sections data")
             
+            # Get the specific township-range cell boundary from the sections data
+            cell_boundary = self._get_cell_boundary(quarter_sections_gdf, plss_info)
+            if cell_boundary is None:
+                logger.error("❌ Could not determine cell boundary from quarter sections data")
+                return self._create_error_response("Could not determine cell boundary from quarter sections data")
+            
+            logger.info(f"🎯 Cell boundary determined: {cell_boundary}")
+            
             # Filter quarter sections using spatial intersection with the cell boundary
-            filtered_gdf = self._filter_exact_quarter_sections(quarter_sections_gdf, plss_info)
+            filtered_gdf = self._filter_quarter_sections_by_spatial_intersection(quarter_sections_gdf, cell_boundary)
             logger.info(f"🎯 Quarter sections spatial filtering result: {filtered_gdf.shape} features")
             
             # Validate spatial bounds
@@ -75,45 +83,59 @@ class ContainerQuarterSectionsEngine:
             logger.error(f"❌ Container quarter sections engine failed: {e}")
             return self._create_error_response(f"Engine error: {str(e)}")
     
-    def _filter_exact_quarter_sections(self, gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> gpd.GeoDataFrame:
-        """Filter to exact township-range cell for quarter sections"""
-        township_num = plss_info.get('township_number')
-        township_dir = plss_info.get('township_direction')
-        range_num = plss_info.get('range_number')
-        range_dir = plss_info.get('range_direction')
+    def _filter_quarter_sections_by_spatial_intersection(self, quarter_sections_gdf: gpd.GeoDataFrame, cell_boundary: Any) -> gpd.GeoDataFrame:
+        """Filter quarter sections using spatial intersection with the cell boundary"""
+        logger.info(f"🎯 Filtering {len(quarter_sections_gdf)} quarter sections by spatial intersection")
         
-        logger.info(f"🎯 Filtering quarter sections for: T{township_num}{township_dir} R{range_num}{range_dir}")
+        # Find quarter sections that intersect with the cell boundary
+        intersecting_mask = quarter_sections_gdf.geometry.intersects(cell_boundary)
+        filtered_gdf = quarter_sections_gdf[intersecting_mask].copy()
         
-        # CRITICAL FIX: Quarter sections data doesn't have township/range columns
-        # We need to get the cell boundary from townships data first
-        cell_boundary = self._get_cell_boundary(gdf, plss_info)
+        logger.info(f"✅ Spatial intersection filter applied: {len(filtered_gdf)} quarter sections intersect cell boundary")
         
-        if cell_boundary is None:
-            logger.error(f"❌ No cell boundary found for T{township_num}{township_dir} R{range_num}{range_dir}")
-            return gpd.GeoDataFrame()
-        
-        # Filter quarter sections to only those within the cell boundary
-        try:
-            # Use spatial intersection to filter quarter sections within the cell
-            intersecting = gdf[gdf.geometry.intersects(cell_boundary)]
+        # Additional filtering: ensure quarter sections are actually within the cell boundary
+        # Some quarter sections might just touch the boundary, we want quarter sections that are mostly inside
+        if not filtered_gdf.empty:
+            # Calculate intersection area ratio for each quarter section
+            def calculate_intersection_ratio(row):
+                try:
+                    intersection = row.geometry.intersection(cell_boundary)
+                    if intersection.is_empty:
+                        return 0.0
+                    intersection_area = intersection.area
+                    quarter_section_area = row.geometry.area
+                    if quarter_section_area == 0:
+                        return 0.0
+                    return intersection_area / quarter_section_area
+                except Exception:
+                    return 0.0
             
-            logger.info(f"✅ Quarter sections filter applied: {len(intersecting)} features found in cell")
+            filtered_gdf['intersection_ratio'] = filtered_gdf.apply(calculate_intersection_ratio, axis=1)
             
-            # NEW: Filter to only true quarter sections (NE, NW, SE, SW), not smaller subdivisions
-            true_quarter_sections = self._filter_to_true_quarter_sections(intersecting)
+            # Only keep quarter sections where at least 50% of the quarter section is within the cell
+            significant_quarter_sections = filtered_gdf[filtered_gdf['intersection_ratio'] >= 0.5].copy()
+            
+            logger.info(f"🔍 Significant quarter sections filter: {len(filtered_gdf)} → {len(significant_quarter_sections)} (50%+ within cell)")
+            
+            # Now filter to only true quarter sections (NE, NW, SE, SW), not smaller subdivisions
+            true_quarter_sections = self._filter_to_true_quarter_sections(significant_quarter_sections)
+            
+            # Remove the intersection_ratio column before returning
+            if not true_quarter_sections.empty and 'intersection_ratio' in true_quarter_sections.columns:
+                true_quarter_sections = true_quarter_sections.drop(columns=['intersection_ratio'])
             
             # Log sample of filtered features
             if not true_quarter_sections.empty:
                 available_cols = [col for col in ['SECDIVTXT', 'SECDIVNO'] if col in true_quarter_sections.columns]
                 if available_cols:
-                    sample = true_quarter_sections[available_cols].head(3)
+                    sample = true_quarter_sections[available_cols].head(5)
                     logger.info(f"📋 Sample filtered quarter sections:\n{sample}")
+            else:
+                logger.warning("⚠️ No quarter sections found within cell boundary")
             
             return true_quarter_sections
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to filter quarter sections: {e}")
-            return gpd.GeoDataFrame()
+        
+        return filtered_gdf
     
     def _get_cell_boundary(self, quarter_sections_gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> Optional[Any]:
         """Get the boundary of the specific township-range cell from townships data"""

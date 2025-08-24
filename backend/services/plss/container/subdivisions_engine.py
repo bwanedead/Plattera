@@ -43,8 +43,16 @@ class ContainerSubdivisionsEngine:
                 logger.error("❌ No valid geometry column found in subdivisions data")
                 return self._create_error_response("No valid geometry column found in subdivisions data")
             
+            # Get the specific township-range cell boundary from the subdivisions data
+            cell_boundary = self._get_cell_boundary(subdivisions_gdf, plss_info)
+            if cell_boundary is None:
+                logger.error("❌ Could not determine cell boundary from subdivisions data")
+                return self._create_error_response("Could not determine cell boundary from subdivisions data")
+            
+            logger.info(f"🎯 Cell boundary determined: {cell_boundary}")
+            
             # Filter subdivisions using spatial intersection with the cell boundary
-            filtered_gdf = self._filter_exact_subdivisions(subdivisions_gdf, plss_info)
+            filtered_gdf = self._filter_subdivisions_by_spatial_intersection(subdivisions_gdf, cell_boundary)
             logger.info(f"🎯 Subdivisions spatial filtering result: {filtered_gdf.shape} features")
             
             # Validate spatial bounds
@@ -74,41 +82,56 @@ class ContainerSubdivisionsEngine:
             logger.error(f"❌ Container subdivisions engine failed: {e}")
             return self._create_error_response(f"Engine error: {str(e)}")
     
-    def _filter_exact_subdivisions(self, gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> gpd.GeoDataFrame:
-        """Filter to exact township-range cell for subdivisions"""
-        township_num = plss_info.get('township_number')
-        township_dir = plss_info.get('township_direction')
-        range_num = plss_info.get('range_number')
-        range_dir = plss_info.get('range_direction')
+    def _filter_subdivisions_by_spatial_intersection(self, subdivisions_gdf: gpd.GeoDataFrame, cell_boundary: Any) -> gpd.GeoDataFrame:
+        """Filter subdivisions using spatial intersection with the cell boundary"""
+        logger.info(f"🎯 Filtering {len(subdivisions_gdf)} subdivisions by spatial intersection")
         
-        logger.info(f"🎯 Filtering subdivisions for: T{township_num}{township_dir} R{range_num}{range_dir}")
+        # Find subdivisions that intersect with the cell boundary
+        intersecting_mask = subdivisions_gdf.geometry.intersects(cell_boundary)
+        filtered_gdf = subdivisions_gdf[intersecting_mask].copy()
         
-        # Get the cell boundary from townships data first
-        cell_boundary = self._get_cell_boundary(gdf, plss_info)
+        logger.info(f"✅ Spatial intersection filter applied: {len(filtered_gdf)} subdivisions intersect cell boundary")
         
-        if cell_boundary is None:
-            logger.error(f"❌ No cell boundary found for T{township_num}{township_dir} R{range_num}{range_dir}")
-            return gpd.GeoDataFrame()
-        
-        # Filter subdivisions to only those within the cell boundary
-        try:
-            # Use spatial intersection to filter subdivisions within the cell
-            intersecting = gdf[gdf.geometry.intersects(cell_boundary)]
+        # Additional filtering: ensure subdivisions are actually within the cell boundary
+        # Some subdivisions might just touch the boundary, we want subdivisions that are mostly inside
+        if not filtered_gdf.empty:
+            # Calculate intersection area ratio for each subdivision
+            def calculate_intersection_ratio(row):
+                try:
+                    intersection = row.geometry.intersection(cell_boundary)
+                    if intersection.is_empty:
+                        return 0.0
+                    intersection_area = intersection.area
+                    subdivision_area = row.geometry.area
+                    if subdivision_area == 0:
+                        return 0.0
+                    return intersection_area / subdivision_area
+                except Exception:
+                    return 0.0
             
-            logger.info(f"✅ Subdivisions filter applied: {len(intersecting)} features found in cell")
+            filtered_gdf['intersection_ratio'] = filtered_gdf.apply(calculate_intersection_ratio, axis=1)
+            
+            # Only keep subdivisions where at least 50% of the subdivision is within the cell
+            significant_subdivisions = filtered_gdf[filtered_gdf['intersection_ratio'] >= 0.5].copy()
+            
+            logger.info(f"🔍 Significant subdivisions filter: {len(filtered_gdf)} → {len(significant_subdivisions)} (50%+ within cell)")
+            
+            # Remove the intersection_ratio column before returning
+            if not significant_subdivisions.empty and 'intersection_ratio' in significant_subdivisions.columns:
+                significant_subdivisions = significant_subdivisions.drop(columns=['intersection_ratio'])
             
             # Log sample of filtered features
-            if not intersecting.empty:
-                available_cols = [col for col in ['SECDIVTXT', 'SECDIVNO', 'GISACRE'] if col in intersecting.columns]
+            if not significant_subdivisions.empty:
+                available_cols = [col for col in ['SECDIVTXT', 'SECDIVNO', 'GISACRE'] if col in significant_subdivisions.columns]
                 if available_cols:
-                    sample = intersecting[available_cols].head(3)
+                    sample = significant_subdivisions[available_cols].head(5)
                     logger.info(f"📋 Sample filtered subdivisions:\n{sample}")
+            else:
+                logger.warning("⚠️ No subdivisions found within cell boundary")
             
-            return intersecting
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to filter subdivisions: {e}")
-            return gpd.GeoDataFrame()
+            return significant_subdivisions
+        
+        return filtered_gdf
     
     def _get_cell_boundary(self, subdivisions_gdf: gpd.GeoDataFrame, plss_info: Dict[str, Any]) -> Optional[Any]:
         """Get the boundary of the specific township-range cell from townships data"""
