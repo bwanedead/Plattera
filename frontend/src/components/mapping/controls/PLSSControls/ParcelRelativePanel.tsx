@@ -24,11 +24,11 @@ export const ParcelRelativePanel: React.FC<ParcelRelativePanelProps> = ({ config
 			<div style={{ fontSize: 12, fontWeight: 600, color: '#333', marginBottom: 8 }}>Container-relative overlays</div>
 			<label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
 				<input type="checkbox" checked={config.showTownship} onChange={(e) => update({ showTownship: e.target.checked })} />
-				<span>Township</span>
+				<span>Township Lines</span>
 			</label>
 			<label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
 				<input type="checkbox" checked={config.showRange} onChange={(e) => update({ showRange: e.target.checked })} />
-				<span>Range</span>
+				<span>Range Lines</span>
 			</label>
 			<label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
 				<input type="checkbox" checked={config.showSection} onChange={(e) => update({ showSection: e.target.checked })} />

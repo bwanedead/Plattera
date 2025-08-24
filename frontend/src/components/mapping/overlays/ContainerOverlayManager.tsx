@@ -6,23 +6,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ContainerApi, ContainerLayer, ContainerRequest } from '../../../services/plss/containerApi';
-
-
-export interface ContainerOverlayState {
-  showGrid: boolean;
-  showTownship: boolean;
-  showRange: boolean;
-  showSections: boolean;
-  showQuarterSections: boolean;
-  showSubdivisions: boolean;
-  // Label visibility states
-  showGridLabels: boolean;
-  showTownshipLabels: boolean;
-  showRangeLabels: boolean;
-  showSectionLabels: boolean;
-  showQuarterSectionLabels: boolean;
-  showSubdivisionLabels: boolean;
-}
+import { ContainerOverlayState } from '../../../hooks/useContainerOverlayState';
+import { ContainerLabelManager, ContainerLabelOptions } from './ContainerLabelManager';
 
 interface ContainerOverlayManagerProps {
   map: any;
@@ -84,6 +69,85 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
     }
   }, []);
 
+  // 🎯 HELPER FUNCTIONS - Defined first to avoid scope issues
+  
+  const calculateBoundaryAngle = useCallback((coordinates: number[][], index: number): number => {
+    const prevIndex = Math.max(0, index - 1);
+    const nextIndex = Math.min(coordinates.length - 1, index + 1);
+    
+    const dx = coordinates[nextIndex][0] - coordinates[prevIndex][0];
+    const dy = coordinates[nextIndex][1] - coordinates[prevIndex][1];
+    
+    return Math.atan2(dy, dx) * 180 / Math.PI;
+  }, []);
+  
+
+  
+
+
+  // Remove layer from map
+  const removeLayerFromMap = useCallback((layer: ContainerLayer) => {
+    if (!map) return;
+
+    const layerId = `container-${layer}`;
+    const sourceId = `container-${layer}-source`;
+
+    try {
+      // Remove layer overlays
+      if (map.getLayer(layerId)) {
+        map.removeLayer(layerId);
+      }
+      if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+      }
+      
+      console.log(`🗑️ Container ${layer} overlay unloaded`);
+    } catch (error) {
+      console.warn(`⚠️ Error unloading ${layer}:`, error);
+    }
+  }, [map]);
+
+  // Add layer to map with proper styling
+  const addLayerToMap = useCallback((layer: ContainerLayer, features: any[]) => {
+    if (!map) return;
+
+    const layerId = `container-${layer}`;
+    const sourceId = `container-${layer}-source`;
+    const color = getLayerColor(layer);
+    const opacity = getLayerOpacity(layer);
+
+    // Remove existing layer if it exists
+    if (map.getLayer(layerId)) {
+      map.removeLayer(layerId);
+    }
+    if (map.getSource(sourceId)) {
+      map.removeSource(sourceId);
+    }
+
+    // Add source
+    map.addSource(sourceId, {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: features
+      }
+    });
+
+    // Add layer with professional styling
+    map.addLayer({
+      id: layerId,
+      type: 'line',
+      source: sourceId,
+      paint: {
+        'line-color': color,
+        'line-width': layer === 'grid' ? 3 : layer === 'township' || layer === 'range' ? 2 : 1,
+        'line-opacity': opacity
+      }
+    });
+
+    console.log(`✅ Added ${layer} layer to map with ${features.length} features`);
+  }, [map, getLayerColor, getLayerOpacity]);
+
   // Load a single container overlay layer
   const loadLayer = useCallback(async (layer: ContainerLayer) => {
     if (!schemaData || !containerBounds || !state) {
@@ -98,329 +162,128 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
     abortController.current = new AbortController();
 
     setLoadingLayers(prev => new Set(prev).add(layer));
-    setLayerErrors(prev => {
-      const newMap = new Map(prev);
-      newMap.delete(layer);
-      return newMap;
-    });
 
     try {
+      console.log(`🚀 Loading container ${layer} overlay for ${state}`);
+      
       const request: ContainerRequest = {
         schema_data: schemaData,
-        container_bounds: containerBounds,
+        container_bounds: containerBounds
       };
 
-      // Validate request before sending
-      const validation = containerApi.current.validateRequest(request);
-      if (!validation.valid) {
-        throw new Error(`Invalid request: ${validation.errors.join(', ')}`);
-      }
-
-      const result = await containerApi.current.getOverlay(
-        layer, 
-        state, 
-        request, 
-        abortController.current.signal
-      );
-
-      // Add to map
-      const layerId = `container-${layer}`;
+      const result = await containerApi.current.getOverlay(layer, state, request, abortController.current.signal);
+      const features = result.features;
       
-      // Remove existing layer if it exists
-      if (map.getLayer(layerId)) {
-        map.removeLayer(layerId);
-      }
-      if (map.getSource(layerId)) {
-        map.removeSource(layerId);
-      }
-
-      // Add new source and layer
-      map.addSource(layerId, {
-        type: 'geojson',
-        data: result,
-      });
-
-      map.addLayer({
-        id: layerId,
-        type: 'line',
-        source: layerId,
-        paint: {
-          'line-color': getLayerColor(layer),
-          'line-width': 2,
-          'line-opacity': getLayerOpacity(layer),
-        },
-        layout: {
-          'line-join': 'round',
-          'line-cap': 'round',
-        },
-      });
-
-      // Update state
-      setLayerData(prev => new Map(prev).set(layer, result.features));
+      console.log(`✅ Container ${layer} overlay loaded: ${features.length} features`);
+      
+      // Store the data
+      setLayerData(prev => new Map(prev).set(layer, features));
       setActiveLayers(prev => new Set(prev).add(layer));
+      setLayerErrors(prev => {
+        const newErrors = new Map(prev);
+        newErrors.delete(layer);
+        return newErrors;
+      });
       
-      onOverlayLoad?.(layer, result.features);
-
-      console.log(`✅ Container ${layer} overlay loaded: ${result.features.length} features`);
-
-    } catch (error: unknown) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        console.log(`🔄 Container ${layer} overlay request cancelled`);
-        return;
-      }
+      // Add to map
+      addLayerToMap(layer, features);
       
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      // Callback
+      onOverlayLoad?.(layer, features);
+      
+    } catch (error: any) {
       console.error(`❌ Container ${layer} overlay failed:`, error);
+      
+      const errorMessage = error.message || 'Unknown error';
       setLayerErrors(prev => new Map(prev).set(layer, errorMessage));
+      
+      // Callback
       onOverlayError?.(layer, errorMessage);
     } finally {
       setLoadingLayers(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(layer);
-        return newSet;
+        const newLoading = new Set(prev);
+        newLoading.delete(layer);
+        return newLoading;
       });
     }
-  }, [map, schemaData, containerBounds, state, onOverlayLoad, onOverlayError, getLayerColor, getLayerOpacity]);
+  }, [schemaData, containerBounds, state, onOverlayLoad, onOverlayError, addLayerToMap]);
 
   // Unload a single container overlay layer
-  const unloadLayer = useCallback((layerType: string) => {
-    if (!map || !map.getCanvas()) {
-      console.log(`⚠️ Map not available when trying to unload ${layerType}`);
-      return;
-    }
+  const unloadLayer = useCallback((layer: ContainerLayer) => {
+    console.log(`🗑️ Unloading container ${layer} overlay`);
     
-    try {
-      const layerId = `container-${layerType}`;
-      const sourceId = `container-${layerType}-source`;
-      
-      // Check if layer exists before trying to remove it
-      if (map.getLayer && map.getLayer(layerId)) {
-        map.removeLayer(layerId);
-      }
-      
-      // Check if source exists before trying to remove it
-      if (map.getSource && map.getSource(sourceId)) {
-        map.removeSource(sourceId);
-      }
-      
-      console.log(`🗑️ Container ${layerType} overlay unloaded`);
-    } catch (error) {
-      console.warn(`⚠️ Error unloading ${layerType}:`, error);
-    }
-  }, [map]);
-
-  // Add label layers to map
-  const addLabelLayer = useCallback((layerId: string, features: any[], color: string) => {
-    console.log(`🚀 Starting label layer creation for ${layerId}`);
-    console.log(`📊 Input features: ${features.length}`);
-    console.log(`🎨 Label color: ${color}`);
+    // Remove from map
+    removeLayerFromMap(layer);
     
-    if (!map) {
-      console.log('❌ Map not available for label layer');
-      return;
-    }
-    
-    const labelLayerId = `${layerId}-labels`;
-    
-    // Remove existing label layer if it exists
-    if (map.getLayer(labelLayerId)) {
-      map.removeLayer(labelLayerId);
-    }
-    if (map.getSource(labelLayerId)) {
-      map.removeSource(labelLayerId);
-    }
-    
-    // Create multiple label points along feature boundaries with offset
-    const labelFeatures: any[] = [];
-    features.forEach(feature => {
-      console.log('🔍 Feature properties:', feature.properties);
-      const label = feature.properties.label || feature.properties.display_label || 'Label';
-      console.log('🏷️ Using label:', label);
-      const coordinates = feature.geometry.coordinates[0];
-      
-      // Create multiple label points along the boundary with offset
-      const numLabels = Math.min(6, Math.floor(coordinates.length / 3)); // More labels for better coverage
-      for (let i = 0; i < numLabels; i++) {
-        const index = Math.floor((i + 1) * coordinates.length / (numLabels + 1));
-        const coord = coordinates[index];
-        
-        // Calculate offset perpendicular to the boundary
-        const prevIndex = (index - 1 + coordinates.length) % coordinates.length;
-        const nextIndex = (index + 1) % coordinates.length;
-        
-        const prevCoord = coordinates[prevIndex];
-        const nextCoord = coordinates[nextIndex];
-        
-        // Calculate direction vector
-        const dx = nextCoord[0] - prevCoord[0];
-        const dy = nextCoord[1] - prevCoord[1];
-        const length = Math.sqrt(dx * dx + dy * dy);
-        
-        // Normalize and create perpendicular vector (offset direction)
-        if (length > 0) {
-          const offsetDistance = 0.0001; // Small offset in degrees
-          const perpX = -dy / length * offsetDistance;
-          const perpY = dx / length * offsetDistance;
-          
-          // Create offset point
-          const offsetCoord = [coord[0] + perpX, coord[1] + perpY];
-          
-          labelFeatures.push({
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: offsetCoord
-            },
-            properties: {
-              label: label,
-              angle: Math.atan2(dy, dx) * 180 / Math.PI
-            }
-          });
-        }
-      }
+    // Remove from state
+    setActiveLayers(prev => {
+      const newActive = new Set(prev);
+      newActive.delete(layer);
+      return newActive;
     });
     
-    console.log('📝 Created label features:', labelFeatures.length);
-    
-    // Add label source
-    map.addSource(labelLayerId, {
-      type: 'geojson',
-      data: {
-        type: 'FeatureCollection',
-        features: labelFeatures
-      }
+    setLayerData(prev => {
+      const newData = new Map(prev);
+      newData.delete(layer);
+      return newData;
     });
     
-    // Use a simple circle layer instead of text to avoid glyphs requirement
-    console.log(`🎯 Creating circle markers for ${labelLayerId}`);
-    
-    // Add a simple circle layer to show label positions
-    map.addLayer({
-      id: labelLayerId,
-      type: 'circle',
-      source: labelLayerId,
-      paint: {
-        'circle-radius': 8,
-        'circle-color': color,
-        'circle-stroke-color': 'white',
-        'circle-stroke-width': 2,
-        'circle-opacity': 0.8
-      }
+    setLayerErrors(prev => {
+      const newErrors = new Map(prev);
+      newErrors.delete(layer);
+      return newErrors;
     });
     
-    console.log(`✅ Created circle markers for ${labelLayerId} with ${labelFeatures.length} points`);
-    
-    console.log(`🎨 Label color: ${color}`);
-    console.log(`📝 Final label features: ${labelFeatures.length}`);
-    
-    // Verify the layer was actually added
-    setTimeout(() => {
-      if (map.getLayer(labelLayerId)) {
-        console.log(`✅ Confirmed: Label layer ${labelLayerId} exists on map`);
-      } else {
-        console.log(`❌ ERROR: Label layer ${labelLayerId} was not added to map`);
-      }
-    }, 100);
-  }, [map]);
+    // Callback
+    onOverlayUnload?.(layer);
+  }, [removeLayerFromMap, onOverlayUnload]);
 
-  // Determine which layers should be active based on overlay state
-  const getDesiredLayers = useCallback((): ContainerLayer[] => {
-    const layers: ContainerLayer[] = [];
-    
-    if (overlayState.showGrid) layers.push('grid');
-    if (overlayState.showTownship) layers.push('township');
-    if (overlayState.showRange) layers.push('range');
-    if (overlayState.showSections) layers.push('sections');
-    if (overlayState.showQuarterSections) layers.push('quarter-sections');
-    if (overlayState.showSubdivisions) layers.push('subdivisions');
-    
-    return layers;
-  }, [overlayState]);
 
-  // Update overlays based on state changes
+
+  // Handle overlay state changes
   useEffect(() => {
-    const desiredLayers = getDesiredLayers();
-    const currentLayers = Array.from(activeLayers);
+    if (!map) return;
+
+    // Determine which layers should be active based on overlay state
+    const desiredLayers = new Set<ContainerLayer>();
     
-    // Unload layers that are no longer desired
-    currentLayers.forEach(layer => {
-      if (!desiredLayers.includes(layer)) {
-        unloadLayer(layer);
-        setActiveLayers(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(layer);
-          return newSet;
-        });
-      }
-    });
-    
-    // Load layers that are desired but not active
+    if (overlayState.showGrid) desiredLayers.add('grid');
+    if (overlayState.showTownship) desiredLayers.add('township');
+    if (overlayState.showRange) desiredLayers.add('range');
+    if (overlayState.showSections) desiredLayers.add('sections');
+    if (overlayState.showQuarterSections) desiredLayers.add('quarter-sections');
+    if (overlayState.showSubdivisions) desiredLayers.add('subdivisions');
+
+    // Load new layers
     desiredLayers.forEach(layer => {
       if (!activeLayers.has(layer) && !loadingLayers.has(layer)) {
         loadLayer(layer);
       }
     });
-  }, [overlayState, getDesiredLayers, loadLayer, unloadLayer, activeLayers, loadingLayers]);
 
-  // Handle label visibility changes
-  useEffect(() => {
-    if (!map) return;
-    
-    console.log('🔄 Label visibility changed:', {
-      showGridLabels: overlayState.showGridLabels,
-      showTownshipLabels: overlayState.showTownshipLabels,
-      showRangeLabels: overlayState.showRangeLabels,
-      showSectionLabels: overlayState.showSectionLabels,
-      showQuarterSectionLabels: overlayState.showQuarterSectionLabels,
-      showSubdivisionLabels: overlayState.showSubdivisionLabels
-    });
-    
-    // Check each layer for label visibility
-    const labelStates = [
-      { layer: 'grid', show: overlayState.showGridLabels },
-      { layer: 'township', show: overlayState.showTownshipLabels },
-      { layer: 'range', show: overlayState.showRangeLabels },
-      { layer: 'sections', show: overlayState.showSectionLabels },
-      { layer: 'quarter-sections', show: overlayState.showQuarterSectionLabels },
-      { layer: 'subdivisions', show: overlayState.showSubdivisionLabels }
-    ];
-    
-    labelStates.forEach(({ layer, show }) => {
-      const layerId = `container-${layer}`;
-      const labelLayerId = `${layerId}-labels`;
-      
-      console.log(`🎯 Processing label for ${layer}:`, { show, hasData: layerData.has(layer as ContainerLayer) });
-      
-      if (show && layerData.has(layer as ContainerLayer)) {
-        // Add label layer
-        const features = layerData.get(layer as ContainerLayer) || [];
-        const color = getLayerColor(layer as ContainerLayer);
-        console.log(`✅ Adding label layer for ${layer} with ${features.length} features`);
-        addLabelLayer(layerId, features, color);
-      } else {
-        // Remove label layer
-        if (map.getLayer(labelLayerId)) {
-          console.log(`🗑️ Removing label layer for ${layer}`);
-          map.removeLayer(labelLayerId);
-        }
-        if (map.getSource(labelLayerId)) {
-          map.removeSource(labelLayerId);
-        }
+    // Unload layers that are no longer needed
+    activeLayers.forEach(layer => {
+      if (!desiredLayers.has(layer)) {
+        unloadLayer(layer);
       }
     });
-  }, [map, overlayState, layerData, addLabelLayer, getLayerColor]);
+  }, [map, overlayState, activeLayers, loadingLayers, loadLayer, unloadLayer]);
 
-  // Cleanup on unmount only
+
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (abortController.current) {
         abortController.current.abort();
       }
+      
       // Clean up all layers on unmount
       ['township', 'range', 'grid', 'sections', 'quarter-sections', 'subdivisions'].forEach(layer => {
         try {
           const layerId = `container-${layer}`;
           const sourceId = `container-${layer}-source`;
+          const labelLayerId = `${layerId}-labels`;
           
           if (map?.getLayer?.(layerId)) {
             map.removeLayer(layerId);
@@ -428,13 +291,70 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
           if (map?.getSource?.(sourceId)) {
             map.removeSource(sourceId);
           }
+          
+          // Clean up label layers
+          if (map?.getLayer?.(labelLayerId)) {
+            map.removeLayer(labelLayerId);
+          }
+          if (map?.getSource?.(labelLayerId)) {
+            map.removeSource(labelLayerId);
+          }
         } catch (error) {
           // Ignore cleanup errors
         }
       });
+      
+      // Remove all HTML label overlays to prevent memory leaks
+      try {
+        const allLabelOverlays = document.querySelectorAll('[data-label-layer]');
+        allLabelOverlays.forEach(overlay => overlay.remove());
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+      
+      // Clear cached references to prevent memory leaks
+      if ((window as any)._cachedSidePanel) {
+        (window as any)._cachedSidePanel = null;
+      }
+      if ((map as any)._lastZoomLevel) {
+        (map as any)._lastZoomLevel = null;
+      }
     };
-  }, [map]); // Only depend on map, not activeLayers
+  }, [map]);
 
-  // Don't render anything - this is a logic-only component
-  return null;
+  // 🏷️ RENDER CONTAINER LABEL MANAGERS
+  return (
+    <>
+      {/* Render label managers for each active layer */}
+      {Array.from(activeLayers).map(layer => {
+        const features = layerData.get(layer) || [];
+        const color = getLayerColor(layer);
+        
+        // Create label options from overlay state
+        const labelOptions: ContainerLabelOptions = {
+          showGridLabels: overlayState.showGridLabels,
+          showTownshipLabels: overlayState.showTownshipLabels,
+          showRangeLabels: overlayState.showRangeLabels,
+          showSectionLabels: overlayState.showSectionLabels,
+          showQuarterSectionLabels: overlayState.showQuarterSectionLabels,
+          showSubdivisionLabels: overlayState.showSubdivisionLabels,
+        };
+        
+        return (
+          <ContainerLabelManager
+            key={`label-${layer}`}
+            map={map}
+            layerId={`container-${layer}`}
+            features={features}
+            layerType={layer}
+            color={color}
+            options={labelOptions}
+            onLabelsCreated={(labelFeatures) => {
+              console.log(`✅ Labels created for ${layer}: ${labelFeatures.length} features`);
+            }}
+          />
+        );
+      })}
+    </>
+  );
 };
