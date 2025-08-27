@@ -1,122 +1,174 @@
 """
-POB Resolver
-Resolves POB in UTM from PLSS corner + tie, and produces UTM vertices from local coords.
+Point of Beginning (POB) Resolver
+Fresh implementation for calculating the Point of Beginning from PLSS and tie information.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Optional
 import logging
 
-from pipelines.mapping.projection.pipeline import ProjectionPipeline
-from pipelines.mapping.plss.pipeline import PLSSPipeline
-from pipelines.mapping.common.units import FEET_TO_METERS
-from .pob_math import (
-    flip_display_to_survey,
-    normalize_local,
-    parse_tie_with_azimuth,
-    parse_corner_plss,
-)
+from pipelines.mapping.plss.section_index import SectionIndex
+from pipelines.mapping.plss.coordinate_service import PLSSCoordinateService
+from pipelines.mapping.projection.transformer import CoordinateTransformer
+from pipelines.mapping.projection.utm_manager import UTMManager
+from .pob_math import parse_bearing_and_distance
 
 logger = logging.getLogger(__name__)
 
 
 class POBResolver:
-    def __init__(self, plss: PLSSPipeline | None = None, projection: ProjectionPipeline | None = None) -> None:
-        self.plss = plss or PLSSPipeline()
-        self.projection = projection or ProjectionPipeline()
-
-    def resolve_pob_and_vertices(
-        self,
-        local_display_coords: List[Dict[str, float] | Tuple[float, float]],
-        plss_anchor: Dict[str, Any],
-        tie_to_corner: Dict[str, Any] | None,
-    ) -> Dict[str, Any]:
+    """
+    Resolves the Point of Beginning (POB) for a deed polygon.
+    
+    The POB is the starting point of the polygon boundary. It can be:
+    1. A PLSS corner (NW, NE, SW, SE corner of a section)
+    2. A point offset from a PLSS corner by bearing and distance
+    3. The centroid of a PLSS section (fallback)
+    """
+    
+    def __init__(self) -> None:
+        """Initialize the POB resolver."""
+        self._idx = SectionIndex()  # uses project_root/plss by default
+        self._coord_service = PLSSCoordinateService()
+        self._transformer = CoordinateTransformer()
+        self._utm = UTMManager()
+    
+    def _short_corner_label(self, label: str) -> str:
+        lab = (label or "").upper()
+        if "NE" in lab:
+            return "NE"
+        if "SE" in lab:
+            return "SE"
+        if "SW" in lab:
+            return "SW"
+        return "NW"
+    
+    def resolve_pob(self, plss_anchor: Dict[str, Any], tie_to_corner: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        - Choose anchor at requested section corner if provided, else centroid resolution
-        - Compute POB in UTM by applying tie vector (feet->meters) from anchor
-        - Convert local display coords to survey frame, normalize to start at (0,0)
-        - Build UTM vertices at POB origin
+        Resolve the Point of Beginning from PLSS anchor and optional tie.
         """
-        corner_label = ((tie_to_corner or {}).get("corner_label") or "").strip()
-        # Prefer explicit reference_plss if provided on the tie; else fall back to parsing tokens from label
-        ref_plss = (tie_to_corner or {}).get("reference_plss") or None
-        override_plss = parse_corner_plss(corner_label) if (corner_label and not ref_plss) else None
-        plss_for_corner = dict(plss_anchor)
-        if ref_plss:
-            # Explicit corner TRS override (section/range/township may differ from container)
-            plss_for_corner.update({
-                "section_number": ref_plss.get("section_number", plss_for_corner.get("section_number")),
-                "township_number": ref_plss.get("township_number", plss_for_corner.get("township_number")),
-                "township_direction": ref_plss.get("township_direction", plss_for_corner.get("township_direction")),
-                "range_number": ref_plss.get("range_number", plss_for_corner.get("range_number")),
-                "range_direction": ref_plss.get("range_direction", plss_for_corner.get("range_direction")),
-                "principal_meridian": ref_plss.get("principal_meridian", plss_for_corner.get("principal_meridian")),
-            })
-        elif override_plss:
-            plss_for_corner.update(override_plss)
+        try:
+            state = plss_anchor.get("state") or "Wyoming"
+            # Ensure expected plss keys exist for index match
+            for k in ["township_number","township_direction","range_number","range_direction","section_number"]:
+                if k not in plss_anchor:
+                    return {"success": False, "error": f"Missing PLSS key: {k}"}
 
-        anchor_geo: Dict[str, float]
-        if corner_label:
-            corner_res = self.plss.get_section_corner(plss_for_corner, corner_label)
-            if corner_res.get("success"):
-                anchor_geo = corner_res["corner"]
-                logger.info(
-                    f"Using PLSS corner '{corner_label}' at {anchor_geo['lat']:.6f},{anchor_geo['lon']:.6f}"
-                )
-            else:
-                logger.warning(
-                    f"Corner '{corner_label}' resolution failed: {corner_res.get('error')}. Falling back to centroid."
-                )
-                resolved = self.plss.resolve_starting_point(plss_anchor)
-                if not resolved.get("success"):
-                    return {"success": False, "error": f"PLSS resolution failed: {resolved.get('error')}"}
-                anchor_geo = resolved["coordinates"]
-        else:
-            resolved = self.plss.resolve_starting_point(plss_anchor)
-            if not resolved.get("success"):
-                return {"success": False, "error": f"PLSS resolution failed: {resolved.get('error')}"}
-            anchor_geo = resolved["coordinates"]
+            # If tie is provided: resolve the specified corner and offset to POB
+            if tie_to_corner:
+                corner_label = tie_to_corner.get("corner_label") or ""
+                short_label = self._short_corner_label(corner_label)
+                corner_geo = self._idx.get_corner(state, plss_anchor, short_label)
+                if not corner_geo:
+                    return {"success": False, "error": f"Could not resolve corner: {corner_label}"}
+                
+                # Parse bearing/distance to offset (feet)
+                bearing_raw = tie_to_corner.get("bearing_raw")
+                dist_val = float(tie_to_corner.get("distance_value", 0.0))
+                dist_units = tie_to_corner.get("distance_units", "feet")
+                parsed = parse_bearing_and_distance(bearing_raw, dist_val, dist_units)
+                if not parsed.get("success"):
+                    return {"success": False, "error": parsed.get("error", "Invalid tie bearing/distance")}
+                
+                # Transform corner to UTM
+                utm_zone = self._utm.get_utm_zone(corner_geo["lat"], corner_geo["lon"])
+                corner_utm = self._transformer.geographic_to_utm(corner_geo["lat"], corner_geo["lon"], utm_zone)
+                if not corner_utm.get("success"):
+                    return {"success": False, "error": f"Corner UTM transform failed: {corner_utm.get('error')}"}
+                
+                # Offset in meters (east=x, north=y)
+                f2m = 0.3048
+                dx_m = parsed["offset_x"] * f2m
+                dy_m = parsed["offset_y"] * f2m
 
-        utm_zone = self.projection.utm_manager.get_utm_zone(anchor_geo["lat"], anchor_geo["lon"])
-        anchor_utm = self.projection.transformer.geographic_to_utm(
-            anchor_geo["lat"], anchor_geo["lon"], utm_zone
-        )
-        if not anchor_utm.get("success"):
-            return {"success": False, "error": f"UTM transform failed: {anchor_utm.get('error')}"}
+                tie_dir = (tie_to_corner.get("tie_direction") or "corner_bears_from_pob").lower()
+                if tie_dir == "corner_bears_from_pob":
+                    # Vector from POB -> corner is v; so POB = corner - v
+                    pob_x = corner_utm["utm_x"] - dx_m
+                    pob_y = corner_utm["utm_y"] - dy_m
+                else:
+                    # Vector from corner -> POB is v; so POB = corner + v
+                    pob_x = corner_utm["utm_x"] + dx_m
+                    pob_y = corner_utm["utm_y"] + dy_m
 
-        # Parse tie and auto-apply reciprocal if deed phrasing indicates corner is bearing FROM POB
-        tie_dx_ft, tie_dy_ft, az_used, recip = parse_tie_with_azimuth(tie_to_corner or {})
-        invert_tie_y = bool((tie_to_corner or {}).get("debug_invert_tie_y", False))
-        skip_normalize = bool((tie_to_corner or {}).get("debug_skip_normalize", False))
-        if invert_tie_y:
-            tie_dy_ft = -tie_dy_ft
-        pob_utm_x = anchor_utm["utm_x"] + tie_dx_ft * FEET_TO_METERS
-        pob_utm_y = anchor_utm["utm_y"] + tie_dy_ft * FEET_TO_METERS
+                pob_geo_res = self._transformer.utm_to_geographic(pob_x, pob_y, utm_zone)
+                if not pob_geo_res.get("success"):
+                    return {"success": False, "error": f"POB geographic transform failed: {pob_geo_res.get('error')}"}
+                
+                return {
+                    "success": True,
+                    "pob_geographic": {"lat": pob_geo_res["lat"], "lon": pob_geo_res["lon"]},
+                    "pob_utm": {"x": pob_x, "y": pob_y, "zone": utm_zone},
+                    "method": "corner_with_tie",
+                    "corner_info": {"corner": short_label, "section": str(plss_anchor.get("section_number"))},
+                    "resolved_corner_geographic": {"lat": corner_geo["lat"], "lon": corner_geo["lon"]}
+                }
+            
+            # Otherwise: use section centroid as POB
+            idx_res = self._idx.get_centroid_bounds(state, plss_anchor)
+            if idx_res and idx_res.get("center"):
+                center = idx_res["center"]
+                utm_zone = self._utm.get_utm_zone(center["lat"], center["lon"])
+                utm_res = self._transformer.geographic_to_utm(center["lat"], center["lon"], utm_zone)
+                if not utm_res.get("success"):
+                    return {"success": False, "error": utm_res.get("error", "UTM transform failed")}
+                return {
+                    "success": True,
+                    "pob_geographic": {"lat": center["lat"], "lon": center["lon"]},
+                    "pob_utm": {"x": utm_res["utm_x"], "y": utm_res["utm_y"], "zone": utm_zone},
+                    "method": "section_centroid",
+                    "resolved_centroid_geographic": {"lat": center["lat"], "lon": center["lon"]}
+                }
 
-        survey_feet = flip_display_to_survey(local_display_coords)
-        if survey_feet and survey_feet[0] != survey_feet[-1]:
-            survey_feet = survey_feet + [survey_feet[0]]
-        normalized_feet = survey_feet if skip_normalize else normalize_local(survey_feet)
+            # Final fallback via coordinate service centroid
+            svc = self._coord_service.resolve_coordinates(
+                state=state,
+                township=plss_anchor["township_number"],
+                township_direction=plss_anchor["township_direction"],
+                range_number=plss_anchor["range_number"],
+                range_direction=plss_anchor["range_direction"],
+                section=plss_anchor["section_number"],
+                principal_meridian=plss_anchor.get("principal_meridian")
+            )
+            if svc.get("success"):
+                coord = svc["coordinates"]
+                utm_zone = self._utm.get_utm_zone(coord["lat"], coord["lon"])
+                utm_res = self._transformer.geographic_to_utm(coord["lat"], coord["lon"], utm_zone)
+                return {
+                    "success": True,
+                    "pob_geographic": {"lat": coord["lat"], "lon": coord["lon"]},
+                    "pob_utm": {"x": utm_res["utm_x"], "y": utm_res["utm_y"], "zone": utm_zone},
+                    "method": "section_centroid",
+                    "resolved_centroid_geographic": {"lat": coord["lat"], "lon": coord["lon"]}
+                }
 
-        utm_vertices: List[Tuple[float, float]] = [
-            (pob_utm_x + x_ft * FEET_TO_METERS, pob_utm_y + y_ft * FEET_TO_METERS) for (x_ft, y_ft) in normalized_feet
-        ]
-
-        return {
-            "success": True,
-            "utm_zone": utm_zone,
-            "pob_utm": {"x": pob_utm_x, "y": pob_utm_y},
-            "anchor_geo": anchor_geo,
-            "utm_vertices": utm_vertices,
-            "debug": {
-                "tie_dx_ft": tie_dx_ft,
-                "tie_dy_ft": tie_dy_ft,
-                "tie_azimuth_deg": az_used,
-                "reciprocal_applied": recip,
-                "invert_tie_y": invert_tie_y,
-                "skip_normalize": skip_normalize,
-                **({"corner_debug": corner_res.get("debug")} if corner_label and corner_res.get("debug") else {}),
+            return {"success": False, "error": "Unable to resolve POB from PLSS anchor"}
+            
+        except Exception as e:
+            logger.error(f"POB resolution failed: {str(e)}")
+            return {
+                "success": False,
+                "error": f"POB resolution error: {str(e)}"
             }
-        }
-
-
+    
+    def resolve_plss_corner(self, plss_description: Dict[str, Any], corner_label: str) -> Dict[str, Any]:
+        """
+        Resolve a specific PLSS corner to geographic coordinates.
+        """
+        try:
+            state = plss_description.get("state") or "Wyoming"
+            short = self._short_corner_label(corner_label)
+            corner = self._idx.get_corner(state, plss_description, short)
+            if not corner:
+                return {"success": False, "error": f"Corner not found: {corner_label}"}
+            return {
+                "success": True,
+                "corner": {"lat": corner["lat"], "lon": corner["lon"]},
+                "corner_label": short
+            }
+        except Exception as e:
+            logger.error(f"PLSS corner resolution failed: {str(e)}")
+            return {
+                "success": False,
+                "error": f"PLSS corner resolution error: {str(e)}"
+            }

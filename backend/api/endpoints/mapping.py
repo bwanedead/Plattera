@@ -61,26 +61,27 @@ async def project_polygon_to_map(request: Dict[str, Any]) -> Dict[str, Any]:
                 detail="plss_anchor information is required"
             )
         
-        # Use new clean ProjectionService
-        from pipelines.mapping.projection.projection_service import ProjectionService
+        # Use new fresh GeoreferenceService
+        from pipelines.mapping.georeference.georeference_service import GeoreferenceService
 
-        projection_service = ProjectionService()
-        result = projection_service.project_polygon({
+        georeference_service = GeoreferenceService()
+        result = georeference_service.georeference_polygon({
             "local_coordinates": local_coordinates,
             "plss_anchor": plss_anchor,
             "starting_point": request.get("starting_point", {}),
             "options": options,
         })
 
-        # Log the actual error from projection service
+        # Log the actual error from georeference service
         if not result.get("success"):
             error_msg = result.get('error', 'Unknown error')
-            logger.error(f"Projection service failed: {error_msg}")
+            logger.error(f"Georeference service failed: {error_msg}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Projection failed: {error_msg}"
+                detail=f"Georeference failed: {error_msg}"
             )
-        # Log successful projection
+        
+        # Log successful georeference
         if result.get("success"):
             try:
                 anchor = result.get("anchor_info", {})
@@ -90,9 +91,9 @@ async def project_polygon_to_map(request: Dict[str, Any]) -> Dict[str, Any]:
                 lon_val = coords.get("lon", 0.0)
                 lat = float(lat_val) if lat_val is not None else 0.0
                 lon = float(lon_val) if lon_val is not None else 0.0
-                logger.info(f"✅ Fast projection complete using {method} method at {lat:.6f}, {lon:.6f}")
+                logger.info(f"✅ Georeference complete using {method} method at {lat:.6f}, {lon:.6f}")
             except Exception as log_err:
-                logger.warning(f"Projection succeeded but logging failed: {log_err}")
+                logger.warning(f"Georeference succeeded but logging failed: {log_err}")
 
         return result
         
@@ -101,7 +102,7 @@ async def project_polygon_to_map(request: Dict[str, Any]) -> Dict[str, Any]:
         import traceback
         tb = traceback.format_exc()
         msg = str(e) if str(e) else "Unknown error (see server logs)"
-        logger.error(f"Error in polygon projection: {msg}\n{tb}")
+        logger.error(f"Error in polygon georeference: {msg}\n{tb}")
         if isinstance(e, HTTPException):
             raise
         raise HTTPException(

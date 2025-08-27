@@ -1,176 +1,129 @@
 """
 POB Math Utilities
-Pure helpers for POB computation: tie parsing, display<->survey conversion, normalization.
+Fresh implementation of mathematical utilities for POB calculations.
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
+import math
+import logging
+import re
 
-from pipelines.polygon.draw_polygon import BearingParser
-from pipelines.mapping.common.units import FEET_TO_METERS
+logger = logging.getLogger(__name__)
 
 
-def flip_display_to_survey(
-    display_coords: List[Dict[str, float] | Tuple[float, float]]
-) -> List[Tuple[float, float]]:
-    """Convert display coordinates back to survey frame (x east, y north).
-
-    Display Y is inverted for UI drawing; invert back for survey math.
-    Accepts list of dicts {x,y} or tuples (x,y).
+def convert_distance_to_feet(distance_value: float, units: str) -> float:
     """
-    survey: List[Tuple[float, float]] = []
-    for pt in display_coords:
-        if isinstance(pt, dict):
-            x = float(pt.get("x", 0.0))
-            y = float(pt.get("y", 0.0))
-        else:
-            x = float(pt[0])
-            y = float(pt[1])
-        survey.append((x, -y))
-    return survey
-
-
-def normalize_local(coords_feet: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
-    """Translate coordinates so that the first vertex is the origin (0,0)."""
-    if not coords_feet:
-        return []
-    origin_x, origin_y = coords_feet[0]
-    return [(x - origin_x, y - origin_y) for (x, y) in coords_feet]
-
-
-def parse_tie_feet(tie: Dict[str, Any]) -> Tuple[float, float]:
-    """Parse tie (bearing + distance) into survey offsets in feet (dx, dy).
-
-    Returns (dx_feet, dy_feet) with +x east, +y north.
+    Convert distance to feet.
     """
-    if not tie:
-        return (0.0, 0.0)
+    factors = {
+        "feet": 1.0, "foot": 1.0, "ft": 1.0,
+        "meters": 3.28084, "meter": 3.28084, "m": 3.28084,
+        "chains": 66.0, "chain": 66.0,
+        "rods": 16.5, "rod": 16.5,
+        "yards": 3.0, "yard": 3.0, "yd": 3.0,
+        "links": 0.66, "link": 0.66
+    }
+    u = (units or "feet").strip().lower()
+    return float(distance_value) * factors.get(u, 1.0)
 
-    bearing_raw = (tie.get("bearing_raw") or tie.get("bearing") or "").strip()
-    distance_value = float(tie.get("distance_value") or tie.get("distance_feet") or 0.0)
-    units = (tie.get("distance_units") or "feet").lower()
 
-    if units in ("meter", "meters", "m"):
-        distance_feet = distance_value / FEET_TO_METERS
-    elif units in ("chain", "chains"):
-        distance_feet = distance_value * 66.0
-    elif units in ("rod", "rods"):
-        distance_feet = distance_value * 16.5
+def _normalize_bearing_string(s: str) -> str:
+    s = (s or "").upper()
+    s = s.replace(".", " ").replace(",", " ")
+    s = s.replace("DEGREES", "°").replace("DEGREE", "°")
+    s = s.replace("º", "°")
+    s = s.replace("NORTH", "N").replace("SOUTH", "S").replace("EAST", "E").replace("WEST", "W")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _parse_quadrant_bearing(b: str) -> Tuple[bool, float]:
+    """
+    Parse quadrant bearing like 'N 4° 00' W' or 'S 68 30 E' into azimuth degrees clockwise from north.
+    Returns (ok, azimuth_deg)
+    """
+    b = _normalize_bearing_string(b)
+    # N dd mm ss E | N dd° mm' ss" E
+    m = re.match(r"^([NS])\s*([0-9]+(?:\.[0-9]+)?)\s*(?:[°]?)\s*(?:([0-9]+)(?:['′])?)?\s*(?:([0-9]+)(?:[\"″])?)?\s*([EW])$", b)
+    if not m:
+        # try compact like N4W
+        m2 = re.match(r"^([NS])\s*([0-9]+(?:\.[0-9]+)?)\s*([EW])$", b.replace(" ", ""))
+        if not m2:
+            return (False, 0.0)
+        ns, deg, ew = m2.group(1), float(m2.group(2)), m2.group(3)
+        deg_total = float(deg)
+        first, second = ns, ew
     else:
-        distance_feet = distance_value
+        first = m.group(1)
+        deg = float(m.group(2))
+        minutes = float(m.group(3)) if m.group(3) is not None else 0.0
+        seconds = float(m.group(4)) if m.group(4) is not None else 0.0
+        second = m.group(5)
+        deg_total = deg + minutes / 60.0 + seconds / 3600.0
 
-    parser = BearingParser()
-    parsed = parser.parse_bearing(bearing_raw)
-    if not parsed.get("success"):
-        return (0.0, 0.0)
+    # Convert quadrant to azimuth
+    if first == "N":
+        if second == "E":
+            az = deg_total  # 0..90
+        else:  # W
+            az = (360.0 - deg_total) % 360.0
+    else:  # first == "S"
+        if second == "E":
+            az = (180.0 - deg_total) % 360.0
+        else:  # W
+            az = (180.0 + deg_total) % 360.0
+    return (True, az)
 
-    import math
-    theta = math.radians(float(parsed["bearing_degrees"]))  # clockwise from north
-    dx_feet = distance_feet * math.sin(theta)
-    dy_feet = distance_feet * math.cos(theta)
-    return dx_feet, dy_feet
 
-
-def needs_reciprocal_bearing(raw_text: str | None) -> bool:
-    """Heuristic: detect deed phrasing 'whence the [corner] bears ... distant'.
-
-    In that grammar, the bearing is from the POB to the corner. To apply a tie
-    from the corner to the POB, we must add 180° (reciprocal).
+def calculate_offset_from_bearing(bearing_degrees: float, distance_feet: float) -> Tuple[float, float]:
     """
-    if not raw_text:
-        return False
-    import re
-    text = raw_text.lower()
-    return bool(re.search(r"\bwhence\b.*\bbears\b.*\bdistant\b", text))
-
-
-def parse_tie_with_azimuth(tie: Dict[str, Any]) -> Tuple[float, float, float, bool]:
-    """Parse tie and return (dx_ft, dy_ft, azimuth_deg_used, reciprocal_applied).
-
-    Applies 180° reciprocal if deed raw_text matches the 'whence ... bears ... distant' pattern.
+    Calculate x,y offset from bearing and distance.
+    Bearing is azimuth clockwise from north.
+    Returns (offset_x_east, offset_y_north) in feet.
     """
-    if not tie:
-        return (0.0, 0.0, 0.0, False)
-
-    bearing_raw = (tie.get("bearing_raw") or tie.get("bearing") or "").strip()
-    distance_value = float(tie.get("distance_value") or tie.get("distance_feet") or 0.0)
-    units = (tie.get("distance_units") or "feet").lower()
-
-    if units in ("meter", "meters", "m"):
-        distance_feet = distance_value / FEET_TO_METERS
-    elif units in ("chain", "chains"):
-        distance_feet = distance_value * 66.0
-    elif units in ("rod", "rods"):
-        distance_feet = distance_value * 16.5
-    else:
-        distance_feet = distance_value
-
-    parser = BearingParser()
-    parsed = parser.parse_bearing(bearing_raw)
-    if not parsed.get("success"):
-        return (0.0, 0.0, 0.0, False)
-
-    azimuth_deg = float(parsed["bearing_degrees"])  # clockwise from north
-
-    # Explicit tie direction override if provided
-    apply_recip = False
-    dir_hint = (tie.get("tie_direction") or "").strip().lower()
-    if dir_hint == "corner_bears_from_pob":
-        apply_recip = True
-    elif dir_hint == "pob_bears_from_corner":
-        apply_recip = False
-    else:
-        # Fallback heuristic from raw_text
-        apply_recip = needs_reciprocal_bearing(tie.get("raw_text"))
-
-    if apply_recip:
-        azimuth_deg = (azimuth_deg + 180.0) % 360.0
-
-    import math
-    theta = math.radians(azimuth_deg)
-    dx_feet = distance_feet * math.sin(theta)
-    dy_feet = distance_feet * math.cos(theta)
-    return dx_feet, dy_feet, azimuth_deg, apply_recip
+    ang = math.radians(float(bearing_degrees))
+    x = float(distance_feet) * math.sin(ang)  # east
+    y = float(distance_feet) * math.cos(ang)  # north
+    return (x, y)
 
 
-def parse_corner_plss(corner_label: str) -> Dict[str, Any] | None:
-    """Extract TRS from natural-language corner labels.
-
-    Supports verbose forms like:
-      '... Section Two (2), Township Fourteen (14) North, Range Seventy-four (74) West ...'
-    and compact tokens like 'Sec 2 T14N R74W'.
-    Returns dict with: section_number, township_number, township_direction, range_number, range_direction.
+def parse_bearing_and_distance(bearing_raw: str, distance_value: float, distance_units: str = "feet") -> Dict[str, Any]:
     """
-    if not corner_label:
-        return None
-    import re
-    text = corner_label.strip()
-
-    # Prefer numeric values inside parentheses when present
-    sec_m = re.search(r"Section\s+[^\(]*\((\d{1,2})\)", text, flags=re.IGNORECASE)
-    twp_m = re.search(r"Township\s+[^\(]*\((\d{1,2})\)\s*(North|South)", text, flags=re.IGNORECASE)
-    rng_m = re.search(r"Range\s+[^\(]*\((\d{1,3})\)\s*(West|East)", text, flags=re.IGNORECASE)
-    if sec_m and twp_m and rng_m:
+    Parse bearing and distance into offset components.
+    """
+    try:
+        ok, az = _parse_quadrant_bearing(bearing_raw or "")
+        if not ok:
+            return {"success": False, "error": f"Cannot parse bearing: {bearing_raw}"}
+        dist_feet = convert_distance_to_feet(distance_value, distance_units)
+        dx, dy = calculate_offset_from_bearing(az, dist_feet)
         return {
-            "section_number": int(sec_m.group(1)),
-            "township_number": int(twp_m.group(1)),
-            "township_direction": twp_m.group(2)[0].upper(),
-            "range_number": int(rng_m.group(1)),
-            "range_direction": rng_m.group(2)[0].upper(),
+            "success": True,
+            "offset_x": dx,
+            "offset_y": dy,
+            "bearing_degrees": az,
+            "distance_feet": dist_feet
         }
+    except Exception as e:
+        logger.error(f"Bearing and distance parsing failed: {str(e)}")
+        return {"success": False, "error": f"Bearing and distance parsing error: {str(e)}"}
 
-    # Fallback to compact tokens
-    sec_m2 = re.search(r"\bS(?:ec(?:tion)?)?\s*(\d{1,2})\b", text, flags=re.IGNORECASE)
-    twp_m2 = re.search(r"\bT\s*(\d{1,2})\s*([NS])\b", text, flags=re.IGNORECASE)
-    rng_m2 = re.search(r"\bR\s*(\d{1,3})\s*([EW])\b", text, flags=re.IGNORECASE)
-    if sec_m2 and twp_m2 and rng_m2:
-        return {
-            "section_number": int(sec_m2.group(1)),
-            "township_number": int(twp_m2.group(1)),
-            "township_direction": twp_m2.group(2).upper(),
-            "range_number": int(rng_m2.group(1)),
-            "range_direction": rng_m2.group(2).upper(),
-        }
-    return None
+
+def normalize_local_coordinates(coordinates: List[Dict[str, float]] | List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    """
+    Normalize local coordinates to start from given origin (no shifting).
+    Accepts [{x,y}] or [(x,y)] and returns [(x,y)].
+    """
+    out: List[Tuple[float, float]] = []
+    if not coordinates:
+        return out
+    first = coordinates[0]
+    if isinstance(first, dict):
+        for c in coordinates:
+            out.append((float(c.get("x", 0.0)), float(c.get("y", 0.0))))
+    else:
+        out = [(float(c[0]), float(c[1])) for c in coordinates]  # type: ignore
+    return out
 
 
