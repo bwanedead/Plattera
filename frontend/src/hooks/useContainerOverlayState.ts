@@ -10,14 +10,14 @@ export interface ContainerOverlayState {
   showTownship: boolean;
   showRange: boolean;
   showSections: boolean;
-  showQuarterSections: boolean;
+  showQuarterSections: boolean; // TEMPORARILY HIDDEN in UI but kept for backend
   showSubdivisions: boolean;
   // Label visibility states
   showGridLabels: boolean;
   showTownshipLabels: boolean;
   showRangeLabels: boolean;
   showSectionLabels: boolean;
-  showQuarterSectionLabels: boolean;
+  showQuarterSectionLabels: boolean; // TEMPORARILY HIDDEN in UI but kept for backend
   showSubdivisionLabels: boolean;
 }
 
@@ -27,14 +27,14 @@ export const useContainerOverlayState = () => {
     showTownship: false,
     showRange: false,
     showSections: false,
-    showQuarterSections: false,
+    showQuarterSections: false, // TEMPORARILY HIDDEN in UI but kept for backend
     showSubdivisions: false,
     // Label visibility states
     showGridLabels: false,
     showTownshipLabels: false,
     showRangeLabels: false,
     showSectionLabels: false,
-    showQuarterSectionLabels: false,
+    showQuarterSectionLabels: false, // TEMPORARILY HIDDEN in UI but kept for backend
     showSubdivisionLabels: false,
   });
 
@@ -67,14 +67,14 @@ export const useContainerOverlayState = () => {
       showTownship: false,
       showRange: false,
       showSections: false,
-      showQuarterSections: false,
+      showQuarterSections: false, // TEMPORARILY HIDDEN in UI but kept for backend
       showSubdivisions: false,
       // Reset label states
       showGridLabels: false,
       showTownshipLabels: false,
       showRangeLabels: false,
       showSectionLabels: false,
-      showQuarterSectionLabels: false,
+      showQuarterSectionLabels: false, // TEMPORARILY HIDDEN in UI but kept for backend
       showSubdivisionLabels: false,
     });
   }, []);

@@ -27,7 +27,7 @@ export interface ContainerLabelOptions {
   showTownshipLabels: boolean;
   showRangeLabels: boolean;
   showSectionLabels: boolean;
-  showQuarterSectionLabels: boolean;
+  showQuarterSectionLabels: boolean; // TEMPORARILY HIDDEN in UI but kept for backend
   showSubdivisionLabels: boolean;
 }
 
@@ -760,17 +760,18 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
              featureLabels = generateRangeLabels(feature);
            }
            break;
-        case 'sections':
-          if (options.showSectionLabels) {
-            featureLabels = generateSectionLabels(feature);
-          }
-          break;
-        case 'quarter-sections':
-          if (options.showQuarterSectionLabels) {
-            featureLabels = generateQuarterSectionLabels(feature);
-          }
-          break;
-        case 'subdivisions':
+                 case 'sections':
+           if (options.showSectionLabels) {
+             featureLabels = generateSectionLabels(feature);
+           }
+           break;
+         case 'quarter-sections':
+           if (options.showQuarterSectionLabels) {
+             featureLabels = generateQuarterSectionLabels(feature);
+           }
+           break;
+
+         case 'subdivisions':
           if (options.showSubdivisionLabels) {
             featureLabels = generateSubdivisionLabels(feature);
           }

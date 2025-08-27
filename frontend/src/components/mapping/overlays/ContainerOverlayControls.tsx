@@ -39,7 +39,7 @@ export const ContainerOverlayControls: React.FC<ContainerOverlayControlsProps> =
 
         {/* Grid Control */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: '14px', fontWeight: '500', color: 'rgba(255, 255, 255, 0.9)', width: '120px' }}>Grid</span>
+          <span style={{ fontSize: '14px', fontWeight: '500', color: 'rgba(255, 255, 255, 0.9)', width: '120px' }}>Township Cell</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
             <ToggleCheckbox
               checked={overlayState.showGrid}
@@ -121,7 +121,9 @@ export const ContainerOverlayControls: React.FC<ContainerOverlayControlsProps> =
           </div>
         </div>
 
-        {/* Quarter Sections Control */}
+
+        {/* Quarter Sections Control - TEMPORARILY HIDDEN until backend is fixed */}
+        {/* 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: '14px', fontWeight: '500', color: 'rgba(255, 255, 255, 0.9)', width: '120px' }}>Quarter Sections</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
@@ -141,6 +143,7 @@ export const ContainerOverlayControls: React.FC<ContainerOverlayControlsProps> =
             />
           </div>
         </div>
+        */}
 
         {/* Subdivisions Control */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

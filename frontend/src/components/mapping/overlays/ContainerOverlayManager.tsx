@@ -50,7 +50,7 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
       case 'range': return '#1E90FF';       // Dodger blue
       case 'grid': return '#DC143C';        // Crimson
       case 'sections': return '#228B22';    // Forest green
-      case 'quarter-sections': return '#FF8C00'; // Dark orange
+      case 'quarter-sections': return '#FF4500'; // Bright red-orange for better visibility
       case 'subdivisions': return '#9370DB'; // Medium purple
       default: return '#FF0000';
     }
@@ -63,7 +63,7 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
       case 'range': return 0.9;           // Higher opacity for main boundaries
       case 'grid': return 0.8;            // Strong visibility for grid
       case 'sections': return 0.6;        // Medium visibility for sections
-      case 'quarter-sections': return 0.4; // Lower for fine detail
+      case 'quarter-sections': return 0.7; // Higher opacity for better visibility
       case 'subdivisions': return 0.3;    // Lower for very fine detail
       default: return 0.5;
     }
@@ -95,10 +95,20 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
     const sourceId = `container-${layer}-source`;
 
     try {
-      // Remove layer overlays
-      if (map.getLayer(layerId)) {
-        map.removeLayer(layerId);
+      // Remove layer overlays (handle quarter sections fill/outline layers)
+      if (layer === 'quarter-sections') {
+        if (map.getLayer(`${layerId}-fill`)) {
+          map.removeLayer(`${layerId}-fill`);
+        }
+        if (map.getLayer(`${layerId}-outline`)) {
+          map.removeLayer(`${layerId}-outline`);
+        }
+      } else {
+        if (map.getLayer(layerId)) {
+          map.removeLayer(layerId);
+        }
       }
+      
       if (map.getSource(sourceId)) {
         map.removeSource(sourceId);
       }
@@ -118,9 +128,15 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
     const color = getLayerColor(layer);
     const opacity = getLayerOpacity(layer);
 
-    // Remove existing layer if it exists
+    // Remove existing layers if they exist
     if (map.getLayer(layerId)) {
       map.removeLayer(layerId);
+    }
+    if (map.getLayer(`${layerId}-fill`)) {
+      map.removeLayer(`${layerId}-fill`);
+    }
+    if (map.getLayer(`${layerId}-outline`)) {
+      map.removeLayer(`${layerId}-outline`);
     }
     if (map.getSource(sourceId)) {
       map.removeSource(sourceId);
@@ -135,19 +151,47 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
       }
     });
 
-    // Add layer with professional styling
-    map.addLayer({
-      id: layerId,
-      type: 'line',
-      source: sourceId,
-      paint: {
-        'line-color': color,
-        'line-width': layer === 'grid' ? 3 : layer === 'township' || layer === 'range' ? 2 : 1,
-        'line-opacity': opacity
-      }
-    });
+    // Special handling for quarter sections: render as fill + outline
+    if (layer === 'quarter-sections') {
+      // Add fill layer
+      map.addLayer({
+        id: `${layerId}-fill`,
+        type: 'fill',
+        source: sourceId,
+        paint: {
+          'fill-color': color,
+          'fill-opacity': opacity * 0.3 // Lower opacity for fill
+        }
+      });
 
-    console.log(`✅ Added ${layer} layer to map with ${features.length} features`);
+      // Add outline layer
+      map.addLayer({
+        id: `${layerId}-outline`,
+        type: 'line',
+        source: sourceId,
+        paint: {
+          'line-color': color,
+          'line-width': 1.5,
+          'line-opacity': opacity
+        }
+      });
+
+      console.log(`✅ Added ${layer} fill/outline layers to map with ${features.length} features`);
+    } else {
+      // Standard line layer for other features
+      map.addLayer({
+        id: layerId,
+        type: 'line',
+        source: sourceId,
+        paint: {
+          'line-color': color,
+          'line-width': layer === 'grid' ? 3 : layer === 'township' || layer === 'range' ? 2 : 1,
+          'line-opacity': opacity
+        }
+      });
+
+      console.log(`✅ Added ${layer} layer to map with ${features.length} features`);
+    }
   }, [map, getLayerColor, getLayerOpacity]);
 
   // Load a single container overlay layer
@@ -253,7 +297,7 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
     if (overlayState.showTownship) desiredLayers.add('township');
     if (overlayState.showRange) desiredLayers.add('range');
     if (overlayState.showSections) desiredLayers.add('sections');
-    if (overlayState.showQuarterSections) desiredLayers.add('quarter-sections');
+    if (overlayState.showQuarterSections) desiredLayers.add('quarter-sections'); // TEMPORARILY HIDDEN in UI but kept for backend
     if (overlayState.showSubdivisions) desiredLayers.add('subdivisions');
 
     // Load new layers
@@ -338,7 +382,7 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
           showTownshipLabels: overlayState.showTownshipLabels,
           showRangeLabels: overlayState.showRangeLabels,
           showSectionLabels: overlayState.showSectionLabels,
-          showQuarterSectionLabels: overlayState.showQuarterSectionLabels,
+          showQuarterSectionLabels: overlayState.showQuarterSectionLabels, // TEMPORARILY HIDDEN in UI but kept for backend
           showSubdivisionLabels: overlayState.showSubdivisionLabels,
         };
         
