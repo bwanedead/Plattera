@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MapWorkspace } from '../../mapping/MapWorkspace';
-import { cleanMappingApi } from '../../../services/cleanMappingApi';
+import { georeferenceApi, GeoreferenceProjectRequest } from '../../../services/georeferenceApi';
 import { usePLSSData } from '../../../hooks/usePLSSData';
 import { PLSSDownloadModal } from '../../ui';
 // Styles moved to global import in pages/_app.tsx to satisfy Next.js CSS rules
@@ -36,6 +36,68 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
     parquetStatus
   } = usePLSSData(schemaData);
 
+  // Convert schema data to georeference request
+  const convertToGeoreferenceRequest = (polygonData: any, plss: any): GeoreferenceProjectRequest | null => {
+    try {
+      if (!polygonData?.coordinates || !plss) {
+        console.log('❌ Missing polygon coordinates or PLSS data');
+        return null;
+      }
+
+      console.log('🔄 Converting to georeference request:', {
+        polygonCoords: polygonData.coordinates,
+        plss: plss
+      });
+
+      // Convert coordinates to required format
+      const local_coordinates = polygonData.coordinates.map((coord: any) => {
+        if (Array.isArray(coord)) {
+          return { x: coord[0], y: coord[1] };
+        } else if (coord && typeof coord === 'object' && 'x' in coord && 'y' in coord) {
+          return { x: coord.x, y: coord.y };
+        }
+        throw new Error('Invalid coordinate format');
+      });
+
+      // Extract PLSS anchor from schema
+      const plss_anchor = {
+        state: plss.state,
+        township_number: plss.township_number,
+        township_direction: plss.township_direction,
+        range_number: plss.range_number,
+        range_direction: plss.range_direction,
+        section_number: plss.section_number,
+        quarter_sections: plss.quarter_sections,
+        principal_meridian: plss.principal_meridian
+      };
+
+      const request: GeoreferenceProjectRequest = {
+        local_coordinates,
+        plss_anchor
+      };
+
+      // Add starting point if available
+      if (polygonData?.origin?.reference_corner || polygonData?.origin?.bearing || polygonData?.origin?.distance_feet) {
+        request.starting_point = {
+          tie_to_corner: {
+            corner_label: polygonData?.origin?.reference_corner,
+            bearing_raw: polygonData?.origin?.bearing,
+            distance_value: polygonData?.origin?.distance_feet,
+            distance_units: 'feet',
+            tie_direction: 'corner_bears_from_pob'
+          }
+        };
+        console.log('📍 Added tie-to-corner:', request.starting_point.tie_to_corner);
+      }
+
+      console.log('✅ Georeference request prepared:', request);
+      return request;
+    } catch (error) {
+      console.error('❌ Schema conversion failed:', error);
+      return null;
+    }
+  };
+
   // Project polygon when we have both polygon and PLSS data ready
   useEffect(() => {
     const projectPolygon = async () => {
@@ -48,7 +110,7 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
         setIsProjecting(true);
         setProjectionError(null);
 
-        console.log('🗺️ Starting polygon projection');
+        console.log('🗺️ Starting polygon projection with new georeference API');
 
         // Extract PLSS from the first complete description
         const descriptions = Array.isArray(schemaData?.descriptions) ? schemaData.descriptions : [];
@@ -60,21 +122,35 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
           return;
         }
 
-        // Convert to projection request
-        const request = cleanMappingApi.convertFromSchema(polygonData, plss);
+        console.log('📋 Extracted PLSS data:', plss);
+
+        // Convert to georeference request
+        const request = convertToGeoreferenceRequest(polygonData, plss);
         if (!request) {
           setProjectionError('Failed to convert polygon data');
           return;
         }
 
-        // Project coordinates
-        const result = await cleanMappingApi.projectPolygon(request);
+        // Project coordinates using new georeference API
+        console.log('🚀 Calling georeference API...');
+        const result = await georeferenceApi.project(request);
+
+        console.log('📊 Georeference API response:', {
+          success: result.success,
+          hasPolygon: !!result.geographic_polygon,
+          bounds: result.geographic_polygon?.bounds,
+          anchorInfo: result.anchor_info,
+          error: result.error
+        });
 
         if (result.success && result.geographic_polygon) {
           console.log('✅ Polygon projection successful');
+          console.log('📍 Polygon bounds:', result.geographic_polygon.bounds);
+          console.log('📍 Anchor info:', result.anchor_info);
           setGeoPolygonData(result);
           onPolygonUpdate?.(result);
         } else {
+          console.error('❌ Georeference failed:', result.error);
           setProjectionError(result.error || 'Projection failed');
         }
 
@@ -108,14 +184,23 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
       console.log('🎯 CleanMapBackground: Using bounds center for map center:', coords);
       return coords;
     }
+    if (geoPolygonData?.geographic_polygon?.bounds) {
+      const b = geoPolygonData.geographic_polygon.bounds;
+      const coords = {
+        lat: (b.min_lat + b.max_lat) / 2,
+        lon: (b.min_lon + b.max_lon) / 2
+      };
+      console.log('🎯 CleanMapBackground: Using nested bounds center for map center:', coords);
+      return coords;
+    }
     console.log('🎯 CleanMapBackground: Using default Wyoming center');
     return { lat: 41.5, lon: -107.5 }; // Wyoming default
   }, [geoPolygonData]);
 
   // Calculate zoom level from polygon bounds
   const mapZoom = React.useMemo(() => {
-    if (geoPolygonData?.bounds) {
-      const b = geoPolygonData.bounds;
+    const b = geoPolygonData?.bounds || geoPolygonData?.geographic_polygon?.bounds;
+    if (b) {
       const latSpan = b.max_lat - b.min_lat;
       const lonSpan = b.max_lon - b.min_lon;
       const maxSpan = Math.max(latSpan, lonSpan);

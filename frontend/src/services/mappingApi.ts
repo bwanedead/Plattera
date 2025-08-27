@@ -55,6 +55,8 @@ export interface ProjectPolygonResponse {
     coordinates: number[][][]; // GeoJSON format
     bounds: GeographicBounds;
   };
+  // Normalized convenience: duplicated from geographic_polygon.bounds
+  bounds?: GeographicBounds;
   anchor_info?: {
     plss_reference: string;
     resolved_coordinates: {
@@ -225,7 +227,14 @@ class MappingApiService {
         throw new Error(errorData.detail || `HTTP ${response.status}`);
       }
 
-      return await response.json();
+      const result = await response.json();
+
+      // Normalize: expose bounds at top-level for viewer components
+      if (result?.geographic_polygon?.bounds && !result.bounds) {
+        result.bounds = result.geographic_polygon.bounds;
+      }
+
+      return result;
     } catch (error) {
       console.error('❌ Project polygon API error:', error);
       return {

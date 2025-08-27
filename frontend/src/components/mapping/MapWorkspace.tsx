@@ -6,6 +6,7 @@ import { PLSSManager } from './overlays/PLSSManager';
 import { SidePanel, SidePanelSection } from './panels/SidePanel';
 import { TilesSection } from './panels/TilesSection';
 import { PropertiesSection } from './panels/PropertiesSection';
+import { ParcelOverlay } from './overlays/ParcelOverlay';
 import type maplibregl from 'maplibre-gl';
 
 interface MapWorkspaceProps {
@@ -204,6 +205,9 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
 						onMapLoad={handleMapLoad}
 						onMapMove={handleMapMove}
           />
+          
+          {/* Add ParcelOverlay to render georeferenced polygons */}
+          <ParcelOverlay parcels={initialParcels} />
 				</div>
 
         {/* Side Panel */}

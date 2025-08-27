@@ -123,10 +123,11 @@ export const CleanMap: React.FC<CleanMapProps> = ({
       });
 
       // Fit to polygon bounds if available
-      if (polygonData.bounds) {
+      const b = polygonData?.geographic_polygon?.bounds || polygonData?.bounds;
+      if (b) {
         const bounds = new maplibregl.LngLatBounds(
-          [polygonData.bounds.min_lon, polygonData.bounds.min_lat],
-          [polygonData.bounds.max_lon, polygonData.bounds.max_lat]
+          [b.min_lon, b.min_lat],
+          [b.max_lon, b.max_lat]
         );
         
         map.fitBounds(bounds, { 

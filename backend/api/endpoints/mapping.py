@@ -110,6 +110,66 @@ async def project_polygon_to_map(request: Dict[str, Any]) -> Dict[str, Any]:
             detail=f"Internal server error: {msg}"
         )
 
+# ------------------- Dedicated Georeference Endpoints -------------------
+
+@router.post("/georeference/project")
+async def georeference_project(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Dedicated endpoint to georeference a local polygon to geographic coordinates.
+    Body: { local_coordinates: [{x,y}], plss_anchor: {...}, starting_point?: { tie_to_corner?: {...} }, options?: {...} }
+    """
+    try:
+        from pipelines.mapping.georeference.georeference_service import GeoreferenceService
+
+        georeference_service = GeoreferenceService()
+        result = georeference_service.georeference_polygon({
+            "local_coordinates": request.get("local_coordinates", []),
+            "plss_anchor": request.get("plss_anchor", {}),
+            "starting_point": request.get("starting_point", {}),
+            "options": request.get("options", {}),
+        })
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Georeference failed")
+            )
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ georeference_project error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/georeference/resolve-pob")
+async def georeference_resolve_pob(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Dedicated endpoint to resolve the Point of Beginning (POB) from PLSS and optional tie.
+    Body: { plss_anchor: {...}, starting_point?: { tie_to_corner?: {...} } }
+    """
+    try:
+        from pipelines.mapping.georeference.pob_resolver import POBResolver
+
+        plss_anchor = request.get("plss_anchor", {})
+        starting_point = request.get("starting_point", {})
+        tie_to_corner = (starting_point or {}).get("tie_to_corner")
+
+        resolver = POBResolver()
+        result = resolver.resolve_pob(plss_anchor, tie_to_corner)
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "POB resolution failed")
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ georeference_resolve_pob error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/tile-cache/stats")
 async def get_tile_cache_stats():
     """Get tile cache statistics"""

@@ -33,10 +33,10 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       return { lat: coords.lat, lon: coords.lon };
     }
     
-    // 2. If we have polygon bounds, use the center of those bounds
-    if (polygonData?.bounds) {
-      const b = polygonData.bounds;
-    return {
+    // 2. If we have polygon bounds (nested or top-level), use the center of those bounds
+    const b = polygonData?.geographic_polygon?.bounds || polygonData?.bounds;
+    if (b) {
+      return {
         lat: (b.min_lat + b.max_lat) / 2,
         lon: (b.min_lon + b.max_lon) / 2
       };
@@ -48,9 +48,9 @@ export const MapViewer: React.FC<MapViewerProps> = ({
 
   // Determine the best zoom level based on available data
   const bestZoom = useMemo(() => {
-    // If we have polygon bounds, calculate appropriate zoom
-    if (polygonData?.bounds) {
-      const b = polygonData.bounds;
+    // If we have polygon bounds (nested or top-level), calculate appropriate zoom
+    const b = polygonData?.geographic_polygon?.bounds || polygonData?.bounds;
+    if (b) {
       const latSpan = b.max_lat - b.min_lat;
       const lonSpan = b.max_lon - b.min_lon;
       const maxSpan = Math.max(latSpan, lonSpan);
@@ -196,15 +196,23 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     const map = mapRef.current;
     if (!map || !polygonData?.geographic_polygon) return;
     
-    console.log('🏠 Adding parcel polygon to map');
+    console.log('🏠 Adding parcel polygon to map:', {
+      hasPolygon: !!polygonData.geographic_polygon,
+      coordinates: polygonData.geographic_polygon.coordinates,
+      bounds: polygonData.geographic_polygon.bounds,
+      anchorInfo: polygonData.anchor_info
+    });
     setGeoJSONSource('parcel', polygonData.geographic_polygon);
     ensureFillLayer('parcel', 'parcel', 'plss-splits-lines');
     
     // If we have polygon bounds and no PLSS anchor, fit to polygon bounds
-    if (!plssAnchor && polygonData?.bounds) {
-      const b = polygonData.bounds;
-      const bounds: LngLatBoundsLike = [ [b.min_lon, b.min_lat], [b.max_lon, b.max_lat] ];
-      map.fitBounds(bounds, { padding: 24, duration: 0 });
+    if (!plssAnchor) {
+      const b = polygonData?.geographic_polygon?.bounds || polygonData?.bounds;
+      if (b) {
+        console.log('🎯 Fitting map to polygon bounds:', b);
+        const bounds: LngLatBoundsLike = [ [b.min_lon, b.min_lat], [b.max_lon, b.max_lat] ];
+        map.fitBounds(bounds, { padding: 24, duration: 0 });
+      }
     }
   }, [polygonData, plssAnchor]);
 
