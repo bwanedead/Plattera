@@ -4,10 +4,11 @@ Fresh implementation for calculating the Point of Beginning from PLSS and tie in
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 import logging
 
 from pipelines.mapping.plss.section_index import SectionIndex
+from pipelines.mapping.plss.plss_joiner import PLSSJoiner
 from pipelines.mapping.plss.coordinate_service import PLSSCoordinateService
 from pipelines.mapping.projection.transformer import CoordinateTransformer
 from pipelines.mapping.projection.utm_manager import UTMManager
@@ -29,18 +30,38 @@ class POBResolver:
     def __init__(self) -> None:
         """Initialize the POB resolver."""
         self._idx = SectionIndex()  # uses project_root/plss by default
+        self._plss_joiner = PLSSJoiner()  # for meridian-aware PLSS lookups
         self._coord_service = PLSSCoordinateService()
         self._transformer = CoordinateTransformer()
         self._utm = UTMManager()
     
     def _short_corner_label(self, label: str) -> str:
-        lab = (label or "").upper()
-        if "NE" in lab:
+        lab = (label or "").upper().strip()
+        
+        # Use word boundaries to avoid substring matching issues
+        import re
+        
+        # Check for exact matches first
+        if re.search(r'\bNORTHWEST\b', lab) or re.search(r'\bNW\b', lab):
+            return "NW"
+        elif re.search(r'\bNORTHEAST\b', lab) or re.search(r'\bNE\b', lab):
             return "NE"
-        if "SE" in lab:
-            return "SE"
-        if "SW" in lab:
+        elif re.search(r'\bSOUTHWEST\b', lab) or re.search(r'\bSW\b', lab):
             return "SW"
+        elif re.search(r'\bSOUTHEAST\b', lab) or re.search(r'\bSE\b', lab):
+            return "SE"
+        
+        # Fallback: check for directional combinations
+        if "NORTH" in lab and "WEST" in lab:
+            return "NW"
+        elif "NORTH" in lab and "EAST" in lab:
+            return "NE"
+        elif "SOUTH" in lab and "WEST" in lab:
+            return "SW"
+        elif "SOUTH" in lab and "EAST" in lab:
+            return "SE"
+        
+        # Default fallback
         return "NW"
     
     def resolve_pob(self, plss_anchor: Dict[str, Any], tie_to_corner: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -49,6 +70,11 @@ class POBResolver:
         """
         try:
             state = plss_anchor.get("state") or "Wyoming"
+            print(f"🔍 POB RESOLVER: Starting resolution for {state}")
+            print(f"📊 PLSS Anchor: {plss_anchor}")
+            print(f"📊 Tie to Corner: {tie_to_corner}")
+            print(f"📍 PLSS REFERENCE: T{plss_anchor.get('township_number')}{plss_anchor.get('township_direction')} R{plss_anchor.get('range_number')}{plss_anchor.get('range_direction')} Sec {plss_anchor.get('section_number')}")
+            
             # Ensure expected plss keys exist for index match
             for k in ["township_number","township_direction","range_number","range_direction","section_number"]:
                 if k not in plss_anchor:
@@ -58,7 +84,16 @@ class POBResolver:
             if tie_to_corner:
                 corner_label = tie_to_corner.get("corner_label") or ""
                 short_label = self._short_corner_label(corner_label)
-                corner_geo = self._idx.get_corner(state, plss_anchor, short_label)
+                print(f"🔍 POB RESOLVER: Resolving corner '{corner_label}' -> '{short_label}'")
+                print(f"📍 PLSS CORNER REFERENCE: {short_label} corner of T{plss_anchor.get('township_number')}{plss_anchor.get('township_direction')} R{plss_anchor.get('range_number')}{plss_anchor.get('range_direction')} Sec {plss_anchor.get('section_number')}")
+                # Try PLSS joiner first (with meridian support), fallback to section index
+                corner_coords = self._get_section_corner_from_plss_joiner(plss_anchor, short_label)
+                if corner_coords:
+                    corner_geo = {"lat": corner_coords[1], "lon": corner_coords[0]}  # (lon, lat) -> (lat, lon)
+                else:
+                    corner_geo = self._idx.get_corner(state, plss_anchor, short_label)
+                print(f"📊 Corner resolution result: {corner_geo}")
+                print(f"📍 CORNER COORDINATES: lat={corner_geo.get('lat') if corner_geo else 'NOT FOUND'}, lon={corner_geo.get('lon') if corner_geo else 'NOT FOUND'}")
                 if not corner_geo:
                     return {"success": False, "error": f"Could not resolve corner: {corner_label}"}
                 
@@ -66,7 +101,9 @@ class POBResolver:
                 bearing_raw = tie_to_corner.get("bearing_raw")
                 dist_val = float(tie_to_corner.get("distance_value", 0.0))
                 dist_units = tie_to_corner.get("distance_units", "feet")
+                print(f"🔍 POB RESOLVER: Parsing bearing '{bearing_raw}' distance {dist_val} {dist_units}")
                 parsed = parse_bearing_and_distance(bearing_raw, dist_val, dist_units)
+                print(f"📊 Bearing/distance parse result: {parsed}")
                 if not parsed.get("success"):
                     return {"success": False, "error": parsed.get("error", "Invalid tie bearing/distance")}
                 
@@ -95,6 +132,16 @@ class POBResolver:
                 if not pob_geo_res.get("success"):
                     return {"success": False, "error": f"POB geographic transform failed: {pob_geo_res.get('error')}"}
                 
+                print(f"🔍 POB RESOLVER: Final POB calculation:")
+                print(f"📍 REFERENCE CORNER: {short_label} corner at lat={corner_geo['lat']:.6f}, lon={corner_geo['lon']:.6f}")
+                print(f"📍 TIE INFORMATION: {bearing_raw} {dist_val} {dist_units}")
+                print(f"📍 OFFSET VECTOR: dx={dx_m:.2f}m, dy={dy_m:.2f}m ({parsed['offset_x']:.2f}ft, {parsed['offset_y']:.2f}ft)")
+                print(f"📍 TIE DIRECTION: {tie_dir}")
+                print(f"📊 Corner UTM: {corner_utm}")
+                print(f"📊 POB UTM: x={pob_x:.2f}, y={pob_y:.2f}, zone={utm_zone}")
+                print(f"📍 FINAL POB COORDINATES: lat={pob_geo_res['lat']:.6f}, lon={pob_geo_res['lon']:.6f}")
+                print(f"📊 POB Geographic: {pob_geo_res}")
+                
                 return {
                     "success": True,
                     "pob_geographic": {"lat": pob_geo_res["lat"], "lon": pob_geo_res["lon"]},
@@ -105,13 +152,16 @@ class POBResolver:
                 }
             
             # Otherwise: use section centroid as POB
+            print(f"🔍 POB RESOLVER: No tie provided, using section centroid as POB")
             idx_res = self._idx.get_centroid_bounds(state, plss_anchor)
             if idx_res and idx_res.get("center"):
                 center = idx_res["center"]
+                print(f"📍 SECTION CENTROID: lat={center['lat']:.6f}, lon={center['lon']:.6f}")
                 utm_zone = self._utm.get_utm_zone(center["lat"], center["lon"])
                 utm_res = self._transformer.geographic_to_utm(center["lat"], center["lon"], utm_zone)
                 if not utm_res.get("success"):
                     return {"success": False, "error": utm_res.get("error", "UTM transform failed")}
+                print(f"📍 FINAL POB COORDINATES (centroid): lat={center['lat']:.6f}, lon={center['lon']:.6f}")
                 return {
                     "success": True,
                     "pob_geographic": {"lat": center["lat"], "lon": center["lon"]},
@@ -121,6 +171,7 @@ class POBResolver:
                 }
 
             # Final fallback via coordinate service centroid
+            print(f"🔍 POB RESOLVER: Section index failed, trying coordinate service fallback")
             svc = self._coord_service.resolve_coordinates(
                 state=state,
                 township=plss_anchor["township_number"],
@@ -132,8 +183,10 @@ class POBResolver:
             )
             if svc.get("success"):
                 coord = svc["coordinates"]
+                print(f"📍 COORDINATE SERVICE CENTROID: lat={coord['lat']:.6f}, lon={coord['lon']:.6f}")
                 utm_zone = self._utm.get_utm_zone(coord["lat"], coord["lon"])
                 utm_res = self._transformer.geographic_to_utm(coord["lat"], coord["lon"], utm_zone)
+                print(f"📍 FINAL POB COORDINATES (service): lat={coord['lat']:.6f}, lon={coord['lon']:.6f}")
                 return {
                     "success": True,
                     "pob_geographic": {"lat": coord["lat"], "lon": coord["lon"]},
@@ -151,6 +204,33 @@ class POBResolver:
                 "error": f"POB resolution error: {str(e)}"
             }
     
+    def _get_section_corner_from_plss_joiner(self, plss_anchor: Dict[str, Any], corner_label: str) -> Optional[Tuple[float, float]]:
+        """Get section corner coordinates using PLSSJoiner with meridian support."""
+        try:
+            # Extract principal meridian from schema if available
+            principal_meridian = plss_anchor.get('principal_meridian')
+            
+            coordinates = self._plss_joiner.get_section_corner_coordinates(
+                township=plss_anchor['township_number'],
+                township_dir=plss_anchor['township_direction'], 
+                range_num=plss_anchor['range_number'],
+                range_dir=plss_anchor['range_direction'],
+                section=plss_anchor['section_number'],
+                corner=corner_label,
+                principal_meridian=principal_meridian  # Pass meridian for filtering
+            )
+            
+            if coordinates:
+                logger.info(f"✅ PLSSJoiner found corner coordinates: {coordinates}")
+                return coordinates
+            else:
+                logger.warning("❌ PLSSJoiner could not find corner coordinates")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Error getting corner from PLSSJoiner: {e}")
+            return None
+
     def resolve_plss_corner(self, plss_description: Dict[str, Any], corner_label: str) -> Dict[str, Any]:
         """
         Resolve a specific PLSS corner to geographic coordinates.

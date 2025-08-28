@@ -101,16 +101,26 @@ class GeoreferenceService:
             pob_geo = pob_result["pob_geographic"]  # {"lat","lon"}
 
             # 3) Prepare local coordinates
+            print(f'🔍 LOCAL COORDINATES:')
+            print(f'📊 Original coordinates: {local_coords_in}')
             normalized = normalize_local_coordinates(local_coords_in)  # [(x,y)] preserving given origin
+            print(f'📊 Normalized coordinates: {normalized}')
             local_units = (options.get("local_units") or "feet").lower()
             if local_units not in ["feet", "foot", "ft", "meters", "meter", "m"]:
                 local_units = "feet"
+            print(f'📊 Local units: {local_units}')
             if local_units in ["feet", "foot", "ft"]:
                 local_coords_m = self._feet_to_meters(normalized)
+                print(f'📊 Converted to meters: {local_coords_m}')
             else:
                 local_coords_m = normalized  # already meters
+                print(f'📊 Already in meters: {local_coords_m}')
 
             # 4) Project polygon via UTM anchor
+            print(f'🔍 PROJECTION PROCESS:')
+            print(f'📍 ANCHOR POINT: lat={pob_geo["lat"]:.6f}, lon={pob_geo["lon"]:.6f}')
+            print(f'📍 LOCAL COORDINATES TO PROJECT: {local_coords_m}')
+            
             proj = self._projection.project_polygon_to_geographic(
                 local_coordinates=local_coords_m,
                 anchor_point={"lat": float(pob_geo["lat"]), "lon": float(pob_geo["lon"])},
@@ -120,14 +130,27 @@ class GeoreferenceService:
                 return {"success": False, "error": proj.get("error", "Projection failed")}
 
             geo_coords = proj["geographic_coordinates"]  # [(lon,lat)]
+            print(f'📍 PROJECTED GEOGRAPHIC COORDINATES: {geo_coords}')
             bounds = self._compute_bounds(geo_coords)
+            print(f'📍 COMPUTED BOUNDS: {bounds}')
 
             # 5) Build response
             plss_ref = f"T{plss_anchor['township_number']}{plss_anchor['township_direction']} R{plss_anchor['range_number']}{plss_anchor['range_direction']} Sec {plss_anchor['section_number']}"
             resolved_coord = pob_result.get("resolved_corner_geographic") or pob_result.get("resolved_centroid_geographic") or pob_geo
             utm_zone = proj.get("metadata", {}).get("utm_zone", "unknown")
 
-            return {
+            # COMPREHENSIVE LOGGING FOR DEBUGGING
+            print(f'🔍 BACKEND GEOREFERENCE FINAL RESULT:')
+            print(f'📍 PLSS REFERENCE: {plss_ref}')
+            print(f'📍 POINT OF BEGINNING: lat={pob_geo["lat"]:.6f}, lon={pob_geo["lon"]:.6f}')
+            print(f'📍 RESOLVED REFERENCE: lat={resolved_coord["lat"]:.6f}, lon={resolved_coord["lon"]:.6f}')
+            print(f'📍 POB METHOD: {pob_result.get("method")}')
+            print(f'📊 Geographic Coordinates: {geo_coords}')
+            print(f'📊 Bounds: {bounds}')
+            print(f'📊 UTM Zone: {utm_zone}')
+            print(f'📊 Vertex Count: {len(geo_coords)}')
+            
+            result = {
                 "success": True,
                 "geographic_polygon": {
                     "type": "Polygon",
@@ -146,6 +169,9 @@ class GeoreferenceService:
                     "vertex_count": len(geo_coords)
                 }
             }
+            
+            print(f'📊 FINAL RESULT OBJECT: {result}')
+            return result
             
         except Exception as e:
             logger.error(f"Georeference failed: {str(e)}")

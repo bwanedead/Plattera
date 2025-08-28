@@ -493,5 +493,3 @@ class SectionIndex:
             return {"lat": float(row["sw_lat"]), "lon": float(row["sw_lon"])}
         # default NW
         return {"lat": float(row["nw_lat"]), "lon": float(row["nw_lon"])}
-
-

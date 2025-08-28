@@ -44,6 +44,11 @@ export interface GeoreferenceProjectRequest {
   };
 }
 
+export interface GeoreferenceProjectFromSchemaRequest {
+  schema_data: any;
+  polygon_data: any;
+}
+
 export interface GeoreferenceProjectResponse {
   success: boolean;
   geographic_polygon?: {
@@ -83,6 +88,27 @@ class GeoreferenceApiService {
   async project(request: GeoreferenceProjectRequest): Promise<GeoreferenceProjectResponse> {
     try {
       const res = await fetch(`${API_BASE}/project`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request)
+      });
+      if (!res.ok) {
+        const e = await res.json();
+        throw new Error(e.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (data?.geographic_polygon?.bounds && !data.bounds) {
+        data.bounds = data.geographic_polygon.bounds;
+      }
+      return data;
+    } catch (e: any) {
+      return { success: false, error: e?.message || 'Unknown error' };
+    }
+  }
+
+  async projectFromSchema(request: GeoreferenceProjectFromSchemaRequest): Promise<GeoreferenceProjectResponse> {
+    try {
+      const res = await fetch(`${API_BASE}/project-from-schema`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request)

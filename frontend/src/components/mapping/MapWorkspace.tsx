@@ -44,54 +44,27 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
 
 	const ctx = useMemo<MapContextValue>(() => ({ map, isLoaded, center, zoom, bounds }), [map, isLoaded, center, zoom, bounds]);
 
-  // Extract container bounds and center from schema for container-based overlays
+  // Extract container bounds and center from multiple sources for container-based overlays
   const { containerBounds, stateName, parcelCenter } = useMemo(() => {
     try {
       console.log('🔍 Schema data structure:', schemaData);
-      console.log('🔍 PLSS data:', schemaData?.plss);
-      console.log('🔍 Descriptions:', schemaData?.descriptions);
-      
-      if (!schemaData) {
-        return { containerBounds: undefined, stateName: undefined, parcelCenter: initialView.center };
-      }
-      
-			const plss = schemaData?.descriptions?.[0]?.plss;
-			if (!plss) {
-        console.log('🔍 No PLSS data found in schema for container overlays');
-        return { containerBounds: undefined, stateName: undefined, parcelCenter: initialView.center };
-      }
-      
-      // Debug: Log the schema structure more comprehensively to find coordinates
-      console.log('🔍 Full schema structure:', {
-        hasProjectedCoordinates: !!schemaData?.projected_coordinates,
-        projectedCoordinatesLength: schemaData?.projected_coordinates?.length,
-        projectedCoordinates: schemaData?.projected_coordinates,
-        startingPoint: plss?.starting_point,
-        hasLatLon: !!(plss?.starting_point?.latitude && plss?.starting_point?.longitude),
-        // Check for coordinates in various nested locations
-        topLevelProj: schemaData?.projected_coordinates,
-        descriptionsProj: schemaData?.descriptions?.[0]?.projected_coordinates,
-        descriptions: schemaData?.descriptions,
-        // Add more detailed logging
-        schemaKeys: Object.keys(schemaData || {}),
-        descriptionsKeys: schemaData?.descriptions?.[0] ? Object.keys(schemaData.descriptions[0]) : [],
-        plssKeys: plss ? Object.keys(plss) : []
-      });
+      console.log('🔍 Initial parcels:', initialParcels);
       
       // Initialize variables
       let containerBounds: any = undefined;
       let parcelCenter: any = initialView.center;
+      let stateName = 'Wyoming'; // Default
       
-      // First, check if we have projected coordinates from the polygon drawing
-      const projectedCoordinates = schemaData?.projected_coordinates;
-      if (projectedCoordinates && projectedCoordinates.length > 0) {
-        // Use the first projected coordinate as the center
-        const firstCoord = projectedCoordinates[0];
-        console.log('🔍 Checking first projected coord:', firstCoord);
-        if (firstCoord && typeof firstCoord.latitude === 'number' && typeof firstCoord.longitude === 'number') {
-          const lat = firstCoord.latitude;
-          const lon = firstCoord.longitude;
-          const buffer = 0.02; // ~1.4 mile buffer around the point
+      // Priority 1: Use POB from georeferenced polygon data (most accurate)
+      if (initialParcels && initialParcels.length > 0) {
+        const polygon = initialParcels[0];
+        console.log('🔍 Using georeferenced polygon data:', polygon);
+        
+        if (polygon?.anchor_info?.pob_coordinates) {
+          const pob = polygon.anchor_info.pob_coordinates;
+          const lat = pob.lat;
+          const lon = pob.lon;
+          const buffer = 0.02; // ~1.4 mile buffer
           
           containerBounds = {
             west: lon - buffer,
@@ -101,35 +74,41 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
           };
           
           parcelCenter = { lat, lon };
-          
-          console.log('📍 Using projected coordinates from schema:', { lat, lon });
+          console.log('📍 Using POB coordinates from georeferenced polygon:', { lat, lon });
         }
-        // Try alternate property names (lat/lon vs latitude/longitude)
-        else if (firstCoord && typeof firstCoord.lat === 'number' && typeof firstCoord.lon === 'number') {
-          const lat = firstCoord.lat;
-          const lon = firstCoord.lon;
-          const buffer = 0.02;
+        // Fallback: use polygon bounds
+        else if (polygon?.geographic_polygon?.bounds) {
+          const bounds = polygon.geographic_polygon.bounds;
+          const buffer = 0.01; // Smaller buffer since we have actual bounds
           
           containerBounds = {
-            west: lon - buffer,
-            south: lat - buffer,
-            east: lon + buffer,
-            north: lat + buffer
+            west: bounds.min_lon - buffer,
+            south: bounds.min_lat - buffer,
+            east: bounds.max_lon + buffer,
+            north: bounds.max_lat + buffer
           };
           
-          parcelCenter = { lat, lon };
-          
-          console.log('📍 Using projected coordinates (lat/lon) from schema:', { lat, lon });
+          parcelCenter = {
+            lat: (bounds.min_lat + bounds.max_lat) / 2,
+            lon: (bounds.min_lon + bounds.max_lon) / 2
+          };
+          console.log('📍 Using polygon bounds for container bounds:', containerBounds);
         }
       }
-      // Check if projected coordinates are in descriptions
-      else if (schemaData?.descriptions?.[0]?.projected_coordinates) {
-        const descProjectedCoords = schemaData.descriptions[0].projected_coordinates;
-        if (descProjectedCoords && descProjectedCoords.length > 0) {
-          const firstCoord = descProjectedCoords[0];
-          if (firstCoord && typeof firstCoord.latitude === 'number' && typeof firstCoord.longitude === 'number') {
-            const lat = firstCoord.latitude;
-            const lon = firstCoord.longitude;
+      
+      // Priority 2: Extract state from schema data
+      if (schemaData?.descriptions?.[0]?.plss?.state) {
+        stateName = schemaData.descriptions[0].plss.state;
+      }
+      
+      // Priority 3: Fallback to schema-based approach if no polygon data
+      if (!containerBounds && schemaData) {
+        const plss = schemaData?.descriptions?.[0]?.plss;
+        if (plss) {
+          // Use starting point coordinates if available
+          if (plss.starting_point?.latitude && plss.starting_point?.longitude) {
+            const lat = plss.starting_point.latitude;
+            const lon = plss.starting_point.longitude;
             const buffer = 0.02;
             
             containerBounds = {
@@ -140,60 +119,37 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
             };
             
             parcelCenter = { lat, lon };
+            console.log('📍 Using starting point coordinates from schema:', { lat, lon });
+          }
+          // Final fallback: rough TRS-based estimate
+          else if (plss.township_number && plss.township_direction && plss.range_number && plss.range_direction) {
+            const baseLat = 41.5; // Wyoming center
+            const baseLon = -107.5;
+            const buffer = 0.02;
             
-            console.log('📍 Using projected coordinates from descriptions:', { lat, lon });
+            containerBounds = {
+              west: baseLon - buffer,
+              south: baseLat - buffer,
+              east: baseLon + buffer,
+              north: baseLat + buffer
+            };
+            
+            parcelCenter = { lat: baseLat, lon: baseLon };
+            console.log('📍 Using TRS-based estimate for container bounds');
           }
         }
       }
-			// Check if we have coordinates from the starting point
-      else if (plss.starting_point?.latitude && plss.starting_point?.longitude) {
-				// Use actual coordinates if available
-        const lat = plss.starting_point.latitude;
-        const lon = plss.starting_point.longitude;
-				const buffer = 0.02; // ~1.4 mile buffer around the point
-				
-				containerBounds = {
-					west: lon - buffer,
-					south: lat - buffer,
-					east: lon + buffer,
-					north: lat + buffer
-				};
-        
-        // Use the actual parcel coordinates for centering
-        parcelCenter = { lat, lon };
-        
-        console.log('📍 Using actual starting point coordinates:', { lat, lon });
-      } else if (plss.township_number && plss.township_direction && plss.range_number && plss.range_direction && plss.section_number) {
-        // Fallback to estimated bounds based on TRS
-        // This is a rough approximation - in practice, you'd want to use a proper TRS to coordinate conversion
-        const baseLat = 41.5; // Wyoming approximate center
-        const baseLon = -107.5;
-        const buffer = 0.02;
-				
-				containerBounds = {
-          west: baseLon - buffer,
-          south: baseLat - buffer,
-          east: baseLon + buffer,
-          north: baseLat + buffer
-        };
-        
-        parcelCenter = { lat: baseLat, lon: baseLon };
-        
-        console.log('📍 Using estimated bounds based on TRS');
-      }
-
-      const stateName = plss.state || 'Wyoming'; // Default to Wyoming
       
-      console.log('📦 Container bounds calculated:', containerBounds);
+      console.log('📦 Final container bounds:', containerBounds);
       console.log('🏛️ State name:', stateName);
       console.log('🎯 Parcel center:', parcelCenter);
       
       return { containerBounds, stateName, parcelCenter };
-		} catch (error) {
-      console.error('❌ Error extracting container bounds from schema:', error);
-      return { containerBounds: undefined, stateName: undefined, parcelCenter: initialView.center };
-		}
-  }, [schemaData, initialView.center]);
+    } catch (error) {
+      console.error('❌ Error extracting container bounds:', error);
+      return { containerBounds: undefined, stateName: 'Wyoming', parcelCenter: initialView.center };
+    }
+  }, [schemaData, initialParcels, initialView.center]);
 
 	return (
     <div className={`map-workspace ${className || ''}`} style={{ display: 'flex', height: '100%', width: '100%' }}>
