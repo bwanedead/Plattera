@@ -116,6 +116,11 @@ class GeoreferenceService:
                 local_coords_m = normalized  # already meters
                 print(f'📊 Already in meters: {local_coords_m}')
 
+            # If your upstream generator uses screen Y-down, flip to north-up here:
+            if options.get("screen_coords_y_down") is True:
+                normalized = [(x, -y) for (x, y) in normalized]
+                print(f'📊 Y-axis flipped for screen-space: {normalized}')
+
             # 4) Project polygon via UTM anchor
             print(f'🔍 PROJECTION PROCESS:')
             print(f'📍 ANCHOR POINT: lat={pob_geo["lat"]:.6f}, lon={pob_geo["lon"]:.6f}')

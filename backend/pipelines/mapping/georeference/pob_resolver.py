@@ -118,6 +118,21 @@ class POBResolver:
                 dx_m = parsed["offset_x"] * f2m
                 dy_m = parsed["offset_y"] * f2m
 
+                # Optional: project the tie vector onto actual west edge direction to ensure point lies on boundary
+                edge = self._section_west_edge_unit(state, plss_anchor)
+                if edge and edge.get("utm_zone") == utm_zone:
+                    # tie vector from POB -> corner in meters
+                    vx, vy = dx_m, dy_m
+                    # unit vectors along west edge (NW->SW) and its opposite (SW->NW)
+                    ux, uy = edge["ux"], edge["uy"]        # NW->SW (roughly south + slight east)
+                    uox, uoy = -ux, -uy                    # SW->NW (roughly north + slight west)
+                    # Choose direction that best matches the intended tie (N4W from POB -> corner)
+                    # That direction is generally toward NW, i.e., SW->NW
+                    # Project tie onto uo to preserve distance while staying on boundary
+                    mag = (vx**2 + vy**2) ** 0.5 or 1.0
+                    proj_vx, proj_vy = uox * mag, uoy * mag
+                    dx_m, dy_m = proj_vx, proj_vy
+
                 tie_dir = (tie_to_corner.get("tie_direction") or "corner_bears_from_pob").lower()
                 if tie_dir == "corner_bears_from_pob":
                     # Vector from POB -> corner is v; so POB = corner - v
@@ -252,3 +267,23 @@ class POBResolver:
                 "success": False,
                 "error": f"PLSS corner resolution error: {str(e)}"
             }
+
+    def _section_west_edge_unit(self, state: str, plss_anchor: Dict[str, Any]) -> Optional[Dict[str, float]]:
+        """Get unit vector (UTM) along west boundary of the section from NW->SW."""
+        try:
+            # Get NW and SW corners from index (these corners are already in WGS84)
+            nw = self._idx.get_corner(state, plss_anchor, "NW")
+            sw = self._idx.get_corner(state, plss_anchor, "SW")
+            if not nw or not sw:
+                return None
+            zone = self._utm.get_utm_zone(nw["lat"], nw["lon"])
+            nw_utm = self._transformer.geographic_to_utm(nw["lat"], nw["lon"], zone)
+            sw_utm = self._transformer.geographic_to_utm(sw["lat"], sw["lon"], zone)
+            if not nw_utm.get("success") or not sw_utm.get("success"):
+                return None
+            dx = sw_utm["utm_x"] - nw_utm["utm_x"]
+            dy = sw_utm["utm_y"] - nw_utm["utm_y"]
+            norm = (dx**2 + dy**2) ** 0.5 or 1.0
+            return {"ux": dx / norm, "uy": dy / norm, "utm_zone": zone, "nw_utm": nw_utm}
+        except Exception:
+            return None

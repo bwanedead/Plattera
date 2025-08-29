@@ -87,13 +87,17 @@ class PLSSJoiner:
                 logger.error(f"❌ Sections parquet not found: {sections_path}")
                 return pd.DataFrame()
             
-            self._sections_df = pd.read_parquet(sections_path)
-            
-            # Convert WKB geometry to Shapely objects if needed
-            if 'geometry' in self._sections_df.columns:
-                self._sections_df['geometry'] = self._sections_df['geometry'].apply(
-                    lambda x: wkb.loads(x) if isinstance(x, bytes) else x
-                )
+            df = pd.read_parquet(sections_path)
+            if 'geometry' in df.columns:
+                df['geometry'] = df['geometry'].apply(lambda x: wkb.loads(x) if isinstance(x, bytes) else x)
+            if 'FRSTDIVNO' in df.columns:
+                def norm_sec(v):
+                    try:
+                        return f"{int(str(v).strip() or 0):02d}"
+                    except Exception:
+                        return None
+                df['FRSTDIVNO'] = df['FRSTDIVNO'].apply(norm_sec)
+            self._sections_df = df
             
             logger.info(f"📊 Loaded sections parquet: {len(self._sections_df)} rows, columns: {list(self._sections_df.columns)}")
         
@@ -232,42 +236,53 @@ class PLSSJoiner:
         return actual_upper in expected_upper or expected_upper in actual_upper
 
     def find_section_in_township(self, section_num: int, township_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Find section within a township."""
+        """Find section by intersecting sections with the selected township; then filter FRSTDIVNO."""
         try:
             sections_df = self._load_sections_data()
-            
             if sections_df.empty:
                 logger.error("❌ No sections data available")
                 return None
-            
-            # Convert to zero-padded string
-            section_str = f"{section_num:02d}"
-            township_str = f"{township_data['township']:03d}"
-            range_str = f"{township_data['range']:03d}"
-            
-            # Filter sections by TRS
-            mask = (
-                (sections_df['TWNSHPNO'] == township_str) &
-                (sections_df['TWNSHPDIR'] == township_data['township_dir']) &
-                (sections_df['RANGENO'] == range_str) &
-                (sections_df['RANGEDIR'] == township_data['range_dir']) &
-                (sections_df['FRSTDIVNO'] == section_str)
-            )
-            
-            matching_sections = sections_df[mask]
-            
-            if matching_sections.empty:
-                logger.warning(f"❌ No section {section_num} found in T{township_data['township']}{township_data['township_dir']} R{township_data['range']}{township_data['range_dir']}")
+
+            # Ensure geometry is present
+            t_geom = township_data.get('geometry')
+            if t_geom is None:
+                logger.error("❌ Township has no geometry")
                 return None
-            
-            section_row = matching_sections.iloc[0]
-            
+
+            # First bbox filter, then precise intersection (fast + accurate)
+            minx, miny, maxx, maxy = t_geom.bounds
+            cand = sections_df[
+                sections_df['geometry'].apply(lambda g: g is not None and g.bounds[2] >= minx and g.bounds[0] <= maxx and g.bounds[3] >= miny and g.bounds[1] <= maxy)
+            ]
+
+            from shapely.prepared import prep
+            prep_t = prep(t_geom)
+            cand = cand[cand['geometry'].apply(lambda g: g is not None and prep_t.intersects(g))]
+
+            # Filter by section number (FRSTDIVNO is zero-padded 2-char in parquet)
+            section_str = f"{section_num:02d}"
+            cand = cand[cand['FRSTDIVNO'] == section_str]
+
+            if cand.empty:
+                logger.warning(f"❌ No section {section_str} inside selected township; FRSTDIVNO uniques here: {sorted(sections_df['FRSTDIVNO'].dropna().unique().tolist())[:10]} …")
+                return None
+
+            # If multiple sections found, pick the one that matches PLSS standard position
+            if len(cand) > 1:
+                logger.info(f"🧭 Multiple section {section_num} candidates found, selecting by PLSS position...")
+                
+                # PLSS section numbering: 1-6 in top row, 7-12 in second row, etc.
+                # Section 2 is in the northwest corner (top row, second from left)
+                # Pick the section with the highest latitude (northernmost)
+                cand = cand.sort_values('geometry', key=lambda x: x.apply(lambda g: g.bounds[3] if g else 0), ascending=False)
+                logger.info(f"🧭 Selected northernmost section {section_num} at lat {cand.iloc[0]['geometry'].bounds[3]:.3f}")
+
+            row = cand.iloc[0]
             return {
                 'section': section_num,
-                'geometry': section_row.get('geometry'),
-                'bounds': self._get_geometry_bounds(section_row.get('geometry'))
+                'geometry': row.get('geometry'),
+                'bounds': self._get_geometry_bounds(row.get('geometry')),
             }
-            
         except Exception as e:
             logger.error(f"❌ Error finding section {section_num}: {e}")
             return None

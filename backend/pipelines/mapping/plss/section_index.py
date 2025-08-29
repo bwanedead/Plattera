@@ -156,12 +156,12 @@ class SectionIndex:
             
             logger.info(f"Final columns for parquet: {list(sec_gdf.columns)}")
 
-            # 2) Write full sections as GeoParquet for optional overlays
+            # 2) Write sections as GeoParquet (AFTER spatial join if available)
             sections_parquet = pq_dir / "sections.parquet"
-            sec_gdf.to_parquet(sections_parquet, compression="zstd", index=False)
 
             # Initialize townships parquet path
             townships_parquet_path: Optional[Path] = None
+
             # 2.5) Load townships to get TRS info and join with sections
             if townships_fgdb and townships_layer:
                 try:
@@ -209,14 +209,27 @@ class SectionIndex:
                     logger.info("Performing spatial join of sections to townships...")
                     sec_gdf_joined = gpd.sjoin(sec_gdf, twp_gdf, how='left', predicate='within')
                     
-                    # Use the joined data for index creation
+                    # Use the joined data for both index creation AND parquet
                     sec_gdf = sec_gdf_joined
                     
                     logger.info(f"After spatial join, sections columns: {list(sec_gdf.columns)}")
                     logger.info(f"Sections with TRS data: {len(sec_gdf[sec_gdf['TWNSHPNO'].notna()])} / {len(sec_gdf)}")
                     
+                    # Validate that the join worked
+                    if len(sec_gdf[sec_gdf['TWNSHPNO'].notna()]) == 0:
+                        logger.error("❌ Spatial join failed - no sections have township data!")
+                        raise Exception("Spatial join produced no township data")
+                    
+                    logger.info("✅ Spatial join successful - sections now have township/range data")
+                    
                 except Exception as e:
-                    logger.warning(f"Spatial join failed, proceeding with sections only: {e}")
+                    logger.error(f"❌ Spatial join failed: {e}")
+                    logger.warning("⚠️ Proceeding with sections-only data (no township/range info)")
+                    # Continue with original sec_gdf (no township data)
+
+            # NOW write the sections parquet (with township data if available)
+            sec_gdf.to_parquet(sections_parquet, compression="zstd", index=False)
+            logger.info(f"✅ Created sections parquet with columns: {list(sec_gdf.columns)}")
 
             # 2b) Optional: write townships parquet if FGDB layer provided
             ranges_parquet_path: Optional[Path] = None

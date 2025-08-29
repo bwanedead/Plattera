@@ -80,10 +80,20 @@ class PLSSDataService:
             # Check if data exists locally  
             has_data = data_manager._is_data_current(state)
             
+            # Also check if parquet files exist for optimal performance
+            state_dir = data_manager.data_dir / state.lower()
+            parquet_dir = state_dir / "parquet"
+            has_parquets = parquet_dir.exists() and any(parquet_dir.glob("*.parquet"))
+            
+            # Data is only fully available if both FGDB and parquets exist
+            fully_available = has_data and has_parquets
+            
             return {
-                "available": has_data,
+                "available": fully_available,
                 "state": state,
-                "message": f"PLSS data for {state} {'is available' if has_data else 'needs to be downloaded'}"
+                "message": f"PLSS data for {state} {'is fully available' if fully_available else 'needs parquet generation' if has_data else 'needs to be downloaded'}",
+                "has_fgdb": has_data,
+                "has_parquets": has_parquets
             }
         except Exception as e:
             logger.error(f"❌ Error checking PLSS data status for {state}: {str(e)}")
