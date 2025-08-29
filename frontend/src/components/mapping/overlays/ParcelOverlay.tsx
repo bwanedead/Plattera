@@ -22,6 +22,16 @@ export const ParcelOverlay: React.FC<ParcelOverlayProps> = ({ parcels }) => {
       anchorInfo: parcel.anchor_info
     });
 
+    // Extra diagnostics: list POB and resolved corner if present
+    if (parcel?.anchor_info) {
+      const ai = parcel.anchor_info;
+      console.log('📍 Anchor diagnostics:', {
+        pob_coordinates: ai.pob_coordinates,
+        resolved_corner: ai.resolved_coordinates,
+        pob_method: ai.pob_method
+      });
+    }
+
     try {
       // Remove existing parcel layers
       if (map.getLayer('parcel-fill')) map.removeLayer('parcel-fill');

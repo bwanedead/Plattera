@@ -34,12 +34,20 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
 	const handleMapLoad = useCallback((m: maplibregl.Map) => {
 		setMap(m);
 		setIsLoaded(true);
+		try {
+			const c = m.getCenter();
+			const z = m.getZoom();
+			console.log('🗺️ Map loaded:', { center: { lat: c.lat, lon: c.lng }, zoom: z });
+		} catch (e) {
+			console.warn('Map load logging failed:', e);
+		}
 	}, []);
 
 	const handleMapMove = useCallback((view: { center: { lat: number; lon: number }; zoom: number; bounds: { west: number; south: number; east: number; north: number } }) => {
 		setCenter(view.center);
 		setZoom(view.zoom);
 		setBounds(view.bounds);
+		console.log('🔄 Map moved:', view);
 	}, []);
 
 	const ctx = useMemo<MapContextValue>(() => ({ map, isLoaded, center, zoom, bounds }), [map, isLoaded, center, zoom, bounds]);
@@ -164,6 +172,15 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
           
           {/* Add ParcelOverlay to render georeferenced polygons */}
           <ParcelOverlay parcels={initialParcels} />
+
+				{/* Debug: print rendered polygon vertices */}
+				{isLoaded && initialParcels?.[0]?.geographic_polygon?.coordinates && (
+					(() => {
+						const coords = initialParcels[0].geographic_polygon.coordinates?.[0] || [];
+						console.log('🧩 Rendered parcel vertices (lon,lat):', coords);
+						return null;
+					})()
+				)}
 				</div>
 
         {/* Side Panel */}

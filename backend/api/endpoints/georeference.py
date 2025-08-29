@@ -168,7 +168,8 @@ async def project_polygon_from_schema(request: Dict[str, Any]) -> Dict[str, Any]
                     "bearing_raw": tie.get("bearing_raw"),
                     "distance_value": tie.get("distance_value"),
                     "distance_units": tie.get("distance_units", "feet"),
-                    "tie_direction": tie.get("tie_direction", "corner_bears_from_pob")
+                    "tie_direction": tie.get("tie_direction", "corner_bears_from_pob"),
+                    "project_to_boundary": True  # Enable boundary snapping for west boundary ties
                 }
             }
         
@@ -183,7 +184,10 @@ async def project_polygon_from_schema(request: Dict[str, Any]) -> Dict[str, Any]
             "local_coordinates": formatted_coords,
             "plss_anchor": plss_anchor,
             "starting_point": starting_point,
-            "options": {}
+            "options": {
+                "screen_coords_y_down": True,  # Enable Y-axis flipping for screen coordinates
+                "local_units": "feet"
+            }
         })
         
         if not result.get("success"):

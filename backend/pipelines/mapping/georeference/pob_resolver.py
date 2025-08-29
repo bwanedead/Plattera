@@ -13,6 +13,8 @@ from pipelines.mapping.plss.coordinate_service import PLSSCoordinateService
 from pipelines.mapping.projection.transformer import CoordinateTransformer
 from pipelines.mapping.projection.utm_manager import UTMManager
 from .pob_math import parse_bearing_and_distance
+from shapely.geometry import LineString, Point
+from math import atan2, degrees, hypot
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,48 @@ class POBResolver:
         # Default fallback
         return "NW"
     
+    def _west_boundary_line(self, section_geom) -> LineString:
+        """Extract the west boundary line from a section geometry."""
+        # Accept Polygon or MultiPolygon; choose largest polygon by area
+        try:
+            geom = section_geom
+            if hasattr(section_geom, "geoms"):  # MultiPolygon
+                geom = max(section_geom.geoms, key=lambda g: g.area)
+            ext = list(geom.exterior.coords)
+            xs = [p[0] for p in ext]
+            minx = min(xs)
+            eps = (max(xs) - minx) * 0.005 or 1e-8
+            west = sorted([p for p in ext if abs(p[0] - minx) < eps], key=lambda p: p[1])
+            if len(west) >= 2 and (west[0] != west[-1]):
+                return LineString([west[0], west[-1]])
+            # fallback: bbox left edge
+            minx, miny, maxx, maxy = geom.bounds
+            return LineString([(minx, miny), (minx, maxy)])
+        except Exception:
+            # last resort: bounds of whatever we got
+            minx, miny, maxx, maxy = section_geom.bounds
+            return LineString([(minx, miny), (minx, maxy)])
+    
+    def _azimuth_deg(self, p0, p1) -> float:
+        """Calculate azimuth in degrees from point p0 to p1 (0=N, clockwise)."""
+        dx = p1[0] - p0[0]
+        dy = p1[1] - p0[1]
+        ang = (degrees(atan2(dx, dy)) + 360.0) % 360.0  # 0=N, cw
+        return ang
+    
+    def _signed_offset_to_line(self, pt, line) -> float:
+        """Calculate signed offset from point to line (right-hand positive relative to line direction)."""
+        a, b = line.coords[0], line.coords[-1]
+        ax, ay = a
+        bx, by = b
+        px, py = pt
+        vx, vy = bx-ax, by-ay
+        wx, wy = px-ax, py-ay
+        # area sign gives side
+        cross = vx*wy - vy*wx
+        L = hypot(vx, vy) or 1e-9
+        return cross / L  # meters; >0 = right of line, <0 = left
+
     def resolve_pob(self, plss_anchor: Dict[str, Any], tie_to_corner: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Resolve the Point of Beginning from PLSS anchor and optional tie.
@@ -118,20 +162,11 @@ class POBResolver:
                 dx_m = parsed["offset_x"] * f2m
                 dy_m = parsed["offset_y"] * f2m
 
-                # Optional: project the tie vector onto actual west edge direction to ensure point lies on boundary
-                edge = self._section_west_edge_unit(state, plss_anchor)
-                if edge and edge.get("utm_zone") == utm_zone:
-                    # tie vector from POB -> corner in meters
-                    vx, vy = dx_m, dy_m
-                    # unit vectors along west edge (NW->SW) and its opposite (SW->NW)
-                    ux, uy = edge["ux"], edge["uy"]        # NW->SW (roughly south + slight east)
-                    uox, uoy = -ux, -uy                    # SW->NW (roughly north + slight west)
-                    # Choose direction that best matches the intended tie (N4W from POB -> corner)
-                    # That direction is generally toward NW, i.e., SW->NW
-                    # Project tie onto uo to preserve distance while staying on boundary
-                    mag = (vx**2 + vy**2) ** 0.5 or 1.0
-                    proj_vx, proj_vy = uox * mag, uoy * mag
-                    dx_m, dy_m = proj_vx, proj_vy
+                # NOTE: DO NOT project tie vector onto west edge direction
+                # The original bearing from the deed should be preserved exactly
+                # as it represents the true surveyed direction, not constrained to section boundaries
+                
+                print(f"🔍 PRESERVING ORIGINAL BEARING: dx_m={dx_m:.3f}, dy_m={dy_m:.3f}")
 
                 tie_dir = (tie_to_corner.get("tie_direction") or "corner_bears_from_pob").lower()
                 if tie_dir == "corner_bears_from_pob":
@@ -142,6 +177,37 @@ class POBResolver:
                     # Vector from corner -> POB is v; so POB = corner + v
                     pob_x = corner_utm["utm_x"] + dx_m
                     pob_y = corner_utm["utm_y"] + dy_m
+
+                # FIX 3: Optional POB boundary snapping
+                project_to_boundary = tie_to_corner.get("project_to_boundary", True)  # Default True for west boundary ties
+                if project_to_boundary and "west" in corner_label.lower():
+                    print(f"🔧 ATTEMPTING BOUNDARY SNAPPING...")
+                    # Get section geometry for boundary projection
+                    sec_data = self._plss_joiner.find_section_in_township(
+                        plss_anchor['section_number'],
+                        self._plss_joiner.find_township_range(
+                            plss_anchor['township_number'], plss_anchor['township_direction'],
+                            plss_anchor['range_number'], plss_anchor['range_direction'],
+                            plss_anchor.get('principal_meridian')
+                        )
+                    )
+                    section_geom = sec_data.get('geometry') if sec_data else None
+                    
+                    if section_geom is not None:
+                        # Build west boundary line and project POB onto it
+                        west_line_ll = self._west_boundary_line(section_geom)
+                        wl0 = self._transformer.geographic_to_utm(west_line_ll.coords[0][1], west_line_ll.coords[0][0], utm_zone)
+                        wl1 = self._transformer.geographic_to_utm(west_line_ll.coords[-1][1], west_line_ll.coords[-1][0], utm_zone)
+                        west_line_utm = LineString([(wl0["utm_x"], wl0["utm_y"]), (wl1["utm_x"], wl1["utm_y"])])
+                        
+                        # Project POB to closest point on west boundary
+                        pob_pt = Point(pob_x, pob_y)
+                        proj_dist = west_line_utm.project(pob_pt)  # Distance along line from south
+                        projected = west_line_utm.interpolate(proj_dist)
+                        pob_x, pob_y = projected.x, projected.y
+                        print(f"🔧 POB SNAPPED TO WEST BOUNDARY: x={pob_x:.3f}, y={pob_y:.3f}")
+                    else:
+                        print(f"⚠️ Could not get section geometry for boundary snapping")
 
                 pob_geo_res = self._transformer.utm_to_geographic(pob_x, pob_y, utm_zone)
                 if not pob_geo_res.get("success"):
@@ -157,6 +223,69 @@ class POBResolver:
                 print(f"📍 FINAL POB COORDINATES: lat={pob_geo_res['lat']:.6f}, lon={pob_geo_res['lon']:.6f}")
                 print(f"📊 POB Geographic: {pob_geo_res}")
                 
+                # Fetch section geometry for diagnostics
+                sec_data = self._plss_joiner.find_section_in_township(
+                    plss_anchor['section_number'],
+                    self._plss_joiner.find_township_range(
+                        plss_anchor['township_number'], plss_anchor['township_direction'],
+                        plss_anchor['range_number'], plss_anchor['range_direction'],
+                        plss_anchor.get('principal_meridian')
+                    )
+                )
+                section_geom = sec_data.get('geometry') if sec_data else None
+
+                print("🔎 TIE DEBUG:",
+                      {"corner_label": short_label,
+                       "tie_direction": tie_to_corner.get("tie_direction"),
+                       "bearing_raw": tie_to_corner.get("bearing_raw"),
+                       "bearing_deg": parsed.get("bearing_degrees"),
+                       "distance_ft": parsed.get("distance_feet"),
+                       "dx_m": round(dx_m, 3),
+                       "dy_m": round(dy_m, 3)})
+
+                print("🔎 COORD DEBUG:",
+                      {"corner_geo": corner_geo,
+                       "corner_utm": corner_utm,
+                       "pob_utm": {"x": pob_x, "y": pob_y, "zone": utm_zone},
+                       "utm_zone": corner_utm.get("utm_zone")})
+
+                if section_geom is not None and corner_utm["success"] and pob_geo_res["success"]:
+                    # Build west boundary line and measure
+                    west_line_ll = self._west_boundary_line(section_geom)
+                    # project to UTM via your transformer
+                    wl0 = self._transformer.geographic_to_utm(west_line_ll.coords[0][1], west_line_ll.coords[0][0], corner_utm["utm_zone"])
+                    wl1 = self._transformer.geographic_to_utm(west_line_ll.coords[-1][1], west_line_ll.coords[-1][0], corner_utm["utm_zone"])
+                    west_line_utm = LineString([(wl0["utm_x"], wl0["utm_y"]), (wl1["utm_x"], wl1["utm_y"])])
+                    west_az = self._azimuth_deg(west_line_utm.coords[0], west_line_utm.coords[-1])
+                    pob_pt = (pob_x, pob_y)
+                    off_signed = self._signed_offset_to_line(pob_pt, west_line_utm)
+                    # perpendicular distance
+                    dist_perp = west_line_utm.distance(Point(pob_pt))
+
+                    # Measure relative position of POB along west edge (south→north)
+                    edge_len_m = float(west_line_utm.length)
+                    s_along_m = float(west_line_utm.project(Point(pob_pt)))
+                    frac_from_south = (s_along_m / edge_len_m) if edge_len_m > 0 else 0.0
+                    dist_from_north_m = max(edge_len_m - s_along_m, 0.0)
+                    tie_expected_m = 1638.0 * 0.3048  # from deed
+                    delta_tie_m = dist_from_north_m - tie_expected_m
+
+                    side = "east" if off_signed < 0 else "west"
+
+                    print("🔎 SECTION/WEST-EDGE DEBUG:",
+                          {"west_azimuth_deg": round(west_az, 3),
+                           "edge_height_m": round(edge_len_m, 3),
+                           "pob_perp_offset_m": round(dist_perp, 3),
+                           "pob_side_of_west_edge": side,
+                           "pob_fraction_from_south": round(frac_from_south, 5),
+                           "pob_distance_from_north_m": round(dist_from_north_m, 3),
+                           "tie_expected_m": round(tie_expected_m, 3),
+                           "delta_tie_m": round(delta_tie_m, 3)})
+
+                    # Optional: flag if we are not “on west boundary” (informational)
+                    if dist_perp > 1.0:
+                        print("⚠️ POB is not on west boundary (>", round(dist_perp, 3), "m).")
+
                 return {
                     "success": True,
                     "pob_geographic": {"lat": pob_geo_res["lat"], "lon": pob_geo_res["lon"]},

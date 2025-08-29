@@ -105,6 +105,13 @@ class GeoreferenceService:
             print(f'📊 Original coordinates: {local_coords_in}')
             normalized = normalize_local_coordinates(local_coords_in)  # [(x,y)] preserving given origin
             print(f'📊 Normalized coordinates: {normalized}')
+            
+            # FIX 1: Shift local coordinates to POB origin (0,0)
+            if normalized[0] != (0.0, 0.0):  # If not already at (0,0)
+                ox, oy = normalized[0]
+                normalized = [(x - ox, y - oy) for x, y in normalized]
+                print(f'🔧 SHIFTED TO POB ORIGIN: {normalized}')
+            
             local_units = (options.get("local_units") or "feet").lower()
             if local_units not in ["feet", "foot", "ft", "meters", "meter", "m"]:
                 local_units = "feet"
@@ -116,10 +123,10 @@ class GeoreferenceService:
                 local_coords_m = normalized  # already meters
                 print(f'📊 Already in meters: {local_coords_m}')
 
-            # If your upstream generator uses screen Y-down, flip to north-up here:
+            # FIX 2: Flip Y for screen coordinates (Y-down to Y-up)
             if options.get("screen_coords_y_down") is True:
-                normalized = [(x, -y) for (x, y) in normalized]
-                print(f'📊 Y-axis flipped for screen-space: {normalized}')
+                local_coords_m = [(x, -y) for (x, y) in local_coords_m]
+                print(f'🔧 Y-AXIS FLIPPED FOR SCREEN COORDS: {local_coords_m}')
 
             # 4) Project polygon via UTM anchor
             print(f'🔍 PROJECTION PROCESS:')
