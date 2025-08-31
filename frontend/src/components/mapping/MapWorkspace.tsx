@@ -3,6 +3,7 @@ import { MapContext, type MapContextValue } from './core/MapContext';
 import { MapEngine } from './core/MapEngine';
 import { OverlayManager } from './overlays/OverlayManager';
 import { PLSSManager } from './overlays/PLSSManager';
+import { MeasurementManager } from './overlays/MeasurementManager';
 import { SidePanel, SidePanelSection } from './panels/SidePanel';
 import { TilesSection } from './panels/TilesSection';
 import { PropertiesSection } from './panels/PropertiesSection';
@@ -188,7 +189,7 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
           <SidePanel>
             <TilesSection />
             <PropertiesSection polygon={initialParcels?.[0]} />
-            
+
             {/* PLSS Overlays Section */}
             <SidePanelSection title="PLSS Overlays">
               <PLSSManager
@@ -197,6 +198,9 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
 									containerBounds={containerBounds}
 								/>
             </SidePanelSection>
+
+            {/* Measurement Tools */}
+            <MeasurementManager stateName={stateName || 'Wyoming'} />
 							</SidePanel>
 						</div>
       </MapContext.Provider>

@@ -655,3 +655,4 @@ async def get_download_status(state: str) -> Dict[str, Any]:
             "error": str(e),
             "download_active": False  # Default to false on error
         }
+
