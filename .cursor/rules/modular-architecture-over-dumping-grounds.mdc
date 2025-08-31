@@ -1,0 +1,11 @@
+---
+description: 
+    When adding new features or code, first consider the project’s overall file architecture. Avoid continuously appending unrelated logic into large, catch-all files. Instead, evaluate whether the functionality belongs in its own dedicated module or should extend an existing one in a clean, cohesive way.
+
+    For API endpoint files in particular, do not allow them to grow into “monster” files containing every route. Group related endpoints into separate, well-named modules to keep responsibilities narrow and code navigable.
+
+    Professional, scalable codebases emphasize separation of concerns, clear module boundaries, and maintainable structures. Always pause to ask: “Does this addition deserve its own module or folder, rather than being crammed into an existing file?”
+
+globs: []
+alwaysApply: true
+---

@@ -1,0 +1,19 @@
+---
+description: 
+    If you are attempting to use the terminal for some task, remember that the venv likely needs to be activated in the terminal you use.  
+  The venv is located in the project root, and the activation command is:
+
+      .venv/Scripts/Activate.ps1
+
+  Please never try to install dependencies without first asking for permission.  
+  Additionally, always ensure the venv is activated before proceeding — this is extremely important.  
+
+  Furthermore, it should be the standard to activate the venv before terminal usage of any type as a prophylactic measure.  
+  The venv must be activated in order for dependencies to be available.
+
+
+
+
+globs: []
+alwaysApply: true
+---
