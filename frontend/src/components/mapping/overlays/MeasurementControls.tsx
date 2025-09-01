@@ -13,6 +13,7 @@ interface MeasurementControlsProps {
   measurementState: MeasurementState;
   onModeChange: (mode: MeasurementMode) => void;
   onToggleSnapping: () => void;
+  onToggleCoordinates: () => void;
   onDirectDistanceChange: (distance: string) => void;
   onDirectBearingChange: (bearing: string) => void;
   onSelectedDirectionChange: (direction: CardinalDirection) => void;
@@ -21,12 +22,14 @@ interface MeasurementControlsProps {
   onRemoveMeasurement: (measurementId: string) => void;
   onClearAllMeasurements: () => void;
   onHideSnapFeedback: () => void;
+  onChainFromMeasurement: (measurementId: string) => void;
 }
 
 export const MeasurementControls: React.FC<MeasurementControlsProps> = ({
   measurementState,
   onModeChange,
   onToggleSnapping,
+  onToggleCoordinates,
   onDirectDistanceChange,
   onDirectBearingChange,
   onSelectedDirectionChange,
@@ -35,10 +38,12 @@ export const MeasurementControls: React.FC<MeasurementControlsProps> = ({
   onRemoveMeasurement,
   onClearAllMeasurements,
   onHideSnapFeedback,
+  onChainFromMeasurement,
 }) => {
   const {
     mode,
     snappingEnabled,
+    showCoordinates,
     measurements,
     currentMeasurement,
     directDistance,
@@ -149,7 +154,31 @@ export const MeasurementControls: React.FC<MeasurementControlsProps> = ({
           </div>
         )}
 
-
+        {/* Coordinate Display Toggle */}
+        <div className="flex items-center space-x-3">
+          <input
+            type="checkbox"
+            id="coordinate-display"
+            checked={showCoordinates}
+            onChange={onToggleCoordinates}
+            className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+          />
+          <label
+            htmlFor="coordinate-display"
+            className="text-sm font-medium text-gray-300 cursor-pointer select-none"
+          >
+            Show Coordinates
+          </label>
+          {showCoordinates && (
+            <div className="flex items-center space-x-2">
+              <span className="text-blue-400 text-xs font-semibold">📍 VISIBLE</span>
+              <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+            </div>
+          )}
+          {!showCoordinates && (
+            <span className="text-gray-500 text-xs">🙈 HIDDEN</span>
+          )}
+        </div>
 
         {/* Click & Drag Status */}
         {mode === 'click-drag' && currentMeasurement.length === 1 && (
@@ -237,33 +266,72 @@ export const MeasurementControls: React.FC<MeasurementControlsProps> = ({
 
             <div className="max-h-40 overflow-y-auto space-y-1">
               {measurements.map((measurement) => (
-                <div key={measurement.id} className="flex items-center justify-between bg-gray-800/50 px-3 py-2 rounded text-sm">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-white font-medium truncate">
-                      {formatDistance(measurement.distance)}
-                    </div>
-                    {measurement.bearing && (
-                      <div className="text-gray-400 text-xs truncate">
-                        {formatBearing(measurement.bearing)}
+                <div key={measurement.id} className="bg-gray-800/50 px-3 py-2 rounded text-sm space-y-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-white font-medium truncate">
+                        {formatDistance(measurement.distance)}
                       </div>
-                    )}
+                      {measurement.bearing && (
+                        <div className="text-gray-400 text-xs truncate">
+                          {formatBearing(measurement.bearing)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2 ml-2">
+                      <button
+                        onClick={() => onToggleMeasurementVisibility(measurement.id)}
+                        className="text-gray-400 hover:text-white text-sm"
+                        title={measurement.isVisible ? 'Hide measurement' : 'Show measurement'}
+                      >
+                        {measurement.isVisible ? '👁️' : '🙈'}
+                      </button>
+                      <button
+                        onClick={() => onChainFromMeasurement(measurement.id)}
+                        className="text-gray-400 hover:text-blue-400 text-sm"
+                        title="Chain from end point"
+                      >
+                        🔗
+                      </button>
+                      <button
+                        onClick={() => onRemoveMeasurement(measurement.id)}
+                        className="text-gray-400 hover:text-red-400 text-sm"
+                        title="Remove measurement"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-2 ml-2">
-                    <button
-                      onClick={() => onToggleMeasurementVisibility(measurement.id)}
-                      className="text-gray-400 hover:text-white text-sm"
-                      title={measurement.isVisible ? 'Hide measurement' : 'Show measurement'}
-                    >
-                      {measurement.isVisible ? '👁️' : '🙈'}
-                    </button>
-                    <button
-                      onClick={() => onRemoveMeasurement(measurement.id)}
-                      className="text-gray-400 hover:text-red-400 text-sm"
-                      title="Remove measurement"
-                    >
-                      🗑️
-                    </button>
-                  </div>
+
+                  {/* Coordinate display when enabled */}
+                  {showCoordinates && measurement.points.length >= 2 && (
+                    <div className="border-t border-gray-700 pt-2 space-y-1">
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <div className="text-blue-300 font-medium">START:</div>
+                          <div className="text-gray-300 font-mono">
+                            {measurement.points[0].lat.toFixed(4)}, {measurement.points[0].lng.toFixed(4)}
+                          </div>
+                          {measurement.points[0].snappedFeature && (
+                            <div className="text-green-400 text-xs">
+                              🧲 {measurement.points[0].snappedFeature}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <div className="text-orange-300 font-medium">END:</div>
+                          <div className="text-gray-300 font-mono">
+                            {measurement.points[1].lat.toFixed(4)}, {measurement.points[1].lng.toFixed(4)}
+                          </div>
+                          {measurement.points[1].snappedFeature && (
+                            <div className="text-green-400 text-xs">
+                              🧲 {measurement.points[1].snappedFeature}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

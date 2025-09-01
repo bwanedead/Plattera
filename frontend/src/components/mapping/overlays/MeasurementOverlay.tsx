@@ -10,12 +10,14 @@ import type maplibregl from 'maplibre-gl';
 
 interface MeasurementOverlayProps {
   measurements: Measurement[];
+  showCoordinates: boolean;
   onMeasurementLoad?: (measurement: Measurement) => void;
   onMeasurementUnload?: (measurement: Measurement) => void;
 }
 
 export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
   measurements,
+  showCoordinates,
   onMeasurementLoad,
   onMeasurementUnload,
 }) => {
@@ -86,103 +88,132 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
       return;
     }
 
-    // Add distance label at midpoint
-    if (measurement.points.length === 2 && measurement.isVisible) {
-      const midPoint = [
-        (measurement.points[0].lng + measurement.points[1].lng) / 2,
-        (measurement.points[0].lat + measurement.points[1].lat) / 2
-      ];
 
-      // Use circle marker instead of text label for better compatibility
+
+
+
+    // Add start and end point markers safely
+    [measurement.points[0], measurement.points[1]].forEach((point, index) => {
+      const pointId = index === 0 ? startPointId : endPointId;
+      const pointSourceId = `${pointId}-source`;
+
       try {
-        map.addSource(`${labelId}-label`, {
+        map.addSource(pointSourceId, {
           type: 'geojson',
           data: {
             type: 'Feature',
             geometry: {
               type: 'Point',
-              coordinates: [midPoint[0], midPoint[1]]
+              coordinates: [point.lng, point.lat]
             },
-            properties: {
-              distance: `${measurement.distance.toFixed(1)} ft`
-            }
+            properties: {}
           }
         });
+      } catch (error) {
+        console.warn(`Failed to add point source ${pointSourceId}:`, error.message);
+        return;
+      }
 
+      try {
         map.addLayer({
-          id: labelId,
+          id: pointId,
           type: 'circle',
-          source: `${labelId}-label`,
+          source: pointSourceId,
           paint: {
-            'circle-radius': 8,
-            'circle-color': '#3b82f6', // blue-500
+            'circle-radius': 6,
+            'circle-color': '#ff6b35',
             'circle-stroke-color': '#ffffff',
             'circle-stroke-width': 2,
           }
         });
-
-        console.debug(`✅ Added measurement label marker at ${midPoint[0].toFixed(6)}, ${midPoint[1].toFixed(6)}`);
       } catch (error) {
-        console.warn(`Failed to add measurement label marker ${labelId}:`, error.message);
+        console.warn(`Failed to add point layer ${pointId}:`, error.message);
       }
 
-      // Add start and end point markers safely
-      [measurement.points[0], measurement.points[1]].forEach((point, index) => {
-        const pointId = index === 0 ? startPointId : endPointId;
-        const pointSourceId = `${pointId}-source`;
+      // Add coordinate text labels if enabled
+      if (showCoordinates) {
+        const coordLabelId = `${pointId}-coord`;
+        const coordSourceId = `${coordLabelId}-source`;
+        const coordText = `${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}`;
+        const pointLabel = index === 0 ? 'START' : 'END';
+
+        // Offset coordinate label slightly from the point for readability
+        const offsetLat = index === 0 ? 0.0001 : -0.0001;
+        const coordPoint = [point.lng, point.lat + offsetLat];
 
         try {
-          map.addSource(pointSourceId, {
+          map.addSource(coordSourceId, {
             type: 'geojson',
             data: {
               type: 'Feature',
               geometry: {
                 type: 'Point',
-                coordinates: [point.lng, point.lat]
+                coordinates: coordPoint
               },
-              properties: {}
+              properties: {
+                text: `${pointLabel}\n${coordText}`,
+                snapped: point.snappedFeature ? `Snapped: ${point.snappedFeature}` : 'Manual placement'
+              }
             }
           });
-        } catch (error) {
-          console.warn(`Failed to add point source ${pointSourceId}:`, error.message);
-          return;
-        }
 
-        try {
-          map.addLayer({
-            id: pointId,
-            type: 'circle',
-            source: pointSourceId,
-            paint: {
-              'circle-radius': 6,
-              'circle-color': '#ff6b35',
-              'circle-stroke-color': '#ffffff',
-              'circle-stroke-width': 2,
-            }
-          });
+          // Add text label layer (if supported) or fallback to symbol
+          try {
+            map.addLayer({
+              id: coordLabelId,
+              type: 'symbol',
+              source: coordSourceId,
+              layout: {
+                'text-field': ['get', 'text'],
+                'text-size': 12
+              },
+              paint: {
+                'text-color': '#1f2937', // gray-800
+                'text-halo-color': '#ffffff',
+                'text-halo-width': 2
+              }
+            });
+            console.debug(`📍 Added coordinate text label for ${pointLabel}: ${coordText}`);
+          } catch (textError) {
+            // Fallback to circle marker if text labels aren't supported
+            console.warn(`Text labels not supported, falling back to marker for ${coordLabelId}`);
+            map.addLayer({
+              id: coordLabelId,
+              type: 'circle',
+              source: coordSourceId,
+              paint: {
+                'circle-radius': 6,
+                'circle-color': '#6b7280', // gray-500
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2,
+              }
+            });
+          }
         } catch (error) {
-          console.warn(`Failed to add point layer ${pointId}:`, error.message);
+          console.warn(`Failed to add coordinate label ${coordLabelId}:`, error.message);
         }
-      });
-    }
+      }
+    });
 
     onMeasurementLoad?.(measurement);
     console.log(`✅ Measurement ${measurement.id} rendered on map`);
-  }, [map, onMeasurementLoad]);
+  }, [map, showCoordinates, onMeasurementLoad]);
 
   // Remove a measurement from the map
   const removeMeasurement = useCallback((measurement: Measurement) => {
     if (!map) return;
 
     const lineId = `measurement-line-${measurement.id}`;
-    const labelId = `measurement-label-${measurement.id}`;
     const startPointId = `measurement-start-${measurement.id}`;
     const endPointId = `measurement-end-${measurement.id}`;
     const startPointSourceId = `${startPointId}-source`;
     const endPointSourceId = `${endPointId}-source`;
-    const labelSourceId = `${labelId}-label`;
+    const startCoordId = `${startPointId}-coord`;
+    const endCoordId = `${endPointId}-coord`;
+    const startCoordSourceId = `${startCoordId}-source`;
+    const endCoordSourceId = `${endCoordId}-source`;
 
-    [lineId, labelId, startPointId, endPointId, startPointSourceId, endPointSourceId, labelSourceId].forEach(id => {
+    [lineId, startPointId, endPointId, startPointSourceId, endPointSourceId, startCoordId, endCoordId, startCoordSourceId, endCoordSourceId].forEach(id => {
       try {
         if (map.getLayer(id)) map.removeLayer(id);
       } catch (error) {

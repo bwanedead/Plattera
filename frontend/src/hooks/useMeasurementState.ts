@@ -18,6 +18,7 @@ export interface SnapFeedback {
 export interface MeasurementState {
   mode: MeasurementMode;
   snappingEnabled: boolean;
+  showCoordinates: boolean;
   measurements: Measurement[];
   currentMeasurement: MeasurementPoint[];
   directDistance: string;
@@ -31,6 +32,7 @@ export const useMeasurementState = () => {
   const [measurementState, setMeasurementState] = useState<MeasurementState>({
     mode: 'disabled',
     snappingEnabled: false, // Start with snapping disabled for clarity
+    showCoordinates: true, // Default to showing coordinates
     measurements: [],
     currentMeasurement: [],
     directDistance: '',
@@ -57,6 +59,13 @@ export const useMeasurementState = () => {
     setMeasurementState(prev => ({
       ...prev,
       snappingEnabled: !prev.snappingEnabled,
+    }));
+  }, []);
+
+  const toggleCoordinates = useCallback(() => {
+    setMeasurementState(prev => ({
+      ...prev,
+      showCoordinates: !prev.showCoordinates,
     }));
   }, []);
 
@@ -131,6 +140,26 @@ export const useMeasurementState = () => {
     }));
   }, []);
 
+  const chainFromMeasurement = useCallback((measurementId: string) => {
+    setMeasurementState(prev => {
+      const measurement = prev.measurements.find(m => m.id === measurementId);
+      if (!measurement || measurement.points.length < 2) return prev;
+
+      // Use the end point of the measurement as the start point for direct input
+      const endPoint = measurement.points[1];
+      return {
+        ...prev,
+        mode: 'direct-input',
+        directStartPoint: endPoint,
+        snapFeedback: {
+          featureName: endPoint.snappedFeature || 'Measurement endpoint',
+          coordinates: { lng: endPoint.lng, lat: endPoint.lat },
+          isVisible: true
+        }
+      };
+    });
+  }, []);
+
   const setSelectedDirection = useCallback((direction: CardinalDirection) => {
     setMeasurementState(prev => ({
       ...prev,
@@ -156,6 +185,7 @@ export const useMeasurementState = () => {
     measurementState,
     setMode,
     toggleSnapping,
+    toggleCoordinates,
     setDirectDistance,
     setDirectBearing,
     setSelectedDirection,
@@ -168,5 +198,6 @@ export const useMeasurementState = () => {
     toggleMeasurementVisibility,
     removeMeasurement,
     clearAllMeasurements,
+    chainFromMeasurement,
   };
 };

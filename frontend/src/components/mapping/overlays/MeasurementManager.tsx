@@ -35,6 +35,7 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
     measurementState,
     setMode,
     toggleSnapping,
+    toggleCoordinates,
     setDirectDistance,
     setDirectBearing,
     setSelectedDirection,
@@ -47,6 +48,7 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
     toggleMeasurementVisibility,
     removeMeasurement,
     clearAllMeasurements,
+    chainFromMeasurement,
   } = useMeasurementState();
 
   // Draw persistent snap marker on map
@@ -178,6 +180,8 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
         addMeasurement(measurement);
         resetCurrentMeasurement();
         console.log(`📏 Created measurement: ${distance.toFixed(1)} ft at ${bearing?.toFixed(1)}°`);
+        console.log(`📍 Start point: ${updatedPoints[0].lat.toFixed(6)}, ${updatedPoints[0].lng.toFixed(6)} ${updatedPoints[0].snappedFeature ? `🧲 Snapped to: ${updatedPoints[0].snappedFeature}` : '📍 Manual placement'}`);
+        console.log(`📍 End point: ${updatedPoints[1].lat.toFixed(6)}, ${updatedPoints[1].lng.toFixed(6)} ${updatedPoints[1].snappedFeature ? `🧲 Snapped to: ${updatedPoints[1].snappedFeature}` : '📍 Manual placement'}`);
       }
     } else if (mode === 'direct-input') {
       // Handle direct input start point selection
@@ -248,6 +252,8 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
     removeSnapMarker(); // Remove snap marker after measurement creation
 
     console.log(`📏 Created direct measurement: ${distance.toFixed(1)} ft at ${bearing.toFixed(1)}°`);
+    console.log(`📍 Start point: ${directStartPoint.lat.toFixed(6)}, ${directStartPoint.lng.toFixed(6)} ${directStartPoint.snappedFeature ? `🧲 Snapped to: ${directStartPoint.snappedFeature}` : '📍 Manual placement'}`);
+    console.log(`📍 End point: ${endPoint.lat.toFixed(6)}, ${endPoint.lng.toFixed(6)} ${endPoint.snappedFeature ? `🧲 Snapped to: ${endPoint.snappedFeature}` : '📍 Manual placement'}`);
   }, [measurementState, addMeasurement, setDirectStartPoint, setDirectDistance, setDirectBearing, directionToBearing, removeSnapMarker]);
 
 
@@ -267,6 +273,12 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
     clearAllMeasurements();
     removeSnapMarker(); // Also remove any snap markers
   }, [clearAllMeasurements, removeSnapMarker]);
+
+  // Handle chaining from measurement endpoint
+  const handleChainFromMeasurement = useCallback((measurementId: string) => {
+    chainFromMeasurement(measurementId);
+    console.log(`🔗 Chaining from measurement ${measurementId}`);
+  }, [chainFromMeasurement]);
 
   // Update map cursor based on measurement mode and snapping state
   useEffect(() => {
@@ -326,6 +338,7 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
         measurementState={measurementState}
         onModeChange={setMode}
         onToggleSnapping={toggleSnapping}
+        onToggleCoordinates={toggleCoordinates}
         onDirectDistanceChange={setDirectDistance}
         onDirectBearingChange={setDirectBearing}
         onSelectedDirectionChange={setSelectedDirection}
@@ -334,11 +347,13 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
         onRemoveMeasurement={handleRemoveMeasurement}
         onClearAllMeasurements={handleClearAllMeasurements}
         onHideSnapFeedback={hideSnapFeedback}
+        onChainFromMeasurement={handleChainFromMeasurement}
       />
 
       {/* Overlay Manager */}
       <MeasurementOverlay
         measurements={measurementState.measurements}
+        showCoordinates={measurementState.showCoordinates}
         onMeasurementLoad={(measurement) => {
           console.log(`✅ Measurement loaded: ${measurement.id}`);
         }}
