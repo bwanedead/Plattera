@@ -183,12 +183,12 @@ class CoordinateTransformer:
     def utm_to_geographic(self, utm_x: float, utm_y: float, utm_zone: str) -> dict:
         """
         Transform UTM coordinates to geographic using professional geodetic transformations
-
+        
         Args:
             utm_x: UTM X coordinate (easting) in meters
             utm_y: UTM Y coordinate (northing) in meters
             utm_zone: UTM zone string (e.g., "13N", "utm_13n")
-
+            
         Returns:
             dict: Professional geographic coordinates with precision validation
         """
@@ -205,10 +205,10 @@ class CoordinateTransformer:
             zone_info = self._parse_utm_zone(utm_zone)
             if not zone_info["success"]:
                 return zone_info
-
+            
             zone_number = zone_info["zone_number"]
             is_northern = zone_info["is_northern"]
-
+            
             # Get or create inverse UTM transformer (cached for performance)
             transformer_key = f"{zone_number}{'N' if is_northern else 'S'}"
             if transformer_key not in self._utm_to_geo_transformers:
@@ -227,7 +227,7 @@ class CoordinateTransformer:
 
             # Perform inverse transformation with high precision
             # Input: east, north (UTM axis order); output: lat, lon (WGS84 axis)
-            lat, lon = transformer.transform(utm_x, utm_y)
+                lat, lon = transformer.transform(utm_x, utm_y)
 
             # Check for invalid results
             if math.isnan(lat) or math.isinf(lat) or math.isnan(lon) or math.isinf(lon):
@@ -241,7 +241,7 @@ class CoordinateTransformer:
                 return {"success": False, "error": f"Longitude out of range: {lon} (expected -180 to 180)"}
 
             logger.debug(f"✅ Geographic conversion successful: ({lat:.8f}, {lon:.8f}) from UTM {utm_zone}")
-
+            
             return {
                 "success": True,
                 "lat": round(lat, 8),  # Sub-millimeter precision for surveying

@@ -28,6 +28,88 @@ export function usePLSSData(schemaData: any) {
     estimatedTime: null,
   });
 
+  // Extract polling logic into a reusable function
+  const pollDownloadProgress = async (plssState: string) => {
+    while (true) {
+      const p = await plssDataService.getDownloadProgress(plssState);
+      if (p.error) {
+        setState(prev => ({ ...prev, status: 'error', error: p.error || null }));
+        return;
+      }
+      const stage = p.stage || 'working';
+      const overall = p.overall || { downloaded: 0, total: 0, percent: 0 };
+      
+      // Detect parquet building phase for better UI
+      if (stage === 'building:parquet') {
+        setState(prev => ({
+          ...prev,
+          status: 'downloading',
+          progress: `${stage} ${overall.percent || 0}%`,
+          parquetPhase: true,
+          parquetStatus: (p as any).status || 'Building parquet files...',
+          estimatedTime: (p as any).estimated_time || '15-20 minutes',
+        }));
+      } else if (stage === 'building:index' || stage === 'writing:manifest') {
+        // Final phase - no percentage, just completion message
+        setState(prev => ({
+          ...prev,
+          status: 'downloading',
+          progress: 'Finishing up...',
+          parquetPhase: true,
+          parquetStatus: (p as any).status || 'Finalizing installation...',
+          estimatedTime: 'Almost done',
+        }));
+      } else {
+        setState(prev => ({
+          ...prev,
+          status: 'downloading',
+          progress: `${stage} ${overall.percent || 0}%`,
+          parquetPhase: false,
+          parquetStatus: null,
+          estimatedTime: null,
+        }));
+      }
+      
+      if (stage === 'canceled') {
+        setState(prev => ({ ...prev, status: 'missing', error: 'Download canceled', progress: null }));
+        return;
+      }
+      
+      if (stage === 'complete') {
+        break;
+      }
+      
+      await new Promise(r => setTimeout(r, 800));
+    }
+
+    // FIXED: Verify data is actually available before marking as ready
+    console.log('🏁 Download complete, verifying data availability...');
+    const finalCheck = await plssDataService.checkDataStatus(plssState);
+    if (finalCheck.available) {
+      setState(prev => ({ 
+        ...prev, 
+        status: 'ready', 
+        progress: null, 
+        mappingEnabled: true, 
+        parquetPhase: false, 
+        parquetStatus: null, 
+        estimatedTime: null 
+      }));
+      console.log('✅ Data verification successful - download complete and ready!');
+    } else {
+      setState(prev => ({ 
+        ...prev, 
+        status: 'error', 
+        error: 'Download completed but data verification failed. Please try again.', 
+        progress: null, 
+        parquetPhase: false, 
+        parquetStatus: null, 
+        estimatedTime: null 
+      }));
+      console.error('❌ Data verification failed after download completion');
+    }
+  };
+
   useEffect(() => {
     const initializeData = async () => {
       if (!schemaData) return;
@@ -47,7 +129,7 @@ export function usePLSSData(schemaData: any) {
 
       setState(prev => ({ ...prev, state: plssState }));
 
-      // Add download active check before enabling mapping
+      // FIXED: Check for active download and start polling if found
       const downloadStatus = await plssDataService.checkDownloadActive(plssState);
       if (downloadStatus.active) {
         setState(prev => ({ 
@@ -56,6 +138,10 @@ export function usePLSSData(schemaData: any) {
           progress: `${downloadStatus.stage || 'processing'}...`,
           mappingEnabled: false // Explicitly disable mapping
         }));
+        
+        // FIXED: Start polling for progress updates
+        console.log('🔄 Active download detected, starting progress polling...');
+        pollDownloadProgress(plssState);
         return;
       }
 
@@ -90,56 +176,8 @@ export function usePLSSData(schemaData: any) {
     // Start background download
     await plssDataService.startBackgroundDownload(state.state);
 
-    // Poll progress until backend reports complete
-    while (true) {
-      const p = await plssDataService.getDownloadProgress(state.state);
-      if (p.error) {
-        setState(prev => ({ ...prev, status: 'error', error: p.error || null }));
-        return;
-      }
-      const stage = p.stage || 'working';
-      const overall = p.overall || { downloaded: 0, total: 0, percent: 0 };
-      // Detect parquet building phase for better UI
-      if (stage === 'building:parquet') {
-        setState(prev => ({
-          ...prev,
-          status: 'downloading',
-          progress: `${stage} ${overall.percent || 0}%`,
-          parquetPhase: true,
-          parquetStatus: (p as any).status || 'Building parquet files...',
-          estimatedTime: (p as any).estimated_time || '15-20 minutes',
-        }));
-      } else if (stage === 'building:index' || stage === 'writing:manifest') {
-        // Final phase - no percentage, just completion message
-        setState(prev => ({
-          ...prev,
-          status: 'downloading',
-          progress: 'Finishing up...',
-          parquetPhase: true,
-          parquetStatus: (p as any).status || 'Finalizing installation...',
-          estimatedTime: 'Almost done',
-        }));
-      } else {
-        setState(prev => ({
-          ...prev,
-          status: 'downloading',
-          progress: `${stage} ${overall.percent || 0}%`,
-          parquetPhase: false,
-          parquetStatus: null,
-          estimatedTime: null,
-        }));
-      }
-      if (stage === 'canceled') {
-        setState(prev => ({ ...prev, status: 'missing', error: 'Download canceled', progress: null }));
-        return;
-      }
-      if (stage === 'complete') {
-        break;
-      }
-      await new Promise(r => setTimeout(r, 800));
-    }
-
-    setState(prev => ({ ...prev, status: 'ready', progress: null, mappingEnabled: true, parquetPhase: false, parquetStatus: null, estimatedTime: null }));
+    // Use the extracted polling function
+    await pollDownloadProgress(state.state);
   };
 
   // Cancel current download

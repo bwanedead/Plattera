@@ -17,6 +17,7 @@ fiona>=1.9.0
 # Professional surveying mathematics dependencies
 scipy>=1.11.0
 geopy>=2.4.0
+geographiclib>=2.0  # Add this line
 
 # Image processing
 Pillow==10.1.0

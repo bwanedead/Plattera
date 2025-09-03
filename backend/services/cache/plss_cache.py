@@ -126,17 +126,17 @@ class PLSSCache:
         }
     
     def clear_state_cache(self, state: str) -> dict:
-        """Clear cache for specific state"""
+        """Clear in-memory cache for specific state (NOT data files)"""
         try:
-            state_dir = self.data_manager.data_dir / state.lower()
-            if state_dir.exists():
-                import shutil
-                shutil.rmtree(state_dir)
-                logger.info(f"🗑️ Cleared cache for {state}")
-                return {"success": True, "message": f"Cache cleared for {state}"}
-            else:
-                return {"success": True, "message": f"No cache found for {state}"}
+            # FIXED: Only clear in-memory caches, NOT data files
+            
+            # If the data manager has state-specific cache clearing, call that
+            if hasattr(self.data_manager, 'clear_state_memory_cache'):
+                self.data_manager.clear_state_memory_cache(state)
                 
+            logger.info(f"🧹 Cleared in-memory cache for {state} (data files preserved)")
+            return {"success": True, "message": f"In-memory cache cleared for {state} (data files preserved)"}
+            
         except Exception as e:
             return {
                 "success": False,
@@ -183,21 +183,23 @@ class PLSSCache:
             }
     
     def clear_all_cache(self) -> dict:
-        """Clear all PLSS cache"""
+        """Clear all PLSS in-memory cache (NOT data files)"""
         try:
-            import shutil
-            if self.data_manager.data_dir.exists():
-                shutil.rmtree(self.data_manager.data_dir)
-                self.data_manager.data_dir.mkdir(parents=True, exist_ok=True)
+            # FIXED: Only clear in-memory caches, NOT data files
+            # The data_manager should handle its own in-memory caches
             
-            # Reset stats
+            # Reset our own stats
             self.cache_stats = {"hits": 0, "misses": 0, "states_cached": 0}
             
-            logger.info("🗑️ Cleared all PLSS cache")
-            return {"success": True, "message": "All PLSS cache cleared"}
+            # If the data manager has cache clearing methods, call those
+            if hasattr(self.data_manager, 'clear_memory_cache'):
+                self.data_manager.clear_memory_cache()
+            
+            logger.info("🧹 Cleared PLSS in-memory cache (data files preserved)")
+            return {"success": True, "message": "PLSS in-memory cache cleared (data files preserved)"}
             
         except Exception as e:
             return {
                 "success": False,
-                "error": f"Failed to clear all cache: {str(e)}"
+                "error": f"Failed to clear PLSS cache: {str(e)}"
             }
