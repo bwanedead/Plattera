@@ -6,9 +6,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 import logging
+import math
 
 from .pob_resolver import POBResolver
 from .pob_math import normalize_local_coordinates
+from .survey_math import SurveyingMathematics, TraverseLeg, CoordinatePoint
+from .validator import ProfessionalGeoreferenceValidator
 from pipelines.mapping.projection.pipeline import ProjectionPipeline
 
 logger = logging.getLogger(__name__)
@@ -23,13 +26,74 @@ class GeoreferenceService:
     """
     
     def __init__(self) -> None:
-        """Initialize the georeference service."""
+        """Initialize the georeference service with professional surveying mathematics and validation."""
         self._pob_resolver = POBResolver()
         self._projection = ProjectionPipeline()
-    
+        self._survey_math = SurveyingMathematics()  # Professional surveying calculations
+        self._validator = ProfessionalGeoreferenceValidator()  # Professional validation
+
+        # Clear transformer cache on startup for clean state
+        logger.info("🔧 Georeference Service: Clearing transformer cache on startup")
+        self._pob_resolver.clear_transformer_cache()
+        logger.info("✅ Georeference Service: Cache cleared, starting with clean transformer state")
+
+    def cleanup(self) -> None:
+        """Clean up resources on shutdown."""
+        logger.info("🔧 Georeference Service cleanup initiated")
+        self._pob_resolver.cleanup()
+        logger.info("✅ Georeference Service cleanup completed")
+
     def _feet_to_meters(self, coords: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
         f2m = 0.3048
         return [(x * f2m, y * f2m) for (x, y) in coords]
+
+    def _create_traverse_legs_from_local_coords(self, local_coords_m: List[Tuple[float, float]]) -> List[TraverseLeg]:
+        """
+        Convert local polygon coordinates to professional surveying traverse legs.
+
+        This creates proper bearing and distance measurements for each polygon segment,
+        enabling professional surveying calculations with error analysis.
+        """
+        traverse_legs = []
+
+        # Process each segment of the polygon
+        for i in range(len(local_coords_m)):
+            start_point = local_coords_m[i]
+            end_point = local_coords_m[(i + 1) % len(local_coords_m)]  # Wrap around for closed polygon
+
+            # Calculate bearing from start to end point
+            delta_x = end_point[0] - start_point[0]  # Easting difference
+            delta_y = end_point[1] - start_point[1]  # Northing difference
+
+            # Calculate bearing in degrees (clockwise from north)
+            bearing_radians = math.atan2(delta_x, delta_y)
+            bearing_degrees = math.degrees(bearing_radians)
+            if bearing_degrees < 0:
+                bearing_degrees += 360.0
+
+            # Calculate distance in meters
+            distance_meters = math.sqrt(delta_x ** 2 + delta_y ** 2)
+
+            # Convert distance to feet for traditional surveying units
+            distance_feet = distance_meters * 3.28084
+
+            # Create traverse leg
+            leg = TraverseLeg(
+                bearing_degrees=round(bearing_degrees, 4),
+                distance_feet=round(distance_feet, 2),
+                distance_meters=round(distance_meters, 3),
+                leg_number=i + 1,
+                description=f"Polygon segment {i + 1} from point {i} to {(i + 1) % len(local_coords_m)}"
+            )
+
+            traverse_legs.append(leg)
+
+            print(f"🧮 TRAVERSE LEG {leg.leg_number}:")
+            print(f"   📍 Bearing: {leg.bearing_degrees:.4f}°")
+            print(f"   📏 Distance: {leg.distance_feet:.2f} ft ({leg.distance_meters:.3f} m)")
+            print(f"   📍 Segment: ({start_point[0]:.3f}, {start_point[1]:.3f}) → ({end_point[0]:.3f}, {end_point[1]:.3f})")
+
+        return traverse_legs
 
     def _compute_bounds(self, lonlat: List[Tuple[float, float]]) -> Dict[str, float]:
         lons = [pt[0] for pt in lonlat]
@@ -128,20 +192,61 @@ class GeoreferenceService:
                 local_coords_m = [(x, -y) for (x, y) in local_coords_m]
                 print(f'🔧 Y-AXIS FLIPPED FOR SCREEN COORDS: {local_coords_m}')
 
-            # 4) Project polygon via UTM anchor
-            print(f'🔍 PROJECTION PROCESS:')
-            print(f'📍 ANCHOR POINT: lat={pob_geo["lat"]:.6f}, lon={pob_geo["lon"]:.6f}')
-            print(f'📍 LOCAL COORDINATES TO PROJECT: {local_coords_m}')
-            
-            proj = self._projection.project_polygon_to_geographic(
-                local_coordinates=local_coords_m,
-                anchor_point={"lat": float(pob_geo["lat"]), "lon": float(pob_geo["lon"])},
-                options={"assume_local_units": "meters"}
-            )
-            if not proj.get("success"):
-                return {"success": False, "error": proj.get("error", "Projection failed")}
+            # 4) Professional surveying projection using traverse methods
+            print(f'🧮 PROFESSIONAL SURVEYING PROJECTION:')
+            print(f'📍 POINT OF BEGINNING: lat={pob_geo["lat"]:.8f}, lon={pob_geo["lon"]:.8f}')
+            print(f'📍 LOCAL COORDINATES: {local_coords_m}')
 
-            geo_coords = proj["geographic_coordinates"]  # [(lon,lat)]
+            # Create POB coordinate point
+            utm_zone = self._pob_resolver._utm.get_utm_zone(pob_geo["lat"], pob_geo["lon"])
+            pob_utm = self._pob_resolver._transformer.geographic_to_utm(
+                pob_geo["lat"], pob_geo["lon"], utm_zone
+            )
+
+            if not pob_utm.get("success"):
+                return {"success": False, "error": f"POB UTM transformation failed: {pob_utm.get('error')}"}
+
+            pob_point = CoordinatePoint(
+                utm_x=pob_utm["utm_x"],
+                utm_y=pob_utm["utm_y"],
+                latitude=pob_geo["lat"],
+                longitude=pob_geo["lon"],
+                zone_number=pob_utm["zone_number"],
+                hemisphere=pob_utm["hemisphere"],
+                point_id="POB",
+                description="Point of Beginning"
+            )
+
+            # Convert local coordinates to traverse legs using professional surveying
+            traverse_legs = self._create_traverse_legs_from_local_coords(local_coords_m)
+
+            # Calculate polygon vertices using professional traverse methods
+            traverse_result = self._survey_math.calculate_traverse_coordinates(
+                start_point=pob_point,
+                traverse_legs=traverse_legs,
+                tie_direction="pob_bears_from_corner"  # POB is starting point
+            )
+
+            if not traverse_result["success"]:
+                return {"success": False, "error": f"Polygon traverse calculation failed: {traverse_result.get('error')}"}
+
+            # Extract geographic coordinates from traverse result
+            geo_coords = []
+            for point in traverse_result["points"]:
+                # Transform each UTM point back to geographic coordinates
+                geo_result = self._pob_resolver._transformer.utm_to_geographic(
+                    point.utm_x, point.utm_y, utm_zone
+                )
+                if geo_result["success"]:
+                    geo_coords.append((geo_result["lon"], geo_result["lat"]))
+                else:
+                    return {"success": False, "error": f"UTM to geographic conversion failed: {geo_result.get('error')}"}
+
+            print(f'🧮 POLYGON TRAVERSE RESULTS:')
+            print(f'📊 Traverse legs calculated: {len(traverse_legs)}')
+            print(f'📊 Closure analysis: {traverse_result["closure_analysis"]}')
+            print(f'📊 Error analysis: {traverse_result["error_analysis"]}')
+            print(f'📍 CALCULATED GEOGRAPHIC COORDINATES: {geo_coords}')
             print(f'📍 PROJECTED GEOGRAPHIC COORDINATES: {geo_coords}')
             bounds = self._compute_bounds(geo_coords)
             print(f'📍 COMPUTED BOUNDS: {bounds}')
@@ -149,7 +254,7 @@ class GeoreferenceService:
             # 5) Build response
             plss_ref = f"T{plss_anchor['township_number']}{plss_anchor['township_direction']} R{plss_anchor['range_number']}{plss_anchor['range_direction']} Sec {plss_anchor['section_number']}"
             resolved_coord = pob_result.get("resolved_corner_geographic") or pob_result.get("resolved_centroid_geographic") or pob_geo
-            utm_zone = proj.get("metadata", {}).get("utm_zone", "unknown")
+            utm_zone = pob_result.get("utm_zone", "unknown")
 
             # COMPREHENSIVE LOGGING FOR DEBUGGING
             print(f'🔍 BACKEND GEOREFERENCE FINAL RESULT:')
@@ -182,6 +287,44 @@ class GeoreferenceService:
                 }
             }
             
+            # 6) Professional Validation
+            print(f'🧮 PROFESSIONAL VALIDATION:')
+            validation_result = self._validator.validate_georeferenced_polygon(
+                plss_desc=plss_anchor,
+                geographic_polygon=result["geographic_polygon"],
+                traverse_data=traverse_result if 'traverse_result' in locals() else None
+            )
+
+            print(f'📊 VALIDATION GRADE: {validation_result["overall_accuracy"]}')
+            print(f'📊 VALIDATION CHECKS PASSED: {validation_result.get("accuracy_metrics", {}).get("passed_checks", 0)}/{validation_result.get("accuracy_metrics", {}).get("total_checks", 0)}')
+            if validation_result["issues"]:
+                print(f'⚠️ VALIDATION ISSUES: {validation_result["issues"]}')
+            if validation_result["recommendations"]:
+                print(f'💡 RECOMMENDATIONS: {validation_result["recommendations"]}')
+
+            # Add professional validation to response
+            result["professional_validation"] = {
+                "overall_accuracy": validation_result["overall_accuracy"],
+                "accuracy_percentage": validation_result.get("accuracy_metrics", {}).get("accuracy_percentage", 0),
+                "validation_checks": validation_result["validation_checks"],
+                "accuracy_metrics": validation_result["accuracy_metrics"],
+                "issues": validation_result["issues"],
+                "recommendations": validation_result["recommendations"],
+                "traverse_analysis": {
+                    "closure_analysis": traverse_result.get("closure_analysis", {}),
+                    "error_analysis": traverse_result.get("error_analysis", {})
+                } if 'traverse_result' in locals() else None
+            }
+
+            # Add surveying standards compliance
+            result["surveying_standards"] = {
+                "coordinate_precision_standard": "6+ decimal places",
+                "traverse_closure_standard": "1:10,000 ratio",
+                "bearing_accuracy_standard": "±15 arc seconds",
+                "distance_accuracy_standard": "±0.01 feet",
+                "datum": "WGS84"
+            }
+
             print(f'📊 FINAL RESULT OBJECT: {result}')
             return result
             

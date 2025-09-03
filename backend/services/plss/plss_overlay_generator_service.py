@@ -34,12 +34,14 @@ class PLSSOverlayGeneratorService:
             from pipelines.mapping.plss.pipeline import PLSSPipeline
             
             plss = PLSSPipeline()
-            data = plss.data_manager.ensure_state_data(plss_description.get("state"))
-            
-            if not data.get("success"):
+            state = plss_description.get("state")
+
+            # READ-ONLY CHECK: Never trigger data rebuilds during overlay generation
+            if not plss.data_manager._is_data_current(state):
+                logger.warning(f"🔍 PLSS overlay skipped: Data not available for {state}")
                 return {
                     "success": False,
-                    "error": data.get("error", "PLSS data unavailable")
+                    "error": f"PLSS data not available for {state}. Please download data first."
                 }
             
             # Use new coordinate service for simplified section bounds

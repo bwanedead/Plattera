@@ -20,6 +20,7 @@ import zipfile
 import io
 from datetime import datetime
 import time
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,18 @@ class PLSSDataManager:
         Prevents concurrent processing of the same state
         """
         thread_id = threading.get_ident()
-        self._log_stage(state, "ENTRY", f"Thread {thread_id} requesting data")
+        
+        # 🚨 CRITICAL LOGGING: Track what's calling ensure_state_data to catch rebuild triggers
+        import traceback
+        call_stack = traceback.format_stack()
+        caller_info = call_stack[-3:-1]  # Get the actual caller, not this method
+        logger.error(f"🚨 REBUILD TRIGGER DETECTED - ensure_state_data() called for {state}")
+        logger.error(f"🚨 CALLER INFO: Thread {thread_id}")
+        logger.error(f"🚨 CALL STACK:")
+        for frame in caller_info:
+            logger.error(f"🚨   {frame.strip()}")
+        
+        self._log_stage(state, "ENTRY", f"Thread {thread_id} requesting data - REBUILD MAY BE TRIGGERED")
         
         try:
             if state not in self.state_abbrevs:

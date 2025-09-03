@@ -19,6 +19,7 @@ load_dotenv()  # Load .env file
 
 from api.router import api_router
 from utils.health_monitor import get_health_monitor
+from pipelines.mapping.georeference.georeference_service import GeoreferenceService
 
 # Custom colored formatter for better log readability
 class ColoredFormatter(logging.Formatter):
@@ -141,7 +142,16 @@ async def shutdown_event():
                 logger.info("✅ Final cleanup completed successfully")
             else:
                 logger.warning(f"⚠️ Final cleanup issues: {cleanup_results.get('errors', [])}")
-        
+
+        # Clean up transformer caches
+        logger.info("🧹 Cleaning up transformer caches...")
+        try:
+            geo_service = GeoreferenceService()
+            geo_service.cleanup()
+            logger.info("✅ Transformer caches cleaned up successfully")
+        except Exception as e:
+            logger.warning(f"⚠️ Transformer cleanup failed: {e}")
+
         # Force garbage collection
         import gc
         collected = gc.collect()

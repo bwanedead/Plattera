@@ -13,8 +13,9 @@ from pipelines.mapping.plss.coordinate_service import PLSSCoordinateService
 from pipelines.mapping.projection.transformer import CoordinateTransformer
 from pipelines.mapping.projection.utm_manager import UTMManager
 from .pob_math import parse_bearing_and_distance
+from .survey_math import SurveyingMathematics, TraverseLeg, CoordinatePoint
 from shapely.geometry import LineString, Point
-from math import atan2, degrees, hypot
+from math import atan2, degrees, hypot, sqrt
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +31,68 @@ class POBResolver:
     """
     
     def __init__(self) -> None:
-        """Initialize the POB resolver."""
+        """Initialize the POB resolver with professional surveying mathematics."""
         self._idx = SectionIndex()  # uses project_root/plss by default
         self._plss_joiner = PLSSJoiner()  # for meridian-aware PLSS lookups
         self._coord_service = PLSSCoordinateService()
         self._transformer = CoordinateTransformer()
         self._utm = UTMManager()
+        self._survey_math = SurveyingMathematics()  # Professional surveying calculations
+
+        logger.info("🔧 POB Resolver initialized with transformer diagnostics")
+        logger.info(f"🔧 Transformer instance: {self._transformer}")
+        logger.info(f"🔧 Transformer WGS84 CRS: {self._transformer.wgs84}")
+
+    def clear_transformer_cache(self) -> None:
+        """Clear the transformer's UTM transformer cache to force recreation."""
+        cleared_count = 0
+        if hasattr(self._transformer, '_geo_to_utm_transformers'):
+            geo_cache_size = len(self._transformer._geo_to_utm_transformers)
+            self._transformer._geo_to_utm_transformers.clear()
+            cleared_count += geo_cache_size
+            logger.info(f"🧹 Cleared geo→UTM transformer cache: {geo_cache_size} transformers removed")
+
+        if hasattr(self._transformer, '_utm_to_geo_transformers'):
+            utm_cache_size = len(self._transformer._utm_to_geo_transformers)
+            self._transformer._utm_to_geo_transformers.clear()
+            cleared_count += utm_cache_size
+            logger.info(f"🧹 Cleared UTM→geo transformer cache: {utm_cache_size} transformers removed")
+
+        if hasattr(self._transformer, '_utm_transformers'):
+            old_cache_size = len(self._transformer._utm_transformers)
+            self._transformer._utm_transformers.clear()
+            cleared_count += old_cache_size
+            logger.info(f"🧹 Cleared legacy transformer cache: {old_cache_size} transformers removed")
+
+        logger.info(f"✅ Total transformers cleared: {cleared_count}")
+
+    def get_transformer_diagnostics(self) -> dict:
+        """Get diagnostic information about the transformer."""
+        diagnostics = {
+            "transformer_instance": str(self._transformer),
+            "geo_to_utm_cache_size": len(self._transformer._geo_to_utm_transformers) if hasattr(self._transformer, '_geo_to_utm_transformers') else 0,
+            "utm_to_geo_cache_size": len(self._transformer._utm_to_geo_transformers) if hasattr(self._transformer, '_utm_to_geo_transformers') else 0,
+            "legacy_cache_size": len(self._transformer._utm_transformers) if hasattr(self._transformer, '_utm_transformers') else 0,
+            "total_cache_size": 0,
+            "geo_to_utm_zones": list(self._transformer._geo_to_utm_transformers.keys()) if hasattr(self._transformer, '_geo_to_utm_transformers') else [],
+            "utm_to_geo_zones": list(self._transformer._utm_to_geo_transformers.keys()) if hasattr(self._transformer, '_utm_to_geo_transformers') else [],
+            "wgs84_crs": str(self._transformer.wgs84) if hasattr(self._transformer, 'wgs84') else "unknown"
+        }
+
+        # Calculate total cache size
+        diagnostics["total_cache_size"] = (
+            diagnostics["geo_to_utm_cache_size"] +
+            diagnostics["utm_to_geo_cache_size"] +
+            diagnostics["legacy_cache_size"]
+        )
+
+        return diagnostics
+
+    def cleanup(self) -> None:
+        """Clean up resources on shutdown."""
+        logger.info("🔧 POB Resolver cleanup initiated")
+        self.clear_transformer_cache()
+        logger.info("✅ POB Resolver cleanup completed")
     
     def _short_corner_label(self, label: str) -> str:
         lab = (label or "").upper().strip()
@@ -153,30 +210,67 @@ class POBResolver:
                 
                 # Transform corner to UTM
                 utm_zone = self._utm.get_utm_zone(corner_geo["lat"], corner_geo["lon"])
+                print(f"🧭 UTM ZONE DETERMINATION:")
+                print(f"📍 Corner coordinates: lat={corner_geo['lat']:.8f}, lon={corner_geo['lon']:.8f}")
+                print(f"📍 Determined UTM zone: {utm_zone}")
+
                 corner_utm = self._transformer.geographic_to_utm(corner_geo["lat"], corner_geo["lon"], utm_zone)
                 if not corner_utm.get("success"):
                     return {"success": False, "error": f"Corner UTM transform failed: {corner_utm.get('error')}"}
                 
-                # Offset in meters (east=x, north=y)
-                f2m = 0.3048
-                dx_m = parsed["offset_x"] * f2m
-                dy_m = parsed["offset_y"] * f2m
-
-                # NOTE: DO NOT project tie vector onto west edge direction
-                # The original bearing from the deed should be preserved exactly
-                # as it represents the true surveyed direction, not constrained to section boundaries
-                
-                print(f"🔍 PRESERVING ORIGINAL BEARING: dx_m={dx_m:.3f}, dy_m={dy_m:.3f}")
-
+                # Professional surveying mathematics for coordinate calculation
                 tie_dir = (tie_to_corner.get("tie_direction") or "corner_bears_from_pob").lower()
-                if tie_dir == "corner_bears_from_pob":
-                    # Vector from POB -> corner is v; so POB = corner - v
-                    pob_x = corner_utm["utm_x"] - dx_m
-                    pob_y = corner_utm["utm_y"] - dy_m
-                else:
-                    # Vector from corner -> POB is v; so POB = corner + v
-                    pob_x = corner_utm["utm_x"] + dx_m
-                    pob_y = corner_utm["utm_y"] + dy_m
+
+                # Validate bearing precision for surveying accuracy
+                bearing_validation = self._survey_math.validate_bearing_accuracy(parsed["bearing_degrees"])
+                if not bearing_validation["success"]:
+                    print(f"⚠️ BEARING VALIDATION ISSUES: {bearing_validation['issues']}")
+
+                # Calculate corrected bearing for display purposes
+                corrected_bearing = (parsed["bearing_degrees"] + 180.0) % 360.0 if tie_dir == "corner_bears_from_pob" else parsed["bearing_degrees"]
+
+                # Create traverse leg using professional surveying methods
+                traverse_leg = TraverseLeg(
+                    bearing_degrees=parsed["bearing_degrees"],  # Original bearing - correction happens in traverse calculation
+                    distance_feet=parsed["distance_feet"],
+                    distance_meters=parsed["distance_feet"] * 0.3048,  # Convert feet to meters
+                    leg_number=1,
+                    description=f"Tie from {short_label} corner to POB"
+                )
+
+                # Create coordinate point for corner
+                corner_point = CoordinatePoint(
+                    utm_x=corner_utm["utm_x"],
+                    utm_y=corner_utm["utm_y"],
+                    latitude=corner_geo["lat"],
+                    longitude=corner_geo["lon"],
+                    zone_number=corner_utm["zone_number"],
+                    hemisphere=corner_utm["hemisphere"],
+                    point_id=f"{short_label}_corner",
+                    description=f"{short_label} corner of section"
+                )
+
+                # Calculate POB using professional traverse methods
+                traverse_result = self._survey_math.calculate_traverse_coordinates(
+                    start_point=corner_point,
+                    traverse_legs=[traverse_leg],
+                    tie_direction=tie_dir
+                )
+
+                if not traverse_result["success"]:
+                    return {"success": False, "error": f"POB calculation failed: {traverse_result.get('error')}"}
+
+                # Extract POB coordinates from traverse result
+                pob_point = traverse_result["points"][1]  # Point 1 is the POB
+                pob_x = pob_point.utm_x
+                pob_y = pob_point.utm_y
+
+                # Log professional surveying details
+                print(f"🧮 PROFESSIONAL SURVEYING CALCULATION:")
+                print(f"📍 REFERENCE CORNER: {corner_point.point_id} at UTM ({corner_point.utm_x:.3f}, {corner_point.utm_y:.3f})")
+                print(f"📍 TRAVERSE LEG: {traverse_leg.bearing_degrees:.4f}° for {traverse_leg.distance_feet:.2f} ft ({traverse_leg.distance_meters:.3f} m)")
+                print(f"📍 TIE DIRECTION: {tie_dir}")
+                print(f"📍 CALCULATED POB: UTM ({pob_x:.3f}, {pob_y:.3f})")
 
                 # FIX 3: Optional POB boundary snapping
                 project_to_boundary = tie_to_corner.get("project_to_boundary", True)  # Default True for west boundary ties
@@ -209,14 +303,41 @@ class POBResolver:
                     else:
                         print(f"⚠️ Could not get section geometry for boundary snapping")
 
+                # Validate UTM coordinates before transformation
+                print(f"🔍 VALIDATING UTM COORDINATES:")
+                print(f"📍 UTM Zone: {utm_zone}")
+                print(f"📍 POB UTM: ({pob_x:.3f}, {pob_y:.3f})")
+
+                # Check coordinate ranges
+                if not (100000 <= pob_x <= 900000):
+                    return {"success": False, "error": f"Invalid UTM easting: {pob_x} (expected 100,000-900,000)"}
+                if not (0 <= pob_y <= 10000000):
+                    return {"success": False, "error": f"Invalid UTM northing: {pob_y} (expected 0-10,000,000)"}
+
+                print("✅ UTM coordinates within valid range")
+
+                # DIAGNOSTIC: Log transformer state before transformation
+                logger.info(f"🔍 POB RESOLVER: About to call utm_to_geographic")
+                logger.info(f"🔍 POB RESOLVER: Input coordinates: ({pob_x}, {pob_y}) in zone {utm_zone}")
+                diag = self.get_transformer_diagnostics()
+                logger.info(f"🔍 POB RESOLVER: Transformer diagnostics: {diag}")
+
                 pob_geo_res = self._transformer.utm_to_geographic(pob_x, pob_y, utm_zone)
+                logger.info(f"🔍 POB RESOLVER: Transformation result: {pob_geo_res}")
+
                 if not pob_geo_res.get("success"):
+                    logger.error(f"🔍 POB RESOLVER: Transformation failed: {pob_geo_res.get('error')}")
                     return {"success": False, "error": f"POB geographic transform failed: {pob_geo_res.get('error')}"}
-                
+
                 print(f"🔍 POB RESOLVER: Final POB calculation:")
                 print(f"📍 REFERENCE CORNER: {short_label} corner at lat={corner_geo['lat']:.6f}, lon={corner_geo['lon']:.6f}")
                 print(f"📍 TIE INFORMATION: {bearing_raw} {dist_val} {dist_units}")
-                print(f"📍 OFFSET VECTOR: dx={dx_m:.2f}m, dy={dy_m:.2f}m ({parsed['offset_x']:.2f}ft, {parsed['offset_y']:.2f}ft)")
+                # Calculate offset for display purposes
+                offset_dx = pob_x - corner_utm["utm_x"]
+                offset_dy = pob_y - corner_utm["utm_y"]
+                offset_distance_m = sqrt(offset_dx ** 2 + offset_dy ** 2)
+                offset_distance_ft = offset_distance_m * 3.28084
+                print(f"📍 OFFSET VECTOR: dx={offset_dx:.2f}m, dy={offset_dy:.2f}m ({offset_distance_ft:.2f}ft total)")
                 print(f"📍 TIE DIRECTION: {tie_dir}")
                 print(f"📊 Corner UTM: {corner_utm}")
                 print(f"📊 POB UTM: x={pob_x:.2f}, y={pob_y:.2f}, zone={utm_zone}")
@@ -238,10 +359,12 @@ class POBResolver:
                       {"corner_label": short_label,
                        "tie_direction": tie_to_corner.get("tie_direction"),
                        "bearing_raw": tie_to_corner.get("bearing_raw"),
-                       "bearing_deg": parsed.get("bearing_degrees"),
+                       "original_bearing_deg": parsed.get("bearing_degrees"),
+                       "corrected_bearing_deg": corrected_bearing,
                        "distance_ft": parsed.get("distance_feet"),
-                       "dx_m": round(dx_m, 3),
-                       "dy_m": round(dy_m, 3)})
+                       "offset_dx_m": round(offset_dx, 3),
+                       "offset_dy_m": round(offset_dy, 3),
+                       "total_offset_m": round(offset_distance_m, 3)})
 
                 print("🔎 COORD DEBUG:",
                       {"corner_geo": corner_geo,

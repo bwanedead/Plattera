@@ -31,8 +31,8 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
     parquetStatus
   } = usePLSSData(schemaData);
 
-  // Show PLSS download modal if needed
-  if (plssStatus === 'downloading' || plssStatus === 'error') {
+  // Show PLSS download modal if needed - FIXED: Now shows for missing data too
+  if (plssStatus === 'downloading' || plssStatus === 'error' || plssStatus === 'missing') {
     return (
       <PLSSDownloadModal
         isOpen={true}
