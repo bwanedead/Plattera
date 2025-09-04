@@ -45,7 +45,8 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
         }
       } catch (error) {
         // Source/layer might not exist, continue silently
-        console.debug(`Removing layer/source ${id}:`, error.message);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.debug(`Removing layer/source ${id}:`, errorMessage);
       }
     });
 
@@ -71,7 +72,8 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
         }
       });
     } catch (error) {
-      console.warn(`Failed to add line source ${lineId}:`, error.message);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.warn(`Failed to add line source ${lineId}:`, errorMessage);
       return;
     }
 
@@ -89,7 +91,8 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
         }
       });
     } catch (error) {
-      console.warn(`Failed to add line layer ${lineId}:`, error.message);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.warn(`Failed to add line layer ${lineId}:`, errorMessage);
       return;
     }
 
@@ -117,7 +120,8 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
           }
         });
       } catch (error) {
-        console.warn(`Failed to add point source ${pointSourceId}:`, error.message);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.warn(`Failed to add point source ${pointSourceId}:`, errorMessage);
         return;
       }
 
@@ -128,13 +132,14 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
           source: pointSourceId,
           paint: {
             'circle-radius': 6,
-            'circle-color': '#ff6b35',
+            'circle-color': index === 0 ? '#22c55e' : '#ef4444', // Green for start, red for end
             'circle-stroke-color': '#ffffff',
             'circle-stroke-width': 2,
           }
         });
       } catch (error) {
-        console.warn(`Failed to add point layer ${pointId}:`, error.message);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.warn(`Failed to add point layer ${pointId}:`, errorMessage);
       }
 
       // Add coordinate text labels if enabled
@@ -164,40 +169,22 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
             }
           });
 
-          // Add text label layer (if supported) or fallback to symbol
-          try {
-            map.addLayer({
-              id: coordLabelId,
-              type: 'symbol',
-              source: coordSourceId,
-              layout: {
-                'text-field': ['get', 'text'],
-                'text-size': 12
-              },
-              paint: {
-                'text-color': '#1f2937', // gray-800
-                'text-halo-color': '#ffffff',
-                'text-halo-width': 2
-              }
-            });
-            console.debug(`📍 Added coordinate text label for ${pointLabel}: ${coordText}`);
-          } catch (textError) {
-            // Fallback to circle marker if text labels aren't supported
-            console.warn(`Text labels not supported, falling back to marker for ${coordLabelId}`);
-            map.addLayer({
-              id: coordLabelId,
-              type: 'circle',
-              source: coordSourceId,
-              paint: {
-                'circle-radius': 6,
-                'circle-color': '#6b7280', // gray-500
-                'circle-stroke-color': '#ffffff',
-                'circle-stroke-width': 2,
-              }
-            });
-          }
+          // Add circle marker for coordinates (text labels cause MapLibre GL glyphs errors)
+          map.addLayer({
+            id: coordLabelId,
+            type: 'circle',
+            source: coordSourceId,
+            paint: {
+              'circle-radius': 8,
+              'circle-color': index === 0 ? '#10b981' : '#ef4444', // green-500 : red-500
+              'circle-stroke-color': '#ffffff',
+              'circle-stroke-width': 2
+            }
+          });
+          console.debug(`📍 Added coordinate marker for ${pointLabel}: ${coordText}`);
         } catch (error) {
-          console.warn(`Failed to add coordinate label ${coordLabelId}:`, error.message);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.warn(`Failed to add coordinate label ${coordLabelId}:`, errorMessage);
         }
       }
     });
@@ -224,12 +211,14 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
       try {
         if (map.getLayer(id)) map.removeLayer(id);
       } catch (error) {
-        console.debug(`Error removing layer ${id}:`, error.message);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.debug(`Error removing layer ${id}:`, errorMessage);
       }
       try {
         if (map.getSource(id)) map.removeSource(id);
       } catch (error) {
-        console.debug(`Error removing source ${id}:`, error.message);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.debug(`Error removing source ${id}:`, errorMessage);
       }
     });
 

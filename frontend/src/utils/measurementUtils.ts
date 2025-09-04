@@ -389,35 +389,42 @@ export async function findNearestPLSSFromBackend(
   stateName: string
 ): Promise<MeasurementPoint | null> {
   try {
-    const response = await fetch('http://localhost:8000/api/plss/find-nearest-plss', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        latitude: lat,
-        longitude: lng,
-        state: stateName,
-        search_radius_miles: 1.0 // Search within 1 mile radius
-      })
-    });
+    // First, try the PLSS cache (much faster and more accurate)
+    const { plssCache } = await import('../services/plss');
+    const cachedResult = plssCache.findNearestSection(lat, lng, 1.0);
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    if (cachedResult) {
+      console.log(`🎯 Using cached PLSS section: ${cachedResult.plss_reference}`);
+      return {
+        lng: cachedResult.centroid.longitude,
+        lat: cachedResult.centroid.latitude,
+        snappedFeature: `Section ${cachedResult.section_number.padStart(2, '0')}`
+      };
     }
 
-    const data = await response.json();
+    console.log(`🔄 No cached PLSS sections found, falling back to backend lookup`);
 
-    if (data.success && data.result) {
-      const result = data.result;
+    // Use the new PLSSCoordinateService instead of direct fetch
+    const { plssCoordinateService } = await import('../services/plss');
+
+    const result = await plssCoordinateService.findNearestPLSS({
+      latitude: lat,
+      longitude: lng,
+      state: stateName,
+      search_radius_miles: 1.0
+    });
+
+    if (result.success && result.longitude && result.latitude) {
       return {
         lng: result.longitude,
         lat: result.latitude,
         snappedFeature: result.plss_reference || `PLSS ${result.township}${result.township_direction}-${result.range_number}${result.range_direction}-${result.section}`
       };
+    } else {
+      console.debug('Backend PLSS lookup failed:', result.error);
     }
   } catch (error) {
-    console.debug('Backend PLSS lookup failed, falling back to map features:', error.message);
+    console.debug('Backend PLSS lookup failed, falling back to map features:', error instanceof Error ? error.message : 'Unknown error');
   }
 
   return null;

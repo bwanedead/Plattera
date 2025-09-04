@@ -5,8 +5,9 @@
  */
 
 import React, { useState } from 'react';
-import { ContainerOverlayManager, ContainerOverlayState } from './ContainerOverlayManager';
+import { ContainerOverlayManager } from './ContainerOverlayManager';
 import { ContainerOverlayControls } from './ContainerOverlayControls';
+import { ContainerOverlayState } from '../../../hooks/useContainerOverlayState';
 import { useContainerOverlayState } from '../../../hooks/useContainerOverlayState';
 
 interface ContainerPLSSManagerProps {
@@ -19,6 +20,7 @@ interface ContainerPLSSManagerProps {
     north: number;
   };
   state?: string;
+  onOverlayLoad?: (layer: string, features: any[], fullResult?: any) => void;
 }
 
 export const ContainerPLSSManager: React.FC<ContainerPLSSManagerProps> = ({
@@ -26,6 +28,7 @@ export const ContainerPLSSManager: React.FC<ContainerPLSSManagerProps> = ({
   schemaData,
   containerBounds,
   state,
+  onOverlayLoad,
 }) => {
   const { overlayState, setOverlayState, resetOverlays } = useContainerOverlayState();
 
@@ -44,8 +47,10 @@ export const ContainerPLSSManager: React.FC<ContainerPLSSManagerProps> = ({
         containerBounds={containerBounds}
         state={state}
         overlayState={overlayState}
-        onOverlayLoad={(layer, features) => {
+        onOverlayLoad={(layer, features, fullResult) => {
           console.log(`✅ Container overlay loaded: ${layer} with ${features.length} features`);
+          // Pass through to parent with fullResult for caching
+          onOverlayLoad?.(layer, features, fullResult);
         }}
         onOverlayError={(layer, error) => {
           console.error(`❌ Container overlay failed: ${layer} - ${error}`);

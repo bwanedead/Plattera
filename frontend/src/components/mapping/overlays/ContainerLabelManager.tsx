@@ -1013,7 +1013,7 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
         console.warn('Error removing map layers:', error);
       }
     };
-  }, [map, features, layerType, color, options, generateLabels, renderLabels, onLabelsCreated, labelLayerId]);
+  }, [map, features?.length, layerType, color, options, onLabelsCreated, labelLayerId]);
 
   // Don't render anything - this is a logic-only component
   return null;

@@ -37,16 +37,20 @@ async def find_nearest_plss_coordinates(request: Dict[str, Any]) -> Dict[str, An
         logger.info(".6f")
 
         # Import and use the PLSS Nearest Snap Engine
+        logger.info("🔧 Importing PLSS Nearest Snap Engine...")
         from pipelines.mapping.plss.nearest_snap_engine import PLSSNearestSnapEngine
 
         # Create engine instance and find nearest PLSS feature
+        logger.info("🏗️ Creating PLSS Nearest Snap Engine instance...")
         snap_engine = PLSSNearestSnapEngine()
+        logger.info("🔍 Calling find_nearest_plss method...")
         result = snap_engine.find_nearest_plss(
             latitude=latitude,
             longitude=longitude,
             state=state,
             search_radius_miles=search_radius_miles
         )
+        logger.info(".6f")
 
         if result["success"]:
             logger.info(".6f")

@@ -42,6 +42,7 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
     setDirectStartPoint,
     setSnapFeedback,
     hideSnapFeedback,
+    setCalculationMethod,
     addMeasurementPoint,
     resetCurrentMeasurement,
     addMeasurement,
@@ -348,6 +349,7 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
         onClearAllMeasurements={handleClearAllMeasurements}
         onHideSnapFeedback={hideSnapFeedback}
         onChainFromMeasurement={handleChainFromMeasurement}
+        onCalculationMethodChange={setCalculationMethod}
       />
 
       {/* Overlay Manager */}

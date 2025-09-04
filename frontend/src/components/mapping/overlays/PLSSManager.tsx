@@ -8,6 +8,7 @@ import React, { useState, useCallback } from 'react';
 import { ContainerPLSSManager } from './ContainerPLSSManager';
 import RegionalPLSSManager from './RegionalPLSSManager';
 import { useMapContext } from '../core/MapContext';
+import { plssCache } from '../../../services/plss/coordinateApi';
 
 export type PLSSMode = 'container' | 'regional';
 

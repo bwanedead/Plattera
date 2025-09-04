@@ -8,6 +8,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useMapContext } from '../core/MapContext';
 import ContainerOverlayManager, { ContainerOverlayState } from './ContainerOverlayManager';
 import ContainerOverlayControls from './ContainerOverlayControls';
+import { plssCache } from '../../services/plss';
 
 export interface PLSSOverlayManagerProps {
   stateName: string;
@@ -44,9 +45,23 @@ export const PLSSOverlayManager: React.FC<PLSSOverlayManagerProps> = ({
   const [loadedFeatures, setLoadedFeatures] = useState<Map<string, any[]>>(new Map());
 
   // Handle overlay load
-  const handleOverlayLoad = useCallback((layer: string, features: any[]) => {
+  const handleOverlayLoad = useCallback((layer: string, features: any[], fullResult?: any) => {
     console.log(`✅ Container overlay loaded: ${layer} with ${features.length} features`);
+    console.log(`📦 Full result available:`, !!fullResult);
+    if (fullResult) {
+      console.log(`📊 Full result structure:`, Object.keys(fullResult));
+    }
     setLoadedFeatures(prev => new Map(prev).set(layer, features));
+
+    // Cache PLSS sections for efficient snap detection
+    if (layer === 'sections' && fullResult) {
+      console.log(`💾 Attempting to cache PLSS sections...`);
+      plssCache.storeSections(fullResult);
+      const status = plssCache.getCacheStatus();
+      console.log(`📈 Cache status after storing: ${status.totalEntries} entries, ${status.totalSections} sections`);
+    } else {
+      console.log(`⚠️ Not caching: layer=${layer}, hasFullResult=${!!fullResult}`);
+    }
   }, []);
 
   // Handle overlay error

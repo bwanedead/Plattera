@@ -20,7 +20,7 @@ interface ContainerOverlayManagerProps {
   };
   state?: string;
   overlayState: ContainerOverlayState;
-  onOverlayLoad?: (layer: ContainerLayer, features: any[]) => void;
+  onOverlayLoad?: (layer: ContainerLayer, features: any[], fullResult?: any) => void;
   onOverlayError?: (layer: ContainerLayer, error: string) => void;
   onOverlayUnload?: (layer: ContainerLayer) => void;
 }
@@ -221,7 +221,7 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
       const features = result.features;
       
       console.log(`✅ Container ${layer} overlay loaded: ${features.length} features`);
-      
+
       // Store the data
       setLayerData(prev => new Map(prev).set(layer, features));
       setActiveLayers(prev => new Set(prev).add(layer));
@@ -230,12 +230,13 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
         newErrors.delete(layer);
         return newErrors;
       });
-      
+
       // Add to map
       addLayerToMap(layer, features);
-      
-      // Callback
-      onOverlayLoad?.(layer, features);
+
+      // Callback with full result for caching
+      console.log(`📋 Calling onOverlayLoad with result:`, result);
+      onOverlayLoad?.(layer, features, result);
       
     } catch (error: any) {
       console.error(`❌ Container ${layer} overlay failed:`, error);

@@ -23,12 +23,27 @@ class PLSSNearestSnapEngine:
             self.data_dir = Path(data_dir)
         else:
             # Navigate from backend/pipelines/mapping/plss/ to project root
-            project_root = Path(__file__).parent.parent.parent.parent.parent
+            current_file = Path(__file__)
+            logger.info(f"Current file path: {current_file}")
+            project_root = current_file.parent.parent.parent.parent.parent
+            logger.info(f"Calculated project root: {project_root}")
             self.data_dir = project_root / "plss"
+            logger.info(f"Calculated PLSS data directory: {self.data_dir}")
 
         # Verify the data directory exists
         if not self.data_dir.exists():
             logger.warning(f"PLSS data directory does not exist: {self.data_dir}")
+            logger.warning(f"Absolute path: {self.data_dir.absolute()}")
+            logger.warning(f"Project root exists: {project_root.exists()}")
+            logger.warning(f"Project root contents: {list(project_root.iterdir()) if project_root.exists() else 'N/A'}")
+        else:
+            logger.info(f"PLSS data directory found: {self.data_dir}")
+            wyoming_dir = self.data_dir / "wyoming"
+            parquet_dir = wyoming_dir / "parquet"
+            logger.info(f"Wyoming directory exists: {wyoming_dir.exists()}")
+            logger.info(f"Parquet directory exists: {parquet_dir.exists()}")
+            if parquet_dir.exists():
+                logger.info(f"Parquet files: {list(parquet_dir.glob('*.parquet'))}")
 
         # Search radii in degrees (convert from miles)
         self.search_radii = {
@@ -143,10 +158,15 @@ class PLSSNearestSnapEngine:
     ) -> Optional[Dict[str, Any]]:
         """Find nearest section using parquet data"""
         try:
+            logger.info(f"🔍 Loading sections parquet data for {state}...")
             # Load sections parquet
             sections_df = self._load_parquet_data(state, 'sections')
             if sections_df is None or sections_df.empty:
+                logger.warning("❌ Sections parquet is None or empty")
                 return None
+
+            logger.info(f"✅ Loaded sections parquet: {len(sections_df)} rows")
+            logger.info(f"📊 Available columns: {list(sections_df.columns)}")
 
             # Calculate distances to all sections
             distances = self._calculate_distances_vectorized(
@@ -161,7 +181,7 @@ class PLSSNearestSnapEngine:
                 row = sections_df.iloc[min_idx]
 
                 # Build PLSS reference
-                plss_ref = ".0f"
+                plss_ref = f"T{int(row['TWNSHPNO'])}{row['TWNSHPDIR']} R{int(row['RANGENO'])}{row['RANGEDIR']} S{int(row['FRSTDIVNO'])}"
 
                 return {
                     'latitude': float(row['CENTROID_LAT']),
@@ -234,9 +254,16 @@ class PLSSNearestSnapEngine:
             import geopandas as gpd
 
             parquet_path = self.data_dir / state.lower() / "parquet" / f"{layer}.parquet"
+            logger.info(f"🔍 Looking for parquet file: {parquet_path}")
+            logger.info(f"📁 Parquet file exists: {parquet_path.exists()}")
 
             if not parquet_path.exists():
-                logger.debug(f"Parquet file not found: {parquet_path}")
+                logger.warning(f"❌ Parquet file not found: {parquet_path}")
+                logger.warning(f"📂 Data directory contents: {list(self.data_dir.iterdir()) if self.data_dir.exists() else 'N/A'}")
+                if (self.data_dir / state.lower()).exists():
+                    logger.warning(f"📂 State directory contents: {list((self.data_dir / state.lower()).iterdir())}")
+                    if (self.data_dir / state.lower() / "parquet").exists():
+                        logger.warning(f"📂 Parquet directory contents: {list((self.data_dir / state.lower() / 'parquet').iterdir())}")
                 return None
 
             # Load parquet data
