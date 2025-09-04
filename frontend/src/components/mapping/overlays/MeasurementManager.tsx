@@ -17,7 +17,8 @@ import {
   calculateEndPoint,
   findNearestPLSSFeature,
   generateMeasurementId,
-  directionToBearing
+  directionToBearing,
+  calculateEndPointBackend
 } from '../../../utils/measurementUtils';
 import type maplibregl from 'maplibre-gl';
 
@@ -49,6 +50,7 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
     removeMeasurement,
     clearAllMeasurements,
     chainFromMeasurement,
+    setCalculationMethod,
   } = useMeasurementState();
 
   // Draw persistent snap marker on map
@@ -211,8 +213,8 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
   }, [map, measurementState, addMeasurementPoint, addMeasurement, resetCurrentMeasurement, setDirectStartPoint, setSnapFeedback, drawSnapMarker, stateName]);
 
   // Handle direct measurement creation
-  const handleCreateDirectMeasurement = useCallback(() => {
-    const { directStartPoint, directDistance, selectedDirection, directBearing } = measurementState;
+  const handleCreateDirectMeasurement = useCallback(async () => {
+    const { directStartPoint, directDistance, selectedDirection, directBearing, calculationMethod } = measurementState;
 
     if (!directStartPoint || !directDistance) return;
 
@@ -235,25 +237,83 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
       bearing = directionToBearing(selectedDirection);
     }
 
-    const endPoint = calculateEndPoint(directStartPoint, distance, bearing);
+    try {
+      console.log(`🧮 Calculating endpoint using ${calculationMethod} method...`);
 
-    const measurement: Measurement = {
-      id: generateMeasurementId(),
-      points: [directStartPoint, endPoint],
-      distance,
-      bearing,
-      isVisible: true
-    };
+      // Call backend coordinate calculation API
+      const requestData = {
+        start_lat: directStartPoint.lat,
+        start_lng: directStartPoint.lng,
+        bearing_degrees: bearing,
+        distance_feet: distance,
+        method: 'utm'  // Use UTM method to match georeference
+      };
 
-    addMeasurement(measurement);
-    setDirectStartPoint(null);
-    setDirectDistance('');
-    setDirectBearing('');
-    removeSnapMarker(); // Remove snap marker after measurement creation
+      console.log('📤 Sending to backend:', requestData);
+      console.log('🌐 Making API call to: http://localhost:8000/api/mapping/coordinates/calculate-endpoint');
 
-    console.log(`📏 Created direct measurement: ${distance.toFixed(1)} ft at ${bearing.toFixed(1)}°`);
-    console.log(`📍 Start point: ${directStartPoint.lat.toFixed(6)}, ${directStartPoint.lng.toFixed(6)} ${directStartPoint.snappedFeature ? `🧲 Snapped to: ${directStartPoint.snappedFeature}` : '📍 Manual placement'}`);
-    console.log(`📍 End point: ${endPoint.lat.toFixed(6)}, ${endPoint.lng.toFixed(6)} ${endPoint.snappedFeature ? `🧲 Snapped to: ${endPoint.snappedFeature}` : '📍 Manual placement'}`);
+      const response = await fetch('http://localhost:8000/api/mapping/coordinates/calculate-endpoint', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      console.log('🔍 Backend API Response:', data);
+
+      if (data.success) {
+        const endPoint = {
+          lng: data.end_lng,
+          lat: data.end_lat,
+          snappedFeature: `Calculated using ${calculationMethod} method`
+        };
+
+        const measurement: Measurement = {
+          id: generateMeasurementId(),
+          points: [directStartPoint, endPoint],
+          distance,
+          bearing,
+          isVisible: true
+        };
+
+        addMeasurement(measurement);
+        setDirectStartPoint(null);
+        setDirectDistance('');
+        setDirectBearing('');
+        removeSnapMarker(); // Remove snap marker after measurement creation
+
+        console.log(`📏 Created direct measurement: ${distance.toFixed(1)} ft at ${bearing.toFixed(1)}°`);
+        console.log(`📍 Start point: ${directStartPoint.lat.toFixed(6)}, ${directStartPoint.lng.toFixed(6)} ${directStartPoint.snappedFeature ? `🧲 Snapped to: ${directStartPoint.snappedFeature}` : '📍 Manual placement'}`);
+        console.log(`📍 End point: ${endPoint.lat.toFixed(6)}, ${endPoint.lng.toFixed(6)} (${calculationMethod} method)`);
+
+        // Log quality information if available
+        if (data.quality_check) {
+          const agreement = data.quality_check.agreement_distance_meters;
+          if (agreement > 0.1) {
+            console.warn(`⚠️ Method quality check: ${agreement.toFixed(3)}m difference from reference`);
+          } else {
+            console.log(`✅ Method quality check: ${agreement.toFixed(3)}m agreement with reference`);
+          }
+        }
+      } else {
+        console.error('❌ Backend coordinate calculation failed:', data.error);
+        console.error('🚨 NOT using fallback - backend calculation is required');
+        // Don't create measurement if backend fails
+        return;
+      }
+    } catch (error) {
+      console.error('🚨 Backend coordinate calculation error:', error);
+      console.error('🚨 NOT using fallback - backend calculation is required');
+      // Don't create measurement if backend fails
+      return;
+    }
   }, [measurementState, addMeasurement, setDirectStartPoint, setDirectDistance, setDirectBearing, directionToBearing, removeSnapMarker]);
 
 
@@ -348,6 +408,7 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
         onClearAllMeasurements={handleClearAllMeasurements}
         onHideSnapFeedback={hideSnapFeedback}
         onChainFromMeasurement={handleChainFromMeasurement}
+        onCalculationMethodChange={setCalculationMethod}
       />
 
       {/* Overlay Manager */}

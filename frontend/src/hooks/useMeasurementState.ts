@@ -26,6 +26,7 @@ export interface MeasurementState {
   selectedDirection: CardinalDirection;
   directStartPoint: MeasurementPoint | null;
   snapFeedback: SnapFeedback | null;
+  calculationMethod: CalculationMethod;
 }
 
 export const useMeasurementState = () => {
@@ -40,6 +41,7 @@ export const useMeasurementState = () => {
     selectedDirection: 'N',
     directStartPoint: null,
     snapFeedback: null,
+    calculationMethod: 'utm', // Use UTM to match georeference calculations
   });
 
   const setMode = useCallback((mode: MeasurementMode) => {
@@ -87,6 +89,13 @@ export const useMeasurementState = () => {
     setMeasurementState(prev => ({
       ...prev,
       directStartPoint: point,
+    }));
+  }, []);
+
+  const setCalculationMethod = useCallback((method: CalculationMethod) => {
+    setMeasurementState(prev => ({
+      ...prev,
+      calculationMethod: method,
     }));
   }, []);
 
@@ -192,6 +201,7 @@ export const useMeasurementState = () => {
     setDirectStartPoint,
     setSnapFeedback,
     hideSnapFeedback,
+    setCalculationMethod,
     addMeasurementPoint,
     resetCurrentMeasurement,
     addMeasurement,

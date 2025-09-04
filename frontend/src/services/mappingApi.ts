@@ -188,7 +188,7 @@ export async function extractPLSSInfo(schemaData: any): Promise<{
   try {
     console.log('🗺️ Extracting PLSS info for mapping:', schemaData);
     
-    const response = await fetch('/api/mapping/extract-plss-info', {
+    const response = await fetch('http://localhost:8000/api/mapping/extract-plss-info', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(schemaData)

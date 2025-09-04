@@ -22,6 +22,11 @@ export const ParcelOverlay: React.FC<ParcelOverlayProps> = ({ parcels }) => {
       anchorInfo: parcel.anchor_info
     });
 
+    // Debug: Log first few polygon coordinates
+    if (parcel.geographic_polygon.coordinates?.[0]) {
+      console.log('🏠 Polygon first 3 coordinates:', parcel.geographic_polygon.coordinates[0].slice(0, 3));
+    }
+
     // Extra diagnostics: list POB and resolved corner if present
     if (parcel?.anchor_info) {
       const ai = parcel.anchor_info;

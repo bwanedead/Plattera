@@ -95,7 +95,7 @@ export const getTextToSchemaModels = async (): Promise<SchemaModelsResponse> => 
     console.warn('Failed to load text-to-schema models:', error);
     // Try same-origin fallback
     try {
-      const res = await fetch(`/api/text-to-schema/models`);
+      const res = await fetch(`http://localhost:8000/api/text-to-schema/models`);
       if (res.ok) {
         return await res.json();
       }

@@ -49,8 +49,13 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
       }
     });
 
-    // Create line geometry
-    const coordinates = measurement.points.map(p => [p.lng, p.lat]);
+    // Create line geometry - ensure [longitude, latitude] format for MapLibre GL
+    const coordinates = measurement.points.map(p => {
+      console.log(`📍 Measurement point: lng=${p.lng}, lat=${p.lat}`);
+      return [p.lng, p.lat]; // MapLibre GL expects [longitude, latitude]
+    });
+
+    console.log(`🧮 Measurement line coordinates:`, coordinates);
 
     // Add line source safely
     try {
@@ -96,6 +101,8 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
     [measurement.points[0], measurement.points[1]].forEach((point, index) => {
       const pointId = index === 0 ? startPointId : endPointId;
       const pointSourceId = `${pointId}-source`;
+
+      console.log(`📍 Adding ${index === 0 ? 'START' : 'END'} marker at: lng=${point.lng}, lat=${point.lat}`);
 
       try {
         map.addSource(pointSourceId, {

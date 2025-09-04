@@ -227,7 +227,7 @@ class CoordinateTransformer:
 
             # Perform inverse transformation with high precision
             # Input: east, north (UTM axis order); output: lat, lon (WGS84 axis)
-                lat, lon = transformer.transform(utm_x, utm_y)
+            lat, lon = transformer.transform(utm_x, utm_y)
 
             # Check for invalid results
             if math.isnan(lat) or math.isinf(lat) or math.isnan(lon) or math.isinf(lon):
@@ -320,7 +320,61 @@ class CoordinateTransformer:
                 "success": False,
                 "error": f"Point transformation error: {str(e)}"
             }
-    
+
+    def _determine_utm_zone(self, lat: float, lon: float) -> dict:
+        """
+        Determine UTM zone from geographic coordinates
+
+        Args:
+            lat: Latitude in decimal degrees
+            lon: Longitude in decimal degrees
+
+        Returns:
+            dict: UTM zone information
+        """
+        try:
+            # Validate coordinates
+            if not (-90 <= lat <= 90):
+                return {"success": False, "error": f"Invalid latitude: {lat}"}
+            if not (-180 <= lon <= 180):
+                return {"success": False, "error": f"Invalid longitude: {lon}"}
+
+            # Calculate UTM zone number (longitude-based)
+            zone_number = int((lon + 180) / 6) + 1
+
+            # Special cases for Norway and Svalbard
+            if lat >= 56.0 and lat < 64.0 and lon >= 3.0 and lon < 12.0:
+                zone_number = 32
+            elif lat >= 72.0 and lat < 84.0:
+                if lon >= 0.0 and lon < 9.0:
+                    zone_number = 31
+                elif lon >= 9.0 and lon < 21.0:
+                    zone_number = 33
+                elif lon >= 21.0 and lon < 33.0:
+                    zone_number = 35
+                elif lon >= 33.0 and lon < 42.0:
+                    zone_number = 37
+
+            # Determine hemisphere
+            is_northern = lat >= 0
+
+            # Validate zone number
+            if not (1 <= zone_number <= 60):
+                return {"success": False, "error": f"Invalid zone number: {zone_number}"}
+
+            zone_string = f"{zone_number}{'N' if is_northern else 'S'}"
+
+            return {
+                "success": True,
+                "zone_number": zone_number,
+                "is_northern": is_northern,
+                "zone_string": zone_string,
+                "central_meridian": (zone_number - 1) * 6 - 180 + 3
+            }
+
+        except Exception as e:
+            return {"success": False, "error": f"UTM zone determination failed: {str(e)}"}
+
     def _parse_utm_zone(self, utm_zone: str) -> dict:
         """Parse UTM zone string"""
         try:

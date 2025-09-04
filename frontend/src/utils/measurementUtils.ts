@@ -17,6 +17,8 @@ export interface Measurement {
   isVisible: boolean;
 }
 
+export type CalculationMethod = 'haversine' | 'utm' | 'geodesic';
+
 /**
  * Calculate distance between two points using Haversine formula
  * Returns distance in feet
@@ -71,6 +73,99 @@ export function calculateEndPoint(
     lng: lon2 * 180 / Math.PI,
     lat: lat2 * 180 / Math.PI
   };
+}
+
+/**
+ * Calculate end point using backend coordinate calculation API
+ */
+export async function calculateEndPointBackend(
+  startPoint: MeasurementPoint,
+  distanceFeet: number,
+  bearingDegrees: number,
+  method: CalculationMethod = 'geodesic'
+): Promise<MeasurementPoint> {
+  try {
+    console.log(`🧮 Calling backend ${method} calculation...`);
+
+    const response = await fetch('http://localhost:8000/api/mapping/coordinates/calculate-endpoint', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        start_lat: startPoint.lat,
+        start_lng: startPoint.lng,
+        bearing_degrees: bearingDegrees,
+        distance_feet: distanceFeet,
+        method: method
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.success) {
+      console.log(`✅ Backend ${method} calculation successful`);
+
+      // Log quality information if available
+      if (data.quality_check) {
+        const agreement = data.quality_check.agreement_distance_meters;
+        if (agreement > 0.1) {
+          console.warn(`⚠️ Method quality check: ${agreement.toFixed(3)}m difference from reference`);
+        } else {
+          console.log(`✅ Method quality check: ${agreement.toFixed(3)}m agreement with reference`);
+        }
+      }
+
+      return {
+        lng: data.end_lng,
+        lat: data.end_lat,
+        snappedFeature: `Calculated using ${method} method`
+      };
+    } else {
+      console.warn(`❌ Backend ${method} calculation failed:`, data.error);
+      throw new Error(data.error || 'Backend calculation failed');
+    }
+  } catch (error) {
+    console.warn(`🚨 Backend ${method} calculation error:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Calculate end point using Haversine method via backend
+ */
+export async function calculateEndPointHaversine(
+  startPoint: MeasurementPoint,
+  distanceFeet: number,
+  bearingDegrees: number
+): Promise<MeasurementPoint> {
+  return calculateEndPointBackend(startPoint, distanceFeet, bearingDegrees, 'haversine');
+}
+
+/**
+ * Calculate end point using UTM method via backend
+ */
+export async function calculateEndPointUTM(
+  startPoint: MeasurementPoint,
+  distanceFeet: number,
+  bearingDegrees: number
+): Promise<MeasurementPoint> {
+  return calculateEndPointBackend(startPoint, distanceFeet, bearingDegrees, 'utm');
+}
+
+/**
+ * Calculate end point using GeographicLib method via backend
+ */
+export async function calculateEndPointGeodesic(
+  startPoint: MeasurementPoint,
+  distanceFeet: number,
+  bearingDegrees: number
+): Promise<MeasurementPoint> {
+  return calculateEndPointBackend(startPoint, distanceFeet, bearingDegrees, 'geodesic');
 }
 
 /**
@@ -294,7 +389,7 @@ export async function findNearestPLSSFromBackend(
   stateName: string
 ): Promise<MeasurementPoint | null> {
   try {
-    const response = await fetch('/api/plss/find-nearest-plss', {
+    const response = await fetch('http://localhost:8000/api/plss/find-nearest-plss', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

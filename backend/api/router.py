@@ -3,7 +3,7 @@ Central API Router
 Combines all API endpoints into a single router for main.py
 """
 from fastapi import APIRouter
-from api.endpoints import models, processing, system, alignment, consensus, final_draft, text_to_schema, polygon, mapping, plss_overlays, georeference, plss_endpoints
+from api.endpoints import models, processing, system, alignment, consensus, final_draft, text_to_schema, polygon, mapping, plss_overlays, georeference, plss_endpoints, coordinates_endpoints
 from api.endpoints.plss import container_router
 
 # Create the main API router
@@ -19,6 +19,7 @@ api_router.include_router(final_draft.router, prefix="/api/final-draft", tags=["
 api_router.include_router(text_to_schema.router, prefix="/api/text-to-schema", tags=["text-to-schema"])
 api_router.include_router(polygon.router, prefix="/api/polygon", tags=["polygon"])
 api_router.include_router(mapping.router, prefix="/api/mapping", tags=["mapping"])
+api_router.include_router(coordinates_endpoints.router, prefix="/api/mapping", tags=["coordinates"])
 api_router.include_router(georeference.router, prefix="/api/mapping", tags=["georeference"])
 api_router.include_router(plss_overlays.router, prefix="/api/plss", tags=["plss-overlays"])
 api_router.include_router(container_router, prefix="/api/plss", tags=["plss-container"])

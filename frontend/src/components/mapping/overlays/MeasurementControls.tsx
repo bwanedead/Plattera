@@ -23,6 +23,7 @@ interface MeasurementControlsProps {
   onClearAllMeasurements: () => void;
   onHideSnapFeedback: () => void;
   onChainFromMeasurement: (measurementId: string) => void;
+  onCalculationMethodChange: (method: CalculationMethod) => void;
 }
 
 export const MeasurementControls: React.FC<MeasurementControlsProps> = ({
@@ -39,6 +40,7 @@ export const MeasurementControls: React.FC<MeasurementControlsProps> = ({
   onClearAllMeasurements,
   onHideSnapFeedback,
   onChainFromMeasurement,
+  onCalculationMethodChange,
 }) => {
   const {
     mode,
@@ -50,7 +52,8 @@ export const MeasurementControls: React.FC<MeasurementControlsProps> = ({
     directBearing,
     selectedDirection,
     directStartPoint,
-    snapFeedback
+    snapFeedback,
+    calculationMethod
   } = measurementState;
 
   const cardinalDirections: CardinalDirection[] = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -178,6 +181,51 @@ export const MeasurementControls: React.FC<MeasurementControlsProps> = ({
           {!showCoordinates && (
             <span className="text-gray-500 text-xs">🙈 HIDDEN</span>
           )}
+        </div>
+
+        {/* Calculation Method Selector */}
+        <div className="space-y-2">
+          <div className="text-sm font-medium text-gray-300">Calculation Method</div>
+          <div className="grid grid-cols-1 gap-2">
+            <button
+              onClick={() => onCalculationMethodChange('haversine')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                calculationMethod === 'haversine'
+                  ? 'bg-yellow-600 text-white shadow-lg'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
+              }`}
+              title="Fast spherical calculations (~100-500m accuracy)"
+            >
+              ⚡ Haversine (Fast)
+            </button>
+            <button
+              onClick={() => onCalculationMethodChange('utm')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                calculationMethod === 'utm'
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
+              }`}
+              title="UTM with meridian convergence (~1-5cm accuracy)"
+            >
+              🔧 UTM (Professional)
+            </button>
+            <button
+              onClick={() => onCalculationMethodChange('geodesic')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                calculationMethod === 'geodesic'
+                  ? 'bg-green-600 text-white shadow-lg'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
+              }`}
+              title="GeographicLib ellipsoidal (~1mm accuracy)"
+            >
+              🧭 GeographicLib (Surveying)
+            </button>
+          </div>
+          <div className="text-xs text-gray-400 bg-gray-800/50 px-3 py-2 rounded">
+            {calculationMethod === 'haversine' && '⚡ Fast but less accurate (~100-500m)'}
+            {calculationMethod === 'utm' && '🔧 Professional mapping accuracy (~1-5cm)'}
+            {calculationMethod === 'geodesic' && '🧭 Surveying-grade precision (~1mm)'}
+          </div>
         </div>
 
         {/* Click & Drag Status */}
@@ -341,8 +389,8 @@ export const MeasurementControls: React.FC<MeasurementControlsProps> = ({
         {/* Help Text */}
         <div className="text-xs text-gray-500 bg-gray-900/50 px-3 py-2 rounded-lg">
           {mode === 'disabled' && 'Enable measurement tools to start measuring distances and bearings on the map.'}
-          {mode === 'click-drag' && 'Click two points on the map to measure the distance between them.'}
-          {mode === 'direct-input' && 'Click to set a start point, then enter distance and bearing to create a measurement.'}
+          {mode === 'click-drag' && 'Click two points on the map to measure the distance between them using frontend calculations.'}
+          {mode === 'direct-input' && `Click to set a start point, then enter distance and bearing to create a measurement using the ${calculationMethod} method.`}
         </div>
       </div>
     </SidePanelSection>
