@@ -12,6 +12,7 @@ from pipelines.mapping.plss.plss_joiner import PLSSJoiner
 from pipelines.mapping.plss.coordinate_service import PLSSCoordinateService
 from pipelines.mapping.projection.transformer import CoordinateTransformer
 from pipelines.mapping.projection.utm_manager import UTMManager
+from pipelines.mapping.calculators.geodesic_calculator import GeodesicCalculator
 from .pob_math import parse_bearing_and_distance
 from .survey_math import SurveyingMathematics, TraverseLeg, CoordinatePoint
 from shapely.geometry import LineString, Point
@@ -37,10 +38,12 @@ class POBResolver:
         self._coord_service = PLSSCoordinateService()
         self._transformer = CoordinateTransformer()
         self._utm = UTMManager()
+        self._geodesic_calc = GeodesicCalculator()  # Most accurate method
         self._survey_math = SurveyingMathematics()  # Professional surveying calculations
 
-        logger.info("🔧 POB Resolver initialized with transformer diagnostics")
+        logger.info("🔧 POB Resolver initialized with geodesic accuracy")
         logger.info(f"🔧 Transformer instance: {self._transformer}")
+        logger.info(f"🔧 Geodesic calculator: {self._geodesic_calc}")
         logger.info(f"🔧 Transformer WGS84 CRS: {self._transformer.wgs84}")
 
     def clear_transformer_cache(self) -> None:
@@ -208,16 +211,11 @@ class POBResolver:
                 if not parsed.get("success"):
                     return {"success": False, "error": parsed.get("error", "Invalid tie bearing/distance")}
                 
-                # Transform corner to UTM
-                utm_zone = self._utm.get_utm_zone(corner_geo["lat"], corner_geo["lon"])
-                print(f"🧭 UTM ZONE DETERMINATION:")
+                # Use geodesic calculations for maximum accuracy
+                print(f"🧭 GEODESIC CALCULATION:")
                 print(f"📍 Corner coordinates: lat={corner_geo['lat']:.8f}, lon={corner_geo['lon']:.8f}")
-                print(f"📍 Determined UTM zone: {utm_zone}")
+                print(f"📍 Using geodesic calculations for maximum accuracy")
 
-                corner_utm = self._transformer.geographic_to_utm(corner_geo["lat"], corner_geo["lon"], utm_zone)
-                if not corner_utm.get("success"):
-                    return {"success": False, "error": f"Corner UTM transform failed: {corner_utm.get('error')}"}
-                
                 # Professional surveying mathematics for coordinate calculation
                 tie_dir = (tie_to_corner.get("tie_direction") or "corner_bears_from_pob").lower()
 
@@ -226,7 +224,7 @@ class POBResolver:
                 if not bearing_validation["success"]:
                     print(f"⚠️ BEARING VALIDATION ISSUES: {bearing_validation['issues']}")
 
-                # Calculate corrected bearing for display purposes
+                # Calculate corrected bearing for geodesic calculations
                 corrected_bearing = (parsed["bearing_degrees"] + 180.0) % 360.0 if tie_dir == "corner_bears_from_pob" else parsed["bearing_degrees"]
 
                 # Create traverse leg using professional surveying methods
@@ -238,19 +236,19 @@ class POBResolver:
                     description=f"Tie from {short_label} corner to POB"
                 )
 
-                # Create coordinate point for corner
+                # Create coordinate point for corner using geographic coordinates
                 corner_point = CoordinatePoint(
-                    utm_x=corner_utm["utm_x"],
-                    utm_y=corner_utm["utm_y"],
                     latitude=corner_geo["lat"],
                     longitude=corner_geo["lon"],
-                    zone_number=corner_utm["zone_number"],
-                    hemisphere=corner_utm["hemisphere"],
+                    utm_x=0.0,  # Will be calculated if needed
+                    utm_y=0.0,
+                    zone_number=0,  # Will be calculated if needed
+                    hemisphere="N" if corner_geo["lat"] >= 0 else "S",
                     point_id=f"{short_label}_corner",
                     description=f"{short_label} corner of section"
                 )
 
-                # Calculate POB using professional traverse methods
+                # Calculate POB using professional traverse methods (now uses geodesic)
                 traverse_result = self._survey_math.calculate_traverse_coordinates(
                     start_point=corner_point,
                     traverse_legs=[traverse_leg],
@@ -260,19 +258,19 @@ class POBResolver:
                 if not traverse_result["success"]:
                     return {"success": False, "error": f"POB calculation failed: {traverse_result.get('error')}"}
 
-                # Extract POB coordinates from traverse result
+                # Extract POB coordinates from traverse result (already in geographic format)
                 pob_point = traverse_result["points"][1]  # Point 1 is the POB
-                pob_x = pob_point.utm_x
-                pob_y = pob_point.utm_y
+                pob_lat = pob_point.latitude
+                pob_lon = pob_point.longitude
 
                 # Log professional surveying details
                 print(f"🧮 PROFESSIONAL SURVEYING CALCULATION:")
-                print(f"📍 REFERENCE CORNER: {corner_point.point_id} at UTM ({corner_point.utm_x:.3f}, {corner_point.utm_y:.3f})")
+                print(f"📍 REFERENCE CORNER: {corner_point.point_id} at ({corner_point.latitude:.8f}, {corner_point.longitude:.8f})")
                 print(f"📍 TRAVERSE LEG: {traverse_leg.bearing_degrees:.4f}° for {traverse_leg.distance_feet:.2f} ft ({traverse_leg.distance_meters:.3f} m)")
                 print(f"📍 TIE DIRECTION: {tie_dir}")
-                print(f"📍 CALCULATED POB: UTM ({pob_x:.3f}, {pob_y:.3f})")
+                print(f"📍 CALCULATED POB: ({pob_lat:.8f}, {pob_lon:.8f})")
 
-                # FIX 3: Optional POB boundary snapping
+                # FIX 3: Optional POB boundary snapping using geodesic distances
                 project_to_boundary = tie_to_corner.get("project_to_boundary", True)  # Default True for west boundary ties
                 if project_to_boundary and "west" in corner_label.lower():
                     print(f"🔧 ATTEMPTING BOUNDARY SNAPPING...")
@@ -286,63 +284,67 @@ class POBResolver:
                         )
                     )
                     section_geom = sec_data.get('geometry') if sec_data else None
-                    
+
                     if section_geom is not None:
-                        # Build west boundary line and project POB onto it
+                        # Build west boundary line
                         west_line_ll = self._west_boundary_line(section_geom)
+
+                        # Use geodesic calculations to find closest point on boundary
+                        # For simplicity, we'll use the existing UTM-based boundary snapping for now
+                        # TODO: Implement geodesic-based boundary snapping for maximum accuracy
+                        utm_zone = self._utm.get_utm_zone(pob_lat, pob_lon)
                         wl0 = self._transformer.geographic_to_utm(west_line_ll.coords[0][1], west_line_ll.coords[0][0], utm_zone)
                         wl1 = self._transformer.geographic_to_utm(west_line_ll.coords[-1][1], west_line_ll.coords[-1][0], utm_zone)
-                        west_line_utm = LineString([(wl0["utm_x"], wl0["utm_y"]), (wl1["utm_x"], wl1["utm_y"])])
-                        
-                        # Project POB to closest point on west boundary
-                        pob_pt = Point(pob_x, pob_y)
-                        proj_dist = west_line_utm.project(pob_pt)  # Distance along line from south
-                        projected = west_line_utm.interpolate(proj_dist)
-                        pob_x, pob_y = projected.x, projected.y
-                        print(f"🔧 POB SNAPPED TO WEST BOUNDARY: x={pob_x:.3f}, y={pob_y:.3f}")
+
+                        if wl0["success"] and wl1["success"]:
+                            west_line_utm = LineString([(wl0["utm_x"], wl0["utm_y"]), (wl1["utm_x"], wl1["utm_y"])])
+
+                            # Convert POB to UTM for boundary calculation
+                            pob_utm = self._transformer.geographic_to_utm(pob_lat, pob_lon, utm_zone)
+                            if pob_utm["success"]:
+                                pob_pt = Point(pob_utm["utm_x"], pob_utm["utm_y"])
+                                proj_dist = west_line_utm.project(pob_pt)
+                                projected = west_line_utm.interpolate(proj_dist)
+
+                                # Convert back to geographic coordinates
+                                projected_geo = self._transformer.utm_to_geographic(projected.x, projected.y, utm_zone)
+                                if projected_geo["success"]:
+                                    pob_lat, pob_lon = projected_geo["lat"], projected_geo["lon"]
+                                    print(f"🔧 POB SNAPPED TO WEST BOUNDARY: ({pob_lat:.8f}, {pob_lon:.8f})")
                     else:
                         print(f"⚠️ Could not get section geometry for boundary snapping")
 
-                # Validate UTM coordinates before transformation
-                print(f"🔍 VALIDATING UTM COORDINATES:")
-                print(f"📍 UTM Zone: {utm_zone}")
-                print(f"📍 POB UTM: ({pob_x:.3f}, {pob_y:.3f})")
+                # Validate geographic coordinates
+                print(f"🔍 VALIDATING GEOGRAPHIC COORDINATES:")
+                print(f"📍 POB Geographic: ({pob_lat:.8f}, {pob_lon:.8f})")
 
                 # Check coordinate ranges
-                if not (100000 <= pob_x <= 900000):
-                    return {"success": False, "error": f"Invalid UTM easting: {pob_x} (expected 100,000-900,000)"}
-                if not (0 <= pob_y <= 10000000):
-                    return {"success": False, "error": f"Invalid UTM northing: {pob_y} (expected 0-10,000,000)"}
+                if not (-90 <= pob_lat <= 90):
+                    return {"success": False, "error": f"Invalid latitude: {pob_lat} (expected -90 to 90)"}
+                if not (-180 <= pob_lon <= 180):
+                    return {"success": False, "error": f"Invalid longitude: {pob_lon} (expected -180 to 180)"}
 
-                print("✅ UTM coordinates within valid range")
+                print("✅ Geographic coordinates within valid range")
 
-                # DIAGNOSTIC: Log transformer state before transformation
-                logger.info(f"🔍 POB RESOLVER: About to call utm_to_geographic")
-                logger.info(f"🔍 POB RESOLVER: Input coordinates: ({pob_x}, {pob_y}) in zone {utm_zone}")
-                diag = self.get_transformer_diagnostics()
-                logger.info(f"🔍 POB RESOLVER: Transformer diagnostics: {diag}")
+                # Calculate offset for display purposes using geodesic distance
+                geodesic_distance = self._geodesic_calc.calculate_inverse(
+                    corner_geo["lat"], corner_geo["lon"],
+                    pob_lat, pob_lon
+                )
 
-                pob_geo_res = self._transformer.utm_to_geographic(pob_x, pob_y, utm_zone)
-                logger.info(f"🔍 POB RESOLVER: Transformation result: {pob_geo_res}")
-
-                if not pob_geo_res.get("success"):
-                    logger.error(f"🔍 POB RESOLVER: Transformation failed: {pob_geo_res.get('error')}")
-                    return {"success": False, "error": f"POB geographic transform failed: {pob_geo_res.get('error')}"}
+                if geodesic_distance["success"]:
+                    offset_distance_m = geodesic_distance["distance_meters"]
+                    offset_distance_ft = offset_distance_m * 3.28084
+                    print(f"📍 OFFSET DISTANCE: {offset_distance_ft:.2f} ft ({offset_distance_m:.3f} m)")
+                else:
+                    offset_distance_ft = 0.0
+                    print("⚠️ Could not calculate geodesic distance for offset")
 
                 print(f"🔍 POB RESOLVER: Final POB calculation:")
                 print(f"📍 REFERENCE CORNER: {short_label} corner at lat={corner_geo['lat']:.6f}, lon={corner_geo['lon']:.6f}")
                 print(f"📍 TIE INFORMATION: {bearing_raw} {dist_val} {dist_units}")
-                # Calculate offset for display purposes
-                offset_dx = pob_x - corner_utm["utm_x"]
-                offset_dy = pob_y - corner_utm["utm_y"]
-                offset_distance_m = sqrt(offset_dx ** 2 + offset_dy ** 2)
-                offset_distance_ft = offset_distance_m * 3.28084
-                print(f"📍 OFFSET VECTOR: dx={offset_dx:.2f}m, dy={offset_dy:.2f}m ({offset_distance_ft:.2f}ft total)")
                 print(f"📍 TIE DIRECTION: {tie_dir}")
-                print(f"📊 Corner UTM: {corner_utm}")
-                print(f"📊 POB UTM: x={pob_x:.2f}, y={pob_y:.2f}, zone={utm_zone}")
-                print(f"📍 FINAL POB COORDINATES: lat={pob_geo_res['lat']:.6f}, lon={pob_geo_res['lon']:.6f}")
-                print(f"📊 POB Geographic: {pob_geo_res}")
+                print(f"📍 FINAL POB COORDINATES: lat={pob_lat:.8f}, lon={pob_lon:.8f}")
                 
                 # Fetch section geometry for diagnostics
                 sec_data = self._plss_joiner.find_section_in_township(
@@ -362,58 +364,61 @@ class POBResolver:
                        "original_bearing_deg": parsed.get("bearing_degrees"),
                        "corrected_bearing_deg": corrected_bearing,
                        "distance_ft": parsed.get("distance_feet"),
-                       "offset_dx_m": round(offset_dx, 3),
-                       "offset_dy_m": round(offset_dy, 3),
-                       "total_offset_m": round(offset_distance_m, 3)})
+                       "total_offset_ft": round(offset_distance_ft, 3)})
 
                 print("🔎 COORD DEBUG:",
                       {"corner_geo": corner_geo,
-                       "corner_utm": corner_utm,
-                       "pob_utm": {"x": pob_x, "y": pob_y, "zone": utm_zone},
-                       "utm_zone": corner_utm.get("utm_zone")})
+                       "pob_geo": {"lat": pob_lat, "lon": pob_lon}})
 
-                if section_geom is not None and corner_utm["success"] and pob_geo_res["success"]:
-                    # Build west boundary line and measure
-                    west_line_ll = self._west_boundary_line(section_geom)
-                    # project to UTM via your transformer
-                    wl0 = self._transformer.geographic_to_utm(west_line_ll.coords[0][1], west_line_ll.coords[0][0], corner_utm["utm_zone"])
-                    wl1 = self._transformer.geographic_to_utm(west_line_ll.coords[-1][1], west_line_ll.coords[-1][0], corner_utm["utm_zone"])
-                    west_line_utm = LineString([(wl0["utm_x"], wl0["utm_y"]), (wl1["utm_x"], wl1["utm_y"])])
-                    west_az = self._azimuth_deg(west_line_utm.coords[0], west_line_utm.coords[-1])
-                    pob_pt = (pob_x, pob_y)
-                    off_signed = self._signed_offset_to_line(pob_pt, west_line_utm)
-                    # perpendicular distance
-                    dist_perp = west_line_utm.distance(Point(pob_pt))
+                # For boundary diagnostics, convert to UTM temporarily
+                if section_geom is not None:
+                    utm_zone = self._utm.get_utm_zone(pob_lat, pob_lon)
+                    pob_utm = self._transformer.geographic_to_utm(pob_lat, pob_lon, utm_zone)
 
-                    # Measure relative position of POB along west edge (south→north)
-                    edge_len_m = float(west_line_utm.length)
-                    s_along_m = float(west_line_utm.project(Point(pob_pt)))
-                    frac_from_south = (s_along_m / edge_len_m) if edge_len_m > 0 else 0.0
-                    dist_from_north_m = max(edge_len_m - s_along_m, 0.0)
-                    tie_expected_m = 1638.0 * 0.3048  # from deed
-                    delta_tie_m = dist_from_north_m - tie_expected_m
+                    if pob_utm["success"]:
+                        # Build west boundary line and measure
+                        west_line_ll = self._west_boundary_line(section_geom)
+                        # project to UTM via your transformer
+                        wl0 = self._transformer.geographic_to_utm(west_line_ll.coords[0][1], west_line_ll.coords[0][0], utm_zone)
+                        wl1 = self._transformer.geographic_to_utm(west_line_ll.coords[-1][1], west_line_ll.coords[-1][0], utm_zone)
 
-                    side = "east" if off_signed < 0 else "west"
+                        if wl0["success"] and wl1["success"]:
+                            west_line_utm = LineString([(wl0["utm_x"], wl0["utm_y"]), (wl1["utm_x"], wl1["utm_y"])])
+                            west_az = self._azimuth_deg(west_line_utm.coords[0], west_line_utm.coords[-1])
+                            pob_pt = (pob_utm["utm_x"], pob_utm["utm_y"])
+                            off_signed = self._signed_offset_to_line(pob_pt, west_line_utm)
+                            # perpendicular distance
+                            dist_perp = west_line_utm.distance(Point(pob_pt))
 
-                    print("🔎 SECTION/WEST-EDGE DEBUG:",
-                          {"west_azimuth_deg": round(west_az, 3),
-                           "edge_height_m": round(edge_len_m, 3),
-                           "pob_perp_offset_m": round(dist_perp, 3),
-                           "pob_side_of_west_edge": side,
-                           "pob_fraction_from_south": round(frac_from_south, 5),
-                           "pob_distance_from_north_m": round(dist_from_north_m, 3),
-                           "tie_expected_m": round(tie_expected_m, 3),
-                           "delta_tie_m": round(delta_tie_m, 3)})
+                            # Measure relative position of POB along west edge (south→north)
+                            edge_len_m = float(west_line_utm.length)
+                            s_along_m = float(west_line_utm.project(Point(pob_pt)))
+                            frac_from_south = (s_along_m / edge_len_m) if edge_len_m > 0 else 0.0
+                            dist_from_north_m = max(edge_len_m - s_along_m, 0.0)
+                            tie_expected_m = 1638.0 * 0.3048  # from deed
+                            delta_tie_m = dist_from_north_m - tie_expected_m
 
-                    # Optional: flag if we are not “on west boundary” (informational)
-                    if dist_perp > 1.0:
-                        print("⚠️ POB is not on west boundary (>", round(dist_perp, 3), "m).")
+                            side = "east" if off_signed < 0 else "west"
+
+                            print("🔎 SECTION/WEST-EDGE DEBUG:",
+                                  {"west_azimuth_deg": round(west_az, 3),
+                                   "edge_height_m": round(edge_len_m, 3),
+                                   "pob_perp_offset_m": round(dist_perp, 3),
+                                   "pob_side_of_west_edge": side,
+                                   "pob_fraction_from_south": round(frac_from_south, 5),
+                                   "pob_distance_from_north_m": round(dist_from_north_m, 3),
+                                   "tie_expected_m": round(tie_expected_m, 3),
+                                   "delta_tie_m": round(delta_tie_m, 3)})
+
+                            # Optional: flag if we are not "on west boundary" (informational)
+                            if dist_perp > 1.0:
+                                print("⚠️ POB is not on west boundary (>", round(dist_perp, 3), "m).")
 
                 return {
                     "success": True,
-                    "pob_geographic": {"lat": pob_geo_res["lat"], "lon": pob_geo_res["lon"]},
-                    "pob_utm": {"x": pob_x, "y": pob_y, "zone": utm_zone},
-                    "method": "corner_with_tie",
+                    "pob_geographic": {"lat": pob_lat, "lon": pob_lon},
+                    "pob_utm": {"lat": pob_lat, "lon": pob_lon, "method": "geodesic_primary"},  # For compatibility
+                    "method": "corner_with_tie_geodesic",
                     "corner_info": {"corner": short_label, "section": str(plss_anchor.get("section_number"))},
                     "resolved_corner_geographic": {"lat": corner_geo["lat"], "lon": corner_geo["lon"]}
                 }

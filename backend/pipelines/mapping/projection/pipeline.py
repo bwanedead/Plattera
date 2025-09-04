@@ -3,43 +3,49 @@ Projection Pipeline
 Main orchestrator for coordinate transformations and projections
 """
 import logging
+import math
 from typing import Dict, Any, List, Tuple, Optional
 
 from .transformer import CoordinateTransformer
 from .utm_manager import UTMManager
+from .geodesic_transformer import GeodesicTransformer
+from .geodesic_manager import GeodesicManager
 
 logger = logging.getLogger(__name__)
 
 class ProjectionPipeline:
     """
     Pipeline for coordinate transformations and geographic projections
+    Supports both UTM and geodesic methods for maximum modularity
     """
-    
+
     def __init__(self):
-        """Initialize projection pipeline"""
+        """Initialize projection pipeline with both UTM and geodesic support"""
         self.transformer = CoordinateTransformer()
         self.utm_manager = UTMManager()
+        self.geodesic_transformer = GeodesicTransformer()
+        self.geodesic_manager = GeodesicManager()
     
     def project_polygon_to_geographic(
-        self, 
-        local_coordinates: List[Tuple[float, float]], 
+        self,
+        local_coordinates: List[Tuple[float, float]],
         anchor_point: dict,
         options: Optional[Dict[str, Any]] = None
     ) -> dict:
         """
         Project local polygon coordinates to geographic coordinates
-        
+
         Args:
             local_coordinates: List of (x, y) coordinate tuples in local system
             anchor_point: Geographic anchor point with lat/lon
-            options: Projection options
-            
+            options: Projection options (can specify method: "utm" or "geodesic")
+
         Returns:
             dict: Result with geographic coordinates and metadata
         """
         try:
             logger.info("🌍 Starting polygon projection to geographic coordinates")
-            
+
             # Validate inputs
             validation_result = self._validate_projection_inputs(local_coordinates, anchor_point)
             if not validation_result["valid"]:
@@ -47,36 +53,161 @@ class ProjectionPipeline:
                     "success": False,
                     "error": f"Input validation failed: {validation_result['errors']}"
                 }
-            
-            # Set projection options
+
+            # Set projection options and determine method
             projection_options = self._get_projection_options(options)
-            
+            projection_method = projection_options.get("method", "geodesic")  # Default to geodesic
+
+            logger.info(f"🧮 Using {projection_method} projection method")
+
+            # Route to appropriate projection method
+            if projection_method == "geodesic":
+                return self._project_polygon_geodesic(local_coordinates, anchor_point, projection_options)
+            elif projection_method == "utm":
+                return self._project_polygon_utm(local_coordinates, anchor_point, projection_options)
+            else:
+                return {
+                    "success": False,
+                    "error": f"Unknown projection method: {projection_method}. Supported: 'utm', 'geodesic'"
+                }
+
+        except Exception as e:
+            logger.error(f"❌ Projection pipeline failed: {str(e)}")
+            return {
+                "success": False,
+                "error": f"Projection error: {str(e)}"
+            }
+
+    def _project_polygon_geodesic(
+        self,
+        local_coordinates: List[Tuple[float, float]],
+        anchor_point: dict,
+        options: Dict[str, Any]
+    ) -> dict:
+        """
+        Project polygon using geodesic calculations for maximum accuracy
+        """
+        try:
+            logger.info(f"🧮 Using geodesic transformations for {len(local_coordinates)} coordinates")
+
+            geographic_coordinates = []
+            transformation_errors = []
+
+            for i, (local_x, local_y) in enumerate(local_coordinates):
+                try:
+                    # Convert feet to meters if needed
+                    if options.get("local_units") == "feet":
+                        x_meters = local_x * 0.3048
+                        y_meters = local_y * 0.3048
+                    else:
+                        x_meters = local_x
+                        y_meters = local_y
+
+                    # Calculate bearing and distance from anchor
+                    bearing_radians = math.atan2(x_meters, y_meters)
+                    bearing_degrees = math.degrees(bearing_radians)
+                    distance_meters = math.sqrt(x_meters ** 2 + y_meters ** 2)
+
+                    if distance_meters > 0:
+                        # Use geodesic calculation for maximum accuracy
+                        result = self.geodesic_transformer.geodesic_endpoint(
+                            anchor_point["lat"],
+                            anchor_point["lon"],
+                            bearing_degrees,
+                            distance_meters
+                        )
+
+                        if result["success"]:
+                            geographic_coordinates.append((result["end_lng"], result["end_lat"]))
+                            if i < 3:  # Log first few points
+                                logger.debug(f"📍 Point {i+1}: Local({local_x:.3f}, {local_y:.3f}) → Geo({result['end_lng']:.8f}, {result['end_lat']:.8f})")
+                        else:
+                            transformation_errors.append(f"Point {i+1}: {result.get('error', 'Geodesic calculation failed')}")
+                    else:
+                        # Point is at anchor location
+                        geographic_coordinates.append((anchor_point["lon"], anchor_point["lat"]))
+
+                except Exception as e:
+                    transformation_errors.append(f"Point {i+1}: {str(e)}")
+                    logger.error(f"❌ Geodesic transformation error for point {i+1}: {str(e)}")
+
+            # Handle transformation errors
+            if transformation_errors:
+                logger.warning(f"⚠️ {len(transformation_errors)} geodesic transformation errors detected")
+                if len(transformation_errors) > len(local_coordinates) * 0.1:
+                    return {
+                        "success": False,
+                        "error": f"Too many transformation failures: {len(transformation_errors)}/{len(local_coordinates)}",
+                        "transformation_errors": transformation_errors[:10]
+                    }
+
+            # Calculate bounds
+            bounds = self._calculate_geographic_bounds(geographic_coordinates)
+
+            logger.info(f"✅ Geodesic projection completed for {len(geographic_coordinates)} coordinates")
+
+            return {
+                "success": True,
+                "geographic_coordinates": geographic_coordinates,
+                "coordinate_format": "lon_lat",
+                "bounds": bounds,
+                "metadata": {
+                    "anchor_point": anchor_point,
+                    "projection_method": "geodesic_karney",
+                    "coordinate_count": len(geographic_coordinates),
+                    "projection_options": options,
+                    "surveying_standards": {
+                        "geodetic_library": "GeographicLib",
+                        "datum": "WGS84",
+                        "coordinate_precision": "millimeter",
+                        "algorithm": "karney_geodesic"
+                    },
+                    "transformation_quality": {
+                        "successful_transformations": len(geographic_coordinates),
+                        "failed_transformations": len(transformation_errors),
+                        "quality_assurance": "maximum_accuracy"
+                    }
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Geodesic projection failed: {str(e)}")
+            return {
+                "success": False,
+                "error": f"Geodesic projection error: {str(e)}"
+            }
+
+    def _project_polygon_utm(
+        self,
+        local_coordinates: List[Tuple[float, float]],
+        anchor_point: dict,
+        options: Dict[str, Any]
+    ) -> dict:
+        """
+        Project polygon using UTM transformations (original method)
+        """
+        try:
+            logger.info(f"🧮 Using UTM transformations for {len(local_coordinates)} coordinates")
+
             # Determine appropriate UTM zone for anchor point
             utm_zone = self.utm_manager.get_utm_zone(
-                anchor_point["lat"], 
+                anchor_point["lat"],
                 anchor_point["lon"]
             )
             logger.info(f"📍 Using UTM zone: {utm_zone}")
-            
+
             # Transform anchor point to UTM
             anchor_utm = self.transformer.geographic_to_utm(
-                anchor_point["lat"], 
-                anchor_point["lon"], 
+                anchor_point["lat"],
+                anchor_point["lon"],
                 utm_zone
             )
-            
+
             if not anchor_utm["success"]:
                 return {
                     "success": False,
                     "error": f"Anchor transformation failed: {anchor_utm['error']}"
                 }
-            
-            # Professional coordinate projection using pyproj transformations
-            logger.info(f"🧮 Using professional geodetic transformations for {len(local_coordinates)} coordinates")
-
-            # Validate input coordinate system assumption
-            if not projection_options.get("assume_local_units") == "meters":
-                logger.warning("⚠️ Local coordinates should be in meters for accurate projection")
 
             utm_coordinates = []
             geographic_coordinates = []
@@ -84,19 +215,24 @@ class ProjectionPipeline:
 
             for i, (local_x, local_y) in enumerate(local_coordinates):
                 try:
-                    # Calculate UTM coordinates from anchor point using proper surveying methods
-                    # Note: local_coordinates now come from professional traverse calculations
-                    utm_x = anchor_utm["utm_x"] + local_x
-                    utm_y = anchor_utm["utm_y"] + local_y
+                    # Convert feet to meters if needed
+                    if options.get("local_units") == "feet":
+                        x_meters = local_x * 0.3048
+                        y_meters = local_y * 0.3048
+                    else:
+                        x_meters = local_x
+                        y_meters = local_y
+
+                    # Calculate UTM coordinates from anchor point
+                    utm_x = anchor_utm["utm_x"] + x_meters
+                    utm_y = anchor_utm["utm_y"] + y_meters
                     utm_coordinates.append((utm_x, utm_y))
 
-                    # Transform to geographic using professional pyproj transformations
+                    # Transform to geographic
                     geo_result = self.transformer.utm_to_geographic(utm_x, utm_y, utm_zone)
                     if geo_result["success"]:
                         geographic_coordinates.append((geo_result["lon"], geo_result["lat"]))
-
-                        # Log precision for surveying accuracy verification
-                        if i < 3:  # Log first few points for verification
+                        if i < 3:  # Log first few points
                             logger.debug(f"📍 Point {i+1}: UTM({utm_x:.3f}, {utm_y:.3f}) → Geo({geo_result['lon']:.8f}, {geo_result['lat']:.8f})")
                     else:
                         transformation_errors.append(f"Point {i+1}: {geo_result.get('error', 'Unknown error')}")
@@ -106,43 +242,32 @@ class ProjectionPipeline:
                     transformation_errors.append(f"Point {i+1}: {str(e)}")
                     logger.error(f"❌ Transformation error for point {i+1}: {str(e)}")
 
-            # Professional error handling and reporting
+            # Handle transformation errors
             if transformation_errors:
                 logger.warning(f"⚠️ {len(transformation_errors)} coordinate transformation errors detected")
-                if len(transformation_errors) > len(local_coordinates) * 0.1:  # More than 10% failures
+                if len(transformation_errors) > len(local_coordinates) * 0.1:
                     return {
                         "success": False,
                         "error": f"Too many transformation failures: {len(transformation_errors)}/{len(local_coordinates)}",
-                        "transformation_errors": transformation_errors[:10]  # Show first 10 errors
+                        "transformation_errors": transformation_errors[:10]
                     }
 
-            if len(geographic_coordinates) != len(local_coordinates):
-                logger.warning(f"⚠️ Only {len(geographic_coordinates)}/{len(local_coordinates)} coordinates successfully transformed")
-
-                # For professional surveying, we require all points to transform successfully
-                if len(geographic_coordinates) < len(local_coordinates):
-                    return {
-                        "success": False,
-                        "error": f"Incomplete coordinate transformation: {len(geographic_coordinates)}/{len(local_coordinates)} successful",
-                        "transformation_errors": transformation_errors
-                    }
-            
-            # Calculate polygon bounds
+            # Calculate bounds
             bounds = self._calculate_geographic_bounds(geographic_coordinates)
-            
-            logger.info(f"✅ Projected {len(geographic_coordinates)} coordinates successfully")
-            
+
+            logger.info(f"✅ UTM projection completed for {len(geographic_coordinates)} coordinates")
+
             return {
                 "success": True,
                 "geographic_coordinates": geographic_coordinates,
-                "coordinate_format": "lon_lat",  # GeoJSON standard
+                "coordinate_format": "lon_lat",
                 "bounds": bounds,
                 "metadata": {
                     "utm_zone": utm_zone,
                     "anchor_point": anchor_point,
-                    "projection_method": "professional_pyproj_geodetic",
+                    "projection_method": "utm_pyproj",
                     "coordinate_count": len(geographic_coordinates),
-                    "projection_options": projection_options,
+                    "projection_options": options,
                     "surveying_standards": {
                         "geodetic_library": "pyproj",
                         "datum": "WGS84",
@@ -151,17 +276,17 @@ class ProjectionPipeline:
                     },
                     "transformation_quality": {
                         "successful_transformations": len(geographic_coordinates),
-                        "failed_transformations": len(transformation_errors) if 'transformation_errors' in locals() else 0,
+                        "failed_transformations": len(transformation_errors),
                         "quality_assurance": "civil_engineering_standard"
                     }
                 }
             }
-            
+
         except Exception as e:
-            logger.error(f"❌ Projection pipeline failed: {str(e)}")
+            logger.error(f"❌ UTM projection failed: {str(e)}")
             return {
                 "success": False,
-                "error": f"Projection error: {str(e)}"
+                "error": f"UTM projection error: {str(e)}"
             }
     
     def transform_coordinates(

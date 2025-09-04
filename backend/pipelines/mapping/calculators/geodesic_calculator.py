@@ -277,3 +277,4 @@ class GeodesicCalculator:
             "algorithm": "Karney (GeographicLib)",
             "accuracy": "Millimeter-level globally"
         }
+

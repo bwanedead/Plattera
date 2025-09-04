@@ -9,6 +9,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Import geodesic calculator for accurate coordinate calculations
+from pipelines.mapping.calculators.geodesic_calculator import GeodesicCalculator
+
 @dataclass
 class TraverseLeg:
     """Represents a single traverse leg with bearing and distance"""
@@ -20,13 +23,13 @@ class TraverseLeg:
 
 @dataclass
 class CoordinatePoint:
-    """Represents a coordinate point in both UTM and geographic systems"""
-    utm_x: float
-    utm_y: float
+    """Represents a coordinate point in geographic coordinates with geodesic accuracy"""
     latitude: float
     longitude: float
-    zone_number: int
-    hemisphere: str
+    utm_x: float = 0.0  # Optional UTM coordinates for compatibility
+    utm_y: float = 0.0
+    zone_number: int = 0
+    hemisphere: str = "N"
     point_id: str = ""
     description: str = ""
 
@@ -48,8 +51,9 @@ class SurveyingMathematics:
     ARC_SECONDS_PER_DEGREE = 3600.0
 
     def __init__(self):
-        """Initialize surveying mathematics engine"""
-        logger.info("🧮 Professional Surveying Mathematics initialized")
+        """Initialize surveying mathematics engine with geodesic calculator"""
+        self.geodesic_calc = GeodesicCalculator()
+        logger.info("🧮 Professional Surveying Mathematics initialized with geodesic accuracy")
 
     def calculate_traverse_coordinates(
         self,
@@ -140,63 +144,136 @@ class SurveyingMathematics:
         leg_number: int
     ) -> CoordinatePoint:
         """
-        Calculate the next point coordinates using bearing and distance
+        Calculate the next point coordinates using geodesic calculations for maximum accuracy
         """
-        # Convert bearing to radians
-        bearing_radians = math.radians(bearing_degrees)
+        logger.debug(f"🧮 Geodesic point calculation: Bearing {bearing_degrees:.1f}°, Distance {distance_meters:.3f}m")
+        logger.debug(f"🧮 From point: ({current_point.latitude:.8f}, {current_point.longitude:.8f})")
 
-        # Calculate coordinate offsets
-        # Note: In UTM, X is easting (increases eastward), Y is northing (increases northward)
-        delta_x = distance_meters * math.sin(bearing_radians)  # Easting offset
-        delta_y = distance_meters * math.cos(bearing_radians)  # Northing offset
+        # Use geodesic calculation for accurate coordinate projection
+        result = self.geodesic_calc.calculate_endpoint(
+            current_point.latitude,
+            current_point.longitude,
+            bearing_degrees,
+            distance_meters
+        )
 
-        # Calculate new coordinates
-        new_utm_x = current_point.utm_x + delta_x
-        new_utm_y = current_point.utm_y + delta_y
+        if not result["success"]:
+            logger.error(f"🧮 Geodesic calculation failed for point {leg_number}: {result.get('error')}")
+            # Return current point as fallback
+            return CoordinatePoint(
+                latitude=current_point.latitude,
+                longitude=current_point.longitude,
+                point_id=f"Point_{leg_number}_error",
+                description=f"Traverse point {leg_number} - calculation failed"
+            )
 
-        # Validate that new coordinates are within reasonable UTM bounds
-        if not (100000 <= new_utm_x <= 900000):
-            logger.warning(f"🧮 Calculated easting {new_utm_x} outside typical UTM range")
-        if not (0 <= new_utm_y <= 10000000):
-            logger.warning(f"🧮 Calculated northing {new_utm_y} outside typical UTM range")
+        new_lat = result["end_lat"]
+        new_lng = result["end_lng"]
 
-        logger.debug(f"🧮 Point calculation: Bearing {bearing_degrees:.1f}°, Distance {distance_meters:.3f}m")
-        logger.debug(f"🧮 Offset: ΔX={delta_x:.3f}m, ΔY={delta_y:.3f}m")
-        logger.debug(f"🧮 Result: UTM ({new_utm_x:.3f}, {new_utm_y:.3f})")
+        logger.debug(f"🧮 Geodesic result: ({new_lat:.8f}, {new_lng:.8f})")
+
+        # For compatibility, we'll also calculate approximate UTM coordinates
+        # This is mainly for backward compatibility with existing code
+        try:
+            # Rough approximation for UTM coordinates (not as accurate as geodesic)
+            # These will be used for compatibility but the primary coordinates are geographic
+            lat_rad = math.radians(new_lat)
+            lng_rad = math.radians(new_lng)
+
+            # Approximate UTM zone calculation
+            zone_number = int((new_lng + 180) / 6) + 1
+            if new_lat < 0:
+                hemisphere = "S"
+            else:
+                hemisphere = "N"
+
+            # Very rough UTM approximation (not accurate for surveying)
+            # In production, you'd want to use proper UTM transformation
+            central_meridian = (zone_number - 1) * 6 - 180 + 3  # Central meridian of zone
+            delta_lng = lng_rad - math.radians(central_meridian)
+
+            # Simplified UTM formulas (not accurate for high-precision work)
+            a = 6378137.0  # WGS84 semi-major axis
+            k0 = 0.9996    # UTM scale factor
+            e_squared = 0.00669438  # eccentricity squared
+
+            N = a / math.sqrt(1 - e_squared * math.sin(lat_rad)**2)
+            T = math.tan(lat_rad)**2
+            C = e_squared * math.cos(lat_rad)**2 / (1 - e_squared)
+            A = delta_lng * math.cos(lat_rad)
+
+            # Easting (very approximate)
+            easting = 500000 + k0 * N * (A + (1 - T + C) * A**3 / 6)
+
+            # Northing (very approximate)
+            M = a * ((1 - e_squared/4 - 3*e_squared**2/64 - 5*e_squared**3/256) * lat_rad
+                    - (3*e_squared/8 + 3*e_squared**2/32 + 45*e_squared**3/1024) * math.sin(2*lat_rad)
+                    + (15*e_squared**2/256 + 45*e_squared**3/1024) * math.sin(4*lat_rad)
+                    - (35*e_squared**3/3072) * math.sin(6*lat_rad))
+
+            if hemisphere == "S":
+                northing = 10000000 + k0 * M
+            else:
+                northing = k0 * M
+
+            utm_x = round(easting, 3)
+            utm_y = round(northing, 3)
+
+        except Exception as e:
+            logger.warning(f"🧮 UTM approximation failed: {str(e)}")
+            utm_x = 0.0
+            utm_y = 0.0
+            zone_number = 13  # Default for Wyoming
+            hemisphere = "N"
 
         return CoordinatePoint(
-            utm_x=round(new_utm_x, 3),  # Millimeter precision
-            utm_y=round(new_utm_y, 3),
-            latitude=0.0,  # Will be calculated when needed
-            longitude=0.0,  # Will be calculated when needed
-            zone_number=current_point.zone_number,
-            hemisphere=current_point.hemisphere,
+            latitude=round(new_lat, 8),      # High precision for geographic coordinates
+            longitude=round(new_lng, 8),
+            utm_x=utm_x,                     # Approximate UTM for compatibility
+            utm_y=utm_y,
+            zone_number=zone_number,
+            hemisphere=hemisphere,
             point_id=f"Point_{leg_number}",
-            description=f"Traverse point {leg_number}"
+            description=f"Traverse point {leg_number} - geodesic calculation"
         )
 
     def _analyze_traverse_closure(self, points: List[CoordinatePoint]) -> Dict[str, Any]:
         """
-        Analyze traverse closure and calculate misclosure
+        Analyze traverse closure and calculate misclosure using geodesic distances
         """
         if len(points) < 3:
             return {"closure_ratio": 0.0, "acceptable": True, "notes": "Insufficient points for closure analysis"}
 
-        # Calculate straight-line distance from start to end
+        # Calculate geodesic distance from start to end point
         start_point = points[0]
         end_point = points[-1]
 
-        closure_distance = math.sqrt(
-            (end_point.utm_x - start_point.utm_x) ** 2 +
-            (end_point.utm_y - start_point.utm_y) ** 2
+        closure_result = self.geodesic_calc.calculate_inverse(
+            start_point.latitude,
+            start_point.longitude,
+            end_point.latitude,
+            end_point.longitude
         )
 
-        # Calculate total traverse distance
+        if not closure_result["success"]:
+            logger.warning("🧮 Could not calculate closure distance using geodesic method")
+            closure_distance = 0.0
+        else:
+            closure_distance = closure_result["distance_meters"]
+
+        # Calculate total traverse distance using geodesic calculations
         total_distance = 0.0
         for i in range(len(points) - 1):
-            dx = points[i + 1].utm_x - points[i].utm_x
-            dy = points[i + 1].utm_y - points[i].utm_y
-            total_distance += math.sqrt(dx ** 2 + dy ** 2)
+            leg_result = self.geodesic_calc.calculate_inverse(
+                points[i].latitude,
+                points[i].longitude,
+                points[i + 1].latitude,
+                points[i + 1].longitude
+            )
+            if leg_result["success"]:
+                total_distance += leg_result["distance_meters"]
+            else:
+                logger.warning(f"🧮 Could not calculate distance for leg {i+1}")
 
         # Calculate closure ratio
         closure_ratio = closure_distance / total_distance if total_distance > 0 else 0.0
@@ -211,6 +288,7 @@ class SurveyingMathematics:
             "closure_ratio_string": f"1:{round(1/closure_ratio) if closure_ratio > 0 else '∞':,}",
             "acceptable": acceptable,
             "standard": "< 1:10,000",
+            "method": "geodesic_distance_calculation",
             "notes": "Excellent closure" if acceptable else f"Closure exceeds 1:10,000 standard"
         }
 

@@ -197,22 +197,19 @@ class GeoreferenceService:
             print(f'📍 POINT OF BEGINNING: lat={pob_geo["lat"]:.8f}, lon={pob_geo["lon"]:.8f}')
             print(f'📍 LOCAL COORDINATES: {local_coords_m}')
 
-            # Create POB coordinate point
-            utm_zone = self._pob_resolver._utm.get_utm_zone(pob_geo["lat"], pob_geo["lon"])
-            pob_utm = self._pob_resolver._transformer.geographic_to_utm(
-                pob_geo["lat"], pob_geo["lon"], utm_zone
-            )
-
-            if not pob_utm.get("success"):
-                return {"success": False, "error": f"POB UTM transformation failed: {pob_utm.get('error')}"}
+            # Create POB coordinate point using geographic coordinates (geodesic method)
+            # Calculate approximate UTM zone for compatibility
+            import math
+            utm_zone_number = int((pob_geo["lon"] + 180) / 6) + 1
+            hemisphere = "N" if pob_geo["lat"] >= 0 else "S"
 
             pob_point = CoordinatePoint(
-                utm_x=pob_utm["utm_x"],
-                utm_y=pob_utm["utm_y"],
                 latitude=pob_geo["lat"],
                 longitude=pob_geo["lon"],
-                zone_number=pob_utm["zone_number"],
-                hemisphere=pob_utm["hemisphere"],
+                utm_x=0.0,  # Will be calculated approximately in survey math if needed
+                utm_y=0.0,
+                zone_number=utm_zone_number,
+                hemisphere=hemisphere,
                 point_id="POB",
                 description="Point of Beginning"
             )
@@ -231,16 +228,11 @@ class GeoreferenceService:
                 return {"success": False, "error": f"Polygon traverse calculation failed: {traverse_result.get('error')}"}
 
             # Extract geographic coordinates from traverse result
+            # Since we're using geodesic calculations, coordinates are already in geographic format
             geo_coords = []
             for point in traverse_result["points"]:
-                # Transform each UTM point back to geographic coordinates
-                geo_result = self._pob_resolver._transformer.utm_to_geographic(
-                    point.utm_x, point.utm_y, utm_zone
-                )
-                if geo_result["success"]:
-                    geo_coords.append((geo_result["lon"], geo_result["lat"]))
-                else:
-                    return {"success": False, "error": f"UTM to geographic conversion failed: {geo_result.get('error')}"}
+                # Use the geographic coordinates directly from geodesic calculations
+                geo_coords.append((point.longitude, point.latitude))
 
             print(f'🧮 POLYGON TRAVERSE RESULTS:')
             print(f'📊 Traverse legs calculated: {len(traverse_legs)}')
@@ -281,9 +273,11 @@ class GeoreferenceService:
                     "pob_method": pob_result.get("method")
                 },
                 "projection_metadata": {
-                    "method": "utm_projection",
-                    "utm_zone": utm_zone,
-                    "vertex_count": len(geo_coords)
+                    "method": "geodesic_projection",
+                    "algorithm": "karney_geodesic",
+                    "datum": "WGS84",
+                    "vertex_count": len(geo_coords),
+                    "accuracy": "millimeter_level"
                 }
             }
             
