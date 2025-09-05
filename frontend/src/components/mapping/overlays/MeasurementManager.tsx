@@ -281,6 +281,15 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
     console.log(`🔗 Chaining from measurement ${measurementId}`);
   }, [chainFromMeasurement]);
 
+  // Memoized callbacks for MeasurementOverlay to prevent re-renders
+  const handleMeasurementLoad = useCallback((measurement: Measurement) => {
+    console.log(`✅ Measurement loaded: ${measurement.id}`);
+  }, []);
+
+  const handleMeasurementUnload = useCallback((measurement: Measurement) => {
+    console.log(`🗑️ Measurement unloaded: ${measurement.id}`);
+  }, []);
+
   // Update map cursor based on measurement mode and snapping state
   useEffect(() => {
     if (!map || !isLoaded) return;
@@ -356,12 +365,8 @@ export const MeasurementManager: React.FC<MeasurementManagerProps> = ({
       <MeasurementOverlay
         measurements={measurementState.measurements}
         showCoordinates={measurementState.showCoordinates}
-        onMeasurementLoad={(measurement) => {
-          console.log(`✅ Measurement loaded: ${measurement.id}`);
-        }}
-        onMeasurementUnload={(measurement) => {
-          console.log(`🗑️ Measurement unloaded: ${measurement.id}`);
-        }}
+        onMeasurementLoad={handleMeasurementLoad}
+        onMeasurementUnload={handleMeasurementUnload}
       />
     </div>
   );

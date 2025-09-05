@@ -27,6 +27,13 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
   const drawMeasurement = useCallback((measurement: Measurement) => {
     if (!map || measurement.points.length < 2) return;
 
+    console.log(`🎯 DRAWING MEASUREMENT: showCoordinates = ${showCoordinates}`);
+    console.log(`📏 Measurement ${measurement.id}: ${measurement.points.length} points`);
+
+    // FORCE showCoordinates to false to prevent duplicate markers
+    const forceShowCoordinates = false;
+    console.log(`🔧 FORCE showCoordinates = ${forceShowCoordinates} (ignoring UI setting)`);
+
     const lineId = `measurement-line-${measurement.id}`;
     const labelId = `measurement-label-${measurement.id}`;
     const startPointId = `measurement-start-${measurement.id}`;
@@ -34,8 +41,14 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
     const startPointSourceId = `${startPointId}-source`;
     const endPointSourceId = `${endPointId}-source`;
 
-    // Remove existing layers and sources safely
-    [lineId, labelId, startPointId, endPointId, startPointSourceId, endPointSourceId].forEach(id => {
+    // Remove ALL existing layers and sources for this measurement (including coordinate markers)
+    const allIds = [
+      lineId, labelId, startPointId, endPointId, startPointSourceId, endPointSourceId,
+      `${startPointId}-coord`, `${endPointId}-coord`,
+      `${startPointId}-coord-source`, `${endPointId}-coord-source`
+    ];
+
+    allIds.forEach(id => {
       try {
         if (map.getLayer(id)) {
           map.removeLayer(id);
@@ -105,7 +118,7 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
       const pointId = index === 0 ? startPointId : endPointId;
       const pointSourceId = `${pointId}-source`;
 
-      console.log(`📍 Adding ${index === 0 ? 'START' : 'END'} marker at: lng=${point.lng}, lat=${point.lat}`);
+      console.log(`📍 Adding MAIN ${index === 0 ? 'START' : 'END'} marker at: lng=${point.lng}, lat=${point.lat}`);
 
       try {
         map.addSource(pointSourceId, {
@@ -119,6 +132,7 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
             properties: {}
           }
         });
+        console.log(`✅ Added source: ${pointSourceId}`);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.warn(`Failed to add point source ${pointSourceId}:`, errorMessage);
@@ -137,17 +151,21 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
             'circle-stroke-width': 2,
           }
         });
+        console.log(`✅ Added layer: ${pointId} (${index === 0 ? 'START' : 'END'})`);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.warn(`Failed to add point layer ${pointId}:`, errorMessage);
       }
 
       // Add coordinate text labels if enabled
-      if (showCoordinates) {
+      if (forceShowCoordinates) {
+        console.log(`⚠️ showCoordinates is TRUE - adding EXTRA coordinate markers!`);
         const coordLabelId = `${pointId}-coord`;
         const coordSourceId = `${coordLabelId}-source`;
         const coordText = `${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}`;
         const pointLabel = index === 0 ? 'START' : 'END';
+
+        console.log(`📍 Adding COORDINATE ${pointLabel} marker at: lng=${point.lng}, lat=${point.lat}`);
 
         // Offset coordinate label slightly from the point for readability
         const offsetLat = index === 0 ? 0.0001 : -0.0001;
@@ -181,17 +199,19 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
               'circle-stroke-width': 2
             }
           });
-          console.debug(`📍 Added coordinate marker for ${pointLabel}: ${coordText}`);
+          console.log(`✅ Added COORDINATE layer: ${coordLabelId} (${pointLabel})`);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           console.warn(`Failed to add coordinate label ${coordLabelId}:`, errorMessage);
         }
+      } else {
+        console.log(`✅ showCoordinates is FORCED FALSE - no extra markers added`);
       }
     });
 
     onMeasurementLoad?.(measurement);
     console.log(`✅ Measurement ${measurement.id} rendered on map`);
-  }, [map, showCoordinates, onMeasurementLoad]);
+  }, [map, onMeasurementLoad]); // showCoordinates is forced to false
 
   // Remove a measurement from the map
   const removeMeasurement = useCallback((measurement: Measurement) => {
@@ -207,15 +227,29 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
     const startCoordSourceId = `${startCoordId}-source`;
     const endCoordSourceId = `${endCoordId}-source`;
 
-    [lineId, startPointId, endPointId, startPointSourceId, endPointSourceId, startCoordId, endCoordId, startCoordSourceId, endCoordSourceId].forEach(id => {
+    // Clean up ALL possible marker IDs
+    const allIds = [
+      lineId, startPointId, endPointId, startPointSourceId, endPointSourceId,
+      startCoordId, endCoordId, startCoordSourceId, endCoordSourceId
+    ];
+
+    console.log(`🧹 Cleaning up measurement ${measurement.id} - removing:`, allIds);
+
+    allIds.forEach(id => {
       try {
-        if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getLayer(id)) {
+          map.removeLayer(id);
+          console.log(`✅ Removed layer: ${id}`);
+        }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.debug(`Error removing layer ${id}:`, errorMessage);
       }
       try {
-        if (map.getSource(id)) map.removeSource(id);
+        if (map.getSource(id)) {
+          map.removeSource(id);
+          console.log(`✅ Removed source: ${id}`);
+        }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.debug(`Error removing source ${id}:`, errorMessage);
@@ -241,7 +275,7 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
         removeMeasurement(measurement);
       });
     };
-  }, [map, isLoaded, measurements]); // Remove function dependencies to prevent thrashing
+  }, [map, isLoaded, measurements]); // Functions are stable due to useCallback
 
   // Handle visibility changes
   useEffect(() => {

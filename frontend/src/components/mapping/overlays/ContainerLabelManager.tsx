@@ -944,43 +944,43 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
     // 🛡️ SAFETY CHECK: Prevent infinite loops
     const now = Date.now();
     renderCount.current++;
-    
+
     // If we've rendered more than 5 times in 1 second, something is wrong
     if (renderCount.current > 5 && (now - lastRenderTime.current) < 1000) {
       console.error(`🚨 INFINITE LOOP DETECTED: ${renderCount.current} renders in ${now - lastRenderTime.current}ms for ${layerType}`);
       return;
     }
-    
+
     lastRenderTime.current = now;
     console.log(`🔄 ContainerLabelManager effect triggered for ${layerType} (render #${renderCount.current})`);
-    
+
     if (!map || !features || features.length === 0) {
       console.log('No map or features available, skipping label generation');
       return;
     }
-    
+
     // Generate labels
     const labelFeatures = generateLabels();
-    
+
     if (labelFeatures.length === 0) {
       console.log('No labels generated, skipping render');
       return;
     }
-    
+
     // Render labels
     renderLabels(labelFeatures);
-    
+
     // Notify parent
     onLabelsCreated?.(labelFeatures);
-    
+
     // Cleanup on unmount
     return () => {
       console.log(`🧹 ContainerLabelManager cleanup for ${layerType}`);
-      
+
       // Reset render counter
       renderCount.current = 0;
       lastRenderTime.current = 0;
-      
+
       // Inline cleanup to avoid dependency issues
       labelElements.current.forEach(el => {
         try {
@@ -992,7 +992,7 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
         }
       });
       labelElements.current = [];
-      
+
       eventHandlers.current.forEach(handler => {
         try {
           handler();
@@ -1001,7 +1001,7 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
         }
       });
       eventHandlers.current = [];
-      
+
       try {
         if (map.getLayer(labelLayerId)) {
           map.removeLayer(labelLayerId);
@@ -1013,7 +1013,7 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
         console.warn('Error removing map layers:', error);
       }
     };
-  }, [map, features?.length, layerType, color, options, onLabelsCreated, labelLayerId]);
+  }, [map, features?.length, layerType, options.showSectionLabels, onLabelsCreated]);
 
   // Don't render anything - this is a logic-only component
   return null;

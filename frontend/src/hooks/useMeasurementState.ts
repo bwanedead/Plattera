@@ -33,7 +33,7 @@ export const useMeasurementState = () => {
   const [measurementState, setMeasurementState] = useState<MeasurementState>({
     mode: 'disabled',
     snappingEnabled: false, // Start with snapping disabled for clarity
-    showCoordinates: true, // Default to showing coordinates
+    showCoordinates: false, // Default to clean interface - no extra coordinate dots
     measurements: [],
     currentMeasurement: [],
     directDistance: '',

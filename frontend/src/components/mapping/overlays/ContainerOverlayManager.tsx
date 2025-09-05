@@ -369,6 +369,21 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
     };
   }, [map]);
 
+  // Memoized label options to prevent infinite loops
+  const labelOptions = useCallback((): ContainerLabelOptions => ({
+    showGridLabels: overlayState.showGridLabels,
+    showTownshipLabels: overlayState.showTownshipLabels,
+    showRangeLabels: overlayState.showRangeLabels,
+    showSectionLabels: overlayState.showSectionLabels,
+    showQuarterSectionLabels: overlayState.showQuarterSectionLabels, // TEMPORARILY HIDDEN in UI but kept for backend
+    showSubdivisionLabels: overlayState.showSubdivisionLabels,
+  }), [overlayState]);
+
+  // Memoized callback to prevent infinite loops
+  const handleLabelsCreated = useCallback((layer: ContainerLayer, labelFeatures: any[]) => {
+    console.log(`✅ Labels created for ${layer}: ${labelFeatures.length} features`);
+  }, []);
+
   // 🏷️ RENDER CONTAINER LABEL MANAGERS
   return (
     <>
@@ -376,17 +391,8 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
       {Array.from(activeLayers).map(layer => {
         const features = layerData.get(layer) || [];
         const color = getLayerColor(layer);
-        
-        // Create label options from overlay state
-        const labelOptions: ContainerLabelOptions = {
-          showGridLabels: overlayState.showGridLabels,
-          showTownshipLabels: overlayState.showTownshipLabels,
-          showRangeLabels: overlayState.showRangeLabels,
-          showSectionLabels: overlayState.showSectionLabels,
-          showQuarterSectionLabels: overlayState.showQuarterSectionLabels, // TEMPORARILY HIDDEN in UI but kept for backend
-          showSubdivisionLabels: overlayState.showSubdivisionLabels,
-        };
-        
+        const options = labelOptions();
+
         return (
           <ContainerLabelManager
             key={`label-${layer}`}
@@ -395,10 +401,8 @@ export const ContainerOverlayManager: React.FC<ContainerOverlayManagerProps> = (
             features={features}
             layerType={layer}
             color={color}
-            options={labelOptions}
-            onLabelsCreated={(labelFeatures) => {
-              console.log(`✅ Labels created for ${layer}: ${labelFeatures.length} features`);
-            }}
+            options={options}
+            onLabelsCreated={(labelFeatures) => handleLabelsCreated(layer, labelFeatures)}
           />
         );
       })}
