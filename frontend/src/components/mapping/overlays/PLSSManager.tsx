@@ -38,6 +38,18 @@ export const PLSSManager: React.FC<PLSSManagerProps> = ({
     setMode(newMode);
   }, [mode]);
 
+  const handleOverlayLoad = useCallback((layer: string, features: any[], fullResult?: any) => {
+    console.log(`📦 PLSS overlay loaded: ${layer} with ${features.length} features`);
+
+    // Store sections in cache when sections layer is loaded
+    if (layer === 'sections' && fullResult) {
+      console.log('💾 Storing sections in PLSS cache');
+      plssCache.storeSections(fullResult);
+      const cacheStatus = plssCache.getCacheStatus();
+      console.log(`📊 Cache status after storing: ${cacheStatus.totalEntries} entries, ${cacheStatus.totalSections} sections`);
+    }
+  }, []);
+
   return (
     <div className={`plss-manager ${className}`}>
       {/* Mode Selector */}
@@ -71,6 +83,7 @@ export const PLSSManager: React.FC<PLSSManagerProps> = ({
           state={stateName}
           schemaData={schemaData}
           containerBounds={containerBounds}
+          onOverlayLoad={handleOverlayLoad}
         />
       )}
 

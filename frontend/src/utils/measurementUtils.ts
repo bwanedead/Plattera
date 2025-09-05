@@ -391,14 +391,14 @@ export async function findNearestPLSSFromBackend(
   try {
     // First, try the PLSS cache (much faster and more accurate)
     const { plssCache } = await import('../services/plss');
-    const cachedResult = plssCache.findNearestSection(lat, lng, 1.0);
+    const cachedResult = plssCache.findNearestCorner(lat, lng, 1.0);
 
     if (cachedResult) {
-      console.log(`🎯 Using cached PLSS section: ${cachedResult.plss_reference}`);
+      console.log(`🎯 Using cached PLSS corner: ${cachedResult.section.plss_reference} ${cachedResult.corner.corner_type || 'corner'}`);
       return {
-        lng: cachedResult.centroid.longitude,
-        lat: cachedResult.centroid.latitude,
-        snappedFeature: `Section ${cachedResult.section_number.padStart(2, '0')}`
+        lng: cachedResult.corner.longitude,
+        lat: cachedResult.corner.latitude,
+        snappedFeature: `Section ${cachedResult.section.section_number.padStart(2, '0')} ${cachedResult.corner.corner_type || 'corner'}`
       };
     }
 

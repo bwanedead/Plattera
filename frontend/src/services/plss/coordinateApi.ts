@@ -160,10 +160,11 @@ export interface PLSSCacheSection {
   township_direction: string;
   range_number: number;
   range_direction: string;
-  centroid: {
+  corners: Array<{
     latitude: number;
     longitude: number;
-  };
+    corner_type?: string; // NW, NE, SW, SE
+  }>;
   plss_reference: string;
   geometry: {
     type: 'Polygon';
@@ -196,7 +197,7 @@ class PLSSCacheService {
 
       for (const feature of containerResponse.features) {
         if (feature.properties?.feature_type === 'section') {
-          const centroid = this.calculateCentroid(feature.geometry);
+          const corners = this.extractCorners(feature.geometry);
 
           const section: PLSSCacheSection = {
             section_number: feature.properties.section_number || feature.properties.SECNUM,
@@ -204,7 +205,7 @@ class PLSSCacheService {
             township_direction: feature.properties.township_direction,
             range_number: feature.properties.range_number,
             range_direction: feature.properties.range_direction,
-            centroid,
+            corners,
             plss_reference: `T${feature.properties.township_number}${feature.properties.township_direction} R${feature.properties.range_number}${feature.properties.range_direction} S${feature.properties.section_number}`,
             geometry: feature.geometry
           };
@@ -228,43 +229,65 @@ class PLSSCacheService {
   }
 
   /**
-   * Find nearest cached section to given coordinates
+   * Find nearest cached corner to given coordinates
    */
   public findNearestSection(
     latitude: number,
     longitude: number,
     searchRadiusMiles: number = 1.0
   ): PLSSCacheSection | null {
+    const result = this.findNearestCorner(latitude, longitude, searchRadiusMiles);
+    return result ? result.section : null;
+  }
+
+  /**
+   * Find nearest cached corner with detailed information
+   */
+  public findNearestCorner(
+    latitude: number,
+    longitude: number,
+    searchRadiusMiles: number = 1.0
+  ): { section: PLSSCacheSection; corner: { latitude: number; longitude: number; corner_type?: string }; distance: number } | null {
     try {
-      console.log(`🔍 Searching PLSS cache for nearest section to ${latitude}, ${longitude}`);
+      console.log(`🔍 Searching PLSS cache for nearest corner to ${latitude}, ${longitude}`);
 
       // Clean expired entries
       this.cleanExpiredEntries();
 
       let nearestSection: PLSSCacheSection | null = null;
+      let nearestCorner: { latitude: number; longitude: number; corner_type?: string } | null = null;
       let minDistance = Infinity;
       const searchRadiusDegrees = searchRadiusMiles / 69.0; // Approximate conversion
 
       for (const [cellId, entry] of this.cache.entries()) {
         for (const section of entry.sections) {
-          const distance = this.calculateDistance(
-            latitude, longitude,
-            section.centroid.latitude, section.centroid.longitude
-          );
+          // Check each corner of the section
+          for (const corner of section.corners) {
+            const distance = this.calculateDistance(
+              latitude, longitude,
+              corner.latitude, corner.longitude
+            );
 
-          if (distance <= searchRadiusDegrees && distance < minDistance) {
-            minDistance = distance;
-            nearestSection = section;
+            if (distance <= searchRadiusDegrees && distance < minDistance) {
+              minDistance = distance;
+              nearestSection = section;
+              nearestCorner = corner;
+            }
           }
         }
       }
 
-      if (nearestSection) {
+      if (nearestSection && nearestCorner) {
         const distanceMiles = minDistance * 69.0;
-        console.log(`✅ Found cached section: ${nearestSection.plss_reference} (${distanceMiles.toFixed(2)} miles away)`);
-        return nearestSection;
+        console.log(`✅ Found cached section corner: ${nearestSection.plss_reference} ${nearestCorner.corner_type || 'corner'} (${distanceMiles.toFixed(2)} miles away)`);
+        console.log(`📍 Corner coordinates: ${nearestCorner.latitude}, ${nearestCorner.longitude}`);
+        return {
+          section: nearestSection,
+          corner: nearestCorner,
+          distance: minDistance
+        };
       } else {
-        console.log(`❌ No cached sections found within ${searchRadiusMiles} miles`);
+        console.log(`❌ No cached section corners found within ${searchRadiusMiles} miles`);
         return null;
       }
     } catch (error) {
@@ -274,7 +297,45 @@ class PLSSCacheService {
   }
 
   /**
-   * Calculate centroid of polygon geometry
+   * Extract corners from polygon geometry
+   */
+  private extractCorners(geometry: any): Array<{ latitude: number; longitude: number; corner_type?: string }> {
+    if (geometry.type !== 'Polygon' || !geometry.coordinates?.[0]) {
+      return [];
+    }
+
+    const coords = geometry.coordinates[0];
+    const corners: Array<{ latitude: number; longitude: number; corner_type?: string }> = [];
+
+    // Extract all vertices as corners (excluding the closing duplicate)
+    for (let i = 0; i < coords.length - 1; i++) {
+      const [lon, lat] = coords[i];
+      if (typeof lat === 'number' && typeof lon === 'number') {
+        corners.push({
+          latitude: lat,
+          longitude: lon,
+          corner_type: this.getCornerType(i, coords.length - 1) // -1 because we exclude closing duplicate
+        });
+      }
+    }
+
+    return corners;
+  }
+
+  /**
+   * Determine corner type based on position in polygon
+   */
+  private getCornerType(index: number, totalCorners: number): string {
+    // For a standard section polygon, corners are typically in order: SW, NW, NE, SE
+    const cornerTypes = ['SW', 'NW', 'NE', 'SE'];
+    if (totalCorners === 4 && index < cornerTypes.length) {
+      return cornerTypes[index];
+    }
+    return `corner_${index}`;
+  }
+
+  /**
+   * Calculate centroid of polygon geometry (kept for backward compatibility)
    */
   private calculateCentroid(geometry: any): { latitude: number; longitude: number } {
     if (geometry.type !== 'Polygon' || !geometry.coordinates?.[0]) {

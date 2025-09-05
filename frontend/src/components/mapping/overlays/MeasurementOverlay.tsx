@@ -241,7 +241,7 @@ export const MeasurementOverlay: React.FC<MeasurementOverlayProps> = ({
         removeMeasurement(measurement);
       });
     };
-  }, [map, isLoaded, measurements, drawMeasurement, removeMeasurement]);
+  }, [map, isLoaded, measurements]); // Remove function dependencies to prevent thrashing
 
   // Handle visibility changes
   useEffect(() => {

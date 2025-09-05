@@ -308,32 +308,105 @@ class PLSSJoiner:
             return None
 
     def _extract_corner_from_geometry(self, geometry, corner: str) -> Optional[Tuple[float, float]]:
-        """Extract corner coordinates from geometry bounds."""
+        """Extract corner coordinates from actual polygon vertices (not bounds)."""
         try:
             if geometry is None:
                 return None
-            
-            bounds = self._get_geometry_bounds(geometry)
-            if not bounds:
+
+            # Get actual polygon vertices instead of bounds
+            vertices = self._get_polygon_vertices(geometry)
+            if not vertices or len(vertices) < 3:
+                logger.warning(f"⚠️ Not enough vertices in geometry for {corner}")
                 return None
-            
+
             corner_lower = corner.lower()
-            
+
+            # Use the appropriate vertex based on corner type
+            # For standard sections, vertices are typically ordered: SW, NW, NE, SE
             if 'nw' in corner_lower or 'northwest' in corner_lower:
-                return (bounds['minx'], bounds['maxy'])  # (lon, lat)
+                # Return the NW vertex (usually index 1 for standard sections)
+                return self._find_northwest_vertex(vertices)
             elif 'ne' in corner_lower or 'northeast' in corner_lower:
-                return (bounds['maxx'], bounds['maxy'])
+                return self._find_northeast_vertex(vertices)
             elif 'sw' in corner_lower or 'southwest' in corner_lower:
-                return (bounds['minx'], bounds['miny'])
+                return self._find_southwest_vertex(vertices)
             elif 'se' in corner_lower or 'southeast' in corner_lower:
-                return (bounds['maxx'], bounds['miny'])
+                return self._find_southeast_vertex(vertices)
             else:
                 logger.warning(f"⚠️ Unknown corner: {corner}")
                 return None
-                
+
         except Exception as e:
-            logger.error(f"❌ Error extracting corner {corner}: {e}")
+            logger.error(f"❌ Error extracting corner from geometry: {e}")
             return None
+
+    def _get_polygon_vertices(self, geometry) -> Optional[List[Tuple[float, float]]]:
+        """Extract all vertices from polygon geometry."""
+        try:
+            if hasattr(geometry, 'exterior'):
+                # Single polygon
+                coords = list(geometry.exterior.coords)
+                return [(lon, lat) for lon, lat in coords[:-1]]  # Exclude closing duplicate
+            elif hasattr(geometry, 'geoms'):
+                # MultiPolygon - use first polygon
+                first_poly = geometry.geoms[0]
+                if hasattr(first_poly, 'exterior'):
+                    coords = list(first_poly.exterior.coords)
+                    return [(lon, lat) for lon, lat in coords[:-1]]
+            return None
+        except Exception as e:
+            logger.error(f"❌ Error extracting polygon vertices: {e}")
+            return None
+
+    def _find_northwest_vertex(self, vertices: List[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
+        """Find the northwest vertex from polygon vertices."""
+        if len(vertices) < 4:
+            return vertices[0]  # Fallback to first vertex
+
+        # For standard sections, NW is typically the second vertex after SW
+        # Find vertex with maximum latitude (northmost)
+        northmost = max(vertices, key=lambda v: v[1])
+        # Then find the westernmost among vertices near the northmost latitude
+        north_vertices = [v for v in vertices if abs(v[1] - northmost[1]) < 0.001]
+        if north_vertices:
+            return min(north_vertices, key=lambda v: v[0])  # Westernmost
+        return northmost
+
+    def _find_northeast_vertex(self, vertices: List[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
+        """Find the northeast vertex from polygon vertices."""
+        if len(vertices) < 4:
+            return vertices[1] if len(vertices) > 1 else vertices[0]
+
+        # Find vertex with maximum latitude, then easternmost
+        northmost = max(vertices, key=lambda v: v[1])
+        north_vertices = [v for v in vertices if abs(v[1] - northmost[1]) < 0.001]
+        if north_vertices:
+            return max(north_vertices, key=lambda v: v[0])  # Easternmost
+        return northmost
+
+    def _find_southwest_vertex(self, vertices: List[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
+        """Find the southwest vertex from polygon vertices."""
+        if len(vertices) < 4:
+            return vertices[2] if len(vertices) > 2 else vertices[0]
+
+        # Find vertex with minimum latitude, then westernmost
+        southmost = min(vertices, key=lambda v: v[1])
+        south_vertices = [v for v in vertices if abs(v[1] - southmost[1]) < 0.001]
+        if south_vertices:
+            return min(south_vertices, key=lambda v: v[0])  # Westernmost
+        return southmost
+
+    def _find_southeast_vertex(self, vertices: List[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
+        """Find the southeast vertex from polygon vertices."""
+        if len(vertices) < 4:
+            return vertices[3] if len(vertices) > 3 else vertices[0]
+
+        # Find vertex with minimum latitude, then easternmost
+        southmost = min(vertices, key=lambda v: v[1])
+        south_vertices = [v for v in vertices if abs(v[1] - southmost[1]) < 0.001]
+        if south_vertices:
+            return max(south_vertices, key=lambda v: v[0])  # Easternmost
+        return southmost
 
     def _get_geometry_bounds(self, geometry) -> Optional[Dict[str, float]]:
         """Extract bounds from geometry."""
