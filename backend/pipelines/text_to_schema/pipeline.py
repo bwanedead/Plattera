@@ -342,9 +342,10 @@ class TextToSchemaPipeline:
 
         # Whitelist for Text-to-Schema task
         allowed = [
-            "gpt-5-mini",  # default
-            "gpt-5",       # first fallback
-            "gpt-4o",      # second fallback
+            "gpt-5-nano",  # fastest GPT-5 option
+            "gpt-5-mini",  # default GPT-5
+            "gpt-5",       # full GPT-5
+            "gpt-4o",      # stable fallback
         ]
 
         filtered: dict = {}

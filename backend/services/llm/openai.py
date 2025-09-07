@@ -160,6 +160,15 @@ class OpenAIService(LLMService):
             "description": "Fast, lightweight model for structured extraction (text-only)",
             "verification_required": False,
             "api_model_name": "gpt-5-mini"
+        },
+        "gpt-5-nano": {
+            "name": "GPT-5 Nano",
+            "provider": "openai",
+            "cost_tier": "budget",
+            "capabilities": ["text"],
+            "description": "Ultra-lightweight model for fast structured extraction (text-only)",
+            "verification_required": False,
+            "api_model_name": "gpt-5-nano"
         }
     }
     
@@ -438,6 +447,10 @@ class OpenAIService(LLMService):
         try:
             api_model_name = self._get_api_model_name(model)
             
+            # Validate model name for GPT-5 series
+            if api_model_name.startswith('gpt-5'):
+                assert api_model_name in {"gpt-5", "gpt-5-mini", "gpt-5-nano"}, f"Invalid GPT-5 model: {api_model_name}"
+            
             # Use provided schema or load default fallback (GENERIC)
             if schema:
                 schema_dict = schema
@@ -461,43 +474,219 @@ class OpenAIService(LLMService):
             if not parcel_id:
                 parcel_id = f"parcel-{int(time.time() * 1000)}"
             
-            # Make the API call
-            # Build completion params with model-specific token field
-            completion_params = {
-                "model": api_model_name,
-                "messages": [{"role": "user", "content": full_prompt}],
-                "response_format": response_format,
-            }
-            if ("o4-mini" in api_model_name) or ("gpt-5-mini" in api_model_name) or ("gpt-5" in api_model_name) or ("gpt-5-nano" in api_model_name):
-                completion_params["max_completion_tokens"] = 4000
+            # GPT-5 SPECIFIC: Check if this is a GPT-5 model for special handling
+            is_gpt5_model = api_model_name.startswith('gpt-5')
+            
+            # Initialize completion_params based on model type
+            if is_gpt5_model:
+                # 🔥 MODEL-SPECIFIC OPTIMIZATION
+                if api_model_name == "gpt-5-nano":
+                    # 🚀 NANO: Optimize for speed and efficiency
+                    completion_params = {
+                        "model": api_model_name,
+                        "messages": [
+                            {"role": "system", "content": "Output ONLY a single JSON object matching the schema. Be direct and efficient."},
+                            {"role": "user", "content": full_prompt}
+                        ],
+                        "response_format": response_format,
+                        "max_completion_tokens": 8000,   # 🚀 Lower cap - nano should be efficient
+                        # 🚀 NO reasoning_effort - let nano be fast like GPT-4o
+                    }
+                    logger.info(f"🚀 Using GPT-5 Nano speed-optimized parameters: model={api_model_name}, max_completion_tokens=8000, no_reasoning")
+                    
+                elif api_model_name == "gpt-5-mini":
+                    # ⚡ MINI: Balanced approach
+                    completion_params = {
+                        "model": api_model_name,
+                        "messages": [
+                            {"role": "system", "content": "Output ONLY a single JSON object matching the schema. No explanations or additional text."},
+                            {"role": "user", "content": full_prompt}
+                        ],
+                        "response_format": response_format,
+                        "max_completion_tokens": 12000,  # ⚡ Medium cap
+                        "reasoning_effort": "medium"     # ⚡ Balanced reasoning
+                    }
+                    logger.info(f"⚡ Using GPT-5 Mini balanced parameters: model={api_model_name}, max_completion_tokens=12000, reasoning_effort=medium")
+                    
+                else:  # gpt-5 full model
+                    # 🧠 FULL GPT-5: Maximum quality
+                    completion_params = {
+                        "model": api_model_name,
+                        "messages": [
+                            {"role": "system", "content": "Output ONLY a single JSON object matching the schema. No explanations or additional text."},
+                            {"role": "user", "content": full_prompt}
+                        ],
+                        "response_format": response_format,
+                        "max_completion_tokens": 16000,  # 🧠 High cap for quality
+                        "reasoning_effort": "high"       # 🧠 Maximum accuracy
+                    }
+                    logger.info(f"🧠 Using GPT-5 full model parameters: model={api_model_name}, max_completion_tokens=16000, reasoning_effort=high")
+                    
             else:
-                completion_params["temperature"] = 0
-                completion_params["max_tokens"] = 4000
+                # 🔄 EXISTING LOGIC - Keep exactly as before for non-GPT-5 models
+                completion_params = {
+                    "model": api_model_name,
+                    "messages": [{"role": "user", "content": full_prompt}],
+                    "response_format": response_format,
+                }
+                if ("o4-mini" in api_model_name):
+                    completion_params["max_completion_tokens"] = 4000
+                else:
+                    completion_params["temperature"] = 0
+                    completion_params["max_tokens"] = 4000
 
             completion = self.client.chat.completions.create(**completion_params)
             
-            # Extract the response
-            response_content = completion.choices[0].message.content
+            # 🔍 CRITICAL: Log the full response envelope for debugging
+            try:
+                logger.info(f"🔍 RAW_OPENAI_ENVELOPE for {api_model_name}:")
+                envelope_data = {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": completion.choices[0].message.content,
+                                "role": completion.choices[0].message.role
+                            },
+                            "finish_reason": completion.choices[0].finish_reason,
+                            "index": completion.choices[0].index
+                        }
+                    ],
+                    "usage": {
+                        "completion_tokens": completion.usage.completion_tokens if completion.usage else None,
+                        "prompt_tokens": completion.usage.prompt_tokens if completion.usage else None,
+                        "total_tokens": completion.usage.total_tokens if completion.usage else None
+                    } if completion.usage else None,
+                    "model": completion.model if hasattr(completion, 'model') else api_model_name
+                }
+                logger.info(f"🔍 Envelope: {json.dumps(envelope_data, indent=2)}")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not log envelope: {e}")
+            
+            # Extract the response and check finish_reason
+            message = completion.choices[0].message
+            response_content = message.content
+            finish_reason = completion.choices[0].finish_reason
+            
+            # 🚨 Check for problematic finish reasons
+            if finish_reason in ("length", "content_filter"):
+                logger.error(f"🚨 {api_model_name} stopped due to {finish_reason}!")
+                return {
+                    "success": False,
+                    "error": f"{api_model_name} stopped due to {finish_reason}. Usage: {completion.usage}",
+                    "text": str(response_content),
+                    "model": model,
+                    "finish_reason": finish_reason
+                }
+            
+            # 🚨 Check for refusal (rare but possible)
+            if hasattr(message, 'refusal') and message.refusal:
+                logger.error(f"🚨 {api_model_name} refused request: {message.refusal}")
+                return {
+                    "success": False,
+                    "error": f"{api_model_name} refused request: {message.refusal}",
+                    "text": str(response_content),
+                    "model": model
+                }
+            
+            # 🔍 Enhanced response content logging
+            logger.info(f"🔍 Raw response received from {api_model_name}:")
+            logger.info(f"🔍 Response type: {type(response_content)}")
+            logger.info(f"🔍 Response length: {len(response_content) if response_content else 'None'}")
+            logger.info(f"🔍 Response content (first 500 chars): {repr(response_content[:500]) if response_content else 'None'}")
+            logger.info(f"🔍 Finish reason: {finish_reason}")
+            
+            # Check for empty/None response 
+            if not response_content:
+                logger.error(f"🚨 {api_model_name} returned empty/None response!")
+                logger.error(f"🚨 Finish reason: {finish_reason}")
+                logger.error(f"🚨 Usage: {completion.usage}")
+                return {
+                    "success": False,
+                    "error": f"{api_model_name} returned empty response. Finish reason: {finish_reason}",
+                    "text": str(response_content),
+                    "model": model,
+                    "finish_reason": finish_reason
+                }
+            
+            # Check for non-string response
+            if not isinstance(response_content, str):
+                logger.error(f"🚨 {api_model_name} returned non-string response: {type(response_content)}")
+                return {
+                    "success": False,
+                    "error": f"{api_model_name} returned non-string response: {type(response_content)}",
+                    "text": str(response_content),
+                    "model": model
+                }
+            
+            # Strip whitespace
+            response_content = response_content.strip()
+            if not response_content:
+                logger.error(f"🚨 {api_model_name} returned only whitespace!")
+                return {
+                    "success": False,
+                    "error": f"{api_model_name} returned only whitespace",
+                    "text": response_content,
+                    "model": model
+                }
+            
+            # 🔍 Log token usage for debugging (especially important for GPT-5)
+            if hasattr(completion, 'usage') and completion.usage:
+                tokens_used = completion.usage.total_tokens
+                output_tokens = getattr(completion.usage, 'completion_tokens', 0)
+                prompt_tokens = getattr(completion.usage, 'prompt_tokens', 0)
+                logger.info(f"📊 Token usage: {tokens_used} total ({prompt_tokens} prompt + {output_tokens} output) for {api_model_name}")
+                
+                # 🚨 Check for potential truncation
+                if is_gpt5_model and output_tokens >= 15500:  # Close to 16k cap
+                    logger.warning(f"⚠️ GPT-5 output tokens ({output_tokens}) approaching cap - potential truncation!")
+                elif not is_gpt5_model and output_tokens >= 3900:  # Close to 4k cap
+                    logger.warning(f"⚠️ Output tokens ({output_tokens}) approaching cap - potential truncation!")
             
             # Parse the JSON response
             try:
+                logger.info(f"🔍 Attempting to parse JSON from {api_model_name}...")
                 structured_data = json.loads(response_content)
                 structured_data['parcel_id'] = parcel_id  # Ensure parcel_id is set
+                
+                logger.info(f"✅ Successfully parsed JSON response from {api_model_name}")
                 
                 # Return standardized response format
                 return {
                     "success": True,
                     "structured_data": structured_data,
                     "text": response_content,
-                    "tokens_used": completion.usage.total_tokens,
+                    "tokens_used": completion.usage.total_tokens if completion.usage else 0,
                     "model": model
                 }
             except json.JSONDecodeError as e:
+                # 🔥 Enhanced JSON parsing error handling
+                logger.error(f"🚨 JSON parse failed for {api_model_name}: {e}")
+                logger.error(f"🚨 Parse error at position {e.pos if hasattr(e, 'pos') else 'unknown'}")
+                logger.error(f"🚨 Full response content: {repr(response_content)}")
+                
+                # Check if response looks like it might be truncated JSON
+                if response_content.count('{') != response_content.count('}'):
+                    logger.error(f"🚨 Unbalanced braces - likely truncated JSON!")
+                
+                if is_gpt5_model:
+                    # Check for truncation
+                    if hasattr(completion, 'usage') and completion.usage:
+                        output_tokens = getattr(completion.usage, 'completion_tokens', 0)
+                        if output_tokens >= 15500:
+                            return {
+                                "success": False,
+                                "error": f"GPT-5 response truncated at {output_tokens} tokens - increase max_completion_tokens",
+                                "text": response_content,
+                                "model": model,
+                                "truncated": True
+                            }
+                
                 return {
                     "success": False,
                     "error": f"Failed to parse LLM response as JSON: {e}",
                     "text": response_content,
-                    "model": model
+                    "model": model,
+                    "parse_error_position": getattr(e, 'pos', None)
                 }
                 
         except Exception as e:
