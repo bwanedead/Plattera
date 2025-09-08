@@ -5,6 +5,7 @@ Combines all API endpoints into a single router for main.py
 from fastapi import APIRouter
 from api.endpoints import models, processing, system, alignment, consensus, final_draft, text_to_schema, polygon, mapping, plss_overlays, georeference, plss_endpoints, coordinates_endpoints
 from api.endpoints.plss import container_router
+from api.endpoints.dossier import management_router, association_router, navigation_router, views_router
 
 # Create the main API router
 api_router = APIRouter()
@@ -24,6 +25,12 @@ api_router.include_router(georeference.router, prefix="/api/mapping", tags=["geo
 api_router.include_router(plss_overlays.router, prefix="/api/plss", tags=["plss-overlays"])
 api_router.include_router(container_router, prefix="/api/plss", tags=["plss-container"])
 api_router.include_router(plss_endpoints.router, prefix="/api/plss", tags=["plss-nearest"])
+
+# Dossier system endpoints - independent modular services
+api_router.include_router(management_router, prefix="/api/dossier-management", tags=["dossier-management"])
+api_router.include_router(association_router, prefix="/api/transcription-association", tags=["transcription-association"])
+api_router.include_router(navigation_router, prefix="/api/dossier-navigation", tags=["dossier-navigation"])
+api_router.include_router(views_router, prefix="/api/dossier-views", tags=["dossier-views"])
 
 # Quick access to pipeline-specific endpoints for backwards compatibility
 api_router.include_router(models.router, prefix="/api/image-to-text", tags=["image-to-text"])
@@ -47,6 +54,10 @@ async def api_root():
             "mapping": "/api/mapping/project-polygon - Project polygons to geographic coordinates",
             "plss_overlays": "/api/plss/overlays - PLSS overlay data for mapping visualization",
             "plss_container": "/api/plss/container - Dedicated container PLSS overlay endpoints",
+            "dossier-management": "/api/dossier-management - CRUD operations for dossiers",
+            "transcription-association": "/api/transcription-association - Manage transcription relationships",
+            "dossier-navigation": "/api/dossier-navigation - Discovery and navigation features",
+            "dossier-views": "/api/dossier-views - Content presentation modes",
             "health": "/api/health - System health check",
             "services": "/api/services - Service status",
             "processing_types": "/api/process/types - Available processing types"

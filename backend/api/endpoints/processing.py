@@ -101,6 +101,7 @@ async def process_content(
     cleanup_after: str = Form("true"),
     flow_to: str = Form(None),
     parcel_id: str = Form(None),
+    dossier_id: str = Form(None),  # NEW: Optional dossier association
     # Enhancement settings - optional
     contrast: str = Form("2.0"),
     sharpness: str = Form("2.0"),
@@ -177,7 +178,7 @@ async def process_content(
         # Route to appropriate pipeline based on content_type
         if content_type == "image-to-text":
             logger.info("🖼️ Routing to image-to-text pipeline")
-            return await _process_image_to_text(file, model, extraction_mode, enhancement_settings, redundancy_count, consensus_strategy)
+            return await _process_image_to_text(file, model, extraction_mode, enhancement_settings, redundancy_count, consensus_strategy, dossier_id)
         elif content_type == "text-to-schema":
             logger.info("📝 Routing to text-to-schema pipeline")
             return await _process_text_to_schema(file, model)
@@ -196,7 +197,7 @@ async def process_content(
         logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
-async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: str, enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = 'sequential') -> ProcessResponse:
+async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: str, enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = 'sequential', dossier_id: str = None) -> ProcessResponse:
     """Route to image-to-text pipeline"""
     temp_path = None
     
@@ -246,6 +247,75 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
             raise HTTPException(status_code=500, detail=result.get("error", "Processing failed"))
         
         logger.info("✅ Processing completed successfully!")
+
+        # NEW: Associate with dossier if specified
+        transcription_id = None
+        if dossier_id:
+            try:
+                # Import utility functions
+                from api.endpoints.dossier.utils import (
+                    extract_transcription_id_from_result,
+                    create_transcription_provenance
+                )
+
+                # Extract transcription ID from result metadata or generate one
+                # The transcription should have been saved to saved_drafts/ by the pipeline
+                transcription_id = extract_transcription_id_from_result(result)
+
+                if transcription_id:
+                    from services.dossier.association_service import TranscriptionAssociationService
+                    association_service = TranscriptionAssociationService()
+
+                    # Get next position in dossier
+                    next_position = len(association_service.get_dossier_transcriptions(dossier_id)) + 1
+
+                    # Create standardized provenance for the transcription
+                    try:
+                        provenance = create_transcription_provenance(
+                            file_path=temp_path,  # The processed image file
+                            model=model,
+                            extraction_mode=extraction_mode,
+                            result=result,
+                            transcription_id=transcription_id,
+                            enhancement_settings=enhancement_settings,  # Include enhancement settings
+                            save_images=True  # Save original images for future reference
+                        )
+                    except Exception as prov_error:
+                        logger.warning(f"⚠️ Provenance creation failed: {prov_error}")
+                        provenance = None
+
+                    # Prepare metadata with provenance
+                    metadata = {
+                        "auto_added": True,
+                        "source": "processing_api",
+                        "processing_params": {
+                            "model": model,
+                            "extraction_mode": extraction_mode,
+                            "redundancy_count": redundancy_count,
+                            "consensus_strategy": consensus_strategy
+                        }
+                    }
+
+                    if provenance:
+                        metadata["provenance"] = provenance
+
+                    # Add to dossier
+                    success = association_service.add_transcription(
+                        dossier_id=dossier_id,
+                        transcription_id=transcription_id,
+                        position=next_position,
+                        metadata=metadata
+                    )
+
+                    if success:
+                        logger.info(f"📝 Associated transcription {transcription_id} with dossier {dossier_id}")
+                        logger.info(f"📋 Provenance recorded for transcription {transcription_id}")
+                    else:
+                        logger.warning(f"⚠️ Failed to associate transcription {transcription_id} with dossier {dossier_id}")
+            except Exception as e:
+                logger.warning(f"⚠️ Dossier association failed (non-critical): {e}")
+                # Don't fail the entire request if dossier association fails
+
         return ProcessResponse(
             status="success",
             extracted_text=result.get("extracted_text"),
@@ -253,7 +323,11 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
             service_type=result.get("service_type"),
             tokens_used=result.get("tokens_used"),
             confidence_score=result.get("confidence_score"),
-            metadata=result.get("metadata")
+            metadata={
+                **result.get("metadata", {}),
+                "dossier_id": dossier_id,
+                "transcription_id": transcription_id
+            }
         )
         
     except HTTPException:

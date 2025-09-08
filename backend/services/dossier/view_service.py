@@ -1,0 +1,323 @@
+"""
+Dossier View Service
+===================
+
+Handles different content presentation and aggregation modes.
+Provides stitched views, individual views, and export functionality.
+"""
+
+import json
+import logging
+from typing import Dict, List, Any, Optional
+from pathlib import Path
+
+from .models import DossierStructure
+from .navigation_service import DossierNavigationService
+from .provenance_schema import ProvenanceEnhancement
+
+logger = logging.getLogger(__name__)
+
+
+class DossierViewService:
+    """
+    Service for dossier content presentation.
+    Handles stitched views, individual transcription views, and exports.
+
+    Coordinates with Navigation service for data access.
+    """
+
+    def __init__(self):
+        self.navigation_service = DossierNavigationService()
+        logger.info("👁️ Dossier View Service initialized")
+
+    def get_stitched_view(self, dossier_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a stitched view of all transcriptions in a dossier.
+        Combines all transcriptions into a continuous document.
+
+        Args:
+            dossier_id: The dossier to stitch
+
+        Returns:
+            Dictionary with stitched content or None if not found
+        """
+        logger.info(f"🧵 Creating stitched view for dossier: {dossier_id}")
+
+        structure = self.navigation_service.get_dossier_structure(dossier_id)
+        if not structure:
+            logger.warning(f"⚠️ Cannot create stitched view for non-existent dossier: {dossier_id}")
+            return None
+
+        stitched_sections = []
+        transcription_count = len(structure.transcriptions)
+
+        for transcription_entry in structure.transcriptions:
+            transcription_id = transcription_entry.transcription_id
+
+            # Load the actual transcription content
+            transcription_content = self._load_transcription_content(transcription_id)
+            if transcription_content:
+                sections = transcription_content.get('sections', [])
+
+                # Add position metadata to each section
+                for section in sections:
+                    section['transcription_id'] = transcription_id
+                    section['dossier_position'] = transcription_entry.position
+
+                stitched_sections.extend(sections)
+            else:
+                logger.warning(f"⚠️ Could not load transcription: {transcription_id}")
+
+        stitched_view = {
+            "dossier_id": dossier_id,
+            "dossier_title": structure.dossier.title,
+            "total_sections": len(stitched_sections),
+            "transcription_count": transcription_count,
+            "stitched_sections": stitched_sections,
+            "generated_at": structure.dossier.updated_at.isoformat()
+        }
+
+        logger.info(f"✅ Created stitched view with {len(stitched_sections)} sections")
+        return stitched_view
+
+    def get_individual_transcriptions(self, dossier_id: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        Get individual transcription views for a dossier.
+        Each transcription is presented separately.
+
+        Args:
+            dossier_id: The dossier
+
+        Returns:
+            List of transcription dictionaries or None if dossier not found
+        """
+        logger.info(f"📄 Getting individual transcriptions for dossier: {dossier_id}")
+
+        structure = self.navigation_service.get_dossier_structure(dossier_id)
+        if not structure:
+            return None
+
+        transcriptions = []
+
+        for transcription_entry in structure.transcriptions:
+            transcription_id = transcription_entry.transcription_id
+
+            # Load transcription content
+            content = self._load_transcription_content(transcription_id)
+            if content:
+                # Add dossier metadata
+                content['dossier_position'] = transcription_entry.position
+                content['added_to_dossier_at'] = transcription_entry.added_at.isoformat()
+                content['dossier_metadata'] = transcription_entry.metadata
+
+                transcriptions.append(content)
+            else:
+                logger.warning(f"⚠️ Could not load transcription: {transcription_id}")
+
+        logger.info(f"✅ Retrieved {len(transcriptions)} individual transcriptions")
+        return transcriptions
+
+    def get_dossier_metadata(self, dossier_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get comprehensive metadata about a dossier and its contents.
+
+        Args:
+            dossier_id: The dossier
+
+        Returns:
+            Dictionary with dossier metadata or None if not found
+        """
+        logger.info(f"📊 Getting metadata for dossier: {dossier_id}")
+
+        structure = self.navigation_service.get_dossier_structure(dossier_id)
+        if not structure:
+            return None
+
+        # Calculate various statistics
+        transcription_count = len(structure.transcriptions)
+        total_sections = 0
+        total_characters = 0
+
+        for transcription_entry in structure.transcriptions:
+            content = self._load_transcription_content(transcription_entry.transcription_id)
+            if content:
+                sections = content.get('sections', [])
+                total_sections += len(sections)
+
+                # Estimate character count
+                for section in sections:
+                    body_text = section.get('body', '')
+                    total_characters += len(body_text)
+
+        metadata = {
+            "dossier_id": structure.dossier.id,
+            "title": structure.dossier.title,
+            "description": structure.dossier.description,
+            "created_at": structure.dossier.created_at.isoformat(),
+            "updated_at": structure.dossier.updated_at.isoformat(),
+            "transcription_count": transcription_count,
+            "total_sections": total_sections,
+            "estimated_character_count": total_characters,
+            "transcriptions": [
+                {
+                    "id": t.transcription_id,
+                    "position": t.position,
+                    "added_at": t.added_at.isoformat(),
+                    "metadata": t.metadata
+                }
+                for t in structure.transcriptions
+            ]
+        }
+
+        logger.info(f"✅ Retrieved metadata for dossier {dossier_id}")
+        return metadata
+
+    def export_dossier(self, dossier_id: str, format_type: str = "json") -> Optional[bytes]:
+        """
+        Export a dossier in various formats.
+
+        Args:
+            dossier_id: The dossier to export
+            format_type: Export format ("json", "text", etc.)
+
+        Returns:
+            Bytes of exported content or None if failed
+        """
+        logger.info(f"📤 Exporting dossier {dossier_id} as {format_type}")
+
+        if format_type == "json":
+            return self._export_as_json(dossier_id)
+        elif format_type == "text":
+            return self._export_as_text(dossier_id)
+        else:
+            logger.error(f"❌ Unsupported export format: {format_type}")
+            return None
+
+    def get_transcription_preview(self, transcription_id: str, max_sections: int = 3) -> Optional[Dict[str, Any]]:
+        """
+        Get a preview of a transcription (first few sections).
+
+        Args:
+            transcription_id: The transcription to preview
+            max_sections: Maximum sections to include
+
+        Returns:
+            Dictionary with preview content or None if not found
+        """
+        logger.info(f"👀 Creating preview for transcription: {transcription_id}")
+
+        content = self._load_transcription_content(transcription_id)
+        if not content:
+            return None
+
+        sections = content.get('sections', [])[:max_sections]
+
+        preview = {
+            "transcription_id": transcription_id,
+            "document_id": content.get('documentId'),
+            "total_sections": len(content.get('sections', [])),
+            "preview_sections": sections,
+            "has_more_sections": len(content.get('sections', [])) > max_sections
+        }
+
+        logger.info(f"✅ Created preview with {len(sections)} sections")
+        return preview
+
+    def get_transcription_enhancement_info(self, transcription_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get enhancement information for a transcription.
+
+        Args:
+            transcription_id: The transcription ID
+
+        Returns:
+            Enhancement information or None if not found
+        """
+        logger.info(f"🔧 Getting enhancement info for transcription: {transcription_id}")
+
+        # Load transcription content
+        content = self._load_transcription_content(transcription_id)
+        if not content:
+            return None
+
+        # Look for provenance in the transcription entry metadata
+        # We need to check the association service to find the transcription entry
+        try:
+            from .association_service import TranscriptionAssociationService
+            association_service = TranscriptionAssociationService()
+
+            # This is a simplified approach - in a real implementation,
+            # we'd need to search through all dossiers or maintain an index
+            # For now, we'll return a placeholder structure
+
+            return {
+                "transcription_id": transcription_id,
+                "enhancement_info": {
+                    "settings_available": False,
+                    "message": "Enhancement info stored in transcription metadata"
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Error getting enhancement info: {e}")
+            return None
+
+    def _export_as_json(self, dossier_id: str) -> Optional[bytes]:
+        """Export dossier as JSON"""
+        stitched_view = self.get_stitched_view(dossier_id)
+        if not stitched_view:
+            return None
+
+        try:
+            json_str = json.dumps(stitched_view, indent=2, ensure_ascii=False)
+            return json_str.encode('utf-8')
+        except Exception as e:
+            logger.error(f"❌ JSON export failed: {e}")
+            return None
+
+    def _export_as_text(self, dossier_id: str) -> Optional[bytes]:
+        """Export dossier as plain text"""
+        stitched_view = self.get_stitched_view(dossier_id)
+        if not stitched_view:
+            return None
+
+        try:
+            text_parts = []
+            for section in stitched_view.get('stitched_sections', []):
+                header = section.get('header', '')
+                body = section.get('body', '')
+
+                if header:
+                    text_parts.append(f"[{header}]")
+                text_parts.append(body)
+                text_parts.append("")  # Empty line between sections
+
+            text_content = "\n".join(text_parts)
+            return text_content.encode('utf-8')
+        except Exception as e:
+            logger.error(f"❌ Text export failed: {e}")
+            return None
+
+    def _load_transcription_content(self, transcription_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Load transcription content from saved_drafts directory.
+
+        Args:
+            transcription_id: The transcription ID (e.g., "draft_1")
+
+        Returns:
+            Dictionary with transcription content or None if not found
+        """
+        transcription_file = Path("backend/saved_drafts") / f"{transcription_id}.json"
+
+        if not transcription_file.exists():
+            logger.warning(f"📂 Transcription file not found: {transcription_id}")
+            return None
+
+        try:
+            with open(transcription_file, 'r', encoding='utf-8') as f:
+                content = json.load(f)
+            return content
+        except Exception as e:
+            logger.error(f"❌ Error loading transcription {transcription_id}: {e}")
+            return None
