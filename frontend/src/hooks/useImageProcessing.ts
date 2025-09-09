@@ -23,6 +23,9 @@ export const useImageProcessing = () => {
     count: 1,
     consensusStrategy: 'highest_confidence'
   });
+  // DOSSIER SUPPORT
+  const [selectedDossierId, setSelectedDossierId] = useState<string | null>(null);
+  const [onProcessingComplete, setOnProcessingComplete] = useState<(() => void) | null>(null);
 
   // Dynamic redundancy defaults based on extraction mode
   const getRedundancyDefaults = (mode: string): RedundancySettings => {
@@ -51,26 +54,40 @@ export const useImageProcessing = () => {
 
   const handleProcess = async () => {
     if (stagedFiles.length === 0) return;
-    
+
     setIsProcessing(true);
-    
+
     try {
+      console.log(`🚀 useImageProcessing: selectedDossierId = ${selectedDossierId}`);
+      console.log(`🚀 useImageProcessing: selectedDossierId type = ${typeof selectedDossierId}`);
+      console.log(`🚀 useImageProcessing: selectedDossierId truthy = ${!!selectedDossierId}`);
+
+      const dossierIdToSend = selectedDossierId || undefined;
+      console.log(`🚀 useImageProcessing: dossierIdToSend = ${dossierIdToSend}`);
+
       const results = await processFilesAPI(
-        stagedFiles, 
-        selectedModel, 
-        extractionMode, 
-        enhancementSettings, 
-        redundancySettings
+        stagedFiles,
+        selectedModel,
+        extractionMode,
+        enhancementSettings,
+        redundancySettings,
+        dossierIdToSend
       );
-      
+
       setSessionResults(prev => [...results, ...prev]);
-      
+
       const firstSuccessful = results.find(r => r.status === 'completed') || results[0];
       if (firstSuccessful) {
         setSelectedResult(firstSuccessful);
       }
-      
+
       setStagedFiles([]);
+
+      // Notify dossier manager of new processing completion
+      if (onProcessingComplete) {
+        onProcessingComplete();
+      }
+
       return firstSuccessful;
     } catch (error) {
       console.error('Error processing files:', error);
@@ -133,6 +150,9 @@ export const useImageProcessing = () => {
     loadingModes,
     enhancementSettings,
     redundancySettings,
+    // DOSSIER SUPPORT
+    selectedDossierId,
+    onProcessingComplete,
     // Actions
     onDrop,
     removeStagedFile,
@@ -143,5 +163,8 @@ export const useImageProcessing = () => {
     setEnhancementSettings,
     setRedundancySettings,
     setSessionResults,
+    // DOSSIER ACTIONS
+    setSelectedDossierId,
+    setOnProcessingComplete,
   };
 }; 

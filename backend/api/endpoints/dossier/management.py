@@ -62,8 +62,10 @@ async def create_dossier(request: CreateDossierRequest):
         DossierResponse with new dossier ID
     """
     logger.info(f"📝 API: Creating dossier '{request.title}'")
+    logger.info(f"📝 API: Request data: title='{request.title}', description='{request.description}'")
 
     try:
+        logger.info(f"🔧 API: Calling service.create_dossier with title='{request.title}', description='{request.description}'")
         dossier_id = dossier_service.create_dossier(
             title=request.title,
             description=request.description
@@ -77,6 +79,8 @@ async def create_dossier(request: CreateDossierRequest):
 
     except Exception as e:
         logger.error(f"❌ API: Failed to create dossier: {e}")
+        logger.error(f"❌ API: Error type: {type(e).__name__}")
+        logger.error(f"❌ API: Request validation: title='{request.title}', description='{request.description}'")
         raise HTTPException(status_code=500, detail=f"Failed to create dossier: {str(e)}")
 
 
@@ -200,8 +204,10 @@ async def list_dossiers(limit: int = 50, offset: int = 0):
 
     try:
         dossiers = dossier_service.list_dossiers(limit=limit, offset=offset)
+        logger.info(f"🔍 Service returned {len(dossiers)} dossiers")
 
         dossier_dicts = [dossier.to_dict() for dossier in dossiers]
+        logger.info(f"📝 Converted {len(dossier_dicts)} dossiers to dict format")
 
         logger.info(f"✅ API: Listed {len(dossiers)} dossiers")
         return DossierListResponse(

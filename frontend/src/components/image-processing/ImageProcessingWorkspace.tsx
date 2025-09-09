@@ -379,6 +379,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 onShowEnhancementModal={() => setShowEnhancementModal(true)}
             redundancySettings={imageProcessing.redundancySettings}
             onRedundancySettingsChange={imageProcessing.setRedundancySettings}
+            // DOSSIER SUPPORT
+            selectedDossierId={imageProcessing.selectedDossierId}
+            onDossierChange={imageProcessing.setSelectedDossierId}
             />
         </Allotment.Pane>
         

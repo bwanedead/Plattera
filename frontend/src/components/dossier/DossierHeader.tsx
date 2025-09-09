@@ -1,0 +1,75 @@
+// ============================================================================
+// DOSSIER HEADER COMPONENT
+// ============================================================================
+// Displays dossier context, stats, and primary actions
+// ============================================================================
+
+import React from 'react';
+import { Dossier } from '../../types/dossier';
+
+interface DossierHeaderProps {
+  selectedDossier?: Dossier;
+  onCreateDossier: () => void;
+  onRefresh: () => void;
+  stats: {
+    totalDossiers: number;
+    totalSegments: number;
+    totalRuns: number;
+    totalDrafts: number;
+  };
+}
+
+export const DossierHeader: React.FC<DossierHeaderProps> = ({
+  selectedDossier,
+  onCreateDossier,
+  onRefresh,
+  stats
+}) => {
+  const handleCreateDossier = async () => {
+    try {
+      // Create a dossier with a generic name
+      await onCreateDossier({
+        title: `Dossier ${new Date().toLocaleDateString()}`,
+        description: "New dossier"
+      });
+    } catch (error) {
+      console.error('Failed to create dossier:', error);
+    }
+  };
+  return (
+    <div className="dossier-header">
+      {/* Left section - Title and current info */}
+      <div className="dossier-header-left">
+        <span className="dossier-header-title">📁 Dossier Manager</span>
+
+        {selectedDossier && (
+          <div className="dossier-current-info">
+            <span className="dossier-current-name">{selectedDossier.name}</span>
+            <span className="dossier-current-stats">
+              {(selectedDossier.segments?.length || 0)} segments
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Right section - Action buttons */}
+      <div className="dossier-header-right">
+        <button
+          className="dossier-action-btn primary"
+          onClick={handleCreateDossier}
+          title="Create new dossier"
+        >
+          ➕ New
+        </button>
+
+        <button
+          className="dossier-action-btn"
+          onClick={onRefresh}
+          title="Refresh dossiers"
+        >
+          🔄 Refresh
+        </button>
+      </div>
+    </div>
+  );
+};

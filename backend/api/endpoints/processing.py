@@ -139,6 +139,7 @@ async def process_content(
     logger.info(f"   🎨 Enhancement Settings: contrast={contrast}, sharpness={sharpness}, brightness={brightness}, color={color}")
     logger.info(f"   🔄 Redundancy: {redundancy}")
     logger.info(f"   🧠 Consensus Strategy: {consensus_strategy}")
+    logger.info(f"   📂 DOSSIER_ID RECEIVED: '{dossier_id}' (type: {type(dossier_id)}, truthy: {bool(dossier_id)})")
     
     # Parse enhancement settings with robust error handling
     try:
@@ -248,8 +249,33 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
         
         logger.info("✅ Processing completed successfully!")
 
-        # NEW: Associate with dossier if specified
+        # NEW: Associate with dossier - auto-create if none specified
         transcription_id = None
+        logger.info(f"🔍 Checking dossier association - dossier_id: {dossier_id}")
+
+        if not dossier_id:
+            # Auto-create a new dossier for this transcription
+            logger.info("📝 No dossier_id provided - auto-creating new dossier")
+            try:
+                from services.dossier.management_service import DossierManagementService
+                from datetime import datetime
+
+                management_service = DossierManagementService()
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+                dossier_name = f"Document - {timestamp}"
+
+                logger.info(f"📝 Calling create_dossier with title='{dossier_name}'")
+                dossier_id = management_service.create_dossier(
+                    title=dossier_name,
+                    description=f"Auto-created dossier for transcription processed at {timestamp}"
+                )
+                logger.info(f"📁 Auto-created dossier: {dossier_name} (ID: {dossier_id})")
+            except Exception as auto_error:
+                logger.error(f"❌ Failed to auto-create dossier: {auto_error}")
+                logger.error(f"❌ Error type: {type(auto_error).__name__}")
+                logger.error(f"❌ Error details: {str(auto_error)}")
+                # Continue processing without dossier association
+
         if dossier_id:
             try:
                 # Import utility functions

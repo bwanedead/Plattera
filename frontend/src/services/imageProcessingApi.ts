@@ -2,7 +2,7 @@ import { EnhancementSettings, ProcessingResult, RedundancySettings, AlignmentDra
 
 // --- API Calls for Image Processing Feature ---
 
-export const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings): Promise<ProcessingResult[]> => {
+export const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings, dossierId?: string): Promise<ProcessingResult[]> => {
   console.log(`Processing ${files.length} files with model: ${model} and mode: ${mode}`);
   
   const results: ProcessingResult[] = [];
@@ -28,6 +28,19 @@ export const processFilesAPI = async (files: File[], model: string, mode: string
       // Consensus strategy (only relevant when redundancy is enabled)
       if (redundancySettings.enabled) {
         formData.append('consensus_strategy', redundancySettings.consensusStrategy);
+      }
+
+      // Add dossier ID if provided
+      console.log(`📁 Dossier ID parameter received: ${dossierId}`);
+      console.log(`📁 Dossier ID type: ${typeof dossierId}`);
+      console.log(`📁 Dossier ID truthy check: ${!!dossierId}`);
+
+      if (dossierId) {
+        formData.append('dossier_id', dossierId);
+        console.log(`📁 Including dossier_id in FormData: ${dossierId}`);
+        console.log(`📁 FormData dossier_id value: ${formData.get('dossier_id')}`);
+      } else {
+        console.log('📁 No dossier_id provided - will auto-create');
       }
 
       const response = await fetch('http://localhost:8000/api/process', {

@@ -9,6 +9,8 @@ import { ConfidenceHeatmapViewer } from './ConfidenceHeatmapViewer';
 import { formatJsonPretty } from '../../utils/jsonFormatter';
 import { AlignmentResult, ConfidenceWord } from '../../types/imageProcessing';
 import { FinalDraftSelector } from './FinalDraftSelector';
+import { DossierManager } from '../dossier/DossierManager';
+import { DossierPath } from '../../types/dossier';
 
 // Define interfaces for props to ensure type safety
 interface ResultsViewerProps {
@@ -107,22 +109,21 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
           <Allotment.Pane minSize={200} maxSize={500}>
             <div className="results-history-panel visible">
               <div className="history-header">
-                <h4>Session Log</h4>
+                <h4>Dossier Manager</h4>
                 <button onClick={() => onToggleHistory(false)}>‹</button>
               </div>
-              <div className="history-list-items">
-                {sessionResults.map((res, i) => (
-                  <div
-                    key={i}
-                    className={`log-item ${
-                      selectedResult === res ? 'selected' : ''
-                    } ${res.status}`}
-                    onClick={() => onSelectResult(res)}
-                  >
-                    <span className={`log-item-status-dot ${res.status}`}></span>
-                    {res.input}
-                  </div>
-                ))}
+              <div className="dossier-manager-content">
+                {console.log('🎯 Rendering DossierManager in Session Log panel')}
+                <DossierManager
+                  onSelectionChange={(path: DossierPath) => {
+                    // Handle dossier selection changes
+                    console.log('📁 Dossier selection changed:', path);
+                  }}
+                  onProcessingComplete={() => {
+                    // Refresh dossiers when new processing completes
+                    console.log('🔄 Processing completed - refreshing dossiers');
+                  }}
+                />
               </div>
             </div>
           </Allotment.Pane>

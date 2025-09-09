@@ -34,6 +34,9 @@ interface ControlPanelProps {
   onShowEnhancementModal: () => void;
   redundancySettings: RedundancySettings;
   onRedundancySettingsChange: (settings: RedundancySettings) => void;
+  // DOSSIER SUPPORT
+  selectedDossierId?: string | null;
+  onDossierChange?: (dossierId: string | null) => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -55,6 +58,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onShowEnhancementModal,
   redundancySettings,
   onRedundancySettingsChange,
+  // DOSSIER SUPPORT
+  selectedDossierId,
+  onDossierChange,
 }) => {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -159,6 +165,24 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             ))
           )}
         </select>
+      </div>
+
+      {/* DOSSIER SELECTION */}
+      <div className="dossier-section">
+        <label>Dossier Association</label>
+        <select
+          value={selectedDossierId || "auto"}
+          onChange={(e) => onDossierChange?.(e.target.value === "auto" ? null : e.target.value)}
+          className="dossier-selector"
+        >
+          <option value="auto">📁 Auto-create new dossier</option>
+          {/* TODO: Add existing dossiers as options */}
+          <option value="existing1">📂 Existing Dossier 1</option>
+          <option value="existing2">📂 Existing Dossier 2</option>
+        </select>
+        <small className="dossier-hint">
+          Choose an existing dossier or auto-create a new one
+        </small>
       </div>
 
       <div className="enhancement-section">

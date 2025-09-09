@@ -41,7 +41,10 @@ class DossierManagementService:
         Returns:
             str: The dossier ID
         """
-        logger.info(f"📝 Creating new dossier: {title}")
+        logger.info(f"📝 MANAGEMENT SERVICE: Creating new dossier: '{title}'")
+        logger.info(f"📝 MANAGEMENT SERVICE: Description: '{description}'")
+        logger.info(f"📝 MANAGEMENT SERVICE: Storage dir: {self.storage_dir}")
+        logger.info(f"📝 MANAGEMENT SERVICE: Storage dir exists: {self.storage_dir.exists()}")
 
         dossier = Dossier(title=title, description=description)
         self._save_dossier(dossier)
@@ -146,14 +149,21 @@ class DossierManagementService:
             List of DossierSummary objects
         """
         logger.info("📋 Listing dossiers")
+        logger.info(f"🔍 Looking for dossiers in: {self.storage_dir}")
+        logger.info(f"🔍 Storage dir exists: {self.storage_dir.exists()}")
 
         dossiers = []
         try:
-            for file_path in self.storage_dir.glob("dossier_*.json"):
+            dossier_files = list(self.storage_dir.glob("dossier_*.json"))
+            logger.info(f"📁 Found {len(dossier_files)} dossier files: {[f.name for f in dossier_files]}")
+
+            for file_path in dossier_files:
                 try:
+                    logger.info(f"📖 Reading dossier file: {file_path}")
                     with open(file_path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                     dossier = Dossier.from_dict(data)
+                    logger.info(f"✅ Loaded dossier: {dossier.id} - {dossier.title}")
 
                     # Get transcription count (we'll need to query the association service)
                     # For now, return basic info
@@ -198,10 +208,17 @@ class DossierManagementService:
         """Internal method to save dossier to disk"""
         dossier_file = self.storage_dir / f"dossier_{dossier.id}.json"
 
+        logger.info(f"💾 MANAGEMENT SERVICE: Saving dossier to file: {dossier_file}")
+        logger.info(f"💾 MANAGEMENT SERVICE: File exists before save: {dossier_file.exists()}")
+        logger.info(f"💾 MANAGEMENT SERVICE: Dossier data: {dossier.to_dict()}")
+
         try:
             with open(dossier_file, 'w', encoding='utf-8') as f:
                 json.dump(dossier.to_dict(), f, indent=2, ensure_ascii=False)
-            logger.debug(f"💾 Saved dossier: {dossier.id}")
+            logger.info(f"💾 MANAGEMENT SERVICE: Successfully saved dossier file: {dossier_file}")
+            logger.info(f"💾 MANAGEMENT SERVICE: File exists after save: {dossier_file.exists()}")
+            logger.info(f"💾 MANAGEMENT SERVICE: File size: {dossier_file.stat().st_size} bytes")
         except Exception as e:
             logger.error(f"❌ Error saving dossier {dossier.id}: {e}")
+            logger.error(f"❌ Error details: {type(e).__name__}: {str(e)}")
             raise

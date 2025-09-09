@@ -14,6 +14,7 @@
 @import './components/loaders.css';
 @import './components/shared.css';
 @import './components/results-modular.css';  /* 🆕 MODULAR RESULTS - Clean architecture */
+@import './components/dossier.css';          /* 🆕 DOSSIER MANAGER - Elite architecture */
 @import './components/forms.css';
 @import './components/alignment.css';
 @import './components/suggestion-popup.css';
