@@ -54,7 +54,7 @@ class DossierManagementService:
 
     def get_dossier(self, dossier_id: str) -> Optional[Dossier]:
         """
-        Retrieve a dossier by ID.
+        Retrieve a dossier by ID with populated segments/runs/drafts.
 
         Args:
             dossier_id: The dossier identifier
@@ -72,11 +72,76 @@ class DossierManagementService:
             with open(dossier_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             dossier = Dossier.from_dict(data)
-            logger.info(f"📖 Retrieved dossier: {dossier_id}")
+
+            # Populate segments, runs, and drafts from associations
+            self._populate_dossier_hierarchy(dossier)
+
+            logger.info(f"📖 Retrieved dossier: {dossier_id} with {len(dossier.segments)} segments")
             return dossier
         except Exception as e:
             logger.error(f"❌ Error reading dossier {dossier_id}: {e}")
             return None
+
+    def _populate_dossier_hierarchy(self, dossier: Dossier) -> None:
+        """
+        Populate the dossier's segments, runs, and drafts from transcription associations.
+
+        Args:
+            dossier: The dossier to populate
+        """
+        from .association_service import TranscriptionAssociationService
+        from .models import Segment, Run, Draft
+
+        association_service = TranscriptionAssociationService()
+        transcriptions = association_service.get_dossier_transcriptions(dossier.id)
+
+        if not transcriptions:
+            logger.debug(f"📄 No transcriptions found for dossier {dossier.id}")
+            return
+
+        # Group transcriptions by segment (for now, each transcription = one segment)
+        segment_counter = 0
+        for transcription in transcriptions:
+            # Create segment
+            segment_id = f"segment_{segment_counter}"
+            segment = Segment(
+                segment_id=segment_id,
+                name=f"Segment {segment_counter + 1}",
+                description=f"Auto-generated segment for transcription {transcription.transcription_id}",
+                position=segment_counter
+            )
+
+            # Create run
+            run_id = f"run_{segment_counter}"
+            run = Run(
+                run_id=run_id,
+                transcription_id=transcription.transcription_id,
+                position=0
+            )
+            # Add metadata for frontend compatibility
+            run.metadata = {
+                'createdAt': transcription.added_at.isoformat(),
+                'totalSizeBytes': 0,  # TODO: Calculate from drafts
+                'lastActivity': transcription.added_at.isoformat()
+            }
+
+            # Create draft
+            draft_id = f"draft_{segment_counter}"
+            draft = Draft(
+                draft_id=draft_id,
+                transcription_id=transcription.transcription_id,
+                position=0,
+                is_best=True  # For now, mark first draft as best
+            )
+
+            # Build hierarchy
+            run.drafts.append(draft)
+            segment.runs.append(run)
+            dossier.segments.append(segment)
+
+            segment_counter += 1
+
+        logger.debug(f"🏗️ Populated dossier {dossier.id} with {len(dossier.segments)} segments")
 
     def update_dossier(self, dossier_id: str, updates: Dict[str, Any]) -> bool:
         """
@@ -137,16 +202,16 @@ class DossierManagementService:
             logger.error(f"❌ Error deleting dossier {dossier_id}: {e}")
             return False
 
-    def list_dossiers(self, limit: int = 50, offset: int = 0) -> List[DossierSummary]:
+    def list_dossiers(self, limit: int = 50, offset: int = 0) -> List[Dossier]:
         """
-        List all dossiers with summary information.
+        List all dossiers with populated hierarchy.
 
         Args:
             limit: Maximum number of dossiers to return
             offset: Number of dossiers to skip
 
         Returns:
-            List of DossierSummary objects
+            List of full Dossier objects with populated segments/runs/drafts
         """
         logger.info("📋 Listing dossiers")
         logger.info(f"🔍 Looking for dossiers in: {self.storage_dir}")
@@ -163,18 +228,12 @@ class DossierManagementService:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                     dossier = Dossier.from_dict(data)
-                    logger.info(f"✅ Loaded dossier: {dossier.id} - {dossier.title}")
 
-                    # Get transcription count (we'll need to query the association service)
-                    # For now, return basic info
-                    summary = DossierSummary(
-                        dossier_id=dossier.id,
-                        title=dossier.title,
-                        transcription_count=0,  # TODO: Get from association service
-                        created_at=dossier.created_at,
-                        updated_at=dossier.updated_at
-                    )
-                    dossiers.append(summary)
+                    # Populate segments, runs, and drafts from associations
+                    self._populate_dossier_hierarchy(dossier)
+
+                    logger.info(f"✅ Loaded dossier: {dossier.id} - {dossier.title} with {len(dossier.segments)} segments")
+                    dossiers.append(dossier)
 
                 except Exception as e:
                     logger.warning(f"⚠️ Error reading dossier file {file_path}: {e}")

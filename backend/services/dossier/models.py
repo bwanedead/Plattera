@@ -21,6 +21,9 @@ class Dossier:
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
 
+        # Hierarchical structure for frontend
+        self.segments = []  # Will be populated when dossier is loaded
+
         # Future consensus integration hook
         self.active_text_source = None  # Will store consensus method when implemented
         # Format: {"type": "alignment"|"llm"|"individual", "id": "consensus_123"|"transcription_456"}
@@ -33,7 +36,8 @@ class Dossier:
             "description": self.description,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
-            "active_text_source": self.active_text_source
+            "active_text_source": self.active_text_source,
+            "segments": [segment.to_dict() for segment in self.segments]
         }
 
     @classmethod
@@ -47,6 +51,9 @@ class Dossier:
         dossier.created_at = datetime.fromisoformat(data["created_at"])
         dossier.updated_at = datetime.fromisoformat(data["updated_at"])
         dossier.active_text_source = data.get("active_text_source")
+
+        # Load segments if present (will be populated by management service)
+        dossier.segments = []
         return dossier
 
     def set_active_text_source(self, source_type: str, source_id: str) -> None:
@@ -70,32 +77,91 @@ class Dossier:
 
 class Segment:
     """Represents a logical segment of a document (page, section, etc.)"""
-    # Placeholder for future segment abstraction
-    # Currently maps 1:1 with transcriptions but allows for reruns of same segment
 
-    def __init__(self, segment_id: str, description: str = None, metadata: Dict[str, Any] = None):
-        self.segment_id = segment_id
+    def __init__(self, segment_id: str, name: str = None, description: str = None, position: int = 0):
+        self.id = segment_id
+        self.name = name or f"Segment {position + 1}"
         self.description = description or ""
-        self.created_at = datetime.now()
-        self.metadata = metadata or {}
+        self.position = position
+        self.runs = []  # Will be populated with Run objects
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "segment_id": self.segment_id,
+            "id": self.id,
+            "name": self.name,
             "description": self.description,
-            "created_at": self.created_at.isoformat(),
-            "metadata": self.metadata
+            "position": self.position,
+            "runs": [run.to_dict() for run in self.runs]
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Segment':
         segment = cls(
-            segment_id=data["segment_id"],
+            segment_id=data["id"],
+            name=data.get("name", ""),
             description=data.get("description", ""),
-            metadata=data.get("metadata", {})
+            position=data.get("position", 0)
         )
-        segment.created_at = datetime.fromisoformat(data["created_at"])
+        segment.runs = []
         return segment
+
+
+class Run:
+    """Represents a processing run (OCR attempt)"""
+
+    def __init__(self, run_id: str, transcription_id: str, position: int = 0):
+        self.id = run_id
+        self.position = position
+        self.transcription_id = transcription_id
+        self.drafts = []  # Will be populated with Draft objects
+        self.metadata = {}  # Will be populated with run metadata
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "position": self.position,
+            "transcription_id": self.transcription_id,
+            "metadata": self.metadata,
+            "drafts": [draft.to_dict() for draft in self.drafts]
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Run':
+        run = cls(
+            run_id=data["id"],
+            transcription_id=data.get("transcription_id", ""),
+            position=data.get("position", 0)
+        )
+        run.metadata = data.get("metadata", {})
+        run.drafts = []
+        return run
+
+
+class Draft:
+    """Represents a transcription draft"""
+
+    def __init__(self, draft_id: str, transcription_id: str, position: int = 0, is_best: bool = False):
+        self.id = draft_id
+        self.position = position
+        self.transcription_id = transcription_id
+        self.is_best = is_best
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "position": self.position,
+            "transcription_id": self.transcription_id,
+            "is_best": self.is_best
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Draft':
+        return cls(
+            draft_id=data["id"],
+            transcription_id=data.get("transcription_id", ""),
+            position=data.get("position", 0),
+            is_best=data.get("is_best", False)
+        )
 
 
 class TranscriptionEntry:

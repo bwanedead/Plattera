@@ -90,17 +90,18 @@ export const DossierItem: React.FC<DossierItemProps> = ({
 
   const handleEditSubmit = useCallback(() => {
     const trimmedValue = editValue.trim();
-    if (trimmedValue && trimmedValue !== dossier.name) {
+    const currentName = dossier.title || dossier.name;
+    if (trimmedValue && trimmedValue !== currentName) {
       onAction('rename', { newName: trimmedValue });
     }
     setIsEditing(false);
-    setEditValue(dossier.name);
-  }, [editValue, dossier.name, onAction]);
+    setEditValue(currentName);
+  }, [editValue, dossier.title, dossier.name, onAction]);
 
   const handleEditCancel = useCallback(() => {
     setIsEditing(false);
-    setEditValue(dossier.name);
-  }, [dossier.name]);
+    setEditValue(dossier.title || dossier.name);
+  }, [dossier.title, dossier.name]);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key === 'Enter') {
@@ -168,7 +169,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
             />
           ) : (
             <span className="dossier-name">
-              {dossier.name}
+              {dossier.title || dossier.name}
             </span>
           )}
         </div>

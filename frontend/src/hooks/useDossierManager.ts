@@ -239,18 +239,11 @@ export function useDossierManager() {
     const tempId = `temp-${Date.now()}`;
     const tempDossier: Dossier = {
       id: tempId,
-      name: data.title,
+      title: data.title,
       description: data.description,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      segments: [],
-      metadata: {
-        totalSegments: 0,
-        totalRuns: 0,
-        totalDrafts: 0,
-        totalSizeBytes: 0,
-        lastActivity: new Date()
-      }
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      segments: []
     };
 
     return executeOptimistically(
@@ -270,7 +263,7 @@ export function useDossierManager() {
     const currentDossier = state.dossiers.find(d => d.id === dossierId);
     if (!currentDossier) return;
 
-    const updatedDossier = { ...currentDossier, ...data, updatedAt: new Date() };
+    const updatedDossier = { ...currentDossier, ...data, updated_at: new Date().toISOString() };
 
     return executeOptimistically(
       { type: 'UPDATE_DOSSIER', payload: updatedDossier },
@@ -371,17 +364,14 @@ export function useDossierManager() {
   // ============================================================================
 
   const filteredDossiers = useMemo(() => {
-    console.log('🔍 Calculating filteredDossiers - state.dossiers:', state.dossiers);
-    console.log('🔍 Calculating filteredDossiers - state.dossiers type:', typeof state.dossiers);
     let filtered = state.dossiers || [];
-    console.log('🔍 filteredDossiers - initial filtered length:', filtered.length);
 
     // Apply search filter
     if (state.searchQuery) {
       const query = state.searchQuery.toLowerCase();
       filtered = filtered.filter(dossier =>
-        dossier.name.toLowerCase().includes(query) ||
-        dossier.description?.toLowerCase().includes(query)
+        (dossier.title || dossier.name || '').toLowerCase().includes(query) ||
+        (dossier.description || '').toLowerCase().includes(query)
       );
     }
 
@@ -389,19 +379,26 @@ export function useDossierManager() {
     filtered.sort((a, b) => {
       switch (state.sortBy) {
         case 'name':
-          return a.name.localeCompare(b.name);
+          // Backend sends 'title', frontend expects 'name'
+          return (a.title || a.name || '').localeCompare(b.title || b.name || '');
         case 'date':
-          return b.updatedAt.getTime() - a.updatedAt.getTime();
+          // Backend sends 'updated_at'
+          const aDateStr = a.updated_at;
+          const bDateStr = b.updated_at;
+          const aDate = aDateStr ? new Date(aDateStr).getTime() : 0;
+          const bDate = bDateStr ? new Date(bDateStr).getTime() : 0;
+          return bDate - aDate;
         case 'size':
-          return b.metadata.totalSizeBytes - a.metadata.totalSizeBytes;
+          // Backend doesn't send metadata yet, use fallback
+          return 0; // Equal for now
         case 'activity':
-          return b.metadata.lastActivity.getTime() - a.metadata.lastActivity.getTime();
+          // Backend doesn't send metadata yet, use fallback
+          return 0; // Equal for now
         default:
           return 0;
       }
     });
 
-    console.log('🔍 filteredDossiers - final result length:', filtered.length);
     return filtered;
   }, [state.dossiers, state.searchQuery, state.sortBy]);
 

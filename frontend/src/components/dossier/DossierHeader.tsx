@@ -44,7 +44,7 @@ export const DossierHeader: React.FC<DossierHeaderProps> = ({
 
         {selectedDossier && (
           <div className="dossier-current-info">
-            <span className="dossier-current-name">{selectedDossier.name}</span>
+            <span className="dossier-current-name">{selectedDossier.title || selectedDossier.name}</span>
             <span className="dossier-current-stats">
               {(selectedDossier.segments?.length || 0)} segments
             </span>

@@ -18,12 +18,14 @@ export interface DossierPath {
 
 export interface Dossier {
   id: string;
-  name: string;
+  name?: string; // Frontend format
+  title?: string; // Backend format
   description?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt?: Date; // Frontend format
+  created_at?: string; // Backend format
+  updated_at?: string; // Backend format
   segments: Segment[];
-  metadata: DossierMetadata;
+  metadata?: DossierMetadata; // Optional since backend doesn't send it yet
 }
 
 export interface Segment {

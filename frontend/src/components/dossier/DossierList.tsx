@@ -106,7 +106,7 @@ export const DossierList: React.FC<DossierListProps> = ({
             onAction={(action, data) => onItemAction(action, {
               ...data,
               targetId: dossier.id,
-              targetName: dossier.name,
+              targetName: dossier.title || dossier.name,
               targetType: 'dossier'
             })}
             onMultiSelect={() => {

@@ -122,7 +122,7 @@ export const RunItem: React.FC<RunItemProps> = ({
             Run {run.position}
           </div>
           <div className="run-details">
-            <span className="run-date">{formatDate(run.metadata.createdAt)}</span>
+            <span className="run-date">{formatDate(run.metadata?.createdAt || new Date())}</span>
             <span className="run-stats">
               {stats.drafts} drafts • {formatSize(stats.totalSize)}
             </span>
