@@ -29,19 +29,28 @@ def extract_transcription_id_from_result(result: dict) -> Optional[str]:
         str: Transcription ID (e.g., "draft_1") or None if not found
     """
     try:
+        logger.info(f"🔍 Extracting transcription ID from result: {type(result)}")
+        logger.info(f"🔍 Result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
+        
         # Look for transcription ID in metadata
         metadata = result.get("metadata", {})
+        logger.info(f"🔍 Result metadata: {metadata}")
 
         # Check if transcription_id is already in metadata
         if "transcription_id" in metadata:
-            return metadata["transcription_id"]
+            transcription_id = metadata["transcription_id"]
+            logger.info(f"✅ Found transcription_id in metadata: {transcription_id}")
+            return transcription_id
 
         # Try to extract from documentId if present
         extracted_text = result.get("extracted_text", "")
+        logger.info(f"🔍 Extracted text length: {len(extracted_text) if extracted_text else 0}")
+        
         if extracted_text and '"documentId"' in extracted_text:
             # Try to parse documentId from the JSON response
             try:
                 import json
+                logger.info("🔍 Attempting to parse documentId from extracted_text")
                 # This is a simplified extraction - in practice you'd want more robust parsing
                 if '"documentId":' in extracted_text:
                     # Extract documentId from JSON-like string
@@ -55,25 +64,36 @@ def extract_transcription_id_from_result(result: dict) -> Optional[str]:
                             doc_id = extracted_text[start:end].strip().strip('"')
                             if doc_id:
                                 # Convert documentId to transcription filename format
+                                logger.info(f"✅ Extracted documentId: {doc_id}")
                                 return f"draft_{doc_id}"
-            except Exception:
-                pass
+            except Exception as parse_error:
+                logger.warning(f"⚠️ Failed to parse documentId: {parse_error}")
 
         # Fallback: Look for most recent file in saved_drafts
         # This is a temporary solution until we can better track transcription IDs
         saved_drafts_dir = Path("backend/saved_drafts")
+        logger.info(f"🔍 Checking saved_drafts directory: {saved_drafts_dir}")
+        logger.info(f"🔍 Directory exists: {saved_drafts_dir.exists()}")
+        
         if saved_drafts_dir.exists():
             draft_files = list(saved_drafts_dir.glob("draft_*.json"))
+            logger.info(f"🔍 Found {len(draft_files)} draft files: {[f.name for f in draft_files]}")
+            
             if draft_files:
                 # Return the most recently modified file
                 most_recent = max(draft_files, key=lambda f: f.stat().st_mtime)
-                return most_recent.stem  # filename without extension
+                transcription_id = most_recent.stem  # filename without extension
+                logger.info(f"✅ Using most recent file: {transcription_id}")
+                return transcription_id
 
         logger.warning("⚠️ Could not determine transcription ID from result")
         return None
 
     except Exception as e:
         logger.error(f"❌ Error extracting transcription ID: {e}")
+        logger.error(f"❌ Exception type: {type(e).__name__}")
+        import traceback
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         return None
 
 

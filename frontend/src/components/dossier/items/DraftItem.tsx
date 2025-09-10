@@ -1,51 +1,67 @@
 // ============================================================================
 // DRAFT ITEM COMPONENT
 // ============================================================================
-// Displays individual draft versions with quality indicators
+// Displays individual transcription drafts
 // ============================================================================
 
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { Draft, DossierPath } from '../../../types/dossier';
 
 interface DraftItemProps {
   draft: Draft;
-  runId: string;
-  segmentId: string;
-  dossierId: string;
-  isSelected: boolean;
-  selectedPath: DossierPath;
-  onSelect: (path: DossierPath) => void;
-  onAction: (action: string, data?: any) => void;
+  run: { id: string; position: number; transcription_id?: string };
+  segment: { id: string; name: string };
+  dossier: { id: string; title?: string; name?: string };
+  onItemAction: (action: string, data: any) => void;
+  onItemSelect: (path: DossierPath) => void;
 }
 
 export const DraftItem: React.FC<DraftItemProps> = ({
   draft,
-  runId,
-  segmentId,
-  dossierId,
-  isSelected,
-  selectedPath,
-  onSelect,
-  onAction
+  run,
+  segment,
+  dossier,
+  onItemAction,
+  onItemSelect
 }) => {
-  // ============================================================================
-  // EARLY RETURN FOR INVALID DATA
-  // ============================================================================
-
+  // Early return for safety
   if (!draft) {
-    console.warn('🚨 DraftItem: No draft provided');
+    console.error('❌ DraftItem: draft is null/undefined');
     return null;
   }
 
-  // ============================================================================
-  // LOCAL STATE
-  // ============================================================================
+  // Handle missing ID defensively (backend/frontend field name mismatches)
+  if (!draft.id) {
+    console.error('❌ DraftItem: draft.id is missing!', draft);
+    return <div className="draft-item-error">Error: Draft missing ID</div>;
+  }
 
-  const [isHovered, setIsHovered] = useState(false);
+  // 🔍 DEBUG: Log the actual data structure we're receiving
+  console.log('🔍 DraftItem Debug - Received data:', {
+    draft: draft,
+    draftKeys: Object.keys(draft),
+    draftId: draft.id,
+    hasId: 'id' in draft,
+    transcriptionId: draft.transcriptionId,
+    hasTranscriptionId: 'transcriptionId' in draft,
+    transcription_id: (draft as any).transcription_id,
+    hasTranscription_id: 'transcription_id' in draft,
+    isBest: draft.isBest,
+    hasIsBest: 'isBest' in draft,
+    is_best: (draft as any).is_best,
+    hasIs_best: 'is_best' in draft,
+    metadata: draft.metadata
+  });
 
   // ============================================================================
   // COMPUTED VALUES
   // ============================================================================
+
+  const stats = {
+    size: draft.metadata?.sizeBytes || 0,
+    confidence: draft.metadata?.confidence || 0,
+    quality: draft.metadata?.quality || 'low'
+  };
 
   const formatSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes}B`;
@@ -53,31 +69,40 @@ export const DraftItem: React.FC<DraftItemProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
   };
 
-  const formatDate = (date: Date): string => {
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const getQualityIcon = (quality: string): string => {
-    switch (quality) {
-      case 'high': return '🟢';
-      case 'medium': return '🟡';
-      case 'low': return '🔴';
-      default: return '⚪';
+  const formatDate = (dateInput: Date | string): string => {
+    try {
+      // Handle both Date objects and ISO date strings from backend
+      const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+      
+      // Safety check for invalid dates
+      if (isNaN(date.getTime())) {
+        console.warn('Invalid date received:', dateInput);
+        return 'Unknown Date';
+      }
+      
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      console.warn('Error formatting date:', dateInput, error);
+      return 'Invalid Date';
     }
   };
 
-  const getQualityLabel = (quality: string): string => {
-    switch (quality) {
-      case 'high': return 'High';
-      case 'medium': return 'Medium';
-      case 'low': return 'Low';
-      default: return 'Unknown';
+  const formatQuality = (quality: string, confidence: number): string => {
+    // Use the quality string if available, otherwise derive from confidence
+    if (quality && quality !== 'low') {
+      return quality.charAt(0).toUpperCase() + quality.slice(1);
     }
+    
+    // Fallback to confidence-based quality
+    if (confidence >= 0.9) return 'Excellent';
+    if (confidence >= 0.7) return 'Good';
+    if (confidence >= 0.5) return 'Fair';
+    return 'Poor';
   };
 
   // ============================================================================
@@ -85,104 +110,57 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   // ============================================================================
 
   const handleClick = useCallback(() => {
-    onSelect({
-      dossierId,
-      segmentId,
-      runId,
+    const path: DossierPath = {
+      dossierId: dossier.id,
+      segmentId: segment.id,
+      runId: run.id,
       draftId: draft.id
+    };
+    onItemSelect(path);
+  }, [dossier.id, segment.id, run.id, draft.id, onItemSelect]);
+
+  const handleSetBest = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onItemAction('set_best_draft', {
+      dossier_id: dossier.id,
+      segment_id: segment.id,
+      run_id: run.id,
+      draft_id: draft.id
     });
-  }, [dossierId, segmentId, runId, draft.id, onSelect]);
+  }, [dossier.id, segment.id, run.id, draft.id, onItemAction]);
 
   // ============================================================================
   // RENDER
   // ============================================================================
 
   return (
-    <div className="draft-item-container">
-      {/* Main draft row */}
-      <div
-        className={`draft-item ${isSelected ? 'selected' : ''} ${draft.isBest ? 'best-draft' : ''}`}
-        onClick={handleClick}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-      >
-        {/* Draft icon with quality indicator */}
-        <div className="draft-icon">
-          {draft.isBest ? '⭐' : '📄'}
-        </div>
-
-        {/* Draft info */}
+    <div className={`draft-item ${draft.isBest ? 'best' : ''}`} onClick={handleClick}>
+      <div className="draft-header">
         <div className="draft-info">
           <div className="draft-name">
-            Draft {draft.position}
-            {draft.isBest && <span className="best-label">(Best)</span>}
+            Draft {draft.position + 1} {draft.isBest && '⭐'}
           </div>
           <div className="draft-details">
-            <span className="draft-quality">
-              {getQualityIcon(draft.metadata.quality)} {getQualityLabel(draft.metadata.quality)}
-            </span>
-            <span className="draft-confidence">
-              {Math.round(draft.metadata.confidence * 100)}% confidence
-            </span>
-            <span className="draft-size">
-              {formatSize(draft.metadata.sizeBytes)}
-            </span>
             <span className="draft-date">
-              {formatDate(draft.metadata.createdAt)}
+              {formatDate(draft.metadata?.createdAt || new Date().toISOString())}
             </span>
+             <span className="draft-stats">
+               {formatSize(stats.size)} • {formatQuality(stats.quality, stats.confidence)}
+             </span>
           </div>
         </div>
 
-        {/* Word count */}
-        <div className="draft-word-count">
-          {draft.metadata.wordCount} words
+        <div className="draft-actions">
+          {!draft.isBest && (
+            <button
+              className="draft-action-btn set-best"
+              onClick={handleSetBest}
+              title="Mark as best draft"
+            >
+              ⭐
+            </button>
+          )}
         </div>
-
-        {/* Action buttons (visible on hover) */}
-        {(isHovered || isSelected) && (
-          <div className="draft-actions">
-            <button
-              className="draft-action-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAction('view_draft');
-              }}
-              title="View draft"
-            >
-              👁️
-            </button>
-            <button
-              className="draft-action-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAction('edit_draft');
-              }}
-              title="Edit draft"
-            >
-              ✏️
-            </button>
-            <button
-              className="draft-action-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAction('duplicate_draft');
-              }}
-              title="Duplicate draft"
-            >
-              📋
-            </button>
-            <button
-              className="draft-action-btn danger"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAction('delete_draft');
-              }}
-              title="Delete draft"
-            >
-              🗑️
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

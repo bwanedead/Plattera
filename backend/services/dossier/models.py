@@ -120,7 +120,7 @@ class Run:
         return {
             "id": self.id,
             "position": self.position,
-            "transcription_id": self.transcription_id,
+            "transcriptionId": self.transcription_id,  # Frontend expects camelCase
             "metadata": self.metadata,
             "drafts": [draft.to_dict() for draft in self.drafts]
         }
@@ -129,7 +129,7 @@ class Run:
     def from_dict(cls, data: Dict[str, Any]) -> 'Run':
         run = cls(
             run_id=data["id"],
-            transcription_id=data.get("transcription_id", ""),
+            transcription_id=data.get("transcriptionId", data.get("transcription_id", "")),  # Handle both formats
             position=data.get("position", 0)
         )
         run.metadata = data.get("metadata", {})
@@ -145,23 +145,27 @@ class Draft:
         self.position = position
         self.transcription_id = transcription_id
         self.is_best = is_best
+        self.metadata = {}  # Initialize metadata for frontend compatibility
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
             "position": self.position,
-            "transcription_id": self.transcription_id,
-            "is_best": self.is_best
+            "transcriptionId": self.transcription_id,  # Frontend expects camelCase
+            "isBest": self.is_best,  # Frontend expects camelCase
+            "metadata": self.metadata  # Include metadata for frontend
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Draft':
-        return cls(
+        draft = cls(
             draft_id=data["id"],
-            transcription_id=data.get("transcription_id", ""),
+            transcription_id=data.get("transcriptionId", data.get("transcription_id", "")),  # Handle both formats
             position=data.get("position", 0),
-            is_best=data.get("is_best", False)
+            is_best=data.get("isBest", data.get("is_best", False))  # Handle both formats
         )
+        draft.metadata = data.get("metadata", {})  # Include metadata
+        return draft
 
 
 class TranscriptionEntry:
