@@ -26,6 +26,7 @@ export const useImageProcessing = () => {
   // DOSSIER SUPPORT
   const [selectedDossierId, setSelectedDossierId] = useState<string | null>(null);
   const [onProcessingComplete, setOnProcessingComplete] = useState<(() => void) | null>(null);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
 
   // Dynamic redundancy defaults based on extraction mode
   const getRedundancyDefaults = (mode: string): RedundancySettings => {
@@ -71,7 +72,8 @@ export const useImageProcessing = () => {
         extractionMode,
         enhancementSettings,
         redundancySettings,
-        dossierIdToSend
+        dossierIdToSend,
+        selectedSegmentId || undefined
       );
 
       setSessionResults(prev => [...results, ...prev]);
@@ -153,6 +155,7 @@ export const useImageProcessing = () => {
     // DOSSIER SUPPORT
     selectedDossierId,
     onProcessingComplete,
+    selectedSegmentId,
     // Actions
     onDrop,
     removeStagedFile,
@@ -166,5 +169,6 @@ export const useImageProcessing = () => {
     // DOSSIER ACTIONS
     setSelectedDossierId,
     setOnProcessingComplete,
+    setSelectedSegmentId,
   };
 }; 

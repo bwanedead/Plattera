@@ -1,5 +1,7 @@
 import React from 'react';
 import { useDropzone } from 'react-dropzone';
+import { dossierHighlightBus } from '../../services/dossier/dossierHighlightBus';
+import { DossierPicker } from '../dossier/DossierPicker';
 
 // Define interfaces for props to ensure type safety
 interface EnhancementSettings {
@@ -37,6 +39,9 @@ interface ControlPanelProps {
   // DOSSIER SUPPORT
   selectedDossierId?: string | null;
   onDossierChange?: (dossierId: string | null) => void;
+  dossiers?: { id: string; title?: string; name?: string; segments?: { id: string; name: string }[] }[];
+  selectedSegmentId?: string | null; // null => new segment
+  onSegmentChange?: (segmentId: string | null) => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -61,6 +66,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   // DOSSIER SUPPORT
   selectedDossierId,
   onDossierChange,
+  dossiers = [],
+  selectedSegmentId = null,
+  onSegmentChange,
 }) => {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -170,19 +178,31 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       {/* DOSSIER SELECTION */}
       <div className="dossier-section">
         <label>Dossier Association</label>
-        <select
-          value={selectedDossierId || "auto"}
-          onChange={(e) => onDossierChange?.(e.target.value === "auto" ? null : e.target.value)}
+        <DossierPicker
+          dossiers={dossiers}
+          value={selectedDossierId || null}
+          onChange={(id) => onDossierChange?.(id)}
           className="dossier-selector"
-        >
-          <option value="auto">📁 Auto-create new dossier</option>
-          {/* TODO: Add existing dossiers as options */}
-          <option value="existing1">📂 Existing Dossier 1</option>
-          <option value="existing2">📂 Existing Dossier 2</option>
-        </select>
+        />
         <small className="dossier-hint">
           Choose an existing dossier or auto-create a new one
         </small>
+        {selectedDossierId && (
+          <div className="segment-subsection" style={{ marginTop: '0.5rem' }}>
+            <label>Segment</label>
+            <select
+              value={selectedSegmentId || 'new'}
+              onChange={(e) => onSegmentChange?.(e.target.value === 'new' ? null : e.target.value)}
+              className="segment-selector"
+            >
+              <option value="new">Add as new segment</option>
+              {(dossiers.find(d => d.id === selectedDossierId)?.segments || []).map(s => (
+                <option key={s.id} value={s.id}>Add as run to: {s.name}</option>
+              ))}
+            </select>
+            <small className="dossier-hint">Default: new segment. Or pick an existing segment to add a new run.</small>
+          </div>
+        )}
       </div>
 
       <div className="enhancement-section">

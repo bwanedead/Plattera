@@ -330,6 +330,11 @@
   box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb), 0.2);
 }
 
+.dossier-item.hover-highlight {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb), 0.35);
+}
+
 .dossier-item.multi-selected {
   background: rgba(var(--warning-color-rgb, 255, 193, 7), 0.1);
   border-color: var(--warning-color, #ffc107);

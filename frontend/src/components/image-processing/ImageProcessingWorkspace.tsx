@@ -18,6 +18,7 @@ import { workspaceStateManager } from '../../services/workspaceStateManager';
 import { isJsonResult, formatJsonAsText } from '../../utils/jsonFormatter';
 import { getCurrentText, getRawText, getOriginalJsonText, getNormalizedSectionsText, hasNormalizedSections } from '../../utils/textSelectionUtils';
 import { FinalDraftSelector } from './FinalDraftSelector';
+import { useDossierManager } from '../../hooks/useDossierManager';
 
 
 interface ImageProcessingWorkspaceProps {
@@ -44,6 +45,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   // Custom hooks for state management
   const imageProcessing = useImageProcessing();
   const alignmentState = useAlignmentState();
+  const dossierState = useDossierManager();
   
   // Initialize draft selection with persisted state
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>(
@@ -382,6 +384,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             // DOSSIER SUPPORT
             selectedDossierId={imageProcessing.selectedDossierId}
             onDossierChange={imageProcessing.setSelectedDossierId}
+            dossiers={dossierState.state.dossiers}
+            selectedSegmentId={imageProcessing.selectedSegmentId}
+            onSegmentChange={imageProcessing.setSelectedSegmentId}
             />
         </Allotment.Pane>
         

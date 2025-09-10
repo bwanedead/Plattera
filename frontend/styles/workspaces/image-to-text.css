@@ -1171,20 +1171,56 @@ After redundancy styling implementation, verify:
 
 .dossier-selector {
   width: 100%;
-  padding: 0.75rem;
+  position: relative;
+  padding: 0;
+  border: none;
+}
+
+.dossier-picker-trigger {
+  width: 100%;
+  padding: 0.6rem 2rem 0.6rem 0.75rem;
   border: 1px solid var(--border-color);
   border-radius: 6px;
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 0.9rem;
+  text-align: left;
   cursor: pointer;
-  transition: border-color 0.2s ease;
+  transition: border-color 0.2s ease, background 0.15s ease;
 }
 
-.dossier-selector:focus {
+.dossier-picker-trigger:hover {
+  background: var(--bg-tertiary);
+}
+
+.dossier-picker-trigger:focus {
   outline: none;
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb), 0.1);
+}
+
+.dossier-selector::after {
+  content: '';
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0; 
+  height: 0; 
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--text-secondary);
+  pointer-events: none;
+}
+
+.dossier-picker-menu {
+  max-height: 260px;
+  overflow-y: auto;
+  border-radius: 6px;
+}
+
+.dossier-picker-item:hover {
+  background: var(--bg-tertiary);
 }
 
 .dossier-hint {

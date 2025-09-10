@@ -2,7 +2,7 @@ import { EnhancementSettings, ProcessingResult, RedundancySettings, AlignmentDra
 
 // --- API Calls for Image Processing Feature ---
 
-export const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings, dossierId?: string): Promise<ProcessingResult[]> => {
+export const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings, dossierId?: string, segmentId?: string): Promise<ProcessingResult[]> => {
   console.log(`Processing ${files.length} files with model: ${model} and mode: ${mode}`);
   
   const results: ProcessingResult[] = [];
@@ -41,6 +41,11 @@ export const processFilesAPI = async (files: File[], model: string, mode: string
         console.log(`📁 FormData dossier_id value: ${formData.get('dossier_id')}`);
       } else {
         console.log('📁 No dossier_id provided - will auto-create');
+      }
+
+      if (segmentId) {
+        formData.append('segment_id', segmentId);
+        console.log(`📁 Including segment_id in FormData: ${segmentId}`);
       }
 
       const response = await fetch('http://localhost:8000/api/process', {

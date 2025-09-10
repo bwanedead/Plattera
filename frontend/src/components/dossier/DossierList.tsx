@@ -6,6 +6,7 @@
 // ============================================================================
 
 import React, { useMemo } from 'react';
+import { dossierHighlightBus } from '../../services/dossier/dossierHighlightBus';
 import { Dossier, DossierPath } from '../../types/dossier';
 import { DossierItem } from './items/DossierItem';
 
@@ -90,6 +91,9 @@ export const DossierList: React.FC<DossierListProps> = ({
   // MAIN LIST RENDER
   // ============================================================================
 
+  const [hoverId, setHoverId] = React.useState<string | null>(null);
+  React.useEffect(() => dossierHighlightBus.subscribe(setHoverId), []);
+
   return (
     <div className="dossier-list">
       <div className="dossier-items-container">
@@ -117,6 +121,7 @@ export const DossierList: React.FC<DossierListProps> = ({
                 onSelectItem(dossier.id);
               }
             }}
+            classNameOverride={hoverId === dossier.id ? 'hover-highlight' : ''}
           />
         ))}
       </div>

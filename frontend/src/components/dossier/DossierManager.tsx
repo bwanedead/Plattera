@@ -6,6 +6,7 @@
 // ============================================================================
 
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { dossierHighlightBus } from '../../services/dossier/dossierHighlightBus';
 import { DossierManagerProps, DossierPath } from '../../types/dossier';
 import { useDossierManager, useDossierKeyboardNavigation } from '../../hooks/useDossierManager';
 import { DossierList } from './DossierList';
@@ -67,6 +68,13 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; type: string } | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
+  const [hoverHighlightId, setHoverHighlightId] = useState<string | null>(null);
+
+  // Subscribe to hover highlight bus
+  useEffect(() => {
+    const unsubscribe = dossierHighlightBus.subscribe(setHoverHighlightId);
+    return unsubscribe;
+  }, []);
 
   // ============================================================================
   // SELECTION HANDLING

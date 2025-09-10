@@ -20,6 +20,7 @@ interface DossierItemProps {
   onSelect: (path: DossierPath) => void;
   onAction: (action: string, data?: any) => void;
   onMultiSelect?: () => void;
+  classNameOverride?: string;
 }
 
 export const DossierItem: React.FC<DossierItemProps> = ({
@@ -32,7 +33,8 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   onToggleExpand,
   onSelect,
   onAction,
-  onMultiSelect
+  onMultiSelect,
+  classNameOverride
 }) => {
   // ============================================================================
   // EARLY RETURN FOR INVALID DATA
@@ -131,7 +133,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
     <div className="dossier-item-container">
       {/* Main dossier row */}
       <div
-        className={`dossier-item ${isSelected ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''}`}
+        className={`dossier-item ${isSelected ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${classNameOverride || ''}`}
         onClick={(e) => {
           // Clicking the header selects and toggles expand/collapse for responsiveness
           handleClick(e);
