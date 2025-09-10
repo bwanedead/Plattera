@@ -71,7 +71,8 @@ def extract_transcription_id_from_result(result: dict) -> Optional[str]:
 
         # Fallback: Look for most recent file in saved_drafts
         # This is a temporary solution until we can better track transcription IDs
-        saved_drafts_dir = Path("backend/saved_drafts")
+        BACKEND_DIR = Path(__file__).resolve().parents[3]
+        saved_drafts_dir = BACKEND_DIR / "saved_drafts"
         logger.info(f"🔍 Checking saved_drafts directory: {saved_drafts_dir}")
         logger.info(f"🔍 Directory exists: {saved_drafts_dir.exists()}")
         

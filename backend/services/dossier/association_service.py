@@ -25,7 +25,8 @@ class TranscriptionAssociationService:
     """
 
     def __init__(self):
-        self.storage_dir = Path("backend/dossiers/associations")
+        BACKEND_DIR = Path(__file__).resolve().parents[2]
+        self.storage_dir = BACKEND_DIR / "dossiers/associations"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         logger.info("🔗 Transcription Association Service initialized")
 

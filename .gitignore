@@ -243,3 +243,10 @@ tiles/
 # Note: Users download their own PLSS data as needed via the app
 # This prevents committing large binary geospatial files to the repo
 
+# ========================
+# Dossier Data (do not commit)
+# ========================
+backend/dossiers/
+
+# Legacy alignment test drafts (not part of dossier system)
+backend/saved_drafts/

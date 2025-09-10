@@ -26,7 +26,8 @@ class DossierManagementService:
     """
 
     def __init__(self):
-        self.storage_dir = Path("backend/dossiers/management")
+        BACKEND_DIR = Path(__file__).resolve().parents[2]
+        self.storage_dir = BACKEND_DIR / "dossiers/management"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         logger.info("📁 Dossier Management Service initialized")
 
@@ -125,17 +126,32 @@ class DossierManagementService:
                 'lastActivity': transcription.added_at.isoformat()
             }
 
-            # Create draft
-            draft_id = f"draft_{segment_counter}"
-            draft = Draft(
-                draft_id=draft_id,
-                transcription_id=transcription.transcription_id,
-                position=0,
-                is_best=True  # For now, mark first draft as best
-            )
+            # Determine how many drafts were produced for this run
+            processing_params = (transcription.metadata or {}).get('processing_params', {})
+            try:
+                redundancy_count = int(processing_params.get('redundancy_count') or 1)
+            except Exception:
+                redundancy_count = 1
+
+            # Build drafts list: Draft 1..N (first marked as best for now)
+            run.drafts = []
+            for i in range(max(1, redundancy_count)):
+                draft_id = f"{transcription.transcription_id}_v{i+1}"
+                draft = Draft(
+                    draft_id=draft_id,
+                    transcription_id=transcription.transcription_id,
+                    position=i,
+                    is_best=(i == 0)
+                )
+                # Minimal metadata placeholders; can be enriched later from provenance
+                draft.metadata = {
+                    'sizeBytes': 0,
+                    'quality': 'unknown',
+                    'confidence': 0
+                }
+                run.drafts.append(draft)
 
             # Build hierarchy
-            run.drafts.append(draft)
             segment.runs.append(run)
             dossier.segments.append(segment)
 

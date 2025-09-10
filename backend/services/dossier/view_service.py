@@ -308,7 +308,8 @@ class DossierViewService:
         Returns:
             Dictionary with transcription content or None if not found
         """
-        transcription_file = Path("backend/saved_drafts") / f"{transcription_id}.json"
+        BACKEND_DIR = Path(__file__).resolve().parents[2]
+        transcription_file = (BACKEND_DIR / "saved_drafts") / f"{transcription_id}.json"
 
         if not transcription_file.exists():
             logger.warning(f"📂 Transcription file not found: {transcription_id}")
