@@ -127,7 +127,7 @@ export const RunItem: React.FC<RunItemProps> = ({
   return (
     <div className={`run-item ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}>
       {/* Header */}
-      <div className="run-header" onClick={handleClick} role="button" tabIndex={0}>
+      <div className="run-header" onClick={(e) => { handleClick(); if (typeof onToggleExpand === 'function') { onToggleExpand(run.id); } }} role="button" tabIndex={0}>
         <div className="run-expand-section">
           <button
             className={`run-expand-button ${isExpanded ? 'expanded' : ''}`}
@@ -151,7 +151,7 @@ export const RunItem: React.FC<RunItemProps> = ({
               {stats.drafts} drafts • {formatSize(stats.totalSize)}
             </span>
             {bestDraft && (
-              <span className="run-best-indicator">⭐ Best</span>
+              <span className="run-best-indicator">Best</span>
             )}
           </div>
         </div>

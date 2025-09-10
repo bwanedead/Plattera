@@ -138,7 +138,7 @@ export const DraftItem: React.FC<DraftItemProps> = ({
       <div className="draft-header">
         <div className="draft-info">
           <div className="draft-name">
-            Draft {draft.position + 1} {draft.isBest && '⭐'}
+            Draft {draft.position + 1} {draft.isBest && '(Best)'}
           </div>
           <div className="draft-details">
             <span className="draft-date">
@@ -157,7 +157,7 @@ export const DraftItem: React.FC<DraftItemProps> = ({
               onClick={handleSetBest}
               title="Mark as best draft"
             >
-              ⭐
+              Set Best
             </button>
           )}
         </div>

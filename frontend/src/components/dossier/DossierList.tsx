@@ -101,7 +101,8 @@ export const DossierList: React.FC<DossierListProps> = ({
             isSelected={selectedPath.dossierId === dossier.id}
             selectedPath={selectedPath}
             isMultiSelected={selectedItems.has(dossier.id)}
-            onToggle={() => onToggleExpand(dossier.id)}
+            expandedItems={expandedItems}
+            onToggleExpand={onToggleExpand}
             onSelect={(path) => onSelectionChange(path)}
             onAction={(action, data) => onItemAction(action, {
               ...data,

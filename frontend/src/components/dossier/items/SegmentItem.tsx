@@ -14,7 +14,8 @@ interface SegmentItemProps {
   isExpanded: boolean;
   isSelected: boolean;
   selectedPath: DossierPath;
-  onToggle: () => void;
+  expandedItems: Set<string>;
+  onToggleExpand: (id: string) => void;
   onSelect: (path: DossierPath) => void;
   onAction: (action: string, data?: any) => void;
 }
@@ -25,7 +26,8 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
   isExpanded,
   isSelected,
   selectedPath,
-  onToggle,
+  expandedItems,
+  onToggleExpand,
   onSelect,
   onAction
 }) => {
@@ -109,7 +111,11 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
       {/* Main segment row */}
       <div
         className={`segment-item ${isSelected ? 'selected' : ''}`}
-        onClick={handleClick}
+        onClick={(e) => {
+          // Make the whole header responsive: select and toggle
+          handleClick();
+          onToggleExpand(segment.id);
+        }}
         onDoubleClick={handleDoubleClick}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
@@ -120,7 +126,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
             className="segment-expand-btn"
             onClick={(e) => {
               e.stopPropagation();
-              onToggle();
+              onToggleExpand(segment.id);
             }}
             aria-label={isExpanded ? 'Collapse segment' : 'Expand segment'}
           >
@@ -128,10 +134,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
           </button>
         </div>
 
-        {/* Segment icon */}
-        <div className="segment-icon">
-          📝
-        </div>
+        {/* Segment icon removed for minimal aesthetic */}
 
         {/* Segment name (editable) */}
         <div className="segment-name-section">
@@ -171,7 +174,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
               }}
               title="Add run"
             >
-              ➕
+              Add
             </button>
             <button
               className="segment-action-btn danger"
@@ -181,7 +184,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
               }}
               title="Delete segment"
             >
-              🗑️
+              Delete
             </button>
           </div>
         )}
@@ -194,7 +197,6 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
           <div className="segment-runs">
             {(segment.runs?.length || 0) === 0 ? (
               <div className="no-runs">
-                <span className="no-runs-icon">▶️</span>
                 <span className="no-runs-text">No runs yet</span>
                 <button
                   className="add-first-run-btn"
@@ -208,14 +210,13 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
                 <RunItem
                   key={run.id}
                   run={run}
-                  segmentId={segment.id}
-                  dossierId={dossierId}
-                  isExpanded={selectedPath.runId === run.id}
+                  segment={{ id: segment.id, name: segment.name }}
+                  dossier={{ id: dossierId }}
+                  isExpanded={expandedItems.has(run.id)}
                   isSelected={selectedPath.runId === run.id}
-                  selectedPath={selectedPath}
-                  onToggle={() => onAction('toggle_run', { runId: run.id })}
-                  onSelect={(path) => onSelect(path)}
-                  onAction={(action, data) => onAction(action, {
+                  onToggleExpand={(id) => onToggleExpand(id)}
+                  onItemSelect={(path) => onSelect(path)}
+                  onItemAction={(action, data) => onAction(action, {
                     ...data,
                     runId: run.id
                   })}

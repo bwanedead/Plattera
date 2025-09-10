@@ -15,7 +15,8 @@ interface DossierItemProps {
   isSelected: boolean;
   selectedPath: DossierPath;
   isMultiSelected?: boolean;
-  onToggle: () => void;
+  expandedItems: Set<string>;
+  onToggleExpand: (id: string) => void;
   onSelect: (path: DossierPath) => void;
   onAction: (action: string, data?: any) => void;
   onMultiSelect?: () => void;
@@ -27,7 +28,8 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   isSelected,
   selectedPath,
   isMultiSelected = false,
-  onToggle,
+  expandedItems,
+  onToggleExpand,
   onSelect,
   onAction,
   onMultiSelect
@@ -130,7 +132,11 @@ export const DossierItem: React.FC<DossierItemProps> = ({
       {/* Main dossier row */}
       <div
         className={`dossier-item ${isSelected ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''}`}
-        onClick={handleClick}
+        onClick={(e) => {
+          // Clicking the header selects and toggles expand/collapse for responsiveness
+          handleClick(e);
+          onToggleExpand(dossier.id);
+        }}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
         onMouseEnter={() => setIsHovered(true)}
@@ -142,17 +148,14 @@ export const DossierItem: React.FC<DossierItemProps> = ({
           onClick={(e) => {
             console.log('🔘 Dossier expand button clicked for:', dossier.id);
             e.stopPropagation();
-            onToggle();
+            onToggleExpand(dossier.id);
           }}
           aria-label={isExpanded ? 'Collapse dossier' : 'Expand dossier'}
         >
           {isExpanded ? '▼' : '▶'}
         </button>
 
-        {/* Dossier icon */}
-        <div className="dossier-icon">
-          📁
-        </div>
+        {/* Dossier icon removed for minimal aesthetic */}
 
         {/* Dossier name (editable) */}
         <div className="dossier-name-section">
@@ -193,7 +196,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
               }}
               title="Add segment"
             >
-              ➕
+              Add
             </button>
             <button
               className="dossier-action-btn"
@@ -203,7 +206,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
               }}
               title="Duplicate dossier"
             >
-              📋
+              Duplicate
             </button>
             <button
               className="dossier-action-btn danger"
@@ -213,7 +216,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
               }}
               title="Delete dossier"
             >
-              🗑️
+              Delete
             </button>
           </div>
         )}
@@ -222,19 +225,10 @@ export const DossierItem: React.FC<DossierItemProps> = ({
       {/* Expanded content */}
       {isExpanded && (
         <div className="dossier-expanded-content">
-          {/* Dossier description */}
-          {dossier.description && (
-            <div className="dossier-description">
-              <span className="description-icon">📝</span>
-              <span className="description-text">{dossier.description}</span>
-            </div>
-          )}
-
           {/* Segments list */}
           <div className="dossier-segments">
             {(dossier.segments || []).length === 0 ? (
               <div className="no-segments">
-                <span className="no-segments-icon">📄</span>
                 <span className="no-segments-text">No segments yet</span>
                 <button
                   className="add-first-segment-btn"
@@ -249,10 +243,11 @@ export const DossierItem: React.FC<DossierItemProps> = ({
                   key={segment.id}
                   segment={segment}
                   dossierId={dossier.id}
-                  isExpanded={selectedPath.segmentId === segment.id}
+                  isExpanded={expandedItems.has(segment.id)}
                   isSelected={selectedPath.segmentId === segment.id}
                   selectedPath={selectedPath}
-                  onToggle={() => onAction('toggle_segment', { segmentId: segment.id })}
+                  expandedItems={expandedItems}
+                  onToggleExpand={onToggleExpand}
                   onSelect={(path) => onSelect(path)}
                   onAction={(action, data) => onAction(action, {
                     ...data,

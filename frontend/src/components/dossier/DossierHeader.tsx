@@ -40,7 +40,7 @@ export const DossierHeader: React.FC<DossierHeaderProps> = ({
     <div className="dossier-header">
       {/* Left section - Title and current info */}
       <div className="dossier-header-left">
-        <span className="dossier-header-title">📁 Dossier Manager</span>
+        <span className="dossier-header-title">Dossier Manager</span>
 
         {selectedDossier && (
           <div className="dossier-current-info">
@@ -59,7 +59,7 @@ export const DossierHeader: React.FC<DossierHeaderProps> = ({
           onClick={handleCreateDossier}
           title="Create new dossier"
         >
-          ➕ New
+          New
         </button>
 
         <button
@@ -67,7 +67,7 @@ export const DossierHeader: React.FC<DossierHeaderProps> = ({
           onClick={onRefresh}
           title="Refresh dossiers"
         >
-          🔄 Refresh
+          Refresh
         </button>
       </div>
     </div>

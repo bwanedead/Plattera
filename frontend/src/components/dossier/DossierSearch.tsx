@@ -66,14 +66,13 @@ export const DossierSearch: React.FC<DossierSearchProps> = ({
           placeholder="Search dossiers, segments, runs..."
           className="dossier-search-input"
         />
-        <div className="search-input-icon">🔍</div>
         {localQuery && (
           <button
             className="search-clear-btn"
             onClick={handleClearSearch}
             title="Clear search"
           >
-            ✕
+            Clear
           </button>
         )}
       </div>
@@ -91,16 +90,6 @@ export const DossierSearch: React.FC<DossierSearchProps> = ({
           <option value="size">Size</option>
           <option value="activity">Last Activity</option>
         </select>
-      </div>
-
-      {/* Advanced filters toggle */}
-      <div className="advanced-filters">
-        <button
-          className="advanced-filters-toggle"
-          onClick={() => {/* TODO: Implement advanced filters */}}
-        >
-          🔧 Filters
-        </button>
       </div>
     </div>
   );
