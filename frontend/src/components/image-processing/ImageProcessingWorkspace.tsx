@@ -46,6 +46,15 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const imageProcessing = useImageProcessing();
   const alignmentState = useAlignmentState();
   const dossierState = useDossierManager();
+
+  // Debug: Log when dossier state changes
+  React.useEffect(() => {
+    console.log('🏢 ImageProcessingWorkspace: dossierState updated:', dossierState.state.dossiers);
+    if (imageProcessing.selectedDossierId) {
+      const selectedDossier = dossierState.state.dossiers.find(d => d.id === imageProcessing.selectedDossierId);
+      console.log('🏢 ImageProcessingWorkspace: selected dossier:', selectedDossier);
+    }
+  }, [dossierState.state.dossiers, imageProcessing.selectedDossierId]);
   
   // Initialize draft selection with persisted state
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>(

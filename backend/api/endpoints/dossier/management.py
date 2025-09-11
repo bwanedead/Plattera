@@ -75,15 +75,16 @@ async def create_dossier(request: CreateDossierRequest):
 
     try:
         logger.info(f"🔧 API: Calling service.create_dossier with title='{request.title}', description='{request.description}'")
-        dossier_id = dossier_service.create_dossier(
+        created_dossier = dossier_service.create_dossier(
             title=request.title,
             description=request.description
         )
 
-        logger.info(f"✅ API: Created dossier {dossier_id}")
+        logger.info(f"✅ API: Created dossier {created_dossier.id}")
         return DossierResponse(
             success=True,
-            dossier_id=dossier_id
+            dossier_id=created_dossier.id,
+            dossier=created_dossier.to_dict()
         )
 
     except Exception as e:
@@ -121,6 +122,21 @@ async def update_segment(segment_id: str, request: UpdateSegmentRequest):
     except Exception as e:
         logger.error(f"❌ API: Failed to update segment {segment_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to update segment: {str(e)}")
+
+
+@router.delete("/segments/{segment_id}", response_model=DossierResponse)
+async def delete_segment(segment_id: str):
+    """Delete a segment by id."""
+    try:
+        ok = dossier_service.delete_segment_by_id(segment_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"Segment not found: {segment_id}")
+        return DossierResponse(success=True, data={"id": segment_id})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ API: Failed to delete segment {segment_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete segment: {str(e)}")
 
 
 @router.get("/{dossier_id}/details", response_model=DossierResponse)

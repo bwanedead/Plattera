@@ -137,6 +137,7 @@ export type DossierAction =
   | { type: 'ADD_DOSSIER'; payload: Dossier }
   | { type: 'UPDATE_DOSSIER'; payload: Dossier }
   | { type: 'DELETE_DOSSIER'; payload: string }
+  | { type: 'REMOVE_DOSSIER'; payload: string }
   | { type: 'SET_SEARCH'; payload: string }
   | { type: 'SET_SORT'; payload: SortOption }
   | { type: 'SELECT_ITEM'; payload: string }

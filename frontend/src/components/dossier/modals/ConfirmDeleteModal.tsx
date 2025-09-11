@@ -23,15 +23,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
   // LOCAL STATE
   // ============================================================================
 
-  const [confirmText, setConfirmText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
-
-  // ============================================================================
-  // COMPUTED VALUES
-  // ============================================================================
-
-  const requiredConfirmText = `delete ${itemName}`;
-  const canConfirm = confirmText === requiredConfirmText && !isDeleting;
 
   const getWarningMessage = () => {
     switch (itemType) {
@@ -63,8 +55,6 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
   // ============================================================================
 
   const handleConfirm = async () => {
-    if (!canConfirm) return;
-
     setIsDeleting(true);
     try {
       await onConfirm();
@@ -75,7 +65,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && canConfirm) {
+    if (e.key === 'Enter') {
       handleConfirm();
     } else if (e.key === 'Escape') {
       onCancel();
@@ -107,48 +97,19 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
 
         {/* Modal body */}
         <div className="modal-body" onKeyDown={handleKeyDown}>
-          {/* Warning message */}
-          <div className="delete-warning">
-            <div className="warning-header">
-              <span className="warning-icon">⚠️</span>
-              <span className="warning-title">This action cannot be undone</span>
-            </div>
-            <p className="warning-message">
-              {getWarningMessage()}
-            </p>
-          </div>
-
-          {/* Item details */}
-          <div className="delete-item-details">
-            <div className="item-to-delete">
-              <span className="item-icon">{getItemIcon()}</span>
-              <span className="item-name">{itemName}</span>
-              <span className="item-type">({itemType})</span>
-            </div>
-          </div>
-
-          {/* Confirmation input */}
-          <div className="confirmation-section">
-            <label className="confirmation-label">
-              Type <strong>"{requiredConfirmText}"</strong> to confirm:
-            </label>
-            <input
-              type="text"
-              value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
-              className="confirmation-input"
-              placeholder={requiredConfirmText}
-              autoFocus
-              disabled={isDeleting}
-            />
+          <div className="delete-confirmation">
+            <div className="delete-icon-large">{getItemIcon()}</div>
+            <h3>Delete {itemType}?</h3>
+            <p className="delete-item-name">{itemName}</p>
+            <p className="delete-warning-text">This action cannot be undone.</p>
           </div>
         </div>
 
         {/* Modal footer */}
-        <div className="modal-footer">
+        <div className="modal-footer-simple">
           <button
             type="button"
-            className="btn-secondary"
+            className="btn-secondary-simple"
             onClick={onCancel}
             disabled={isDeleting}
           >
@@ -157,11 +118,11 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
 
           <button
             type="button"
-            className={`btn-danger ${!canConfirm ? 'disabled' : ''}`}
+            className="btn-danger-simple"
             onClick={handleConfirm}
-            disabled={!canConfirm}
+            disabled={isDeleting}
           >
-            {isDeleting ? 'Deleting...' : `Delete ${itemType}`}
+            {isDeleting ? 'Deleting...' : 'Delete'}
           </button>
         </div>
       </div>

@@ -123,6 +123,15 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
         case 'add_run':
           // TODO: Implement add run functionality
           console.log('📝 Add run action triggered:', data);
+          // For now, just show a message that this feature is coming soon
+          alert('Add run functionality coming soon!');
+          break;
+
+        case 'delete_segment':
+          if (data?.segmentId) {
+            await dossierApi.deleteSegment(data.segmentId);
+            await loadDossiers();
+          }
           break;
 
         case 'delete':

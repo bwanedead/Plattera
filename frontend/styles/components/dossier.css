@@ -413,35 +413,6 @@
   color: var(--text-secondary);
 }
 
-.dossier-stats {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-
-.stat-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 0.1rem;
-}
-
-.stat-value {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--accent-primary);
-}
-
-.stat-label {
-  font-size: 0.65rem;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
 
 .dossier-actions {
   display: flex;
@@ -802,4 +773,89 @@
   .modal-footer {
     padding: 1rem;
   }
+}
+
+/* ============================================================================
+   SIMPLIFIED DELETE MODAL STYLES
+   ============================================================================ */
+
+.delete-confirmation {
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.delete-icon-large {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.delete-confirmation h3 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.delete-item-name {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: 0 0 1rem 0;
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.delete-warning-text {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.modal-footer-simple {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+
+.btn-secondary-simple,
+.btn-danger-simple {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 80px;
+}
+
+.btn-secondary-simple {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.btn-secondary-simple:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn-danger-simple {
+  background: #dc3545;
+  color: white;
+  border-color: #dc3545;
+}
+
+.btn-danger-simple:hover:not(:disabled) {
+  background: #c82333;
+  border-color: #bd2130;
+}
+
+.btn-secondary-simple:disabled,
+.btn-danger-simple:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

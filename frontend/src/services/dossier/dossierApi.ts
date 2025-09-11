@@ -72,7 +72,7 @@ class DossierApiClient {
   }
 
   async deleteDossier(dossierId: string): Promise<void> {
-    await this.request(`/dossier-management/${dossierId}`, {
+    await this.request(`/dossier-management/${dossierId}/delete`, {
       method: 'DELETE'
     });
   }

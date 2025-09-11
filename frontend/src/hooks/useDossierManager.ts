@@ -127,6 +127,12 @@ function dossierReducer(state: DossierManagerState, action: DossierAction): Doss
           : state.selectedPath
       };
 
+    case 'REMOVE_DOSSIER':
+      return {
+        ...state,
+        dossiers: state.dossiers.filter(d => d.id !== action.payload)
+      };
+
     case 'SET_SEARCH':
       return {
         ...state,
@@ -203,6 +209,15 @@ export function useDossierManager() {
         // Force a re-render by dispatching a fresh update with the result data
         if (result && typeof result === 'object' && result !== null && 'id' in result && 'title' in result) {
           dispatch({ type: 'UPDATE_DOSSIER', payload: result as unknown as Dossier });
+        }
+      } else if (optimisticAction.type === 'ADD_DOSSIER') {
+        console.log('🔄 executeOptimistically: Ensuring ADD_DOSSIER change is visible');
+        // Replace the temporary dossier with the real one from the API
+        if (result && typeof result === 'object' && result !== null && 'id' in result && 'title' in result) {
+          const realDossier = result as unknown as Dossier;
+          // Remove the temporary dossier and add the real one
+          dispatch({ type: 'REMOVE_DOSSIER', payload: optimisticAction.payload.id });
+          dispatch({ type: 'ADD_DOSSIER', payload: realDossier });
         }
       }
 

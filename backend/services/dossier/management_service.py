@@ -32,7 +32,7 @@ class DossierManagementService:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         logger.info("📁 Dossier Management Service initialized")
 
-    def create_dossier(self, title: str, description: str = None) -> str:
+    def create_dossier(self, title: str, description: str = None) -> Dossier:
         """
         Create a new dossier.
 
@@ -41,7 +41,7 @@ class DossierManagementService:
             description: Optional description
 
         Returns:
-            str: The dossier ID
+            Dossier: The created dossier object
         """
         logger.info(f"📝 MANAGEMENT SERVICE: Creating new dossier: '{title}'")
         logger.info(f"📝 MANAGEMENT SERVICE: Description: '{description}'")
@@ -52,7 +52,7 @@ class DossierManagementService:
         self._save_dossier(dossier)
 
         logger.info(f"✅ Created dossier: {dossier.id}")
-        return dossier.id
+        return dossier
 
     def get_dossier(self, dossier_id: str) -> Optional[Dossier]:
         """
@@ -226,6 +226,46 @@ class DossierManagementService:
             return False
         except Exception as e:
             logger.error(f"❌ Failed to update segment {segment_id}: {e}")
+            return False
+
+    def delete_segment_by_id(self, segment_id: str) -> bool:
+        """Delete a segment by scanning dossiers for the segment id."""
+        try:
+            dossier_files = list(self.storage_dir.glob("dossier_*.json"))
+            for file_path in dossier_files:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                # Check manual segments first
+                manual_segments = data.get('manual_segments', [])
+                deleted = False
+
+                # Remove from manual segments
+                original_length = len(manual_segments)
+                manual_segments = [seg for seg in manual_segments if seg.get('id') != segment_id]
+                if len(manual_segments) < original_length:
+                    data['manual_segments'] = manual_segments
+                    deleted = True
+
+                # If not in manual segments, check if it's an auto segment and remove from overrides
+                if not deleted and segment_id.startswith('segment_auto_'):
+                    segment_name_overrides = data.get('segment_name_overrides', {})
+                    if segment_id in segment_name_overrides:
+                        del segment_name_overrides[segment_id]
+                        data['segment_name_overrides'] = segment_name_overrides
+                        deleted = True
+
+                if deleted:
+                    # Save file and return
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    logger.info(f"✅ Deleted segment {segment_id} from {file_path.name}")
+                    return True
+
+            logger.warning(f"⚠️ Segment id not found for deletion: {segment_id}")
+            return False
+        except Exception as e:
+            logger.error(f"❌ Failed to delete segment {segment_id}: {e}")
             return False
 
     def update_dossier(self, dossier_id: str, updates: Dict[str, Any]) -> Optional[Dossier]:

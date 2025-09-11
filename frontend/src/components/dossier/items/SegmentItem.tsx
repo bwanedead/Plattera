@@ -170,9 +170,9 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
               className="segment-action-btn"
               onClick={(e) => {
                 e.stopPropagation();
-                onAction('add_run');
+                onAction('add_segment', { targetId: dossierId });
               }}
-              title="Add run"
+              title="Add segment"
             >
               Add
             </button>
@@ -180,7 +180,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
               className="segment-action-btn danger"
               onClick={(e) => {
                 e.stopPropagation();
-                onAction('delete_segment');
+                onAction('delete_segment', { segmentId: segment.id, dossierId });
               }}
               title="Delete segment"
             >

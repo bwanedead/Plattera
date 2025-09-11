@@ -70,6 +70,15 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   selectedSegmentId = null,
   onSegmentChange,
 }) => {
+  // Debug: Log when dossiers change
+  React.useEffect(() => {
+    console.log('🎛️ ControlPanel: dossiers prop updated:', dossiers);
+    if (selectedDossierId) {
+      const selectedDossier = dossiers.find(d => d.id === selectedDossierId);
+      console.log('🎛️ ControlPanel: selected dossier:', selectedDossier);
+    }
+  }, [dossiers, selectedDossierId]);
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {

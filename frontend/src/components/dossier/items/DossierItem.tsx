@@ -63,24 +63,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   // COMPUTED VALUES
   // ============================================================================
 
-  const stats = dossier ? {
-    segments: dossier.segments?.length || 0,
-    runs: (dossier.segments || []).reduce((sum, segment) => sum + (segment.runs?.length || 0), 0),
-    drafts: (dossier.segments || []).reduce((sum, segment) =>
-      sum + (segment.runs || []).reduce((runSum, run) => runSum + (run.drafts?.length || 0), 0), 0),
-    totalSize: dossier.metadata?.totalSizeBytes || 0
-  } : {
-    segments: 0,
-    runs: 0,
-    drafts: 0,
-    totalSize: 0
-  };
 
-  const formatSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes}B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  };
 
   // ============================================================================
   // EVENT HANDLERS
@@ -190,36 +173,10 @@ export const DossierItem: React.FC<DossierItemProps> = ({
         </div>
 
         {/* Statistics */}
-        <div className="dossier-stats">
-          <span className="stat-segments">{stats.segments} segments</span>
-          <span className="stat-runs">{stats.runs} runs</span>
-          <span className="stat-drafts">{stats.drafts} drafts</span>
-          <span className="stat-size">{formatSize(stats.totalSize)}</span>
-        </div>
 
         {/* Action buttons (visible on hover) */}
         {(isHovered || isSelected) && (
           <div className="dossier-actions">
-            <button
-              className="dossier-action-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAction('add_segment');
-              }}
-              title="Add segment"
-            >
-              Add
-            </button>
-            <button
-              className="dossier-action-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAction('duplicate');
-              }}
-              title="Duplicate dossier"
-            >
-              Duplicate
-            </button>
             <button
               className="dossier-action-btn danger"
               onClick={(e) => {
