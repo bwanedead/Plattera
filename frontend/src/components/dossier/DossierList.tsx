@@ -140,3 +140,5 @@ export const DossierList: React.FC<DossierListProps> = ({
     </div>
   );
 };
+
+DossierList.displayName = 'DossierList';

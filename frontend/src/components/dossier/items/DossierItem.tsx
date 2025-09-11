@@ -37,6 +37,12 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   classNameOverride
 }) => {
   // ============================================================================
+  // DEBUGGING
+  // ============================================================================
+
+  console.log('🔄 DossierItem: Rendering dossier:', dossier?.id, 'title:', dossier?.title || dossier?.name);
+
+  // ============================================================================
   // EARLY RETURN FOR INVALID DATA
   // ============================================================================
 
@@ -50,7 +56,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   // ============================================================================
 
   const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState(dossier?.name || '');
+  const [editValue, setEditValue] = useState(dossier?.title || dossier?.name || '');
   const [isHovered, setIsHovered] = useState(false);
 
   // ============================================================================
@@ -89,18 +95,22 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   }, [dossier.id, onSelect, onMultiSelect]);
 
   const handleDoubleClick = useCallback(() => {
+    const currentName = dossier.title || dossier.name;
+    console.log('📝 DossierItem: Starting edit mode for:', dossier.id, 'current name:', currentName);
+    setEditValue(currentName);
     setIsEditing(true);
-  }, []);
+  }, [dossier.title, dossier.name, dossier.id]);
 
   const handleEditSubmit = useCallback(() => {
     const trimmedValue = editValue.trim();
     const currentName = dossier.title || dossier.name;
     if (trimmedValue && trimmedValue !== currentName) {
-      onAction('rename', { newName: trimmedValue });
+      console.log('📝 DossierItem: Submitting rename for dossier:', dossier.id, 'from:', currentName, 'to:', trimmedValue);
+      onAction('rename_dossier', { targetId: dossier.id, newName: trimmedValue, currentName });
     }
     setIsEditing(false);
-    setEditValue(currentName);
-  }, [editValue, dossier.title, dossier.name, onAction]);
+    setEditValue(dossier.title || dossier.name);
+  }, [editValue, dossier.title, dossier.name, dossier.id, onAction]);
 
   const handleEditCancel = useCallback(() => {
     setIsEditing(false);

@@ -395,12 +395,14 @@
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--text-primary);
-  background: transparent;
+  background: var(--bg-primary);
   border: 1px solid var(--accent-primary);
-  border-radius: 3px;
-  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  padding: 0.3rem 0.6rem;
   outline: none;
   width: 100%;
+  min-width: 120px;
+  box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb), 0.1);
 }
 
 .dossier-meta {

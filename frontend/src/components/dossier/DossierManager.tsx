@@ -15,6 +15,7 @@ import { DossierFooter } from './DossierFooter';
 import { DossierSearch } from './DossierSearch';
 import { DossierContextMenu } from './DossierContextMenu';
 import { ConfirmDeleteModal } from './modals/ConfirmDeleteModal';
+import { dossierApi } from '../../services/dossier/dossierApi';
 
 // ============================================================================
 // MAIN DOSSIER MANAGER COMPONENT
@@ -96,14 +97,32 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
           setShowCreateModal(true);
           break;
 
-        case 'rename':
-          if (data?.targetId) {
-            // Handle inline renaming
-            const newName = prompt('Enter new name:', data.currentName || '');
-            if (newName && newName.trim()) {
-              await updateDossier(data.targetId, { name: newName.trim() });
-            }
+        case 'rename_dossier':
+          if (data?.targetId && data?.newName) {
+            // Handle inline renaming from DossierItem
+            console.log('📝 Renaming dossier:', data.targetId, 'to:', data.newName);
+            await updateDossier(data.targetId, { title: data.newName });
+            // Don't call loadDossiers() immediately - let optimistic update show the change
+            // The optimistic update should make the change visible instantly
           }
+          break;
+        case 'add_segment':
+          if (data?.targetId) {
+            await dossierApi.createSegment(data.targetId, { name: `Segment ${(state.dossiers.find(d=>d.id===data.targetId)?.segments?.length||0)+1}` });
+            await loadDossiers();
+          }
+          break;
+
+        case 'rename_segment':
+          if (data?.segmentId && data?.newName) {
+            await dossierApi.updateSegment(data.segmentId, { name: data.newName });
+            await loadDossiers();
+          }
+          break;
+
+        case 'add_run':
+          // TODO: Implement add run functionality
+          console.log('📝 Add run action triggered:', data);
           break;
 
         case 'delete':

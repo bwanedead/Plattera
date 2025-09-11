@@ -24,6 +24,10 @@ class Dossier:
         # Hierarchical structure for frontend
         self.segments = []  # Will be populated when dossier is loaded
 
+        # Persistence for manual segments and overrides
+        self.manual_segments = []  # List of persisted manual segment dictionaries
+        self.segment_name_overrides = {}  # Map of segment_id to custom name for auto segments
+
         # Future consensus integration hook
         self.active_text_source = None  # Will store consensus method when implemented
         # Format: {"type": "alignment"|"llm"|"individual", "id": "consensus_123"|"transcription_456"}
@@ -37,7 +41,9 @@ class Dossier:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "active_text_source": self.active_text_source,
-            "segments": [segment.to_dict() for segment in self.segments]
+            "manual_segments": self.manual_segments,
+            "segment_name_overrides": self.segment_name_overrides,
+            "segments": [segment.to_dict() for segment in self.segments]  # For runtime population
         }
 
     @classmethod
@@ -52,8 +58,16 @@ class Dossier:
         dossier.updated_at = datetime.fromisoformat(data["updated_at"])
         dossier.active_text_source = data.get("active_text_source")
 
-        # Load segments if present (will be populated by management service)
+        # Load persisted data
+        dossier.manual_segments = data.get("manual_segments", [])
+        dossier.segment_name_overrides = data.get("segment_name_overrides", {})
+
+        # Initialize segments with manual ones (auto segments will be added later)
         dossier.segments = []
+        for ms_data in dossier.manual_segments:
+            segment = Segment.from_dict(ms_data)
+            dossier.segments.append(segment)
+
         return dossier
 
     def set_active_text_source(self, source_type: str, source_id: str) -> None:

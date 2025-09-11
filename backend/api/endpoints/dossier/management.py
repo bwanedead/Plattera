@@ -30,11 +30,20 @@ class UpdateDossierRequest(BaseModel):
     description: Optional[str] = None
 
 
+class CreateSegmentRequest(BaseModel):
+    name: str
+
+
+class UpdateSegmentRequest(BaseModel):
+    name: str
+
+
 class DossierResponse(BaseModel):
     """Response model for dossier operations"""
     success: bool
     dossier_id: Optional[str] = None
     dossier: Optional[Dict[str, Any]] = None
+    data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 
 
@@ -84,6 +93,36 @@ async def create_dossier(request: CreateDossierRequest):
         raise HTTPException(status_code=500, detail=f"Failed to create dossier: {str(e)}")
 
 
+@router.post("/{dossier_id}/segments", response_model=DossierResponse)
+async def create_segment(dossier_id: str, request: CreateSegmentRequest):
+    """Create a new manual segment within a dossier."""
+    try:
+        seg = dossier_service.add_segment(dossier_id, request.name)
+        if not seg:
+            raise HTTPException(status_code=404, detail=f"Dossier not found: {dossier_id}")
+        return DossierResponse(success=True, data=seg)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ API: Failed to create segment in dossier {dossier_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create segment: {str(e)}")
+
+
+@router.put("/segments/{segment_id}", response_model=DossierResponse)
+async def update_segment(segment_id: str, request: UpdateSegmentRequest):
+    """Rename an existing segment by id."""
+    try:
+        ok = dossier_service.update_segment_by_id(segment_id, request.name)
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"Segment not found: {segment_id}")
+        return DossierResponse(success=True, data={"id": segment_id, "name": request.name})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ API: Failed to update segment {segment_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update segment: {str(e)}")
+
+
 @router.get("/{dossier_id}/details", response_model=DossierResponse)
 async def get_dossier_details(dossier_id: str):
     """
@@ -129,30 +168,42 @@ async def update_dossier(dossier_id: str, request: UpdateDossierRequest):
         DossierResponse with success status
     """
     logger.info(f"🔄 API: Updating dossier {dossier_id}")
+    logger.info(f"🔄 API: Update request data: title='{request.title}', description='{request.description}'")
+    logger.info(f"🔄 API: Request validation - title is None: {request.title is None}, description is None: {request.description is None}")
 
     try:
         # Build updates dictionary
         updates = {}
         if request.title is not None:
             updates['title'] = request.title
+            logger.info(f"🔄 API: Adding title update: '{request.title}'")
         if request.description is not None:
             updates['description'] = request.description
+            logger.info(f"🔄 API: Adding description update: '{request.description}'")
 
         if not updates:
+            logger.warning(f"⚠️ API: No updates provided for dossier {dossier_id}")
             raise HTTPException(status_code=400, detail="No updates provided")
 
-        success = dossier_service.update_dossier(dossier_id, updates)
+        logger.info(f"🔄 API: Calling service.update_dossier with updates: {updates}")
+        updated_dossier = dossier_service.update_dossier(dossier_id, updates)
 
-        if not success:
+        if not updated_dossier:
+            logger.warning(f"⚠️ API: Service returned None for dossier update {dossier_id}")
             raise HTTPException(status_code=404, detail=f"Dossier not found: {dossier_id}")
 
-        logger.info(f"✅ API: Updated dossier {dossier_id}")
-        return DossierResponse(success=True)
+        logger.info(f"✅ API: Successfully updated dossier {dossier_id}")
+        # Return the updated dossier data for frontend
+        return DossierResponse(success=True, dossier=updated_dossier.to_dict())
 
     except HTTPException:
+        logger.error(f"❌ API: HTTP exception during dossier update {dossier_id}: {str(e)}")
         raise
     except Exception as e:
-        logger.error(f"❌ API: Failed to update dossier {dossier_id}: {e}")
+        logger.error(f"❌ API: Unexpected error updating dossier {dossier_id}: {e}")
+        logger.error(f"❌ API: Error type: {type(e).__name__}")
+        import traceback
+        logger.error(f"❌ API: Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to update dossier: {str(e)}")
 
 

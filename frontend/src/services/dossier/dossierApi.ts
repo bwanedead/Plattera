@@ -57,13 +57,17 @@ class DossierApiClient {
   }
 
   async updateDossier(dossierId: string, data: UpdateDossierData): Promise<Dossier> {
-    const response = await this.request<any>(`/dossier-management/${dossierId}`, {
+    console.log('📡 updateDossier: Calling API with data:', data);
+    const response = await this.request<any>(`/dossier-management/${dossierId}/update`, {
       method: 'PUT',
       body: JSON.stringify(data)
     });
+    console.log('📡 updateDossier: API response:', response);
     if (!response.dossier) {
+      console.error('❌ updateDossier: No dossier in response:', response);
       throw new DossierApiError('Failed to update dossier');
     }
+    console.log('✅ updateDossier: Returning dossier:', response.dossier);
     return response.dossier;
   }
 
@@ -78,7 +82,7 @@ class DossierApiClient {
   // ============================================================================
 
   async createSegment(dossierId: string, data: CreateSegmentData): Promise<Segment> {
-    const response = await this.request<Segment>(`/dossier-management/${dossierId}/segments`, {
+    const response = await this.request<any>(`/dossier-management/${dossierId}/segments`, {
       method: 'POST',
       body: JSON.stringify(data)
     });
@@ -89,12 +93,16 @@ class DossierApiClient {
   }
 
   async updateSegment(segmentId: string, data: Partial<Segment>): Promise<Segment> {
-    const response = await this.request<Segment>(`/dossier-management/segments/${segmentId}`, {
+    const response = await this.request<any>(`/dossier-management/segments/${segmentId}`, {
       method: 'PUT',
-      body: JSON.stringify(data)
+      body: JSON.stringify({ name: data.name })
     });
     if (!response.data) {
-      throw new DossierApiError('Failed to update segment');
+      // API returns only success; treat as OK if success true
+      if (!response.success) {
+        throw new DossierApiError('Failed to update segment');
+      }
+      return { ...(data as any), id: segmentId } as any;
     }
     return response.data;
   }

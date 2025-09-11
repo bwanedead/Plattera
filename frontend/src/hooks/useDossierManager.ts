@@ -180,12 +180,31 @@ export function useDossierManager() {
     apiCall: () => Promise<T>,
     rollbackAction?: DossierAction
   ): Promise<T> => {
+    console.log('🔄 executeOptimistically: Starting optimistic update with action:', optimisticAction.type);
     // Apply optimistic update
     dispatch(optimisticAction);
     const previousState = state;
 
+    // Debug: Check if the optimistic update was applied
+    console.log('🔄 executeOptimistically: Optimistic update applied, checking state...');
+    if (optimisticAction.type === 'UPDATE_DOSSIER') {
+      const updatedDossier = state.dossiers.find(d => d.id === optimisticAction.payload.id);
+      console.log('🔄 executeOptimistically: Updated dossier in state:', updatedDossier?.title || updatedDossier?.name);
+    }
+
     try {
+      console.log('🔄 executeOptimistically: Calling API...');
       const result = await apiCall();
+      console.log('✅ executeOptimistically: API call successful, result:', result);
+
+      // For successful updates, ensure the change is visible by dispatching a fresh update
+      if (optimisticAction.type === 'UPDATE_DOSSIER') {
+        console.log('🔄 executeOptimistically: Ensuring UPDATE_DOSSIER change is visible');
+        // Force a re-render by dispatching a fresh update with the result data
+        if (result && typeof result === 'object' && result !== null && 'id' in result && 'title' in result) {
+          dispatch({ type: 'UPDATE_DOSSIER', payload: result as unknown as Dossier });
+        }
+      }
 
       // Update was successful, clear any errors
       if (optimisticAction.type === 'UPDATE_DOSSIERS') {
@@ -194,10 +213,13 @@ export function useDossierManager() {
 
       return result;
     } catch (error) {
+      console.error('❌ executeOptimistically: API call failed:', error);
       // Revert optimistic update
       if (rollbackAction) {
+        console.log('🔄 executeOptimistically: Applying rollback action');
         dispatch(rollbackAction);
       } else {
+        console.log('🔄 executeOptimistically: No rollback action, reloading dossiers');
         // Fallback: reload data
         loadDossiers();
       }
@@ -260,14 +282,29 @@ export function useDossierManager() {
   }, [executeOptimistically]);
 
   const updateDossier = useCallback(async (dossierId: string, data: Partial<Dossier>) => {
+    console.log('📝 updateDossier: Starting update for dossier:', dossierId, 'with data:', data);
     const currentDossier = state.dossiers.find(d => d.id === dossierId);
-    if (!currentDossier) return;
+    if (!currentDossier) {
+      console.warn('⚠️ updateDossier: Dossier not found:', dossierId);
+      return;
+    }
+    console.log('📝 updateDossier: Found current dossier:', currentDossier.title || currentDossier.name);
 
-    const updatedDossier = { ...currentDossier, ...data, updated_at: new Date().toISOString() };
+    const updatedDossier = {
+      ...currentDossier,
+      ...data,
+      updated_at: new Date().toISOString(),
+      // Ensure we create a new object reference for React to detect the change
+      title: data.title || currentDossier.title || currentDossier.name
+    };
+    console.log('📝 updateDossier: Created updated dossier:', updatedDossier.title || updatedDossier.name);
 
     return executeOptimistically(
       { type: 'UPDATE_DOSSIER', payload: updatedDossier },
-      () => dossierApi.updateDossier(dossierId, data),
+      () => {
+        console.log('📝 updateDossier: Calling dossierApi.updateDossier with data:', data);
+        return dossierApi.updateDossier(dossierId, data);
+      },
       { type: 'UPDATE_DOSSIER', payload: currentDossier }
     );
   }, [state.dossiers, executeOptimistically]);
@@ -423,7 +460,8 @@ export function useDossierManager() {
   // Load dossiers on mount
   useEffect(() => {
     loadDossiers();
-  }, [loadDossiers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // loadDossiers is stable due to useCallback with empty deps
 
   // ============================================================================
   // RETURN INTERFACE

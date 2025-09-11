@@ -83,7 +83,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
   const handleEditSubmit = useCallback(() => {
     const trimmedValue = editValue.trim();
     if (trimmedValue && trimmedValue !== segment.name) {
-      onAction('rename_segment', { newName: trimmedValue });
+      onAction('rename_segment', { segmentId: segment.id, newName: trimmedValue });
     }
     setIsEditing(false);
     setEditValue(segment.name);

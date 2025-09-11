@@ -11,6 +11,7 @@ import json
 import logging
 from typing import Dict, List, Any, Optional
 from pathlib import Path
+from datetime import datetime
 
 from .models import Dossier, DossierSummary
 
@@ -86,6 +87,7 @@ class DossierManagementService:
     def _populate_dossier_hierarchy(self, dossier: Dossier) -> None:
         """
         Populate the dossier's segments, runs, and drafts from transcription associations.
+        Applies overrides to auto segments and preserves manual segments.
 
         Args:
             dossier: The dossier to populate
@@ -100,20 +102,25 @@ class DossierManagementService:
             logger.debug(f"📄 No transcriptions found for dossier {dossier.id}")
             return
 
+        # Start with manual segments already loaded in dossier.segments
+
         # Group transcriptions by segment (for now, each transcription = one segment)
-        segment_counter = 0
         for transcription in transcriptions:
-            # Create segment
-            segment_id = f"segment_{segment_counter}"
+            # Create stable segment ID based on transcription_id
+            segment_id = f"segment_auto_{transcription.transcription_id}"
             segment = Segment(
                 segment_id=segment_id,
-                name=f"Segment {segment_counter + 1}",
+                name=f"Segment {len(dossier.segments) + 1}",
                 description=f"Auto-generated segment for transcription {transcription.transcription_id}",
-                position=segment_counter
+                position=len(dossier.segments)
             )
 
+            # Apply override if exists
+            if segment_id in dossier.segment_name_overrides:
+                segment.name = dossier.segment_name_overrides[segment_id]
+
             # Create run
-            run_id = f"run_{segment_counter}"
+            run_id = f"run_{transcription.transcription_id}"
             run = Run(
                 run_id=run_id,
                 transcription_id=transcription.transcription_id,
@@ -155,11 +162,73 @@ class DossierManagementService:
             segment.runs.append(run)
             dossier.segments.append(segment)
 
-            segment_counter += 1
-
         logger.debug(f"🏗️ Populated dossier {dossier.id} with {len(dossier.segments)} segments")
 
-    def update_dossier(self, dossier_id: str, updates: Dict[str, Any]) -> bool:
+    # -----------------------------
+    # Segment management operations
+    # -----------------------------
+
+    def add_segment(self, dossier_id: str, name: str) -> Optional[Dict[str, Any]]:
+        """Create a new manual segment in a dossier and persist it."""
+        dossier = self.get_dossier(dossier_id)
+        if not dossier:
+            logger.warning(f"⚠️ Cannot add segment; dossier not found: {dossier_id}")
+            return None
+
+        # Generate a stable manual segment id
+        segment_index = len(dossier.manual_segments) + len(dossier.segment_name_overrides)
+        segment_id = f"segment_manual_{segment_index}_{dossier_id[:8]}"
+
+        from .models import Segment
+        segment = Segment(segment_id=segment_id, name=name or f"Manual Segment {segment_index + 1}", position=segment_index)
+
+        # Add to manual segments and persist
+        dossier.manual_segments.append(segment.to_dict())
+        dossier.segments.append(segment)  # Also add to runtime segments
+
+        # Persist by saving dossier back to disk
+        self._save_dossier(dossier)
+        logger.info(f"✅ Added manual segment '{segment.name}' to dossier {dossier_id}")
+        return segment.to_dict()
+
+    def update_segment_by_id(self, segment_id: str, name: str) -> bool:
+        """Update a segment's name by scanning dossiers for the segment id."""
+        try:
+            dossier_files = list(self.storage_dir.glob("dossier_*.json"))
+            for file_path in dossier_files:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                # Check manual segments first
+                manual_segments = data.get('manual_segments', [])
+                updated = False
+                for seg in manual_segments:
+                    if seg.get('id') == segment_id:
+                        seg['name'] = name
+                        updated = True
+                        break
+
+                # If not in manual segments, check if it's an auto segment and use overrides
+                if not updated and segment_id.startswith('segment_auto_'):
+                    segment_name_overrides = data.get('segment_name_overrides', {})
+                    segment_name_overrides[segment_id] = name
+                    data['segment_name_overrides'] = segment_name_overrides
+                    updated = True
+
+                if updated:
+                    # Save file and return
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    logger.info(f"✅ Updated segment {segment_id} name to '{name}' in {file_path.name}")
+                    return True
+
+            logger.warning(f"⚠️ Segment id not found for update: {segment_id}")
+            return False
+        except Exception as e:
+            logger.error(f"❌ Failed to update segment {segment_id}: {e}")
+            return False
+
+    def update_dossier(self, dossier_id: str, updates: Dict[str, Any]) -> Optional[Dossier]:
         """
         Update a dossier with new data.
 
@@ -168,26 +237,29 @@ class DossierManagementService:
             updates: Dictionary of fields to update
 
         Returns:
-            bool: Success status
+            Dossier: Updated dossier object or None if not found
         """
         logger.info(f"🔄 Updating dossier: {dossier_id}")
 
         dossier = self.get_dossier(dossier_id)
         if not dossier:
             logger.warning(f"⚠️ Cannot update non-existent dossier: {dossier_id}")
-            return False
+            return None
 
         # Apply updates
         if 'title' in updates:
             dossier.title = updates['title']
+            logger.info(f"🔄 Applied title update: '{dossier.title}'")
         if 'description' in updates:
             dossier.description = updates['description']
+            logger.info(f"🔄 Applied description update: '{dossier.description}'")
 
-        dossier.updated_at = dossier.updated_at  # This will update the timestamp
+        dossier.updated_at = datetime.now()  # Update timestamp explicitly
+        logger.info(f"🔄 Updated timestamp to: {dossier.updated_at}")
 
         self._save_dossier(dossier)
         logger.info(f"✅ Updated dossier: {dossier_id}")
-        return True
+        return dossier
 
     def delete_dossier(self, dossier_id: str) -> bool:
         """
