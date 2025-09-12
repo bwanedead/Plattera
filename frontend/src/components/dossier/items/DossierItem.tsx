@@ -231,6 +231,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
                     segmentId: segment.id,
                     segmentName: segment.name
                   })}
+                  onViewRequest={onViewRequest}
                 />
               ))
             )}

@@ -80,6 +80,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
 
   const handleDoubleClick = useCallback(() => {
     // Double-click now views the segment (first run's first draft)
+    console.log('👁️ Segment view request', { dossierId, segmentId: segment.id });
     onViewRequest?.({ dossierId, segmentId: segment.id });
   }, [onViewRequest, dossierId, segment.id]);
 
@@ -241,6 +242,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
                     ...data,
                     runId: run.id
                   })}
+                  onViewRequest={onViewRequest}
                 />
               ))
             )}
