@@ -35,6 +35,61 @@ const initialState: DossierManagerState = {
 };
 
 // ============================================================================
+// SESSION STORAGE PERSISTENCE
+// ============================================================================
+
+const SESSION_KEYS = {
+  expanded: 'dossierManager.expandedItems',
+  selectedPath: 'dossierManager.selectedPath'
+} as const;
+
+function loadExpandedFromSession(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_KEYS.expanded);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return new Set(parsed.filter((x) => typeof x === 'string'));
+    return new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function loadSelectedPathFromSession(): DossierPath {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_KEYS.selectedPath);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    // Only allow known keys
+    const path: DossierPath = {
+      dossierId: typeof parsed?.dossierId === 'string' ? parsed.dossierId : undefined,
+      segmentId: typeof parsed?.segmentId === 'string' ? parsed.segmentId : undefined,
+      runId: typeof parsed?.runId === 'string' ? parsed.runId : undefined,
+      draftId: typeof parsed?.draftId === 'string' ? parsed.draftId : undefined
+    };
+    return path;
+  } catch {
+    return {};
+  }
+}
+
+function saveExpandedToSession(expanded: Set<string>) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(SESSION_KEYS.expanded, JSON.stringify(Array.from(expanded)));
+  } catch {}
+}
+
+function saveSelectedPathToSession(path: DossierPath) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(SESSION_KEYS.selectedPath, JSON.stringify(path || {}));
+  } catch {}
+}
+
+// ============================================================================
 // REDUCER - PURE STATE TRANSITIONS
 // ============================================================================
 
@@ -175,7 +230,16 @@ function dossierReducer(state: DossierManagerState, action: DossierAction): Doss
 // ============================================================================
 
 export function useDossierManager() {
-  const [state, dispatch] = useReducer(dossierReducer, initialState);
+  // Initialize with session state (lazy initializer to play nicely with Fast Refresh)
+  const [state, dispatch] = useReducer(
+    dossierReducer,
+    initialState,
+    (base) => ({
+      ...base,
+      expandedItems: loadExpandedFromSession(),
+      selectedPath: loadSelectedPathFromSession()
+    })
+  );
 
   // ============================================================================
   // OPTIMISTIC UPDATE UTILITIES
@@ -341,6 +405,7 @@ export function useDossierManager() {
 
   const selectPath = useCallback((path: DossierPath) => {
     dispatch({ type: 'SELECT_PATH', payload: path });
+    saveSelectedPathToSession(path);
   }, []);
 
   const expandItem = useCallback((itemId: string) => {
@@ -357,6 +422,11 @@ export function useDossierManager() {
     console.log('📂 Toggling expand for item:', itemId);
     dispatch({ type: 'TOGGLE_EXPAND', payload: itemId });
   }, []);
+
+  // Persist expandedItems whenever it changes
+  useEffect(() => {
+    saveExpandedToSession(state.expandedItems);
+  }, [state.expandedItems]);
 
   // ============================================================================
   // SEARCH & FILTERING

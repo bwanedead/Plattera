@@ -91,13 +91,7 @@ export const RunItem: React.FC<RunItemProps> = ({
       console.warn('RunItem click ignored due to missing ids', { dossier, segment, run });
       return;
     }
-    const path: DossierPath = {
-      dossierId: dossier.id,
-      segmentId: segment.id,
-      runId: run.id,
-      draftId: undefined
-    };
-    onItemSelect(path);
+    // Do not persist selection for sub-items; rely on hover styles
   }, [dossier?.id, segment?.id, run?.id, onItemSelect]);
 
   const handleDoubleClick = useCallback(() => {
@@ -134,7 +128,7 @@ export const RunItem: React.FC<RunItemProps> = ({
   // ============================================================================
 
   return (
-    <div className={`run-item ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}>
+    <div className={`run-item ${isDragging ? 'dragging' : ''}`}>
       {/* Header */}
       <div
         className="run-header"

@@ -121,10 +121,9 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
     <div className="segment-item-container">
       {/* Main segment row */}
       <div
-        className={`segment-item ${isSelected ? 'selected' : ''}`}
+        className={`segment-item`}
         onClick={(e) => {
-          // Make the whole header responsive: select and toggle
-          handleClick();
+          // Click should not create lingering selection for sub-items
           onToggleExpand(segment.id);
         }}
         onDoubleClick={handleDoubleClick}

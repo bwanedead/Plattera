@@ -96,8 +96,17 @@ export const DossierList: React.FC<DossierListProps> = ({
   const [hoverId, setHoverId] = React.useState<string | null>(null);
   React.useEffect(() => dossierHighlightBus.subscribe(setHoverId), []);
 
+  const handleBackgroundClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
+    // If the click is not on an item (no closest dossier/segment/run/draft), clear selection
+    const target = e.target as HTMLElement;
+    const isOnItem = !!target.closest('.dossier-item, .segment-item, .run-header, .draft-item');
+    if (!isOnItem) {
+      onSelectionChange({});
+    }
+  };
+
   return (
-    <div className="dossier-list">
+    <div className="dossier-list" onClick={handleBackgroundClick}>
       <div className="dossier-items-container">
         {dossiers.map((dossier) => (
           <DossierItem

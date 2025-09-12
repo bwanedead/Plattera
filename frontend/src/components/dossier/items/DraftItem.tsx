@@ -112,13 +112,7 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   // ============================================================================
 
   const handleClick = useCallback(() => {
-    const path: DossierPath = {
-      dossierId: dossier.id,
-      segmentId: segment.id,
-      runId: run.id,
-      draftId: draft.id
-    };
-    onItemSelect(path);
+    // Do not persist selection for sub-items; rely on hover styles
   }, [dossier.id, segment.id, run.id, draft.id, onItemSelect]);
 
   const handleDoubleClick = useCallback(() => {

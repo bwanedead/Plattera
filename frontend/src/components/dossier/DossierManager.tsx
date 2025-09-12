@@ -272,7 +272,13 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   // ============================================================================
 
   return (
-    <div className={`dossier-manager ${className}`}>
+    <div
+      className={`dossier-manager ${className}`}
+      onClick={() => {
+        // Clicking empty space clears persistent highlight
+        selectPath({});
+      }}
+    >
       {/* Header with controls */}
       <DossierHeader
         selectedDossier={selectedDossier}
