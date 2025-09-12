@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from services.dossier.provenance_schema import ProvenanceSchema, ProvenanceEnhancement
+import os
 from services.dossier.image_storage_service import ImageStorageService
 
 logger = logging.getLogger(__name__)

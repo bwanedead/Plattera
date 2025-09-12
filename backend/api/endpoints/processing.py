@@ -265,10 +265,11 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
                 dossier_name = f"Document - {timestamp}"
 
                 logger.info(f"📝 Calling create_dossier with title='{dossier_name}'")
-                dossier_id = management_service.create_dossier(
+                created_dossier = management_service.create_dossier(
                     title=dossier_name,
                     description=f"Auto-created dossier for transcription processed at {timestamp}"
                 )
+                dossier_id = created_dossier.id
                 logger.info(f"📁 Auto-created dossier: {dossier_name} (ID: {dossier_id})")
             except Exception as auto_error:
                 logger.error(f"❌ Failed to auto-create dossier: {auto_error}")
@@ -323,7 +324,7 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
                     association_service = TranscriptionAssociationService()
 
                     # Get next position in dossier
-                    next_position = len(association_service.get_dossier_transcriptions(dossier_id)) + 1
+                    next_position = len(association_service.get_dossier_transcriptions(str(dossier_id))) + 1
 
                     # Create standardized provenance for the transcription
                     try:
@@ -357,7 +358,7 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
 
                     # Add to dossier
                     success = association_service.add_transcription(
-                        dossier_id=dossier_id,
+                        dossier_id=str(dossier_id),
                         transcription_id=transcription_id,
                         position=next_position,
                         metadata=metadata
@@ -381,7 +382,7 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
             confidence_score=result.get("confidence_score"),
             metadata={
                 **result.get("metadata", {}),
-                "dossier_id": dossier_id,
+                "dossier_id": str(dossier_id) if dossier_id else None,
                 "transcription_id": transcription_id
             }
         )

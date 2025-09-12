@@ -31,7 +31,7 @@ class DossierApiClient {
   }
 
   async getDossier(dossierId: string): Promise<Dossier> {
-    const response = await this.request<any>(`/dossier-management/${dossierId}`);
+    const response = await this.request<any>(`/dossier-management/${dossierId}/details`);
     if (!response.dossier) {
       throw new DossierApiError('Dossier not found');
     }
