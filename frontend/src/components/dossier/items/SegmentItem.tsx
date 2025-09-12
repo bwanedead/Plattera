@@ -179,7 +179,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
         {(isHovered || isSelected) && (
           <div className="segment-actions">
             <button
-              className="segment-action-btn"
+              className="dossier-action-btn"
               onClick={(e) => {
                 e.stopPropagation();
                 onViewRequest?.({ dossierId, segmentId: segment.id });
@@ -189,7 +189,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
               View
             </button>
             <button
-              className="segment-action-btn"
+              className="dossier-action-btn"
               onClick={(e) => {
                 e.stopPropagation();
                 onAction('add_segment', { targetId: dossierId });
@@ -199,7 +199,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
               Add
             </button>
             <button
-              className="segment-action-btn danger"
+              className="dossier-action-btn danger"
               onClick={(e) => {
                 e.stopPropagation();
                 onAction('delete_segment', { segmentId: segment.id, dossierId });

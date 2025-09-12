@@ -145,15 +145,11 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   // RENDER
   // ============================================================================
 
-  const [isHovered, setIsHovered] = React.useState(false);
-
   return (
     <div
       className={`draft-item ${draft.isBest ? 'best' : ''}`}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
     >
       <div className="draft-header">
         <div className="draft-info">
@@ -171,24 +167,22 @@ export const DraftItem: React.FC<DraftItemProps> = ({
         </div>
 
         <div className="draft-actions">
-          {isHovered && (
-            <button
-              className="draft-action-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                console.log('👁️ Draft view button', { draftId: draft.id, runId: run.id, segmentId: segment.id, dossierId: dossier.id });
-                onViewRequest?.({
-                  dossierId: dossier.id,
-                  segmentId: segment.id,
-                  runId: run.id,
-                  draftId: draft.id
-                });
-              }}
-              title="View draft"
-            >
-              View
-            </button>
-          )}
+          <button
+            className="dossier-action-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              console.log('👁️ Draft view button', { draftId: draft.id, runId: run.id, segmentId: segment.id, dossierId: dossier.id });
+              onViewRequest?.({
+                dossierId: dossier.id,
+                segmentId: segment.id,
+                runId: run.id,
+                draftId: draft.id
+              });
+            }}
+            title="View draft"
+          >
+            View
+          </button>
           {!draft.isBest && (
             <button
               className="draft-action-btn set-best"

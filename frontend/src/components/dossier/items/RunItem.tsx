@@ -174,7 +174,7 @@ export const RunItem: React.FC<RunItemProps> = ({
           {(isHovered || isSelected) && (
             <div className="run-actions">
               <button
-                className="run-action-btn"
+                className="dossier-action-btn"
                 onClick={(e) => {
                   e.stopPropagation();
                   if (!dossier?.id || !segment?.id || !run?.id) return;
