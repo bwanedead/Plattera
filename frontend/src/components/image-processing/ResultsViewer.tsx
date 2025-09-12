@@ -11,6 +11,7 @@ import { AlignmentResult, ConfidenceWord } from '../../types/imageProcessing';
 import { FinalDraftSelector } from './FinalDraftSelector';
 import { DossierManager } from '../dossier/DossierManager';
 import { DossierPath } from '../../types/dossier';
+import { resolveSelectionToText, ResolvedSelection } from '../../services/dossier/selectionResolver';
 
 // Define interfaces for props to ensure type safety
 interface ResultsViewerProps {
@@ -91,6 +92,12 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState('text');
   const [showAlignedText, setShowAlignedText] = useState(false);
+  const [dossierSelection, setDossierSelection] = useState<{
+    loading: boolean;
+    error?: string | null;
+    resolved?: ResolvedSelection | null;
+    token?: number;
+  }>({ loading: false, error: null, resolved: null, token: 0 });
 
   // Check if current result has multiple drafts for alignment
   const hasMultipleDrafts = selectedResult?.result?.metadata?.redundancy_analysis?.individual_results?.length > 1;
@@ -113,11 +120,30 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                 <button onClick={() => onToggleHistory(false)}>‹</button>
               </div>
               <div className="dossier-manager-content">
-                {console.log('🎯 Rendering DossierManager in Session Log panel')}
                 <DossierManager
                   onSelectionChange={(path: DossierPath) => {
-                    // Handle dossier selection changes
+                    // Selection now only updates highlight/selection state (no viewing)
                     console.log('📁 Dossier selection changed:', path);
+                  }}
+                  onViewRequest={(path: DossierPath) => {
+                    console.log('👁️ View requested:', path);
+                    const nextToken = (dossierSelection.token || 0) + 1;
+                    setDossierSelection({ loading: true, error: null, resolved: null, token: nextToken });
+
+                    resolveSelectionToText(path)
+                      .then((resolved) => {
+                        setDossierSelection((prev) => {
+                          if (prev.token !== nextToken) return prev;
+                          return { loading: false, error: null, resolved, token: nextToken };
+                        });
+                      })
+                      .catch((e) => {
+                        console.warn('Failed to resolve dossier selection', e);
+                        setDossierSelection((prev) => {
+                          if (prev.token !== nextToken) return prev;
+                          return { loading: false, error: e?.message || 'Failed to load selection', resolved: null, token: nextToken };
+                        });
+                      });
                   }}
                   onProcessingComplete={() => {
                     // Refresh dossiers when new processing completes
@@ -145,12 +171,56 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                 <p>Analyzing document geometry.</p>
               </div>
             )}
-            {!isProcessing && !selectedResult && (
+            {!isProcessing && !selectedResult && !dossierSelection.resolved && !dossierSelection.loading && (
               <div className="placeholder-view">
                 <p>Your results will appear here.</p>
               </div>
             )}
-            {!isProcessing && selectedResult && (
+            {!isProcessing && dossierSelection.loading && (
+              <div className="loading-view">
+                <ParcelTracerLoader />
+                <h4>Loading selection…</h4>
+              </div>
+            )}
+            {!isProcessing && dossierSelection.resolved && (
+              <div className="result-display-area">
+                <CopyButton
+                  onCopy={() => {
+                    navigator.clipboard.writeText(dossierSelection.resolved?.text || '');
+                  }}
+                  title="Copy text"
+                  style={{
+                    position: 'absolute',
+                    top: '5rem',
+                    left: '-3rem',
+                    zIndex: 20,
+                  }}
+                />
+                <div className="result-tabs">
+                  <button
+                    className={activeTab === 'text' ? 'active' : ''}
+                    onClick={() => setActiveTab('text')}
+                  >
+                    📄 Text
+                  </button>
+                </div>
+                <div className="result-tab-content">
+                  {activeTab === 'text' && (
+                    <div className="text-viewer-pane" style={{ height: '100%' }}>
+                      <div className="text-content-wrapper">
+                        <div
+                          className="text-content"
+                          style={{ whiteSpace: 'pre-wrap', height: '100%', overflowY: 'auto', padding: '1rem', fontFamily: 'monospace' }}
+                        >
+                          {dossierSelection.resolved?.text || ''}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {!isProcessing && selectedResult && !dossierSelection.resolved && (
               <div className="result-display-area">
                 <CopyButton
                   onCopy={() => {

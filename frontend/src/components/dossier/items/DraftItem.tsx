@@ -14,6 +14,7 @@ interface DraftItemProps {
   dossier: { id: string; title?: string; name?: string };
   onItemAction: (action: string, data: any) => void;
   onItemSelect: (path: DossierPath) => void;
+  onViewRequest?: (path: DossierPath) => void;
 }
 
 export const DraftItem: React.FC<DraftItemProps> = ({
@@ -22,7 +23,8 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   segment,
   dossier,
   onItemAction,
-  onItemSelect
+  onItemSelect,
+  onViewRequest
 }) => {
   // Early return for safety
   if (!draft) {
@@ -119,6 +121,15 @@ export const DraftItem: React.FC<DraftItemProps> = ({
     onItemSelect(path);
   }, [dossier.id, segment.id, run.id, draft.id, onItemSelect]);
 
+  const handleDoubleClick = useCallback(() => {
+    onViewRequest?.({
+      dossierId: dossier.id,
+      segmentId: segment.id,
+      runId: run.id,
+      draftId: draft.id
+    });
+  }, [onViewRequest, dossier.id, segment.id, run.id, draft.id]);
+
   const handleSetBest = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     onItemAction('set_best_draft', {
@@ -134,7 +145,7 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   // ============================================================================
 
   return (
-    <div className={`draft-item ${draft.isBest ? 'best' : ''}`} onClick={handleClick}>
+    <div className={`draft-item ${draft.isBest ? 'best' : ''}`} onClick={handleClick} onDoubleClick={handleDoubleClick}>
       <div className="draft-header">
         <div className="draft-info">
           <div className="draft-name">

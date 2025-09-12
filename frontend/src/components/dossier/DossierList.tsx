@@ -22,6 +22,7 @@ interface DossierListProps {
   onItemAction: (action: string, data?: any) => void;
   onSelectItem: (itemId: string) => void;
   onDeselectItem: (itemId: string) => void;
+  onViewRequest?: (path: DossierPath) => void;
 }
 
 export const DossierList: React.FC<DossierListProps> = ({
@@ -35,7 +36,8 @@ export const DossierList: React.FC<DossierListProps> = ({
   onToggleExpand,
   onItemAction,
   onSelectItem,
-  onDeselectItem
+  onDeselectItem,
+  onViewRequest
 }) => {
   // ============================================================================
   // LOADING STATE
@@ -122,6 +124,7 @@ export const DossierList: React.FC<DossierListProps> = ({
               }
             }}
             classNameOverride={hoverId === dossier.id ? 'hover-highlight' : ''}
+            onViewRequest={onViewRequest}
           />
         ))}
       </div>

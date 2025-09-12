@@ -18,6 +18,7 @@ interface SegmentItemProps {
   onToggleExpand: (id: string) => void;
   onSelect: (path: DossierPath) => void;
   onAction: (action: string, data?: any) => void;
+  onViewRequest?: (path: DossierPath) => void;
 }
 
 export const SegmentItem: React.FC<SegmentItemProps> = ({
@@ -29,7 +30,8 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
   expandedItems,
   onToggleExpand,
   onSelect,
-  onAction
+  onAction,
+  onViewRequest
 }) => {
   // ============================================================================
   // EARLY RETURN FOR INVALID DATA
@@ -77,8 +79,16 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
   }, [dossierId, segment.id, onSelect]);
 
   const handleDoubleClick = useCallback(() => {
+    // Double-click now views the segment (first run's first draft)
+    onViewRequest?.({ dossierId, segmentId: segment.id });
+  }, [onViewRequest, dossierId, segment.id]);
+
+  const handleContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    // Right-click → begin rename mode for segment
     setIsEditing(true);
-  }, []);
+    setEditValue(segment.name);
+  }, [segment.name]);
 
   const handleEditSubmit = useCallback(() => {
     const trimmedValue = editValue.trim();
@@ -117,6 +127,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
           onToggleExpand(segment.id);
         }}
         onDoubleClick={handleDoubleClick}
+        onContextMenu={handleContextMenu}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
@@ -166,6 +177,16 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
         {/* Action buttons (visible on hover) */}
         {(isHovered || isSelected) && (
           <div className="segment-actions">
+            <button
+              className="segment-action-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewRequest?.({ dossierId, segmentId: segment.id });
+              }}
+              title="View segment"
+            >
+              View
+            </button>
             <button
               className="segment-action-btn"
               onClick={(e) => {

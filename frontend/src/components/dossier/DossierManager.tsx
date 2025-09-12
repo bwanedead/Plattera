@@ -25,7 +25,8 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   onSelectionChange,
   initialSelection,
   onProcessingComplete,
-  className = ''
+  className = '',
+  onViewRequest
 }) => {
   // ============================================================================
   // DEBUG LOGGING
@@ -94,7 +95,8 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     try {
       switch (action) {
         case 'create_dossier':
-          setShowCreateModal(true);
+          // Create a new dossier directly with a default title
+          await createDossier({ title: `Dossier ${new Date().toLocaleDateString()}` });
           break;
 
         case 'rename_dossier':
@@ -150,8 +152,8 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
             const sourceDossier = state.dossiers.find(d => d.id === data.targetId);
             if (sourceDossier) {
               await createDossier({
-                name: `${sourceDossier.name} (Copy)`,
-                description: sourceDossier.description
+                title: `${(sourceDossier as any).title || sourceDossier.name} (Copy)`,
+                description: (sourceDossier as any).description
               });
             }
           }
@@ -274,7 +276,9 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
       {/* Header with controls */}
       <DossierHeader
         selectedDossier={selectedDossier}
-        onCreateDossier={createDossier}
+        onCreateDossier={async () => {
+          await createDossier({ title: `Dossier ${new Date().toLocaleDateString()}` });
+        }}
         onRefresh={loadDossiers}
         stats={stats}
       />
@@ -302,6 +306,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
         onItemAction={handleItemAction}
         onSelectItem={selectItem}
         onDeselectItem={deselectItem}
+        onViewRequest={onViewRequest}
       />
 
       {/* Footer with bulk actions */}

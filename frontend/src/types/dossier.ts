@@ -180,6 +180,7 @@ export interface DossierManagerProps {
   initialSelection?: DossierPath;
   onProcessingComplete?: () => void;
   className?: string;
+  onViewRequest?: (path: DossierPath) => void;
 }
 
 export interface DossierItemProps {

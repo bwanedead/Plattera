@@ -17,6 +17,7 @@ interface RunItemProps {
   onToggleExpand?: (id: string) => void;
   onItemAction: (action: string, data: any) => void;
   onItemSelect: (path: DossierPath) => void;
+  onViewRequest?: (path: DossierPath) => void;
 }
 
 export const RunItem: React.FC<RunItemProps> = ({
@@ -27,7 +28,8 @@ export const RunItem: React.FC<RunItemProps> = ({
   isSelected,
   onToggleExpand,
   onItemAction,
-  onItemSelect
+  onItemSelect,
+  onViewRequest
 }) => {
   // Early return for safety
   if (!run) return null;
@@ -83,6 +85,7 @@ export const RunItem: React.FC<RunItemProps> = ({
   // ============================================================================
 
   const handleClick = useCallback(() => {
+    // Single-click only selects, does not view
     if (!dossier?.id || !segment?.id || !run?.id) {
       console.warn('RunItem click ignored due to missing ids', { dossier, segment, run });
       return;
@@ -95,6 +98,11 @@ export const RunItem: React.FC<RunItemProps> = ({
     };
     onItemSelect(path);
   }, [dossier?.id, segment?.id, run?.id, onItemSelect]);
+
+  const handleDoubleClick = useCallback(() => {
+    if (!dossier?.id || !segment?.id || !run?.id) return;
+    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id });
+  }, [onViewRequest, dossier?.id, segment?.id, run?.id]);
 
   const handleExpandClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -127,7 +135,7 @@ export const RunItem: React.FC<RunItemProps> = ({
   return (
     <div className={`run-item ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}>
       {/* Header */}
-      <div className="run-header" onClick={(e) => { handleClick(); if (typeof onToggleExpand === 'function') { onToggleExpand(run.id); } }} role="button" tabIndex={0}>
+      <div className="run-header" onClick={(e) => { handleClick(); if (typeof onToggleExpand === 'function') { onToggleExpand(run.id); } }} onDoubleClick={handleDoubleClick} role="button" tabIndex={0}>
         <div className="run-expand-section">
           <button
             className={`run-expand-button ${isExpanded ? 'expanded' : ''}`}
@@ -173,6 +181,7 @@ export const RunItem: React.FC<RunItemProps> = ({
                   dossier={dossier}
                   onItemAction={onItemAction}
                   onItemSelect={() => handleDraftSelect(draft.id)}
+                  onViewRequest={onViewRequest}
                 />
               ))}
             </div>

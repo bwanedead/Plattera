@@ -21,6 +21,7 @@ interface DossierItemProps {
   onAction: (action: string, data?: any) => void;
   onMultiSelect?: () => void;
   classNameOverride?: string;
+  onViewRequest?: (path: DossierPath) => void;
 }
 
 export const DossierItem: React.FC<DossierItemProps> = ({
@@ -34,7 +35,8 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   onSelect,
   onAction,
   onMultiSelect,
-  classNameOverride
+  classNameOverride,
+  onViewRequest
 }) => {
   // ============================================================================
   // DEBUGGING
@@ -78,11 +80,9 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   }, [dossier.id, onSelect, onMultiSelect]);
 
   const handleDoubleClick = useCallback(() => {
-    const currentName = dossier.title || dossier.name;
-    console.log('📝 DossierItem: Starting edit mode for:', dossier.id, 'current name:', currentName);
-    setEditValue(currentName);
-    setIsEditing(true);
-  }, [dossier.title, dossier.name, dossier.id]);
+    // Double-click now triggers viewing the dossier in ResultsViewer
+    onViewRequest?.({ dossierId: dossier.id });
+  }, [dossier.id, onViewRequest]);
 
   const handleEditSubmit = useCallback(() => {
     const trimmedValue = editValue.trim();
@@ -110,13 +110,11 @@ export const DossierItem: React.FC<DossierItemProps> = ({
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
-    onAction('show_context_menu', {
-      x: event.clientX,
-      y: event.clientY,
-      targetId: dossier.id,
-      targetType: 'dossier'
-    });
-  }, [dossier.id, onAction]);
+    // Right-click → begin rename mode for dossier
+    const currentName = dossier.title || dossier.name;
+    setEditValue(currentName);
+    setIsEditing(true);
+  }, [dossier.title, dossier.name]);
 
   // ============================================================================
   // RENDER
@@ -177,6 +175,16 @@ export const DossierItem: React.FC<DossierItemProps> = ({
         {/* Action buttons (visible on hover) */}
         {(isHovered || isSelected) && (
           <div className="dossier-actions">
+            <button
+              className="dossier-action-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewRequest?.({ dossierId: dossier.id });
+              }}
+              title="View dossier"
+            >
+              View
+            </button>
             <button
               className="dossier-action-btn danger"
               onClick={(e) => {
