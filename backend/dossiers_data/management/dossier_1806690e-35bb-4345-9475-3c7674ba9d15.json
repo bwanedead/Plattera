@@ -1,0 +1,19 @@
+{
+  "id": "1806690e-35bb-4345-9475-3c7674ba9d15",
+  "title": "testy testy",
+  "description": "New dossier",
+  "created_at": "2025-09-11T15:45:47.590498",
+  "updated_at": "2025-09-11T16:19:15.800617",
+  "active_text_source": null,
+  "manual_segments": [],
+  "segment_name_overrides": {},
+  "segments": [
+    {
+      "id": "segment_manual_0_1806690e",
+      "name": "Segment 1",
+      "description": "",
+      "position": 0,
+      "runs": []
+    }
+  ]
+}

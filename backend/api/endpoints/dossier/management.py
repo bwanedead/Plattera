@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional, List
 import logging
 
 from services.dossier.management_service import DossierManagementService
+from services.dossier.view_service import DossierViewService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -57,6 +58,7 @@ class DossierListResponse(BaseModel):
 
 # Initialize service
 dossier_service = DossierManagementService()
+view_service = DossierViewService()
 
 
 @router.post("/create", response_model=DossierResponse)
@@ -169,6 +171,25 @@ async def get_dossier_details(dossier_id: str):
     except Exception as e:
         logger.error(f"❌ API: Failed to get dossier {dossier_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get dossier: {str(e)}")
+
+
+@router.get("/drafts/{draft_id}")
+async def get_draft_raw_json(draft_id: str):
+    """
+    Return raw JSON for a single draft/transcription.
+
+    This reads the transcription content via the view service, which resolves from dossiers_data.
+    """
+    try:
+        content = view_service._load_transcription_content(draft_id)  # Internal loader is fine for our API layer
+        if not content:
+            raise HTTPException(status_code=404, detail=f"Draft not found: {draft_id}")
+        return {"success": True, "draft_id": draft_id, "data": content}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ API: Failed to load draft {draft_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load draft: {str(e)}")
 
 
 @router.put("/{dossier_id}/update", response_model=DossierResponse)

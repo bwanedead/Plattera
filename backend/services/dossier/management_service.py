@@ -28,7 +28,8 @@ class DossierManagementService:
 
     def __init__(self):
         BACKEND_DIR = Path(__file__).resolve().parents[2]
-        self.storage_dir = BACKEND_DIR / "dossiers/management"
+        # New canonical storage under dossiers_data
+        self.storage_dir = BACKEND_DIR / "dossiers_data/management"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         logger.info("📁 Dossier Management Service initialized")
 

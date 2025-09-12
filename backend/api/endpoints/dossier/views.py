@@ -225,6 +225,33 @@ async def get_transcription_preview(
         raise HTTPException(status_code=500, detail=f"Failed to create preview: {str(e)}")
 
 
+@router.get("/transcription/{transcription_id}/text")
+async def get_transcription_text(transcription_id: str):
+    """
+    Return full plain text for a transcription by concatenating section bodies.
+    """
+    try:
+        content = view_service._load_transcription_content(transcription_id)
+        if not content:
+            raise HTTPException(status_code=404, detail=f"Transcription not found: {transcription_id}")
+        sections = content.get('sections', [])
+        parts = []
+        for section in sections:
+            header = section.get('header', '')
+            body = section.get('body', '')
+            if header:
+                parts.append(f"[{header}]")
+            parts.append(body or '')
+            parts.append("")
+        text = "\n".join(parts)
+        return {"success": True, "transcription_id": transcription_id, "text": text}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ API: Failed to compose transcription text: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get transcription text: {str(e)}")
+
+
 @router.get("/{dossier_id}/sections/count")
 async def get_dossier_section_count(dossier_id: str):
     """

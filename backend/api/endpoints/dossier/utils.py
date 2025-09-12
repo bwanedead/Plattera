@@ -69,23 +69,18 @@ def extract_transcription_id_from_result(result: dict) -> Optional[str]:
             except Exception as parse_error:
                 logger.warning(f"⚠️ Failed to parse documentId: {parse_error}")
 
-        # Fallback: Look for most recent file in saved_drafts
-        # This is a temporary solution until we can better track transcription IDs
+        # Fallback: Look in dossiers_data/views/transcriptions for most recent draft
         BACKEND_DIR = Path(__file__).resolve().parents[3]
-        saved_drafts_dir = BACKEND_DIR / "saved_drafts"
-        logger.info(f"🔍 Checking saved_drafts directory: {saved_drafts_dir}")
-        logger.info(f"🔍 Directory exists: {saved_drafts_dir.exists()}")
-        
-        if saved_drafts_dir.exists():
-            draft_files = list(saved_drafts_dir.glob("draft_*.json"))
-            logger.info(f"🔍 Found {len(draft_files)} draft files: {[f.name for f in draft_files]}")
-            
-            if draft_files:
-                # Return the most recently modified file
-                most_recent = max(draft_files, key=lambda f: f.stat().st_mtime)
-                transcription_id = most_recent.stem  # filename without extension
-                logger.info(f"✅ Using most recent file: {transcription_id}")
-                return transcription_id
+        primary_dir = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
+        legacy_dir = BACKEND_DIR / "saved_drafts"
+        for probe in [primary_dir, legacy_dir]:
+            logger.info(f"🔍 Checking drafts directory: {probe}")
+            if probe.exists():
+                draft_files = list(probe.glob("*.json"))
+                logger.info(f"🔍 Found {len(draft_files)} draft files: {[f.name for f in draft_files]}")
+                if draft_files:
+                    most_recent = max(draft_files, key=lambda f: f.stat().st_mtime)
+                    return most_recent.stem
 
         logger.warning("⚠️ Could not determine transcription ID from result")
         return None

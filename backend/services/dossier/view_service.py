@@ -309,9 +309,23 @@ class DossierViewService:
             Dictionary with transcription content or None if not found
         """
         BACKEND_DIR = Path(__file__).resolve().parents[2]
-        transcription_file = (BACKEND_DIR / "saved_drafts") / f"{transcription_id}.json"
+        # New canonical location under dossiers_data/views/transcriptions
+        primary_path = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / f"{transcription_id}.json"
+        # Backward-compatible fallback: old saved_drafts directory
+        legacy_path = BACKEND_DIR / "saved_drafts" / f"{transcription_id}.json"
 
-        if not transcription_file.exists():
+        # Also support when drafts are saved directly under views/ with flat structure
+        alt_path = BACKEND_DIR / "dossiers_data" / "views" / f"{transcription_id}.json"
+
+        transcription_file = None
+        if primary_path.exists():
+            transcription_file = primary_path
+        elif alt_path.exists():
+            transcription_file = alt_path
+        elif legacy_path.exists():
+            transcription_file = legacy_path
+
+        if not transcription_file:
             logger.warning(f"📂 Transcription file not found: {transcription_id}")
             return None
 

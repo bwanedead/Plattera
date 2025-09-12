@@ -249,7 +249,7 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
         
         logger.info("✅ Processing completed successfully!")
 
-        # NEW: Associate with dossier - auto-create if none specified
+        # NEW: Persist drafts and associate with dossier - auto-create if none specified
         transcription_id = None
         logger.info(f"🔍 Checking dossier association - dossier_id: {dossier_id}")
 
@@ -284,11 +284,41 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
                     create_transcription_provenance
                 )
 
-                # Extract transcription ID from result metadata or generate one
-                # The transcription should have been saved to saved_drafts/ by the pipeline
+                # Extract or synthesize transcription ID
                 transcription_id = extract_transcription_id_from_result(result)
+                if not transcription_id:
+                    # Fallback: synthesize an id from filename stem
+                    from pathlib import Path
+                    stem = Path(temp_path).stem
+                    transcription_id = f"draft_{stem}"
 
                 if transcription_id:
+                    # Persist raw JSON to dossiers_data/views/transcriptions/{transcription_id}.json
+                    try:
+                        from pathlib import Path
+                        import json
+                        BACKEND_DIR = Path(__file__).resolve().parents[2]
+                        out_dir = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
+                        out_dir.mkdir(parents=True, exist_ok=True)
+                        out_file = out_dir / f"{transcription_id}.json"
+                        with open(out_file, 'w', encoding='utf-8') as f:
+                            # If result.extracted_text contains JSON string, prefer structured dict if present
+                            raw = result
+                            # Ensure sections are present if possible; if extracted_text is JSON string, try parse
+                            try:
+                                import json as _json
+                                txt = result.get('extracted_text')
+                                if isinstance(txt, str) and txt.strip().startswith('{'):
+                                    parsed = _json.loads(txt)
+                                    if isinstance(parsed, dict):
+                                        raw = parsed
+                            except Exception:
+                                pass
+                            json.dump(raw, f, indent=2, ensure_ascii=False)
+                        logger.info(f"💾 Persisted transcription JSON: {out_file}")
+                    except Exception as persist_err:
+                        logger.warning(f"⚠️ Failed to persist transcription JSON: {persist_err}")
+
                     from services.dossier.association_service import TranscriptionAssociationService
                     association_service = TranscriptionAssociationService()
 

@@ -1,0 +1,25 @@
+{
+  "dossier_id": "1806690e-35bb-4345-9475-3c7674ba9d15",
+  "associations": [
+    {
+      "transcription_id": "draft_doc1",
+      "position": 1,
+      "added_at": "2025-09-11T16:26:32.111579",
+      "metadata": {
+        "auto_added": true,
+        "source": "processing_api",
+        "processing_params": {
+          "model": "gpt-o4-mini",
+          "extraction_mode": "legal_document_json",
+          "redundancy_count": 3,
+          "consensus_strategy": "sequential"
+        },
+        "provenance": {
+          "version": "1.0",
+          "created_at": "2025-09-11T16:26:32.111579",
+          "error": "name 'os' is not defined"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "id": "bde6cd91-4aa7-49b4-90b0-3b47d07f230a",
+  "title": "dossier super dooper",
+  "description": "Auto-created dossier for transcription processed at 2025-09-10 17:15",
+  "created_at": "2025-09-10T17:15:10.305535",
+  "updated_at": "2025-09-11T15:38:38.441296",
+  "active_text_source": null,
+  "manual_segments": [],
+  "segment_name_overrides": {
+    "segment_auto_draft_doc1": "sunny may"
+  },
+  "segments": [
+    {
+      "id": "segment_auto_draft_doc1",
+      "name": "sunny may",
+      "description": "Auto-generated segment for transcription draft_doc1",
+      "position": 0,
+      "runs": [
+        {
+          "id": "run_draft_doc1",
+          "position": 0,
+          "transcriptionId": "draft_doc1",
+          "metadata": {
+            "createdAt": "2025-09-10T17:15:10.370017",
+            "totalSizeBytes": 0,
+            "lastActivity": "2025-09-10T17:15:10.370017"
+          },
+          "drafts": [
+            {
+              "id": "draft_doc1_v1",
+              "position": 0,
+              "transcriptionId": "draft_doc1",
+              "isBest": true,
+              "metadata": {
+                "sizeBytes": 0,
+                "quality": "unknown",
+                "confidence": 0
+              }
+            },
+            {
+              "id": "draft_doc1_v2",
+              "position": 1,
+              "transcriptionId": "draft_doc1",
+              "isBest": false,
+              "metadata": {
+                "sizeBytes": 0,
+                "quality": "unknown",
+                "confidence": 0
+              }
+            },
+            {
+              "id": "draft_doc1_v3",
+              "position": 2,
+              "transcriptionId": "draft_doc1",
+              "isBest": false,
+              "metadata": {
+                "sizeBytes": 0,
+                "quality": "unknown",
+                "confidence": 0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

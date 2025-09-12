@@ -53,7 +53,7 @@ async function resolveDraftText(dossier: Dossier, path: DossierPath): Promise<Re
 async function resolveRunText(dossier: Dossier, path: DossierPath): Promise<ResolvedSelection> {
   const segment = findById(dossier.segments, path.segmentId);
   const run = findById(segment?.runs, path.runId);
-  const draft = (run?.drafts || [])[0] || null;
+  const draft = ((run?.drafts || []).find(d => (d as any).isBest || (d as any).is_best) || (run?.drafts || [])[0]) || null;
   if (!segment || !run || !draft) {
     return { mode: 'run', path, text: '', context: { dossier, segment, run, draft } };
   }
@@ -68,7 +68,7 @@ async function resolveRunText(dossier: Dossier, path: DossierPath): Promise<Reso
 async function resolveSegmentText(dossier: Dossier, path: DossierPath): Promise<ResolvedSelection> {
   const segment = findById(dossier.segments, path.segmentId);
   const run = (segment?.runs || [])[0] || null;
-  const draft = (run?.drafts || [])[0] || null;
+  const draft = ((run?.drafts || []).find(d => (d as any).isBest || (d as any).is_best) || (run?.drafts || [])[0]) || null;
   if (!segment || !run || !draft) {
     return { mode: 'segment', path, text: '', context: { dossier, segment, run, draft } };
   }
