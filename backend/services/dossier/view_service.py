@@ -325,6 +325,19 @@ class DossierViewService:
         elif legacy_path.exists():
             transcription_file = legacy_path
 
+        # Fallback: if versioned draft not found, try base transcription id (strip _vN)
+        if not transcription_file and ("_v" in transcription_id):
+            base_id = transcription_id.rsplit("_v", 1)[0]
+            base_primary = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / f"{base_id}.json"
+            base_alt = BACKEND_DIR / "dossiers_data" / "views" / f"{base_id}.json"
+            base_legacy = BACKEND_DIR / "saved_drafts" / f"{base_id}.json"
+            if base_primary.exists():
+                transcription_file = base_primary
+            elif base_alt.exists():
+                transcription_file = base_alt
+            elif base_legacy.exists():
+                transcription_file = base_legacy
+
         if not transcription_file:
             logger.warning(f"📂 Transcription file not found: {transcription_id}")
             return None

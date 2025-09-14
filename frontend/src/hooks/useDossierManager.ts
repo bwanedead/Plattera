@@ -323,7 +323,8 @@ export function useDossierManager() {
       console.log('📊 Dossiers array length:', dossiers.length);
       dispatch({ type: 'UPDATE_DOSSIERS', payload: dossiers });
     } catch (error) {
-      console.error('❌ Failed to load dossiers:', error);
+      // Downgrade to warn to avoid dev overlay during transient startup failures
+      console.warn('⚠️ Failed to load dossiers (will show soft retry UI):', error);
       const errorMessage = error instanceof DossierApiError
         ? error.message
         : 'Failed to load dossiers';

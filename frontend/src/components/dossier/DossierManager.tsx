@@ -32,7 +32,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   // DEBUG LOGGING
   // ============================================================================
 
-  console.log('🎯 DossierManager rendering');
+  // Suppress frequent render log
 
   // ============================================================================
   // STATE MANAGEMENT
@@ -59,12 +59,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     bulkDelete
   } = useDossierManager();
 
-  console.log('📊 DossierManager state:', {
-    isLoading,
-    hasError,
-    dossierCount: filteredDossiers.length,
-    error: state.errorStates.dossiers
-  });
+  // Reduce state spam; keep actionable logs elsewhere
 
   // Local UI state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -208,13 +203,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   // EFFECTS
   // ============================================================================
 
-  // Refresh dossiers when processing completes
-  useEffect(() => {
-    if (onProcessingComplete) {
-      console.log('🔄 Processing completed - refreshing dossiers');
-      loadDossiers();
-    }
-  }, [onProcessingComplete, loadDossiers]);
+  // Removed effect that reloaded dossiers on every render due to function identity changes
 
   // ============================================================================
   // MODAL HANDLERS
@@ -248,10 +237,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   }, [state.dossiers, state.selectedPath.dossierId]);
 
   const stats = useMemo(() => {
-    console.log('📊 Calculating stats - state.dossiers:', state.dossiers);
-    console.log('📊 Calculating stats - state.dossiers type:', typeof state.dossiers);
     const dossiers = state.dossiers || [];
-    console.log('📊 Calculating stats - dossiers array length:', dossiers.length);
 
     const result = {
       totalDossiers: dossiers.length,
@@ -262,8 +248,6 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
         sum + (d.segments || []).reduce((segSum, s) =>
           segSum + (s.runs || []).reduce((runSum, r) => runSum + (r.drafts?.length || 0), 0), 0), 0)
     };
-
-    console.log('📊 Stats calculation result:', result);
     return result;
   }, [state.dossiers]);
 

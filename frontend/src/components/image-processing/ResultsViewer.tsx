@@ -12,6 +12,7 @@ import { FinalDraftSelector } from './FinalDraftSelector';
 import { DossierManager } from '../dossier/DossierManager';
 import { DossierPath } from '../../types/dossier';
 import { resolveSelectionToText, ResolvedSelection } from '../../services/dossier/selectionResolver';
+import { textApi } from '../../services/textApi';
 
 // Define interfaces for props to ensure type safety
 interface ResultsViewerProps {
@@ -127,9 +128,21 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                       const selectedIndex = selectedDraftId && resolved.context?.run?.drafts
                         ? Math.max(0, (resolved.context.run.drafts || []).findIndex(d => d.id === selectedDraftId))
                         : 0;
-                      const individual_results = Array.from({ length: draftCount }).map((_, i) => ({
+                      // Fetch raw JSON for all drafts to fully populate DraftSelector and JSON tab
+                      const draftIds = (resolved.context?.run?.drafts || []).map(d => d.id);
+                      const jsonStrings: string[] = [];
+                      for (let i = 0; i < draftIds.length; i++) {
+                        try {
+                          const js = await textApi.getDraftJson(draftIds[i]);
+                          jsonStrings.push(js || '');
+                        } catch (e) {
+                          jsonStrings.push('');
+                        }
+                      }
+                      // Build redundancy_analysis with JSON strings per draft
+                      const individual_results = (draftIds.length ? draftIds : [selectedDraftId]).map((_, i) => ({
                         success: true,
-                        text: i === selectedIndex ? (resolved.text || '') : '',
+                        text: jsonStrings[i] || '',
                         model: 'dossier-selection',
                         confidence: 1.0,
                         draft_index: i
@@ -139,15 +152,18 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         input: 'Dossier Selection',
                         status: 'completed' as const,
                         result: {
-                          extracted_text: resolved.text || '',
+                          // Put the selected draft's raw JSON here to keep JSON tab behavior consistent
+                          extracted_text: jsonStrings[selectedIndex] || '',
                           metadata: {
                             model_used: 'dossier-selection',
                             service_type: 'dossier',
                             is_imported_draft: true,
+                            selected_draft_index: selectedIndex,
                             redundancy_analysis: {
                               enabled: false,
                               count: draftCount,
                               individual_results,
+                              // Keep consensus_text as cleaned text for convenience
                               consensus_text: resolved.text || ''
                             }
                           }

@@ -48,7 +48,7 @@ export const DossierList: React.FC<DossierListProps> = ({
       <div className="dossier-list loading">
         <div className="dossier-loading-indicator">
           <div className="loading-spinner"></div>
-          <span>Loading dossiers...</span>
+          <span>Loading dossiers…</span>
         </div>
       </div>
     );
@@ -59,11 +59,12 @@ export const DossierList: React.FC<DossierListProps> = ({
   // ============================================================================
 
   if (error) {
+    // Soft error UI to avoid dev overlay noise during backend startup
     return (
       <div className="dossier-list error">
         <div className="dossier-error-message">
           <span className="error-icon">⚠️</span>
-          <span className="error-text">{error}</span>
+          <span className="error-text">Backend unavailable, retrying…</span>
         </div>
       </div>
     );

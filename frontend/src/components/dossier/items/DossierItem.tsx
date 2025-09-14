@@ -42,7 +42,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   // DEBUGGING
   // ============================================================================
 
-  console.log('🔄 DossierItem: Rendering dossier:', dossier?.id, 'title:', dossier?.title || dossier?.name);
+  // Render log removed to reduce console noise
 
   // ============================================================================
   // EARLY RETURN FOR INVALID DATA

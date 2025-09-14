@@ -215,10 +215,16 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     return isJsonResult(originalJsonText);
   }, [getOriginalJsonTextCallback]);
 
-  // Reset draft selection when result changes
+  // Reset draft selection when result changes, honoring selected_draft_index if provided
   useEffect(() => {
     if (imageProcessing.selectedResult) {
-      setSelectedDraft(0); // Reset to Draft 1
+      const idx = imageProcessing.selectedResult?.result?.metadata?.selected_draft_index;
+      console.log('🧭 Workspace result change:', {
+        hasResult: true,
+        selected_draft_index: idx,
+        prevSelectedDraft: selectedDraft
+      });
+      setSelectedDraft(typeof idx === 'number' ? idx : 0);
       alignmentState.resetAlignmentState();
     }
   }, [imageProcessing.selectedResult]);
@@ -427,7 +433,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             selectedResult={imageProcessing.selectedResult}
             onSelectResult={(res: any) => {
               imageProcessing.selectResult(res);
-              setSelectedDraft(0); // Reset to Draft 1
+              const idx = res?.result?.metadata?.selected_draft_index;
+              setSelectedDraft(typeof idx === 'number' ? idx : 0); // Honor selected draft index from DossierManager
               alignmentState.resetAlignmentState();
                 }}
                             isHistoryVisible={workspaceState.isHistoryVisible}

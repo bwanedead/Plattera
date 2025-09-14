@@ -317,6 +317,43 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
                                 pass
                             json.dump(raw, f, indent=2, ensure_ascii=False)
                         logger.info(f"💾 Persisted transcription JSON: {out_file}")
+
+                        # Additionally persist each redundancy draft as its own versioned file
+                        try:
+                            ra = (result or {}).get('metadata', {}).get('redundancy_analysis', {})
+                            indiv = ra.get('individual_results') or []
+                            # Use redundancy_count as upper bound fallback if individual_results is short/missing
+                            total_versions = max(len(indiv), int((result or {}).get('metadata', {}).get('processing_params', {}).get('redundancy_count') or 0), redundancy_count or 0)
+                            if total_versions <= 0:
+                                total_versions = 1
+                            for idx in range(total_versions):
+                                version_id = f"{transcription_id}_v{idx+1}"
+                                version_file = out_dir / f"{version_id}.json"
+                                try:
+                                    item = indiv[idx] if idx < len(indiv) else None
+                                    content = item.get('text') if isinstance(item, dict) else None
+                                    to_write = None
+                                    if isinstance(content, str) and content.strip().startswith('{'):
+                                        to_write = json.loads(content)
+                                    elif isinstance(content, dict):
+                                        to_write = content
+                                    else:
+                                        # Fallback: if base result.extracted_text looks like JSON, parse it; otherwise write the base raw
+                                        try:
+                                            base_txt = (result or {}).get('extracted_text')
+                                            if isinstance(base_txt, str) and base_txt.strip().startswith('{'):
+                                                to_write = json.loads(base_txt)
+                                            else:
+                                                to_write = raw
+                                        except Exception:
+                                            to_write = raw
+                                    with open(version_file, 'w', encoding='utf-8') as vf:
+                                        json.dump(to_write, vf, indent=2, ensure_ascii=False)
+                                    logger.info(f"💾 Persisted draft JSON: {version_file}")
+                                except Exception as ve:
+                                    logger.warning(f"⚠️ Failed to persist versioned draft {version_id}: {ve}")
+                        except Exception as ve_all:
+                            logger.warning(f"⚠️ Failed to persist versioned drafts: {ve_all}")
                     except Exception as persist_err:
                         logger.warning(f"⚠️ Failed to persist transcription JSON: {persist_err}")
 

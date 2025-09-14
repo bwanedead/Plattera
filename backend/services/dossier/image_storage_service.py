@@ -29,8 +29,8 @@ class ImageStorageService:
 
     def __init__(self):
         BACKEND_DIR = Path(__file__).resolve().parents[2]
-        self.original_images_dir = BACKEND_DIR / "dossiers/images/original"
-        self.processed_images_dir = BACKEND_DIR / "dossiers/images/processed"
+        self.original_images_dir = BACKEND_DIR / "dossiers_data/images/original"
+        self.processed_images_dir = BACKEND_DIR / "dossiers_data/images/processed"
 
         # Create directories if they don't exist
         self.original_images_dir.mkdir(parents=True, exist_ok=True)

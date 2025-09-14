@@ -38,22 +38,7 @@ export const DraftItem: React.FC<DraftItemProps> = ({
     return <div className="draft-item-error">Error: Draft missing ID</div>;
   }
 
-  // 🔍 DEBUG: Log the actual data structure we're receiving
-  console.log('🔍 DraftItem Debug - Received data:', {
-    draft: draft,
-    draftKeys: Object.keys(draft),
-    draftId: draft.id,
-    hasId: 'id' in draft,
-    transcriptionId: draft.transcriptionId,
-    hasTranscriptionId: 'transcriptionId' in draft,
-    transcription_id: (draft as any).transcription_id,
-    hasTranscription_id: 'transcription_id' in draft,
-    isBest: draft.isBest,
-    hasIsBest: 'isBest' in draft,
-    is_best: (draft as any).is_best,
-    hasIs_best: 'is_best' in draft,
-    metadata: draft.metadata
-  });
+  // Debug logging removed to reduce noise during hover/rerenders
 
   // ============================================================================
   // COMPUTED VALUES

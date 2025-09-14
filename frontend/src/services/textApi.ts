@@ -13,10 +13,10 @@ export class TextApiError extends Error {
 
 export const textApi = {
   async getDraftText(transcriptionId: string, draftId: string): Promise<string> {
-    // Prefer dossier-views transcription text endpoint
-    const primary = `${BASE_URL}/dossier-views/transcription/${encodeURIComponent(transcriptionId)}/text`;
+    // Prefer the specific draft JSON so each draft shows its own content
+    const primary = `${BASE_URL}/dossier-management/drafts/${encodeURIComponent(draftId)}`;
     const fallbacks = [
-      `${BASE_URL}/dossier-management/drafts/${encodeURIComponent(draftId)}`, // returns JSON; we can stitch text client-side if needed
+      `${BASE_URL}/dossier-views/transcription/${encodeURIComponent(transcriptionId)}/text`,
     ];
     const tryFetch = async (url: string) => {
       const res = await fetch(url);
@@ -64,6 +64,26 @@ export const textApi = {
         } catch (_) {}
       }
       console.warn('textApi.getDraftText failed; returning empty text fallback', err);
+      return '';
+    }
+  },
+
+  async getDraftJson(draftId: string): Promise<string> {
+    console.log('🛰️ textApi.getDraftJson request:', { draftId });
+    const url = `${BASE_URL}/dossier-management/drafts/${encodeURIComponent(draftId)}`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        const msg = await res.text().catch(() => '');
+        throw new TextApiError(msg || `HTTP ${res.status}`, res.status, msg);
+      }
+      const data = await res.json().catch(() => ({}));
+      // Return the prettified raw JSON of the draft
+      const payload = data?.data ?? data;
+      console.log('🛰️ textApi.getDraftJson response:', { draftId, hasData: !!payload, keys: payload ? Object.keys(payload) : [] });
+      return JSON.stringify(payload, null, 2);
+    } catch (err) {
+      console.warn('textApi.getDraftJson failed', err);
       return '';
     }
   }

@@ -16,8 +16,8 @@ class DossierApiError extends Error {
 
 class DossierApiClient {
   private baseUrl = 'http://localhost:8000/api';
-  private retryAttempts = 3;
-  private retryDelay = 1000;
+  private retryAttempts = 8; // more resilient during backend startup
+  private retryDelay = 500;  // base delay (ms) for exponential backoff
 
   // ============================================================================
   // CORE CRUD OPERATIONS
@@ -191,7 +191,11 @@ class DossierApiClient {
         lastError = error as Error;
 
         if (attempt < this.retryAttempts && this.isRetryableError(error)) {
-          await this.delay(this.retryDelay * attempt);
+          // Exponential backoff with jitter
+          const exp = Math.pow(2, attempt - 1);
+          const jitter = Math.floor(Math.random() * 250);
+          const delayMs = Math.min(15000, this.retryDelay * exp + jitter);
+          await this.delay(delayMs);
           continue;
         }
 
