@@ -316,7 +316,30 @@ After redundancy styling implementation, verify:
   display: flex;
   flex-direction: column;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
+}
+
+/* Ensure the dossier manager region can allocate height for its internal scroller */
+.results-history-panel .dossier-manager-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0; /* critical so children can scroll inside flex */
+}
+
+/* Override dossier-manager sizing only in the history panel context */
+.results-history-panel .dossier-manager {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0; /* allow .dossier-list to determine its own scroll */
+}
+
+/* Ensure the list itself becomes the scroller */
+.results-history-panel .dossier-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .history-header {
