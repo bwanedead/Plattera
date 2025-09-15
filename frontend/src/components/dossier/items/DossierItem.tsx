@@ -14,6 +14,7 @@ interface DossierItemProps {
   isExpanded: boolean;
   isSelected: boolean;
   selectedPath: DossierPath;
+  currentDisplayPath?: DossierPath;
   isMultiSelected?: boolean;
   expandedItems: Set<string>;
   onToggleExpand: (id: string) => void;
@@ -29,6 +30,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   isExpanded,
   isSelected,
   selectedPath,
+  currentDisplayPath,
   isMultiSelected = false,
   expandedItems,
   onToggleExpand,
@@ -92,12 +94,12 @@ export const DossierItem: React.FC<DossierItemProps> = ({
       onAction('rename_dossier', { targetId: dossier.id, newName: trimmedValue, currentName });
     }
     setIsEditing(false);
-    setEditValue(dossier.title || dossier.name);
+    setEditValue(dossier.title || dossier.name || '');
   }, [editValue, dossier.title, dossier.name, dossier.id, onAction]);
 
   const handleEditCancel = useCallback(() => {
     setIsEditing(false);
-    setEditValue(dossier.title || dossier.name);
+    setEditValue(dossier.title || dossier.name || '');
   }, [dossier.title, dossier.name]);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
@@ -111,7 +113,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
     // Right-click → begin rename mode for dossier
-    const currentName = dossier.title || dossier.name;
+    const currentName = dossier.title || dossier.name || '';
     setEditValue(currentName);
     setIsEditing(true);
   }, [dossier.title, dossier.name]);
@@ -124,7 +126,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
     <div className="dossier-item-container">
       {/* Main dossier row */}
       <div
-        className={`dossier-item ${isSelected ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${classNameOverride || ''}`}
+        className={`dossier-item ${(isSelected || currentDisplayPath?.dossierId === dossier.id) ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${classNameOverride || ''}`}
         onClick={(e) => {
           // Clicking the header selects and toggles expand/collapse for responsiveness
           handleClick(e);
@@ -223,6 +225,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
                   isExpanded={expandedItems.has(segment.id)}
                   isSelected={selectedPath.segmentId === segment.id}
                   selectedPath={selectedPath}
+                  currentDisplayPath={currentDisplayPath}
                   expandedItems={expandedItems}
                   onToggleExpand={onToggleExpand}
                   onSelect={(path) => onSelect(path)}

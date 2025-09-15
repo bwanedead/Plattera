@@ -181,6 +181,7 @@ export interface DossierManagerProps {
   onProcessingComplete?: () => void;
   className?: string;
   onViewRequest?: (path: DossierPath) => void;
+  currentDisplayPath?: DossierPath; // Path of item currently displayed in ResultsViewer
 }
 
 export interface DossierItemProps {
@@ -188,6 +189,7 @@ export interface DossierItemProps {
   isExpanded: boolean;
   isSelected: boolean;
   selectedPath: DossierPath;
+  currentDisplayPath?: DossierPath;
   onToggle: (dossierId: string) => void;
   onSelect: (path: DossierPath) => void;
   onAction: (action: string, data?: any) => void;
@@ -199,6 +201,7 @@ export interface SegmentItemProps {
   isExpanded: boolean;
   isSelected: boolean;
   selectedPath: DossierPath;
+  currentDisplayPath?: DossierPath;
   onToggle: (segmentId: string) => void;
   onSelect: (path: DossierPath) => void;
   onAction: (action: string, data?: any) => void;
@@ -211,6 +214,7 @@ export interface RunItemProps {
   isExpanded: boolean;
   isSelected: boolean;
   selectedPath: DossierPath;
+  currentDisplayPath?: DossierPath;
   onToggle: (runId: string) => void;
   onSelect: (path: DossierPath) => void;
   onAction: (action: string, data?: any) => void;
@@ -223,6 +227,7 @@ export interface DraftItemProps {
   dossierId: string;
   isSelected: boolean;
   selectedPath: DossierPath;
+  currentDisplayPath?: DossierPath;
   onSelect: (path: DossierPath) => void;
   onAction: (action: string, data?: any) => void;
 }

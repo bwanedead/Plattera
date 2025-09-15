@@ -517,16 +517,6 @@
   font-size: 0.85rem;
 }
 
-/* Badges */
-.run-best-indicator {
-  display: inline-block;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: rgba(var(--accent-primary-rgb), 0.15);
-  color: var(--accent-primary);
-  font-size: 0.7rem;
-  margin-left: 0.4rem;
-}
 
 /* Run item boxed aesthetic */
 .run-item { display: flex; flex-direction: column; gap: 0.25rem; }
@@ -541,7 +531,6 @@
 
 /* Draft item styling */
 .draft-item { padding: 0.35rem 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); cursor: pointer; }
-.draft-item.best { border-color: var(--accent-primary); background: rgba(var(--accent-primary-rgb), 0.05); }
 .draft-header { display: flex; align-items: center; }
 .draft-info { display: flex; flex-direction: column; gap: 0.15rem; }
 .draft-name { font-weight: 600; color: var(--text-primary); }

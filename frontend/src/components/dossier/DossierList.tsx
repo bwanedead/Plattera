@@ -13,6 +13,7 @@ import { DossierItem } from './items/DossierItem';
 interface DossierListProps {
   dossiers: Dossier[];
   selectedPath: DossierPath;
+  currentDisplayPath?: DossierPath;
   expandedItems: Set<string>;
   selectedItems: Set<string>;
   isLoading: boolean;
@@ -28,6 +29,7 @@ interface DossierListProps {
 export const DossierList: React.FC<DossierListProps> = ({
   dossiers,
   selectedPath,
+  currentDisplayPath,
   expandedItems,
   selectedItems,
   isLoading,
@@ -116,6 +118,7 @@ export const DossierList: React.FC<DossierListProps> = ({
             isExpanded={expandedItems.has(dossier.id)}
             isSelected={selectedPath.dossierId === dossier.id}
             selectedPath={selectedPath}
+            currentDisplayPath={currentDisplayPath}
             isMultiSelected={selectedItems.has(dossier.id)}
             expandedItems={expandedItems}
             onToggleExpand={onToggleExpand}

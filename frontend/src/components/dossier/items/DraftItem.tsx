@@ -12,6 +12,7 @@ interface DraftItemProps {
   run: { id: string; position: number; transcription_id?: string };
   segment: { id: string; name: string };
   dossier: { id: string; title?: string; name?: string };
+  currentDisplayPath?: DossierPath;
   onItemAction: (action: string, data: any) => void;
   onItemSelect: (path: DossierPath) => void;
   onViewRequest?: (path: DossierPath) => void;
@@ -22,6 +23,7 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   run,
   segment,
   dossier,
+  currentDisplayPath,
   onItemAction,
   onItemSelect,
   onViewRequest
@@ -110,30 +112,20 @@ export const DraftItem: React.FC<DraftItemProps> = ({
     });
   }, [onViewRequest, dossier.id, segment.id, run.id, draft.id]);
 
-  const handleSetBest = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    onItemAction('set_best_draft', {
-      dossier_id: dossier.id,
-      segment_id: segment.id,
-      run_id: run.id,
-      draft_id: draft.id
-    });
-  }, [dossier.id, segment.id, run.id, draft.id, onItemAction]);
-
   // ============================================================================
   // RENDER
   // ============================================================================
 
   return (
     <div
-      className={`draft-item ${draft.isBest ? 'best' : ''}`}
+      className={`draft-item ${(currentDisplayPath?.dossierId === dossier.id && currentDisplayPath?.segmentId === segment.id && currentDisplayPath?.runId === run.id && currentDisplayPath?.draftId === draft.id) ? 'selected' : ''}`}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
     >
       <div className="draft-header">
         <div className="draft-info">
           <div className="draft-name">
-            Draft {draft.position + 1} {draft.isBest && '(Best)'}
+            Draft {draft.position + 1}
           </div>
           <div className="draft-details">
             <span className="draft-date">
@@ -162,15 +154,6 @@ export const DraftItem: React.FC<DraftItemProps> = ({
           >
             View
           </button>
-          {!draft.isBest && (
-            <button
-              className="draft-action-btn set-best"
-              onClick={handleSetBest}
-              title="Mark as best draft"
-            >
-              Set Best
-            </button>
-          )}
         </div>
       </div>
     </div>

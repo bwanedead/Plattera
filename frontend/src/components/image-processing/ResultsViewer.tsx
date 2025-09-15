@@ -93,9 +93,17 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState('text');
   const [showAlignedText, setShowAlignedText] = useState(false);
+  const [currentDisplayPath, setCurrentDisplayPath] = useState<DossierPath | undefined>();
 
   // Check if current result has multiple drafts for alignment
   const hasMultipleDrafts = selectedResult?.result?.metadata?.redundancy_analysis?.individual_results?.length > 1;
+
+  // Clear currentDisplayPath when not showing dossier results
+  React.useEffect(() => {
+    if (selectedResult?.result?.metadata?.service_type !== 'dossier') {
+      setCurrentDisplayPath(undefined);
+    }
+  }, [selectedResult]);
 
   // Text update handler from editing functionality
   const handleTextUpdate = (newText: string) => {
@@ -116,6 +124,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
               </div>
               <div className="dossier-manager-content">
                 <DossierManager
+                  currentDisplayPath={currentDisplayPath}
                   onSelectionChange={(path: DossierPath) => {
                     console.log('📁 Dossier selection changed:', path);
                   }}
@@ -147,6 +156,14 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         confidence: 1.0,
                         draft_index: i
                       }));
+
+                      // Update the current display path for highlighting
+                      setCurrentDisplayPath({
+                        dossierId: resolved.context?.dossier?.id,
+                        segmentId: resolved.context?.segment?.id,
+                        runId: resolved.context?.run?.id,
+                        draftId: resolved.context?.draft?.id
+                      });
 
                       const syntheticResult = {
                         input: 'Dossier Selection',

@@ -14,6 +14,7 @@ interface SegmentItemProps {
   isExpanded: boolean;
   isSelected: boolean;
   selectedPath: DossierPath;
+  currentDisplayPath?: DossierPath;
   expandedItems: Set<string>;
   onToggleExpand: (id: string) => void;
   onSelect: (path: DossierPath) => void;
@@ -27,6 +28,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
   isExpanded,
   isSelected,
   selectedPath,
+  currentDisplayPath,
   expandedItems,
   onToggleExpand,
   onSelect,
@@ -121,7 +123,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
     <div className="segment-item-container">
       {/* Main segment row */}
       <div
-        className={`segment-item`}
+        className={`segment-item ${(isSelected || (currentDisplayPath?.dossierId === dossierId && currentDisplayPath?.segmentId === segment.id)) ? 'selected' : ''}`}
         onClick={(e) => {
           // Click should not create lingering selection for sub-items
           onToggleExpand(segment.id);
@@ -235,6 +237,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
                   dossier={{ id: dossierId }}
                   isExpanded={expandedItems.has(run.id)}
                   isSelected={selectedPath.runId === run.id}
+                  currentDisplayPath={currentDisplayPath}
                   onToggleExpand={(id) => onToggleExpand(id)}
                   onItemSelect={(path) => onSelect(path)}
                   onItemAction={(action, data) => onAction(action, {

@@ -26,7 +26,8 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   initialSelection,
   onProcessingComplete,
   className = '',
-  onViewRequest
+  onViewRequest,
+  currentDisplayPath
 }) => {
   // ============================================================================
   // DEBUG LOGGING
@@ -287,6 +288,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
       <DossierList
         dossiers={filteredDossiers}
         selectedPath={state.selectedPath}
+        currentDisplayPath={currentDisplayPath}
         expandedItems={state.expandedItems}
         selectedItems={state.selectedItems}
         isLoading={isLoading}

@@ -14,6 +14,7 @@ interface RunItemProps {
   dossier: { id: string; title?: string; name?: string };
   isExpanded: boolean;
   isSelected: boolean;
+  currentDisplayPath?: DossierPath;
   onToggleExpand?: (id: string) => void;
   onItemAction: (action: string, data: any) => void;
   onItemSelect: (path: DossierPath) => void;
@@ -26,6 +27,7 @@ export const RunItem: React.FC<RunItemProps> = ({
   dossier,
   isExpanded,
   isSelected,
+  currentDisplayPath,
   onToggleExpand,
   onItemAction,
   onItemSelect,
@@ -79,7 +81,6 @@ export const RunItem: React.FC<RunItemProps> = ({
     }
   };
 
-  const bestDraft = (run.drafts || []).find(draft => draft.isBest);
 
   // ============================================================================
   // EVENT HANDLERS
@@ -131,7 +132,7 @@ export const RunItem: React.FC<RunItemProps> = ({
     <div className={`run-item ${isDragging ? 'dragging' : ''}`}>
       {/* Header */}
       <div
-        className="run-header"
+        className={`run-header ${(isSelected || (currentDisplayPath?.dossierId === dossier.id && currentDisplayPath?.segmentId === segment.id && currentDisplayPath?.runId === run.id)) ? 'selected' : ''}`}
         onClick={(e) => { handleClick(); if (typeof onToggleExpand === 'function') { onToggleExpand(run.id); } }}
         onDoubleClick={handleDoubleClick}
         onMouseEnter={() => setIsHovered(true)}
@@ -161,9 +162,6 @@ export const RunItem: React.FC<RunItemProps> = ({
             <span className="run-stats">
               {stats.drafts} drafts • {formatSize(stats.totalSize)}
             </span>
-            {bestDraft && (
-              <span className="run-best-indicator">Best</span>
-            )}
           </div>
           {(isHovered || isSelected) && (
             <div className="run-actions">
@@ -198,6 +196,7 @@ export const RunItem: React.FC<RunItemProps> = ({
                   run={run}
                   segment={segment}
                   dossier={dossier}
+                  currentDisplayPath={currentDisplayPath}
                   onItemAction={onItemAction}
                   onItemSelect={() => handleDraftSelect(draft.id)}
                   onViewRequest={onViewRequest}

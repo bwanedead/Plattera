@@ -189,10 +189,9 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
     if (selectedDraft === 'consensus') {
       return hasAlignmentConsensus ? 'Consensus Draft 🎯' : 'Consensus';
     }
-    if (selectedDraft === 'best') return `Draft ${bestDraftIndex + 1} ⭐`; // Fallback for existing "best" selections
+    if (selectedDraft === 'best') return `Draft ${bestDraftIndex + 1}`; // Fallback for existing "best" selections
     const draftNumber = selectedDraft + 1;
-    const isBest = selectedDraft === bestDraftIndex;
-    return `Draft ${draftNumber}${isBest ? ' ⭐' : ''}`;
+    return `Draft ${draftNumber}`;
   };
 
   const toggleVisibility = () => {
@@ -256,17 +255,16 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
       
       {isDropdownOpen && (
         <div className="draft-dropdown">
-          {/* UPDATED: Only show individual drafts, with stars for best draft */}
+          {/* UPDATED: Only show individual drafts */}
           {successfulResults.map((result, index) => {
-            const isBest = index === bestDraftIndex;
             return (
-              <div 
+              <div
                 key={index}
                 className={`draft-item ${selectedDraft === index ? 'active' : ''}`}
                 onClick={() => handleDraftSelect(index)}  // ← CRITICAL: Triggers heatmap individual draft view
               >
                 <span className="draft-name">
-                  Draft {index + 1}{isBest ? ' ⭐' : ''}
+                  Draft {index + 1}
                 </span>
                 <span className="draft-desc">{result.tokens} tokens</span>  {/* ← INFO: Heatmap may display this */}
               </div>
