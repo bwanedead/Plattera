@@ -74,6 +74,19 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     return unsubscribe;
   }, []);
 
+  // Listen for global dossier refresh events (triggered after processing completes)
+  useEffect(() => {
+    const handler = () => {
+      try {
+        loadDossiers();
+      } catch (e) {
+        console.warn('⚠️ DossierManager: failed to refresh dossiers on event', e);
+      }
+    };
+    document.addEventListener('dossiers:refresh', handler);
+    return () => document.removeEventListener('dossiers:refresh', handler);
+  }, [loadDossiers]);
+
   // ============================================================================
   // SELECTION HANDLING
   // ============================================================================

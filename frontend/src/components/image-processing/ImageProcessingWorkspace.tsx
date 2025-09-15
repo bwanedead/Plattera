@@ -127,6 +127,23 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     alignmentState.showAlignmentTable,
   ]);
 
+  // Ensure dossier dropdown refreshes after processing completes (new dossier created)
+  useEffect(() => {
+    imageProcessing.setOnProcessingComplete(() => {
+      try {
+        console.log('🔄 Processing completed - refreshing dossiers for dropdown');
+        dossierState.loadDossiers();
+        // Broadcast a global refresh signal for any listeners (e.g., DossierManager instances)
+        try {
+          document.dispatchEvent(new CustomEvent('dossiers:refresh'));
+        } catch {}
+      } catch (e) {
+        console.warn('⚠️ Failed to refresh dossiers after processing', e);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dossierState.loadDossiers]);
+
   // Handler for final draft selection with state persistence
   const handleFinalDraftSelected = useCallback((finalText: string, metadata: any) => {
     console.log('🎯 Final draft selected in workspace:', {

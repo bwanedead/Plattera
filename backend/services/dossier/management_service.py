@@ -141,7 +141,7 @@ class DossierManagementService:
             except Exception:
                 redundancy_count = 1
 
-            # Build drafts list: Draft 1..N (first marked as best for now)
+            # Build drafts list: Draft 1..N (do not mark any as best here)
             run.drafts = []
             for i in range(max(1, redundancy_count)):
                 draft_id = f"{transcription.transcription_id}_v{i+1}"
@@ -149,7 +149,7 @@ class DossierManagementService:
                     draft_id=draft_id,
                     transcription_id=transcription.transcription_id,
                     position=i,
-                    is_best=(i == 0)
+                    is_best=False
                 )
                 # Minimal metadata placeholders; can be enriched later from provenance
                 draft.metadata = {
@@ -158,6 +158,47 @@ class DossierManagementService:
                     'confidence': 0
                 }
                 run.drafts.append(draft)
+
+            # Determine longest draft by reading persisted versioned drafts and set is_best accordingly
+            try:
+                from pathlib import Path as _Path
+                _BACKEND_DIR = _Path(__file__).resolve().parents[2]
+                _drafts_dir = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
+
+                longest_idx = None
+                max_len = -1
+
+                for i, d in enumerate(run.drafts):
+                    fpath = _drafts_dir / f"{transcription.transcription_id}_v{i+1}.json"
+                    length = 0
+                    if fpath.exists():
+                        with open(fpath, 'r', encoding='utf-8') as fp:
+                            content = json.load(fp)
+
+                        text = ""
+                        if isinstance(content, dict):
+                            sections = content.get('sections')
+                            if isinstance(sections, list):
+                                # Structured format with sections
+                                text = " ".join(
+                                    str(s.get('body', '')) for s in sections if isinstance(s, dict)
+                                )
+                            elif 'extracted_text' in content:
+                                text = str(content.get('extracted_text', ''))
+                            elif 'text' in content:
+                                text = str(content.get('text', ''))
+
+                        length = len(text.strip())
+
+                    if length > max_len:
+                        max_len = length
+                        longest_idx = i
+
+                if longest_idx is not None:
+                    for i, d in enumerate(run.drafts):
+                        d.is_best = (i == longest_idx)
+            except Exception as _e:
+                logger.warning(f"⚠️ Failed to determine best draft by length for {transcription.transcription_id}: {_e}")
 
             # Build hierarchy
             segment.runs.append(run)
