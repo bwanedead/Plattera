@@ -31,15 +31,15 @@ export function isJsonResult(extractedText: string): boolean {
   
   try {
     const parsed = JSON.parse(extractedText)
-    const isStructuredJson = parsed && typeof parsed === 'object' && 
-           parsed.documentId && Array.isArray(parsed.sections)
+    const hasSections = parsed && typeof parsed === 'object' && Array.isArray((parsed as any).sections)
+    const isStructuredJson = !!hasSections
     
     console.log('🔍 JSON Detection:', {
       textLength: extractedText.length,
       textPreview: extractedText.substring(0, 100),
       canParse: true,
-      hasDocumentId: !!parsed.documentId,
-      hasSections: Array.isArray(parsed.sections),
+      hasDocumentId: !!(parsed as any).documentId,
+      hasSections: hasSections,
       isStructuredJson
     });
     
@@ -60,12 +60,12 @@ export function isJsonResult(extractedText: string): boolean {
 export function parseJsonResult(extractedText: string): DocumentTranscription | null {
   try {
     const parsed = JSON.parse(extractedText)
-    if (parsed && parsed.documentId && Array.isArray(parsed.sections)) {
+    if (parsed && Array.isArray((parsed as any).sections)) {
       return parsed as DocumentTranscription
     }
     console.log('⚠️ Parsed JSON but missing required structure:', {
-      hasDocumentId: !!parsed.documentId,
-      hasSections: Array.isArray(parsed.sections),
+      hasDocumentId: !!(parsed as any).documentId,
+      hasSections: Array.isArray((parsed as any).sections),
       keys: Object.keys(parsed)
     });
     return null
@@ -83,7 +83,7 @@ export function parseJsonResult(extractedText: string): DocumentTranscription | 
       
       console.log('🔧 Attempting to parse fixed JSON...');
       const parsed = JSON.parse(fixedText)
-      if (parsed && parsed.documentId && Array.isArray(parsed.sections)) {
+      if (parsed && Array.isArray((parsed as any).sections)) {
         console.log('✅ Successfully parsed fixed JSON!');
         return parsed as DocumentTranscription
       }
