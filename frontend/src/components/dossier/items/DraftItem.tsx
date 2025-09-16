@@ -125,7 +125,7 @@ export const DraftItem: React.FC<DraftItemProps> = ({
       <div className="draft-header">
         <div className="draft-info">
           <div className="draft-name">
-            Draft {draft.position + 1}
+            Draft {draft.position + 1}{draft.isBest && <span className="best-indicator">*</span>}
           </div>
           <div className="draft-details">
             <span className="draft-date">

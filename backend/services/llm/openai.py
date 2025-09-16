@@ -171,6 +171,37 @@ class OpenAIService(LLMService):
             "api_model_name": "gpt-5-nano"
         }
     }
+
+    # Extend models with consensus-specific aliases (non-breaking additions)
+    models.update({
+        "gpt-5-consensus": {
+            "name": "GPT-5 (Consensus)",
+            "provider": "openai",
+            "cost_tier": "standard",
+            "capabilities": ["text"],
+            "description": "Profile for LLM consensus generation (free-text)",
+            "verification_required": False,
+            "api_model_name": "gpt-5"
+        },
+        "gpt-5-mini-consensus": {
+            "name": "GPT-5 Mini (Consensus)",
+            "provider": "openai",
+            "cost_tier": "budget",
+            "capabilities": ["text"],
+            "description": "Profile for LLM consensus generation (balanced speed/quality)",
+            "verification_required": False,
+            "api_model_name": "gpt-5-mini"
+        },
+        "gpt-5-nano-consensus": {
+            "name": "GPT-5 Nano (Consensus)",
+            "provider": "openai",
+            "cost_tier": "budget",
+            "capabilities": ["text"],
+            "description": "Profile for LLM consensus generation (speed/cost optimized)",
+            "verification_required": False,
+            "api_model_name": "gpt-5-nano"
+        }
+    })
     
     def __init__(self):
         self.client = None
