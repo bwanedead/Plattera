@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { ProcessingResult, EnhancementSettings, RedundancySettings } from '../types/imageProcessing';
+import { ProcessingResult, EnhancementSettings, RedundancySettings, ConsensusSettings } from '../types/imageProcessing';
 import { fetchModelsAPI, processFilesAPI } from '../services/imageProcessingApi';
 
 export const useImageProcessing = () => {
@@ -22,6 +22,10 @@ export const useImageProcessing = () => {
     enabled: false,
     count: 1,
     consensusStrategy: 'highest_confidence'
+  });
+  const [consensusSettings, setConsensusSettings] = useState<ConsensusSettings>({
+    enabled: false,
+    model: 'gpt-5-consensus'
   });
   // DOSSIER SUPPORT
   const [selectedDossierId, setSelectedDossierId] = useState<string | null>(null);
@@ -72,6 +76,7 @@ export const useImageProcessing = () => {
         extractionMode,
         enhancementSettings,
         redundancySettings,
+        consensusSettings,
         dossierIdToSend,
         selectedSegmentId || undefined
       );
@@ -152,6 +157,7 @@ export const useImageProcessing = () => {
     loadingModes,
     enhancementSettings,
     redundancySettings,
+    consensusSettings,
     // DOSSIER SUPPORT
     selectedDossierId,
     onProcessingComplete,
@@ -165,6 +171,7 @@ export const useImageProcessing = () => {
     setExtractionMode,
     setEnhancementSettings,
     setRedundancySettings,
+    setConsensusSettings,
     setSessionResults,
     // DOSSIER ACTIONS
     setSelectedDossierId,

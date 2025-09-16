@@ -10,6 +10,8 @@ import time
 import random
 import concurrent.futures
 from typing import List, Dict, Any
+from services.registry import get_registry
+from prompts.redundancy_consensus import build_consensus_prompt
 
 from utils.text_utils import filter_valid_extractions
 
@@ -18,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 class RedundancyProcessor:
     """Handles complete redundancy workflow for image-to-text processing"""
+    def __init__(self):
+        # Optional LLM consensus configuration (set by pipeline/controller)
+        self.auto_llm_consensus: bool = False
+        self.llm_consensus_model: str = "gpt-5-consensus"  # default alias
     
     def process(self, service, image_data: str, image_format: str, prompt: str, model: str, 
                redundancy_count: int, json_mode: bool = False) -> dict:
@@ -164,16 +170,25 @@ class RedundancyProcessor:
         
         logger.info(f"✅ DRAFT SELECTED ► Using result {best_result_index + 1}/{len(filtered_results)} (length: {len(best_text)} chars)")
         
+        # Optional: generate LLM consensus only when enabled and multiple drafts exist
+        consensus_payload: Dict[str, Any] = {}
+        if self.auto_llm_consensus and len(filtered_texts) > 1:
+            try:
+                consensus_payload = self._generate_llm_consensus(filtered_texts)
+            except Exception as e:
+                logger.warning(f"⚠️ LLM consensus generation failed (non-critical): {e}")
+
         return self._format_success_response(
-            best_text, model, total_tokens, results, successful_results, 
-            filtered_texts, best_result_index
+            best_text, model, total_tokens, results, successful_results,
+            filtered_texts, best_result_index, consensus=consensus_payload
         )
     
     def _format_success_response(self, best_text: str, model: str, total_tokens: int,
                                all_results: List[dict], successful_results: List[dict],
-                               filtered_texts: List[str], best_result_index: int) -> dict:
+                               filtered_texts: List[str], best_result_index: int,
+                               consensus: Dict[str, Any] | None = None) -> dict:
         """Format successful redundancy response with complete metadata"""
-        return {
+        resp = {
             "success": True,
             "extracted_text": best_text,
             "model_used": model,
@@ -204,6 +219,23 @@ class RedundancyProcessor:
                 }
             }
         }
+
+        # Attach LLM consensus data if available
+        try:
+            if consensus and isinstance(consensus, dict) and consensus.get("text"):
+                ra = resp["metadata"].get("redundancy_analysis", {})
+                ra["consensus_text"] = consensus.get("text", "")
+                if consensus.get("title"):
+                    ra["consensus_title"] = consensus.get("title")
+                ra["consensus_model"] = consensus.get("model") or self.llm_consensus_model
+                if consensus.get("tokens") is not None:
+                    ra["consensus_tokens_used"] = consensus.get("tokens")
+                ra["consensus_source"] = "llm"
+                resp["metadata"]["redundancy_analysis"] = ra
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to attach LLM consensus (non-critical): {e}")
+
+        return resp
     
     def _format_error_response(self, error_text: str, error_reason: str, model: str, 
                              total_calls: int, successful_calls: int = 0) -> dict:
@@ -224,3 +256,35 @@ class RedundancyProcessor:
                 "failed_calls": total_calls - successful_calls
             }
         } 
+
+    def _generate_llm_consensus(self, drafts: List[str]) -> Dict[str, Any]:
+        """Generate LLM-based consensus from multiple drafts. Non-critical: failures are tolerated."""
+        registry = get_registry()
+        prompt = build_consensus_prompt(drafts)
+        model = self.llm_consensus_model or "gpt-5-consensus"
+        res = registry.process_text(prompt=prompt, model=model, max_tokens=3000, temperature=0.2)
+        if not res or not res.get("success"):
+            return {}
+
+        raw = res.get("text") or ""
+        tokens = res.get("tokens_used")
+
+        # Parse optional title
+        title = None
+        text_out = raw.strip()
+        lines = text_out.splitlines()
+        if lines:
+            first = lines[0].strip()
+            if first.lower().startswith("title:"):
+                title = first.split(":", 1)[1].strip()
+                body = lines[1:]
+                if body and body[0].strip() == "":
+                    body = body[1:]
+                text_out = "\n".join(body).strip()
+
+        return {
+            "text": text_out,
+            "title": title,
+            "model": model,
+            "tokens": tokens,
+        }

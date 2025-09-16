@@ -413,6 +413,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 onShowEnhancementModal={() => setShowEnhancementModal(true)}
             redundancySettings={imageProcessing.redundancySettings}
             onRedundancySettingsChange={imageProcessing.setRedundancySettings}
+            consensusSettings={imageProcessing.consensusSettings}
+            onConsensusSettingsChange={imageProcessing.setConsensusSettings}
             // DOSSIER SUPPORT
             selectedDossierId={imageProcessing.selectedDossierId}
             onDossierChange={imageProcessing.setSelectedDossierId}

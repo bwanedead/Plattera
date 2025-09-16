@@ -13,6 +13,8 @@ import { DossierManager } from '../dossier/DossierManager';
 import { DossierPath } from '../../types/dossier';
 import { resolveSelectionToText, ResolvedSelection } from '../../services/dossier/selectionResolver';
 import { textApi } from '../../services/textApi';
+// @ts-ignore - Temporary fix for TypeScript cache issue with new DossierReader module
+import DossierReader from './DossierReader';
 
 // Define interfaces for props to ensure type safety
 interface ResultsViewerProps {
@@ -98,6 +100,10 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   // Check if current result has multiple drafts for alignment
   const hasMultipleDrafts = selectedResult?.result?.metadata?.redundancy_analysis?.individual_results?.length > 1;
 
+  // Check if this is a dossier-level view (stitched content)
+  const isDossierView = selectedResult?.result?.metadata?.service_type === 'dossier' &&
+                       selectedResult?.result?.metadata?.is_dossier_level === true;
+
   // Clear currentDisplayPath when not showing dossier results
   React.useEffect(() => {
     if (selectedResult?.result?.metadata?.service_type !== 'dossier') {
@@ -132,63 +138,86 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                     console.log('👁️ View requested:', path);
                     try {
                       const resolved: ResolvedSelection = await resolveSelectionToText(path);
-                      const draftCount = resolved.context?.run?.drafts?.length || 1;
-                      const selectedDraftId = resolved.context?.draft?.id;
-                      const selectedIndex = selectedDraftId && resolved.context?.run?.drafts
-                        ? Math.max(0, (resolved.context.run.drafts || []).findIndex(d => d.id === selectedDraftId))
-                        : 0;
-                      // Fetch raw JSON for all drafts to fully populate DraftSelector and JSON tab
-                      const draftIds = (resolved.context?.run?.drafts || []).map(d => d.id);
-                      const jsonStrings: string[] = [];
-                      for (let i = 0; i < draftIds.length; i++) {
-                        try {
-                          const js = await textApi.getDraftJson(draftIds[i]);
-                          jsonStrings.push(js || '');
-                        } catch (e) {
-                          jsonStrings.push('');
-                        }
-                      }
-                      // Build redundancy_analysis with JSON strings per draft
-                      const individual_results = (draftIds.length ? draftIds : [selectedDraftId]).map((_, i) => ({
-                        success: true,
-                        text: jsonStrings[i] || '',
-                        model: 'dossier-selection',
-                        confidence: 1.0,
-                        draft_index: i
-                      }));
 
                       // Update the current display path for highlighting
-                      setCurrentDisplayPath({
-                        dossierId: resolved.context?.dossier?.id,
-                        segmentId: resolved.context?.segment?.id,
-                        runId: resolved.context?.run?.id,
-                        draftId: resolved.context?.draft?.id
-                      });
+                      setCurrentDisplayPath(path);
 
-                      const syntheticResult = {
-                        input: 'Dossier Selection',
-                        status: 'completed' as const,
-                        result: {
-                          // Put the selected draft's raw JSON here to keep JSON tab behavior consistent
-                          extracted_text: jsonStrings[selectedIndex] || '',
-                          metadata: {
-                            model_used: 'dossier-selection',
-                            service_type: 'dossier',
-                            is_imported_draft: true,
-                            selected_draft_index: selectedIndex,
-                            redundancy_analysis: {
-                              enabled: false,
-                              count: draftCount,
-                              individual_results,
-                              // Keep consensus_text as cleaned text for convenience
-                              consensus_text: resolved.text || ''
+                      // Check if this is dossier-level viewing (no segment/run/draft specified)
+                      const isDossierLevel = !path.segmentId && !path.runId && !path.draftId;
+
+                      if (isDossierLevel) {
+                        // Create dossier-level result for DossierReader
+                        const dossierResult = {
+                          input: 'Dossier View',
+                          status: 'completed' as const,
+                          result: {
+                            extracted_text: resolved.text || '',
+                            metadata: {
+                              model_used: 'dossier-view',
+                              service_type: 'dossier',
+                              is_dossier_level: true,
+                              dossier_title: resolved.context?.dossier?.title || resolved.context?.dossier?.name,
+                              dossier_id: path.dossierId,
+                              stitched_content: resolved.text || ''
                             }
                           }
+                        };
+                        onSelectResult(dossierResult);
+                        setActiveTab('text');
+                      } else {
+                        // Handle individual draft/run/segment selection
+                        const draftCount = resolved.context?.run?.drafts?.length || 1;
+                        const selectedDraftId = resolved.context?.draft?.id;
+                        const selectedIndex = selectedDraftId && resolved.context?.run?.drafts
+                          ? Math.max(0, (resolved.context.run.drafts || []).findIndex(d => d.id === selectedDraftId))
+                          : 0;
+
+                        // Fetch raw JSON for all drafts to fully populate DraftSelector and JSON tab
+                        const draftIds = (resolved.context?.run?.drafts || []).map(d => d.id);
+                        const jsonStrings: string[] = [];
+                        for (let i = 0; i < draftIds.length; i++) {
+                          try {
+                            const js = await textApi.getDraftJson(draftIds[i]);
+                            jsonStrings.push(js || '');
+                          } catch (e) {
+                            jsonStrings.push('');
+                          }
                         }
-                      };
-                      onSelectResult(syntheticResult);
-                      onDraftSelect(selectedIndex as any);
-                      setActiveTab('text');
+
+                        // Build redundancy_analysis with JSON strings per draft
+                        const individual_results = (draftIds.length ? draftIds : [selectedDraftId]).map((_, i) => ({
+                          success: true,
+                          text: jsonStrings[i] || '',
+                          model: 'dossier-selection',
+                          confidence: 1.0,
+                          draft_index: i
+                        }));
+
+                        const syntheticResult = {
+                          input: 'Dossier Selection',
+                          status: 'completed' as const,
+                          result: {
+                            // Put the selected draft's raw JSON here to keep JSON tab behavior consistent
+                            extracted_text: jsonStrings[selectedIndex] || '',
+                            metadata: {
+                              model_used: 'dossier-selection',
+                              service_type: 'dossier',
+                              is_imported_draft: true,
+                              selected_draft_index: selectedIndex,
+                              redundancy_analysis: {
+                                enabled: false,
+                                count: draftCount,
+                                individual_results,
+                                // Keep consensus_text as cleaned text for convenience
+                                consensus_text: resolved.text || ''
+                              }
+                            }
+                          }
+                        };
+                        onSelectResult(syntheticResult);
+                        onDraftSelect(selectedIndex as any);
+                        setActiveTab('text');
+                      }
                     } catch (e) {
                       console.warn('Failed to resolve dossier selection', e);
                     }
@@ -379,7 +408,12 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                       className="text-viewer-pane"
                       style={{ height: '100%' }}
                     >
-                      {showHeatmap && alignmentResult ? (
+                      {isDossierView ? (
+                        <DossierReader
+                          dossierId={currentDisplayPath?.dossierId || ''}
+                          dossierTitle={selectedResult.result?.metadata?.dossier_title || 'Dossier'}
+                        />
+                      ) : showHeatmap && alignmentResult ? (
                         <ConfidenceHeatmapViewer
                           alignmentResult={alignmentResult}
                           onTextUpdate={handleTextUpdate}
@@ -400,8 +434,8 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         />
                       ) : (
                         <div className="text-content-wrapper">
-                          {editableDraftState?.hasUnsavedChanges && 
-                           editableDraftState?.editedFromDraft === selectedDraft && 
+                          {editableDraftState?.hasUnsavedChanges &&
+                           editableDraftState?.editedFromDraft === selectedDraft &&
                            showEditedVersion && (
                             <div className="edited-text-indicator">
                               ✏️ Showing edited version

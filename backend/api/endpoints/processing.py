@@ -110,7 +110,10 @@ async def process_content(
     # Redundancy setting - optional
     redundancy: str = Form("3"),
     # Consensus strategy - optional
-    consensus_strategy: str = Form("sequential")
+    consensus_strategy: str = Form("sequential"),
+    # LLM consensus settings - optional
+    auto_llm_consensus: str = Form("false"),
+    llm_consensus_model: str = Form("gpt-5-consensus")
 ):
     """
     Universal processing endpoint that routes to appropriate pipeline
@@ -139,6 +142,8 @@ async def process_content(
     logger.info(f"   🎨 Enhancement Settings: contrast={contrast}, sharpness={sharpness}, brightness={brightness}, color={color}")
     logger.info(f"   🔄 Redundancy: {redundancy}")
     logger.info(f"   🧠 Consensus Strategy: {consensus_strategy}")
+    logger.info(f"   🤝 Auto LLM Consensus: {auto_llm_consensus}")
+    logger.info(f"   🤖 LLM Consensus Model: {llm_consensus_model}")
     logger.info(f"   📂 DOSSIER_ID RECEIVED: '{dossier_id}' (type: {type(dossier_id)}, truthy: {bool(dossier_id)})")
     
     # Parse enhancement settings with robust error handling
@@ -172,6 +177,12 @@ async def process_content(
     if consensus_strategy not in valid_strategies:
         logger.warning(f"⚠️ Invalid consensus strategy '{consensus_strategy}', using 'sequential'")
         consensus_strategy = 'sequential'
+
+    # Parse boolean for auto_llm_consensus
+    try:
+        auto_llm_consensus_flag = str(auto_llm_consensus).strip().lower() in ("1", "true", "yes", "on")
+    except Exception:
+        auto_llm_consensus_flag = False
     
     temp_path = None
     
@@ -237,6 +248,14 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
         logger.info(f"🔄 Processing with model: {model}, mode: {extraction_mode}, redundancy: {redundancy_count}, consensus: {consensus_strategy}")
         
         if redundancy_count > 1:
+            # Configure redundancy processor options before running
+            try:
+                # Set auto LLM consensus options in a safe, optional way
+                pipeline.redundancy_processor.auto_llm_consensus = auto_llm_consensus_flag
+                pipeline.redundancy_processor.llm_consensus_model = llm_consensus_model
+            except Exception as cfg_err:
+                logger.warning(f"⚠️ Failed to configure LLM consensus options (non-critical): {cfg_err}")
+
             result = pipeline.process_with_redundancy(temp_path, model, extraction_mode, enhancement_settings, redundancy_count, consensus_strategy)
         else:
             result = pipeline.process(temp_path, model, extraction_mode, enhancement_settings)
@@ -386,7 +405,9 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
                             "model": model,
                             "extraction_mode": extraction_mode,
                             "redundancy_count": redundancy_count,
-                            "consensus_strategy": consensus_strategy
+                            "consensus_strategy": consensus_strategy,
+                            "auto_llm_consensus": auto_llm_consensus_flag,
+                            "llm_consensus_model": llm_consensus_model
                         }
                     }
 
@@ -406,6 +427,59 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
                         logger.info(f"📋 Provenance recorded for transcription {transcription_id}")
                     else:
                         logger.warning(f"⚠️ Failed to associate transcription {transcription_id} with dossier {dossier_id}")
+
+                    # If we produced an LLM consensus, persist it as its own draft labeled clearly
+                    try:
+                        ra = (result or {}).get('metadata', {}).get('redundancy_analysis', {}) or {}
+                        consensus_text = ra.get('consensus_text')
+                        if auto_llm_consensus_flag and isinstance(consensus_text, str) and consensus_text.strip():
+                            consensus_id = f"{transcription_id}_consensus_llm"
+                            # Save the consensus text into views/transcriptions as its own file
+                            try:
+                                consensus_file = out_dir / f"{consensus_id}.json"
+                                with open(consensus_file, 'w', encoding='utf-8') as cf:
+                                    json.dump({
+                                        "type": "llm_consensus",
+                                        "model": ra.get('consensus_model'),
+                                        "title": ra.get('consensus_title'),
+                                        "text": consensus_text
+                                    }, cf, indent=2, ensure_ascii=False)
+                                logger.info(f"💾 Persisted LLM consensus JSON: {consensus_file}")
+                            except Exception as ce:
+                                logger.warning(f"⚠️ Failed to persist LLM consensus JSON: {ce}")
+
+                            # Associate consensus draft into dossier
+                            consensus_meta = {
+                                "auto_added": True,
+                                "source": "llm_consensus",
+                                "label": "AI Generated Consensus",
+                                "consensus": {
+                                    "model": ra.get('consensus_model'),
+                                    "tokens_used": ra.get('consensus_tokens_used'),
+                                },
+                                "linked_transcription": transcription_id
+                            }
+                            success_c = association_service.add_transcription(
+                                dossier_id=str(dossier_id),
+                                transcription_id=consensus_id,
+                                position=next_position + 1,
+                                metadata=consensus_meta
+                            )
+                            if success_c:
+                                logger.info(f"📝 Associated LLM consensus {consensus_id} with dossier {dossier_id}")
+                                # If consensus provided a title, update dossier title (non-blocking)
+                                try:
+                                    from services.dossier.management_service import DossierManagementService as _DMS
+                                    _ms = _DMS()
+                                    if ra.get('consensus_title'):
+                                        _ms.update_dossier(str(dossier_id), {"title": ra.get('consensus_title')})
+                                        logger.info(f"🏷️ Updated dossier {dossier_id} title from LLM consensus title")
+                                except Exception as e2:
+                                    logger.warning(f"⚠️ Failed to update dossier title from consensus: {e2}")
+                            else:
+                                logger.warning(f"⚠️ Failed to associate LLM consensus {consensus_id} with dossier {dossier_id}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ LLM consensus dossier persistence failed (non-critical): {e}")
             except Exception as e:
                 logger.warning(f"⚠️ Dossier association failed (non-critical): {e}")
                 # Don't fail the entire request if dossier association fails

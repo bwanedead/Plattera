@@ -1,8 +1,8 @@
-import { EnhancementSettings, ProcessingResult, RedundancySettings, AlignmentDraft, AlignmentResult } from '../types/imageProcessing';
+import { EnhancementSettings, ProcessingResult, RedundancySettings, ConsensusSettings, AlignmentDraft, AlignmentResult } from '../types/imageProcessing';
 
 // --- API Calls for Image Processing Feature ---
 
-export const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings, dossierId?: string, segmentId?: string): Promise<ProcessingResult[]> => {
+export const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings, consensusSettings: ConsensusSettings, dossierId?: string, segmentId?: string): Promise<ProcessingResult[]> => {
   console.log(`Processing ${files.length} files with model: ${model} and mode: ${mode}`);
   
   const results: ProcessingResult[] = [];
@@ -29,6 +29,10 @@ export const processFilesAPI = async (files: File[], model: string, mode: string
       if (redundancySettings.enabled) {
         formData.append('consensus_strategy', redundancySettings.consensusStrategy);
       }
+
+      // LLM consensus settings
+      formData.append('auto_llm_consensus', consensusSettings.enabled ? 'true' : 'false');
+      formData.append('llm_consensus_model', consensusSettings.model);
 
       // Add dossier ID if provided
       console.log(`📁 Dossier ID parameter received: ${dossierId}`);

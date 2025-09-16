@@ -17,6 +17,11 @@ interface RedundancySettings {
   consensusStrategy: string;
 }
 
+interface ConsensusSettings {
+  enabled: boolean;
+  model: string;
+}
+
 interface ControlPanelProps {
   stagedFiles: File[];
   onDrop: (acceptedFiles: File[]) => void;
@@ -36,6 +41,8 @@ interface ControlPanelProps {
   onShowEnhancementModal: () => void;
   redundancySettings: RedundancySettings;
   onRedundancySettingsChange: (settings: RedundancySettings) => void;
+  consensusSettings: ConsensusSettings;
+  onConsensusSettingsChange: (settings: ConsensusSettings) => void;
   // DOSSIER SUPPORT
   selectedDossierId?: string | null;
   onDossierChange?: (dossierId: string | null) => void;
@@ -63,6 +70,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onShowEnhancementModal,
   redundancySettings,
   onRedundancySettingsChange,
+  consensusSettings,
+  onConsensusSettingsChange,
   // DOSSIER SUPPORT
   selectedDossierId,
   onDossierChange,
@@ -279,6 +288,39 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 </div>
               </div>
             </>
+          )}
+        </div>
+      </div>
+
+      {/* LLM Consensus Settings */}
+      <div className="consensus-section">
+        <label>AI Consensus</label>
+        <div className="redundancy-controls">
+          <div className="redundancy-toggle">
+            <input
+              type="checkbox"
+              id="consensus-enabled"
+              checked={consensusSettings.enabled}
+              onChange={(e) => onConsensusSettingsChange({ ...consensusSettings, enabled: e.target.checked })}
+            />
+            <label htmlFor="consensus-enabled">Enable LLM Consensus</label>
+          </div>
+
+          {consensusSettings.enabled && (
+            <div className="consensus-strategy-group" style={{ marginTop: '0.5rem' }}>
+              <label htmlFor="consensus-model">Consensus Model</label>
+              <select
+                id="consensus-model"
+                value={consensusSettings.model}
+                onChange={(e) => onConsensusSettingsChange({ ...consensusSettings, model: e.target.value })}
+                className="consensus-strategy-select"
+              >
+                <option value="gpt-5-consensus">GPT-5 (Consensus)</option>
+                <option value="gpt-5-mini-consensus">GPT-5 Mini (Consensus)</option>
+                <option value="gpt-5-nano-consensus">GPT-5 Nano (Consensus)</option>
+              </select>
+              <small className="consensus-strategy-hint">Runs only when redundancy is enabled (>1 drafts)</small>
+            </div>
           )}
         </div>
       </div>
