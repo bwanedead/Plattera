@@ -80,6 +80,21 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
     });
   }, [dossierId, segment.id, onSelect]);
 
+  const handleExpandWithAutoExpansion = useCallback(() => {
+    // First, toggle the segment expansion
+    onToggleExpand(segment.id);
+
+    // Check for auto-expansion: if segment has exactly 1 run,
+    // auto-expand the run to show drafts immediately
+    const runs = segment.runs || [];
+    if (runs.length === 1) {
+      // Auto-expand: segment -> run (which shows drafts)
+      setTimeout(() => {
+        onToggleExpand(runs[0].id);
+      }, 0);
+    }
+  }, [segment.id, segment.runs, onToggleExpand]);
+
   const handleDoubleClick = useCallback(() => {
     // Double-click now views the segment (first run's first draft)
     console.log('👁️ Segment view request', { dossierId, segmentId: segment.id });
@@ -126,7 +141,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
         className={`segment-item ${(isSelected || (currentDisplayPath?.dossierId === dossierId && currentDisplayPath?.segmentId === segment.id)) ? 'selected' : ''}`}
         onClick={(e) => {
           // Click should not create lingering selection for sub-items
-          onToggleExpand(segment.id);
+          handleExpandWithAutoExpansion();
         }}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
@@ -139,7 +154,7 @@ export const SegmentItem: React.FC<SegmentItemProps> = ({
             className="segment-expand-btn"
             onClick={(e) => {
               e.stopPropagation();
-              onToggleExpand(segment.id);
+              handleExpandWithAutoExpansion();
             }}
             aria-label={isExpanded ? 'Collapse segment' : 'Expand segment'}
           >

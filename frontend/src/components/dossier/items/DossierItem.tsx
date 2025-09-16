@@ -81,6 +81,26 @@ export const DossierItem: React.FC<DossierItemProps> = ({
     }
   }, [dossier.id, onSelect, onMultiSelect]);
 
+  const handleExpandWithAutoExpansion = useCallback(() => {
+    // First, toggle the dossier expansion
+    onToggleExpand(dossier.id);
+
+    // Check for auto-expansion: if dossier has exactly 1 segment with exactly 1 run,
+    // auto-expand all the way down to drafts
+    const segments = dossier.segments || [];
+    if (segments.length === 1) {
+      const segment = segments[0];
+      const runs = segment.runs || [];
+      if (runs.length === 1) {
+        // Auto-expand: dossier -> segment -> run (which shows drafts)
+        setTimeout(() => {
+          onToggleExpand(segment.id);
+          onToggleExpand(runs[0].id);
+        }, 0);
+      }
+    }
+  }, [dossier.id, dossier.segments, onToggleExpand]);
+
   const handleDoubleClick = useCallback(() => {
     // Double-click now triggers viewing the dossier in ResultsViewer
     onViewRequest?.({ dossierId: dossier.id });
@@ -130,7 +150,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
         onClick={(e) => {
           // Clicking the header selects and toggles expand/collapse for responsiveness
           handleClick(e);
-          onToggleExpand(dossier.id);
+          handleExpandWithAutoExpansion();
         }}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
@@ -143,7 +163,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
           onClick={(e) => {
             console.log('🔘 Dossier expand button clicked for:', dossier.id);
             e.stopPropagation();
-            onToggleExpand(dossier.id);
+            handleExpandWithAutoExpansion();
           }}
           aria-label={isExpanded ? 'Collapse dossier' : 'Expand dossier'}
         >
