@@ -238,6 +238,13 @@ class ProvenanceSchema:
         else:
             return "very_low"
 
+    @staticmethod
+    def _calculate_string_hash(content: str) -> str:
+        """Calculate SHA256 hash of a string payload."""
+        if content is None:
+            return None
+        return hashlib.sha256(content.encode('utf-8')).hexdigest()
+
 
 # Example usage and schemas
 PROVENANCE_EXAMPLES = {

@@ -28,8 +28,14 @@ export const useAlignmentState = () => {
       const redundancyAnalysis = selectedResult.result.metadata.redundancy_analysis;
       const individualResults = redundancyAnalysis.individual_results || [];
       
+      // Exclude LLM consensus or any consensus-like entries from alignment inputs
       const drafts: AlignmentDraft[] = individualResults
         .filter((result: any) => result.success)
+        .filter((result: any) => {
+          const isConsensusId = typeof result?.imported_draft_id === 'string' && result.imported_draft_id.endsWith('_consensus_llm');
+          const isConsensusType = (result?.metadata && result.metadata.type === 'llm_consensus') || false;
+          return !(isConsensusId || isConsensusType);
+        })
         .map((result: any, index: number) => ({
           draft_id: `Draft_${index + 1}`,
           blocks: [

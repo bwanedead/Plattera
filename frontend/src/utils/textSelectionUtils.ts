@@ -218,7 +218,9 @@ export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensu
     console.log('✅ FRONTEND DEBUG: Using specific draft:', selectedDraft);
     const individualResults = (redundancyAnalysis.individual_results || []).filter((r: any) => r.success);
     if (selectedDraft < individualResults.length) {
-      const draftText = individualResults[selectedDraft].text || '';
+      // Prefer pre-cleaned display_text when available
+      const draftObj = individualResults[selectedDraft];
+      const draftText = (draftObj.display_text || draftObj.text || '');
       // Format JSON as readable text if it's JSON
       return isJsonResult(draftText) ? formatJsonAsText(draftText) : draftText;
     }

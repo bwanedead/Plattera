@@ -172,15 +172,26 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           ? Math.max(0, (resolved.context.run.drafts || []).findIndex(d => d.id === selectedDraftId))
                           : 0;
 
-                        // Fetch raw JSON for all drafts to fully populate DraftSelector and JSON tab
+                        // Fetch raw JSON for all drafts for JSON tab, and clean text for TEXT tab
                         const draftIds = (resolved.context?.run?.drafts || []).map(d => d.id);
                         const jsonStrings: string[] = [];
+                        const cleanTexts: string[] = [];
                         for (let i = 0; i < draftIds.length; i++) {
+                          const draftId = draftIds[i];
                           try {
-                            const js = await textApi.getDraftJson(draftIds[i]);
+                            const js = await textApi.getDraftJson(draftId);
                             jsonStrings.push(js || '');
                           } catch (e) {
                             jsonStrings.push('');
+                          }
+                          try {
+                            const text = await textApi.getDraftText(
+                              resolved.context?.run?.transcriptionId || (resolved.context?.run as any)?.transcription_id || '',
+                              draftId
+                            );
+                            cleanTexts.push(text || '');
+                          } catch (e) {
+                            cleanTexts.push('');
                           }
                         }
 
@@ -188,6 +199,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         const individual_results = (draftIds.length ? draftIds : [selectedDraftId]).map((_, i) => ({
                           success: true,
                           text: jsonStrings[i] || '',
+                          display_text: cleanTexts[i] || '',
                           model: 'dossier-selection',
                           confidence: 1.0,
                           draft_index: i
@@ -197,7 +209,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           input: 'Dossier Selection',
                           status: 'completed' as const,
                           result: {
-                            // Put the selected draft's raw JSON here to keep JSON tab behavior consistent
+                            // Keep the selected draft's raw JSON here to keep JSON tab behavior consistent
                             extracted_text: jsonStrings[selectedIndex] || '',
                             metadata: {
                               model_used: 'dossier-selection',
