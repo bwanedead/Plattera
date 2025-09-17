@@ -200,6 +200,28 @@ class DossierManagementService:
             except Exception as _e:
                 logger.warning(f"⚠️ Failed to determine best draft by length for {transcription.transcription_id}: {_e}")
 
+            # Append LLM consensus draft if present (stored as a separate JSON file)
+            try:
+                from pathlib import Path as _Path2
+                _BACKEND_DIR2 = _Path2(__file__).resolve().parents[2]
+                _drafts_dir2 = _BACKEND_DIR2 / "dossiers_data" / "views" / "transcriptions"
+                consensus_id = f"{transcription.transcription_id}_consensus_llm"
+                consensus_path = _drafts_dir2 / f"{consensus_id}.json"
+                if consensus_path.exists():
+                    consensus_draft = Draft(
+                        draft_id=consensus_id,
+                        transcription_id=transcription.transcription_id,
+                        position=len(run.drafts),
+                        is_best=False
+                    )
+                    consensus_draft.metadata = {
+                        'type': 'llm_consensus',
+                        'label': 'AI Generated Consensus'
+                    }
+                    run.drafts.append(consensus_draft)
+            except Exception as _e2:
+                logger.warning(f"⚠️ Failed to append LLM consensus draft for {transcription.transcription_id}: {_e2}")
+
             # Build hierarchy
             segment.runs.append(run)
             dossier.segments.append(segment)
@@ -383,18 +405,18 @@ class DossierManagementService:
         Returns:
             List of full Dossier objects with populated segments/runs/drafts
         """
-        logger.info("📋 Listing dossiers")
-        logger.info(f"🔍 Looking for dossiers in: {self.storage_dir}")
-        logger.info(f"🔍 Storage dir exists: {self.storage_dir.exists()}")
+        logger.debug("📋 Listing dossiers")
+        logger.debug(f"🔍 Looking for dossiers in: {self.storage_dir}")
+        logger.debug(f"🔍 Storage dir exists: {self.storage_dir.exists()}")
 
         dossiers = []
         try:
             dossier_files = list(self.storage_dir.glob("dossier_*.json"))
-            logger.info(f"📁 Found {len(dossier_files)} dossier files: {[f.name for f in dossier_files]}")
+            logger.debug(f"📁 Found {len(dossier_files)} dossier files")
 
             for file_path in dossier_files:
                 try:
-                    logger.info(f"📖 Reading dossier file: {file_path}")
+                    logger.debug(f"📖 Reading dossier file: {file_path}")
                     with open(file_path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                     dossier = Dossier.from_dict(data)
@@ -402,7 +424,7 @@ class DossierManagementService:
                     # Populate segments, runs, and drafts from associations
                     self._populate_dossier_hierarchy(dossier)
 
-                    logger.info(f"✅ Loaded dossier: {dossier.id} - {dossier.title} with {len(dossier.segments)} segments")
+                    logger.debug(f"✅ Loaded dossier: {dossier.id} - {dossier.title} with {len(dossier.segments)} segments")
                     dossiers.append(dossier)
 
                 except Exception as e:
@@ -413,7 +435,7 @@ class DossierManagementService:
             dossiers.sort(key=lambda d: d.updated_at, reverse=True)
             dossiers = dossiers[offset:offset + limit]
 
-            logger.info(f"📊 Listed {len(dossiers)} dossiers")
+            logger.debug(f"📊 Listed {len(dossiers)} dossiers")
             return dossiers
 
         except Exception as e:

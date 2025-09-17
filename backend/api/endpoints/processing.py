@@ -190,7 +190,17 @@ async def process_content(
         # Route to appropriate pipeline based on content_type
         if content_type == "image-to-text":
             logger.info("🖼️ Routing to image-to-text pipeline")
-            return await _process_image_to_text(file, model, extraction_mode, enhancement_settings, redundancy_count, consensus_strategy, dossier_id)
+            return await _process_image_to_text(
+                file,
+                model,
+                extraction_mode,
+                enhancement_settings,
+                redundancy_count,
+                consensus_strategy,
+                dossier_id,
+                auto_llm_consensus_flag,
+                llm_consensus_model
+            )
         elif content_type == "text-to-schema":
             logger.info("📝 Routing to text-to-schema pipeline")
             return await _process_text_to_schema(file, model)
@@ -209,7 +219,17 @@ async def process_content(
         logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
-async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: str, enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = 'sequential', dossier_id: str = None) -> ProcessResponse:
+async def _process_image_to_text(
+    file: UploadFile,
+    model: str,
+    extraction_mode: str,
+    enhancement_settings: dict = None,
+    redundancy_count: int = 3,
+    consensus_strategy: str = 'sequential',
+    dossier_id: str = None,
+    auto_llm_consensus_flag: bool = False,
+    llm_consensus_model: str = "gpt-5-consensus"
+) -> ProcessResponse:
     """Route to image-to-text pipeline"""
     temp_path = None
     
@@ -428,10 +448,24 @@ async def _process_image_to_text(file: UploadFile, model: str, extraction_mode: 
                     else:
                         logger.warning(f"⚠️ Failed to associate transcription {transcription_id} with dossier {dossier_id}")
 
+                    # Try to update dossier title from LLM consensus title if present (non-blocking)
+                    try:
+                        ra_for_title = (result or {}).get('metadata', {}).get('redundancy_analysis', {}) or {}
+                        consensus_title_for_dossier = ra_for_title.get('consensus_title')
+                        logger.info(f"🔎 CONSENSUS TITLE CHECK ► present={bool(consensus_title_for_dossier)} value={consensus_title_for_dossier!r}")
+                        if consensus_title_for_dossier:
+                            from services.dossier.management_service import DossierManagementService as _DMS2
+                            _ms2 = _DMS2()
+                            _ms2.update_dossier(str(dossier_id), {"title": consensus_title_for_dossier})
+                            logger.info(f"🏷️ Updated dossier {dossier_id} title from LLM consensus title")
+                    except Exception as e_title:
+                        logger.debug(f"(non-critical) Could not update dossier title from consensus: {e_title}")
+
                     # If we produced an LLM consensus, persist it as its own draft labeled clearly
                     try:
                         ra = (result or {}).get('metadata', {}).get('redundancy_analysis', {}) or {}
                         consensus_text = ra.get('consensus_text')
+                        logger.info(f"🔎 CONSENSUS SAVE CHECK ► enabled={auto_llm_consensus_flag} has_text={bool(consensus_text and str(consensus_text).strip())}")
                         if auto_llm_consensus_flag and isinstance(consensus_text, str) and consensus_text.strip():
                             consensus_id = f"{transcription_id}_consensus_llm"
                             # Save the consensus text into views/transcriptions as its own file

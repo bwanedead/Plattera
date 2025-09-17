@@ -88,7 +88,7 @@ class RedundancyProcessor:
                     model=model,
                     image_format=image_format,
                     json_mode=json_mode,
-                    max_tokens=8000  # Explicit high max_tokens for o4-mini
+                    # Do NOT override max tokens here; let the service profile decide.
                 )
                 futures.append(future)
             
@@ -170,11 +170,20 @@ class RedundancyProcessor:
         
         logger.info(f"✅ DRAFT SELECTED ► Using result {best_result_index + 1}/{len(filtered_results)} (length: {len(best_text)} chars)")
         
-        # Optional: generate LLM consensus only when enabled and multiple drafts exist
+        # Optional: generate LLM consensus when enabled
         consensus_payload: Dict[str, Any] = {}
-        if self.auto_llm_consensus and len(filtered_texts) > 1:
+        if self.auto_llm_consensus:
             try:
-                consensus_payload = self._generate_llm_consensus(filtered_texts)
+                if len(filtered_texts) > 1:
+                    logger.info(f"🤝 LLM CONSENSUS ► Generating using model: {self.llm_consensus_model}")
+                    consensus_payload = self._generate_llm_consensus(filtered_texts)
+                else:
+                    logger.info("🤝 LLM CONSENSUS ► Only 1 valid draft; running title/cleanup pass")
+                    consensus_payload = self._generate_llm_consensus(filtered_texts)
+                if consensus_payload.get("text"):
+                    logger.info(f"✅ LLM CONSENSUS ► Received consensus text ({len(consensus_payload['text'])} chars)")
+                if consensus_payload.get("title"):
+                    logger.info(f"🏷️ LLM CONSENSUS ► Extracted title: {consensus_payload['title']}")
             except Exception as e:
                 logger.warning(f"⚠️ LLM consensus generation failed (non-critical): {e}")
 
@@ -258,33 +267,44 @@ class RedundancyProcessor:
         } 
 
     def _generate_llm_consensus(self, drafts: List[str]) -> Dict[str, Any]:
-        """Generate LLM-based consensus from multiple drafts. Non-critical: failures are tolerated."""
+        """Generate LLM-based consensus with retry and higher token cap."""
         registry = get_registry()
         prompt = build_consensus_prompt(drafts)
         model = self.llm_consensus_model or "gpt-5-consensus"
-        res = registry.process_text(prompt=prompt, model=model, max_tokens=3000, temperature=0.2)
-        if not res or not res.get("success"):
-            return {}
 
-        raw = res.get("text") or ""
-        tokens = res.get("tokens_used")
+        attempts = 3
+        last_error = None
+        for i in range(attempts):
+            try:
+                max_tokens = 6000 if i == 0 else 9000  # escalate token cap on retry
+                temp = 0.2 if i < 2 else 0.1
+                res = registry.process_text(prompt=prompt, model=model, max_tokens=max_tokens, temperature=temp)
+                if res and res.get("success") and res.get("text"):
+                    raw = res.get("text") or ""
+                    tokens = res.get("tokens_used")
 
-        # Parse optional title
-        title = None
-        text_out = raw.strip()
-        lines = text_out.splitlines()
-        if lines:
-            first = lines[0].strip()
-            if first.lower().startswith("title:"):
-                title = first.split(":", 1)[1].strip()
-                body = lines[1:]
-                if body and body[0].strip() == "":
-                    body = body[1:]
-                text_out = "\n".join(body).strip()
+                    # Parse optional title
+                    title = None
+                    text_out = raw.strip()
+                    lines = text_out.splitlines()
+                    if lines:
+                        first = lines[0].strip()
+                        if first.lower().startswith("title:"):
+                            title = first.split(":", 1)[1].strip()
+                            body = lines[1:]
+                            if body and body[0].strip() == "":
+                                body = body[1:]
+                            text_out = "\n".join(body).strip()
 
-        return {
-            "text": text_out,
-            "title": title,
-            "model": model,
-            "tokens": tokens,
-        }
+                    return {
+                        "text": text_out,
+                        "title": title,
+                        "model": model,
+                        "tokens": tokens,
+                    }
+                last_error = res.get("error") if res else "Unknown error"
+            except Exception as e:
+                last_error = str(e)
+
+        logger.warning(f"⚠️ LLM consensus failed after {attempts} attempts: {last_error}")
+        return {}
