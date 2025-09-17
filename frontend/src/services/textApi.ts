@@ -28,10 +28,21 @@ export const textApi = {
         if (!ok) {
           throw new TextApiError(data?.error || `HTTP ${res.status}`, res.status, data);
         }
-        text = data?.text ?? '';
+        // Our API returns { success, draft_id, data: payload }
+        const payload = (data && typeof data === 'object' && 'data' in data) ? (data as any).data : data;
+
+        // Special handling for LLM consensus drafts
+        if (payload?.type === 'llm_consensus') {
+          console.log('🔍 Detected LLM consensus draft, extracting text field', { hasText: !!payload?.text });
+          if (payload?.text) {
+            return payload.text;
+          }
+        }
+
+        text = payload?.text ?? '';
         if (text) return text;
         // If JSON without text and we fetched the draft JSON, try deriving text from sections
-        const sections = data?.data?.sections || data?.sections;
+        const sections = payload?.sections || data?.sections;
         if (Array.isArray(sections)) {
           const parts: string[] = [];
           for (const s of sections) {
@@ -47,21 +58,27 @@ export const textApi = {
         if (raw) return raw;
         return '';
       } else {
-        // Plain text or other types
+        // Plain text or other types - this might be the fallback endpoint
         const raw = await res.text().catch(() => '');
         if (!ok) {
           throw new TextApiError(raw || `HTTP ${res.status}`, res.status, raw);
         }
+        console.log('📄 Got plain text response, length:', raw.length);
         return raw;
       }
     };
     try {
+      console.log('🔄 Trying primary URL:', primary);
       return await tryFetch(primary);
     } catch (err: any) {
+      console.warn('⚠️ Primary URL failed, trying fallbacks', err);
       for (const fb of fallbacks) {
         try {
+          console.log('🔄 Trying fallback URL:', fb);
           return await tryFetch(fb);
-        } catch (_) {}
+        } catch (fbErr) {
+          console.warn('⚠️ Fallback URL failed:', fb, fbErr);
+        }
       }
       console.warn('textApi.getDraftText failed; returning empty text fallback', err);
       return '';

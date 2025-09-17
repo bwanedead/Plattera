@@ -461,14 +461,14 @@ async def _process_image_to_text(
                     except Exception as e_title:
                         logger.debug(f"(non-critical) Could not update dossier title from consensus: {e_title}")
 
-                    # If we produced an LLM consensus, persist it as its own draft labeled clearly
+                    # If we produced an LLM consensus, persist it ONLY as a versioned draft file.
+                    # Do NOT associate as a separate transcription to avoid creating a duplicate segment.
                     try:
                         ra = (result or {}).get('metadata', {}).get('redundancy_analysis', {}) or {}
                         consensus_text = ra.get('consensus_text')
                         logger.info(f"🔎 CONSENSUS SAVE CHECK ► enabled={auto_llm_consensus_flag} has_text={bool(consensus_text and str(consensus_text).strip())}")
                         if auto_llm_consensus_flag and isinstance(consensus_text, str) and consensus_text.strip():
                             consensus_id = f"{transcription_id}_consensus_llm"
-                            # Save the consensus text into views/transcriptions as its own file
                             try:
                                 consensus_file = out_dir / f"{consensus_id}.json"
                                 with open(consensus_file, 'w', encoding='utf-8') as cf:
@@ -479,41 +479,11 @@ async def _process_image_to_text(
                                         "text": consensus_text
                                     }, cf, indent=2, ensure_ascii=False)
                                 logger.info(f"💾 Persisted LLM consensus JSON: {consensus_file}")
+                                logger.info("↪️ Skipping separate association for consensus to prevent duplicate segment; it will appear as an extra draft in the same run.")
                             except Exception as ce:
                                 logger.warning(f"⚠️ Failed to persist LLM consensus JSON: {ce}")
-
-                            # Associate consensus draft into dossier
-                            consensus_meta = {
-                                "auto_added": True,
-                                "source": "llm_consensus",
-                                "label": "AI Generated Consensus",
-                                "consensus": {
-                                    "model": ra.get('consensus_model'),
-                                    "tokens_used": ra.get('consensus_tokens_used'),
-                                },
-                                "linked_transcription": transcription_id
-                            }
-                            success_c = association_service.add_transcription(
-                                dossier_id=str(dossier_id),
-                                transcription_id=consensus_id,
-                                position=next_position + 1,
-                                metadata=consensus_meta
-                            )
-                            if success_c:
-                                logger.info(f"📝 Associated LLM consensus {consensus_id} with dossier {dossier_id}")
-                                # If consensus provided a title, update dossier title (non-blocking)
-                                try:
-                                    from services.dossier.management_service import DossierManagementService as _DMS
-                                    _ms = _DMS()
-                                    if ra.get('consensus_title'):
-                                        _ms.update_dossier(str(dossier_id), {"title": ra.get('consensus_title')})
-                                        logger.info(f"🏷️ Updated dossier {dossier_id} title from LLM consensus title")
-                                except Exception as e2:
-                                    logger.warning(f"⚠️ Failed to update dossier title from consensus: {e2}")
-                            else:
-                                logger.warning(f"⚠️ Failed to associate LLM consensus {consensus_id} with dossier {dossier_id}")
                     except Exception as e:
-                        logger.warning(f"⚠️ LLM consensus dossier persistence failed (non-critical): {e}")
+                        logger.warning(f"⚠️ LLM consensus save step failed (non-critical): {e}")
             except Exception as e:
                 logger.warning(f"⚠️ Dossier association failed (non-critical): {e}")
                 # Don't fail the entire request if dossier association fails

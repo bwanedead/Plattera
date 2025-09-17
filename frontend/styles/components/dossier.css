@@ -534,6 +534,7 @@
 .draft-header { display: flex; align-items: center; }
 .draft-info { display: flex; flex-direction: column; gap: 0.15rem; }
 .draft-name { font-weight: 600; color: var(--text-primary); }
+.draft-name.consensus { color: #8b7355; font-weight: 700; }
 .draft-details { color: var(--text-secondary); font-size: 0.75rem; }
 .draft-actions { margin-left: auto; }
 

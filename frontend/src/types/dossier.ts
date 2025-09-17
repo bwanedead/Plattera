@@ -89,6 +89,8 @@ export interface DraftMetadata {
   wordCount: number;
   sizeBytes: number;
   createdAt: Date;
+  // Optional type label for special drafts (e.g., LLM consensus)
+  type?: 'llm_consensus' | string;
 }
 
 // ============================================================================
