@@ -168,12 +168,29 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         // Handle individual draft/run/segment selection
                         const draftCount = resolved.context?.run?.drafts?.length || 1;
                         const selectedDraftId = resolved.context?.draft?.id;
-                        const selectedIndex = selectedDraftId && resolved.context?.run?.drafts
-                          ? Math.max(0, (resolved.context.run.drafts || []).findIndex(d => d.id === selectedDraftId))
-                          : 0;
+                        const allDrafts = resolved.context?.run?.drafts || [];
+
+                        // Separate raw drafts from consensus drafts
+                        const rawDrafts = allDrafts.filter(d => !d.id.endsWith('_consensus_llm'));
+                        const consensusDrafts = allDrafts.filter(d => d.id.endsWith('_consensus_llm'));
+
+                        // Check if selected draft is consensus
+                        const isConsensusSelected = selectedDraftId?.endsWith('_consensus_llm') || false;
+
+                        // Map selected index to raw drafts only
+                        let selectedIndex = 0;
+                        if (selectedDraftId) {
+                          if (isConsensusSelected) {
+                            // For consensus, we don't include it in individual_results, so use index 0
+                            selectedIndex = 0;
+                          } else {
+                            // Find index in raw drafts array
+                            selectedIndex = Math.max(0, rawDrafts.findIndex(d => d.id === selectedDraftId));
+                          }
+                        }
 
                         // Fetch raw JSON for all drafts for JSON tab, and clean text for TEXT tab
-                        const draftIds = (resolved.context?.run?.drafts || []).map(d => d.id);
+                        const draftIds = allDrafts.map(d => d.id);
                         const jsonStrings: string[] = [];
                         const cleanTexts: string[] = [];
                         for (let i = 0; i < draftIds.length; i++) {
@@ -195,30 +212,49 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           }
                         }
 
-                        // Build redundancy_analysis with JSON strings per draft
-                        const individual_results = (draftIds.length ? draftIds : [selectedDraftId]).map((_, i) => ({
-                          success: true,
-                          text: jsonStrings[i] || '',
-                          display_text: cleanTexts[i] || '',
-                          model: 'dossier-selection',
-                          confidence: 1.0,
-                          draft_index: i
-                        }));
+                        // Build redundancy_analysis with ONLY raw drafts (exclude consensus)
+                        const individual_results = rawDrafts.map((draft, i) => {
+                          const draftIndexInAll = allDrafts.findIndex(d => d.id === draft.id);
+                          return {
+                            success: true,
+                            text: jsonStrings[draftIndexInAll] || '',
+                            display_text: cleanTexts[draftIndexInAll] || '',
+                            model: 'dossier-selection',
+                            confidence: 1.0,
+                            draft_index: i
+                          };
+                        });
+
+                        // Determine which text to show for the selected draft
+                        let displayJson = '';
+                        if (isConsensusSelected && consensusDrafts.length > 0) {
+                          // Show consensus JSON directly
+                          const consensusIndex = allDrafts.findIndex(d => d.id === selectedDraftId);
+                          displayJson = jsonStrings[consensusIndex] || '';
+                        } else {
+                          // Show selected raw draft JSON
+                          const rawDraftIndex = rawDrafts.findIndex(d => d.id === selectedDraftId);
+                          if (rawDraftIndex >= 0) {
+                            const draftIndexInAll = allDrafts.findIndex(d => d.id === rawDrafts[rawDraftIndex].id);
+                            displayJson = jsonStrings[draftIndexInAll] || '';
+                          }
+                        }
 
                         const syntheticResult = {
                           input: 'Dossier Selection',
                           status: 'completed' as const,
                           result: {
                             // Keep the selected draft's raw JSON here to keep JSON tab behavior consistent
-                            extracted_text: jsonStrings[selectedIndex] || '',
+                            extracted_text: displayJson,
                             metadata: {
                               model_used: 'dossier-selection',
                               service_type: 'dossier',
                               is_imported_draft: true,
                               selected_draft_index: selectedIndex,
+                              is_consensus_selected: isConsensusSelected,
                               redundancy_analysis: {
                                 enabled: false,
-                                count: draftCount,
+                                count: rawDrafts.length, // Only count raw drafts for alignment
                                 individual_results,
                                 // Keep consensus_text as cleaned text for convenience
                                 consensus_text: resolved.text || ''
