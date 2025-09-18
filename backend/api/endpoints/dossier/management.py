@@ -261,7 +261,7 @@ async def delete_dossier(dossier_id: str):
     logger.info(f"🗑️ API: Deleting dossier {dossier_id}")
 
     try:
-        success = dossier_service.delete_dossier(dossier_id)
+        success = dossier_service.delete_dossier(dossier_id, purge=True)
 
         if not success:
             raise HTTPException(status_code=404, detail=f"Dossier not found: {dossier_id}")

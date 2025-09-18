@@ -39,6 +39,14 @@ export const textApi = {
           }
         }
 
+        // Special handling for alignment consensus drafts
+        if (payload?.type === 'alignment_consensus') {
+          console.log('🔍 Detected alignment consensus draft, extracting text field', { hasText: !!payload?.text });
+          if (payload?.text) {
+            return payload.text;
+          }
+        }
+
         text = payload?.text ?? '';
         if (text) return text;
         // If JSON without text and we fetched the draft JSON, try deriving text from sections

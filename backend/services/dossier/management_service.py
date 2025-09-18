@@ -200,16 +200,18 @@ class DossierManagementService:
             except Exception as _e:
                 logger.warning(f"⚠️ Failed to determine best draft by length for {transcription.transcription_id}: {_e}")
 
-            # Append LLM consensus draft if present (stored as a separate JSON file)
+            # Append LLM consensus draft if present (structured path first, then legacy flat)
             try:
                 from pathlib import Path as _Path2
                 _BACKEND_DIR2 = _Path2(__file__).resolve().parents[2]
-                _drafts_dir2 = _BACKEND_DIR2 / "dossiers_data" / "views" / "transcriptions"
-                consensus_id = f"{transcription.transcription_id}_consensus_llm"
-                consensus_path = _drafts_dir2 / f"{consensus_id}.json"
-                if consensus_path.exists():
+                _root = _BACKEND_DIR2 / "dossiers_data" / "views" / "transcriptions"
+
+                structured_llm = _root / str(dossier.id) / str(transcription.transcription_id) / "consensus" / f"llm_{transcription.transcription_id}.json"
+                flat_llm = _root / f"{transcription.transcription_id}_consensus_llm.json"
+                _llm_path = structured_llm if structured_llm.exists() else (flat_llm if flat_llm.exists() else None)
+                if _llm_path:
                     consensus_draft = Draft(
-                        draft_id=consensus_id,
+                        draft_id=f"{transcription.transcription_id}_consensus_llm",
                         transcription_id=transcription.transcription_id,
                         position=len(run.drafts),
                         is_best=False
@@ -221,6 +223,45 @@ class DossierManagementService:
                     run.drafts.append(consensus_draft)
             except Exception as _e2:
                 logger.warning(f"⚠️ Failed to append LLM consensus draft for {transcription.transcription_id}: {_e2}")
+
+            # Append alignment consensus draft if present (structured path first, then legacy flat)
+            try:
+                structured_align = _root / str(dossier.id) / str(transcription.transcription_id) / "consensus" / f"alignment_{transcription.transcription_id}.json"
+                flat_align = _root / f"{transcription.transcription_id}_consensus_alignment.json"
+                _align_path = structured_align if structured_align.exists() else (flat_align if flat_align.exists() else None)
+                if _align_path:
+                    alignment_consensus_draft = Draft(
+                        draft_id=f"{transcription.transcription_id}_consensus_alignment",
+                        transcription_id=transcription.transcription_id,
+                        position=len(run.drafts),
+                        is_best=False
+                    )
+                    alignment_consensus_draft.metadata = {
+                        'type': 'alignment_consensus',
+                        'label': 'Alignment Consensus'
+                    }
+                    run.drafts.append(alignment_consensus_draft)
+            except Exception as _e3:
+                logger.warning(f"⚠️ Failed to append alignment consensus draft for {transcription.transcription_id}: {_e3}")
+
+            # Append alignment consensus draft if present (stored as a separate JSON file)
+            try:
+                alignment_consensus_id = f"{transcription.transcription_id}_consensus_alignment"
+                alignment_consensus_path = _drafts_dir2 / f"{alignment_consensus_id}.json"
+                if alignment_consensus_path.exists():
+                    alignment_consensus_draft = Draft(
+                        draft_id=alignment_consensus_id,
+                        transcription_id=transcription.transcription_id,
+                        position=len(run.drafts),
+                        is_best=False
+                    )
+                    alignment_consensus_draft.metadata = {
+                        'type': 'alignment_consensus',
+                        'label': 'Alignment Consensus'
+                    }
+                    run.drafts.append(alignment_consensus_draft)
+            except Exception as _e3:
+                logger.warning(f"⚠️ Failed to append alignment consensus draft for {transcription.transcription_id}: {_e3}")
 
             # Build hierarchy
             segment.runs.append(run)
@@ -365,12 +406,14 @@ class DossierManagementService:
         logger.info(f"✅ Updated dossier: {dossier_id}")
         return dossier
 
-    def delete_dossier(self, dossier_id: str) -> bool:
+    def delete_dossier(self, dossier_id: str, purge: bool = True) -> bool:
         """
         Delete a dossier.
 
-        Note: This only deletes the dossier metadata.
-        Associated transcriptions are preserved.
+        By default, only deletes dossier metadata. When purge=True, also deletes
+        associated data under views/transcriptions/<dossier_id>/ and the dossier's
+        association file. Attempts to clean up legacy flat files for this dossier's
+        transcriptions based on associations.
 
         Args:
             dossier_id: The dossier to delete
@@ -378,7 +421,7 @@ class DossierManagementService:
         Returns:
             bool: Success status
         """
-        logger.info(f"🗑️ Deleting dossier: {dossier_id}")
+        logger.info(f"🗑️ Deleting dossier: {dossier_id} (purge={purge})")
 
         dossier_file = self.storage_dir / f"dossier_{dossier_id}.json"
 
@@ -387,8 +430,84 @@ class DossierManagementService:
             return False
 
         try:
+            # Load associations first if purging (to find flat legacy files)
+            assoc_transcription_ids = []
+            try:
+                if purge:
+                    from pathlib import Path as _Path
+                    import json as _json
+                    backend_dir = _Path(__file__).resolve().parents[2]
+                    assoc_file = backend_dir / "dossiers_data" / "associations" / f"assoc_{dossier_id}.json"
+                    if assoc_file.exists():
+                        with open(assoc_file, 'r', encoding='utf-8') as af:
+                            assoc_data = _json.load(af)
+                        # Try common shapes
+                        if isinstance(assoc_data, dict):
+                            items = assoc_data.get('transcriptions') or assoc_data.get('items') or []
+                            for it in items:
+                                tid = it.get('transcription_id') or it.get('id') or it.get('transcriptionId')
+                                if tid:
+                                    assoc_transcription_ids.append(str(tid))
+            except Exception as e_a:
+                logger.warning(f"⚠️ Failed to read associations for purge: {e_a}")
+
+            # Remove dossier metadata file
             dossier_file.unlink()
-            logger.info(f"✅ Deleted dossier: {dossier_id}")
+            logger.info(f"✅ Deleted dossier metadata: {dossier_id}")
+
+            if purge:
+                from pathlib import Path as _Path
+                import shutil as _shutil
+                backend_dir = _Path(__file__).resolve().parents[2]
+                transcriptions_root = backend_dir / "dossiers_data" / "views" / "transcriptions"
+
+                # Remove structured directory for this dossier
+                dossier_dir = transcriptions_root / str(dossier_id)
+                if dossier_dir.exists():
+                    try:
+                        _shutil.rmtree(dossier_dir)
+                        logger.info(f"🧹 Purged transcriptions for dossier: {dossier_dir}")
+                    except Exception as e_rm:
+                        logger.warning(f"⚠️ Failed to remove dossier transcriptions dir: {e_rm}")
+
+                # Remove associations file
+                assoc_file_path = backend_dir / "dossiers_data" / "associations" / f"assoc_{dossier_id}.json"
+                if assoc_file_path.exists():
+                    try:
+                        assoc_file_path.unlink()
+                        logger.info(f"🧹 Removed association file: {assoc_file_path}")
+                    except Exception as e_un:
+                        logger.warning(f"⚠️ Failed to remove association file: {e_un}")
+
+                # Best-effort cleanup of legacy flat files for this dossier
+                try:
+                    if assoc_transcription_ids:
+                        for tid in assoc_transcription_ids:
+                            # Base and versions
+                            for p in list(transcriptions_root.glob(f"{tid}.json")):
+                                try:
+                                    p.unlink()
+                                    logger.info(f"🧹 Removed legacy flat file: {p}")
+                                except Exception:
+                                    pass
+                            for p in list(transcriptions_root.glob(f"{tid}_v*.json")):
+                                try:
+                                    p.unlink()
+                                    logger.info(f"🧹 Removed legacy flat version: {p}")
+                                except Exception:
+                                    pass
+                            # Consensus legacy
+                            for p in [transcriptions_root / f"{tid}_consensus_llm.json",
+                                      transcriptions_root / f"{tid}_consensus_alignment.json"]:
+                                if p.exists():
+                                    try:
+                                        p.unlink()
+                                        logger.info(f"🧹 Removed legacy flat consensus: {p}")
+                                    except Exception:
+                                        pass
+                except Exception as e_legacy:
+                    logger.warning(f"⚠️ Legacy cleanup failed: {e_legacy}")
+
             return True
         except Exception as e:
             logger.error(f"❌ Error deleting dossier {dossier_id}: {e}")

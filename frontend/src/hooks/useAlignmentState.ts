@@ -5,6 +5,8 @@ import { generateConsensusDrafts } from '../services/consensusApi';
 import { selectFinalDraftAPI } from '../services/imageProcessingApi';
 import { workspaceStateManager } from '../services/workspaceStateManager';
 
+// Frontend no longer persists alignment consensus; backend handles saving.
+
 export const useAlignmentState = () => {
   const [alignmentState, setAlignmentState] = useState<AlignmentState>({
     isAligning: false,
@@ -51,7 +53,13 @@ export const useAlignmentState = () => {
       }
 
       console.log('🚀 Aligning drafts:', drafts);
-      const alignmentResult = await alignDraftsAPI(drafts, selectedConsensusStrategy);
+      const transcriptionId = selectedResult?.result?.metadata?.transcription_id || undefined;
+      const dossierId = selectedResult?.result?.metadata?.dossier_id || undefined;
+      const alignmentResult = await alignDraftsAPI(
+        drafts,
+        selectedConsensusStrategy,
+        { transcriptionId, dossierId, consensusDraftId: transcriptionId ? `${transcriptionId}_consensus_alignment` : undefined }
+      );
 
       console.log('📊 Alignment result received:', alignmentResult);
 
@@ -62,6 +70,8 @@ export const useAlignmentState = () => {
           if (consensusResult.success && consensusResult.enhanced_alignment_results) {
             // Update the alignment result with consensus data
             alignmentResult.alignment_results = consensusResult.enhanced_alignment_results;
+
+            // Backend now persists consensus; no frontend save needed
           }
         } catch (error) {
           console.warn('Failed to generate consensus drafts:', error);

@@ -13,6 +13,8 @@ import logging
 import json
 import numpy as np
 from fastapi.responses import JSONResponse
+from pathlib import Path
+from datetime import datetime
 
 # ABSOLUTE IMPORTS ONLY - never relative imports
 from alignment.section_normalizer import SectionNormalizer
@@ -43,6 +45,10 @@ class AlignmentRequest(BaseModel):
     drafts: List[JsonDraft]
     generate_visualization: bool = True
     consensus_strategy: str = "highest_confidence"
+    # Optional: when provided, backend will persist alignment consensus to dossier
+    transcription_id: Optional[str] = None
+    dossier_id: Optional[str] = None
+    consensus_draft_id: Optional[str] = None
 
 
 class AlignmentResponse(BaseModel):
@@ -93,7 +99,12 @@ async def align_legal_drafts(request: AlignmentRequest):
         results = alignment_service.process_alignment_request(
             draft_jsons=draft_jsons,
             generate_visualization=request.generate_visualization,
-            consensus_strategy=request.consensus_strategy
+            consensus_strategy=request.consensus_strategy,
+            save_context={
+                "transcription_id": request.transcription_id or "",
+                "dossier_id": request.dossier_id or "",
+                "consensus_draft_id": request.consensus_draft_id or ""
+            } if (request.transcription_id) else None
         )
         
         if not results['success']:
@@ -107,6 +118,54 @@ async def align_legal_drafts(request: AlignmentRequest):
         
         logger.info(f"✅ BioPython alignment completed successfully in {results['processing_time']:.2f}s")
         
+        # Persist alignment consensus draft if requested and available
+        try:
+            transcription_id = getattr(request, 'transcription_id', None)
+            consensus_text = results.get('consensus_text')
+            if transcription_id and isinstance(transcription_id, str) and transcription_id.strip() and consensus_text:
+                consensus_id = getattr(request, 'consensus_draft_id', None) or f"{transcription_id}_consensus_alignment"
+
+                backend_dir = Path(__file__).resolve().parents[2]
+                transcriptions_root = backend_dir / "dossiers_data" / "views" / "transcriptions"
+
+                # Locate the transcription directory by scanning for any file that starts with transcription_id
+                transcription_dir: Optional[Path] = None
+                for subdir in transcriptions_root.iterdir():
+                    if subdir.is_dir():
+                        for file in subdir.iterdir():
+                            if file.is_file() and file.name.startswith(transcription_id) and file.suffix == ".json":
+                                transcription_dir = subdir
+                                break
+                        if transcription_dir:
+                            break
+
+                if transcription_dir is None:
+                    logger.warning(f"⚠️ Could not find transcription dir for {transcription_id}; skipping consensus save")
+                else:
+                    consensus_file = transcription_dir / f"{consensus_id}.json"
+                    payload = {
+                        "type": "alignment_consensus",
+                        "model": "biopython_alignment",
+                        "strategy": request.consensus_strategy,
+                        "title": f"Alignment Consensus",
+                        "text": consensus_text,
+                        "source_drafts": len(request.drafts),
+                        "tokens_used": 0,
+                        "created_at": datetime.now().isoformat(),
+                        "metadata": {
+                            "alignment_summary": results.get('summary', {}),
+                            "processing_time": results.get('processing_time', 0)
+                        }
+                    }
+                    try:
+                        with open(consensus_file, 'w', encoding='utf-8') as cf:
+                            json.dump(payload, cf, indent=2, ensure_ascii=False)
+                        logger.info(f"💾 Persisted alignment consensus JSON: {consensus_file}")
+                    except Exception as se:
+                        logger.warning(f"⚠️ Failed to persist alignment consensus JSON: {se}")
+        except Exception as persist_err:
+            logger.warning(f"⚠️ Consensus persistence step failed (non-critical): {persist_err}")
+
         return AlignmentResponse(
             success=True,
             processing_time=results['processing_time'],

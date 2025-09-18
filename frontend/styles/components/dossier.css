@@ -133,6 +133,7 @@
   align-items: center;
   gap: 0.5rem;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .dossier-action-btn {
@@ -380,6 +381,8 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
 }
 
 .dossier-name {
@@ -419,6 +422,7 @@
   align-items: center;
   gap: 0.25rem;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .dossier-action-small {
@@ -535,6 +539,7 @@
 .draft-info { display: flex; flex-direction: column; gap: 0.15rem; }
 .draft-name { font-weight: 600; color: var(--text-primary); }
 .draft-name.consensus { color: #bfa671; font-weight: 700; }
+.draft-name.alignment-consensus { color: #8b6f47; font-weight: 700; }
 .draft-details { color: var(--text-secondary); font-size: 0.75rem; }
 .draft-actions { margin-left: auto; }
 

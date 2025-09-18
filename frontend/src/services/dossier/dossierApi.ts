@@ -108,9 +108,18 @@ class DossierApiClient {
   }
 
   async deleteSegment(segmentId: string): Promise<void> {
-    await this.request(`/dossier-management/segments/${segmentId}`, {
-      method: 'DELETE'
-    });
+    try {
+      await this.request(`/dossier-management/segments/${segmentId}`, {
+        method: 'DELETE'
+      });
+    } catch (e: any) {
+      // If the segment doesn't exist anymore (404), refresh and return cleanly
+      if (e?.statusCode === 404) {
+        try { await this.getDossiers(); } catch {}
+        return;
+      }
+      throw e;
+    }
   }
 
   // ============================================================================

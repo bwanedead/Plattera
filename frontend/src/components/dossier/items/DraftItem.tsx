@@ -124,9 +124,14 @@ export const DraftItem: React.FC<DraftItemProps> = ({
     >
       <div className="draft-header">
         <div className="draft-info">
-          <div className={`draft-name ${((draft.metadata as any)?.type === 'llm_consensus') ? 'consensus' : ''}`}>
+          <div className={`draft-name ${
+            ((draft.metadata as any)?.type === 'llm_consensus') ? 'consensus' :
+            ((draft.metadata as any)?.type === 'alignment_consensus') ? 'alignment-consensus' : ''
+          }`}>
             {((draft.metadata as any)?.type === 'llm_consensus')
               ? 'LLM Consensus Draft'
+              : ((draft.metadata as any)?.type === 'alignment_consensus')
+              ? 'Alignment Consensus Draft'
               : `Draft ${draft.position + 1}`}
             {draft.isBest && <span className="best-indicator">*</span>}
           </div>

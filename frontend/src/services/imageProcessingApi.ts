@@ -119,7 +119,11 @@ export const fetchModelsAPI = async () => {
 
 // --- Alignment Engine API ---
 
-export const alignDraftsAPI = async (drafts: AlignmentDraft[], consensusStrategy: string = 'highest_confidence'): Promise<AlignmentResult> => {
+export const alignDraftsAPI = async (
+  drafts: AlignmentDraft[],
+  consensusStrategy: string = 'highest_confidence',
+  opts?: { transcriptionId?: string; consensusDraftId?: string; dossierId?: string }
+): Promise<AlignmentResult> => {
   try {
     console.log(`Aligning ${drafts.length} drafts with strategy: ${consensusStrategy}`);
     
@@ -132,7 +136,10 @@ export const alignDraftsAPI = async (drafts: AlignmentDraft[], consensusStrategy
         body: JSON.stringify({
           drafts,
           generate_visualization: true,
-          consensus_strategy: consensusStrategy
+          consensus_strategy: consensusStrategy,
+          transcription_id: opts?.transcriptionId,
+          dossier_id: opts?.dossierId,
+          consensus_draft_id: opts?.consensusDraftId
         })
       });
       if (!response.ok) {

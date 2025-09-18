@@ -36,7 +36,8 @@ class AlignmentService:
     
     def process_alignment_request(self, draft_jsons: List[Dict[str, Any]], 
                                 generate_visualization: bool = True,
-                                consensus_strategy: str = "highest_confidence") -> Dict[str, Any]:
+                                consensus_strategy: str = "highest_confidence",
+                                save_context: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         Process complete alignment workflow with section normalization.
         
@@ -92,6 +93,55 @@ class AlignmentService:
                     logger.warning(f"⚠️ Consensus generation failed: {e}")
                     # Continue without consensus - it's optional
             
+            # Persist alignment consensus if requested
+            try:
+                consensus_text_for_save = consensus_text
+                if save_context and consensus_text_for_save:
+                    from pathlib import Path as _Path
+                    from datetime import datetime as _dt
+                    import json as _json
+
+                    backend_dir = _Path(__file__).resolve().parents[1]  # services/
+                    base_root = backend_dir.parent / "dossiers_data" / "views" / "transcriptions"
+
+                    dossier_id = (save_context or {}).get("dossier_id")
+                    transcription_id = (save_context or {}).get("transcription_id")
+                    consensus_id = (save_context or {}).get("consensus_draft_id") or (f"{transcription_id}_consensus_alignment" if transcription_id else None)
+
+                    if transcription_id and consensus_id:
+                        # Structured preferred path
+                        if dossier_id:
+                            run_dir = base_root / str(dossier_id) / str(transcription_id)
+                        else:
+                            run_dir = base_root / "_unassigned" / str(transcription_id)
+
+                        consensus_dir = run_dir / "consensus"
+                        consensus_dir.mkdir(parents=True, exist_ok=True)
+                        consensus_file = consensus_dir / "alignment.json"
+
+                        payload = {
+                            "type": "alignment_consensus",
+                            "model": "biopython_alignment",
+                            "strategy": consensus_strategy,
+                            "title": "Alignment Consensus",
+                            "text": consensus_text_for_save,
+                            "source_drafts": len(draft_jsons),
+                            "tokens_used": 0,
+                            "created_at": _dt.now().isoformat(),
+                            "metadata": {
+                                "alignment_summary": alignment_results.get('summary', {}),
+                                "processing_time": alignment_results.get('processing_time', 0)
+                            }
+                        }
+                        try:
+                            with open(consensus_file, 'w', encoding='utf-8') as cf:
+                                _json.dump(payload, cf, indent=2, ensure_ascii=False)
+                            logger.info(f"💾 Persisted alignment consensus JSON: {consensus_file}")
+                        except Exception as se:
+                            logger.warning(f"⚠️ Failed to persist alignment consensus JSON: {se}")
+            except Exception as persist_err:
+                logger.warning(f"⚠️ Consensus persistence step failed (non-critical): {persist_err}")
+
             # STEP 4: Compile Final Results
             total_processing_time = time.time() - start_time
             

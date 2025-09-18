@@ -309,34 +309,30 @@ class DossierViewService:
             Dictionary with transcription content or None if not found
         """
         BACKEND_DIR = Path(__file__).resolve().parents[2]
-        # New canonical location under dossiers_data/views/transcriptions
-        primary_path = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / f"{transcription_id}.json"
-        # Backward-compatible fallback: old saved_drafts directory
-        legacy_path = BACKEND_DIR / "saved_drafts" / f"{transcription_id}.json"
-
-        # Also support when drafts are saved directly under views/ with flat structure
-        alt_path = BACKEND_DIR / "dossiers_data" / "views" / f"{transcription_id}.json"
-
-        transcription_file = None
-        if primary_path.exists():
-            transcription_file = primary_path
-        elif alt_path.exists():
-            transcription_file = alt_path
-        elif legacy_path.exists():
-            transcription_file = legacy_path
-
-        # Fallback: if versioned draft not found, try base transcription id (strip _vN)
-        if not transcription_file and ("_v" in transcription_id):
+        # New canonical layout: dossiers_data/views/transcriptions/<dossier_id>/<transcription_id>/raw/<file>.json
+        # Because we don't always have dossier_id here, search recursively by filename
+        from pathlib import Path as _Path
+        transcriptions_root = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
+        candidates = list(transcriptions_root.rglob(f"**/raw/{transcription_id}.json"))
+        if not candidates and ("_v" in transcription_id):
             base_id = transcription_id.rsplit("_v", 1)[0]
-            base_primary = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / f"{base_id}.json"
-            base_alt = BACKEND_DIR / "dossiers_data" / "views" / f"{base_id}.json"
-            base_legacy = BACKEND_DIR / "saved_drafts" / f"{base_id}.json"
-            if base_primary.exists():
-                transcription_file = base_primary
-            elif base_alt.exists():
-                transcription_file = base_alt
-            elif base_legacy.exists():
-                transcription_file = base_legacy
+            candidates = list(transcriptions_root.rglob(f"**/raw/{base_id}.json"))
+
+        transcription_file = candidates[0] if candidates else None
+
+        # Backward-compatible fallbacks (flat and legacy)
+        if not transcription_file:
+            flat_primary = transcriptions_root / f"{transcription_id}.json"
+            if flat_primary.exists():
+                transcription_file = flat_primary
+        if not transcription_file:
+            flat_alt = BACKEND_DIR / "dossiers_data" / "views" / f"{transcription_id}.json"
+            if flat_alt.exists():
+                transcription_file = flat_alt
+        if not transcription_file:
+            legacy_path = BACKEND_DIR / "saved_drafts" / f"{transcription_id}.json"
+            if legacy_path.exists():
+                transcription_file = legacy_path
 
         if not transcription_file:
             logger.warning(f"📂 Transcription file not found: {transcription_id}")

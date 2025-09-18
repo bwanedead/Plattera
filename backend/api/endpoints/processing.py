@@ -333,14 +333,19 @@ async def _process_image_to_text(
                     transcription_id = f"draft_{stem}"
 
                 if transcription_id:
-                    # Persist raw JSON to dossiers_data/views/transcriptions/{transcription_id}.json
+                    # Persist raw JSON to dossiers_data/views/transcriptions/<dossier_id>/<transcription_id>/raw/
                     try:
                         from pathlib import Path
                         import json
                         BACKEND_DIR = Path(__file__).resolve().parents[2]
-                        out_dir = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
-                        out_dir.mkdir(parents=True, exist_ok=True)
-                        out_file = out_dir / f"{transcription_id}.json"
+                        base_root = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
+                        if dossier_id:
+                            run_root = base_root / str(dossier_id) / str(transcription_id)
+                        else:
+                            run_root = base_root / "_unassigned" / str(transcription_id)
+                        drafts_dir = run_root / "raw"
+                        drafts_dir.mkdir(parents=True, exist_ok=True)
+                        out_file = drafts_dir / f"{transcription_id}.json"
                         with open(out_file, 'w', encoding='utf-8') as f:
                             # If result.extracted_text contains JSON string, prefer structured dict if present
                             raw = result
@@ -367,7 +372,7 @@ async def _process_image_to_text(
                                 total_versions = 1
                             for idx in range(total_versions):
                                 version_id = f"{transcription_id}_v{idx+1}"
-                                version_file = out_dir / f"{version_id}.json"
+                                version_file = drafts_dir / f"{version_id}.json"
                                 try:
                                     item = indiv[idx] if idx < len(indiv) else None
                                     content = item.get('text') if isinstance(item, dict) else None
@@ -462,24 +467,34 @@ async def _process_image_to_text(
                         logger.debug(f"(non-critical) Could not update dossier title from consensus: {e_title}")
 
                     # If we produced an LLM consensus, persist it ONLY as a versioned draft file.
-                    # Do NOT associate as a separate transcription to avoid creating a duplicate segment.
+                    # Prefer structured path under views/transcriptions/<dossier_id>/<transcription_id>/consensus/llm.json
                     try:
                         ra = (result or {}).get('metadata', {}).get('redundancy_analysis', {}) or {}
                         consensus_text = ra.get('consensus_text')
+                        dossier_id_for_save = (result or {}).get('metadata', {}).get('dossier_id')
                         logger.info(f"🔎 CONSENSUS SAVE CHECK ► enabled={auto_llm_consensus_flag} has_text={bool(consensus_text and str(consensus_text).strip())}")
                         if auto_llm_consensus_flag and isinstance(consensus_text, str) and consensus_text.strip():
-                            consensus_id = f"{transcription_id}_consensus_llm"
+                            from pathlib import Path as _PathSave
+                            _BACKEND_DIR = _PathSave(__file__).resolve().parents[2]
+                            base_root = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
+                            if dossier_id_for_save:
+                                consensus_dir = base_root / str(dossier_id_for_save) / str(transcription_id) / "consensus"
+                            else:
+                                consensus_dir = base_root / "_unassigned" / str(transcription_id) / "consensus"
+                            consensus_dir.mkdir(parents=True, exist_ok=True)
+                            # Use per-transcription naming to keep files disambiguated if needed
+                            consensus_file = consensus_dir / f"llm_{transcription_id}.json"
                             try:
-                                consensus_file = out_dir / f"{consensus_id}.json"
                                 with open(consensus_file, 'w', encoding='utf-8') as cf:
                                     json.dump({
                                         "type": "llm_consensus",
                                         "model": ra.get('consensus_model'),
                                         "title": ra.get('consensus_title'),
-                                        "text": consensus_text
+                                        "text": consensus_text,
+                                        "created_at": datetime.now().isoformat(),
+                                        "metadata": {}
                                     }, cf, indent=2, ensure_ascii=False)
                                 logger.info(f"💾 Persisted LLM consensus JSON: {consensus_file}")
-                                logger.info("↪️ Skipping separate association for consensus to prevent duplicate segment; it will appear as an extra draft in the same run.")
                             except Exception as ce:
                                 logger.warning(f"⚠️ Failed to persist LLM consensus JSON: {ce}")
                     except Exception as e:
@@ -501,7 +516,8 @@ async def _process_image_to_text(
                 "transcription_id": transcription_id
             }
         )
-        
+
+
     except HTTPException:
         raise
     except Exception as e:

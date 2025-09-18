@@ -170,6 +170,9 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         const selectedDraftId = resolved.context?.draft?.id;
                         const allDrafts = resolved.context?.run?.drafts || [];
 
+                        // Extract transcription ID for saving alignment consensus
+                        const transcriptionId = resolved.context?.run?.transcriptionId || (resolved.context?.run as any)?.transcription_id;
+
                         // Separate raw drafts from consensus drafts
                         const rawDrafts = allDrafts.filter(d => !d.id.endsWith('_consensus_llm'));
                         const consensusDrafts = allDrafts.filter(d => d.id.endsWith('_consensus_llm'));
@@ -252,6 +255,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                               is_imported_draft: true,
                               selected_draft_index: selectedIndex,
                               is_consensus_selected: isConsensusSelected,
+                              transcription_id: transcriptionId, // Add transcription ID for saving alignment consensus
                               redundancy_analysis: {
                                 enabled: false,
                                 count: rawDrafts.length, // Only count raw drafts for alignment
