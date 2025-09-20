@@ -81,6 +81,7 @@ export const DossierItem: React.FC<DossierItemProps> = ({
     }
   }, [dossier.id, onSelect, onMultiSelect]);
 
+
   const handleExpandWithAutoExpansion = useCallback(() => {
     // First, toggle the dossier expansion
     onToggleExpand(dossier.id);
@@ -132,11 +133,21 @@ export const DossierItem: React.FC<DossierItemProps> = ({
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
-    // Right-click → begin rename mode for dossier
-    const currentName = dossier.title || dossier.name || '';
-    setEditValue(currentName);
-    setIsEditing(true);
-  }, [dossier.title, dossier.name]);
+    // Show context menu with options
+    const choice = window.prompt(`Choose action for "${dossier.title || dossier.name}":\n1. Rename\n2. Delete\n\nEnter 1 or 2:`);
+
+    if (choice === '1') {
+      // Rename mode
+      const currentName = dossier.title || dossier.name || '';
+      setEditValue(currentName);
+      setIsEditing(true);
+    } else if (choice === '2') {
+      // Delete with confirmation
+      if (window.confirm(`Delete dossier "${dossier.title || dossier.name}"? This will permanently remove all associated data.`)) {
+        onAction('delete', { dossierId: dossier.id, dossierName: dossier.title || dossier.name });
+      }
+    }
+  }, [dossier.title, dossier.name, dossier.id, onAction]);
 
   // ============================================================================
   // RENDER

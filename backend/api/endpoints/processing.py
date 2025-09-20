@@ -101,7 +101,8 @@ async def process_content(
     cleanup_after: str = Form("true"),
     flow_to: str = Form(None),
     parcel_id: str = Form(None),
-    dossier_id: str = Form(None),  # NEW: Optional dossier association
+    dossier_id: str = Form(None),  # Optional dossier association
+    transcription_id: str = Form(None),  # NEW: Optional transcription ID from init-run
     # Enhancement settings - optional
     contrast: str = Form("2.0"),
     sharpness: str = Form("2.0"),
@@ -117,13 +118,15 @@ async def process_content(
 ):
     """
     Universal processing endpoint that routes to appropriate pipeline
-    
+
     Args:
         file: Content file to process
         content_type: Type of processing ("image-to-text", "text-to-schema", etc.)
         model: Model to use for processing
         extraction_mode: Mode of extraction/processing
         cleanup_after: Cleanup after processing
+        dossier_id: Optional dossier ID for association
+        transcription_id: Optional transcription ID (if pre-initialized via init-run)
         contrast: Image contrast enhancement (1.0 = no change)
         sharpness: Image sharpness enhancement (1.0 = no change)
         brightness: Image brightness enhancement (1.0 = no change)
@@ -198,6 +201,7 @@ async def process_content(
                 redundancy_count,
                 consensus_strategy,
                 dossier_id,
+                transcription_id,
                 auto_llm_consensus_flag,
                 llm_consensus_model
             )
@@ -227,6 +231,7 @@ async def _process_image_to_text(
     redundancy_count: int = 3,
     consensus_strategy: str = 'sequential',
     dossier_id: str = None,
+    transcription_id: str = None,
     auto_llm_consensus_flag: bool = False,
     llm_consensus_model: str = "gpt-5-consensus"
 ) -> ProcessResponse:
@@ -259,6 +264,7 @@ async def _process_image_to_text(
         
         logger.info(f"✅ File saved to: {temp_path}")
         
+
         # Import and use pipeline
         logger.info("🚀 Starting image-to-text pipeline...")
         from pipelines.image_to_text.pipeline import ImageToTextPipeline
@@ -276,7 +282,17 @@ async def _process_image_to_text(
             except Exception as cfg_err:
                 logger.warning(f"⚠️ Failed to configure LLM consensus options (non-critical): {cfg_err}")
 
-            result = pipeline.process_with_redundancy(temp_path, model, extraction_mode, enhancement_settings, redundancy_count, consensus_strategy)
+            # Pass dossier context when present to enable progressive saving even via general endpoint
+            result = pipeline.process_with_redundancy(
+                temp_path,
+                model,
+                extraction_mode,
+                enhancement_settings,
+                redundancy_count,
+                consensus_strategy,
+                dossier_id=dossier_id,
+                transcription_id=transcription_id
+            )
         else:
             result = pipeline.process(temp_path, model, extraction_mode, enhancement_settings)
         
@@ -292,29 +308,16 @@ async def _process_image_to_text(
         transcription_id = None
         logger.info(f"🔍 Checking dossier association - dossier_id: {dossier_id}")
 
-        if not dossier_id:
-            # Auto-create a new dossier for this transcription
-            logger.info("📝 No dossier_id provided - auto-creating new dossier")
-            try:
-                from services.dossier.management_service import DossierManagementService
-                from datetime import datetime
-
-                management_service = DossierManagementService()
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-                dossier_name = f"Document - {timestamp}"
-
-                logger.info(f"📝 Calling create_dossier with title='{dossier_name}'")
-                created_dossier = management_service.create_dossier(
-                    title=dossier_name,
-                    description=f"Auto-created dossier for transcription processed at {timestamp}"
-                )
-                dossier_id = created_dossier.id
-                logger.info(f"📁 Auto-created dossier: {dossier_name} (ID: {dossier_id})")
-            except Exception as auto_error:
-                logger.error(f"❌ Failed to auto-create dossier: {auto_error}")
-                logger.error(f"❌ Error type: {type(auto_error).__name__}")
-                logger.error(f"❌ Error details: {str(auto_error)}")
-                # Continue processing without dossier association
+        # Check if dossier exists (should have been created by init-run)
+        if dossier_id:
+            from services.dossier.management_service import DossierManagementService
+            management_service = DossierManagementService()
+            existing_dossier = management_service.get_dossier(dossier_id)
+            if not existing_dossier:
+                logger.warning(f"⚠️ Dossier {dossier_id} should exist from init-run but doesn't - processing without association")
+                dossier_id = None  # Process without dossier association
+        else:
+            logger.info("📝 No dossier_id provided - processing without association")
 
         if dossier_id:
             try:
@@ -324,13 +327,33 @@ async def _process_image_to_text(
                     create_transcription_provenance
                 )
 
-                # Extract or synthesize transcription ID
-                transcription_id = extract_transcription_id_from_result(result)
-                if not transcription_id:
-                    # Fallback: synthesize an id from filename stem
-                    from pathlib import Path
-                    stem = Path(temp_path).stem
-                    transcription_id = f"draft_{stem}"
+                # Use provided transcription_id or extract/synthesize from result
+                if transcription_id:
+                    logger.info(f"📋 Using provided transcription_id: {transcription_id}")
+                else:
+                    transcription_id = extract_transcription_id_from_result(result)
+                    if not transcription_id:
+                        # Fallback: synthesize an id from filename stem
+                        from pathlib import Path
+                        stem = Path(temp_path).stem
+                        transcription_id = f"draft_{stem}"
+                    logger.info(f"📋 Generated transcription_id: {transcription_id}")
+
+                # Create initial run metadata
+                processing_params = {
+                    "model": model,
+                    "extraction_mode": extraction_mode,
+                    "redundancy_count": redundancy_count,
+                    "consensus_strategy": consensus_strategy,
+                    "auto_llm_consensus": auto_llm_consensus_flag,
+                    "llm_consensus_model": llm_consensus_model
+                }
+                management_service.create_run_metadata(
+                    dossier_id=str(dossier_id),
+                    transcription_id=transcription_id,
+                    redundancy_count=redundancy_count,
+                    processing_params=processing_params
+                )
 
                 if transcription_id:
                     # Persist raw JSON to dossiers_data/views/transcriptions/<dossier_id>/<transcription_id>/raw/
@@ -394,6 +417,13 @@ async def _process_image_to_text(
                                     with open(version_file, 'w', encoding='utf-8') as vf:
                                         json.dump(to_write, vf, indent=2, ensure_ascii=False)
                                     logger.info(f"💾 Persisted draft JSON: {version_file}")
+
+                                    # Update run metadata with completed draft
+                                    management_service.update_run_metadata(
+                                        dossier_id=str(dossier_id),
+                                        transcription_id=transcription_id,
+                                        updates={"completed_drafts": f"{version_id}"}
+                                    )
                                 except Exception as ve:
                                     logger.warning(f"⚠️ Failed to persist versioned draft {version_id}: {ve}")
                         except Exception as ve_all:
@@ -453,34 +483,41 @@ async def _process_image_to_text(
                     else:
                         logger.warning(f"⚠️ Failed to associate transcription {transcription_id} with dossier {dossier_id}")
 
-                    # Try to update dossier title from LLM consensus title if present (non-blocking)
+                    # Update dossier title to reflect completion (non-blocking)
                     try:
+                        from services.dossier.management_service import DossierManagementService as _DMS2
+                        _ms2 = _DMS2()
+
+                        # Try to use consensus title if available, otherwise use a completion title
                         ra_for_title = (result or {}).get('metadata', {}).get('redundancy_analysis', {}) or {}
                         consensus_title_for_dossier = ra_for_title.get('consensus_title')
-                        logger.info(f"🔎 CONSENSUS TITLE CHECK ► present={bool(consensus_title_for_dossier)} value={consensus_title_for_dossier!r}")
+
                         if consensus_title_for_dossier:
-                            from services.dossier.management_service import DossierManagementService as _DMS2
-                            _ms2 = _DMS2()
-                            _ms2.update_dossier(str(dossier_id), {"title": consensus_title_for_dossier})
-                            logger.info(f"🏷️ Updated dossier {dossier_id} title from LLM consensus title")
+                            new_title = consensus_title_for_dossier
+                            logger.info(f"🏷️ Updated dossier {dossier_id} title from LLM consensus: {new_title}")
+                        else:
+                            # Use a completion title based on the file
+                            from pathlib import Path
+                            file_base = Path(temp_path).stem
+                            new_title = file_base
+                            logger.info(f"🏷️ Updated dossier {dossier_id} title to completed: {new_title}")
+
+                        _ms2.update_dossier(str(dossier_id), {"title": new_title})
                     except Exception as e_title:
-                        logger.debug(f"(non-critical) Could not update dossier title from consensus: {e_title}")
+                        logger.debug(f"(non-critical) Could not update dossier title: {e_title}")
 
                     # If we produced an LLM consensus, persist it ONLY as a versioned draft file.
                     # Prefer structured path under views/transcriptions/<dossier_id>/<transcription_id>/consensus/llm.json
                     try:
                         ra = (result or {}).get('metadata', {}).get('redundancy_analysis', {}) or {}
                         consensus_text = ra.get('consensus_text')
-                        dossier_id_for_save = (result or {}).get('metadata', {}).get('dossier_id')
                         logger.info(f"🔎 CONSENSUS SAVE CHECK ► enabled={auto_llm_consensus_flag} has_text={bool(consensus_text and str(consensus_text).strip())}")
                         if auto_llm_consensus_flag and isinstance(consensus_text, str) and consensus_text.strip():
                             from pathlib import Path as _PathSave
                             _BACKEND_DIR = _PathSave(__file__).resolve().parents[2]
                             base_root = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
-                            if dossier_id_for_save:
-                                consensus_dir = base_root / str(dossier_id_for_save) / str(transcription_id) / "consensus"
-                            else:
-                                consensus_dir = base_root / "_unassigned" / str(transcription_id) / "consensus"
+                            # Use the known dossier_id instead of trying to extract from result metadata
+                            consensus_dir = base_root / str(dossier_id) / str(transcription_id) / "consensus"
                             consensus_dir.mkdir(parents=True, exist_ok=True)
                             # Use per-transcription naming to keep files disambiguated if needed
                             consensus_file = consensus_dir / f"llm_{transcription_id}.json"
@@ -495,8 +532,30 @@ async def _process_image_to_text(
                                         "metadata": {}
                                     }, cf, indent=2, ensure_ascii=False)
                                 logger.info(f"💾 Persisted LLM consensus JSON: {consensus_file}")
+
+                                # Update run metadata with consensus completion
+                                management_service.update_run_metadata(
+                                    dossier_id=str(dossier_id),
+                                    transcription_id=transcription_id,
+                                    updates={
+                                        "has_llm_consensus": True,
+                                        "status": "completed",
+                                        "timestamps": {"finished_at": datetime.now().isoformat()}
+                                    }
+                                )
                             except Exception as ce:
                                 logger.warning(f"⚠️ Failed to persist LLM consensus JSON: {ce}")
+                        elif auto_llm_consensus_flag:
+                            # Mark consensus attempt as failed for placeholder UI
+                            try:
+                                management_service.update_run_metadata(
+                                    dossier_id=str(dossier_id),
+                                    transcription_id=transcription_id,
+                                    updates={"llm_consensus_status": "failed"}
+                                )
+                                logger.info("📝 Marked LLM consensus status: failed")
+                            except Exception as fail_mark_err:
+                                logger.debug(f"(non-critical) Could not mark LLM consensus as failed: {fail_mark_err}")
                     except Exception as e:
                         logger.warning(f"⚠️ LLM consensus save step failed (non-critical): {e}")
             except Exception as e:

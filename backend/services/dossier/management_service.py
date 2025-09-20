@@ -127,22 +127,45 @@ class DossierManagementService:
                 transcription_id=transcription.transcription_id,
                 position=0
             )
+
+            # Try to load run metadata from run.json
+            run_metadata = self.get_run_metadata(dossier.id, transcription.transcription_id)
+            if run_metadata:
+                run.status = run_metadata.get('status', 'completed')
+                run.has_llm_consensus = run_metadata.get('has_llm_consensus', False)
+                run.has_alignment_consensus = run_metadata.get('has_alignment_consensus', False)
+                run.redundancy_count = run_metadata.get('redundancy_count', 1)
+                run.completed_drafts = run_metadata.get('completed_drafts', [])
+                run.processing_params = run_metadata.get('processing_params', {})
+                run.started_at = run_metadata.get('timestamps', {}).get('started_at')
+                run.finished_at = run_metadata.get('timestamps', {}).get('finished_at')
+            else:
+                # Fallback to legacy behavior
+                run.status = 'completed'
+                run.has_llm_consensus = False
+                run.has_alignment_consensus = False
+                run.redundancy_count = 1
+                run.completed_drafts = []
+                run.processing_params = {}
+
             # Add metadata for frontend compatibility
             run.metadata = {
                 'createdAt': transcription.added_at.isoformat(),
                 'totalSizeBytes': 0,  # TODO: Calculate from drafts
-                'lastActivity': transcription.added_at.isoformat()
+                'lastActivity': transcription.added_at.isoformat(),
+                'status': run.status,
+                'redundancy_count': run.redundancy_count,
+                'completed_drafts': run.completed_drafts
             }
 
-            # Determine how many drafts were produced for this run
-            processing_params = (transcription.metadata or {}).get('processing_params', {})
-            try:
-                redundancy_count = int(processing_params.get('redundancy_count') or 1)
-            except Exception:
-                redundancy_count = 1
-
-            # Build drafts list: Draft 1..N (do not mark any as best here)
+            # Build drafts list based on run metadata (placeholders first)
             run.drafts = []
+
+            # Create placeholder drafts for redundancy
+            redundancy_count = getattr(run, 'redundancy_count', 1)
+            completed_drafts = getattr(run, 'completed_drafts', [])
+
+            # Create placeholder drafts for all expected redundancy drafts
             for i in range(max(1, redundancy_count)):
                 draft_id = f"{transcription.transcription_id}_v{i+1}"
                 draft = Draft(
@@ -151,25 +174,33 @@ class DossierManagementService:
                     position=i,
                     is_best=False
                 )
-                # Minimal metadata placeholders; can be enriched later from provenance
+
+                # Mark as completed if in completed_drafts list
+                is_completed = draft_id in completed_drafts
                 draft.metadata = {
                     'sizeBytes': 0,
                     'quality': 'unknown',
-                    'confidence': 0
+                    'confidence': 0,
+                    'status': 'completed' if is_completed else 'processing'
                 }
                 run.drafts.append(draft)
+
+            # If redundancy not enabled yet, still show at least one placeholder
+            if redundancy_count <= 0:
+                redundancy_count = 1
 
             # Determine longest draft by reading persisted versioned drafts and set is_best accordingly
             try:
                 from pathlib import Path as _Path
                 _BACKEND_DIR = _Path(__file__).resolve().parents[2]
-                _drafts_dir = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
+                # Use structured path: dossiers_data/views/transcriptions/{dossier_id}/{transcription_id}/raw/
+                _struct_raw = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier.id) / str(transcription.transcription_id) / "raw"
 
                 longest_idx = None
                 max_len = -1
 
                 for i, d in enumerate(run.drafts):
-                    fpath = _drafts_dir / f"{transcription.transcription_id}_v{i+1}.json"
+                    fpath = _struct_raw / f"{transcription.transcription_id}_v{i+1}.json"
                     length = 0
                     if fpath.exists():
                         with open(fpath, 'r', encoding='utf-8') as fp:
@@ -200,68 +231,81 @@ class DossierManagementService:
             except Exception as _e:
                 logger.warning(f"⚠️ Failed to determine best draft by length for {transcription.transcription_id}: {_e}")
 
-            # Append LLM consensus draft if present (structured path first, then legacy flat)
-            try:
-                from pathlib import Path as _Path2
-                _BACKEND_DIR2 = _Path2(__file__).resolve().parents[2]
-                _root = _BACKEND_DIR2 / "dossiers_data" / "views" / "transcriptions"
+            # Append LLM consensus draft if enabled or present; show failure/processing states
+            if getattr(run, 'has_llm_consensus', False) or run.processing_params.get('auto_llm_consensus'):
+                try:
+                    from pathlib import Path as _Path2
+                    _BACKEND_DIR2 = _Path2(__file__).resolve().parents[2]
+                    _root = _BACKEND_DIR2 / "dossiers_data" / "views" / "transcriptions"
 
-                structured_llm = _root / str(dossier.id) / str(transcription.transcription_id) / "consensus" / f"llm_{transcription.transcription_id}.json"
-                flat_llm = _root / f"{transcription.transcription_id}_consensus_llm.json"
-                _llm_path = structured_llm if structured_llm.exists() else (flat_llm if flat_llm.exists() else None)
-                if _llm_path:
-                    consensus_draft = Draft(
-                        draft_id=f"{transcription.transcription_id}_consensus_llm",
-                        transcription_id=transcription.transcription_id,
-                        position=len(run.drafts),
-                        is_best=False
-                    )
-                    consensus_draft.metadata = {
-                        'type': 'llm_consensus',
-                        'label': 'AI Generated Consensus'
-                    }
-                    run.drafts.append(consensus_draft)
-            except Exception as _e2:
-                logger.warning(f"⚠️ Failed to append LLM consensus draft for {transcription.transcription_id}: {_e2}")
+                    structured_llm = _root / str(dossier.id) / str(transcription.transcription_id) / "consensus" / f"llm_{transcription.transcription_id}.json"
+                    flat_llm = _root / f"{transcription.transcription_id}_consensus_llm.json"
+                    _llm_path = structured_llm if structured_llm.exists() else (flat_llm if flat_llm.exists() else None)
+                    if _llm_path:
+                        consensus_draft = Draft(
+                            draft_id=f"{transcription.transcription_id}_consensus_llm",
+                            transcription_id=transcription.transcription_id,
+                            position=len(run.drafts),
+                            is_best=False
+                        )
+                        consensus_draft.metadata = {
+                            'type': 'llm_consensus',
+                            'label': 'AI Generated Consensus',
+                            'status': 'completed'
+                        }
+                        run.drafts.append(consensus_draft)
+                    else:
+                        # Create placeholder if enabled but not yet completed
+                        consensus_draft = Draft(
+                            draft_id=f"{transcription.transcription_id}_consensus_llm",
+                            transcription_id=transcription.transcription_id,
+                            position=len(run.drafts),
+                            is_best=False
+                        )
+                        consensus_draft.metadata = {
+                            'type': 'llm_consensus',
+                            'label': 'AI Generated Consensus',
+                            'status': 'failed' if run_metadata.get('llm_consensus_status') == 'failed' else 'processing'
+                        }
+                        run.drafts.append(consensus_draft)
+                except Exception as _e2:
+                    logger.warning(f"⚠️ Failed to append LLM consensus draft for {transcription.transcription_id}: {_e2}")
 
-            # Append alignment consensus draft if present (structured path first, then legacy flat)
-            try:
-                structured_align = _root / str(dossier.id) / str(transcription.transcription_id) / "consensus" / f"alignment_{transcription.transcription_id}.json"
-                flat_align = _root / f"{transcription.transcription_id}_consensus_alignment.json"
-                _align_path = structured_align if structured_align.exists() else (flat_align if flat_align.exists() else None)
-                if _align_path:
-                    alignment_consensus_draft = Draft(
-                        draft_id=f"{transcription.transcription_id}_consensus_alignment",
-                        transcription_id=transcription.transcription_id,
-                        position=len(run.drafts),
-                        is_best=False
-                    )
-                    alignment_consensus_draft.metadata = {
-                        'type': 'alignment_consensus',
-                        'label': 'Alignment Consensus'
-                    }
-                    run.drafts.append(alignment_consensus_draft)
-            except Exception as _e3:
-                logger.warning(f"⚠️ Failed to append alignment consensus draft for {transcription.transcription_id}: {_e3}")
-
-            # Append alignment consensus draft if present (stored as a separate JSON file)
-            try:
-                alignment_consensus_id = f"{transcription.transcription_id}_consensus_alignment"
-                alignment_consensus_path = _drafts_dir2 / f"{alignment_consensus_id}.json"
-                if alignment_consensus_path.exists():
-                    alignment_consensus_draft = Draft(
-                        draft_id=alignment_consensus_id,
-                        transcription_id=transcription.transcription_id,
-                        position=len(run.drafts),
-                        is_best=False
-                    )
-                    alignment_consensus_draft.metadata = {
-                        'type': 'alignment_consensus',
-                        'label': 'Alignment Consensus'
-                    }
-                    run.drafts.append(alignment_consensus_draft)
-            except Exception as _e3:
-                logger.warning(f"⚠️ Failed to append alignment consensus draft for {transcription.transcription_id}: {_e3}")
+            # Append alignment consensus draft if present and enabled in run metadata
+            if getattr(run, 'has_alignment_consensus', False):
+                try:
+                    structured_align = _root / str(dossier.id) / str(transcription.transcription_id) / "consensus" / f"alignment_{transcription.transcription_id}.json"
+                    flat_align = _root / f"{transcription.transcription_id}_consensus_alignment.json"
+                    _align_path = structured_align if structured_align.exists() else (flat_align if flat_align.exists() else None)
+                    if _align_path:
+                        alignment_consensus_draft = Draft(
+                            draft_id=f"{transcription.transcription_id}_consensus_alignment",
+                            transcription_id=transcription.transcription_id,
+                            position=len(run.drafts),
+                            is_best=False
+                        )
+                        alignment_consensus_draft.metadata = {
+                            'type': 'alignment_consensus',
+                            'label': 'Alignment Consensus',
+                            'status': 'completed'
+                        }
+                        run.drafts.append(alignment_consensus_draft)
+                    else:
+                        # Create placeholder if enabled but not yet completed
+                        alignment_consensus_draft = Draft(
+                            draft_id=f"{transcription.transcription_id}_consensus_alignment",
+                            transcription_id=transcription.transcription_id,
+                            position=len(run.drafts),
+                            is_best=False
+                        )
+                        alignment_consensus_draft.metadata = {
+                            'type': 'alignment_consensus',
+                            'label': 'Alignment Consensus',
+                            'status': 'processing'
+                        }
+                        run.drafts.append(alignment_consensus_draft)
+                except Exception as _e3:
+                    logger.warning(f"⚠️ Failed to append alignment consensus draft for {transcription.transcription_id}: {_e3}")
 
             # Build hierarchy
             segment.runs.append(run)
@@ -573,6 +617,162 @@ class DossierManagementService:
         """
         dossier_file = self.storage_dir / f"dossier_{dossier_id}.json"
         return dossier_file.exists()
+
+    def create_run_metadata(self, dossier_id: str, transcription_id: str,
+                           redundancy_count: int, processing_params: Dict[str, Any]) -> bool:
+        """
+        Create initial run.json metadata for a processing run.
+
+        If the metadata already exists, this is a no-op to preserve progressive updates.
+
+        Args:
+            dossier_id: The dossier ID
+            transcription_id: The transcription/run ID
+            redundancy_count: Number of redundant drafts to generate
+            processing_params: Processing parameters
+
+        Returns:
+            bool: Success status
+        """
+        try:
+            # Create run directory structure
+            run_dir = self._get_run_dir(dossier_id, transcription_id)
+            run_dir.mkdir(parents=True, exist_ok=True)
+
+            run_file = run_dir / "run.json"
+            if run_file.exists():
+                logger.info(f"📋 Run metadata already exists, preserving progressive state: {run_file}")
+                return True
+
+            run_metadata = {
+                "status": "processing",
+                "redundancy_count": redundancy_count,
+                "completed_drafts": [],
+                "has_llm_consensus": False,
+                "has_alignment_consensus": False,
+                "timestamps": {
+                    "started_at": datetime.now().isoformat(),
+                    "last_update_at": datetime.now().isoformat(),
+                    "finished_at": None
+                },
+                "processing_params": processing_params
+            }
+
+            with open(run_file, 'w', encoding='utf-8') as f:
+                json.dump(run_metadata, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"📋 Created run metadata: {run_file}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to create run metadata: {e}")
+            return False
+
+    def update_run_metadata(self, dossier_id: str, transcription_id: str,
+                           updates: Dict[str, Any]) -> bool:
+        """
+        Update run.json metadata for a processing run.
+
+        Args:
+            dossier_id: The dossier ID
+            transcription_id: The transcription/run ID
+            updates: Fields to update
+
+        Returns:
+            bool: Success status
+        """
+        try:
+            run_file = self._get_run_dir(dossier_id, transcription_id) / "run.json"
+            if not run_file.exists():
+                logger.warning(f"⚠️ Run metadata not found: {run_file}")
+                return False
+
+            with open(run_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+
+            # --- Observability: capture pre-state ---
+            prev_status = metadata.get("status")
+            prev_completed = metadata.get("completed_drafts", [])
+            if isinstance(prev_completed, str):
+                prev_completed = [prev_completed]
+            prev_completed_set = set(prev_completed)
+
+            # Update fields
+            for key, value in updates.items():
+                if key == "status" or key.startswith("has_"):
+                    metadata[key] = value
+                elif key == "completed_drafts":
+                    if isinstance(value, list):
+                        metadata["completed_drafts"] = value
+                    else:
+                        if value not in metadata["completed_drafts"]:
+                            metadata["completed_drafts"].append(value)
+                elif key == "timestamps":
+                    if isinstance(metadata.get("timestamps"), dict):
+                        metadata["timestamps"].update(value)
+                    else:
+                        metadata["timestamps"] = value
+
+            # Always update last_update_at
+            metadata["timestamps"]["last_update_at"] = datetime.now().isoformat()
+
+            with open(run_file, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+            # --- Observability: capture post-state and log concise delta ---
+            new_status = metadata.get("status")
+            new_completed = metadata.get("completed_drafts", [])
+            if isinstance(new_completed, str):
+                new_completed = [new_completed]
+            new_completed_set = set(new_completed)
+
+            added = list(sorted(new_completed_set - prev_completed_set))
+            removed = list(sorted(prev_completed_set - new_completed_set))
+
+            try:
+                total = int(metadata.get("redundancy_count") or 0)
+                logger.info(
+                    f"RUN_STATUS_UPDATE dossier={dossier_id} transcription={transcription_id} "
+                    f"status:{prev_status}->{new_status} completed:{len(new_completed_set)}/{total} "
+                    f"added={added} removed={removed}"
+                )
+            except Exception:
+                logger.info(
+                    f"RUN_STATUS_UPDATE dossier={dossier_id} transcription={transcription_id} "
+                    f"status:{prev_status}->{new_status} completed_ids={sorted(new_completed_set)}"
+                )
+
+            logger.debug(f"📝 Updated run metadata: {run_file}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to update run metadata: {e}")
+            return False
+
+    def get_run_metadata(self, dossier_id: str, transcription_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get run metadata for a processing run.
+
+        Args:
+            dossier_id: The dossier ID
+            transcription_id: The transcription/run ID
+
+        Returns:
+            Dict with run metadata or None if not found
+        """
+        try:
+            run_file = self._get_run_dir(dossier_id, transcription_id) / "run.json"
+            if not run_file.exists():
+                return None
+
+            with open(run_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"❌ Failed to read run metadata: {e}")
+            return None
+
+    def _get_run_dir(self, dossier_id: str, transcription_id: str) -> Path:
+        """Get the run directory path"""
+        backend_dir = Path(__file__).resolve().parents[2]
+        return backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / str(transcription_id)
 
     def _save_dossier(self, dossier: Dossier) -> None:
         """Internal method to save dossier to disk"""

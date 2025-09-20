@@ -137,6 +137,23 @@ class AlignmentService:
                             with open(consensus_file, 'w', encoding='utf-8') as cf:
                                 _json.dump(payload, cf, indent=2, ensure_ascii=False)
                             logger.info(f"💾 Persisted alignment consensus JSON: {consensus_file}")
+
+                            # Update run metadata with alignment consensus
+                            try:
+                                from services.dossier.management_service import DossierManagementService as _DMS
+                                _ms = _DMS()
+                                _ms.update_run_metadata(
+                                    dossier_id=str(dossier_id),
+                                    transcription_id=str(transcription_id),
+                                    updates={
+                                        "has_alignment_consensus": True,
+                                        "status": "completed",
+                                        "timestamps": {"finished_at": _dt.now().isoformat()}
+                                    }
+                                )
+                                logger.info(f"📝 Updated run metadata for alignment consensus")
+                            except Exception as meta_err:
+                                logger.warning(f"⚠️ Failed to update run metadata for alignment consensus: {meta_err}")
                         except Exception as se:
                             logger.warning(f"⚠️ Failed to persist alignment consensus JSON: {se}")
             except Exception as persist_err:

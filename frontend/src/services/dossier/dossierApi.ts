@@ -230,6 +230,51 @@ class DossierApiClient {
   }
 
   // ============================================================================
+  // RUN INITIALIZATION
+  // ============================================================================
+
+  async initRun(payload: {
+    dossierId?: string;
+    fileName?: string;
+    transcriptionId?: string;
+    model: string;
+    extractionMode: string;
+    redundancyCount: number;
+    autoLlmConsensus: boolean;
+    llmConsensusModel?: string;
+    consensusStrategy?: string;
+  }): Promise<{ success: boolean; dossier_id: string; transcription_id: string; data: any }> {
+    const response = await this.request<any>('/dossier-runs/init-run', {
+      method: 'POST',
+      body: JSON.stringify({
+        dossier_id: payload.dossierId,
+        file_name: payload.fileName,
+        transcription_id: payload.transcriptionId,
+        model: payload.model,
+        extraction_mode: payload.extractionMode,
+        redundancy_count: payload.redundancyCount,
+        auto_llm_consensus: payload.autoLlmConsensus,
+        llm_consensus_model: payload.llmConsensusModel,
+        consensus_strategy: payload.consensusStrategy
+      })
+    });
+
+    if (!response.success) {
+      throw new DossierApiError('Failed to initialize run');
+    }
+
+    return response;
+  }
+
+  // Reconcile stuck runs by asking the backend to mark runs completed
+  async reconcileRuns(dossierId: string): Promise<{ success: boolean; dossier_id: string; reconciled: number }>{
+    const response = await this.request<any>(`/dossier-runs/reconcile/${encodeURIComponent(dossierId)}`, {
+      method: 'POST'
+    });
+    return response as any;
+  }
+
+  // ============================================================================
   // FUTURE EXTENSIBILITY HOOKS
   // ============================================================================
 

@@ -130,12 +130,30 @@ class Run:
         self.drafts = []  # Will be populated with Draft objects
         self.metadata = {}  # Will be populated with run metadata
 
+        # Run status and progress tracking
+        self.status = "completed"  # "processing", "completed", "failed"
+        self.redundancy_count = 1
+        self.completed_drafts = []
+        self.has_llm_consensus = False
+        self.has_alignment_consensus = False
+        self.processing_params = {}
+        self.started_at = None
+        self.finished_at = None
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
             "position": self.position,
             "transcriptionId": self.transcription_id,  # Frontend expects camelCase
             "metadata": self.metadata,
+            "status": self.status,
+            "redundancy_count": self.redundancy_count,
+            "completed_drafts": self.completed_drafts,
+            "has_llm_consensus": self.has_llm_consensus,
+            "has_alignment_consensus": self.has_alignment_consensus,
+            "processing_params": self.processing_params,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
             "drafts": [draft.to_dict() for draft in self.drafts]
         }
 
@@ -147,6 +165,14 @@ class Run:
             position=data.get("position", 0)
         )
         run.metadata = data.get("metadata", {})
+        run.status = data.get("status", "completed")
+        run.redundancy_count = data.get("redundancy_count", 1)
+        run.completed_drafts = data.get("completed_drafts", [])
+        run.has_llm_consensus = data.get("has_llm_consensus", False)
+        run.has_alignment_consensus = data.get("has_alignment_consensus", False)
+        run.processing_params = data.get("processing_params", {})
+        run.started_at = data.get("started_at")
+        run.finished_at = data.get("finished_at")
         run.drafts = []
         return run
 

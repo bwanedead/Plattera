@@ -5,7 +5,7 @@
 // Features: virtual scrolling, lazy loading, efficient re-rendering
 // ============================================================================
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { dossierHighlightBus } from '../../services/dossier/dossierHighlightBus';
 import { Dossier, DossierPath } from '../../types/dossier';
 import { DossierItem } from './items/DossierItem';
@@ -41,20 +41,7 @@ export const DossierList: React.FC<DossierListProps> = ({
   onDeselectItem,
   onViewRequest
 }) => {
-  // ============================================================================
-  // LOADING STATE
-  // ============================================================================
-
-  if (isLoading) {
-    return (
-      <div className="dossier-list loading">
-        <div className="dossier-loading-indicator">
-          <div className="loading-spinner"></div>
-          <span>Loading dossiers…</span>
-        </div>
-      </div>
-    );
-  }
+  // Note: Do not block render during loading; show current contents and let updates stream in.
 
   // ============================================================================
   // ERROR STATE
@@ -96,8 +83,8 @@ export const DossierList: React.FC<DossierListProps> = ({
   // MAIN LIST RENDER
   // ============================================================================
 
-  const [hoverId, setHoverId] = React.useState<string | null>(null);
-  React.useEffect(() => dossierHighlightBus.subscribe(setHoverId), []);
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  useEffect(() => dossierHighlightBus.subscribe(setHoverId), []);
 
   const handleBackgroundClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
     // If the click is not on an item (no closest dossier/segment/run/draft), clear selection

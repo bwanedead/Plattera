@@ -2,7 +2,7 @@ import { EnhancementSettings, ProcessingResult, RedundancySettings, ConsensusSet
 
 // --- API Calls for Image Processing Feature ---
 
-export const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings, consensusSettings: ConsensusSettings, dossierId?: string, segmentId?: string): Promise<ProcessingResult[]> => {
+export const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings, consensusSettings: ConsensusSettings, dossierId?: string, segmentId?: string, transcriptionId?: string): Promise<ProcessingResult[]> => {
   console.log(`Processing ${files.length} files with model: ${model} and mode: ${mode}`);
   
   const results: ProcessingResult[] = [];
@@ -52,7 +52,16 @@ export const processFilesAPI = async (files: File[], model: string, mode: string
         console.log(`📁 Including segment_id in FormData: ${segmentId}`);
       }
 
-      const response = await fetch('http://localhost:8000/api/process', {
+      if (transcriptionId) {
+        formData.append('transcription_id', transcriptionId);
+        console.log(`📁 Including transcription_id in FormData: ${transcriptionId}`);
+      }
+
+      // Use dossier-specific endpoint if dossier_id is provided for progressive saving
+      const endpoint = dossierId ? 'http://localhost:8000/api/dossier/process' : 'http://localhost:8000/api/process';
+      console.log(`🔗 Using endpoint: ${endpoint} (progressive saving: ${!!dossierId})`);
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData
       });
@@ -115,6 +124,29 @@ export const fetchModelsAPI = async () => {
       "gpt-4": { name: "GPT-4", provider: "openai" },
     };
   }
+};
+
+// --- LLM Consensus Retry API ---
+export const retryLlmConsensusAPI = async (params: {
+  drafts: string[];
+  model: string; // gpt-5-consensus | gpt-5-mini-consensus | gpt-5-nano-consensus
+  maxTokens?: number;
+  temperature?: number;
+  dossierId?: string;
+  transcriptionId?: string;
+}): Promise<{ success: boolean; consensus_text?: string; consensus_title?: string; error?: string }> => {
+  const response = await fetch('http://localhost:8000/api/llm-consensus/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      drafts: params.drafts,
+      model: params.model,
+      max_tokens: params.maxTokens ?? 6000,
+      temperature: params.temperature ?? 0.2
+    })
+  });
+  const data = await response.json();
+  return data;
 };
 
 // --- Alignment Engine API ---

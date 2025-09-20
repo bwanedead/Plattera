@@ -181,7 +181,8 @@ class OpenAIService(LLMService):
             "capabilities": ["text"],
             "description": "Profile for LLM consensus generation (free-text)",
             "verification_required": False,
-            "api_model_name": "gpt-5"
+            "api_model_name": "gpt-5",
+            "default_max_tokens": 10000
         },
         "gpt-5-mini-consensus": {
             "name": "GPT-5 Mini (Consensus)",
@@ -190,7 +191,8 @@ class OpenAIService(LLMService):
             "capabilities": ["text"],
             "description": "Profile for LLM consensus generation (balanced speed/quality)",
             "verification_required": False,
-            "api_model_name": "gpt-5-mini"
+            "api_model_name": "gpt-5-mini",
+            "default_max_tokens": 10000
         },
         "gpt-5-nano-consensus": {
             "name": "GPT-5 Nano (Consensus)",
@@ -199,7 +201,8 @@ class OpenAIService(LLMService):
             "capabilities": ["text"],
             "description": "Profile for LLM consensus generation (speed/cost optimized)",
             "verification_required": False,
-            "api_model_name": "gpt-5-nano"
+            "api_model_name": "gpt-5-nano",
+            "default_max_tokens": 10000
         }
     })
     
@@ -231,13 +234,15 @@ class OpenAIService(LLMService):
             # Some small models require max_completion_tokens (no temperature)
             if ("o4-mini" in api_model_name) or ("gpt-5-mini" in api_model_name) or ("gpt-5" in api_model_name) or ("gpt-5-nano" in api_model_name):
                 # o4-mini only supports default temperature (1), so don't include it
-                completion_params["max_completion_tokens"] = kwargs.get("max_tokens", 4000)
+                default_max = self.models.get(model, {}).get("default_max_tokens", 4000)
+                completion_params["max_completion_tokens"] = kwargs.get("max_tokens", default_max)
                 # Set reasoning effort to high for maximum accuracy
                 completion_params["reasoning_effort"] = "high"
             else:
                 # Other models use standard parameters
                 completion_params["temperature"] = kwargs.get("temperature", 0.1)
-                completion_params["max_tokens"] = kwargs.get("max_tokens", 4000)
+                default_max = self.models.get(model, {}).get("default_max_tokens", 4000)
+                completion_params["max_tokens"] = kwargs.get("max_tokens", default_max)
             
             response = self.client.chat.completions.create(**completion_params)
             

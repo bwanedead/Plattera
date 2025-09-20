@@ -2,7 +2,13 @@ import { useState, useCallback, useEffect } from 'react';
 import { ProcessingResult, EnhancementSettings, RedundancySettings, ConsensusSettings } from '../types/imageProcessing';
 import { fetchModelsAPI, processFilesAPI } from '../services/imageProcessingApi';
 
-export const useImageProcessing = () => {
+interface UseImageProcessingOptions {
+  onProcessingComplete?: () => void;
+  selectedDossierId?: string | null;
+}
+
+export const useImageProcessing = (options?: UseImageProcessingOptions) => {
+  const { onProcessingComplete: externalOnProcessingComplete, selectedDossierId } = options || {};
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const [sessionResults, setSessionResults] = useState<ProcessingResult[]>([]);
   const [selectedResult, setSelectedResult] = useState<ProcessingResult | null>(null);
@@ -28,7 +34,7 @@ export const useImageProcessing = () => {
     model: 'gpt-5-consensus'
   });
   // DOSSIER SUPPORT
-  const [selectedDossierId, setSelectedDossierId] = useState<string | null>(null);
+  const [internalSelectedDossierId, setSelectedDossierId] = useState<string | null>(null);
   const [onProcessingComplete, setOnProcessingComplete] = useState<(() => void) | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
 
@@ -38,13 +44,13 @@ export const useImageProcessing = () => {
       return {
         enabled: true,
         count: 3,
-        consensusStrategy: 'highest_confidence'
+        consensusStrategy: 'sequential'
       };
     } else {
       return {
         enabled: false,
         count: 3,
-        consensusStrategy: 'highest_confidence'
+        consensusStrategy: 'sequential'
       };
     }
   };
@@ -67,8 +73,48 @@ export const useImageProcessing = () => {
       console.log(`🚀 useImageProcessing: selectedDossierId type = ${typeof selectedDossierId}`);
       console.log(`🚀 useImageProcessing: selectedDossierId truthy = ${!!selectedDossierId}`);
 
-      const dossierIdToSend = selectedDossierId || undefined;
-      console.log(`🚀 useImageProcessing: dossierIdToSend = ${dossierIdToSend}`);
+      // Prefer internal state updated by init-run; fall back to prop
+      let dossierIdToSend: string | undefined = (internalSelectedDossierId || selectedDossierId) || undefined;
+      console.log(`🚀 useImageProcessing: dossierIdToSend (pre-init) = ${dossierIdToSend}`);
+
+      // Initialize run skeleton before processing for immediate UI feedback
+      const firstFile = stagedFiles[0];
+      let initTranscriptionId: string | undefined;
+      let initDossierId: string | undefined;
+
+      try {
+        const { dossierApi } = await import('../services/dossier/dossierApi');
+        const initResult = await dossierApi.initRun({
+          dossierId: selectedDossierId || undefined,
+          fileName: firstFile?.name,
+          model: selectedModel,
+          extractionMode: extractionMode,
+          redundancyCount: redundancySettings.enabled ? redundancySettings.count : 1,
+          autoLlmConsensus: consensusSettings.enabled,
+          llmConsensusModel: consensusSettings.model,
+          consensusStrategy: redundancySettings.consensusStrategy
+        });
+
+        if (initResult.success) {
+          // Update selected dossier ID if auto-created
+          if (!selectedDossierId && initResult.dossier_id) {
+            setSelectedDossierId(initResult.dossier_id);
+          }
+          initTranscriptionId = initResult.transcription_id;
+          initDossierId = initResult.dossier_id;
+          console.log(`✅ Run initialized: dossier=${initResult.dossier_id}, transcription=${initResult.transcription_id}`);
+        }
+      } catch (initError) {
+        console.warn('⚠️ Failed to initialize run skeleton (non-critical):', initError);
+        // Continue with processing even if init fails
+      }
+
+      // Ensure we send the dossier created/returned by init-run to enable dossier endpoint + progressive saving
+      dossierIdToSend = initDossierId || dossierIdToSend;
+      console.log(`🚀 useImageProcessing: dossierIdToSend (post-init) = ${dossierIdToSend}`);
+
+      // Fire immediate refresh so skeleton appears
+      document.dispatchEvent(new Event('dossiers:refresh'));
 
       const results = await processFilesAPI(
         stagedFiles,
@@ -78,7 +124,8 @@ export const useImageProcessing = () => {
         redundancySettings,
         consensusSettings,
         dossierIdToSend,
-        selectedSegmentId || undefined
+        selectedSegmentId || undefined,
+        initTranscriptionId
       );
 
       setSessionResults(prev => [...results, ...prev]);
@@ -93,6 +140,9 @@ export const useImageProcessing = () => {
       // Notify dossier manager of new processing completion
       if (onProcessingComplete) {
         onProcessingComplete();
+      }
+      if (externalOnProcessingComplete) {
+        externalOnProcessingComplete();
       }
 
       return firstSuccessful;

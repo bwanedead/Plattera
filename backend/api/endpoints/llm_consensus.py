@@ -27,7 +27,7 @@ class LLMConsensusRequest(BaseModel):
         "gpt-5-consensus",
         description="Consensus model alias: gpt-5-consensus | gpt-5-mini-consensus | gpt-5-nano-consensus"
     )
-    max_tokens: Optional[int] = Field(3000, description="Max output tokens for the consensus call")
+    max_tokens: Optional[int] = Field(12000, description="Max output tokens for the consensus call")
     temperature: Optional[float] = Field(0.2, description="Sampling temperature")
 
 

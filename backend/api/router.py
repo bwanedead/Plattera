@@ -5,7 +5,7 @@ Combines all API endpoints into a single router for main.py
 from fastapi import APIRouter
 from api.endpoints import models, processing, system, alignment, consensus, final_draft, text_to_schema, polygon, mapping, plss_overlays, georeference, plss_endpoints, coordinates_endpoints, llm_consensus
 from api.endpoints.plss import container_router
-from api.endpoints.dossier import management_router, association_router, navigation_router, views_router
+from api.endpoints.dossier import management_router, association_router, navigation_router, views_router, dossier_image_processing_router, runs_router
 
 # Create the main API router
 api_router = APIRouter()
@@ -32,6 +32,8 @@ api_router.include_router(management_router, prefix="/api/dossier-management", t
 api_router.include_router(association_router, prefix="/api/transcription-association", tags=["transcription-association"])
 api_router.include_router(navigation_router, prefix="/api/dossier-navigation", tags=["dossier-navigation"])
 api_router.include_router(views_router, prefix="/api/dossier-views", tags=["dossier-views"])
+api_router.include_router(dossier_image_processing_router, prefix="/api/dossier", tags=["dossier-image-processing"])
+api_router.include_router(runs_router, prefix="/api/dossier-runs", tags=["dossier-runs"])
 
 # Quick access to pipeline-specific endpoints for backwards compatibility
 api_router.include_router(models.router, prefix="/api/image-to-text", tags=["image-to-text"])
@@ -56,9 +58,11 @@ async def api_root():
             "plss_overlays": "/api/plss/overlays - PLSS overlay data for mapping visualization",
             "plss_container": "/api/plss/container - Dedicated container PLSS overlay endpoints",
             "dossier-management": "/api/dossier-management - CRUD operations for dossiers",
+            "dossier-image-processing": "/api/dossier/process - Process images with dossier association and progressive saving",
             "transcription-association": "/api/transcription-association - Manage transcription relationships",
             "dossier-navigation": "/api/dossier-navigation - Discovery and navigation features",
             "dossier-views": "/api/dossier-views - Content presentation modes",
+            "dossier-runs": "/api/dossier-runs - Run skeleton initialization for immediate UI feedback",
             "health": "/api/health - System health check",
             "services": "/api/services - Service status",
             "processing_types": "/api/process/types - Available processing types"

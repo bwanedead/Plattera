@@ -1,0 +1,35 @@
+{
+  "type": "alignment_consensus",
+  "model": "biopython_alignment",
+  "strategy": "highest_confidence",
+  "title": "Alignment Consensus",
+  "text": "and bargained, sold and conveyed and by these presents does hereby grant, bargain, sell and convey unto the said party of the second his his heirs and assigns all all of the following described tracts, tract or parcel of land lying and being situate in the of of and and of of to to Lot 2, Block No. 22, in the in the Wyoming, of to according to the plat of said on now on record in the office of the of said of said with together with all and singular the appurtenances and hereditaments thereunto belonging or in any\n\nTo have and to hold the above described premises with its appurtenances unto said party of the second part, his heirs and assigns forever.\n\nAnd the said party of the first part hereby covenants and agrees that at the time of the executing and delivery of these presents, it is well seized of the premises above conveyed as of a good, perfect and absolute estate in fee simple, free and clear of all former and other grants, liens and encumbrances of whatever kind or nature, and that he will warrant and forever defend the above described premises in the quiet and peaceable possession of the said party of the second part, his heirs and assigns, against the lawful claims or claims of any other person or persons whatsoever.\n\nBut it is hereby especially covenanted and agreed that this conveyance is subject to all existing rights of way for ditches, canals, highways, public roads, streets and railroads and all other existing easements in upon or across said described premises.\n\nIn Witness Whereof the said party of the first part has caused these presents to be signed and his seal to be affixed this fifteenth day of June A.D. 1909.\n\nCallnadgeor Pumping Co., By E.R. Tallmadge President.\n\n(SEAL) Attest: O.L. Strain Secretary.\n\nSigned, sealed and delivered in presence of G.W. Southwick W.A. Larson.",
+  "source_drafts": 3,
+  "tokens_used": 0,
+  "created_at": "2025-09-20T16:02:46.829961",
+  "metadata": {
+    "alignment_summary": {
+      "processing_time_seconds": 0.597114086151123,
+      "total_blocks_processed": 8,
+      "total_positions_analyzed": 321,
+      "total_differences_found": 114,
+      "average_confidence_score": 0.8733125649013501,
+      "accuracy_percentage": 64.48598130841121,
+      "quality_assessment": "Good - Generally consistent with some variations",
+      "confidence_distribution": {
+        "high": 207,
+        "medium": 0,
+        "low": 114
+      },
+      "difference_categories": {
+        "coordinate_differences": 0,
+        "word_differences": 109,
+        "punctuation_differences": 0,
+        "other_differences": 5
+      },
+      "alignment_method": "BioPython Consistency-Based MSA",
+      "estimated_tcoffee_accuracy": "95-98%"
+    },
+    "processing_time": 0.597114086151123
+  }
+}

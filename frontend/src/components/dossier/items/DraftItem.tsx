@@ -52,6 +52,10 @@ export const DraftItem: React.FC<DraftItemProps> = ({
     quality: draft.metadata?.quality || 'low'
   };
 
+  const isProcessing = draft.metadata?.status === 'processing' || draft.metadata?._placeholder === true;
+  const isFailed = draft.metadata?.status === 'failed';
+  const isLLMConsensus = (draft.metadata as any)?.type === 'llm_consensus';
+
   const formatSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes}B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
@@ -129,10 +133,10 @@ export const DraftItem: React.FC<DraftItemProps> = ({
             ((draft.metadata as any)?.type === 'alignment_consensus') ? 'alignment-consensus' : ''
           }`}>
             {((draft.metadata as any)?.type === 'llm_consensus')
-              ? 'LLM Consensus Draft'
+              ? (isProcessing ? 'LLM Consensus (Processing...)': 'LLM Consensus Draft')
               : ((draft.metadata as any)?.type === 'alignment_consensus')
               ? 'Alignment Consensus Draft'
-              : `Draft ${draft.position + 1}`}
+              : (isProcessing ? `Draft ${draft.position + 1} (Processing...)` : `Draft ${draft.position + 1}`)}
             {draft.isBest && <span className="best-indicator">*</span>}
           </div>
           <div className="draft-details">
@@ -146,22 +150,65 @@ export const DraftItem: React.FC<DraftItemProps> = ({
         </div>
 
         <div className="draft-actions">
-          <button
-            className="dossier-action-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              console.log('👁️ Draft view button', { draftId: draft.id, runId: run.id, segmentId: segment.id, dossierId: dossier.id });
-              onViewRequest?.({
-                dossierId: dossier.id,
-                segmentId: segment.id,
-                runId: run.id,
-                draftId: draft.id
-              });
-            }}
-            title="View draft"
-          >
-            View
-          </button>
+          {isProcessing ? (
+            <div className="draft-loading">
+              <div className="loading-spinner show"></div>
+              <span className="loading-dots">Processing</span>
+            </div>
+          ) : (
+            <button
+              className="dossier-action-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                console.log('👁️ Draft view button', { draftId: draft.id, runId: run.id, segmentId: segment.id, dossierId: dossier.id });
+                onViewRequest?.({
+                  dossierId: dossier.id,
+                  segmentId: segment.id,
+                  runId: run.id,
+                  draftId: draft.id
+                });
+              }}
+              title="View draft"
+            >
+              View
+            </button>
+          )}
+          {isLLMConsensus && (
+            <>
+              {isFailed && (
+                <button
+                  className="dossier-action-btn warning"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const model = window.prompt('Retry LLM consensus. Choose model: gpt-5-nano-consensus | gpt-5-mini-consensus | gpt-5-consensus', 'gpt-5-mini-consensus') || 'gpt-5-mini-consensus';
+                    console.log('🔁 Retrying LLM consensus with model:', model);
+                    document.dispatchEvent(new CustomEvent('consensus:retry', {
+                      detail: { dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: draft.id, model }
+                    }));
+                  }}
+                  title="Retry LLM consensus"
+                >
+                  Retry
+                </button>
+              )}
+              {!isFailed && (
+                <button
+                  className="dossier-action-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const model = window.prompt('Run another LLM consensus. Choose model: gpt-5-nano-consensus | gpt-5-mini-consensus | gpt-5-consensus', 'gpt-5-consensus') || 'gpt-5-consensus';
+                    console.log('➕ Running additional LLM consensus with model:', model);
+                    document.dispatchEvent(new CustomEvent('consensus:retry', {
+                      detail: { dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: draft.id, model }
+                    }));
+                  }}
+                  title="Run another LLM consensus"
+                >
+                  Run again
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -84,6 +84,14 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
       }
     };
     document.addEventListener('dossiers:refresh', handler);
+    // Listen for consensus retry requests dispatched from DraftItem
+    const retryHandler = async (e: Event) => {
+      const ce = e as CustomEvent;
+      console.log('🔁 DossierManager: received consensus:retry event', ce.detail);
+      // Trigger a refresh immediately to reflect placeholder state
+      loadDossiers();
+    };
+    document.addEventListener('consensus:retry', retryHandler as EventListener);
     return () => document.removeEventListener('dossiers:refresh', handler);
   }, [loadDossiers]);
 
@@ -280,8 +288,8 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
       {/* Header with controls */}
       <DossierHeader
         selectedDossier={selectedDossier}
-        onCreateDossier={async () => {
-          await createDossier({ title: `Dossier ${new Date().toLocaleDateString()}` });
+        onCreateDossier={() => {
+          createDossier({ title: `Dossier ${new Date().toLocaleDateString()}` });
         }}
         onRefresh={loadDossiers}
         stats={stats}

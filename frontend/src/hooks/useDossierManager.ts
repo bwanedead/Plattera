@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { useReducer, useCallback, useEffect, useMemo, useState } from 'react';
+import { useProcessingPoller } from './useProcessingPoller';
 import { Dossier, DossierPath, DossierManagerState, DossierAction, SortOption } from '../types/dossier';
 import { dossierApi, DossierApiError } from '../services/dossier/dossierApi';
 
@@ -319,8 +320,41 @@ export function useDossierManager() {
     try {
       console.log('🔄 Calling dossierApi.getDossiers()...');
       const dossiers = await dossierApi.getDossiers();
-      console.log('✅ Loaded dossiers:', dossiers);
-      console.log('📊 Dossiers array length:', dossiers.length);
+      console.log('✅ Loaded dossiers:', dossiers.length, 'dossiers');
+      // Reduce noise: remove verbose per-dossier summary logging
+
+      // Heuristic auto-reconcile: if all drafts appear completed but run status isn't, ask backend to reconcile
+      try {
+        const candidates = dossiers.filter(d => {
+          const runs = (d.segments || []).flatMap(s => (s.runs || []));
+          return runs.some(r => {
+            const totalDrafts = (r.drafts || []).length || 0;
+            if (totalDrafts <= 0) return false;
+            const completedDrafts = (r.drafts || []).filter(dr => dr?.metadata?.status === 'completed').length;
+            const status = r.metadata?.status;
+            return completedDrafts >= totalDrafts && status !== 'completed';
+          });
+        });
+        if (candidates.length > 0) {
+          console.log(`🩺 Reconcile check: ${candidates.length} dossier(s) appear stale; reconciling...`);
+          for (const d of candidates) {
+            try {
+              const res = await dossierApi.reconcileRuns(d.id);
+              console.log(`🩺 Reconcile dossier ${d.id} ->`, res);
+            } catch (e) {
+              console.warn(`⚠️ Reconcile failed for dossier ${d.id}`, e);
+            }
+          }
+          // Reload after reconciliation
+          try {
+            const refreshed = await dossierApi.getDossiers();
+            console.log('✅ Reloaded dossiers after reconcile:', refreshed.length);
+            dispatch({ type: 'UPDATE_DOSSIERS', payload: refreshed });
+          } catch (e) {
+            console.warn('⚠️ Reload after reconcile failed', e);
+          }
+        }
+      } catch {}
       dispatch({ type: 'UPDATE_DOSSIERS', payload: dossiers });
     } catch (error) {
       // Downgrade to warn to avoid dev overlay during transient startup failures
@@ -548,6 +582,20 @@ export function useDossierManager() {
     loadDossiers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // loadDossiers is stable due to useCallback with empty deps
+
+  // Progressive refresh while processing is ongoing
+  const isProcessingActive = useMemo(() => {
+    return (state.dossiers || []).some(d =>
+      (d.segments || []).some(s =>
+        (s.runs || []).some(r =>
+          r?.metadata?.status === 'processing' ||
+          (r.drafts || []).some(dr => dr?.metadata?.status === 'processing')
+        )
+      )
+    );
+  }, [state.dossiers]);
+
+  useProcessingPoller(state.dossiers, loadDossiers, 2000, isProcessingActive);
 
   // ============================================================================
   // RETURN INTERFACE

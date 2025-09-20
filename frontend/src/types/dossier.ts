@@ -91,6 +91,8 @@ export interface DraftMetadata {
   createdAt: Date;
   // Optional type label for special drafts (e.g., LLM consensus)
   type?: 'llm_consensus' | string;
+  // Processing status for progressive runs
+  status?: 'processing' | 'completed' | 'failed';
 }
 
 // ============================================================================

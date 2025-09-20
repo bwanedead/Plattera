@@ -25,11 +25,12 @@ class RedundancyProcessor:
         self.auto_llm_consensus: bool = False
         self.llm_consensus_model: str = "gpt-5-consensus"  # default alias
     
-    def process(self, service, image_data: str, image_format: str, prompt: str, model: str, 
-               redundancy_count: int, json_mode: bool = False) -> dict:
+    def process(self, service, image_data: str, image_format: str, prompt: str, model: str,
+               redundancy_count: int, json_mode: bool = False,
+               progressive_save_callback: callable = None) -> dict:
         """
-        Complete redundancy processing workflow
-        
+        Complete redundancy processing workflow with optional progressive saving
+
         Args:
             service: The service to use for processing
             image_data: Base64 encoded image data
@@ -38,36 +39,44 @@ class RedundancyProcessor:
             model: Model identifier
             redundancy_count: Number of parallel calls to make
             json_mode: Whether to enable JSON mode
-            
+            progressive_save_callback: Optional callback for saving drafts progressively
+                Signature: callback(draft_index: int, result: dict) -> None
+
         Returns:
             dict: Fully formatted redundancy response
         """
         logger.info(f"🚀 REDUNDANCY PROCESSING ► Starting {redundancy_count} parallel calls")
-        
-        # Execute parallel API calls
+        if progressive_save_callback:
+            logger.info("💾 PROGRESSIVE SAVING ENABLED ► Drafts will be saved as they complete")
+
+        # Execute parallel API calls with optional progressive saving
         parallel_results = self._execute_parallel_calls(
-            service, image_data, image_format, prompt, model, redundancy_count, json_mode
+            service, image_data, image_format, prompt, model, redundancy_count, json_mode,
+            progressive_save_callback
         )
-        
+
         # Analyze results and format response
         logger.info("")  # Add spacing for readability
         logger.info("🧠 CONSENSUS ANALYSIS ► Starting redundancy analysis...")
         final_result = self._analyze_results(parallel_results, model)
         logger.info("✅ CONSENSUS COMPLETE ► Analysis finished successfully")
         logger.info("")  # Add spacing for readability
-        
+
         return final_result
     
-    def _execute_parallel_calls(self, service, image_data: str, image_format: str, prompt: str, 
-                               model: str, count: int, json_mode: bool = False) -> List[dict]:
+    def _execute_parallel_calls(self, service, image_data: str, image_format: str, prompt: str,
+                               model: str, count: int, json_mode: bool = False,
+                               progressive_save_callback: callable = None) -> List[dict]:
         """Execute multiple API calls with improved staggering and jitter to reduce empty responses"""
         results = []
-        
+
         logger.info(f"🚀 API EXECUTION ► Starting {count} parallel calls with staggered timing")
-        
+        if progressive_save_callback:
+            logger.info("💾 PROGRESSIVE CALLBACK ACTIVE ► Will save drafts as they complete")
+
         # Increased base delay + added jitter for o4-mini reliability
         base_stagger_delay = 1.5  # Increased from 700ms to 1500ms for o4-mini
-        
+
         # Use ThreadPoolExecutor for parallel API calls
         with concurrent.futures.ThreadPoolExecutor(max_workers=count) as executor:
             # Submit calls with staggered timing + jitter
@@ -75,11 +84,11 @@ class RedundancyProcessor:
             for i in range(count):
                 if i > 0:  # Add delay before subsequent calls
                     # Add random jitter (200-800ms) to prevent exact timing collisions
-                    jitter = random.uniform(0.2, 0.8)  
+                    jitter = random.uniform(0.2, 0.8)
                     total_delay = base_stagger_delay + jitter
                     time.sleep(total_delay)
                     logger.info(f"⏱️  API CALL {i+1} ► Submitted after {total_delay:.2f}s delay (base {base_stagger_delay}s + jitter {jitter:.2f}s)")
-                
+
                 # Pass explicit max_tokens to reduce cutoffs
                 future = executor.submit(
                     service.process_image_with_text,
@@ -90,29 +99,48 @@ class RedundancyProcessor:
                     json_mode=json_mode,
                     # Do NOT override max tokens here; let the service profile decide.
                 )
-                futures.append(future)
-            
+                futures.append((i, future))  # Store index with future
+
                 if i == 0:
                     logger.info(f"⚡ API CALL {i+1} ► Submitted immediately")
-            
-            # Collect results (these will complete whenever they finish)
-            for i, future in enumerate(futures):
+
+            # Collect results as they complete (not necessarily in order)
+            for draft_index, future in futures:
                 try:
                     # Increased timeout for o4-mini (2 min -> 4 min)
                     result = future.result(timeout=240)  # 4 minute timeout for long reasoning tasks
-                    logger.info(f"✅ API CALL {i+1} ► Completed successfully")
+                    logger.info(f"✅ API CALL {draft_index+1} ► Completed successfully")
+
+                    # Save result immediately if callback provided
+                    if progressive_save_callback:
+                        try:
+                            progressive_save_callback(draft_index, result)
+                            logger.info(f"💾 PROGRESSIVE SAVE TRIGGERED ► Draft v{draft_index+1} saved")
+                        except Exception as save_error:
+                            logger.warning(f"⚠️ Progressive save failed for draft v{draft_index+1}: {save_error}")
+
                     results.append(result)
                 except Exception as e:
-                    logger.error(f"❌ API CALL {i+1} ► Failed: {e}")
-                    results.append({
+                    logger.error(f"❌ API CALL {draft_index+1} ► Failed: {e}")
+                    failed_result = {
                         "success": False,
                         "error": f"API call failed: {str(e)}",
                         "extracted_text": ""
-                    })
-        
+                    }
+
+                    # Save failed result immediately if callback provided
+                    if progressive_save_callback:
+                        try:
+                            progressive_save_callback(draft_index, failed_result)
+                            logger.info(f"💾 PROGRESSIVE SAVE TRIGGERED ► Draft v{draft_index+1} failed, saved error state")
+                        except Exception as save_error:
+                            logger.warning(f"⚠️ Progressive save failed for failed draft v{draft_index+1}: {save_error}")
+
+                    results.append(failed_result)
+
         successful_count = sum(1 for r in results if r.get("success", False))
         logger.info(f"📊 API EXECUTION COMPLETE ► {successful_count}/{count} calls successful")
-        
+
         return results
     
     def _analyze_results(self, results: List[dict], model: str) -> dict:
@@ -276,9 +304,9 @@ class RedundancyProcessor:
         last_error = None
         for i in range(attempts):
             try:
-                max_tokens = 6000 if i == 0 else 9000  # escalate token cap on retry
+                # Delegate token limits to service profile; only vary temperature slightly across attempts
                 temp = 0.2 if i < 2 else 0.1
-                res = registry.process_text(prompt=prompt, model=model, max_tokens=max_tokens, temperature=temp)
+                res = registry.process_text(prompt=prompt, model=model, temperature=temp)
                 if res and res.get("success") and res.get("text"):
                     raw = res.get("text") or ""
                     tokens = res.get("tokens_used")
@@ -295,6 +323,10 @@ class RedundancyProcessor:
                             if body and body[0].strip() == "":
                                 body = body[1:]
                             text_out = "\n".join(body).strip()
+
+                    # Fallback: if no body after parsing and drafts exist, use the longest draft as body
+                    if not text_out.strip() and drafts:
+                        text_out = max(drafts, key=len)
 
                     return {
                         "text": text_out,

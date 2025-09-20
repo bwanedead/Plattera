@@ -42,19 +42,39 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [draftCount, setDraftCount] = useState(0);
   const [showEditedVersion, setShowEditedVersion] = useState(true);
 
+  // Auto-refresh dossiers when processing completes
+  const handleProcessingComplete = useCallback(() => {
+    console.log('📡 Dispatching dossiers:refresh event after processing completion');
+    document.dispatchEvent(new Event('dossiers:refresh'));
+  }, []);
+
+  // Track selected dossier for processing
+  const [selectedDossierId, setSelectedDossierId] = React.useState<string | null>(null);
+
   // Custom hooks for state management
-  const imageProcessing = useImageProcessing();
+  const imageProcessing = useImageProcessing({
+    onProcessingComplete: handleProcessingComplete,
+    selectedDossierId: selectedDossierId
+  });
   const alignmentState = useAlignmentState();
   const dossierState = useDossierManager();
+
+  // Send an immediate refresh event when processing starts
+  useEffect(() => {
+    if (imageProcessing.isProcessing) {
+      console.log('📡 Processing started - dispatching dossiers:refresh');
+      document.dispatchEvent(new Event('dossiers:refresh'));
+    }
+  }, [imageProcessing.isProcessing]);
 
   // Debug: Log when dossier state changes
   React.useEffect(() => {
     console.log('🏢 ImageProcessingWorkspace: dossierState updated:', dossierState.state.dossiers);
-    if (imageProcessing.selectedDossierId) {
-      const selectedDossier = dossierState.state.dossiers.find(d => d.id === imageProcessing.selectedDossierId);
+    if (selectedDossierId) {
+      const selectedDossier = dossierState.state.dossiers.find(d => d.id === selectedDossierId);
       console.log('🏢 ImageProcessingWorkspace: selected dossier:', selectedDossier);
     }
-  }, [dossierState.state.dossiers, imageProcessing.selectedDossierId]);
+  }, [dossierState.state.dossiers, selectedDossierId]);
   
   // Initialize draft selection with persisted state
   const [selectedDraft, setSelectedDraft] = useState<number | 'consensus' | 'best'>(
@@ -132,7 +152,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     imageProcessing.setOnProcessingComplete(() => {
       try {
         console.log('🔄 Processing completed - refreshing dossiers for dropdown');
-        dossierState.loadDossiers();
+        // Defer dossier loading to avoid React state update during render
+        setTimeout(() => {
+          dossierState.loadDossiers();
+        }, 0);
         // Broadcast a global refresh signal for any listeners (e.g., DossierManager instances)
         try {
           document.dispatchEvent(new CustomEvent('dossiers:refresh'));
@@ -416,8 +439,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             consensusSettings={imageProcessing.consensusSettings}
             onConsensusSettingsChange={imageProcessing.setConsensusSettings}
             // DOSSIER SUPPORT
-            selectedDossierId={imageProcessing.selectedDossierId}
-            onDossierChange={imageProcessing.setSelectedDossierId}
+            selectedDossierId={selectedDossierId}
+            onDossierChange={setSelectedDossierId}
             dossiers={dossierState.state.dossiers}
             selectedSegmentId={imageProcessing.selectedSegmentId}
             onSegmentChange={imageProcessing.setSelectedSegmentId}
