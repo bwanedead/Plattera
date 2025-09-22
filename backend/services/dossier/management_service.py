@@ -98,6 +98,7 @@ class DossierManagementService:
 
         association_service = TranscriptionAssociationService()
         transcriptions = association_service.get_dossier_transcriptions(dossier.id)
+        logger.info(f"DOSS_POPULATE_START dossier={dossier.id} assoc_count={len(transcriptions)}")
 
         if not transcriptions:
             logger.debug(f"📄 No transcriptions found for dossier {dossier.id}")
@@ -106,6 +107,8 @@ class DossierManagementService:
         # Start with manual segments already loaded in dossier.segments
 
         # Group transcriptions by segment (for now, each transcription = one segment)
+        realized_runs = 0
+        realized_drafts = 0
         for transcription in transcriptions:
             # Create stable segment ID based on transcription_id
             segment_id = f"segment_auto_{transcription.transcription_id}"
@@ -203,8 +206,14 @@ class DossierManagementService:
                     fpath = _struct_raw / f"{transcription.transcription_id}_v{i+1}.json"
                     length = 0
                     if fpath.exists():
+                        # As soon as the versioned draft file exists, mark this draft completed
+                        try:
+                            d.metadata['status'] = 'completed'
+                        except Exception:
+                            pass
                         with open(fpath, 'r', encoding='utf-8') as fp:
                             content = json.load(fp)
+                        realized_drafts += 1
 
                         text = ""
                         if isinstance(content, dict):
@@ -310,8 +319,11 @@ class DossierManagementService:
             # Build hierarchy
             segment.runs.append(run)
             dossier.segments.append(segment)
+            realized_runs += 1
 
-        logger.debug(f"🏗️ Populated dossier {dossier.id} with {len(dossier.segments)} segments")
+        logger.info(
+            f"DOSS_POPULATE_DONE dossier={dossier.id} segs={len(dossier.segments)} runs={realized_runs} drafts={realized_drafts}"
+        )
 
     # -----------------------------
     # Segment management operations
@@ -568,11 +580,15 @@ class DossierManagementService:
         Returns:
             List of full Dossier objects with populated segments/runs/drafts
         """
-        logger.debug("📋 Listing dossiers")
+        # Reduce noisy listing logs; keep at trace-level (debug)
+        logger.debug("API:list_dossiers")
         logger.debug(f"🔍 Looking for dossiers in: {self.storage_dir}")
         logger.debug(f"🔍 Storage dir exists: {self.storage_dir.exists()}")
 
         dossiers = []
+        total_segments = 0
+        total_runs = 0
+        total_drafts = 0
         try:
             dossier_files = list(self.storage_dir.glob("dossier_*.json"))
             logger.debug(f"📁 Found {len(dossier_files)} dossier files")
@@ -587,7 +603,13 @@ class DossierManagementService:
                     # Populate segments, runs, and drafts from associations
                     self._populate_dossier_hierarchy(dossier)
 
-                    logger.debug(f"✅ Loaded dossier: {dossier.id} - {dossier.title} with {len(dossier.segments)} segments")
+                    seg_count = len(dossier.segments)
+                    run_count = sum(len(s.runs) for s in dossier.segments)
+                    draft_count = sum(len(r.drafts) for s in dossier.segments for r in s.runs)
+                    total_segments += seg_count
+                    total_runs += run_count
+                    total_drafts += draft_count
+                    logger.debug(f"✅ Loaded dossier: {dossier.id} - {dossier.title} segs={seg_count} runs={run_count} drafts={draft_count}")
                     dossiers.append(dossier)
 
                 except Exception as e:
@@ -598,7 +620,10 @@ class DossierManagementService:
             dossiers.sort(key=lambda d: d.updated_at, reverse=True)
             dossiers = dossiers[offset:offset + limit]
 
-            logger.debug(f"📊 Listed {len(dossiers)} dossiers")
+            logger.info(
+                f"DOSS_LIST_SUMMARY files={len(dossier_files)} returned={len(dossiers)} "
+                f"segments={total_segments} runs={total_runs} drafts={total_drafts}"
+            )
             return dossiers
 
         except Exception as e:

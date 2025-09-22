@@ -28,7 +28,8 @@ class TranscriptionAssociationService:
         BACKEND_DIR = Path(__file__).resolve().parents[2]
         self.storage_dir = BACKEND_DIR / "dossiers_data/associations"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        logger.info("🔗 Transcription Association Service initialized")
+        # Reduce log noise: initialization can happen frequently during refreshes
+        logger.debug("TranscriptionAssociationService initialized")
 
     def add_transcription(self, dossier_id: str, transcription_id: str,
                          position: int = None, metadata: Dict[str, Any] = None) -> bool:
@@ -44,7 +45,7 @@ class TranscriptionAssociationService:
         Returns:
             bool: Success status
         """
-        logger.info(f"➕ Adding transcription {transcription_id} to dossier {dossier_id}")
+        logger.info(f"ASSOC_ADD dossier={dossier_id} transcription={transcription_id} pos={position}")
 
         # Check if transcription already exists in dossier
         if self.transcription_exists_in_dossier(dossier_id, transcription_id):
@@ -70,7 +71,7 @@ class TranscriptionAssociationService:
         # Save updated associations
         self._save_associations(dossier_id, associations)
 
-        logger.info(f"✅ Added transcription {transcription_id} to dossier {dossier_id}")
+        logger.info(f"ASSOC_ADDED dossier={dossier_id} transcription={transcription_id}")
         return True
 
     def remove_transcription(self, dossier_id: str, transcription_id: str) -> bool:

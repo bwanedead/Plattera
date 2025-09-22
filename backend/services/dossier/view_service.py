@@ -309,11 +309,26 @@ class DossierViewService:
             Dictionary with transcription content or None if not found
         """
         BACKEND_DIR = Path(__file__).resolve().parents[2]
-        # New canonical layout: dossiers_data/views/transcriptions/<dossier_id>/<transcription_id>/raw/<file>.json
+        # New canonical layout: dossiers_data/views/transcriptions/<dossier_id>/<transcription_id>/{raw|consensus}/<file>.json
         # Because we don't always have dossier_id here, search recursively by filename
         from pathlib import Path as _Path
         transcriptions_root = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
-        candidates = list(transcriptions_root.rglob(f"**/raw/{transcription_id}.json"))
+        candidates = []
+
+        # Support special consensus draft IDs
+        try:
+            if transcription_id.endswith('_consensus_llm'):
+                base_id = transcription_id[:-len('_consensus_llm')]
+                candidates = list(transcriptions_root.rglob(f"**/{base_id}/consensus/llm_{base_id}.json"))
+            elif transcription_id.endswith('_consensus_alignment'):
+                base_id = transcription_id[:-len('_consensus_alignment')]
+                candidates = list(transcriptions_root.rglob(f"**/{base_id}/consensus/alignment_{base_id}.json"))
+        except Exception:
+            candidates = []
+
+        # Standard raw/base file lookup
+        if not candidates:
+            candidates = list(transcriptions_root.rglob(f"**/raw/{transcription_id}.json"))
         if not candidates and ("_v" in transcription_id):
             base_id = transcription_id.rsplit("_v", 1)[0]
             candidates = list(transcriptions_root.rglob(f"**/raw/{base_id}.json"))

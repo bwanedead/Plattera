@@ -29,6 +29,7 @@ Provides clean separation between general processing and dossier management.
 """
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from utils.response_models import ProcessResponse
 from utils.file_handler import save_uploaded_file, cleanup_temp_file, is_valid_image_file
@@ -226,6 +227,59 @@ async def process_with_dossier_association(
         except Exception as tid_err:
             logger.warning(f"⚠️ Failed to ensure transcription_id prior to processing: {tid_err}")
 
+        # Pre-associate transcription and create placeholders so UI can render immediately
+        try:
+            from services.dossier.association_service import TranscriptionAssociationService as _TAS
+            _assoc = _TAS()
+            if not _assoc.transcription_exists_in_dossier(str(dossier_id), str(transcription_id)):
+                next_position = _assoc.get_transcription_count(str(dossier_id)) + 1
+                _assoc.add_transcription(
+                    dossier_id=str(dossier_id),
+                    transcription_id=str(transcription_id),
+                    position=next_position,
+                    metadata={
+                        "processing_params": {
+                            "model": model,
+                            "extraction_mode": extraction_mode,
+                            "redundancy_count": redundancy_count,
+                            "consensus_strategy": consensus_strategy,
+                            "auto_llm_consensus": auto_llm_consensus_flag,
+                            "llm_consensus_model": llm_consensus_model
+                        },
+                        "auto_added": True,
+                        "source": "dossier:processing:pre"
+                    }
+                )
+        except Exception as pre_assoc_err:
+            logger.debug(f"(non-critical) Could not pre-associate transcription: {pre_assoc_err}")
+
+        # Create placeholder drafts for all redundancy versions (idempotent)
+        try:
+            from pathlib import Path as _Path2
+            import json as _json
+            from datetime import datetime as _dt
+
+            _BACKEND_DIR = _Path2(__file__).resolve().parents[3]
+            run_root = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / str(transcription_id)
+            raw_dir = run_root / "raw"
+            raw_dir.mkdir(parents=True, exist_ok=True)
+
+            for i in range(1, redundancy_count + 1):
+                pf = raw_dir / f"{transcription_id}_v{i}.json"
+                if not pf.exists():
+                    with open(pf, 'w', encoding='utf-8') as _f:
+                        _json.dump({
+                            "documentId": "processing",
+                            "sections": [{"id": 1, "body": f"Processing draft {i} of {redundancy_count}..."}],
+                            "_placeholder": True,
+                            "_status": "processing",
+                            "_draft_index": i - 1,
+                            "_created_at": _dt.now().isoformat()
+                        }, _f, indent=2, ensure_ascii=False)
+            logger.info(f"VISIBILITY_PRIME dossier={dossier_id} transcription={transcription_id} placeholders={redundancy_count}")
+        except Exception as pre_placeholder_err:
+            logger.debug(f"(non-critical) Could not create placeholders: {pre_placeholder_err}")
+
         # Process with dossier association and progressive saving
         logger.info("🚀 Starting dossier processing with progressive saving...")
         from pipelines.image_to_text.pipeline import ImageToTextPipeline
@@ -240,18 +294,18 @@ async def process_with_dossier_association(
             except Exception as cfg_err:
                 logger.warning(f"⚠️ Failed to configure LLM consensus options (non-critical): {cfg_err}")
 
-        # Process with progressive saving enabled
+        # Process with progressive saving enabled (offload to threadpool to avoid blocking the event loop)
         logger.info(f"🔄 Processing with progressive saving - dossier: {dossier_id}, transcription: {transcription_id}")
-        result = pipeline.process_with_redundancy(
+        result = await run_in_threadpool(lambda: pipeline.process_with_redundancy(
             temp_path,
             model,
             extraction_mode,
             enhancement_settings,
             redundancy_count,
             consensus_strategy,
-            dossier_id=dossier_id,  # Enable progressive saving
+            dossier_id=dossier_id,
             transcription_id=transcription_id
-        )
+        ))
 
         if not result.get("success", False):
             logger.error(f"❌ Pipeline failed: {result.get('error', 'Unknown error')}")

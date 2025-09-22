@@ -69,13 +69,11 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
     setIsProcessing(true);
 
     try {
-      console.log(`🚀 useImageProcessing: selectedDossierId = ${selectedDossierId}`);
-      console.log(`🚀 useImageProcessing: selectedDossierId type = ${typeof selectedDossierId}`);
-      console.log(`🚀 useImageProcessing: selectedDossierId truthy = ${!!selectedDossierId}`);
+      // Reduce noisy logs
 
       // Prefer internal state updated by init-run; fall back to prop
       let dossierIdToSend: string | undefined = (internalSelectedDossierId || selectedDossierId) || undefined;
-      console.log(`🚀 useImageProcessing: dossierIdToSend (pre-init) = ${dossierIdToSend}`);
+      // Reduce noisy logs
 
       // Initialize run skeleton before processing for immediate UI feedback
       const firstFile = stagedFiles[0];
@@ -102,7 +100,7 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
           }
           initTranscriptionId = initResult.transcription_id;
           initDossierId = initResult.dossier_id;
-          console.log(`✅ Run initialized: dossier=${initResult.dossier_id}, transcription=${initResult.transcription_id}`);
+          // Reduce noisy logs
         }
       } catch (initError) {
         console.warn('⚠️ Failed to initialize run skeleton (non-critical):', initError);
@@ -111,7 +109,7 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
 
       // Ensure we send the dossier created/returned by init-run to enable dossier endpoint + progressive saving
       dossierIdToSend = initDossierId || dossierIdToSend;
-      console.log(`🚀 useImageProcessing: dossierIdToSend (post-init) = ${dossierIdToSend}`);
+      // Reduce noisy logs
 
       // Fire immediate refresh so skeleton appears
       document.dispatchEvent(new Event('dossiers:refresh'));

@@ -101,8 +101,9 @@ class AlignmentService:
                     from datetime import datetime as _dt
                     import json as _json
 
-                    backend_dir = _Path(__file__).resolve().parents[1]  # services/
-                    base_root = backend_dir.parent / "dossiers_data" / "views" / "transcriptions"
+                    # Ensure we save under backend/dossiers_data/... (not project root)
+                    backend_dir = _Path(__file__).resolve().parents[1]  # backend/
+                    base_root = backend_dir / "dossiers_data" / "views" / "transcriptions"
 
                     dossier_id = (save_context or {}).get("dossier_id")
                     transcription_id = (save_context or {}).get("transcription_id")
@@ -117,7 +118,8 @@ class AlignmentService:
 
                         consensus_dir = run_dir / "consensus"
                         consensus_dir.mkdir(parents=True, exist_ok=True)
-                        consensus_file = consensus_dir / "alignment.json"
+                        # Save with per-transcription filename to match view/management lookups
+                        consensus_file = consensus_dir / f"alignment_{transcription_id}.json"
 
                         payload = {
                             "type": "alignment_consensus",

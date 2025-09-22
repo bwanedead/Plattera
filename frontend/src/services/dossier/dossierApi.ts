@@ -24,9 +24,10 @@ class DossierApiClient {
   // ============================================================================
 
   async getDossiers(): Promise<Dossier[]> {
+    const t0 = Date.now();
     const response = await this.request<any>('/dossier-management/list');
-    console.log('📡 getDossiers response:', response);
-    // Backend returns { success, dossiers, total_count } directly
+    const count = (response.dossiers || []).length;
+    console.info(`DM_API_LIST ok count=${count} dt_ms=${Date.now()-t0}`);
     return response.dossiers || [];
   }
 

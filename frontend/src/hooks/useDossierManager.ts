@@ -313,15 +313,14 @@ export function useDossierManager() {
   // ============================================================================
 
   const loadDossiers = useCallback(async () => {
-    console.log('🔄 Loading dossiers...');
+    const t0 = Date.now();
     dispatch({ type: 'SET_LOADING', payload: { key: 'dossiers', loading: true } });
     dispatch({ type: 'SET_ERROR', payload: { key: 'dossiers', error: null } });
 
     try {
-      console.log('🔄 Calling dossierApi.getDossiers()...');
+      console.info('DM_LOAD start');
       const dossiers = await dossierApi.getDossiers();
-      console.log('✅ Loaded dossiers:', dossiers.length, 'dossiers');
-      // Reduce noise: remove verbose per-dossier summary logging
+      console.info(`DM_LOAD got count=${dossiers.length} dt_ms=${Date.now()-t0}`);
 
       // Heuristic auto-reconcile: if all drafts appear completed but run status isn't, ask backend to reconcile
       try {
@@ -336,29 +335,28 @@ export function useDossierManager() {
           });
         });
         if (candidates.length > 0) {
-          console.log(`🩺 Reconcile check: ${candidates.length} dossier(s) appear stale; reconciling...`);
+          console.info(`DM_RECONCILE candidates=${candidates.length}`);
           for (const d of candidates) {
             try {
               const res = await dossierApi.reconcileRuns(d.id);
-              console.log(`🩺 Reconcile dossier ${d.id} ->`, res);
+              console.info(`DM_RECONCILE_OK dossier=${d.id} reconciled=${res?.reconciled}`);
             } catch (e) {
-              console.warn(`⚠️ Reconcile failed for dossier ${d.id}`, e);
+              console.warn(`DM_RECONCILE_FAIL dossier=${d.id}`, e);
             }
           }
           // Reload after reconciliation
           try {
             const refreshed = await dossierApi.getDossiers();
-            console.log('✅ Reloaded dossiers after reconcile:', refreshed.length);
+            console.info(`DM_RELOAD_AFTER_RECONCILE count=${refreshed.length}`);
             dispatch({ type: 'UPDATE_DOSSIERS', payload: refreshed });
           } catch (e) {
-            console.warn('⚠️ Reload after reconcile failed', e);
+            console.warn('DM_RELOAD_AFTER_RECONCILE_FAIL', e);
           }
         }
       } catch {}
       dispatch({ type: 'UPDATE_DOSSIERS', payload: dossiers });
     } catch (error) {
-      // Downgrade to warn to avoid dev overlay during transient startup failures
-      console.warn('⚠️ Failed to load dossiers (will show soft retry UI):', error);
+      console.warn('DM_LOAD_FAIL', error);
       const errorMessage = error instanceof DossierApiError
         ? error.message
         : 'Failed to load dossiers';

@@ -288,16 +288,16 @@ async def list_dossiers(limit: int = 50, offset: int = 0):
     Returns:
         DossierListResponse with dossier summaries
     """
-    logger.info(f"📋 API: Listing dossiers (limit={limit}, offset={offset})")
+    logger.info(f"DOSS_LIST_CALL limit={limit} offset={offset}")
 
     try:
         dossiers = dossier_service.list_dossiers(limit=limit, offset=offset)
-        logger.info(f"🔍 Service returned {len(dossiers)} dossiers")
+        logger.info(f"DOSS_LIST_SERVICE_RETURN count={len(dossiers)}")
 
         dossier_dicts = [dossier.to_dict() for dossier in dossiers]
-        logger.info(f"📝 Converted {len(dossier_dicts)} dossiers to dict format")
+        logger.debug(f"API: Converted {len(dossier_dicts)} dossiers to dict format")
 
-        logger.info(f"✅ API: Listed {len(dossiers)} dossiers")
+        logger.info(f"DOSS_LIST_RESPONSE count={len(dossiers)}")
         return DossierListResponse(
             success=True,
             dossiers=dossier_dicts,
