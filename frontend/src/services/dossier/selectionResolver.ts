@@ -23,9 +23,9 @@ export interface ResolvedSelection {
 
 function getTranscriptionIdSafe(run?: Run | null, draft?: Draft | null): string | undefined {
   return (
-    draft?.transcriptionId ||
+    (draft as any)?.transcriptionId ||
     (draft as any)?.transcription_id ||
-    run?.transcriptionId ||
+    (run as any)?.transcriptionId ||
     (run as any)?.transcription_id
   );
 }
@@ -46,7 +46,7 @@ async function resolveDraftText(dossier: Dossier, path: DossierPath): Promise<Re
   if (!transcriptionId) {
     return { mode: 'draft', path, text: '', context: { dossier, segment, run, draft } };
   }
-  const text = await textApi.getDraftText(transcriptionId, draft.id);
+  const text = await textApi.getDraftText(transcriptionId, draft.id, dossier.id);
   return { mode: 'draft', path, text, context: { dossier, segment, run, draft } };
 }
 
@@ -61,7 +61,7 @@ async function resolveRunText(dossier: Dossier, path: DossierPath): Promise<Reso
   if (!transcriptionId) {
     return { mode: 'run', path, text: '', context: { dossier, segment, run, draft } };
   }
-  const text = await textApi.getDraftText(transcriptionId, draft.id);
+  const text = await textApi.getDraftText(transcriptionId, draft.id, dossier.id);
   return { mode: 'run', path, text, context: { dossier, segment, run, draft } };
 }
 
@@ -76,7 +76,7 @@ async function resolveSegmentText(dossier: Dossier, path: DossierPath): Promise<
   if (!transcriptionId) {
     return { mode: 'segment', path, text: '', context: { dossier, segment, run, draft } };
   }
-  const text = await textApi.getDraftText(transcriptionId, draft.id);
+  const text = await textApi.getDraftText(transcriptionId, draft.id, dossier.id);
   return { mode: 'segment', path, text, context: { dossier, segment, run, draft } };
 }
 
@@ -86,40 +86,32 @@ async function resolveDossierText(dossier: Dossier, path: DossierPath): Promise<
   return { mode: 'dossier', path, text, context: { dossier } };
 }
 
-export async function resolveSelectionToText(path: DossierPath): Promise<ResolvedSelection> {
-  if (!path?.dossierId) {
-    return { mode: 'dossier', path, text: '' };
+export async function resolveSelectionToText(path: DossierPath, dossier?: Dossier): Promise<ResolvedSelection> {
+  let ds: Dossier | undefined = dossier;
+  if (!ds && path.dossierId) {
+    ds = await dossierApi.getDossier(path.dossierId);
+  }
+  if (!ds) {
+    return { mode: 'dossier', path, text: '', context: { dossier: ds } };
   }
 
-  let dossier: Dossier | null = null;
-  try {
-    dossier = await dossierApi.getDossier(path.dossierId);
-  } catch (e) {
-    console.warn('resolveSelectionToText: failed to load dossier', e);
-    // Fallback: load all and find
-    try {
-      const all = await dossierApi.getDossiers();
-      dossier = (all || []).find((d) => d.id === path.dossierId) || null;
-    } catch (e2) {
-      console.warn('resolveSelectionToText: fallback getDossiers failed', e2);
-    }
+  const segment: Segment | null = ds.segments?.find(s => s.id === path.segmentId) ?? null;
+  const run: Run | null = segment?.runs?.find(r => r.id === path.runId) ?? null;
+  const drafts: Draft[] = (run?.drafts ?? []) as Draft[];
+  const draft = drafts.find(d => d.id === path.draftId) ?? null;
+
+  if (draft) {
+    const draftId = draft.id;
+    const dossierId = ds.id;
+    const selectedIsConsensus = draftId.endsWith('_consensus_llm') || draftId.endsWith('_consensus_alignment');
+    console.info(`selectionResolver: draft mode -> draftId=${draftId} dossierId=${dossierId} isConsensus=${selectedIsConsensus}`);
+    const text = await textApi.getDraftText((run as any)?.transcriptionId || (run as any)?.transcription_id, draftId, dossierId);
+    return { mode: 'draft', path, text, context: { dossier: ds, segment, run, draft } };
   }
 
-  if (!dossier) {
-    return { mode: 'dossier', path, text: '' };
-  }
-
-  // Priority by specificity
-  if (path.draftId && path.runId && path.segmentId) {
-    return resolveDraftText(dossier, path);
-  }
-  if (path.runId && path.segmentId) {
-    return resolveRunText(dossier, path);
-  }
-  if (path.segmentId) {
-    return resolveSegmentText(dossier, path);
-  }
-  return resolveDossierText(dossier, path);
+  console.info(`selectionResolver: non-draft mode -> path=${JSON.stringify(path)}`);
+  const text = stitchToText(await latestRunBestDraftPolicy(ds));
+  return { mode: 'dossier', path, text, context: { dossier: ds, segment, run, draft: null } };
 }
 
 

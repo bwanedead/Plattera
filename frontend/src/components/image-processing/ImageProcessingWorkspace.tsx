@@ -475,8 +475,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             selectedResult={imageProcessing.selectedResult}
             onSelectResult={(res: any) => {
               imageProcessing.selectResult(res);
-              const idx = res?.result?.metadata?.selected_draft_index;
-              setSelectedDraft(typeof idx === 'number' ? idx : 0); // Honor selected draft index from DossierManager
+              const meta = res?.result?.metadata;
+              const idx = meta?.selected_draft_index;
+              const isConsensus = !!meta?.is_consensus_selected;
+              setSelectedDraft(isConsensus ? 'consensus' : (typeof idx === 'number' ? idx : 0));
               alignmentState.resetAlignmentState();
                 }}
                             isHistoryVisible={workspaceState.isHistoryVisible}

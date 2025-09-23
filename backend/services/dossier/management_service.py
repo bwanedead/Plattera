@@ -98,7 +98,7 @@ class DossierManagementService:
 
         association_service = TranscriptionAssociationService()
         transcriptions = association_service.get_dossier_transcriptions(dossier.id)
-        logger.info(f"DOSS_POPULATE_START dossier={dossier.id} assoc_count={len(transcriptions)}")
+        # Removed noisy populate logs
 
         if not transcriptions:
             logger.debug(f"📄 No transcriptions found for dossier {dossier.id}")
@@ -206,29 +206,33 @@ class DossierManagementService:
                     fpath = _struct_raw / f"{transcription.transcription_id}_v{i+1}.json"
                     length = 0
                     if fpath.exists():
-                        # As soon as the versioned draft file exists, mark this draft completed
-                        try:
-                            d.metadata['status'] = 'completed'
-                        except Exception:
-                            pass
                         with open(fpath, 'r', encoding='utf-8') as fp:
                             content = json.load(fp)
-                        realized_drafts += 1
 
+                        # Determine if this is a real (non-placeholder) draft with usable content
+                        is_real = False
                         text = ""
                         if isinstance(content, dict):
-                            sections = content.get('sections')
-                            if isinstance(sections, list):
-                                # Structured format with sections
-                                text = " ".join(
-                                    str(s.get('body', '')) for s in sections if isinstance(s, dict)
-                                )
-                            elif 'extracted_text' in content:
-                                text = str(content.get('extracted_text', ''))
-                            elif 'text' in content:
-                                text = str(content.get('text', ''))
+                            if not content.get('_placeholder', False):
+                                sections = content.get('sections')
+                                if isinstance(sections, list):
+                                    text = " ".join(
+                                        str(s.get('body', '')) for s in sections if isinstance(s, dict)
+                                    )
+                                elif 'extracted_text' in content:
+                                    text = str(content.get('extracted_text', ''))
+                                elif 'text' in content:
+                                    text = str(content.get('text', ''))
+                                is_real = bool(text and text.strip()) or (isinstance(sections, list) and any((s.get('body') or '').strip() for s in sections if isinstance(s, dict)))
 
-                        length = len(text.strip())
+                        length = len((text or '').strip())
+
+                        if is_real:
+                            try:
+                                d.metadata['status'] = 'completed'
+                            except Exception:
+                                pass
+                            realized_drafts += 1
 
                     if length > max_len:
                         max_len = length
@@ -321,9 +325,7 @@ class DossierManagementService:
             dossier.segments.append(segment)
             realized_runs += 1
 
-        logger.info(
-            f"DOSS_POPULATE_DONE dossier={dossier.id} segs={len(dossier.segments)} runs={realized_runs} drafts={realized_drafts}"
-        )
+        # Removed noisy populate logs
 
     # -----------------------------
     # Segment management operations
@@ -582,8 +584,7 @@ class DossierManagementService:
         """
         # Reduce noisy listing logs; keep at trace-level (debug)
         logger.debug("API:list_dossiers")
-        logger.debug(f"🔍 Looking for dossiers in: {self.storage_dir}")
-        logger.debug(f"🔍 Storage dir exists: {self.storage_dir.exists()}")
+        # Quiet verbose path existence logs
 
         dossiers = []
         total_segments = 0
@@ -591,11 +592,11 @@ class DossierManagementService:
         total_drafts = 0
         try:
             dossier_files = list(self.storage_dir.glob("dossier_*.json"))
-            logger.debug(f"📁 Found {len(dossier_files)} dossier files")
+            # Quiet file count logs (kept at debug already)
 
             for file_path in dossier_files:
                 try:
-                    logger.debug(f"📖 Reading dossier file: {file_path}")
+                    # Suppress per-file read logs
                     with open(file_path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                     dossier = Dossier.from_dict(data)
@@ -609,7 +610,7 @@ class DossierManagementService:
                     total_segments += seg_count
                     total_runs += run_count
                     total_drafts += draft_count
-                    logger.debug(f"✅ Loaded dossier: {dossier.id} - {dossier.title} segs={seg_count} runs={run_count} drafts={draft_count}")
+                    # Suppress per-dossier detail logs
                     dossiers.append(dossier)
 
                 except Exception as e:
@@ -620,7 +621,7 @@ class DossierManagementService:
             dossiers.sort(key=lambda d: d.updated_at, reverse=True)
             dossiers = dossiers[offset:offset + limit]
 
-            logger.info(
+            logger.debug(
                 f"DOSS_LIST_SUMMARY files={len(dossier_files)} returned={len(dossiers)} "
                 f"segments={total_segments} runs={total_runs} drafts={total_drafts}"
             )

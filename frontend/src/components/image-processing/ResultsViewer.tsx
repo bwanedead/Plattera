@@ -118,6 +118,12 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
     }
   };
 
+  // Determine if the currently selected item has text available
+  const selectedJson: any = (selectedResult as any)?.rawJson || (selectedResult as any)?.json || null;
+  const isPlaceholder = !!(selectedJson && typeof selectedJson === 'object' && (selectedJson._placeholder === true || selectedJson._status === 'processing'));
+  const selectedText = selectedResult && !isPlaceholder ? getCurrentText() : '';
+  const hasSelectedText = !!(selectedText && selectedText.trim().length);
+
   return (
     <div className="results-area" style={{ width: '100%', height: '100%' }}>
       <Allotment defaultSizes={[300, 700]} vertical={false}>
@@ -137,7 +143,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   onViewRequest={async (path: DossierPath) => {
                     console.log('👁️ View requested:', path);
                     try {
-                      const resolved: ResolvedSelection = await resolveSelectionToText(path);
+                      const resolved: ResolvedSelection = await resolveSelectionToText(path, undefined);
 
                       // Update the current display path for highlighting
                       setCurrentDisplayPath(path);
@@ -181,11 +187,11 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         const isConsensusSelected = selectedDraftId?.endsWith('_consensus_llm') || false;
 
                         // Map selected index to raw drafts only
-                        let selectedIndex = 0;
+                        let selectedIndex: number | 'consensus' = 0;
                         if (selectedDraftId) {
                           if (isConsensusSelected) {
-                            // For consensus, we don't include it in individual_results, so use index 0
-                            selectedIndex = 0;
+                            // For consensus, we don't include it in individual_results
+                            selectedIndex = 'consensus';
                           } else {
                             // Find index in raw drafts array
                             selectedIndex = Math.max(0, rawDrafts.findIndex(d => d.id === selectedDraftId));
@@ -199,15 +205,21 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         for (let i = 0; i < draftIds.length; i++) {
                           const draftId = draftIds[i];
                           try {
-                            const js = await textApi.getDraftJson(draftId);
-                            jsonStrings.push(js || '');
+                            const js = await textApi.getDraftJson(
+                              transcriptionId || '',
+                              draftId,
+                              path.dossierId
+                            );
+                            const jsStr = typeof js === 'string' ? js : (js ? JSON.stringify(js) : '');
+                            jsonStrings.push(jsStr);
                           } catch (e) {
                             jsonStrings.push('');
                           }
                           try {
                             const text = await textApi.getDraftText(
                               resolved.context?.run?.transcriptionId || (resolved.context?.run as any)?.transcription_id || '',
-                              draftId
+                              draftId,
+                              path.dossierId
                             );
                             cleanTexts.push(text || '');
                           } catch (e) {
@@ -229,7 +241,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         });
 
                         // Determine which text to show for the selected draft
-                        let displayJson = '';
+                        let displayJson: any = '';
                         if (isConsensusSelected && consensusDrafts.length > 0) {
                           // Show consensus JSON directly
                           const consensusIndex = allDrafts.findIndex(d => d.id === selectedDraftId);
@@ -243,17 +255,19 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           }
                         }
 
+                        const displayJsonStr = typeof displayJson === 'string' ? displayJson : (displayJson ? JSON.stringify(displayJson) : '');
+
                         const syntheticResult = {
                           input: 'Dossier Selection',
                           status: 'completed' as const,
                           result: {
-                            // Keep the selected draft's raw JSON here to keep JSON tab behavior consistent
-                            extracted_text: displayJson,
+                            // Always store string for compatibility with JSON detection
+                            extracted_text: displayJsonStr,
                             metadata: {
                               model_used: 'dossier-selection',
                               service_type: 'dossier',
                               is_imported_draft: true,
-                              selected_draft_index: selectedIndex,
+                              selected_draft_index: typeof selectedIndex === 'number' ? selectedIndex : undefined,
                               is_consensus_selected: isConsensusSelected,
                               transcription_id: transcriptionId, // Add transcription ID for saving alignment consensus
                               redundancy_analysis: {
@@ -261,13 +275,13 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                                 count: rawDrafts.length, // Only count raw drafts for alignment
                                 individual_results,
                                 // Keep consensus_text as cleaned text for convenience
-                                consensus_text: resolved.text || ''
+                                consensus_text: isConsensusSelected ? displayJsonStr : (resolved.text || '')
                               }
                             }
                           }
                         };
                         onSelectResult(syntheticResult);
-                        onDraftSelect(selectedIndex as any);
+                        onDraftSelect((isConsensusSelected ? 'consensus' : (selectedIndex as any)));
                         setActiveTab('text');
                       }
                     } catch (e) {
@@ -293,19 +307,14 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                 ›
               </button>
             )}
-            {isProcessing && (
+            {(isProcessing && !selectedResult) || (selectedResult && !hasSelectedText) ? (
               <div className="loading-view">
                 <ParcelTracerLoader />
                 <h4>Tracing Parcels...</h4>
                 <p>Analyzing document geometry.</p>
               </div>
-            )}
-            {!isProcessing && !selectedResult && (
-              <div className="placeholder-view">
-                <p>Your results will appear here.</p>
-              </div>
-            )}
-            {!isProcessing && selectedResult && (
+            ) : null}
+            {selectedResult && hasSelectedText && (
               <div className="result-display-area">
                 <CopyButton
                   onCopy={() => {

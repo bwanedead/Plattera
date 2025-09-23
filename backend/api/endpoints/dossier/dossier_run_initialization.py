@@ -244,11 +244,29 @@ async def reconcile_dossier_runs(dossier_id: str):
                 redundancy_count = int(run_meta.get('redundancy_count') or 0)
                 current_status = run_meta.get('status')
 
-                # Count versioned drafts present
+                # Count versioned drafts that are non-placeholder (with real content)
                 present = 0
                 for i in range(1, redundancy_count + 1):
-                    if (raw_dir / f"{run_id}_v{i}.json").exists():
-                        present += 1
+                    vf = raw_dir / f"{run_id}_v{i}.json"
+                    if not vf.exists():
+                        continue
+                    try:
+                        import json as _json2
+                        with open(vf, 'r', encoding='utf-8') as _vf:
+                            _content = _json2.load(_vf)
+                        if isinstance(_content, dict) and not _content.get('_placeholder', False):
+                            # Consider it present only if there is meaningful text
+                            _txt = ''
+                            if isinstance(_content.get('sections'), list):
+                                _txt = " ".join(str(s.get('body','')) for s in _content['sections'] if isinstance(s, dict))
+                            elif 'extracted_text' in _content:
+                                _txt = str(_content.get('extracted_text',''))
+                            elif 'text' in _content:
+                                _txt = str(_content.get('text',''))
+                            if _txt and _txt.strip():
+                                present += 1
+                    except Exception:
+                        continue
 
                 if redundancy_count > 0 and present >= redundancy_count and current_status != 'completed':
                     management_service.update_run_metadata(

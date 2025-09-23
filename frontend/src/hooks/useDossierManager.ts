@@ -318,9 +318,7 @@ export function useDossierManager() {
     dispatch({ type: 'SET_ERROR', payload: { key: 'dossiers', error: null } });
 
     try {
-      console.info('DM_LOAD start');
       const dossiers = await dossierApi.getDossiers();
-      console.info(`DM_LOAD got count=${dossiers.length} dt_ms=${Date.now()-t0}`);
 
       // Heuristic auto-reconcile: if all drafts appear completed but run status isn't, ask backend to reconcile
       try {
@@ -335,28 +333,24 @@ export function useDossierManager() {
           });
         });
         if (candidates.length > 0) {
-          console.info(`DM_RECONCILE candidates=${candidates.length}`);
           for (const d of candidates) {
             try {
               const res = await dossierApi.reconcileRuns(d.id);
-              console.info(`DM_RECONCILE_OK dossier=${d.id} reconciled=${res?.reconciled}`);
             } catch (e) {
-              console.warn(`DM_RECONCILE_FAIL dossier=${d.id}`, e);
+              // no-op
             }
           }
           // Reload after reconciliation
           try {
             const refreshed = await dossierApi.getDossiers();
-            console.info(`DM_RELOAD_AFTER_RECONCILE count=${refreshed.length}`);
             dispatch({ type: 'UPDATE_DOSSIERS', payload: refreshed });
           } catch (e) {
-            console.warn('DM_RELOAD_AFTER_RECONCILE_FAIL', e);
+            // no-op
           }
         }
       } catch {}
       dispatch({ type: 'UPDATE_DOSSIERS', payload: dossiers });
     } catch (error) {
-      console.warn('DM_LOAD_FAIL', error);
       const errorMessage = error instanceof DossierApiError
         ? error.message
         : 'Failed to load dossiers';

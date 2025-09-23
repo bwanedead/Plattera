@@ -6,7 +6,7 @@ Endpoints for core CRUD operations on dossiers themselves.
 Handles dossier lifecycle: create, read, update, delete.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 import logging
@@ -152,7 +152,7 @@ async def get_dossier_details(dossier_id: str):
     Returns:
         DossierResponse with dossier details
     """
-    logger.info(f"📖 API: Getting dossier details for {dossier_id}")
+    logger.debug(f"API: Getting dossier details for {dossier_id}")
 
     try:
         dossier = dossier_service.get_dossier(dossier_id)
@@ -160,7 +160,7 @@ async def get_dossier_details(dossier_id: str):
         if not dossier:
             raise HTTPException(status_code=404, detail=f"Dossier not found: {dossier_id}")
 
-        logger.info(f"✅ API: Retrieved dossier {dossier_id}")
+        logger.debug(f"API: Retrieved dossier {dossier_id}")
         return DossierResponse(
             success=True,
             dossier=dossier.to_dict()
@@ -174,16 +174,27 @@ async def get_dossier_details(dossier_id: str):
 
 
 @router.get("/drafts/{draft_id}")
-async def get_draft_raw_json(draft_id: str):
+async def get_draft_raw_json(draft_id: str, dossier_id: str | None = Query(default=None)):
     """
     Return raw JSON for a single draft/transcription.
 
     This reads the transcription content via the view service, which resolves from dossiers_data.
     """
     try:
-        content = view_service._load_transcription_content(draft_id)  # Internal loader is fine for our API layer
+        logger.info(f"API:get_draft_raw_json draft_id={draft_id} dossier_id={dossier_id}")
+        try:
+            content = view_service._load_transcription_content_scoped(draft_id, dossier_id)
+        except AttributeError:
+            content = view_service._load_transcription_content(draft_id)  # Fallback if scoped missing
         if not content:
             raise HTTPException(status_code=404, detail=f"Draft not found: {draft_id}")
+        # Log summary of content source
+        try:
+            doc_id = content.get('documentId') if isinstance(content, dict) else None
+            sections = len(content.get('sections', [])) if isinstance(content, dict) else 0
+            logger.info(f"API:get_draft_raw_json_ok draft_id={draft_id} dossier_id={dossier_id} documentId={doc_id} sections={sections}")
+        except Exception:
+            logger.info(f"API:get_draft_raw_json_ok draft_id={draft_id} dossier_id={dossier_id} (non-dict content)")
         return {"success": True, "draft_id": draft_id, "data": content}
     except HTTPException:
         raise
@@ -288,16 +299,15 @@ async def list_dossiers(limit: int = 50, offset: int = 0):
     Returns:
         DossierListResponse with dossier summaries
     """
-    logger.info(f"DOSS_LIST_CALL limit={limit} offset={offset}")
+    # Removed noisy DOSS list logs
 
     try:
         dossiers = dossier_service.list_dossiers(limit=limit, offset=offset)
-        logger.info(f"DOSS_LIST_SERVICE_RETURN count={len(dossiers)}")
 
         dossier_dicts = [dossier.to_dict() for dossier in dossiers]
         logger.debug(f"API: Converted {len(dossier_dicts)} dossiers to dict format")
 
-        logger.info(f"DOSS_LIST_RESPONSE count={len(dossiers)}")
+        # Removed noisy DOSS list logs
         return DossierListResponse(
             success=True,
             dossiers=dossier_dicts,

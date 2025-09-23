@@ -356,7 +356,69 @@ class DossierViewService:
         try:
             with open(transcription_file, 'r', encoding='utf-8') as f:
                 content = json.load(f)
+            logger.info(f"📄 Loaded transcription (global): id={transcription_id} path={transcription_file}")
             return content
         except Exception as e:
             logger.error(f"❌ Error loading transcription {transcription_id}: {e}")
             return None
+
+    def _load_transcription_content_scoped(self, transcription_id: str, dossier_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        """
+        Load transcription content, preferring paths within the provided dossier_id.
+
+        This avoids cross-dossier collisions when identical transcription IDs exist across dossiers.
+        """
+        if not dossier_id:
+            return self._load_transcription_content(transcription_id)
+
+        try:
+            BACKEND_DIR = Path(__file__).resolve().parents[2]
+            root = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier_id)
+
+            # Consensus (LLM) first
+            if transcription_id.endswith('_consensus_llm'):
+                base_id = transcription_id[:-len('_consensus_llm')]
+                scoped = root / base_id / 'consensus' / f"llm_{base_id}.json"
+                if scoped.exists():
+                    with open(scoped, 'r', encoding='utf-8') as f:
+                        logger.info(f"📄 Loaded transcription (scoped LLM consensus): dossier={dossier_id} id={transcription_id} path={scoped}")
+                        return json.load(f)
+
+            # Consensus (alignment)
+            if transcription_id.endswith('_consensus_alignment'):
+                base_id = transcription_id[:-len('_consensus_alignment')]
+                scoped = root / base_id / 'consensus' / f"alignment_{base_id}.json"
+                if scoped.exists():
+                    with open(scoped, 'r', encoding='utf-8') as f:
+                        logger.info(f"📄 Loaded transcription (scoped alignment consensus): dossier={dossier_id} id={transcription_id} path={scoped}")
+                        return json.load(f)
+
+            # Raw versioned file first: <root>/<base_id>/raw/<transcription_id>.json
+            if "_v" in transcription_id:
+                base_id = transcription_id.rsplit("_v", 1)[0]
+                raw_versioned = root / base_id / 'raw' / f"{transcription_id}.json"
+                if raw_versioned.exists():
+                    with open(raw_versioned, 'r', encoding='utf-8') as f:
+                        logger.info(f"📄 Loaded transcription (scoped versioned): dossier={dossier_id} id={transcription_id} base_id={base_id} path={raw_versioned}")
+                        return json.load(f)
+                # Fallback to base aggregated file if versioned is not found
+                raw_base = root / base_id / 'raw' / f"{base_id}.json"
+                if raw_base.exists():
+                    with open(raw_base, 'r', encoding='utf-8') as f:
+                        logger.info(f"📄 Loaded transcription (scoped base fallback): dossier={dossier_id} id={transcription_id} base_id={base_id} path={raw_base}")
+                        return json.load(f)
+            else:
+                # Non-versioned raw file: <root>/<id>/raw/<id>.json
+                raw_exact = root / transcription_id / 'raw' / f"{transcription_id}.json"
+                if raw_exact.exists():
+                    with open(raw_exact, 'r', encoding='utf-8') as f:
+                        logger.info(f"📄 Loaded transcription (scoped raw exact): dossier={dossier_id} id={transcription_id} path={raw_exact}")
+                        return json.load(f)
+
+            logger.info(f"ℹ️ Scoped lookup missed, falling back to global search: dossier={dossier_id} id={transcription_id}")
+
+        except Exception as e:
+            logger.error(f"❌ Scoped load failed for {transcription_id} in dossier {dossier_id}: {e}")
+
+        # Fallback to global search
+        return self._load_transcription_content(transcription_id)

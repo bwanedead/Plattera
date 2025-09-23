@@ -52,7 +52,7 @@ export const DraftItem: React.FC<DraftItemProps> = ({
     quality: draft.metadata?.quality || 'low'
   };
 
-  const isProcessing = draft.metadata?.status === 'processing' || draft.metadata?._placeholder === true;
+  const isProcessing = draft.metadata?.status === 'processing' || Boolean((draft.metadata as any)?.['_placeholder'] === true);
   const isFailed = draft.metadata?.status === 'failed';
   const isLLMConsensus = (draft.metadata as any)?.type === 'llm_consensus';
 
@@ -152,7 +152,6 @@ export const DraftItem: React.FC<DraftItemProps> = ({
         <div className="draft-actions">
           {isProcessing ? (
             <div className="draft-loading">
-              <div className="loading-spinner show"></div>
               <span className="loading-dots">Processing</span>
             </div>
           ) : (
