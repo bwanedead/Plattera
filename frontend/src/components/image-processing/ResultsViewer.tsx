@@ -261,6 +261,18 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         }
 
                         const displayJsonStr = typeof displayJson === 'string' ? displayJson : (displayJson ? JSON.stringify(displayJson) : '');
+                        // Also compute the clean text for the selected draft for TEXT tab usage
+                        const selectedCleanText = (() => {
+                          if (isConsensusSelected) {
+                            const idxInAll = allDrafts.findIndex(d => d.id === selectedDraftId);
+                            return cleanTexts[idxInAll] || '';
+                          }
+                          if (typeof selectedIndex === 'number') {
+                            const draftIndexInAll = allDrafts.findIndex(d => d.id === rawDrafts[selectedIndex as number]?.id);
+                            return draftIndexInAll >= 0 ? (cleanTexts[draftIndexInAll] || '') : '';
+                          }
+                          return '';
+                        })();
 
                         const syntheticResult = {
                           input: 'Dossier Selection',
@@ -279,8 +291,8 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                                 enabled: false,
                                 count: rawDrafts.length, // Only count raw drafts for alignment
                                 individual_results,
-                                // Keep consensus_text as cleaned text for convenience
-                                consensus_text: isConsensusSelected ? displayJsonStr : (resolved.text || '')
+                                // Keep consensus_text as cleaned text for the TEXT tab; do not include title
+                                consensus_text: isConsensusSelected ? selectedCleanText : (resolved.text || '')
                               }
                             }
                           }

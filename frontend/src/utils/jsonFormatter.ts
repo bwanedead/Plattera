@@ -54,6 +54,17 @@ export function isJsonResult(extractedText: string): boolean {
   }
 }
 
+// Accept any valid JSON (used for JSON tab visibility even for non-sections schemas)
+export function canParseJson(text: string): boolean {
+  if (!text) return false;
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Parse JSON result into structured format
  */

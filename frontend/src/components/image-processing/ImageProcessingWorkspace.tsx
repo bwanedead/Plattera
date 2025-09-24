@@ -15,7 +15,7 @@ import { useDraftSelection } from '../../hooks/useDraftSelection';
 import { useEditableDraft } from '../../hooks/useEditableDraft';
 import { useImageProcessingState, useWorkspaceNavigation } from '../../hooks/useWorkspaceState';
 import { workspaceStateManager } from '../../services/workspaceStateManager';
-import { isJsonResult, formatJsonAsText } from '../../utils/jsonFormatter';
+import { isJsonResult, formatJsonAsText, canParseJson } from '../../utils/jsonFormatter';
 import { getCurrentText, getRawText, getOriginalJsonText, getNormalizedSectionsText, hasNormalizedSections } from '../../utils/textSelectionUtils';
 import { FinalDraftSelector } from './FinalDraftSelector';
 import { useDossierManager } from '../../hooks/useDossierManager';
@@ -252,7 +252,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
 
   const isCurrentResultJsonCallback = useCallback(() => {
     const originalJsonText = getOriginalJsonTextCallback();
-    return isJsonResult(originalJsonText);
+    return canParseJson(originalJsonText);
   }, [getOriginalJsonTextCallback]);
 
   // Reset draft selection when result changes, honoring selected_draft_index and consensus selection
