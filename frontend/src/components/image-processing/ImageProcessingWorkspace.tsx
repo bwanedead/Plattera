@@ -255,16 +255,19 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     return isJsonResult(originalJsonText);
   }, [getOriginalJsonTextCallback]);
 
-  // Reset draft selection when result changes, honoring selected_draft_index if provided
+  // Reset draft selection when result changes, honoring selected_draft_index and consensus selection
   useEffect(() => {
     if (imageProcessing.selectedResult) {
-      const idx = imageProcessing.selectedResult?.result?.metadata?.selected_draft_index;
+      const meta = imageProcessing.selectedResult?.result?.metadata;
+      const idx = meta?.selected_draft_index;
+      const isConsensus = !!meta?.is_consensus_selected;
       console.log('🧭 Workspace result change:', {
         hasResult: true,
         selected_draft_index: idx,
+        is_consensus_selected: isConsensus,
         prevSelectedDraft: selectedDraft
       });
-      setSelectedDraft(typeof idx === 'number' ? idx : 0);
+      setSelectedDraft(isConsensus ? 'consensus' : (typeof idx === 'number' ? idx : 0));
       alignmentState.resetAlignmentState();
     }
   }, [imageProcessing.selectedResult]);

@@ -301,8 +301,8 @@ export const getOriginalJsonText = ({ selectedResult, selectedDraft }: TextSelec
     const individualResults = redundancyAnalysis.individual_results.filter((r: any) => r.success);
     
     if (selectedDraft === 'consensus') {
-      // For consensus, return the first available original JSON
-      return individualResults[0]?.text || result.extracted_text || '';
+      // Use the exact consensus JSON string we stored
+      return redundancyAnalysis?.consensus_text || result.extracted_text || '';
     } else if (selectedDraft === 'best') {
       const bestIndex = redundancyAnalysis.best_result_index || 0;
       return individualResults[bestIndex]?.text || result.extracted_text || '';

@@ -179,12 +179,17 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         // Extract transcription ID for saving alignment consensus
                         const transcriptionId = resolved.context?.run?.transcriptionId || (resolved.context?.run as any)?.transcription_id;
 
+                        // Consensus detection (supports LLM and alignment consensus)
+                        const isConsensusId = (id: string) =>
+                          typeof id === 'string' &&
+                          (id.endsWith('_consensus_llm') || id.endsWith('_consensus_alignment'));
+
                         // Separate raw drafts from consensus drafts
-                        const rawDrafts = allDrafts.filter(d => !d.id.endsWith('_consensus_llm'));
-                        const consensusDrafts = allDrafts.filter(d => d.id.endsWith('_consensus_llm'));
+                        const rawDrafts = allDrafts.filter(d => !isConsensusId(d.id));
+                        const consensusDrafts = allDrafts.filter(d => isConsensusId(d.id));
 
                         // Check if selected draft is consensus
-                        const isConsensusSelected = selectedDraftId?.endsWith('_consensus_llm') || false;
+                        const isConsensusSelected = selectedDraftId ? isConsensusId(selectedDraftId) : false;
 
                         // Map selected index to raw drafts only
                         let selectedIndex: number | 'consensus' = 0;
@@ -243,7 +248,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         // Determine which text to show for the selected draft
                         let displayJson: any = '';
                         if (isConsensusSelected && consensusDrafts.length > 0) {
-                          // Show consensus JSON directly
+                          // Show the selected consensus JSON directly
                           const consensusIndex = allDrafts.findIndex(d => d.id === selectedDraftId);
                           displayJson = jsonStrings[consensusIndex] || '';
                         } else {

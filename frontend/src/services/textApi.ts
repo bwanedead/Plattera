@@ -17,7 +17,7 @@ export const textApi = {
     console.info(`textApi.getDraftText -> draftId=${draftId} dossierId=${dossierId} url=${url}`);
     const json = await this.getDraftJson(transcriptionId, draftId, dossierId);
     try {
-      if (draftId.endsWith('_consensus_llm') && json && typeof json === 'object' && 'text' in json) {
+      if ((draftId.endsWith('_consensus_llm') || draftId.endsWith('_consensus_alignment')) && json && typeof json === 'object' && 'text' in json) {
         return String((json as any).text || '');
       }
       // Common JSON schema path
