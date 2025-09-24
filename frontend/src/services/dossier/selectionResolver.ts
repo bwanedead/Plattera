@@ -53,7 +53,27 @@ async function resolveDraftText(dossier: Dossier, path: DossierPath): Promise<Re
 async function resolveRunText(dossier: Dossier, path: DossierPath): Promise<ResolvedSelection> {
   const segment = findById(dossier.segments, path.segmentId);
   const run = findById(segment?.runs, path.runId);
-  const draft = ((run?.drafts || []).find(d => (d as any).isBest || (d as any).is_best) || (run?.drafts || [])[0]) || null;
+  // Prefer consensus drafts when available, otherwise fall back to "best" (or first available)
+  let draft: Draft | null = null;
+  const drafts = run?.drafts || [];
+  if (drafts.length > 0) {
+    // 1) Try consensus drafts (both LLM and alignment). If multiple, pick latest by createdAt.
+    const consensusDrafts = drafts.filter((d: any) => typeof d.id === 'string' && (d.id.endsWith('_consensus_llm') || d.id.endsWith('_consensus_alignment')));
+    if (consensusDrafts.length > 0) {
+      draft = consensusDrafts
+        .map((d: any) => ({ d, t: (() => { try { return d.metadata?.createdAt ? new Date(d.metadata.createdAt as any).getTime() : 0; } catch { return 0; } })() }))
+        .sort((a, b) => b.t - a.t)[0].d;
+    } else {
+      // 2) Fall back to best flag
+      draft = (drafts as any).find((d: any) => d.isBest || d.is_best) || null;
+      // 3) Fall back to longest by size if best not flagged
+      if (!draft) {
+        draft = drafts
+          .map((d: any) => ({ d, sz: Number(d.metadata?.sizeBytes || 0) }))
+          .sort((a, b) => b.sz - a.sz)[0]?.d || drafts[0] || null;
+      }
+    }
+  }
   if (!segment || !run || !draft) {
     return { mode: 'run', path, text: '', context: { dossier, segment, run, draft } };
   }
@@ -68,7 +88,19 @@ async function resolveRunText(dossier: Dossier, path: DossierPath): Promise<Reso
 async function resolveSegmentText(dossier: Dossier, path: DossierPath): Promise<ResolvedSelection> {
   const segment = findById(dossier.segments, path.segmentId);
   const run = (segment?.runs || [])[0] || null;
-  const draft = ((run?.drafts || []).find(d => (d as any).isBest || (d as any).is_best) || (run?.drafts || [])[0]) || null;
+  // Prefer consensus drafts when available, otherwise fall back to "best" (or first available)
+  let draft: Draft | null = null;
+  const drafts = run?.drafts || [];
+  if (drafts.length > 0) {
+    const consensusDrafts = drafts.filter((d: any) => typeof d.id === 'string' && (d.id.endsWith('_consensus_llm') || d.id.endsWith('_consensus_alignment')));
+    if (consensusDrafts.length > 0) {
+      draft = consensusDrafts
+        .map((d: any) => ({ d, t: (() => { try { return d.metadata?.createdAt ? new Date(d.metadata.createdAt as any).getTime() : 0; } catch { return 0; } })() }))
+        .sort((a, b) => b.t - a.t)[0].d;
+    } else {
+      draft = (drafts as any).find((d: any) => d.isBest || d.is_best) || drafts[0] || null;
+    }
+  }
   if (!segment || !run || !draft) {
     return { mode: 'segment', path, text: '', context: { dossier, segment, run, draft } };
   }
@@ -109,9 +141,19 @@ export async function resolveSelectionToText(path: DossierPath, dossier?: Dossie
     return { mode: 'draft', path, text, context: { dossier: ds, segment, run, draft } };
   }
 
-  console.info(`selectionResolver: non-draft mode -> path=${JSON.stringify(path)}`);
-  const text = stitchToText(await latestRunBestDraftPolicy(ds));
-  return { mode: 'dossier', path, text, context: { dossier: ds, segment, run, draft: null } };
+  // Handle run-level selection (no specific draft)
+  if (run) {
+    return await resolveRunText(ds, path);
+  }
+
+  // Handle segment-level selection (pick first run -> consensus or best)
+  if (segment) {
+    return await resolveSegmentText(ds, path);
+  }
+
+  console.info(`selectionResolver: dossier mode -> path=${JSON.stringify(path)}`);
+  const text = await resolveDossierText(ds, path);
+  return text;
 }
 
 
