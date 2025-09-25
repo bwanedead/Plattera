@@ -490,11 +490,13 @@ async def _handle_dossier_association(
                 if orig_path:
                     filename = _PURL(orig_path).name
                     images_meta["original_path"] = orig_path
-                    images_meta["original_url"] = f"/static/images/original/{filename}"
+                    _base = (_os.environ.get("PUBLIC_BACKEND_URL") or "http://localhost:8000").rstrip('/')
+                    images_meta["original_url"] = f"{_base}/static/images/original/{filename}"
                 if proc_path:
                     filename_p = _PURL(proc_path).name
                     images_meta["processed_path"] = proc_path
-                    images_meta["processed_url"] = f"/static/images/processed/{filename_p}"
+                    _base = (_os.environ.get("PUBLIC_BACKEND_URL") or "http://localhost:8000").rstrip('/')
+                    images_meta["processed_url"] = f"{_base}/static/images/processed/{filename_p}"
                 if images_meta:
                     metadata["images"] = images_meta
             except Exception as _eimg:

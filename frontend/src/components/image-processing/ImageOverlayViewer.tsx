@@ -4,116 +4,263 @@ interface ImageOverlayViewerProps {
   zIndex?: number;
 }
 
+type ViewerImage = {
+  url: string;
+  naturalWidth: number;
+  naturalHeight: number;
+};
+
 export const ImageOverlayViewer: React.FC<ImageOverlayViewerProps> = ({ zIndex = 9999 }) => {
   const [visible, setVisible] = useState(false);
-  const [images, setImages] = useState<string[]>([]);
+  const [images, setImages] = useState<ViewerImage[]>([]);
   const [index, setIndex] = useState(0);
-  const [scale, setScale] = useState(1);
+
+  // Window position and size (outer window)
   const [position, setPosition] = useState({ x: 100, y: 100 });
-  const dragging = useRef(false);
-  const last = useRef({ x: 0, y: 0 });
+  const [size, setSize] = useState({ w: 600, h: 400 });
+
+  // Image viewport state (inner transform)
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+
+  // Filters
+  const [showSettings, setShowSettings] = useState(false);
+  const [contrast, setContrast] = useState(1);
+  const [brightness, setBrightness] = useState(1);
+  const [saturation, setSaturation] = useState(1);
+
+  // Drag state
+  const draggingWindow = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const dragOffset = useRef({ x: 0, y: 0 });
+
+  const panningImage = useRef(false);
+  const panStart = useRef({ x: 0, y: 0 });
+  const panOffsetStart = useRef({ x: 0, y: 0 });
 
   const close = useCallback(() => setVisible(false), []);
 
+  // Compute container size to fit image with minimal margin
+  const computeWindowSize = (iw: number, ih: number) => {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const margin = 24; // minimal border
+    const headerH = 36; // header height
+
+    // Max usable area
+    const maxW = vw - margin * 2;
+    const maxH = vh - margin * 2;
+
+    // Fit image inside (maxW x maxH - header)
+    const ratio = iw / ih;
+    let w = Math.min(iw, maxW);
+    let h = w / ratio;
+    if (h + headerH > maxH) {
+      h = Math.min(ih, maxH - headerH);
+      w = h * ratio;
+    }
+
+    // Ensure minimum reasonable size
+    w = Math.max(240, Math.floor(w));
+    h = Math.max(200, Math.floor(h));
+
+    return { w, h: h + headerH };
+  };
+
+  // Load images (get natural size) then open viewer
   useEffect(() => {
     const handler = (e: Event) => {
       const ce = e as CustomEvent<{ images: string[]; initialIndex?: number }>;
-      const imgs = Array.isArray(ce.detail?.images) ? ce.detail.images : [];
-      if (imgs.length === 0) return;
-      setImages(imgs);
-      setIndex(Math.max(0, Math.min(imgs.length - 1, ce.detail?.initialIndex ?? 0)));
+      const urls = Array.isArray(ce.detail?.images) ? ce.detail.images : [];
+      if (urls.length === 0) return;
+
+      // Reset state
       setScale(1);
-      setPosition({ x: 100, y: 100 });
-      setVisible(true);
+      setOffset({ x: 0, y: 0 });
+      setContrast(1); setBrightness(1); setSaturation(1);
+      setShowSettings(false);
+
+      // Preload first image (or initial index) to compute window size
+      const startIdx = Math.max(0, Math.min(urls.length - 1, ce.detail?.initialIndex ?? 0));
+      const img = new Image();
+      img.onload = () => {
+        const vw = computeWindowSize(img.naturalWidth, img.naturalHeight);
+        setSize(vw);
+        setPosition({ x: Math.max(16, (window.innerWidth - vw.w) / 2), y: Math.max(16, (window.innerHeight - vw.h) / 2) });
+        setVisible(true);
+      };
+      img.onerror = () => {
+        // Fallback default size
+        setSize({ w: 600, h: 400 });
+        setVisible(true);
+      };
+      img.src = urls[startIdx];
+
+      // Load all images metadata
+      Promise.all(urls.map(url => new Promise<ViewerImage>(resolve => {
+        const i = new Image();
+        i.onload = () => resolve({ url, naturalWidth: i.naturalWidth, naturalHeight: i.naturalHeight });
+        i.onerror = () => resolve({ url, naturalWidth: 0, naturalHeight: 0 });
+        i.src = url;
+      }))).then(vimgs => {
+        setImages(vimgs);
+        setIndex(startIdx);
+      });
     };
     document.addEventListener('image-overlay:open', handler as EventListener);
     return () => document.removeEventListener('image-overlay:open', handler as EventListener);
   }, []);
 
-  const onMouseDown = (e: React.MouseEvent) => {
-    dragging.current = true;
-    last.current = { x: e.clientX - position.x, y: e.clientY - position.y };
+  const onHeaderMouseDown = (e: React.MouseEvent) => {
+    draggingWindow.current = true;
+    dragStart.current = { x: e.clientX, y: e.clientY };
+    dragOffset.current = { x: position.x, y: position.y };
   };
   const onMouseMove = (e: React.MouseEvent) => {
-    if (!dragging.current) return;
-    setPosition({ x: e.clientX - last.current.x, y: e.clientY - last.current.y });
+    if (draggingWindow.current) {
+      const dx = e.clientX - dragStart.current.x;
+      const dy = e.clientY - dragStart.current.y;
+      setPosition({ x: dragOffset.current.x + dx, y: dragOffset.current.y + dy });
+    }
+    if (panningImage.current) {
+      const dx = e.clientX - panStart.current.x;
+      const dy = e.clientY - panStart.current.y;
+      setOffset({ x: panOffsetStart.current.x + dx, y: panOffsetStart.current.y + dy });
+    }
   };
-  const onMouseUp = () => { dragging.current = false; };
+  const onMouseUp = () => { draggingWindow.current = false; panningImage.current = false; };
+
+  const startPan = (e: React.MouseEvent) => {
+    e.preventDefault();
+    panningImage.current = true;
+    panStart.current = { x: e.clientX, y: e.clientY };
+    panOffsetStart.current = { x: offset.x, y: offset.y };
+  };
+
+  const onWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = -e.deltaY; // wheel up => zoom in
+    const factor = delta > 0 ? 1.1 : 1 / 1.1;
+    const newScale = Math.min(8, Math.max(0.2, scale * factor));
+    setScale(newScale);
+  };
 
   const zoomIn = () => setScale(s => Math.min(8, s * 1.2));
   const zoomOut = () => setScale(s => Math.max(0.2, s / 1.2));
-  const reset = () => { setScale(1); setPosition({ x: 100, y: 100 }); };
+  const resetView = () => { setScale(1); setOffset({ x: 0, y: 0 }); };
+  const resetFilters = () => { setContrast(1); setBrightness(1); setSaturation(1); };
+  const resetAll = () => { resetView(); resetFilters(); };
+
+  const current = images[index];
+  const filterStyle = `contrast(${contrast}) brightness(${brightness}) saturate(${saturation})`;
 
   if (!visible) return null;
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex,
-        pointerEvents: 'none'
-      }}
+      // Important: do not swallow events outside the window
+      style={{ position: 'fixed', inset: 0, zIndex, pointerEvents: 'none' }}
     >
-      <div
-        style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.25)', pointerEvents: 'auto' }}
-        onClick={close}
-      />
+      {/* Floating window (receives pointer events) */}
       <div
         style={{
           position: 'absolute',
           left: position.x,
           top: position.y,
-          width: 600,
-          height: 400,
-          background: '#111',
+          width: size.w,
+          height: size.h,
+          background: '#0f0f10',
           border: '1px solid #333',
           borderRadius: 8,
           boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
           overflow: 'hidden',
-          pointerEvents: 'auto'
+          pointerEvents: 'auto',
+          display: 'flex',
+          flexDirection: 'column'
         }}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseUp}
       >
+        {/* Header (draggable) */}
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            background: '#1c1c1c',
-            color: '#eee',
-            padding: '6px 8px',
-            cursor: 'move'
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: '#1c1c1c', color: '#eee', padding: '6px 8px', cursor: 'move', flex: '0 0 36px'
           }}
-          onMouseDown={onMouseDown}
+          onMouseDown={onHeaderMouseDown}
         >
-          <div>Image Viewer</div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div>Image Viewer</div>
+            {current && (
+              <div style={{ fontSize: 12, opacity: 0.8 }}>
+                {current.naturalWidth}×{current.naturalHeight}
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, cursor: 'default' }} onMouseDown={e => e.stopPropagation()}>
             <button onClick={(e) => { e.stopPropagation(); zoomOut(); }}>−</button>
-            <button onClick={(e) => { e.stopPropagation(); reset(); }}>100%</button>
+            <button onClick={(e) => { e.stopPropagation(); resetView(); }}>100%</button>
             <button onClick={(e) => { e.stopPropagation(); zoomIn(); }}>+</button>
+            <button onClick={(e) => { e.stopPropagation(); setShowSettings(s => !s); }} title="Settings">⚙️</button>
             <button onClick={(e) => { e.stopPropagation(); close(); }}>✕</button>
           </div>
         </div>
-        <div style={{ position: 'relative', width: '100%', height: 'calc(100% - 36px)', background: '#000' }}>
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <img
-              src={images[index]}
-              alt={`image-${index}`}
+
+        {/* Content area */}
+        <div style={{ position: 'relative', flex: '1 1 auto', background: '#000' }} onWheel={onWheel}>
+          {/* Settings panel */}
+          {showSettings && (
+            <div
               style={{
-                maxWidth: '100%',
-                maxHeight: '100%',
-                transform: `scale(${scale})`,
-                transformOrigin: 'center center',
-                imageRendering: 'auto'
+                position: 'absolute', top: 8, right: 8, zIndex: 2,
+                background: 'rgba(20,20,20,0.95)', color: '#eee', border: '1px solid #333', borderRadius: 6,
+                padding: 8, minWidth: 220
               }}
-              draggable={false}
-            />
+              onMouseDown={e => e.stopPropagation()}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Adjustments</div>
+              <label style={{ display: 'block', fontSize: 12 }}>Contrast: {contrast.toFixed(2)}</label>
+              <input type="range" min={0.2} max={3} step={0.05} value={contrast} onChange={e => setContrast(parseFloat(e.target.value))} />
+              <label style={{ display: 'block', fontSize: 12 }}>Brightness: {brightness.toFixed(2)}</label>
+              <input type="range" min={0.2} max={2} step={0.05} value={brightness} onChange={e => setBrightness(parseFloat(e.target.value))} />
+              <label style={{ display: 'block', fontSize: 12 }}>Saturation: {saturation.toFixed(2)}</label>
+              <input type="range" min={0} max={3} step={0.05} value={saturation} onChange={e => setSaturation(parseFloat(e.target.value))} />
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button onClick={resetFilters} title="Reset filters to defaults">Reset Filters</button>
+                <button onClick={resetAll} title="Reset filters and view">Reset All</button>
+              </div>
+            </div>
+          )}
+
+          {/* Image stage */}
+          <div
+            style={{
+              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              overflow: 'hidden', cursor: panningImage.current ? 'grabbing' : 'grab'
+            }}
+            onMouseDown={(e) => { if (e.button === 0) startPan(e); }}
+          >
+            {current && (
+              <img
+                src={current.url}
+                alt={`image-${index}`}
+                style={{
+                  transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+                  transformOrigin: 'center center',
+                  imageRendering: 'auto',
+                  filter: filterStyle,
+                  maxWidth: '100%',
+                  maxHeight: '100%'
+                }}
+                draggable={false}
+              />
+            )}
           </div>
+
+          {/* Pager */}
           {images.length > 1 && (
-            <div style={{ position: 'absolute', bottom: 8, left: 8, display: 'flex', gap: 8 }}>
+            <div style={{ position: 'absolute', bottom: 8, left: 8, display: 'flex', gap: 8, zIndex: 2 }}>
               <button onClick={(e) => { e.stopPropagation(); setIndex(i => Math.max(0, i - 1)); }}>‹</button>
               <span style={{ color: '#fff' }}>{index + 1} / {images.length}</span>
               <button onClick={(e) => { e.stopPropagation(); setIndex(i => Math.min(images.length - 1, i + 1)); }}>›</button>

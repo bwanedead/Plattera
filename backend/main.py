@@ -117,9 +117,9 @@ try:
     (images_root / "original").mkdir(parents=True, exist_ok=True)
     (images_root / "processed").mkdir(parents=True, exist_ok=True)
     app.mount("/static/images", StaticFiles(directory=str(images_root), html=False), name="static-images")
-    print(f"🖼️ Static images mounted at /static/images -> {images_root}")
+    logging.getLogger(__name__).info(f"🖼️ Static images mounted at /static/images -> {images_root}")
 except Exception as e:
-    print(f"⚠️ Failed to mount static images: {e}")
+    logging.getLogger(__name__).warning(f"⚠️ Failed to mount static images: {e}")
 
 # Include API router
 app.include_router(api_router)
