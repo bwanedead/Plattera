@@ -668,7 +668,8 @@ async def get_processing_types():
                     "description": "Extract text from images using LLM or OCR",
                     "supported_files": ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp"],
                     "extraction_modes": {
-                        "legal_document_plain": {"name": "Legal Document Plain", "description": "Fallback mode"}
+                        "legal_document_json": {"name": "Legal Document JSON", "description": "Structured JSON for legal deeds"},
+                        "generic_document_json": {"name": "Generic Document JSON", "description": "Verbatim mainText + sideTexts"}
                     }
                 }
             }

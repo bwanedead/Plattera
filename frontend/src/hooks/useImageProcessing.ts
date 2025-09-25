@@ -173,10 +173,8 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
       } catch (error) {
         console.warn('Failed to load extraction modes from API, using defaults:', error)
         setAvailableExtractionModes({
-          'legal_document_plain': { name: 'Legal Document Plain', description: 'Plain legal document transcription' },
-          'legal_document_sectioned': { name: 'Legal Document Sectioned', description: 'With section markers' },
-          'ultra_precise_legal': { name: 'Ultra Precise Legal', description: 'Maximum accuracy' },
-          'legal_document_json': { name: 'Legal Document JSON', description: 'Structured JSON format' }
+          'legal_document_json': { name: 'Legal Document JSON', description: 'Structured JSON format' },
+          'generic_document_json': { name: 'Generic Document JSON', description: 'Verbatim mainText + sideTexts' }
         })
       } finally {
         setLoadingModes(false)

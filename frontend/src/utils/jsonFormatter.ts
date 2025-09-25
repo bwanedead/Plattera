@@ -32,14 +32,16 @@ export function isJsonResult(extractedText: string): boolean {
   try {
     const parsed = JSON.parse(extractedText)
     const hasSections = parsed && typeof parsed === 'object' && Array.isArray((parsed as any).sections)
-    const isStructuredJson = !!hasSections
+    const hasMainText = parsed && typeof parsed === 'object' && typeof (parsed as any).mainText === 'string'
+    const isStructuredJson = !!(hasSections || hasMainText)
     
     console.log('🔍 JSON Detection:', {
       textLength: extractedText.length,
       textPreview: extractedText.substring(0, 100),
       canParse: true,
       hasDocumentId: !!(parsed as any).documentId,
-      hasSections: hasSections,
+      hasSections,
+      hasMainText,
       isStructuredJson
     });
     
@@ -107,7 +109,7 @@ export function parseJsonResult(extractedText: string): DocumentTranscription | 
 }
 
 /**
- * Format JSON result as readable text with proper section formatting
+ * Format JSON result as readable text with proper formatting
  */
 export function formatJsonAsText(extractedText: string): string {
   console.log('🎨 Formatting JSON text:', {
@@ -115,64 +117,73 @@ export function formatJsonAsText(extractedText: string): string {
     inputPreview: extractedText.substring(0, 100)
   });
   
-  const parsed = parseJsonResult(extractedText)
-  if (!parsed) {
-    console.log('❌ Failed to parse JSON for formatting, applying basic text formatting as fallback');
-    
-    // Fallback: Apply basic formatting to make unformatted JSON more readable
-    try {
-      // Try to at least format it as pretty JSON for readability
-      const basicParsed = JSON.parse(extractedText);
-      const prettyFormatted = JSON.stringify(basicParsed, null, 2);
-      console.log('📝 Applied basic JSON pretty-formatting as fallback');
-      return prettyFormatted;
-    } catch {
-      // If even basic JSON parsing fails, apply minimal formatting
-      console.log('📝 Applying minimal text formatting as last resort');
-      return extractedText
-        .replace(/},/g, '},\n')
-        .replace(/{"/g, '{\n  "')
-        .replace(/}/g, '\n}')
-        .replace(/","/g, '",\n  "');
+  try {
+    const parsed: any = JSON.parse(extractedText)
+
+    // LEGAL (sections) path — unchanged
+    if (Array.isArray(parsed?.sections)) {
+      let formattedText = ''
+      parsed.sections.forEach((section: any, index: number) => {
+        if (section.header && section.header.trim()) {
+          formattedText += `${section.header.trim()}\n`
+        }
+        if (section.body && section.body.trim()) {
+          const normalizedBody = section.body.trim();
+          formattedText += `${normalizedBody}\n`;
+        }
+        if (index < parsed.sections.length - 1) {
+          formattedText += '\n';
+        }
+      })
+      const result = formattedText.trim();
+      console.log('🎨 Formatting complete (sections):', {
+        outputLength: result.length,
+        outputPreview: result.substring(0, 200)
+      });
+      return result;
     }
+
+    // GENERIC (mainText + sideTexts) path
+    if (typeof parsed?.mainText === 'string') {
+      let formatted = (parsed.mainText || '').trim()
+
+      const sideTexts = Array.isArray(parsed.sideTexts) ? parsed.sideTexts : []
+      if (sideTexts.length) {
+        const sideFormatted = sideTexts
+          .map((s: any) => {
+            const type = (s?.type || 'other').toString().toUpperCase()
+            const text = (s?.text || '').toString().trim()
+            if (!text) return ''
+            return `[${type}]\n${text}`
+          })
+          .filter(Boolean)
+          .join('\n\n')
+        if (sideFormatted) {
+          formatted += (formatted ? '\n\n' : '') + sideFormatted
+        }
+      }
+
+      const result = formatted.trim()
+      console.log('🎨 Formatting complete (generic):', {
+        outputLength: result.length,
+        outputPreview: result.substring(0, 200)
+      });
+      return result
+    }
+
+    // Fallback: pretty-print JSON
+    const prettyFormatted = JSON.stringify(parsed, null, 2);
+    console.log('📝 Applied basic JSON pretty-formatting as fallback');
+    return prettyFormatted;
+  } catch {
+    // Last-resort minimal formatting if JSON fails
+    console.log('📝 Applying minimal text formatting as last resort');
+    return extractedText
+      .replace(/},/g, '},\n')
+      .replace(/{"/g, '{\n  "')
+      .replace(/}/g, '\n}')
+      .replace(/","/g, '",\n  "');
   }
-
-  console.log('✅ Successfully parsed JSON:', {
-    documentId: parsed.documentId,
-    sectionsCount: parsed.sections.length
-  });
-
-  let formattedText = ''
-  
-  parsed.sections.forEach((section, index) => {
-    // Add section header if it exists
-    if (section.header && section.header.trim()) {
-      formattedText += `${section.header.trim()}\n`
-      // You can add an underline or other separator for the header if you like
-      // formattedText += '─'.repeat(Math.min(section.header.trim().length, 50)) + '\n';
-    }
-    
-    // Add section body
-    if (section.body && section.body.trim()) {
-      // Trim leading/trailing whitespace from the body but preserve internal newlines
-      const normalizedBody = section.body.trim();
-      formattedText += `${normalizedBody}\n`;
-    }
-    
-    // Add spacing between sections (except for the last one)
-    if (index < parsed.sections.length - 1) {
-      // Use two newlines to create a blank line between sections
-      formattedText += '\n';
-    }
-  })
-  
-  const result = formattedText.trim();
-  console.log('🎨 Formatting complete:', {
-    outputLength: result.length,
-    outputPreview: result.substring(0, 200)
-  });
-  
-  return result;
 }
 
 /**
@@ -248,7 +259,7 @@ export const extractCleanText = (content: string): string => {
   // Check if this looks like JSON
   if (cleanText.startsWith('{') || cleanText.startsWith('[') || cleanText.includes('"content":')) {
     try {
-      const parsed = JSON.parse(cleanText);
+      const parsed: any = JSON.parse(cleanText);
       
       // Handle different JSON structures
       if (parsed && typeof parsed === 'object') {
@@ -269,6 +280,19 @@ export const extractCleanText = (content: string): string => {
             })
             .filter((text: string) => text.length > 0)
             .join('\n\n'); // Use double newlines to separate sections
+        } else if (typeof parsed.mainText === 'string') {
+          let formatted = parsed.mainText.trim();
+          const sideTexts = Array.isArray(parsed.sideTexts) ? parsed.sideTexts : [];
+          if (sideTexts.length) {
+            const sideFormatted = sideTexts
+              .map((s: any) => (s?.text || '').toString().trim())
+              .filter((t: string) => t.length > 0)
+              .join('\n\n');
+            if (sideFormatted) {
+              formatted += (formatted ? '\n\n' : '') + sideFormatted;
+            }
+          }
+          cleanText = formatted;
         } else if (parsed.text) {
           cleanText = parsed.text;
         } else if (typeof parsed === 'string') {
