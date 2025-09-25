@@ -10,6 +10,36 @@ type ViewerImage = {
   naturalHeight: number;
 };
 
+// Lightweight, modern-styled toolbar button
+const ToolbarButton: React.FC<{ title: string; onClick: (e: React.MouseEvent) => void; children: React.ReactNode }> = ({ title, onClick, children }) => {
+  const [hover, setHover] = useState(false);
+  const [active, setActive] = useState(false);
+  return (
+    <button
+      title={title}
+      onClick={(e) => { e.stopPropagation(); onClick(e); }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => { setHover(false); setActive(false); }}
+      onMouseDown={() => setActive(true)}
+      onMouseUp={() => setActive(false)}
+      style={{
+        appearance: 'none',
+        border: '1px solid ' + (active ? '#2a2a2a' : hover ? '#2f2f2f' : '#2a2a2a'),
+        color: '#ddd',
+        background: active ? '#1b1b1b' : hover ? '#212121' : 'transparent',
+        padding: '4px 10px',
+        borderRadius: 6,
+        lineHeight: 1.1,
+        cursor: 'pointer',
+        fontSize: 13,
+        boxShadow: active ? 'inset 0 1px 3px rgba(0,0,0,0.35)' : 'none'
+      }}
+    >
+      {children}
+    </button>
+  );
+};
+
 export const ImageOverlayViewer: React.FC<ImageOverlayViewerProps> = ({ zIndex = 9999 }) => {
   const [visible, setVisible] = useState(false);
   const [images, setImages] = useState<ViewerImage[]>([]);
@@ -169,10 +199,10 @@ export const ImageOverlayViewer: React.FC<ImageOverlayViewerProps> = ({ zIndex =
           top: position.y,
           width: size.w,
           height: size.h,
-          background: '#0f0f10',
-          border: '1px solid #333',
-          borderRadius: 8,
-          boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+          background: 'linear-gradient(180deg, #121212 0%, #0f0f10 100%)',
+          border: '1px solid #2a2a2a',
+          borderRadius: 10,
+          boxShadow: '0 12px 32px rgba(0,0,0,0.55)',
           overflow: 'hidden',
           pointerEvents: 'auto',
           display: 'flex',
@@ -186,24 +216,25 @@ export const ImageOverlayViewer: React.FC<ImageOverlayViewerProps> = ({ zIndex =
         <div
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: '#1c1c1c', color: '#eee', padding: '6px 8px', cursor: 'move', flex: '0 0 36px'
+            background: 'rgba(28,28,28,0.95)', color: '#e6e6e6', padding: '6px 8px', cursor: 'move', flex: '0 0 36px',
+            borderBottom: '1px solid #222'
           }}
           onMouseDown={onHeaderMouseDown}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div>Image Viewer</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ fontWeight: 600, letterSpacing: 0.2 }}>Image Viewer</div>
             {current && (
-              <div style={{ fontSize: 12, opacity: 0.8 }}>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>
                 {current.naturalWidth}×{current.naturalHeight}
               </div>
             )}
           </div>
           <div style={{ display: 'flex', gap: 8, cursor: 'default' }} onMouseDown={e => e.stopPropagation()}>
-            <button onClick={(e) => { e.stopPropagation(); zoomOut(); }}>−</button>
-            <button onClick={(e) => { e.stopPropagation(); resetView(); }}>100%</button>
-            <button onClick={(e) => { e.stopPropagation(); zoomIn(); }}>+</button>
-            <button onClick={(e) => { e.stopPropagation(); setShowSettings(s => !s); }} title="Settings">⚙️</button>
-            <button onClick={(e) => { e.stopPropagation(); close(); }}>✕</button>
+            <ToolbarButton title="Zoom out" onClick={() => zoomOut()}>−</ToolbarButton>
+            <ToolbarButton title="Reset zoom" onClick={() => resetView()}>100%</ToolbarButton>
+            <ToolbarButton title="Zoom in" onClick={() => zoomIn()}>+</ToolbarButton>
+            <ToolbarButton title="Settings" onClick={() => setShowSettings(s => !s)}>⚙️</ToolbarButton>
+            <ToolbarButton title="Close" onClick={() => close()}>✕</ToolbarButton>
           </div>
         </div>
 
@@ -214,21 +245,21 @@ export const ImageOverlayViewer: React.FC<ImageOverlayViewerProps> = ({ zIndex =
             <div
               style={{
                 position: 'absolute', top: 8, right: 8, zIndex: 2,
-                background: 'rgba(20,20,20,0.95)', color: '#eee', border: '1px solid #333', borderRadius: 6,
-                padding: 8, minWidth: 220
+                background: 'rgba(20,20,20,0.97)', color: '#eee', border: '1px solid #2a2a2a', borderRadius: 8,
+                padding: 10, minWidth: 240, boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
               }}
               onMouseDown={e => e.stopPropagation()}
             >
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>Adjustments</div>
-              <label style={{ display: 'block', fontSize: 12 }}>Contrast: {contrast.toFixed(2)}</label>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>Adjustments</div>
+              <label style={{ display: 'block', fontSize: 12, marginTop: 2 }}>Contrast: {contrast.toFixed(2)}</label>
               <input type="range" min={0.2} max={3} step={0.05} value={contrast} onChange={e => setContrast(parseFloat(e.target.value))} />
-              <label style={{ display: 'block', fontSize: 12 }}>Brightness: {brightness.toFixed(2)}</label>
+              <label style={{ display: 'block', fontSize: 12, marginTop: 6 }}>Brightness: {brightness.toFixed(2)}</label>
               <input type="range" min={0.2} max={2} step={0.05} value={brightness} onChange={e => setBrightness(parseFloat(e.target.value))} />
-              <label style={{ display: 'block', fontSize: 12 }}>Saturation: {saturation.toFixed(2)}</label>
+              <label style={{ display: 'block', fontSize: 12, marginTop: 6 }}>Saturation: {saturation.toFixed(2)}</label>
               <input type="range" min={0} max={3} step={0.05} value={saturation} onChange={e => setSaturation(parseFloat(e.target.value))} />
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button onClick={resetFilters} title="Reset filters to defaults">Reset Filters</button>
-                <button onClick={resetAll} title="Reset filters and view">Reset All</button>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <ToolbarButton title="Reset filters" onClick={() => { setContrast(1); setBrightness(1); setSaturation(1); }}>Reset Filters</ToolbarButton>
+                <ToolbarButton title="Reset all" onClick={() => { resetAll(); }}>Reset All</ToolbarButton>
               </div>
             </div>
           )}
@@ -261,9 +292,9 @@ export const ImageOverlayViewer: React.FC<ImageOverlayViewerProps> = ({ zIndex =
           {/* Pager */}
           {images.length > 1 && (
             <div style={{ position: 'absolute', bottom: 8, left: 8, display: 'flex', gap: 8, zIndex: 2 }}>
-              <button onClick={(e) => { e.stopPropagation(); setIndex(i => Math.max(0, i - 1)); }}>‹</button>
-              <span style={{ color: '#fff' }}>{index + 1} / {images.length}</span>
-              <button onClick={(e) => { e.stopPropagation(); setIndex(i => Math.min(images.length - 1, i + 1)); }}>›</button>
+              <ToolbarButton title="Previous" onClick={() => setIndex(i => Math.max(0, i - 1))}>‹</ToolbarButton>
+              <span style={{ color: '#fff', fontSize: 12, alignSelf: 'center' }}>{index + 1} / {images.length}</span>
+              <ToolbarButton title="Next" onClick={() => setIndex(i => Math.min(images.length - 1, i + 1))}>›</ToolbarButton>
             </div>
           )}
         </div>
