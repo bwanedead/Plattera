@@ -21,6 +21,10 @@ from api.router import api_router
 from utils.health_monitor import get_health_monitor
 from pipelines.mapping.georeference.georeference_service import GeoreferenceService
 
+# NEW: static files for images
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+
 # Custom colored formatter for better log readability
 class ColoredFormatter(logging.Formatter):
     """Custom formatter with colors and emojis for better log readability"""
@@ -104,6 +108,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static images (originals and processed)
+try:
+    backend_root = Path(__file__).resolve().parents[0]
+    images_root = backend_root / "dossiers_data" / "images"
+    images_root.mkdir(parents=True, exist_ok=True)
+    (images_root / "original").mkdir(parents=True, exist_ok=True)
+    (images_root / "processed").mkdir(parents=True, exist_ok=True)
+    app.mount("/static/images", StaticFiles(directory=str(images_root), html=False), name="static-images")
+    print(f"🖼️ Static images mounted at /static/images -> {images_root}")
+except Exception as e:
+    print(f"⚠️ Failed to mount static images: {e}")
 
 # Include API router
 app.include_router(api_router)

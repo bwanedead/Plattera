@@ -15,6 +15,7 @@ import { resolveSelectionToText, ResolvedSelection } from '../../services/dossie
 import { textApi } from '../../services/textApi';
 // @ts-ignore - Temporary fix for TypeScript cache issue with new DossierReader module
 import DossierReader from './DossierReader';
+import ImageOverlayViewer from './ImageOverlayViewer';
 
 // Define interfaces for props to ensure type safety
 interface ResultsViewerProps {
@@ -577,6 +578,8 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
           </div>
         </Allotment.Pane>
       </Allotment>
+      {/* Overlay viewer rendered at root so it can cover panels */}
+      <ImageOverlayViewer zIndex={9999} />
     </div>
   );
 }; 

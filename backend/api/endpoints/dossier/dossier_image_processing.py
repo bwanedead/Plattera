@@ -317,7 +317,8 @@ async def process_with_dossier_association(
         await _handle_dossier_association(
             dossier_id, transcription_id, result, temp_path,
             model, extraction_mode, redundancy_count, consensus_strategy,
-            auto_llm_consensus_flag, llm_consensus_model, enhancement_settings
+            auto_llm_consensus_flag, llm_consensus_model, enhancement_settings,
+            original_filename=(file.filename if hasattr(file, 'filename') else None)
         )
 
         # Persist LLM consensus output (if generated) so UI can mark consensus draft as completed
@@ -408,7 +409,8 @@ async def process_with_dossier_association(
 async def _handle_dossier_association(
     dossier_id: str, transcription_id: str, result: dict, temp_path: str,
     model: str, extraction_mode: str, redundancy_count: int, consensus_strategy: str,
-    auto_llm_consensus_flag: bool, llm_consensus_model: str, enhancement_settings: dict
+    auto_llm_consensus_flag: bool, llm_consensus_model: str, enhancement_settings: dict,
+    original_filename: str = None
 ):
     """
     Handle dossier association, metadata updates, and provenance creation.
@@ -478,44 +480,128 @@ async def _handle_dossier_association(
         }
         if provenance:
             metadata["provenance"] = provenance
+            try:
+                # Attach image metadata with public URLs for thumbnails/viewer
+                import os as _os
+                from pathlib import Path as _PURL
+                images_meta = {}
+                orig_path = provenance.get("enhancement", {}).get("original_image_path") if isinstance(provenance, dict) else None
+                proc_path = provenance.get("enhancement", {}).get("processed_image_path") if isinstance(provenance, dict) else None
+                if orig_path:
+                    filename = _PURL(orig_path).name
+                    images_meta["original_path"] = orig_path
+                    images_meta["original_url"] = f"/static/images/original/{filename}"
+                if proc_path:
+                    filename_p = _PURL(proc_path).name
+                    images_meta["processed_path"] = proc_path
+                    images_meta["processed_url"] = f"/static/images/processed/{filename_p}"
+                if images_meta:
+                    metadata["images"] = images_meta
+            except Exception as _eimg:
+                logger.debug(f"(non-critical) Could not attach images metadata: {_eimg}")
 
-        # Associate with dossier
+        # Associate with dossier (update metadata if already associated)
         from services.dossier.association_service import TranscriptionAssociationService
         association_service = TranscriptionAssociationService()
 
-        next_position = len(association_service.get_dossier_transcriptions(dossier_id)) + 1
-        success = association_service.add_transcription(
-            dossier_id=dossier_id,
-            transcription_id=transcription_id,
-            position=next_position,
-            metadata=metadata
-        )
-
-        if success:
-            logger.info(f"📝 Associated transcription {transcription_id} with dossier {dossier_id}")
+        already_exists = association_service.transcription_exists_in_dossier(dossier_id, transcription_id)
+        if already_exists:
+            try:
+                association_service.update_transcription_metadata(dossier_id, transcription_id, metadata)
+                logger.info(f"📝 Updated existing association metadata for {transcription_id} in dossier {dossier_id}")
+            except Exception as _uerr:
+                logger.warning(f"⚠️ Failed to update existing association metadata: {_uerr}")
         else:
-            logger.warning(f"⚠️ Failed to associate transcription {transcription_id} with dossier {dossier_id}")
+            next_position = len(association_service.get_dossier_transcriptions(dossier_id)) + 1
+            success = association_service.add_transcription(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                position=next_position,
+                metadata=metadata
+            )
+            if success:
+                logger.info(f"📝 Associated transcription {transcription_id} with dossier {dossier_id}")
+            else:
+                logger.warning(f"⚠️ Failed to associate transcription {transcription_id} with dossier {dossier_id}")
 
-        # Update dossier title if consensus title available
+        # Update dossier title if consensus title available; else set fallback
         try:
+            from pathlib import Path as _PathT
+            from datetime import datetime as _DT
             ra_for_title = result.get('metadata', {}).get('redundancy_analysis', {})
             consensus_title = ra_for_title.get('consensus_title')
 
-            if consensus_title:
+            if consensus_title and str(consensus_title).strip():
                 management_service.update_dossier(dossier_id, {"title": consensus_title})
                 logger.info(f"🏷️ Updated dossier {dossier_id} title from LLM consensus: {consensus_title}")
+            else:
+                # Fallback: use original uploaded filename if available; else temp file stem
+                if original_filename and str(original_filename).strip():
+                    stem = _PathT(original_filename).stem
+                else:
+                    stem = _PathT(temp_path).stem if temp_path else 'document'
+                timestamp = _DT.now().strftime('%Y-%m-%d %H:%M')
+                fallback_title = f"{stem} • {timestamp}"
+                management_service.update_dossier(dossier_id, {"title": fallback_title})
+                logger.info(f"🏷️ Updated dossier {dossier_id} title to fallback: {fallback_title}")
         except Exception as e:
             logger.debug(f"(non-critical) Could not update dossier title: {e}")
 
         # Mark run as completed
+        from datetime import datetime as _DT2
         management_service.update_run_metadata(
             dossier_id=dossier_id,
             transcription_id=transcription_id,
             updates={
                 "status": "completed",
-                "timestamps": {"finished_at": datetime.now().isoformat()}
+                "timestamps": {"finished_at": _DT2.now().isoformat()}
             }
         )
+
+        # If redundancy_count == 1, persist the final result as the v1 draft so UI loads real content
+        try:
+            if isinstance(result, dict) and int(redundancy_count) == 1:
+                from pathlib import Path as _PSAVE
+                import json as _json
+                _BACKEND_DIR = _PSAVE(__file__).resolve().parents[3]
+                drafts_dir = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / str(transcription_id) / "raw"
+                drafts_dir.mkdir(parents=True, exist_ok=True)
+                v1_path = drafts_dir / f"{transcription_id}_v1.json"
+                base_path = drafts_dir / f"{transcription_id}.json"
+
+                extracted_text = result.get("extracted_text", "")
+                content: dict
+                try:
+                    if isinstance(extracted_text, str) and extracted_text.strip().startswith('{'):
+                        parsed = _json.loads(extracted_text)
+                        content = parsed if isinstance(parsed, dict) else {"text": extracted_text}
+                    else:
+                        content = {"text": extracted_text}
+                except Exception:
+                    content = {"text": str(extracted_text)}
+
+                # Normalize: ensure not a placeholder, and set completion flags
+                content.pop('_placeholder', None)
+                content['_status'] = 'completed'
+                content['_draft_index'] = 0
+
+                with open(v1_path, 'w', encoding='utf-8') as vf:
+                    _json.dump(content, vf, indent=2, ensure_ascii=False)
+                with open(base_path, 'w', encoding='utf-8') as bf:
+                    _json.dump(content, bf, indent=2, ensure_ascii=False)
+
+                # Mark v1 completed in run metadata
+                management_service.update_run_metadata(
+                    dossier_id=dossier_id,
+                    transcription_id=transcription_id,
+                    updates={
+                        "completed_drafts": f"{transcription_id}_v1",
+                        "timestamps": {"last_update_at": _DT2.now().isoformat()}
+                    }
+                )
+                logger.info(f"💾 Persisted final draft to {v1_path}")
+        except Exception as _psave_err:
+            logger.warning(f"⚠️ Failed to persist final v1 draft: {_psave_err}")
 
         logger.info(f"✅ Dossier association and metadata updates completed for {transcription_id}")
 

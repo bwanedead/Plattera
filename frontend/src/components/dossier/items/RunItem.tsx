@@ -81,6 +81,7 @@ export const RunItem: React.FC<RunItemProps> = ({
     }
   };
 
+  const originalUrl: string | undefined = (run as any)?.metadata?.images?.original_url;
 
   // ============================================================================
   // EVENT HANDLERS
@@ -124,6 +125,20 @@ export const RunItem: React.FC<RunItemProps> = ({
     onItemSelect(path);
   }, [dossier?.id, segment?.id, run?.id, onItemSelect]);
 
+  const openOverlay = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!originalUrl) return;
+    try {
+      const event = new CustomEvent('image-overlay:open', {
+        detail: {
+          images: [originalUrl],
+          initialIndex: 0
+        }
+      });
+      document.dispatchEvent(event);
+    } catch {}
+  }, [originalUrl]);
+
   // ============================================================================
   // RENDER
   // ============================================================================
@@ -163,23 +178,35 @@ export const RunItem: React.FC<RunItemProps> = ({
               {stats.drafts} drafts • {formatSize(stats.totalSize)}
             </span>
           </div>
-          {(isHovered || isSelected) && (
-            <div className="run-actions">
-              <button
-                className="dossier-action-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!dossier?.id || !segment?.id || !run?.id) return;
-                  console.log('👁️ Run view button', { dossierId: dossier.id, segmentId: segment.id, runId: run.id });
-                  onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id });
-                }}
-                title="View run"
-              >
-                View
-              </button>
-            </div>
-          )}
         </div>
+
+        {/* Always show thumbnail if available */}
+        {originalUrl && (
+          <img
+            src={originalUrl}
+            alt="thumbnail"
+            style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4, cursor: 'zoom-in', marginLeft: 'auto', marginRight: 8 }}
+            onClick={openOverlay}
+            title="Open original image"
+          />
+        )}
+
+        {(isHovered || isSelected) && (
+          <div className="run-actions">
+            <button
+              className="dossier-action-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!dossier?.id || !segment?.id || !run?.id) return;
+                console.log('👁️ Run view button', { dossierId: dossier.id, segmentId: segment.id, runId: run.id });
+                onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id });
+              }}
+              title="View run"
+            >
+              View
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Expanded Content */}

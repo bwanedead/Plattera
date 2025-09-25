@@ -76,6 +76,13 @@ class ProgressiveDraftSaver:
 
             # Save the draft file
             drafts_dir.mkdir(parents=True, exist_ok=True)
+            # Remove any lingering placeholder keys to avoid UI misreads
+            try:
+                if isinstance(content, dict) and content.get('_placeholder') is True:
+                    content.pop('_placeholder', None)
+                    content.pop('_status', None)
+            except Exception:
+                pass
             with open(version_file, 'w', encoding='utf-8') as f:
                 json.dump(content, f, indent=2, ensure_ascii=False)
 
@@ -121,7 +128,11 @@ class ProgressiveDraftSaver:
                 if isinstance(extracted_text, str) and extracted_text.strip().startswith('{'):
                     parsed = json.loads(extracted_text)
                     if isinstance(parsed, dict):
-                        content = parsed
+                        # If generic schema, ensure mainText presence
+                        if 'sections' in parsed or 'mainText' in parsed or 'text' in parsed:
+                            content = parsed
+                        else:
+                            content = {"text": extracted_text}
                     else:
                         content = {"text": extracted_text}
                 else:

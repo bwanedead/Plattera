@@ -134,7 +134,7 @@ class DossierManagementService:
             # Try to load run metadata from run.json
             run_metadata = self.get_run_metadata(dossier.id, transcription.transcription_id)
             if run_metadata:
-                run.status = run_metadata.get('status', 'completed')
+                run.status = run_metadata.get('status', 'processing')
                 run.has_llm_consensus = run_metadata.get('has_llm_consensus', False)
                 run.has_alignment_consensus = run_metadata.get('has_alignment_consensus', False)
                 run.redundancy_count = run_metadata.get('redundancy_count', 1)
@@ -151,15 +151,21 @@ class DossierManagementService:
                 run.completed_drafts = []
                 run.processing_params = {}
 
-            # Add metadata for frontend compatibility
-            run.metadata = {
-                'createdAt': transcription.added_at.isoformat(),
-                'totalSizeBytes': 0,  # TODO: Calculate from drafts
-                'lastActivity': transcription.added_at.isoformat(),
-                'status': run.status,
-                'redundancy_count': run.redundancy_count,
-                'completed_drafts': run.completed_drafts
-            }
+            # Attach images metadata from association (if available)
+            try:
+                assoc_meta = getattr(transcription, 'metadata', {}) or {}
+                if isinstance(assoc_meta, dict):
+                    images_meta = assoc_meta.get('images')
+                    if images_meta:
+                        run.metadata = (run.metadata or {})
+                        run.metadata['images'] = images_meta
+                    # Optionally pass through provenance summary for future use
+                    if assoc_meta.get('provenance'):
+                        run.metadata = (run.metadata or {})
+                        run.metadata.setdefault('provenance', {})
+                        run.metadata['provenance'] = assoc_meta['provenance']
+            except Exception as _em:
+                logger.debug(f"(non-critical) Could not merge association metadata into run: {_em}")
 
             # Build drafts list based on run metadata (placeholders first)
             run.drafts = []
@@ -167,6 +173,8 @@ class DossierManagementService:
             # Create placeholder drafts for redundancy
             redundancy_count = getattr(run, 'redundancy_count', 1)
             completed_drafts = getattr(run, 'completed_drafts', [])
+            if isinstance(completed_drafts, str):
+                completed_drafts = [completed_drafts]
 
             # Create placeholder drafts for all expected redundancy drafts
             for i in range(max(1, redundancy_count)):
@@ -213,17 +221,30 @@ class DossierManagementService:
                         is_real = False
                         text = ""
                         if isinstance(content, dict):
-                            if not content.get('_placeholder', False):
-                                sections = content.get('sections')
-                                if isinstance(sections, list):
-                                    text = " ".join(
-                                        str(s.get('body', '')) for s in sections if isinstance(s, dict)
-                                    )
-                                elif 'extracted_text' in content:
-                                    text = str(content.get('extracted_text', ''))
-                                elif 'text' in content:
-                                    text = str(content.get('text', ''))
-                                is_real = bool(text and text.strip()) or (isinstance(sections, list) and any((s.get('body') or '').strip() for s in sections if isinstance(s, dict)))
+                            # If placeholder flag is explicitly set, do not treat as real
+                            if content.get('_placeholder') is True:
+                                is_real = False
+                            # Respect explicit completion status if present
+                            if content.get('_status') == 'completed':
+                                is_real = True
+                            sections = content.get('sections')
+                            if isinstance(sections, list):
+                                text = " ".join(
+                                    str(s.get('body', '')) for s in sections if isinstance(s, dict)
+                                )
+                                if any((s.get('body') or '').strip() for s in sections if isinstance(s, dict)):
+                                    is_real = True
+                            elif 'extracted_text' in content:
+                                text = str(content.get('extracted_text', ''))
+                                is_real = bool(text and text.strip())
+                            elif 'text' in content:
+                                text = str(content.get('text', ''))
+                                is_real = bool(text and text.strip())
+                            # Support generic schema mainText
+                            if not is_real and isinstance(content.get('mainText'), str):
+                                mt = content.get('mainText') or ''
+                                text = mt if len(mt) > len(text) else text
+                                is_real = bool(mt.strip())
 
                         length = len((text or '').strip())
 
