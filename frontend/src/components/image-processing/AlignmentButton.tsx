@@ -2,23 +2,22 @@ import React, { useState } from 'react';
 import { AnimatedBorder } from '../AnimatedBorder';
 
 interface AlignmentButtonProps {
-  visible: boolean;
+  // visible is kept for backward compatibility but no longer hides the button
+  visible?: boolean;
   onAlign: () => void;
   isAligning: boolean;
   disabled?: boolean;
 }
 
 export const AlignmentButton: React.FC<AlignmentButtonProps> = ({
-  visible,
+  visible = true,
   onAlign,
   isAligning,
   disabled = false
 }) => {
   const [isHovered, setIsHovered] = useState(false);
 
-  if (!visible) {
-    return null;
-  }
+  // Always render; rely on disabled state instead of hiding entirely
 
   return (
     <div className="alignment-button-container">

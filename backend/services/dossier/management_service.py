@@ -305,41 +305,44 @@ class DossierManagementService:
                 except Exception as _e2:
                     logger.warning(f"⚠️ Failed to append LLM consensus draft for {transcription.transcription_id}: {_e2}")
 
-            # Append alignment consensus draft if present and enabled in run metadata
-            if getattr(run, 'has_alignment_consensus', False):
-                try:
-                    structured_align = _root / str(dossier.id) / str(transcription.transcription_id) / "consensus" / f"alignment_{transcription.transcription_id}.json"
-                    flat_align = _root / f"{transcription.transcription_id}_consensus_alignment.json"
-                    _align_path = structured_align if structured_align.exists() else (flat_align if flat_align.exists() else None)
-                    if _align_path:
-                        alignment_consensus_draft = Draft(
-                            draft_id=f"{transcription.transcription_id}_consensus_alignment",
-                            transcription_id=transcription.transcription_id,
-                            position=len(run.drafts),
-                            is_best=False
-                        )
-                        alignment_consensus_draft.metadata = {
-                            'type': 'alignment_consensus',
-                            'label': 'Alignment Consensus',
-                            'status': 'completed'
-                        }
-                        run.drafts.append(alignment_consensus_draft)
-                    else:
-                        # Create placeholder if enabled but not yet completed
-                        alignment_consensus_draft = Draft(
-                            draft_id=f"{transcription.transcription_id}_consensus_alignment",
-                            transcription_id=transcription.transcription_id,
-                            position=len(run.drafts),
-                            is_best=False
-                        )
-                        alignment_consensus_draft.metadata = {
-                            'type': 'alignment_consensus',
-                            'label': 'Alignment Consensus',
-                            'status': 'processing'
-                        }
-                        run.drafts.append(alignment_consensus_draft)
-                except Exception as _e3:
-                    logger.warning(f"⚠️ Failed to append alignment consensus draft for {transcription.transcription_id}: {_e3}")
+            # Append alignment consensus draft if file exists OR run metadata indicates it's expected
+            try:
+                from pathlib import Path as _Path3
+                _BACKEND_DIR3 = _Path3(__file__).resolve().parents[2]
+                _root = _BACKEND_DIR3 / "dossiers_data" / "views" / "transcriptions"
+                structured_align = _root / str(dossier.id) / str(transcription.transcription_id) / "consensus" / f"alignment_{transcription.transcription_id}.json"
+                flat_align = _root / f"{transcription.transcription_id}_consensus_alignment.json"
+                _align_path = structured_align if structured_align.exists() else (flat_align if flat_align.exists() else None)
+
+                if _align_path:
+                    alignment_consensus_draft = Draft(
+                        draft_id=f"{transcription.transcription_id}_consensus_alignment",
+                        transcription_id=transcription.transcription_id,
+                        position=len(run.drafts),
+                        is_best=False
+                    )
+                    alignment_consensus_draft.metadata = {
+                        'type': 'alignment_consensus',
+                        'label': 'Alignment Consensus',
+                        'status': 'completed'
+                    }
+                    run.drafts.append(alignment_consensus_draft)
+                elif getattr(run, 'has_alignment_consensus', False):
+                    # Create placeholder if expected by run metadata but file not yet present
+                    alignment_consensus_draft = Draft(
+                        draft_id=f"{transcription.transcription_id}_consensus_alignment",
+                        transcription_id=transcription.transcription_id,
+                        position=len(run.drafts),
+                        is_best=False
+                    )
+                    alignment_consensus_draft.metadata = {
+                        'type': 'alignment_consensus',
+                        'label': 'Alignment Consensus',
+                        'status': 'processing'
+                    }
+                    run.drafts.append(alignment_consensus_draft)
+            except Exception as _e3:
+                logger.warning(f"⚠️ Failed to append alignment consensus draft for {transcription.transcription_id}: {_e3}")
 
             # Build hierarchy
             segment.runs.append(run)
