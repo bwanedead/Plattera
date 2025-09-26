@@ -407,7 +407,16 @@ export const useEditableDraft = (
     canUndo: editableDraftState.currentHistoryIndex >= 0,
     canRedo: editableDraftState.currentHistoryIndex < editableDraftState.editHistory.length - 1,
     getCurrentDisplayText,
-    originalText // Export for debugging
+    originalText, // Export for debugging
+    setEditedContent: (text: string) => {
+      const blocks = extractBlockTexts(text);
+      setEditableDraftState(prev => ({
+        ...prev,
+        editedDraft: { content: text, blockTexts: blocks },
+        hasUnsavedChanges: true,
+        editedFromDraft: selectedDraft
+      }));
+    }
   };
 };
 

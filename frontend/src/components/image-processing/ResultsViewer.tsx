@@ -61,6 +61,9 @@ interface ResultsViewerProps {
   showEditedVersion?: boolean;
   onToggleEditedVersion?: () => void;
   onFinalDraftSelected?: (finalText: string, metadata: any) => void;
+  // NEW: Free-form edit plumbing
+  onSetEditedContent?: (text: string) => void;
+  onSaveEditedContent?: () => Promise<void>;
 }
 
 export const ResultsViewer: React.FC<ResultsViewerProps> = ({
@@ -93,10 +96,13 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   showEditedVersion = true,
   onToggleEditedVersion,
   onFinalDraftSelected,
+  onSetEditedContent,
+  onSaveEditedContent,
 }) => {
   const [activeTab, setActiveTab] = useState('text');
   const [showAlignedText, setShowAlignedText] = useState(false);
   const [currentDisplayPath, setCurrentDisplayPath] = useState<DossierPath | undefined>();
+  const [isEditing, setIsEditing] = useState(false);
 
   // Check if current result has multiple drafts for alignment
   const hasMultipleDrafts = selectedResult?.result?.metadata?.redundancy_analysis?.individual_results?.length > 1;
@@ -390,51 +396,63 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   editedFromDraft={editableDraftState?.editedFromDraft}
                 />
 
-                {/* Edit Toggle Button - shown when there are unsaved changes */}
-                {editableDraftState?.hasUnsavedChanges && (
-                  <div className="edit-toggle-section">
-                    <button
-                      className="edit-toggle-button"
-                      onClick={() => {
-                        // Toggle between showing original and edited versions
-                        if (onToggleEditedVersion) {
-                          onToggleEditedVersion();
-                        }
-                      }}
-                      title={`Currently showing ${showEditedVersion ? 'edited' : 'original'} version - click to toggle`}
-                    >
-                      {showEditedVersion ? '📝 Edited' : '📄 Original'}
-                    </button>
-                    
-                    {/* Undo/Redo buttons */}
-                    <div className="edit-controls">
+                {/* Always-visible Edit Mode controls */}
+                <div className="edit-mode-controls" style={{ display: 'inline-flex', gap: '8px', marginLeft: '12px' }}>
+                  <button
+                    className="edit-mode-toggle"
+                    onClick={() => setIsEditing(!isEditing)}
+                    title="Toggle Edit Mode"
+                  >
+                    {isEditing ? '✅ Editing' : '✏️ Edit Mode'}
+                  </button>
+                  {isEditing && (
+                    <>
                       <button
-                        className="edit-control-button"
-                        onClick={onUndoEdit}
-                        disabled={!editableDraftState.canUndo}
-                        title="Undo last edit"
+                        className="edit-toggle-button"
+                        onClick={() => {
+                          if (onToggleEditedVersion) onToggleEditedVersion();
+                        }}
+                        title={`Currently showing ${showEditedVersion ? 'edited' : 'original'} version - click to toggle`}
                       >
-                        ↶
+                        {showEditedVersion ? '📝 Edited' : '📄 Original'}
                       </button>
-                      <button
-                        className="edit-control-button"
-                        onClick={onRedoEdit}
-                        disabled={!editableDraftState.canRedo}
-                        title="Redo last edit"
-                      >
-                        ↷
-                      </button>
-                      <button
-                        className="edit-control-button reset"
-                        onClick={onResetToOriginal}
-                        disabled={!editableDraftState.hasUnsavedChanges}
-                        title="Reset to original"
-                      >
-                        🔄
-                      </button>
-                    </div>
-                  </div>
-                )}
+                      <div className="edit-controls">
+                        <button
+                          className="edit-control-button"
+                          onClick={onUndoEdit}
+                          disabled={!editableDraftState?.canUndo}
+                          title="Undo last edit"
+                        >
+                          ↶
+                        </button>
+                        <button
+                          className="edit-control-button"
+                          onClick={onRedoEdit}
+                          disabled={!editableDraftState?.canRedo}
+                          title="Redo last edit"
+                        >
+                          ↷
+                        </button>
+                        <button
+                          className="edit-control-button reset"
+                          onClick={onResetToOriginal}
+                          disabled={!editableDraftState?.hasUnsavedChanges}
+                          title="Reset to original"
+                        >
+                          🔄
+                        </button>
+                        <button
+                          className="save-edits-button"
+                          onClick={async () => { if (onSaveEditedContent) await onSaveEditedContent(); }}
+                          disabled={!editableDraftState?.hasUnsavedChanges}
+                          title="Save edits to v2 and set HEAD to v2"
+                        >
+                          💾 Save Edits
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Original vs Aligned Text Toggle */}
                 {alignmentResult?.success && (
@@ -511,6 +529,19 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           selectedDraft={selectedDraft}
                           redundancyAnalysis={selectedResult.result?.metadata?.redundancy_analysis}
                         />
+                      ) : isEditing ? (
+                        <div className="text-content-wrapper">
+                          <textarea
+                            className="text-editor"
+                            style={{ width: '100%', height: '100%', padding: '1rem', fontFamily: 'monospace' }}
+                            value={
+                              (editableDraftState?.hasUnsavedChanges && editableDraftState?.editedFromDraft === selectedDraft)
+                                ? editableDraftState.editedDraft.content
+                                : getCurrentText()
+                            }
+                            onChange={(e) => onSetEditedContent && onSetEditedContent(e.target.value)}
+                          />
+                        </div>
                       ) : (
                         <div className="text-content-wrapper">
                           {editableDraftState?.hasUnsavedChanges &&

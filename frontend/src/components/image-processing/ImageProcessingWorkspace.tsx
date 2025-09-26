@@ -19,6 +19,7 @@ import { isJsonResult, formatJsonAsText, canParseJson } from '../../utils/jsonFo
 import { getCurrentText, getRawText, getOriginalJsonText, getNormalizedSectionsText, hasNormalizedSections } from '../../utils/textSelectionUtils';
 import { FinalDraftSelector } from './FinalDraftSelector';
 import { useDossierManager } from '../../hooks/useDossierManager';
+import { saveDossierEditAPI } from '../../services/imageProcessingApi';
 
 
 interface ImageProcessingWorkspaceProps {
@@ -183,6 +184,35 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     // Sync with text-to-schema workspace
     workspaceStateManager.syncFinalDraft(finalText, metadata);
   }, [updateWorkspaceState]);
+
+  // Save edited content to v2 and update HEAD
+  const handleSaveEditedContent = useCallback(async () => {
+    const dossierId = selectedDossierId || imageProcessing.selectedResult?.result?.metadata?.dossier_id;
+    const transcriptionId = imageProcessing.selectedResult?.result?.metadata?.transcription_id;
+    if (!dossierId || !transcriptionId) {
+      alert('Missing dossier or transcription context.');
+      return;
+    }
+
+    const blocks = editableDraft.editableDraftState.editedDraft.blockTexts;
+    const sections = (blocks && blocks.length > 0)
+      ? blocks.map((body, i) => ({ id: i + 1, body }))
+      : [{ id: 1, body: editableDraft.editableDraftState.editedDraft.content }];
+
+    try {
+      await saveDossierEditAPI({
+        dossierId: String(dossierId),
+        transcriptionId: String(transcriptionId),
+        editedSections: sections
+      });
+      console.log('✅ Saved v2 and updated HEAD to v2');
+      alignmentState.resetAlignmentState();
+      try { document.dispatchEvent(new Event('dossiers:refresh')); } catch {}
+    } catch (e: any) {
+      console.error('Failed to save edit', e);
+      alert(`Failed to save edit: ${e?.message || e}`);
+    }
+  }, [selectedDossierId, imageProcessing.selectedResult, editableDraft.editableDraftState, alignmentState]);
 
   // Text retrieval functions with edit-aware logic
   const getCurrentTextCallback = useCallback(() => {
@@ -524,6 +554,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             showEditedVersion={showEditedVersion}
             onToggleEditedVersion={() => setShowEditedVersion(!showEditedVersion)}
             onFinalDraftSelected={handleFinalDraftSelected}
+            onSetEditedContent={editableDraft.setEditedContent}
+            onSaveEditedContent={handleSaveEditedContent}
             />
         </Allotment.Pane>
       </Allotment>

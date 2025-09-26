@@ -262,3 +262,30 @@ export const selectFinalDraftAPI = async (
   console.log('✅ API Response:', data);
   return data;
 }; 
+
+// --- Dossier Edit Save API ---
+export const saveDossierEditAPI = async (params: {
+  dossierId: string;
+  transcriptionId: string;
+  editedText?: string;
+  editedSections?: Array<{ id: number | string; body: string }>;
+}): Promise<{ success: boolean; raw_head: string }> => {
+  const formData = new FormData();
+  formData.append('dossier_id', params.dossierId);
+  formData.append('transcription_id', params.transcriptionId);
+  if (params.editedSections && params.editedSections.length > 0) {
+    formData.append('edited_sections', JSON.stringify(params.editedSections));
+  } else {
+    formData.append('edited_text', params.editedText || '');
+  }
+
+  const response = await fetch('http://localhost:8000/api/dossier/edits/save', {
+    method: 'POST',
+    body: formData
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`HTTP ${response.status}: ${errorText}`);
+  }
+  return response.json();
+};
