@@ -20,9 +20,9 @@ export interface ConsensusSettings {
 
 export interface ProcessingResult {
   input: string;
-  status: 'completed' | 'error';
+  status: 'processing' | 'completed' | 'error';
   result: {
-    extracted_text: string;
+    extracted_text?: string;
     metadata: any;
   } | null;
   error?: string;

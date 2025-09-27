@@ -4,6 +4,7 @@ Combines all API endpoints into a single router for main.py
 """
 from fastapi import APIRouter
 from api.endpoints import models, processing, system, alignment, consensus, final_draft, text_to_schema, polygon, mapping, plss_overlays, georeference, plss_endpoints, coordinates_endpoints, llm_consensus
+from api.endpoints import image_to_text_jobs
 from api.endpoints.plss import container_router
 from api.endpoints.dossier import management_router, association_router, navigation_router, views_router, dossier_image_processing_router, runs_router
 from api.endpoints.dossier import events as dossier_events
@@ -43,6 +44,9 @@ api_router.include_router(dossier_versions.router, prefix="/api/dossier/versions
 # Quick access to pipeline-specific endpoints for backwards compatibility
 api_router.include_router(models.router, prefix="/api/image-to-text", tags=["image-to-text"])
 api_router.include_router(processing.router, prefix="/api/image", tags=["image-processing"])
+
+# New batch queue endpoints for Image-to-Text
+api_router.include_router(image_to_text_jobs.router, prefix="/api", tags=["image-to-text-jobs"])
 
 # Add a root endpoint for API discovery
 @api_router.get("/api")

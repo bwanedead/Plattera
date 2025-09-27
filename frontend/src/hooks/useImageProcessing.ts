@@ -29,6 +29,8 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
     count: 1,
     consensusStrategy: 'highest_confidence'
   });
+  // Single vs Batch processing toggle (UI preference)
+  const [processingMode, setProcessingMode] = useState<'single' | 'batch'>('batch');
   const [consensusSettings, setConsensusSettings] = useState<ConsensusSettings>({
     enabled: false,
     model: 'gpt-5-consensus'
@@ -37,6 +39,10 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
   const [internalSelectedDossierId, setSelectedDossierId] = useState<string | null>(null);
   const [onProcessingComplete, setOnProcessingComplete] = useState<(() => void) | null>(null);
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+
+  // Queue UI state to persist after staging is cleared
+  type QueueItem = { fileName: string; jobId?: string; status: 'queued' | 'processing' | 'done' | 'error' };
+  const [processingQueue, setProcessingQueue] = useState<QueueItem[]>([]);
 
   // Dynamic redundancy defaults based on extraction mode
   const getRedundancyDefaults = (mode: string): RedundancySettings => {
@@ -71,51 +77,52 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
     try {
       // Reduce noisy logs
 
-      // Prefer internal state updated by init-run; fall back to prop
+      // Prefer internal state; fall back to prop
       let dossierIdToSend: string | undefined = (internalSelectedDossierId || selectedDossierId) || undefined;
-      // Reduce noisy logs
+      // If batch with auto-create (no dossier selected), DO NOT pre-create a dossier.
+      const isAutoCreateBatch = processingMode === 'batch' && !dossierIdToSend;
 
-      // Initialize run skeleton before processing for immediate UI feedback
+      // Initialize run skeleton only when targeting an existing dossier or in single mode
       const firstFile = stagedFiles[0];
       let initTranscriptionId: string | undefined;
       let initDossierId: string | undefined;
 
-      try {
-        const { dossierApi } = await import('../services/dossier/dossierApi');
-        const initResult = await dossierApi.initRun({
-          dossierId: selectedDossierId || undefined,
-          fileName: firstFile?.name,
-          model: selectedModel,
-          extractionMode: extractionMode,
-          redundancyCount: redundancySettings.enabled ? redundancySettings.count : 1,
-          autoLlmConsensus: consensusSettings.enabled,
-          llmConsensusModel: consensusSettings.model,
-          consensusStrategy: redundancySettings.consensusStrategy
-        });
+      if (!isAutoCreateBatch) {
+        try {
+          const { dossierApi } = await import('../services/dossier/dossierApi');
+          const initResult = await dossierApi.initRun({
+            dossierId: dossierIdToSend || undefined,
+            fileName: firstFile?.name,
+            model: selectedModel,
+            extractionMode: extractionMode,
+            redundancyCount: redundancySettings.enabled ? redundancySettings.count : 1,
+            autoLlmConsensus: consensusSettings.enabled,
+            llmConsensusModel: consensusSettings.model,
+            consensusStrategy: redundancySettings.consensusStrategy
+          });
 
-        if (initResult.success) {
-          // Update selected dossier ID if auto-created
-          if (!selectedDossierId && initResult.dossier_id) {
-            setSelectedDossierId(initResult.dossier_id);
+          if (initResult.success) {
+            if (!dossierIdToSend && initResult.dossier_id) {
+              setSelectedDossierId(initResult.dossier_id);
+            }
+            initTranscriptionId = initResult.transcription_id;
+            initDossierId = initResult.dossier_id;
           }
-          initTranscriptionId = initResult.transcription_id;
-          initDossierId = initResult.dossier_id;
-          // Reduce noisy logs
+        } catch (initError) {
+          console.warn('⚠️ Failed to initialize run skeleton (non-critical):', initError);
         }
-      } catch (initError) {
-        console.warn('⚠️ Failed to initialize run skeleton (non-critical):', initError);
-        // Continue with processing even if init fails
+        dossierIdToSend = initDossierId || dossierIdToSend;
       }
-
-      // Ensure we send the dossier created/returned by init-run to enable dossier endpoint + progressive saving
-      dossierIdToSend = initDossierId || dossierIdToSend;
       // Reduce noisy logs
 
       // Fire immediate refresh so skeleton appears
       document.dispatchEvent(new Event('dossiers:refresh'));
 
+      // Enforce cap client-side in batch mode (server also enforces)
+      const filesToProcess = processingMode === 'batch' ? stagedFiles.slice(0, 20) : [stagedFiles[0]];
+
       const results = await processFilesAPI(
-        stagedFiles,
+        filesToProcess,
         selectedModel,
         extractionMode,
         enhancementSettings,
@@ -126,7 +133,99 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
         initTranscriptionId
       );
 
+      // Initialize queue from results (batch path returns job ids in metadata)
+      try {
+        if (filesToProcess.length > 1) {
+          const q: QueueItem[] = filesToProcess.map((f, i) => ({
+            fileName: f.name,
+            jobId: (results[i]?.result as any)?.metadata?.job_id,
+            status: i === 0 ? 'processing' : 'queued',
+          }));
+          setProcessingQueue(q);
+        } else if (filesToProcess.length === 1) {
+          setProcessingQueue([{ fileName: filesToProcess[0].name, status: 'processing' }]);
+        }
+      } catch {}
+
       setSessionResults(prev => [...results, ...prev]);
+
+      // If queued jobs were created, poll their status and update results upon completion
+      results.forEach((r) => {
+        const jobId = (r?.result as any)?.metadata?.job_id;
+        if (r.status === 'processing' && jobId) {
+          const poll = async () => {
+            let attempts = 0;
+            const maxAttempts = 600; // ~5 minutes at 500ms interval
+            while (attempts < maxAttempts) {
+              try {
+                const resp = await fetch(`http://localhost:8000/api/image-to-text/jobs/${jobId}`);
+                const data = await resp.json();
+                if (data && typeof data.status === 'string') {
+                  if (data.status === 'SUCCEEDED') {
+                    const snapshot = data.result || {};
+                    const completed: any = {
+                      input: r.input,
+                      status: 'completed' as const,
+                      result: {
+                        extracted_text: snapshot.extracted_text,
+                        metadata: snapshot.metadata || {},
+                      },
+                    };
+                    setSessionResults(prev => {
+                      const copy = [...prev];
+                      const idx = copy.findIndex(x => (x?.result as any)?.metadata?.job_id === jobId);
+                      if (idx >= 0) copy[idx] = completed;
+                      else copy.unshift(completed);
+                      return copy;
+                    });
+                    // Update queue: mark this job done and advance next queued to processing
+                    setProcessingQueue(prev => {
+                      const list = prev.map(item => item.jobId === jobId ? { ...item, status: 'done' } : item);
+                      const hasProcessing = list.some(i => i.status === 'processing');
+                      if (!hasProcessing) {
+                        const idxNext = list.findIndex(i => i.status === 'queued');
+                        if (idxNext >= 0) list[idxNext] = { ...list[idxNext], status: 'processing' };
+                      }
+                      return list;
+                    });
+                    // Select first successful if none selected
+                    if (!selectedResult) {
+                      setSelectedResult(completed);
+                    }
+                    return;
+                  }
+                  if (data.status === 'FAILED' || data.status === 'CANCELED') {
+                    const failed: any = { input: r.input, status: 'error' as const, result: null, error: data.error || 'Processing failed' };
+                    setSessionResults(prev => {
+                      const copy = [...prev];
+                      const idx = copy.findIndex(x => (x?.result as any)?.metadata?.job_id === jobId);
+                      if (idx >= 0) copy[idx] = failed;
+                      else copy.unshift(failed);
+                      return copy;
+                    });
+                    setProcessingQueue(prev => {
+                      const list = prev.map(item => item.jobId === jobId ? { ...item, status: 'error' } : item);
+                      const hasProcessing = list.some(i => i.status === 'processing');
+                      if (!hasProcessing) {
+                        const idxNext = list.findIndex(i => i.status === 'queued');
+                        if (idxNext >= 0) list[idxNext] = { ...list[idxNext], status: 'processing' };
+                      }
+                      return list;
+                    });
+                    return;
+                  }
+                }
+              } catch {
+                // ignore and retry
+              }
+              await new Promise(r => setTimeout(r, 500));
+              attempts += 1;
+            }
+          };
+          // Fire and forget
+          poll();
+        }
+      });
 
       const firstSuccessful = results.find(r => r.status === 'completed') || results[0];
       if (firstSuccessful) {
@@ -149,6 +248,7 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
       throw error;
     } finally {
       setIsProcessing(false);
+      // If all queue items are done or error, keep the list visible until user adds new files
     }
   };
 
@@ -204,6 +304,8 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
     enhancementSettings,
     redundancySettings,
     consensusSettings,
+    processingMode,
+    processingQueue,
     // DOSSIER SUPPORT
     selectedDossierId,
     onProcessingComplete,
@@ -219,6 +321,7 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
     setRedundancySettings,
     setConsensusSettings,
     setSessionResults,
+    setProcessingMode,
     // DOSSIER ACTIONS
     setSelectedDossierId,
     setOnProcessingComplete,

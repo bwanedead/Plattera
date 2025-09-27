@@ -458,6 +458,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 onShowDraftLoader={() => setShowDraftLoader(true)}
             isProcessing={imageProcessing.isProcessing}
             onProcess={imageProcessing.handleProcess}
+              processingMode={imageProcessing.processingMode}
+              onProcessingModeChange={imageProcessing.setProcessingMode}
+              processingQueue={imageProcessing.processingQueue}
             availableModels={imageProcessing.availableModels}
             selectedModel={imageProcessing.selectedModel}
             onModelChange={imageProcessing.setSelectedModel}

@@ -30,6 +30,9 @@ interface ControlPanelProps {
   onShowDraftLoader: () => void;
   isProcessing: boolean;
   onProcess: () => void;
+  // New: toggle between single vs batch mode
+  processingMode?: 'single' | 'batch';
+  onProcessingModeChange?: (mode: 'single' | 'batch') => void;
   availableModels: Record<string, any>;
   selectedModel: string;
   onModelChange: (model: string) => void;
@@ -49,6 +52,8 @@ interface ControlPanelProps {
   dossiers?: { id: string; title?: string; name?: string; segments?: { id: string; name: string }[] }[];
   selectedSegmentId?: string | null; // null => new segment
   onSegmentChange?: (segmentId: string | null) => void;
+  // Queue status
+  processingQueue?: { fileName: string; jobId?: string; status: 'queued' | 'processing' | 'done' | 'error' }[];
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -59,6 +64,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onShowDraftLoader,
   isProcessing,
   onProcess,
+  processingMode = 'batch',
+  onProcessingModeChange,
   availableModels,
   selectedModel,
   onModelChange,
@@ -78,6 +85,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   dossiers = [],
   selectedSegmentId = null,
   onSegmentChange,
+  processingQueue = [],
 }) => {
   // Debug: Log when dossiers change
   React.useEffect(() => {
@@ -104,6 +112,30 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
       <div className="import-section">
         <label>Import Files</label>
+
+        {/* Single/Batch toggle */}
+        <div className="mode-toggle" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          <label>
+            <input
+              type="radio"
+              name="processing-mode"
+              checked={processingMode === 'single'}
+              onChange={() => onProcessingModeChange?.('single')}
+              disabled={isProcessing}
+            />
+            Single
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="processing-mode"
+              checked={processingMode === 'batch'}
+              onChange={() => onProcessingModeChange?.('batch')}
+              disabled={isProcessing}
+            />
+            Batch (up to 20)
+          </label>
+        </div>
 
         <div className="draft-loader-section">
           <button
@@ -333,11 +365,28 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         >
           {isProcessing
             ? 'Processing...'
-            : `Process ${stagedFiles.length} File${
-                stagedFiles.length !== 1 ? 's' : ''
-              }`}
+            : processingMode === 'single'
+              ? `Process 1 File`
+              : `Queue ${Math.min(stagedFiles.length, 20)} File${stagedFiles.length !== 1 ? 's' : ''}`}
         </button>
       </div>
+
+      {/* In-progress queue list persists after staging clears */}
+      {(isProcessing || (processingQueue && processingQueue.length > 0)) && (
+        <div className="queue-status" style={{ marginTop: '0.75rem' }}>
+          <label>In-Progress Queue</label>
+          <ul style={{ margin: 0, paddingLeft: '1rem' }}>
+            {processingQueue.map((q, idx) => {
+              const badge = q.status === 'processing' ? 'Processing' : q.status === 'queued' ? 'Queued' : q.status === 'done' ? 'Done' : 'Error';
+              return (
+                <li key={q.jobId || `${q.fileName}-${idx}`} style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  {badge} • {q.fileName}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }; 

@@ -4,99 +4,72 @@ import { EnhancementSettings, ProcessingResult, RedundancySettings, ConsensusSet
 
 export const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings, consensusSettings: ConsensusSettings, dossierId?: string, segmentId?: string, transcriptionId?: string): Promise<ProcessingResult[]> => {
   console.log(`Processing ${files.length} files with model: ${model} and mode: ${mode}`);
-  
-  const results: ProcessingResult[] = [];
-  
-  for (const file of files) {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('content_type', 'image-to-text');
-      formData.append('extraction_mode', mode);
-      formData.append('model', model);
-      formData.append('cleanup_after', 'true');
-      
-      // Add enhancement settings
-      formData.append('contrast', enhancementSettings.contrast.toString());
-      formData.append('sharpness', enhancementSettings.sharpness.toString());
-      formData.append('brightness', enhancementSettings.brightness.toString());
-      formData.append('color', enhancementSettings.color.toString());
-      
-      // Add redundancy setting
-      formData.append('redundancy', redundancySettings.enabled ? redundancySettings.count.toString() : '1');
-      
-      // Consensus strategy (only relevant when redundancy is enabled)
-      if (redundancySettings.enabled) {
-        formData.append('consensus_strategy', redundancySettings.consensusStrategy);
-      }
 
-      // LLM consensus settings
-      formData.append('auto_llm_consensus', consensusSettings.enabled ? 'true' : 'false');
-      formData.append('llm_consensus_model', consensusSettings.model);
+  // If multiple files, enqueue as a batch to the server queue; else fall back to single endpoint
+  if (files.length > 1) {
+    const form = new FormData();
+    files.forEach((f) => form.append('files', f));
+    form.append('model', model);
+    form.append('extraction_mode', mode);
+    form.append('contrast', enhancementSettings.contrast.toString());
+    form.append('sharpness', enhancementSettings.sharpness.toString());
+    form.append('brightness', enhancementSettings.brightness.toString());
+    form.append('color', enhancementSettings.color.toString());
+    form.append('redundancy', (redundancySettings.enabled ? redundancySettings.count : 1).toString());
+    form.append('consensus_strategy', redundancySettings.consensusStrategy);
+    form.append('auto_llm_consensus', consensusSettings.enabled ? 'true' : 'false');
+    form.append('llm_consensus_model', consensusSettings.model);
+    if (dossierId) form.append('dossier_id', dossierId);
+    // Auto-create per-file dossier when user selected auto-create new dossier (no dossierId present)
+    form.append('auto_create_dossier_per_file', (!dossierId).toString());
+    // Do NOT send a single transcription_id for batch; server will generate per-file IDs
 
-      // Add dossier ID if provided
-      console.log(`📁 Dossier ID parameter received: ${dossierId}`);
-      console.log(`📁 Dossier ID type: ${typeof dossierId}`);
-      console.log(`📁 Dossier ID truthy check: ${!!dossierId}`);
-
-      if (dossierId) {
-        formData.append('dossier_id', dossierId);
-        console.log(`📁 Including dossier_id in FormData: ${dossierId}`);
-        console.log(`📁 FormData dossier_id value: ${formData.get('dossier_id')}`);
-      } else {
-        console.log('📁 No dossier_id provided - will auto-create');
-      }
-
-      if (segmentId) {
-        formData.append('segment_id', segmentId);
-        console.log(`📁 Including segment_id in FormData: ${segmentId}`);
-      }
-
-      if (transcriptionId) {
-        formData.append('transcription_id', transcriptionId);
-        console.log(`📁 Including transcription_id in FormData: ${transcriptionId}`);
-      }
-
-      // Use dossier-specific endpoint if dossier_id is provided for progressive saving
-      const endpoint = dossierId ? 'http://localhost:8000/api/dossier/process' : 'http://localhost:8000/api/process';
-      console.log(`🔗 Using endpoint: ${endpoint} (progressive saving: ${!!dossierId})`);
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        body: formData
-      });
-
-      const data = await response.json();
-
-      console.log("API response data:", data);
-
-      if (data.status === 'success') {
-        results.push({
-          input: file.name,
-          status: 'completed' as const,
-          result: {
-            extracted_text: data.extracted_text,
-            metadata: { ...data.metadata }
-          }
-        });
-      } else {
-        results.push({
-          input: file.name,
-          status: 'error' as const,
-          result: null,
-          error: data.error || 'Processing failed'
-        });
-      }
-    } catch (error) {
-      results.push({
-        input: file.name,
-        status: 'error' as const,
-        result: null,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+    const resp = await fetch('http://localhost:8000/api/image-to-text/jobs', { method: 'POST', body: form });
+    const data = await resp.json();
+    if (!resp.ok) {
+      throw new Error(data?.detail || data?.error || `HTTP ${resp.status}`);
     }
+    // We return placeholders for UI; results will be polled via job status if needed
+    const jobIds: string[] = data.job_ids || [];
+    return files.map((f, i) => ({ input: f.name, status: 'processing' as const, result: { metadata: { job_id: jobIds[i] } } } as ProcessingResult));
   }
-  
+
+  // Single file path - call existing endpoint to preserve behavior
+  const results: ProcessingResult[] = [];
+  const file = files[0];
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('content_type', 'image-to-text');
+    formData.append('extraction_mode', mode);
+    formData.append('model', model);
+    formData.append('cleanup_after', 'true');
+    formData.append('contrast', enhancementSettings.contrast.toString());
+    formData.append('sharpness', enhancementSettings.sharpness.toString());
+    formData.append('brightness', enhancementSettings.brightness.toString());
+    formData.append('color', enhancementSettings.color.toString());
+    formData.append('redundancy', redundancySettings.enabled ? redundancySettings.count.toString() : '1');
+    if (redundancySettings.enabled) {
+      formData.append('consensus_strategy', redundancySettings.consensusStrategy);
+    }
+    formData.append('auto_llm_consensus', consensusSettings.enabled ? 'true' : 'false');
+    formData.append('llm_consensus_model', consensusSettings.model);
+    if (dossierId) formData.append('dossier_id', dossierId);
+    if (segmentId) formData.append('segment_id', segmentId);
+    if (transcriptionId) formData.append('transcription_id', transcriptionId);
+
+    const endpoint = dossierId ? 'http://localhost:8000/api/dossier/process' : 'http://localhost:8000/api/process';
+    const response = await fetch(endpoint, { method: 'POST', body: formData });
+    const data = await response.json();
+    if (data.status === 'success') {
+      results.push({ input: file.name, status: 'completed' as const, result: { extracted_text: data.extracted_text, metadata: { ...data.metadata } } });
+    } else {
+      results.push({ input: file.name, status: 'error' as const, result: null, error: data.error || 'Processing failed' });
+    }
+  } catch (error) {
+    results.push({ input: file.name, status: 'error' as const, result: null, error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+
   return results;
 };
 
