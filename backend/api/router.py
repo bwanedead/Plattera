@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from api.endpoints import models, processing, system, alignment, consensus, final_draft, text_to_schema, polygon, mapping, plss_overlays, georeference, plss_endpoints, coordinates_endpoints, llm_consensus
 from api.endpoints.plss import container_router
 from api.endpoints.dossier import management_router, association_router, navigation_router, views_router, dossier_image_processing_router, runs_router
+from api.endpoints.dossier import events as dossier_events
 from api.endpoints.dossier import edits as dossier_edits, versions as dossier_versions
 
 # Create the main API router
@@ -35,6 +36,7 @@ api_router.include_router(navigation_router, prefix="/api/dossier-navigation", t
 api_router.include_router(views_router, prefix="/api/dossier-views", tags=["dossier-views"])
 api_router.include_router(dossier_image_processing_router, prefix="/api/dossier", tags=["dossier-image-processing"])
 api_router.include_router(runs_router, prefix="/api/dossier-runs", tags=["dossier-runs"])
+api_router.include_router(dossier_events.router, prefix="/api/dossier", tags=["dossier-events"])
 api_router.include_router(dossier_edits.router, prefix="/api/dossier/edits", tags=["dossier-edits"])
 api_router.include_router(dossier_versions.router, prefix="/api/dossier/versions", tags=["dossier-versions"])
 

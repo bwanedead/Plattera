@@ -84,6 +84,24 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
       }
     };
     document.addEventListener('dossiers:refresh', handler);
+    // Server-sent events auto-refresh (backend push)
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource('http://localhost:8000/api/dossier/events');
+      es.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data || '{}');
+          if (data && data.type === 'dossier:update') {
+            loadDossiers();
+          }
+        } catch {}
+      };
+      es.onerror = () => {
+        // On error, close and rely on manual refresh/event bus
+        try { es && es.close(); } catch {}
+        es = null;
+      };
+    } catch {}
     // Listen for consensus retry requests dispatched from DraftItem
     const retryHandler = async (e: Event) => {
       const ce = e as CustomEvent;
@@ -92,7 +110,10 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
       loadDossiers();
     };
     document.addEventListener('consensus:retry', retryHandler as EventListener);
-    return () => document.removeEventListener('dossiers:refresh', handler);
+    return () => {
+      document.removeEventListener('dossiers:refresh', handler);
+      try { es && es.close(); } catch {}
+    };
   }, [loadDossiers]);
 
   // ============================================================================

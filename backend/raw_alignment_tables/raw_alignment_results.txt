@@ -1,7 +1,7 @@
 ================================================================================
 COMPLETE RAW ALIGNMENT TABLE - ALL BLOCKS
-Generated: 2025-09-26 17:17:09
-Total Blocks: 4
+Generated: 2025-09-26 17:32:05
+Total Blocks: 6
 ================================================================================
 
 ================================================================================
@@ -9,1480 +9,543 @@ BLOCK: section_1
 ================================================================================
 
 📊 BLOCK SUMMARY:
-   Alignment Length: 140
+   Alignment Length: 101
    Number of Drafts: 3
    Draft IDs: Draft_1, Draft_2, Draft_3
 
 Position  Draft_1                  Draft_2                  Draft_3                  
 -------------------------------------------------------------------------------------
-  0       state                    state                    state                    
-  1       of                       of                       of                       
-  2       illinois                 illinois                 illinois                 
-  3       county                   county                   county                   
-  4       of                       of                       of                       
-  5       cook                     cook                     cook                     
-  6       ss                       ss                       ss                       
-  7       i                        i                        i                        
-  8       chas                     chas                     chas                     
-  9       w                        w                        w                        
- 10       de                       de                       de                       
- 11       malffe                   wolfe                    wolfe                    
- 12       a                        a                        a                        
- 13       notary                   notary                   notary                   
- 14       public                   public                   public                   
- 15       in                       in                       in                       
- 16       and                      and                      and                      
- 17       for                      for                      for                      
- 18       the                      the                      the                      
- 19       county                   county                   county                   
- 20       and                      and                      and                      
- 21       state                    state                    state                    
- 22       aforesaid                aforesaid                aforesaid                
- 23       do                       do                       do                       
- 24       hereby                   hereby                   hereby                   
- 25       certify                  certify                  certify                  
- 26       that                     that                     that                     
- 27       e                        e                        e                        
- 28       p                        p                        p                        
- 29       tallmadge                tallmadge                tallmadge                
- 30       and                      and                      and                      
- 31       chs                      o                        o                        
- 32       strum                    s                        h                        
- 33       personally               strain                   strain                   
- 34       known                    personally               personally               
- 35       to                       known                    known                    
- 36       me                       to                       to                       
- 37       to                       me                       me                       
- 38       be                       to                       to                       
- 39       the                      be                       be                       
- 40       same                     the                      the                      
- 41       persons                  same                     same                     
- 42       whose                    persons                  persons                  
- 43       names                    whose                    whose                    
- 44       are                      names                    names                    
- 45       subscribed               are                      are                      
- 46       to                       subscribed               subscribed               
- 47       the                      to                       to                       
- 48       foregoing                the                      the                      
- 49       instrument               foregoing                foregoing                
- 50       as                       instrument               instrument               
- 51       president                as                       as                       
- 52       and                      president                president                
- 53       secretary                and                      and                      
- 54       respectively             secretary                secretary                
- 55       of                       respectively             respectively             
- 56       tallmadge                of                       of                       
- 57       beuttin                  tallmadge                tallmadge                
- 58       co                       bunting                  bunton                   
- 59       appeared                 co                       co                       
- 60       before                   appeared                 appeared                 
- 61       me                       before                   before                   
- 62       this                     me                       me                       
- 63       day                      this                     this                     
- 64       in                       day                      day                      
- 65       person                   in                       in                       
- 66       and                      person                   person                   
- 67       each                     and                      and                      
- 68       severally                each                     each                     
- 69       acknowledged             severally                severally                
- 70       that                     acknowledged             acknowledged             
- 71       they                     that                     that                     
- 72       signed                   they                     they                     
- 73       sealed                   signed                   signed                   
- 74       and                      sealed                   sealed                   
- 75       delivered                and                      and                      
- 76       the                      delivered                delivered                
- 77       said                     the                      the                      
- 78       instrument               said                     said                     
- 79       in                       instrument               instrument               
- 80       their                    as                       as                       
- 81       free                     their                    their                    
- 82       and                      free                     free                     
- 83       voluntary                and                      and                      
- 84       act                      voluntary                voluntary                
- 85       and                      act                      act                      
- 86       as                       and                      and                      
- 87       the                      as                       as                       
- 88       free                     the                      the                      
- 89       and                      free                     free                     
- 90       voluntary                and                      and                      
- 91       act                      voluntary                voluntary                
- 92       of                       act                      act                      
- 93       said                     of                       of                       
- 94       corporation              said                     said                     
- 95       for                      corporation              corporation              
- 96       the                      for                      for                      
- 97       uses                     the                      the                      
- 98       and                      uses                     uses                     
- 99       purposes                 and                      and                      
-100       therein                  purposes                 purposes                 
-101       set                      therein                  therein                  
-102       forth                    set                      set                      
-103       given                    forth                    forth                    
-104       under                    given                    given                    
-105       my                       under                    under                    
-106       hand                     my                       my                       
-107       and                      hand                     hand                     
-108       notorial                 and                      and                      
-109       seal                     notarial                 notarial                 
-110       this                     seal                     seal                     
-111       fifteenth                this                     this                     
-112       day                      fifteenth                fifteenth                
-113       of                       day                      day                      
-114       june                     of                       of                       
-115       a                        june                     june                     
-116       d                        ad                       ad                       
-117       1900                     1902                     1900                     
-118       my                       my                       my                       
-119       commission               commission               commission               
-120       expires                  expires                  expires                  
-121       nov                      nov                      nov                      
-122       15                       5                        3                        
-123       1902                     1903                     1903                     
-124       chas                     chas                     seal                     
-125       w                        w                        chas                     
-126       de                       de                       w                        
-127       malffe                   wolfe                    de                       
-128       notary                   notary                   wolfe                    
-129       public                   public                   notary                   
-130       filed                    seal                     public                   
-131       for                      filed                    filed                    
-132       record                   for                      for                      
-133       october                  record                   record                   
-134       9                        october                  october                  
-135       th                       9                        9                        
-136       1900                     th                       th                       
-137       10                       ad                       am                       
-138       p                        1902                     2                        
-139       m                        at                       10                       
+  0       and                      and                      and                      
+  1       bargained                bargained                bargained                
+  2       sold                     sold                     sold                     
+  3       and                      and                      and                      
+  4       conveyed                 conveyed                 conveyed                 
+  5       and                      and                      and                      
+  6       by                       by                       by                       
+  7       these                    these                    these                    
+  8       presents                 presents                 presents                 
+  9       does                     does                     does                     
+ 10       hereby                   hereby                   hereby                   
+ 11       grant                    grant                    grant                    
+ 12       bargain                  bargain                  bargain                  
+ 13       release                  release                  release                  
+ 14       and                      and                      convey                   
+ 15       convey                   convey                   and                      
+ 16       unto                     unto                     quit                     
+ 17       the                      the                      claim                    
+ 18       said                     said                     unto                     
+ 19       party                    party                    the                      
+ 20       of                       of                       said                     
+ 21       the                      the                      party                    
+ 22       second                   second                   of                       
+ 23       part                     part                     the                      
+ 24       his                      his                      second                   
+ 25       heirs                    heirs                    part                     
+ 26       and                      and                      his                      
+ 27       assigns                  assigns                  heirs                    
+ 28       forever                  forever                  and                      
+ 29       all                      all                      assigns                  
+ 30       of                       of                       forever                  
+ 31       the                      the                      all                      
+ 32       following                following                of                       
+ 33       described                described                the                      
+ 34       lots                     lots                     following                
+ 35       tracts                   tracts                   described                
+ 36       or                       or                       lot                      
+ 37       parcels                  parcels                  tract                    
+ 38       of                       of                       or                       
+ 39       land                     land                     parcel                   
+ 40       lying                    lying                    of                       
+ 41       and                      and                      land                     
+ 42       being                    being                    lying                    
+ 43       situate                  situate                  and                      
+ 44       in                       in                       being                    
+ 45       the                      the                      situate                  
+ 46       county                   county                   in                       
+ 47       of                       of                       the                      
+ 48       albany                   albany                   county                   
+ 49       and                      and                      of                       
+ 50       state                    state                    albany                   
+ 51       of                       of                       and                      
+ 52       wyoming                  wyoming                  state                    
+ 53       to                       to                       of                       
+ 54       wit                      wit                      wyoming                  
+ 55       lot                      lot                      to                       
+ 56       no                       2                        wit                      
+ 57       775                      in                       lot                      
+ 58       block                    tp                       no                       
+ 59       no                       block                    775                      
+ 60       22                       no                       block                    
+ 61       in                       22                       no                       
+ 62       the                      in                       22                       
+ 63       town                     the                      in                       
+ 64       of                       town                     the                      
+ 65       cheyenne                 of                       town                     
+ 66       according                wyoming                  of                       
+ 67       to                       according                wyoming                  
+ 68       the                      to                       according                
+ 69       plat                     the                      to                       
+ 70       of                       plat                     the                      
+ 71       said                     of                       plat                     
+ 72       town                     said                     of                       
+ 73       now                      town                     said                     
+ 74       on                       now                      town                     
+ 75       record                   on                       now                      
+ 76       in                       record                   on                       
+ 77       the                      in                       record                   
+ 78       office                   the                      in                       
+ 79       of                       office                   the                      
+ 80       the                      of                       office                   
+ 81       county                   the                      of                       
+ 82       clerk                    county                   the                      
+ 83       of                       clerk                    county                   
+ 84       said                     of                       clerk                    
+ 85       county                   said                     of                       
+ 86       together                 county                   said                     
+ 87       with                     together                 county                   
+ 88       all                      with                     together                 
+ 89       and                      all                      with                     
+ 90       singular                 and                      all                      
+ 91       the                      singular                 and                      
+ 92       appurtenances            the                      singular                 
+ 93       and                      appurtenances            the                      
+ 94       hereditaments            and                      appurtenances            
+ 95       thereunto                hereditaments            and                      
+ 96       belonging                thereunto                hereditaments            
+ 97       or                       belonging                thereunto                
+ 98       in                       or                       belonging                
+ 99       anywise                  in                       or                       
+100       appertaining             any                      in                       
 
 ============================================================
 🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_1
 ============================================================
 
 Draft_1:
-  Original token count: 140
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139]
+  Original token count: 101
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100]
 
 Draft_2:
-  Original token count: 140
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139]
+  Original token count: 101
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100]
 
 Draft_3:
-  Original token count: 140
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139]
+  Original token count: 101
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100]
 
 ============================================================
 🔤 TOKEN DETAILS - section_1
 ============================================================
 
-Draft_1 (140 tokens):
-  [ 0] state
-  [ 1] of
-  [ 2] illinois
-  [ 3] county
-  [ 4] of
-  [ 5] cook
-  [ 6] ss
-  [ 7] i
-  [ 8] chas
-  [ 9] w
-  [10] de
-  [11] malffe
-  [12] a
-  [13] notary
-  [14] public
-  [15] in
-  [16] and
-  [17] for
-  [18] the
-  [19] county
-  [20] and
-  [21] state
-  [22] aforesaid
-  [23] do
-  [24] hereby
-  [25] certify
-  [26] that
-  [27] e
-  [28] p
-  [29] tallmadge
-  [30] and
-  [31] chs
-  [32] strum
-  [33] personally
-  [34] known
-  [35] to
-  [36] me
-  [37] to
-  [38] be
-  [39] the
-  [40] same
-  [41] persons
-  [42] whose
-  [43] names
-  [44] are
-  [45] subscribed
-  [46] to
-  [47] the
-  [48] foregoing
-  [49] instrument
-  [50] as
-  [51] president
-  [52] and
-  [53] secretary
-  [54] respectively
-  [55] of
-  [56] tallmadge
-  [57] beuttin
-  [58] co
-  [59] appeared
-  [60] before
-  [61] me
-  [62] this
-  [63] day
-  [64] in
-  [65] person
-  [66] and
-  [67] each
-  [68] severally
-  [69] acknowledged
-  [70] that
-  [71] they
-  [72] signed
-  [73] sealed
-  [74] and
-  [75] delivered
-  [76] the
-  [77] said
-  [78] instrument
-  [79] in
-  [80] their
-  [81] free
-  [82] and
-  [83] voluntary
-  [84] act
-  [85] and
-  [86] as
-  [87] the
-  [88] free
+Draft_1 (101 tokens):
+  [ 0] and
+  [ 1] bargained
+  [ 2] sold
+  [ 3] and
+  [ 4] conveyed
+  [ 5] and
+  [ 6] by
+  [ 7] these
+  [ 8] presents
+  [ 9] does
+  [10] hereby
+  [11] grant
+  [12] bargain
+  [13] release
+  [14] and
+  [15] convey
+  [16] unto
+  [17] the
+  [18] said
+  [19] party
+  [20] of
+  [21] the
+  [22] second
+  [23] part
+  [24] his
+  [25] heirs
+  [26] and
+  [27] assigns
+  [28] forever
+  [29] all
+  [30] of
+  [31] the
+  [32] following
+  [33] described
+  [34] lots
+  [35] tracts
+  [36] or
+  [37] parcels
+  [38] of
+  [39] land
+  [40] lying
+  [41] and
+  [42] being
+  [43] situate
+  [44] in
+  [45] the
+  [46] county
+  [47] of
+  [48] albany
+  [49] and
+  [50] state
+  [51] of
+  [52] wyoming
+  [53] to
+  [54] wit
+  [55] lot
+  [56] no
+  [57] 775
+  [58] block
+  [59] no
+  [60] 22
+  [61] in
+  [62] the
+  [63] town
+  [64] of
+  [65] cheyenne
+  [66] according
+  [67] to
+  [68] the
+  [69] plat
+  [70] of
+  [71] said
+  [72] town
+  [73] now
+  [74] on
+  [75] record
+  [76] in
+  [77] the
+  [78] office
+  [79] of
+  [80] the
+  [81] county
+  [82] clerk
+  [83] of
+  [84] said
+  [85] county
+  [86] together
+  [87] with
+  [88] all
   [89] and
-  [90] voluntary
-  [91] act
-  [92] of
-  [93] said
-  [94] corporation
-  [95] for
-  [96] the
-  [97] uses
-  [98] and
-  [99] purposes
-  [100] therein
-  [101] set
-  [102] forth
-  [103] given
-  [104] under
-  [105] my
-  [106] hand
-  [107] and
-  [108] notorial
-  [109] seal
-  [110] this
-  [111] fifteenth
-  [112] day
-  [113] of
-  [114] june
-  [115] a
-  [116] d
-  [117] 1900
-  [118] my
-  [119] commission
-  [120] expires
-  [121] nov
-  [122] 15
-  [123] 1902
-  [124] chas
-  [125] w
-  [126] de
-  [127] malffe
-  [128] notary
-  [129] public
-  [130] filed
-  [131] for
-  [132] record
-  [133] october
-  [134] 9
-  [135] th
-  [136] 1900
-  [137] 10
-  [138] p
-  [139] m
+  [90] singular
+  [91] the
+  [92] appurtenances
+  [93] and
+  [94] hereditaments
+  [95] thereunto
+  [96] belonging
+  [97] or
+  [98] in
+  [99] anywise
+  [100] appertaining
 
-Draft_2 (140 tokens):
-  [ 0] state
-  [ 1] of
-  [ 2] illinois
-  [ 3] county
-  [ 4] of
-  [ 5] cook
-  [ 6] ss
-  [ 7] i
-  [ 8] chas
-  [ 9] w
-  [10] de
-  [11] wolfe
-  [12] a
-  [13] notary
-  [14] public
-  [15] in
-  [16] and
-  [17] for
-  [18] the
-  [19] county
-  [20] and
-  [21] state
-  [22] aforesaid
-  [23] do
-  [24] hereby
-  [25] certify
-  [26] that
-  [27] e
-  [28] p
-  [29] tallmadge
-  [30] and
-  [31] o
-  [32] s
-  [33] strain
-  [34] personally
-  [35] known
-  [36] to
-  [37] me
-  [38] to
-  [39] be
-  [40] the
-  [41] same
-  [42] persons
-  [43] whose
-  [44] names
-  [45] are
-  [46] subscribed
-  [47] to
-  [48] the
-  [49] foregoing
-  [50] instrument
-  [51] as
-  [52] president
-  [53] and
-  [54] secretary
-  [55] respectively
-  [56] of
-  [57] tallmadge
-  [58] bunting
-  [59] co
-  [60] appeared
-  [61] before
-  [62] me
-  [63] this
-  [64] day
-  [65] in
-  [66] person
-  [67] and
-  [68] each
-  [69] severally
-  [70] acknowledged
-  [71] that
-  [72] they
-  [73] signed
-  [74] sealed
-  [75] and
-  [76] delivered
-  [77] the
-  [78] said
-  [79] instrument
-  [80] as
-  [81] their
-  [82] free
-  [83] and
-  [84] voluntary
-  [85] act
-  [86] and
-  [87] as
-  [88] the
-  [89] free
+Draft_2 (101 tokens):
+  [ 0] and
+  [ 1] bargained
+  [ 2] sold
+  [ 3] and
+  [ 4] conveyed
+  [ 5] and
+  [ 6] by
+  [ 7] these
+  [ 8] presents
+  [ 9] does
+  [10] hereby
+  [11] grant
+  [12] bargain
+  [13] release
+  [14] and
+  [15] convey
+  [16] unto
+  [17] the
+  [18] said
+  [19] party
+  [20] of
+  [21] the
+  [22] second
+  [23] part
+  [24] his
+  [25] heirs
+  [26] and
+  [27] assigns
+  [28] forever
+  [29] all
+  [30] of
+  [31] the
+  [32] following
+  [33] described
+  [34] lots
+  [35] tracts
+  [36] or
+  [37] parcels
+  [38] of
+  [39] land
+  [40] lying
+  [41] and
+  [42] being
+  [43] situate
+  [44] in
+  [45] the
+  [46] county
+  [47] of
+  [48] albany
+  [49] and
+  [50] state
+  [51] of
+  [52] wyoming
+  [53] to
+  [54] wit
+  [55] lot
+  [56] 2
+  [57] in
+  [58] tp
+  [59] block
+  [60] no
+  [61] 22
+  [62] in
+  [63] the
+  [64] town
+  [65] of
+  [66] wyoming
+  [67] according
+  [68] to
+  [69] the
+  [70] plat
+  [71] of
+  [72] said
+  [73] town
+  [74] now
+  [75] on
+  [76] record
+  [77] in
+  [78] the
+  [79] office
+  [80] of
+  [81] the
+  [82] county
+  [83] clerk
+  [84] of
+  [85] said
+  [86] county
+  [87] together
+  [88] with
+  [89] all
   [90] and
-  [91] voluntary
-  [92] act
-  [93] of
-  [94] said
-  [95] corporation
-  [96] for
-  [97] the
-  [98] uses
-  [99] and
-  [100] purposes
-  [101] therein
-  [102] set
-  [103] forth
-  [104] given
-  [105] under
-  [106] my
-  [107] hand
-  [108] and
-  [109] notarial
-  [110] seal
-  [111] this
-  [112] fifteenth
-  [113] day
-  [114] of
-  [115] june
-  [116] ad
-  [117] 1902
-  [118] my
-  [119] commission
-  [120] expires
-  [121] nov
-  [122] 5
-  [123] 1903
-  [124] chas
-  [125] w
-  [126] de
-  [127] wolfe
-  [128] notary
-  [129] public
-  [130] seal
-  [131] filed
-  [132] for
-  [133] record
-  [134] october
-  [135] 9
-  [136] th
-  [137] ad
-  [138] 1902
-  [139] at
+  [91] singular
+  [92] the
+  [93] appurtenances
+  [94] and
+  [95] hereditaments
+  [96] thereunto
+  [97] belonging
+  [98] or
+  [99] in
+  [100] any
 
-Draft_3 (140 tokens):
-  [ 0] state
-  [ 1] of
-  [ 2] illinois
-  [ 3] county
-  [ 4] of
-  [ 5] cook
-  [ 6] ss
-  [ 7] i
-  [ 8] chas
-  [ 9] w
-  [10] de
-  [11] wolfe
-  [12] a
-  [13] notary
-  [14] public
-  [15] in
-  [16] and
-  [17] for
-  [18] the
-  [19] county
-  [20] and
-  [21] state
-  [22] aforesaid
-  [23] do
-  [24] hereby
-  [25] certify
-  [26] that
-  [27] e
-  [28] p
-  [29] tallmadge
-  [30] and
-  [31] o
-  [32] h
-  [33] strain
-  [34] personally
-  [35] known
-  [36] to
-  [37] me
-  [38] to
-  [39] be
-  [40] the
-  [41] same
-  [42] persons
-  [43] whose
-  [44] names
-  [45] are
-  [46] subscribed
-  [47] to
-  [48] the
-  [49] foregoing
-  [50] instrument
-  [51] as
-  [52] president
-  [53] and
-  [54] secretary
-  [55] respectively
-  [56] of
-  [57] tallmadge
-  [58] bunton
-  [59] co
-  [60] appeared
-  [61] before
-  [62] me
-  [63] this
-  [64] day
-  [65] in
-  [66] person
-  [67] and
-  [68] each
-  [69] severally
-  [70] acknowledged
-  [71] that
-  [72] they
-  [73] signed
-  [74] sealed
-  [75] and
-  [76] delivered
-  [77] the
-  [78] said
-  [79] instrument
-  [80] as
-  [81] their
-  [82] free
-  [83] and
-  [84] voluntary
-  [85] act
-  [86] and
-  [87] as
-  [88] the
-  [89] free
-  [90] and
-  [91] voluntary
-  [92] act
-  [93] of
-  [94] said
-  [95] corporation
-  [96] for
-  [97] the
-  [98] uses
-  [99] and
-  [100] purposes
-  [101] therein
-  [102] set
-  [103] forth
-  [104] given
-  [105] under
-  [106] my
-  [107] hand
-  [108] and
-  [109] notarial
-  [110] seal
-  [111] this
-  [112] fifteenth
-  [113] day
-  [114] of
-  [115] june
-  [116] ad
-  [117] 1900
-  [118] my
-  [119] commission
-  [120] expires
-  [121] nov
-  [122] 3
-  [123] 1903
-  [124] seal
-  [125] chas
-  [126] w
-  [127] de
-  [128] wolfe
-  [129] notary
-  [130] public
-  [131] filed
-  [132] for
-  [133] record
-  [134] october
-  [135] 9
-  [136] th
-  [137] am
-  [138] 2
-  [139] 10
+Draft_3 (101 tokens):
+  [ 0] and
+  [ 1] bargained
+  [ 2] sold
+  [ 3] and
+  [ 4] conveyed
+  [ 5] and
+  [ 6] by
+  [ 7] these
+  [ 8] presents
+  [ 9] does
+  [10] hereby
+  [11] grant
+  [12] bargain
+  [13] release
+  [14] convey
+  [15] and
+  [16] quit
+  [17] claim
+  [18] unto
+  [19] the
+  [20] said
+  [21] party
+  [22] of
+  [23] the
+  [24] second
+  [25] part
+  [26] his
+  [27] heirs
+  [28] and
+  [29] assigns
+  [30] forever
+  [31] all
+  [32] of
+  [33] the
+  [34] following
+  [35] described
+  [36] lot
+  [37] tract
+  [38] or
+  [39] parcel
+  [40] of
+  [41] land
+  [42] lying
+  [43] and
+  [44] being
+  [45] situate
+  [46] in
+  [47] the
+  [48] county
+  [49] of
+  [50] albany
+  [51] and
+  [52] state
+  [53] of
+  [54] wyoming
+  [55] to
+  [56] wit
+  [57] lot
+  [58] no
+  [59] 775
+  [60] block
+  [61] no
+  [62] 22
+  [63] in
+  [64] the
+  [65] town
+  [66] of
+  [67] wyoming
+  [68] according
+  [69] to
+  [70] the
+  [71] plat
+  [72] of
+  [73] said
+  [74] town
+  [75] now
+  [76] on
+  [77] record
+  [78] in
+  [79] the
+  [80] office
+  [81] of
+  [82] the
+  [83] county
+  [84] clerk
+  [85] of
+  [86] said
+  [87] county
+  [88] together
+  [89] with
+  [90] all
+  [91] and
+  [92] singular
+  [93] the
+  [94] appurtenances
+  [95] and
+  [96] hereditaments
+  [97] thereunto
+  [98] belonging
+  [99] or
+  [100] in
 
 ============================================================
 📊 ANALYSIS - section_1
 ============================================================
 
-DIFF at pos 11: ['wolfe', 'malffe']
-DIFF at pos 31: ['chs', 'o']
-DIFF at pos 32: ['h', 's', 'strum']
-DIFF at pos 33: ['personally', 'strain']
-DIFF at pos 34: ['personally', 'known']
-DIFF at pos 35: ['to', 'known']
-DIFF at pos 36: ['to', 'me']
-DIFF at pos 37: ['to', 'me']
-DIFF at pos 38: ['to', 'be']
-DIFF at pos 39: ['the', 'be']
-DIFF at pos 40: ['the', 'same']
-DIFF at pos 41: ['persons', 'same']
-DIFF at pos 42: ['persons', 'whose']
-DIFF at pos 43: ['names', 'whose']
-DIFF at pos 44: ['are', 'names']
-DIFF at pos 45: ['are', 'subscribed']
-DIFF at pos 46: ['to', 'subscribed']
-DIFF at pos 47: ['the', 'to']
-DIFF at pos 48: ['the', 'foregoing']
-DIFF at pos 49: ['instrument', 'foregoing']
-DIFF at pos 50: ['as', 'instrument']
-DIFF at pos 51: ['as', 'president']
-DIFF at pos 52: ['president', 'and']
-DIFF at pos 53: ['secretary', 'and']
-DIFF at pos 54: ['secretary', 'respectively']
-DIFF at pos 55: ['of', 'respectively']
-DIFF at pos 56: ['of', 'tallmadge']
-DIFF at pos 57: ['tallmadge', 'beuttin']
-DIFF at pos 58: ['bunton', 'bunting', 'co']
-DIFF at pos 59: ['appeared', 'co']
-DIFF at pos 60: ['before', 'appeared']
-DIFF at pos 61: ['before', 'me']
-DIFF at pos 62: ['this', 'me']
-DIFF at pos 63: ['this', 'day']
-DIFF at pos 64: ['day', 'in']
-DIFF at pos 65: ['person', 'in']
-DIFF at pos 66: ['person', 'and']
-DIFF at pos 67: ['and', 'each']
-DIFF at pos 68: ['severally', 'each']
-DIFF at pos 69: ['severally', 'acknowledged']
-DIFF at pos 70: ['acknowledged', 'that']
-DIFF at pos 71: ['they', 'that']
-DIFF at pos 72: ['they', 'signed']
-DIFF at pos 73: ['signed', 'sealed']
-DIFF at pos 74: ['and', 'sealed']
-DIFF at pos 75: ['delivered', 'and']
-DIFF at pos 76: ['delivered', 'the']
-DIFF at pos 77: ['said', 'the']
-DIFF at pos 78: ['instrument', 'said']
-DIFF at pos 79: ['instrument', 'in']
-DIFF at pos 80: ['as', 'their']
-DIFF at pos 81: ['their', 'free']
-DIFF at pos 82: ['free', 'and']
-DIFF at pos 83: ['voluntary', 'and']
-DIFF at pos 84: ['voluntary', 'act']
-DIFF at pos 85: ['act', 'and']
-DIFF at pos 86: ['as', 'and']
-DIFF at pos 87: ['as', 'the']
-DIFF at pos 88: ['the', 'free']
-DIFF at pos 89: ['free', 'and']
-DIFF at pos 90: ['voluntary', 'and']
-DIFF at pos 91: ['voluntary', 'act']
-DIFF at pos 92: ['act', 'of']
-DIFF at pos 93: ['said', 'of']
-DIFF at pos 94: ['corporation', 'said']
-DIFF at pos 95: ['for', 'corporation']
-DIFF at pos 96: ['for', 'the']
-DIFF at pos 97: ['the', 'uses']
-DIFF at pos 98: ['uses', 'and']
-DIFF at pos 99: ['purposes', 'and']
-DIFF at pos 100: ['purposes', 'therein']
-DIFF at pos 101: ['set', 'therein']
-DIFF at pos 102: ['forth', 'set']
-DIFF at pos 103: ['given', 'forth']
-DIFF at pos 104: ['given', 'under']
-DIFF at pos 105: ['my', 'under']
-DIFF at pos 106: ['my', 'hand']
-DIFF at pos 107: ['hand', 'and']
-DIFF at pos 108: ['notorial', 'and']
-DIFF at pos 109: ['seal', 'notarial']
-DIFF at pos 110: ['this', 'seal']
-DIFF at pos 111: ['this', 'fifteenth']
-DIFF at pos 112: ['day', 'fifteenth']
-DIFF at pos 113: ['day', 'of']
-DIFF at pos 114: ['june', 'of']
-DIFF at pos 115: ['june', 'a']
-DIFF at pos 116: ['d', 'ad']
-DIFF at pos 117: ['1902', '1900']
-DIFF at pos 122: ['3', '5', '15']
-DIFF at pos 123: ['1902', '1903']
-DIFF at pos 124: ['chas', 'seal']
-DIFF at pos 125: ['chas', 'w']
-DIFF at pos 126: ['w', 'de']
-DIFF at pos 127: ['wolfe', 'malffe', 'de']
-DIFF at pos 128: ['wolfe', 'notary']
-DIFF at pos 129: ['public', 'notary']
-DIFF at pos 130: ['seal', 'filed', 'public']
-DIFF at pos 131: ['for', 'filed']
-DIFF at pos 132: ['for', 'record']
-DIFF at pos 133: ['october', 'record']
-DIFF at pos 134: ['october', '9']
-DIFF at pos 135: ['th', '9']
-DIFF at pos 136: ['1900', 'th']
-DIFF at pos 137: ['am', '10', 'ad']
-DIFF at pos 138: ['1902', 'p', '2']
-DIFF at pos 139: ['m', '10', 'at']
+DIFF at pos 14: ['convey', 'and']
+DIFF at pos 15: ['convey', 'and']
+DIFF at pos 16: ['unto', 'quit']
+DIFF at pos 17: ['the', 'claim']
+DIFF at pos 18: ['unto', 'said']
+DIFF at pos 19: ['the', 'party']
+DIFF at pos 20: ['of', 'said']
+DIFF at pos 21: ['the', 'party']
+DIFF at pos 22: ['second', 'of']
+DIFF at pos 23: ['the', 'part']
+DIFF at pos 24: ['second', 'his']
+DIFF at pos 25: ['part', 'heirs']
+DIFF at pos 26: ['his', 'and']
+DIFF at pos 27: ['assigns', 'heirs']
+DIFF at pos 28: ['forever', 'and']
+DIFF at pos 29: ['assigns', 'all']
+DIFF at pos 30: ['forever', 'of']
+DIFF at pos 31: ['the', 'all']
+DIFF at pos 32: ['following', 'of']
+DIFF at pos 33: ['the', 'described']
+DIFF at pos 34: ['lots', 'following']
+DIFF at pos 35: ['tracts', 'described']
+DIFF at pos 36: ['lot', 'or']
+DIFF at pos 37: ['parcels', 'tract']
+DIFF at pos 38: ['of', 'or']
+DIFF at pos 39: ['land', 'parcel']
+DIFF at pos 40: ['of', 'lying']
+DIFF at pos 41: ['land', 'and']
+DIFF at pos 42: ['lying', 'being']
+DIFF at pos 43: ['situate', 'and']
+DIFF at pos 44: ['in', 'being']
+DIFF at pos 45: ['the', 'situate']
+DIFF at pos 46: ['county', 'in']
+DIFF at pos 47: ['the', 'of']
+DIFF at pos 48: ['county', 'albany']
+DIFF at pos 49: ['and', 'of']
+DIFF at pos 50: ['state', 'albany']
+DIFF at pos 51: ['and', 'of']
+DIFF at pos 52: ['state', 'wyoming']
+DIFF at pos 53: ['of', 'to']
+DIFF at pos 54: ['wit', 'wyoming']
+DIFF at pos 55: ['lot', 'to']
+DIFF at pos 56: ['no', 'wit', '2']
+DIFF at pos 57: ['lot', 'in', '775']
+DIFF at pos 58: ['no', 'tp', 'block']
+DIFF at pos 59: ['no', '775', 'block']
+DIFF at pos 60: ['no', '22', 'block']
+DIFF at pos 61: ['no', '22', 'in']
+DIFF at pos 62: ['the', '22', 'in']
+DIFF at pos 63: ['the', 'town', 'in']
+DIFF at pos 64: ['the', 'town', 'of']
+DIFF at pos 65: ['town', 'of', 'cheyenne']
+DIFF at pos 66: ['according', 'wyoming', 'of']
+DIFF at pos 67: ['according', 'wyoming', 'to']
+DIFF at pos 68: ['according', 'the', 'to']
+DIFF at pos 69: ['the', 'plat', 'to']
+DIFF at pos 70: ['the', 'of', 'plat']
+DIFF at pos 71: ['of', 'plat', 'said']
+DIFF at pos 72: ['town', 'of', 'said']
+DIFF at pos 73: ['town', 'now', 'said']
+DIFF at pos 74: ['on', 'town', 'now']
+DIFF at pos 75: ['on', 'record', 'now']
+DIFF at pos 76: ['on', 'record', 'in']
+DIFF at pos 77: ['the', 'record', 'in']
+DIFF at pos 78: ['the', 'office', 'in']
+DIFF at pos 79: ['the', 'office', 'of']
+DIFF at pos 80: ['the', 'office', 'of']
+DIFF at pos 81: ['the', 'county', 'of']
+DIFF at pos 82: ['the', 'county', 'clerk']
+DIFF at pos 83: ['county', 'of', 'clerk']
+DIFF at pos 84: ['clerk', 'of', 'said']
+DIFF at pos 85: ['county', 'of', 'said']
+DIFF at pos 86: ['said', 'county', 'together']
+DIFF at pos 87: ['county', 'with', 'together']
+DIFF at pos 88: ['all', 'with', 'together']
+DIFF at pos 89: ['and', 'all', 'with']
+DIFF at pos 90: ['and', 'all', 'singular']
+DIFF at pos 91: ['the', 'and', 'singular']
+DIFF at pos 92: ['the', 'singular', 'appurtenances']
+DIFF at pos 93: ['the', 'and', 'appurtenances']
+DIFF at pos 94: ['hereditaments', 'and', 'appurtenances']
+DIFF at pos 95: ['hereditaments', 'and', 'thereunto']
+DIFF at pos 96: ['hereditaments', 'belonging', 'thereunto']
+DIFF at pos 97: ['belonging', 'or', 'thereunto']
+DIFF at pos 98: ['or', 'belonging', 'in']
+DIFF at pos 99: ['or', 'in', 'anywise']
+DIFF at pos 100: ['any', 'appertaining', 'in']
 
 BLOCK SUMMARY:
-  Total positions: 140
-  Positions with differences: 106
+  Total positions: 101
+  Positions with differences: 87
   Positions with gaps: 0
-  Alignment similarity: 24.3%
+  Alignment similarity: 13.9%
 
 ================================================================================
 BLOCK: section_2
-================================================================================
-
-📊 BLOCK SUMMARY:
-   Alignment Length: 69
-   Number of Drafts: 3
-   Draft IDs: Draft_1, Draft_2, Draft_3
-
-Position  Draft_1                  Draft_2                  Draft_3                  
--------------------------------------------------------------------------------------
-  0       dated                    deed                     deed                     
-  1       this                     this                     this                     
-  2       indenture                indenture                indenture                
-  3       made                     made                     made                     
-  4       the                      this                     the                      
-  5       22                       22                       22                       
-  6       nd                       nd                       nd                       
-  7       day                      day                      day                      
-  8       of                       of                       of                       
-  9       september                september                september                
- 10       1909                     1902                     1909                     
- 11       between                  between                  between                  
- 12       george                   george                   george                   
- 13       h                        w                        h                        
- 14       vintager                 vintager                 kellogg                  
- 15       and                      and                      and                      
- 16       maud                     mandy                    maud                     
- 17       vintager                 vintager                 kellogg                  
- 18       his                      his                      his                      
- 19       wife                     wife                     wife                     
- 20       of                       of                       of                       
- 21       the                      the                      the                      
- 22       county                   county                   county                   
- 23       of                       of                       of                       
- 24       albany                   adams                    albany                   
- 25       and                      and                      and                      
- 26       state                    state                    state                    
- 27       of                       of                       of                       
- 28       wyoming                  illinois                 wisconsin                
- 29       parties                  parties                  parties                  
- 30       of                       of                       of                       
- 31       the                      the                      the                      
- 32       first                    first                    first                    
- 33       part                     part                     part                     
- 34       and                      and                      and                      
- 35       lake                     lake                     lake                     
- 36       hattie                   hattie                   hattie                   
- 37       reservoir                reservoir                reservoir                
- 38       irrigation               irrigation               irrigation               
- 39       company                  company                  company                  
- 40       a                        a                        a                        
- 41       corporation              corporation              corporation              
- 42       formerly                 formed                   formed                   
- 43       under                    under                    under                    
- 44       the                      the                      the                      
- 45       laws                     laws                     laws                     
- 46       of                       of                       of                       
- 47       new                      new                      new                      
- 48       jersey                   jersey                   jersey                   
- 49       having                   having                   having                   
- 50       its                      its                      its                      
- 51       office                   office                   office                   
- 52       at                       at                       at                       
- 53       denver                   quincy                   manville                 
- 54       in                       in                       in                       
- 55       the                      the                      the                      
- 56       county                   county                   county                   
- 57       of                       of                       of                       
- 58       denver                   adams                    albany                   
- 59       and                      and                      and                      
- 60       state                    state                    state                    
- 61       of                       of                       of                       
- 62       colorado                 illinois                 wisconsin                
- 63       party                    party                    party                    
- 64       of                       of                       of                       
- 65       the                      the                      the                      
- 66       second                   second                   second                   
- 67       part                     part                     part                     
- 68       witnesseth               witnesseth               witnesseth               
-
-============================================================
-🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_2
-============================================================
-
-Draft_1:
-  Original token count: 69
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68]
-
-Draft_2:
-  Original token count: 69
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68]
-
-Draft_3:
-  Original token count: 69
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68]
-
-============================================================
-🔤 TOKEN DETAILS - section_2
-============================================================
-
-Draft_1 (69 tokens):
-  [ 0] dated
-  [ 1] this
-  [ 2] indenture
-  [ 3] made
-  [ 4] the
-  [ 5] 22
-  [ 6] nd
-  [ 7] day
-  [ 8] of
-  [ 9] september
-  [10] 1909
-  [11] between
-  [12] george
-  [13] h
-  [14] vintager
-  [15] and
-  [16] maud
-  [17] vintager
-  [18] his
-  [19] wife
-  [20] of
-  [21] the
-  [22] county
-  [23] of
-  [24] albany
-  [25] and
-  [26] state
-  [27] of
-  [28] wyoming
-  [29] parties
-  [30] of
-  [31] the
-  [32] first
-  [33] part
-  [34] and
-  [35] lake
-  [36] hattie
-  [37] reservoir
-  [38] irrigation
-  [39] company
-  [40] a
-  [41] corporation
-  [42] formerly
-  [43] under
-  [44] the
-  [45] laws
-  [46] of
-  [47] new
-  [48] jersey
-  [49] having
-  [50] its
-  [51] office
-  [52] at
-  [53] denver
-  [54] in
-  [55] the
-  [56] county
-  [57] of
-  [58] denver
-  [59] and
-  [60] state
-  [61] of
-  [62] colorado
-  [63] party
-  [64] of
-  [65] the
-  [66] second
-  [67] part
-  [68] witnesseth
-
-Draft_2 (69 tokens):
-  [ 0] deed
-  [ 1] this
-  [ 2] indenture
-  [ 3] made
-  [ 4] this
-  [ 5] 22
-  [ 6] nd
-  [ 7] day
-  [ 8] of
-  [ 9] september
-  [10] 1902
-  [11] between
-  [12] george
-  [13] w
-  [14] vintager
-  [15] and
-  [16] mandy
-  [17] vintager
-  [18] his
-  [19] wife
-  [20] of
-  [21] the
-  [22] county
-  [23] of
-  [24] adams
-  [25] and
-  [26] state
-  [27] of
-  [28] illinois
-  [29] parties
-  [30] of
-  [31] the
-  [32] first
-  [33] part
-  [34] and
-  [35] lake
-  [36] hattie
-  [37] reservoir
-  [38] irrigation
-  [39] company
-  [40] a
-  [41] corporation
-  [42] formed
-  [43] under
-  [44] the
-  [45] laws
-  [46] of
-  [47] new
-  [48] jersey
-  [49] having
-  [50] its
-  [51] office
-  [52] at
-  [53] quincy
-  [54] in
-  [55] the
-  [56] county
-  [57] of
-  [58] adams
-  [59] and
-  [60] state
-  [61] of
-  [62] illinois
-  [63] party
-  [64] of
-  [65] the
-  [66] second
-  [67] part
-  [68] witnesseth
-
-Draft_3 (69 tokens):
-  [ 0] deed
-  [ 1] this
-  [ 2] indenture
-  [ 3] made
-  [ 4] the
-  [ 5] 22
-  [ 6] nd
-  [ 7] day
-  [ 8] of
-  [ 9] september
-  [10] 1909
-  [11] between
-  [12] george
-  [13] h
-  [14] kellogg
-  [15] and
-  [16] maud
-  [17] kellogg
-  [18] his
-  [19] wife
-  [20] of
-  [21] the
-  [22] county
-  [23] of
-  [24] albany
-  [25] and
-  [26] state
-  [27] of
-  [28] wisconsin
-  [29] parties
-  [30] of
-  [31] the
-  [32] first
-  [33] part
-  [34] and
-  [35] lake
-  [36] hattie
-  [37] reservoir
-  [38] irrigation
-  [39] company
-  [40] a
-  [41] corporation
-  [42] formed
-  [43] under
-  [44] the
-  [45] laws
-  [46] of
-  [47] new
-  [48] jersey
-  [49] having
-  [50] its
-  [51] office
-  [52] at
-  [53] manville
-  [54] in
-  [55] the
-  [56] county
-  [57] of
-  [58] albany
-  [59] and
-  [60] state
-  [61] of
-  [62] wisconsin
-  [63] party
-  [64] of
-  [65] the
-  [66] second
-  [67] part
-  [68] witnesseth
-
-============================================================
-📊 ANALYSIS - section_2
-============================================================
-
-DIFF at pos 0: ['dated', 'deed']
-DIFF at pos 4: ['this', 'the']
-DIFF at pos 10: ['1902', '1909']
-DIFF at pos 13: ['w', 'h']
-DIFF at pos 14: ['kellogg', 'vintager']
-DIFF at pos 16: ['maud', 'mandy']
-DIFF at pos 17: ['kellogg', 'vintager']
-DIFF at pos 24: ['adams', 'albany']
-DIFF at pos 28: ['wyoming', 'illinois', 'wisconsin']
-DIFF at pos 42: ['formed', 'formerly']
-DIFF at pos 53: ['quincy', 'denver', 'manville']
-DIFF at pos 58: ['adams', 'denver', 'albany']
-DIFF at pos 62: ['illinois', 'wisconsin', 'colorado']
-
-BLOCK SUMMARY:
-  Total positions: 69
-  Positions with differences: 13
-  Positions with gaps: 0
-  Alignment similarity: 81.2%
-
-================================================================================
-BLOCK: section_3
-================================================================================
-
-📊 BLOCK SUMMARY:
-   Alignment Length: 83
-   Number of Drafts: 3
-   Draft IDs: Draft_1, Draft_2, Draft_3
-
-Position  Draft_1                  Draft_2                  Draft_3                  
--------------------------------------------------------------------------------------
-  0       that                     that                     that                     
-  1       the                      the                      the                      
-  2       parties                  parties                  parties                  
-  3       of                       of                       of                       
-  4       the                      the                      the                      
-  5       first                    first                    first                    
-  6       part                     part                     part                     
-  7       for                      for                      for                      
-  8       and                      and                      and                      
-  9       in                       in                       in                       
- 10       consideration            consideration            consideration            
- 11       of                       of                       of                       
- 12       the                      the                      the                      
- 13       sum                      sum                      sum                      
- 14       of                       of                       of                       
- 15       one                      one                      one                      
- 16       dollar                   dollar                   dollar                   
- 17       and                      and                      and                      
- 18       other                    other                    other                    
- 19       valuable                 valuable                 valuable                 
- 20       consideration            consideration            considerations           
- 21       to                       to                       to                       
- 22       them                     them                     them                     
- 23       in                       in                       in                       
- 24       hand                     hand                     hand                     
- 25       paid                     paid                     paid                     
- 26       by                       by                       by                       
- 27       the                      the                      the                      
- 28       party                    party                    party                    
- 29       of                       of                       of                       
- 30       the                      the                      the                      
- 31       second                   second                   second                   
- 32       part                     part                     part                     
- 33       at                       the                      at                       
- 34       or                       receipt                  or                       
- 35       before                   of                       before                   
- 36       the                      which                    the                      
- 37       execution                consideration            execution                
- 38       of                       is                       of                       
- 39       this                     hereby                   this                     
- 40       instrument               acknowledged             instrument               
- 41       the                      have                     the                      
- 42       receipt                  bargained                receipt                  
- 43       of                       sold                     of                       
- 44       which                    granted                  which                    
- 45       consideration            and                      considerations           
- 46       is                       conveyed                 is                       
- 47       hereby                   unto                     hereby                   
- 48       acknowledged             the                      acknowledged             
- 49       have                     party                    have                     
- 50       granted                  of                       bargained                
- 51       sold                     the                      sold                     
- 52       released                 second                   granted                  
- 53       and                      part                     and                      
- 54       conveyed                 its                      conveyed                 
- 55       unto                     successors               unto                     
- 56       the                      and                      the                      
- 57       party                    assigns                  party                    
- 58       of                       all                      of                       
- 59       the                      the                      the                      
- 60       second                   following                second                   
- 61       part                     described                part                     
- 62       its                      property                 its                      
- 63       successors               situated                 successors               
- 64       and                      in                       and                      
- 65       assigns                  the                      assigns                  
- 66       all                      county                   all                      
- 67       the                      of                       the                      
- 68       following                adams                    following                
- 69       described                and                      described                
- 70       property                 state                    property                 
- 71       situated                 of                       situated                 
- 72       in                       illinois                 in                       
- 73       the                      to                       the                      
- 74       county                   wit                      county                   
- 75       of                       -                        of                       
- 76       albany                   -                        albany                   
- 77       and                      -                        and                      
- 78       state                    -                        state                    
- 79       of                       -                        of                       
- 80       wyoming                  -                        wisconsin                
- 81       to                       -                        to                       
- 82       wit                      -                        wit                      
-
-============================================================
-🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_3
-============================================================
-
-Draft_1:
-  Original token count: 83
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82]
-
-Draft_2:
-  Original token count: 75
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74]
-
-Draft_3:
-  Original token count: 83
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82]
-
-============================================================
-🔤 TOKEN DETAILS - section_3
-============================================================
-
-Draft_1 (83 tokens):
-  [ 0] that
-  [ 1] the
-  [ 2] parties
-  [ 3] of
-  [ 4] the
-  [ 5] first
-  [ 6] part
-  [ 7] for
-  [ 8] and
-  [ 9] in
-  [10] consideration
-  [11] of
-  [12] the
-  [13] sum
-  [14] of
-  [15] one
-  [16] dollar
-  [17] and
-  [18] other
-  [19] valuable
-  [20] consideration
-  [21] to
-  [22] them
-  [23] in
-  [24] hand
-  [25] paid
-  [26] by
-  [27] the
-  [28] party
-  [29] of
-  [30] the
-  [31] second
-  [32] part
-  [33] at
-  [34] or
-  [35] before
-  [36] the
-  [37] execution
-  [38] of
-  [39] this
-  [40] instrument
-  [41] the
-  [42] receipt
-  [43] of
-  [44] which
-  [45] consideration
-  [46] is
-  [47] hereby
-  [48] acknowledged
-  [49] have
-  [50] granted
-  [51] sold
-  [52] released
-  [53] and
-  [54] conveyed
-  [55] unto
-  [56] the
-  [57] party
-  [58] of
-  [59] the
-  [60] second
-  [61] part
-  [62] its
-  [63] successors
-  [64] and
-  [65] assigns
-  [66] all
-  [67] the
-  [68] following
-  [69] described
-  [70] property
-  [71] situated
-  [72] in
-  [73] the
-  [74] county
-  [75] of
-  [76] albany
-  [77] and
-  [78] state
-  [79] of
-  [80] wyoming
-  [81] to
-  [82] wit
-
-Draft_2 (83 tokens):
-  [ 0] that
-  [ 1] the
-  [ 2] parties
-  [ 3] of
-  [ 4] the
-  [ 5] first
-  [ 6] part
-  [ 7] for
-  [ 8] and
-  [ 9] in
-  [10] consideration
-  [11] of
-  [12] the
-  [13] sum
-  [14] of
-  [15] one
-  [16] dollar
-  [17] and
-  [18] other
-  [19] valuable
-  [20] consideration
-  [21] to
-  [22] them
-  [23] in
-  [24] hand
-  [25] paid
-  [26] by
-  [27] the
-  [28] party
-  [29] of
-  [30] the
-  [31] second
-  [32] part
-  [33] the
-  [34] receipt
-  [35] of
-  [36] which
-  [37] consideration
-  [38] is
-  [39] hereby
-  [40] acknowledged
-  [41] have
-  [42] bargained
-  [43] sold
-  [44] granted
-  [45] and
-  [46] conveyed
-  [47] unto
-  [48] the
-  [49] party
-  [50] of
-  [51] the
-  [52] second
-  [53] part
-  [54] its
-  [55] successors
-  [56] and
-  [57] assigns
-  [58] all
-  [59] the
-  [60] following
-  [61] described
-  [62] property
-  [63] situated
-  [64] in
-  [65] the
-  [66] county
-  [67] of
-  [68] adams
-  [69] and
-  [70] state
-  [71] of
-  [72] illinois
-  [73] to
-  [74] wit
-  [75] - (GAP)
-  [76] - (GAP)
-  [77] - (GAP)
-  [78] - (GAP)
-  [79] - (GAP)
-  [80] - (GAP)
-  [81] - (GAP)
-  [82] - (GAP)
-
-Draft_3 (83 tokens):
-  [ 0] that
-  [ 1] the
-  [ 2] parties
-  [ 3] of
-  [ 4] the
-  [ 5] first
-  [ 6] part
-  [ 7] for
-  [ 8] and
-  [ 9] in
-  [10] consideration
-  [11] of
-  [12] the
-  [13] sum
-  [14] of
-  [15] one
-  [16] dollar
-  [17] and
-  [18] other
-  [19] valuable
-  [20] considerations
-  [21] to
-  [22] them
-  [23] in
-  [24] hand
-  [25] paid
-  [26] by
-  [27] the
-  [28] party
-  [29] of
-  [30] the
-  [31] second
-  [32] part
-  [33] at
-  [34] or
-  [35] before
-  [36] the
-  [37] execution
-  [38] of
-  [39] this
-  [40] instrument
-  [41] the
-  [42] receipt
-  [43] of
-  [44] which
-  [45] considerations
-  [46] is
-  [47] hereby
-  [48] acknowledged
-  [49] have
-  [50] bargained
-  [51] sold
-  [52] granted
-  [53] and
-  [54] conveyed
-  [55] unto
-  [56] the
-  [57] party
-  [58] of
-  [59] the
-  [60] second
-  [61] part
-  [62] its
-  [63] successors
-  [64] and
-  [65] assigns
-  [66] all
-  [67] the
-  [68] following
-  [69] described
-  [70] property
-  [71] situated
-  [72] in
-  [73] the
-  [74] county
-  [75] of
-  [76] albany
-  [77] and
-  [78] state
-  [79] of
-  [80] wisconsin
-  [81] to
-  [82] wit
-
-============================================================
-📊 ANALYSIS - section_3
-============================================================
-
-DIFF at pos 20: ['considerations', 'consideration']
-DIFF at pos 33: ['the', 'at']
-DIFF at pos 34: ['receipt', 'or']
-DIFF at pos 35: ['before', 'of']
-DIFF at pos 36: ['the', 'which']
-DIFF at pos 37: ['consideration', 'execution']
-DIFF at pos 38: ['of', 'is']
-DIFF at pos 39: ['this', 'hereby']
-DIFF at pos 40: ['instrument', 'acknowledged']
-DIFF at pos 41: ['have', 'the']
-DIFF at pos 42: ['receipt', 'bargained']
-DIFF at pos 43: ['of', 'sold']
-DIFF at pos 44: ['granted', 'which']
-DIFF at pos 45: ['and', 'considerations', 'consideration']
-DIFF at pos 46: ['is', 'conveyed']
-DIFF at pos 47: ['unto', 'hereby']
-DIFF at pos 48: ['the', 'acknowledged']
-DIFF at pos 49: ['have', 'party']
-DIFF at pos 50: ['granted', 'of', 'bargained']
-DIFF at pos 51: ['the', 'sold']
-DIFF at pos 52: ['released', 'granted', 'second']
-DIFF at pos 53: ['part', 'and']
-DIFF at pos 54: ['conveyed', 'its']
-DIFF at pos 55: ['unto', 'successors']
-DIFF at pos 56: ['the', 'and']
-DIFF at pos 57: ['party', 'assigns']
-DIFF at pos 58: ['all', 'of']
-DIFF at pos 60: ['following', 'second']
-DIFF at pos 61: ['part', 'described']
-DIFF at pos 62: ['property', 'its']
-DIFF at pos 63: ['successors', 'situated']
-DIFF at pos 64: ['in', 'and']
-DIFF at pos 65: ['assigns', 'the']
-DIFF at pos 66: ['all', 'county']
-DIFF at pos 67: ['the', 'of']
-DIFF at pos 68: ['following', 'adams']
-DIFF at pos 69: ['described', 'and']
-DIFF at pos 70: ['state', 'property']
-DIFF at pos 71: ['of', 'situated']
-DIFF at pos 72: ['illinois', 'in']
-DIFF at pos 73: ['the', 'to']
-DIFF at pos 74: ['wit', 'county']
-DIFF at pos 80: ['wyoming', 'wisconsin']
-
-BLOCK SUMMARY:
-  Total positions: 83
-  Positions with differences: 43
-  Positions with gaps: 8
-  Alignment similarity: 48.2%
-
-================================================================================
-BLOCK: section_4
 ================================================================================
 
 📊 BLOCK SUMMARY:
@@ -1492,32 +555,32 @@ BLOCK: section_4
 
 Position  Draft_1                  Draft_2                  Draft_3                  
 -------------------------------------------------------------------------------------
-  0       a                        a                        a                        
-  1       strip                    strip                    tract                    
-  2       of                       of                       of                       
-  3       land                     land                     land                     
-  4       one                      one                      one                      
-  5       hundred                  hundred                  hundred                  
-  6       100                      100                      100                      
-  7       feet                     feet                     feet                     
-  8       in                       in                       in                       
-  9       width                    width                    width                    
- 10       being                    being                    being                    
- 11       fifty                    fifty                    fifty                    
- 12       50                       50                       50                       
- 13       feet                     feet                     feet                     
- 14       on                       on                       on                       
- 15       each                     each                     each                     
- 16       side                     side                     side                     
- 17       of                       of                       of                       
- 18       the                      the                      the                      
- 19       middle                   middle                   middle                   
- 20       line                     line                     line                     
- 21       of                       of                       of                       
- 22       the                      the                      the                      
+  0       to                       to                       to                       
+  1       have                     have                     have                     
+  2       and                      and                      and                      
+  3       to                       to                       to                       
+  4       hold                     hold                     hold                     
+  5       the                      the                      the                      
+  6       above                    above                    above                    
+  7       described                described                described                
+  8       premises                 premises                 premises                 
+  9       with                     with                     with                     
+ 10       its                      all                      appurtenances            
+ 11       appurtenances            appurtenances            unto                     
+ 12       unto                     unto                     said                     
+ 13       said                     said                     party                    
+ 14       party                    party                    of                       
+ 15       of                       of                       the                      
+ 16       the                      the                      second                   
+ 17       second                   second                   part                     
+ 18       part                     part                     his                      
+ 19       his                      his                      heirs                    
+ 20       heirs                    heirs                    and                      
+ 21       and                      and                      assigns                  
+ 22       assigns                  assigns                  forever                  
 
 ============================================================
-🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_4
+🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_2
 ============================================================
 
 Draft_1:
@@ -1533,102 +596,1034 @@ Draft_3:
   Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 ============================================================
-🔤 TOKEN DETAILS - section_4
+🔤 TOKEN DETAILS - section_2
 ============================================================
 
 Draft_1 (23 tokens):
-  [ 0] a
-  [ 1] strip
-  [ 2] of
-  [ 3] land
-  [ 4] one
-  [ 5] hundred
-  [ 6] 100
-  [ 7] feet
-  [ 8] in
-  [ 9] width
-  [10] being
-  [11] fifty
-  [12] 50
-  [13] feet
-  [14] on
-  [15] each
-  [16] side
-  [17] of
-  [18] the
-  [19] middle
-  [20] line
-  [21] of
-  [22] the
+  [ 0] to
+  [ 1] have
+  [ 2] and
+  [ 3] to
+  [ 4] hold
+  [ 5] the
+  [ 6] above
+  [ 7] described
+  [ 8] premises
+  [ 9] with
+  [10] its
+  [11] appurtenances
+  [12] unto
+  [13] said
+  [14] party
+  [15] of
+  [16] the
+  [17] second
+  [18] part
+  [19] his
+  [20] heirs
+  [21] and
+  [22] assigns
 
 Draft_2 (23 tokens):
-  [ 0] a
-  [ 1] strip
-  [ 2] of
-  [ 3] land
-  [ 4] one
-  [ 5] hundred
-  [ 6] 100
-  [ 7] feet
-  [ 8] in
-  [ 9] width
-  [10] being
-  [11] fifty
-  [12] 50
-  [13] feet
-  [14] on
-  [15] each
-  [16] side
-  [17] of
-  [18] the
-  [19] middle
-  [20] line
-  [21] of
-  [22] the
+  [ 0] to
+  [ 1] have
+  [ 2] and
+  [ 3] to
+  [ 4] hold
+  [ 5] the
+  [ 6] above
+  [ 7] described
+  [ 8] premises
+  [ 9] with
+  [10] all
+  [11] appurtenances
+  [12] unto
+  [13] said
+  [14] party
+  [15] of
+  [16] the
+  [17] second
+  [18] part
+  [19] his
+  [20] heirs
+  [21] and
+  [22] assigns
 
 Draft_3 (23 tokens):
-  [ 0] a
-  [ 1] tract
-  [ 2] of
-  [ 3] land
-  [ 4] one
-  [ 5] hundred
-  [ 6] 100
-  [ 7] feet
-  [ 8] in
-  [ 9] width
-  [10] being
-  [11] fifty
-  [12] 50
-  [13] feet
-  [14] on
-  [15] each
-  [16] side
-  [17] of
-  [18] the
-  [19] middle
-  [20] line
+  [ 0] to
+  [ 1] have
+  [ 2] and
+  [ 3] to
+  [ 4] hold
+  [ 5] the
+  [ 6] above
+  [ 7] described
+  [ 8] premises
+  [ 9] with
+  [10] appurtenances
+  [11] unto
+  [12] said
+  [13] party
+  [14] of
+  [15] the
+  [16] second
+  [17] part
+  [18] his
+  [19] heirs
+  [20] and
+  [21] assigns
+  [22] forever
+
+============================================================
+📊 ANALYSIS - section_2
+============================================================
+
+DIFF at pos 10: ['all', 'appurtenances', 'its']
+DIFF at pos 11: ['unto', 'appurtenances']
+DIFF at pos 12: ['unto', 'said']
+DIFF at pos 13: ['party', 'said']
+DIFF at pos 14: ['party', 'of']
+DIFF at pos 15: ['the', 'of']
+DIFF at pos 16: ['second', 'the']
+DIFF at pos 17: ['second', 'part']
+DIFF at pos 18: ['his', 'part']
+DIFF at pos 19: ['his', 'heirs']
+DIFF at pos 20: ['and', 'heirs']
+DIFF at pos 21: ['assigns', 'and']
+DIFF at pos 22: ['assigns', 'forever']
+
+BLOCK SUMMARY:
+  Total positions: 23
+  Positions with differences: 13
+  Positions with gaps: 0
+  Alignment similarity: 43.5%
+
+================================================================================
+BLOCK: section_3
+================================================================================
+
+📊 BLOCK SUMMARY:
+   Alignment Length: 1
+   Number of Drafts: 3
+   Draft IDs: Draft_1, Draft_2, Draft_3
+
+Position  Draft_1                  Draft_2                  Draft_3                  
+-------------------------------------------------------------------------------------
+  0       forever                  and                      and                      
+
+============================================================
+🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_3
+============================================================
+
+Draft_1:
+  Original token count: 1
+  Mapping: [0]
+
+Draft_2:
+  Original token count: 1
+  Mapping: [0]
+
+Draft_3:
+  Original token count: 1
+  Mapping: [0]
+
+============================================================
+🔤 TOKEN DETAILS - section_3
+============================================================
+
+Draft_1 (1 tokens):
+  [ 0] forever
+
+Draft_2 (1 tokens):
+  [ 0] and
+
+Draft_3 (1 tokens):
+  [ 0] and
+
+============================================================
+📊 ANALYSIS - section_3
+============================================================
+
+DIFF at pos 0: ['forever', 'and']
+
+BLOCK SUMMARY:
+  Total positions: 1
+  Positions with differences: 1
+  Positions with gaps: 0
+  Alignment similarity: 0.0%
+
+================================================================================
+BLOCK: section_4
+================================================================================
+
+📊 BLOCK SUMMARY:
+   Alignment Length: 104
+   Number of Drafts: 3
+   Draft IDs: Draft_1, Draft_2, Draft_3
+
+Position  Draft_1                  Draft_2                  Draft_3                  
+-------------------------------------------------------------------------------------
+  0       and                      but                      but                      
+  1       the                      it                       it                       
+  2       said                     is                       is                       
+  3       party                    hereby                   hereby                   
+  4       of                       expressly                expressly                
+  5       the                      covenanted               covenanted               
+  6       first                    and                      and                      
+  7       part                     agreed                   agreed                   
+  8       hereby                   that                     that                     
+  9       covenants                this                     this                     
+ 10       and                      conveyance               conveyance               
+ 11       agrees                   is                       is                       
+ 12       that                     subject                  subject                  
+ 13       at                       to                       to                       
+ 14       the                      all                      all                      
+ 15       time                     existing                 existing                 
+ 16       of                       rights                   rights                   
+ 17       the                      of                       of                       
+ 18       making                   way                      way                      
+ 19       and                      for                      for                      
+ 20       delivery                 ditches                  ditches                  
+ 21       of                       canals                   canals                   
+ 22       these                    highways                 highways                 
+ 23       presents                 public                   public                   
+ 24       it                       roads                    roads                    
+ 25       is                       streets                  streets                  
+ 26       well                     and                      and                      
+ 27       seized                   railroads                railroads                
+ 28       of                       and                      and                      
+ 29       the                      all                      all                      
+ 30       premises                 other                    other                    
+ 31       above                    existing                 existing                 
+ 32       conveyed                 easements                easements                
+ 33       as                       in                       in                       
+ 34       of                       upon                     upon                     
+ 35       a                        or                       or                       
+ 36       good                     across                   across                   
+ 37       perfect                  said                     said                     
+ 38       and                      described                hereinbefore             
+ 39       absolute                 premises                 premises                 
+ 40       estate                   -                        -                        
+ 41       in                       -                        -                        
+ 42       fee                      -                        -                        
+ 43       simple                   -                        -                        
+ 44       free                     -                        -                        
+ 45       and                      -                        -                        
+ 46       clear                    -                        -                        
+ 47       of                       -                        -                        
+ 48       all                      -                        -                        
+ 49       former                   -                        -                        
+ 50       and                      -                        -                        
+ 51       other                    -                        -                        
+ 52       grants                   -                        -                        
+ 53       liens                    -                        -                        
+ 54       and                      -                        -                        
+ 55       incumbrances             -                        -                        
+ 56       of                       -                        -                        
+ 57       whatever                 -                        -                        
+ 58       kind                     -                        -                        
+ 59       or                       -                        -                        
+ 60       nature                   -                        -                        
+ 61       and                      -                        -                        
+ 62       that                     -                        -                        
+ 63       he                       -                        -                        
+ 64       will                     -                        -                        
+ 65       warrant                  -                        -                        
+ 66       and                      -                        -                        
+ 67       forever                  -                        -                        
+ 68       defend                   -                        -                        
+ 69       the                      -                        -                        
+ 70       above                    -                        -                        
+ 71       described                -                        -                        
+ 72       premises                 -                        -                        
+ 73       in                       -                        -                        
+ 74       the                      -                        -                        
+ 75       quiet                    -                        -                        
+ 76       and                      -                        -                        
+ 77       peaceable                -                        -                        
+ 78       possession               -                        -                        
+ 79       of                       -                        -                        
+ 80       the                      -                        -                        
+ 81       said                     -                        -                        
+ 82       party                    -                        -                        
+ 83       of                       -                        -                        
+ 84       the                      -                        -                        
+ 85       second                   -                        -                        
+ 86       part                     -                        -                        
+ 87       his                      -                        -                        
+ 88       heirs                    -                        -                        
+ 89       and                      -                        -                        
+ 90       assigns                  -                        -                        
+ 91       against                  -                        -                        
+ 92       the                      -                        -                        
+ 93       lawful                   -                        -                        
+ 94       claim                    -                        -                        
+ 95       or                       -                        -                        
+ 96       claims                   -                        -                        
+ 97       of                       -                        -                        
+ 98       any                      -                        -                        
+ 99       other                    -                        -                        
+100       person                   -                        -                        
+101       or                       -                        -                        
+102       persons                  -                        -                        
+103       whatsoever               -                        -                        
+
+============================================================
+🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_4
+============================================================
+
+Draft_1:
+  Original token count: 104
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103]
+
+Draft_2:
+  Original token count: 40
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+
+Draft_3:
+  Original token count: 40
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+
+============================================================
+🔤 TOKEN DETAILS - section_4
+============================================================
+
+Draft_1 (104 tokens):
+  [ 0] and
+  [ 1] the
+  [ 2] said
+  [ 3] party
+  [ 4] of
+  [ 5] the
+  [ 6] first
+  [ 7] part
+  [ 8] hereby
+  [ 9] covenants
+  [10] and
+  [11] agrees
+  [12] that
+  [13] at
+  [14] the
+  [15] time
+  [16] of
+  [17] the
+  [18] making
+  [19] and
+  [20] delivery
   [21] of
-  [22] the
+  [22] these
+  [23] presents
+  [24] it
+  [25] is
+  [26] well
+  [27] seized
+  [28] of
+  [29] the
+  [30] premises
+  [31] above
+  [32] conveyed
+  [33] as
+  [34] of
+  [35] a
+  [36] good
+  [37] perfect
+  [38] and
+  [39] absolute
+  [40] estate
+  [41] in
+  [42] fee
+  [43] simple
+  [44] free
+  [45] and
+  [46] clear
+  [47] of
+  [48] all
+  [49] former
+  [50] and
+  [51] other
+  [52] grants
+  [53] liens
+  [54] and
+  [55] incumbrances
+  [56] of
+  [57] whatever
+  [58] kind
+  [59] or
+  [60] nature
+  [61] and
+  [62] that
+  [63] he
+  [64] will
+  [65] warrant
+  [66] and
+  [67] forever
+  [68] defend
+  [69] the
+  [70] above
+  [71] described
+  [72] premises
+  [73] in
+  [74] the
+  [75] quiet
+  [76] and
+  [77] peaceable
+  [78] possession
+  [79] of
+  [80] the
+  [81] said
+  [82] party
+  [83] of
+  [84] the
+  [85] second
+  [86] part
+  [87] his
+  [88] heirs
+  [89] and
+  [90] assigns
+  [91] against
+  [92] the
+  [93] lawful
+  [94] claim
+  [95] or
+  [96] claims
+  [97] of
+  [98] any
+  [99] other
+  [100] person
+  [101] or
+  [102] persons
+  [103] whatsoever
+
+Draft_2 (104 tokens):
+  [ 0] but
+  [ 1] it
+  [ 2] is
+  [ 3] hereby
+  [ 4] expressly
+  [ 5] covenanted
+  [ 6] and
+  [ 7] agreed
+  [ 8] that
+  [ 9] this
+  [10] conveyance
+  [11] is
+  [12] subject
+  [13] to
+  [14] all
+  [15] existing
+  [16] rights
+  [17] of
+  [18] way
+  [19] for
+  [20] ditches
+  [21] canals
+  [22] highways
+  [23] public
+  [24] roads
+  [25] streets
+  [26] and
+  [27] railroads
+  [28] and
+  [29] all
+  [30] other
+  [31] existing
+  [32] easements
+  [33] in
+  [34] upon
+  [35] or
+  [36] across
+  [37] said
+  [38] described
+  [39] premises
+  [40] - (GAP)
+  [41] - (GAP)
+  [42] - (GAP)
+  [43] - (GAP)
+  [44] - (GAP)
+  [45] - (GAP)
+  [46] - (GAP)
+  [47] - (GAP)
+  [48] - (GAP)
+  [49] - (GAP)
+  [50] - (GAP)
+  [51] - (GAP)
+  [52] - (GAP)
+  [53] - (GAP)
+  [54] - (GAP)
+  [55] - (GAP)
+  [56] - (GAP)
+  [57] - (GAP)
+  [58] - (GAP)
+  [59] - (GAP)
+  [60] - (GAP)
+  [61] - (GAP)
+  [62] - (GAP)
+  [63] - (GAP)
+  [64] - (GAP)
+  [65] - (GAP)
+  [66] - (GAP)
+  [67] - (GAP)
+  [68] - (GAP)
+  [69] - (GAP)
+  [70] - (GAP)
+  [71] - (GAP)
+  [72] - (GAP)
+  [73] - (GAP)
+  [74] - (GAP)
+  [75] - (GAP)
+  [76] - (GAP)
+  [77] - (GAP)
+  [78] - (GAP)
+  [79] - (GAP)
+  [80] - (GAP)
+  [81] - (GAP)
+  [82] - (GAP)
+  [83] - (GAP)
+  [84] - (GAP)
+  [85] - (GAP)
+  [86] - (GAP)
+  [87] - (GAP)
+  [88] - (GAP)
+  [89] - (GAP)
+  [90] - (GAP)
+  [91] - (GAP)
+  [92] - (GAP)
+  [93] - (GAP)
+  [94] - (GAP)
+  [95] - (GAP)
+  [96] - (GAP)
+  [97] - (GAP)
+  [98] - (GAP)
+  [99] - (GAP)
+  [100] - (GAP)
+  [101] - (GAP)
+  [102] - (GAP)
+  [103] - (GAP)
+
+Draft_3 (104 tokens):
+  [ 0] but
+  [ 1] it
+  [ 2] is
+  [ 3] hereby
+  [ 4] expressly
+  [ 5] covenanted
+  [ 6] and
+  [ 7] agreed
+  [ 8] that
+  [ 9] this
+  [10] conveyance
+  [11] is
+  [12] subject
+  [13] to
+  [14] all
+  [15] existing
+  [16] rights
+  [17] of
+  [18] way
+  [19] for
+  [20] ditches
+  [21] canals
+  [22] highways
+  [23] public
+  [24] roads
+  [25] streets
+  [26] and
+  [27] railroads
+  [28] and
+  [29] all
+  [30] other
+  [31] existing
+  [32] easements
+  [33] in
+  [34] upon
+  [35] or
+  [36] across
+  [37] said
+  [38] hereinbefore
+  [39] premises
+  [40] - (GAP)
+  [41] - (GAP)
+  [42] - (GAP)
+  [43] - (GAP)
+  [44] - (GAP)
+  [45] - (GAP)
+  [46] - (GAP)
+  [47] - (GAP)
+  [48] - (GAP)
+  [49] - (GAP)
+  [50] - (GAP)
+  [51] - (GAP)
+  [52] - (GAP)
+  [53] - (GAP)
+  [54] - (GAP)
+  [55] - (GAP)
+  [56] - (GAP)
+  [57] - (GAP)
+  [58] - (GAP)
+  [59] - (GAP)
+  [60] - (GAP)
+  [61] - (GAP)
+  [62] - (GAP)
+  [63] - (GAP)
+  [64] - (GAP)
+  [65] - (GAP)
+  [66] - (GAP)
+  [67] - (GAP)
+  [68] - (GAP)
+  [69] - (GAP)
+  [70] - (GAP)
+  [71] - (GAP)
+  [72] - (GAP)
+  [73] - (GAP)
+  [74] - (GAP)
+  [75] - (GAP)
+  [76] - (GAP)
+  [77] - (GAP)
+  [78] - (GAP)
+  [79] - (GAP)
+  [80] - (GAP)
+  [81] - (GAP)
+  [82] - (GAP)
+  [83] - (GAP)
+  [84] - (GAP)
+  [85] - (GAP)
+  [86] - (GAP)
+  [87] - (GAP)
+  [88] - (GAP)
+  [89] - (GAP)
+  [90] - (GAP)
+  [91] - (GAP)
+  [92] - (GAP)
+  [93] - (GAP)
+  [94] - (GAP)
+  [95] - (GAP)
+  [96] - (GAP)
+  [97] - (GAP)
+  [98] - (GAP)
+  [99] - (GAP)
+  [100] - (GAP)
+  [101] - (GAP)
+  [102] - (GAP)
+  [103] - (GAP)
 
 ============================================================
 📊 ANALYSIS - section_4
 ============================================================
 
-DIFF at pos 1: ['tract', 'strip']
+DIFF at pos 0: ['but', 'and']
+DIFF at pos 1: ['the', 'it']
+DIFF at pos 2: ['is', 'said']
+DIFF at pos 3: ['hereby', 'party']
+DIFF at pos 4: ['expressly', 'of']
+DIFF at pos 5: ['the', 'covenanted']
+DIFF at pos 6: ['and', 'first']
+DIFF at pos 7: ['agreed', 'part']
+DIFF at pos 8: ['that', 'hereby']
+DIFF at pos 9: ['this', 'covenants']
+DIFF at pos 10: ['conveyance', 'and']
+DIFF at pos 11: ['agrees', 'is']
+DIFF at pos 12: ['that', 'subject']
+DIFF at pos 13: ['at', 'to']
+DIFF at pos 14: ['the', 'all']
+DIFF at pos 15: ['time', 'existing']
+DIFF at pos 16: ['of', 'rights']
+DIFF at pos 17: ['the', 'of']
+DIFF at pos 18: ['making', 'way']
+DIFF at pos 19: ['for', 'and']
+DIFF at pos 20: ['ditches', 'delivery']
+DIFF at pos 21: ['of', 'canals']
+DIFF at pos 22: ['highways', 'these']
+DIFF at pos 23: ['public', 'presents']
+DIFF at pos 24: ['roads', 'it']
+DIFF at pos 25: ['streets', 'is']
+DIFF at pos 26: ['well', 'and']
+DIFF at pos 27: ['seized', 'railroads']
+DIFF at pos 28: ['and', 'of']
+DIFF at pos 29: ['the', 'all']
+DIFF at pos 30: ['premises', 'other']
+DIFF at pos 31: ['above', 'existing']
+DIFF at pos 32: ['easements', 'conveyed']
+DIFF at pos 33: ['in', 'as']
+DIFF at pos 34: ['upon', 'of']
+DIFF at pos 35: ['or', 'a']
+DIFF at pos 36: ['across', 'good']
+DIFF at pos 37: ['perfect', 'said']
+DIFF at pos 38: ['described', 'and', 'hereinbefore']
+DIFF at pos 39: ['premises', 'absolute']
+
+BLOCK SUMMARY:
+  Total positions: 104
+  Positions with differences: 40
+  Positions with gaps: 64
+  Alignment similarity: 61.5%
+
+================================================================================
+BLOCK: section_5
+================================================================================
+
+📊 BLOCK SUMMARY:
+   Alignment Length: 34
+   Number of Drafts: 3
+   Draft IDs: Draft_1, Draft_2, Draft_3
+
+Position  Draft_1                  Draft_2                  Draft_3                  
+-------------------------------------------------------------------------------------
+  0       in                       in                       in                       
+  1       witness                  witness                  witness                  
+  2       whereof                  whereof                  whereof                  
+  3       the                      the                      the                      
+  4       said                     said                     said                     
+  5       party                    party                    party                    
+  6       of                       of                       of                       
+  7       the                      the                      the                      
+  8       first                    first                    first                    
+  9       part                     part                     part                     
+ 10       has                      has                      has                      
+ 11       caused                   caused                   caused                   
+ 12       these                    these                    these                    
+ 13       presents                 presents                 presents                 
+ 14       to                       to                       to                       
+ 15       be                       be                       be                       
+ 16       signed                   signed                   signed                   
+ 17       and                      and                      and                      
+ 18       the                      the                      its                      
+ 19       seal                     seal                     seal                     
+ 20       of                       of                       to                       
+ 21       the                      the                      be                       
+ 22       company                  corporation              affixed                  
+ 23       to                       affixed                  this                     
+ 24       be                       this                     fifteenth                
+ 25       hereunto                 fifteenth                day                      
+ 26       affixed                  day                      of                       
+ 27       this                     of                       june                     
+ 28       fifteenth                june                     ad                       
+ 29       day                      ad                       1909                     
+ 30       of                       1909                     -                        
+ 31       june                     -                        -                        
+ 32       ad                       -                        -                        
+ 33       1909                     -                        -                        
+
+============================================================
+🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_5
+============================================================
+
+Draft_1:
+  Original token count: 34
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33]
+
+Draft_2:
+  Original token count: 31
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
+
+Draft_3:
+  Original token count: 30
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
+
+============================================================
+🔤 TOKEN DETAILS - section_5
+============================================================
+
+Draft_1 (34 tokens):
+  [ 0] in
+  [ 1] witness
+  [ 2] whereof
+  [ 3] the
+  [ 4] said
+  [ 5] party
+  [ 6] of
+  [ 7] the
+  [ 8] first
+  [ 9] part
+  [10] has
+  [11] caused
+  [12] these
+  [13] presents
+  [14] to
+  [15] be
+  [16] signed
+  [17] and
+  [18] the
+  [19] seal
+  [20] of
+  [21] the
+  [22] company
+  [23] to
+  [24] be
+  [25] hereunto
+  [26] affixed
+  [27] this
+  [28] fifteenth
+  [29] day
+  [30] of
+  [31] june
+  [32] ad
+  [33] 1909
+
+Draft_2 (34 tokens):
+  [ 0] in
+  [ 1] witness
+  [ 2] whereof
+  [ 3] the
+  [ 4] said
+  [ 5] party
+  [ 6] of
+  [ 7] the
+  [ 8] first
+  [ 9] part
+  [10] has
+  [11] caused
+  [12] these
+  [13] presents
+  [14] to
+  [15] be
+  [16] signed
+  [17] and
+  [18] the
+  [19] seal
+  [20] of
+  [21] the
+  [22] corporation
+  [23] affixed
+  [24] this
+  [25] fifteenth
+  [26] day
+  [27] of
+  [28] june
+  [29] ad
+  [30] 1909
+  [31] - (GAP)
+  [32] - (GAP)
+  [33] - (GAP)
+
+Draft_3 (34 tokens):
+  [ 0] in
+  [ 1] witness
+  [ 2] whereof
+  [ 3] the
+  [ 4] said
+  [ 5] party
+  [ 6] of
+  [ 7] the
+  [ 8] first
+  [ 9] part
+  [10] has
+  [11] caused
+  [12] these
+  [13] presents
+  [14] to
+  [15] be
+  [16] signed
+  [17] and
+  [18] its
+  [19] seal
+  [20] to
+  [21] be
+  [22] affixed
+  [23] this
+  [24] fifteenth
+  [25] day
+  [26] of
+  [27] june
+  [28] ad
+  [29] 1909
+  [30] - (GAP)
+  [31] - (GAP)
+  [32] - (GAP)
+  [33] - (GAP)
+
+============================================================
+📊 ANALYSIS - section_5
+============================================================
+
+DIFF at pos 18: ['the', 'its']
+DIFF at pos 20: ['of', 'to']
+DIFF at pos 21: ['the', 'be']
+DIFF at pos 22: ['corporation', 'company', 'affixed']
+DIFF at pos 23: ['affixed', 'to', 'this']
+DIFF at pos 24: ['fifteenth', 'be', 'this']
+DIFF at pos 25: ['day', 'hereunto', 'fifteenth']
+DIFF at pos 26: ['day', 'of', 'affixed']
+DIFF at pos 27: ['of', 'this', 'june']
+DIFF at pos 28: ['june', 'ad', 'fifteenth']
+DIFF at pos 29: ['1909', 'day', 'ad']
+DIFF at pos 30: ['1909', 'of']
+
+BLOCK SUMMARY:
+  Total positions: 34
+  Positions with differences: 12
+  Positions with gaps: 4
+  Alignment similarity: 64.7%
+
+================================================================================
+BLOCK: section_6
+================================================================================
+
+📊 BLOCK SUMMARY:
+   Alignment Length: 23
+   Number of Drafts: 3
+   Draft IDs: Draft_1, Draft_2, Draft_3
+
+Position  Draft_1                  Draft_2                  Draft_3                  
+-------------------------------------------------------------------------------------
+  0       callmadge                seal                     talmadge                 
+  1       runtin                   tallmadge                runkins                  
+  2       co                       runtin                   co                       
+  3       by                       co                       by                       
+  4       er                       by                       e                        
+  5       tallmadge                e                        r                        
+  6       president                r                        talmadge                 
+  7       seal                     tallmadge                president                
+  8       attest                   president                seal                     
+  9       ol                       attest                   attest                   
+ 10       strain                   o                        o                        
+ 11       secretary                l                        l                        
+ 12       signed                   strain                   strain                   
+ 13       sealed                   secretary                secretary                
+ 14       and                      signed                   signed                   
+ 15       delivered                sealed                   sealed                   
+ 16       in                       and                      and                      
+ 17       presence                 delivered                delivered                
+ 18       of                       in                       in                       
+ 19       aw                       presence                 presence                 
+ 20       northnick                of                       of                       
+ 21       wr                       a                        j                        
+ 22       larson                   w                        n                        
+
+============================================================
+🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_6
+============================================================
+
+Draft_1:
+  Original token count: 23
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+
+Draft_2:
+  Original token count: 23
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+
+Draft_3:
+  Original token count: 23
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+
+============================================================
+🔤 TOKEN DETAILS - section_6
+============================================================
+
+Draft_1 (23 tokens):
+  [ 0] callmadge
+  [ 1] runtin
+  [ 2] co
+  [ 3] by
+  [ 4] er
+  [ 5] tallmadge
+  [ 6] president
+  [ 7] seal
+  [ 8] attest
+  [ 9] ol
+  [10] strain
+  [11] secretary
+  [12] signed
+  [13] sealed
+  [14] and
+  [15] delivered
+  [16] in
+  [17] presence
+  [18] of
+  [19] aw
+  [20] northnick
+  [21] wr
+  [22] larson
+
+Draft_2 (23 tokens):
+  [ 0] seal
+  [ 1] tallmadge
+  [ 2] runtin
+  [ 3] co
+  [ 4] by
+  [ 5] e
+  [ 6] r
+  [ 7] tallmadge
+  [ 8] president
+  [ 9] attest
+  [10] o
+  [11] l
+  [12] strain
+  [13] secretary
+  [14] signed
+  [15] sealed
+  [16] and
+  [17] delivered
+  [18] in
+  [19] presence
+  [20] of
+  [21] a
+  [22] w
+
+Draft_3 (23 tokens):
+  [ 0] talmadge
+  [ 1] runkins
+  [ 2] co
+  [ 3] by
+  [ 4] e
+  [ 5] r
+  [ 6] talmadge
+  [ 7] president
+  [ 8] seal
+  [ 9] attest
+  [10] o
+  [11] l
+  [12] strain
+  [13] secretary
+  [14] signed
+  [15] sealed
+  [16] and
+  [17] delivered
+  [18] in
+  [19] presence
+  [20] of
+  [21] j
+  [22] n
+
+============================================================
+📊 ANALYSIS - section_6
+============================================================
+
+DIFF at pos 0: ['callmadge', 'seal', 'talmadge']
+DIFF at pos 1: ['runtin', 'runkins', 'tallmadge']
+DIFF at pos 2: ['runtin', 'co']
+DIFF at pos 3: ['by', 'co']
+DIFF at pos 4: ['by', 'er', 'e']
+DIFF at pos 5: ['e', 'r', 'tallmadge']
+DIFF at pos 6: ['president', 'talmadge', 'r']
+DIFF at pos 7: ['seal', 'president', 'tallmadge']
+DIFF at pos 8: ['president', 'attest', 'seal']
+DIFF at pos 9: ['ol', 'attest']
+DIFF at pos 10: ['o', 'strain']
+DIFF at pos 11: ['secretary', 'l']
+DIFF at pos 12: ['strain', 'signed']
+DIFF at pos 13: ['secretary', 'sealed']
+DIFF at pos 14: ['signed', 'and']
+DIFF at pos 15: ['sealed', 'delivered']
+DIFF at pos 16: ['and', 'in']
+DIFF at pos 17: ['presence', 'delivered']
+DIFF at pos 18: ['of', 'in']
+DIFF at pos 19: ['aw', 'presence']
+DIFF at pos 20: ['northnick', 'of']
+DIFF at pos 21: ['j', 'wr', 'a']
+DIFF at pos 22: ['w', 'n', 'larson']
 
 BLOCK SUMMARY:
   Total positions: 23
-  Positions with differences: 1
+  Positions with differences: 23
   Positions with gaps: 0
-  Alignment similarity: 95.7%
+  Alignment similarity: 0.0%
 
 ================================================================================
 📊 OVERALL SUMMARY
 ================================================================================
 
-Total blocks processed: 4
-Total alignment positions: 315
-Total differences found: 163
-Total gap positions: 8
-Overall similarity: 48.3%
+Total blocks processed: 6
+Total alignment positions: 286
+Total differences found: 176
+Total gap positions: 68
+Overall similarity: 38.5%

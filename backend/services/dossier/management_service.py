@@ -14,6 +14,7 @@ from pathlib import Path
 from datetime import datetime
 
 from .models import Dossier, DossierSummary
+from .event_bus import event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -712,6 +713,17 @@ class DossierManagementService:
                 json.dump(run_metadata, f, indent=2, ensure_ascii=False)
 
             logger.info(f"📋 Created run metadata: {run_file}")
+            # Notify listeners
+            try:
+                import asyncio
+                asyncio.create_task(event_bus.publish({
+                    "type": "dossier:update",
+                    "dossier_id": str(dossier_id),
+                    "transcription_id": str(transcription_id),
+                    "event": "run_created"
+                }))
+            except Exception:
+                pass
             return True
         except Exception as e:
             logger.error(f"❌ Failed to create run metadata: {e}")
@@ -792,6 +804,17 @@ class DossierManagementService:
                 )
 
             logger.debug(f"📝 Updated run metadata: {run_file}")
+            # Notify listeners
+            try:
+                import asyncio
+                asyncio.create_task(event_bus.publish({
+                    "type": "dossier:update",
+                    "dossier_id": str(dossier_id),
+                    "transcription_id": str(transcription_id),
+                    "event": "run_updated"
+                }))
+            except Exception:
+                pass
             return True
         except Exception as e:
             logger.error(f"❌ Failed to update run metadata: {e}")

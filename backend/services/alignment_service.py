@@ -15,6 +15,7 @@ import gc
 from alignment.section_normalizer import SectionNormalizer
 from alignment.biopython_engine import BioPythonAlignmentEngine
 from alignment.alignment_utils import check_dependencies
+from services.dossier.event_bus import event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ class AlignmentService:
                                 _json.dump(payload, cf, indent=2, ensure_ascii=False)
                             logger.info(f"💾 Persisted alignment consensus JSON: {consensus_file}")
 
-                            # Update run metadata with alignment consensus
+                            # Update run metadata with alignment consensus and emit refresh event
                             try:
                                 from services.dossier.management_service import DossierManagementService as _DMS
                                 _ms = _DMS()
@@ -154,6 +155,17 @@ class AlignmentService:
                                     }
                                 )
                                 logger.info(f"📝 Updated run metadata for alignment consensus")
+                                # Emit event for UI auto-refresh (non-blocking)
+                                try:
+                                    import asyncio
+                                    asyncio.create_task(event_bus.publish({
+                                        "type": "dossier:update",
+                                        "dossier_id": str(dossier_id),
+                                        "transcription_id": str(transcription_id),
+                                        "event": "alignment_consensus_saved"
+                                    }))
+                                except Exception:
+                                    pass
                             except Exception as meta_err:
                                 logger.warning(f"⚠️ Failed to update run metadata for alignment consensus: {meta_err}")
                         except Exception as se:
