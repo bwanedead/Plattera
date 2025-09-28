@@ -24,8 +24,6 @@ export const useAlignmentState = () => {
       return;
     }
 
-    setAlignmentState(prev => ({ ...prev, isAligning: true }));
-
     try {
       const redundancyAnalysis = selectedResult.result.metadata.redundancy_analysis;
       const individualResults = redundancyAnalysis.individual_results || [];
@@ -49,8 +47,11 @@ export const useAlignmentState = () => {
         }));
 
       if (drafts.length < 2) {
-        throw new Error('At least 2 successful drafts are required for alignment');
+        console.warn('At least 2 successful drafts are required for alignment');
+        return;
       }
+
+      setAlignmentState(prev => ({ ...prev, isAligning: true }));
 
       console.log('🚀 Aligning drafts:', drafts);
       const transcriptionId = selectedResult?.result?.metadata?.transcription_id || undefined;

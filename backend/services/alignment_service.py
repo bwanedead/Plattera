@@ -53,6 +53,14 @@ class AlignmentService:
         start_time = time.time()
         logger.info(f"🚀 ALIGNMENT SERVICE ► Starting workflow for {len(draft_jsons)} drafts")
         
+        # Guard: alignment requires at least two drafts
+        if len(draft_jsons) < 2:
+            return {
+                'success': False,
+                'error': 'At least 2 drafts are required for alignment',
+                'processing_time': time.time() - start_time
+            }
+        
         try:
             # Check dependencies first
             dependencies_available, missing_packages = check_dependencies()

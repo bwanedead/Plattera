@@ -81,6 +81,10 @@ async def align_legal_drafts(request: AlignmentRequest):
     """
     logger.info(f"🧬 BIOPYTHON ALIGNMENT REQUEST ► Processing {len(request.drafts)} drafts")
     
+    # Guard: alignment requires at least two drafts
+    if len(request.drafts) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 drafts are required for alignment")
+    
     try:
         # Convert Pydantic models to dictionaries
         draft_jsons = []

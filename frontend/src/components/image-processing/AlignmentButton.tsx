@@ -7,13 +7,15 @@ interface AlignmentButtonProps {
   onAlign: () => void;
   isAligning: boolean;
   disabled?: boolean;
+  tooltip?: string;
 }
 
 export const AlignmentButton: React.FC<AlignmentButtonProps> = ({
   visible = true,
   onAlign,
   isAligning,
-  disabled = false
+  disabled = false,
+  tooltip
 }) => {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -32,7 +34,11 @@ export const AlignmentButton: React.FC<AlignmentButtonProps> = ({
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
           disabled={disabled || isAligning}
-          title={isAligning ? 'Aligning drafts...' : 'Align drafts for confidence analysis'}
+          title={
+            isAligning
+              ? 'Aligning drafts...'
+              : (disabled ? (tooltip || 'Requires redundancy > 1 (at least 2 drafts) to run alignment') : 'Align drafts for confidence analysis')
+          }
         >
           {isAligning ? '⏳' : '🧬'}
         </button>

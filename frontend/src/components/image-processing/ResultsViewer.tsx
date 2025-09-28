@@ -9,6 +9,7 @@ import { ConfidenceHeatmapViewer } from './ConfidenceHeatmapViewer';
 import { formatJsonPretty } from '../../utils/jsonFormatter';
 import { AlignmentResult, ConfidenceWord } from '../../types/imageProcessing';
 import { FinalDraftSelector } from './FinalDraftSelector';
+import ToolTray from './ToolTray';
 import { DossierManager } from '../dossier/DossierManager';
 import { DossierPath } from '../../types/dossier';
 import { resolveSelectionToText, ResolvedSelection } from '../../services/dossier/selectionResolver';
@@ -106,6 +107,11 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
 
   // Check if current result has multiple drafts for alignment
   const hasMultipleDrafts = selectedResult?.result?.metadata?.redundancy_analysis?.individual_results?.length > 1;
+
+  // Compute if alignment can run: need at least 2 successful raw drafts
+  const individualResults = selectedResult?.result?.metadata?.redundancy_analysis?.individual_results || [];
+  const successfulCount = Array.isArray(individualResults) ? individualResults.filter((r: any) => r && r.success).length : 0;
+  const canAlign = successfulCount > 1;
 
   // Check if this is a dossier-level view (stitched content)
   const isDossierView = selectedResult?.result?.metadata?.service_type === 'dossier' &&
@@ -340,7 +346,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
               </div>
             ) : null}
             {selectedResult && hasSelectedText && (
-              <div className="result-display-area" style={{ position: 'relative' }}>
+              <div className="result-display-area" style={{ position: 'relative', paddingLeft: 40 }}>
                 <CopyButton
                   onCopy={() => {
                     if (activeTab === 'text') {
@@ -366,37 +372,60 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   }}
                 />
 
-                {/* Controls toolbar: absolute, pinned under tabs; always above text viewer */}
-                <div className="results-controls-toolbar" style={{
-                  position: 'absolute',
-                  top: 8,
-                  right: 16,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  zIndex: 2000
-                }}>
-                  {/* Alignment Button - keep highest z-index so it stays clickable */}
-                  <div style={{ position: 'relative', zIndex: 1001 }}>
+                {/* Left column ToolTray aligned with Copy column (Copy remains separate) */}
+                <ToolTray topRem={7.8} leftPx={-48} zIndex={4000}>
+                  {/* Edit */}
+                  <button
+                    className="final-draft-button"
+                    onClick={async () => {
+                      if (isEditing) {
+                        if (onSaveEditedContent) await onSaveEditedContent();
+                        setIsEditing(false);
+                      } else {
+                        setIsEditing(true);
+                      }
+                    }}
+                    title={isEditing ? 'Save edits and close editor' : 'Enable Edit Mode'}
+                  >
+                    {isEditing ? 'Save' : 'Edit'}
+                  </button>
+                  {isEditing && (
+                    <>
+                      <button
+                        className="final-draft-button"
+                        onClick={() => {
+                          if (onResetToOriginal) onResetToOriginal();
+                          setIsEditing(false);
+                        }}
+                        title="Cancel edits and revert to original"
+                        style={{ marginTop: 6 }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="final-draft-button"
+                        onClick={() => { if (onResetToOriginal) onResetToOriginal(); }}
+                        title="Reset current edits to original content"
+                        style={{ marginTop: 6 }}
+                      >
+                        Reset to Original
+                      </button>
+                    </>
+                  )}
+
+                  {/* Alignment */}
+                  <div style={{ height: 36, display: 'flex', alignItems: 'center' }}>
                     <AlignmentButton
                       visible={true}
                       onAlign={onAlign || (() => {})}
                       isAligning={isAligning}
-                      disabled={false}
+                      disabled={!canAlign}
+                      tooltip={!canAlign ? 'Requires redundancy > 1 (at least 2 drafts) to run alignment' : undefined}
                     />
                   </div>
 
-                  <DraftSelector
-                    redundancyAnalysis={
-                      selectedResult.result?.metadata?.redundancy_analysis
-                    }
-                    onDraftSelect={onDraftSelect}
-                    selectedDraft={selectedDraft}
-                    alignmentResult={alignmentResult}
-                  />
-
-                  {/* Final Draft Selector - placed after DraftSelector */}
-                  <div style={{ position: 'relative', zIndex: 1500 }}>
+                  {/* Select Final */}
+                  <div style={{ marginTop: 4 }}>
                     <FinalDraftSelector
                       redundancyAnalysis={selectedResult.result?.metadata?.redundancy_analysis}
                       alignmentResult={alignmentResult}
@@ -410,73 +439,32 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                       editedFromDraft={editableDraftState?.editedFromDraft}
                     />
                   </div>
+                </ToolTray>
+
+                {/* Controls toolbar: absolute, pinned under tabs; always above text viewer */}
+                <div className="results-controls-toolbar" style={{
+                  position: 'absolute',
+                  top: -35,
+                  right: 16,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  zIndex: 2000
+                }}>
+                  <DraftSelector
+                    redundancyAnalysis={
+                      selectedResult.result?.metadata?.redundancy_analysis
+                    }
+                    onDraftSelect={onDraftSelect}
+                    selectedDraft={selectedDraft}
+                    alignmentResult={alignmentResult}
+                  />
                 </div>
 
-                {/* Always-visible Edit Mode controls */}
-                <div className="edit-mode-controls" style={{ display: 'inline-flex', gap: '8px', marginLeft: '12px' }}>
-                  <button
-                    className="edit-mode-toggle"
-                    onClick={async () => {
-                      if (isEditing) {
-                        // Save then close
-                        if (onSaveEditedContent) await onSaveEditedContent();
-                        setIsEditing(false);
-                      } else {
-                        setIsEditing(true);
-                      }
-                    }}
-                    title={isEditing ? 'Save edits and close editor' : 'Enable Edit Mode'}
-                  >
-                    {isEditing ? '💾 Save & Close' : '✏️ Edit Mode'}
-                  </button>
-                  {isEditing && (
-                    <>
-                      <button
-                        className="edit-toggle-button"
-                        onClick={() => {
-                          if (onToggleEditedVersion) onToggleEditedVersion();
-                        }}
-                        title={`Currently showing ${showEditedVersion ? 'edited' : 'original'} version - click to toggle`}
-                      >
-                        {showEditedVersion ? '📝 Edited' : '📄 Original'}
-                      </button>
-                      <div className="edit-controls">
-                        <button
-                          className="edit-control-button"
-                          onClick={onUndoEdit}
-                          disabled={!editableDraftState?.canUndo}
-                          title="Undo last edit"
-                        >
-                          ↶
-                        </button>
-                        <button
-                          className="edit-control-button"
-                          onClick={onRedoEdit}
-                          disabled={!editableDraftState?.canRedo}
-                          title="Redo last edit"
-                        >
-                          ↷
-                        </button>
-                        <button
-                          className="edit-control-button reset"
-                          onClick={onResetToOriginal}
-                          disabled={!editableDraftState?.hasUnsavedChanges}
-                          title="Reset to original"
-                        >
-                          🔄
-                        </button>
-                        <button
-                          className="save-edits-button"
-                          onClick={async () => { if (onSaveEditedContent) await onSaveEditedContent(); }}
-                          disabled={!editableDraftState?.hasUnsavedChanges}
-                          title="Save edits to v2 and set HEAD to v2"
-                        >
-                          💾 Save Edits
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
+                {/* Remove top edit controls clutter; position small spacer just above tabs to prevent overlap */}
+                {isEditing && (
+                  <div style={{ position: 'absolute', top: -12, left: 16, height: 1, width: 1, zIndex: 2000 }} />
+                )}
 
                 {/* Original vs Aligned Text Toggle */}
                 {alignmentResult?.success && (

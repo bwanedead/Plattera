@@ -37,10 +37,8 @@ export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
   const [isSelecting, setIsSelecting] = useState(false);
   const [hasFinalDraft, setHasFinalDraft] = useState(false);
 
-  // Don't show if no redundancy analysis or no alignment result
-  if (!redundancyAnalysis || !alignmentResult?.success) {
-    return null;
-  }
+  // Always render the button; rely on disabled state when insufficient context
+  const isDisabled = isSelecting || isProcessing || !redundancyAnalysis;
 
   const handleSelectFinalDraft = async () => {
     if (isSelecting || isProcessing) return;
@@ -98,24 +96,18 @@ export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
         <button
           className={`final-draft-button ${hasFinalDraft ? 'selected' : ''} ${isSelecting ? 'processing' : ''}`}
           onClick={handleSelectFinalDraft}
-          disabled={isSelecting || isProcessing}
+          disabled={isDisabled}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
-          title={hasFinalDraft 
-            ? `Final draft selected: ${getCurrentDraftLabel()}` 
-            : `Select ${getCurrentDraftLabel()} as final draft`
+          title={
+            hasFinalDraft
+              ? `Final draft selected: ${getCurrentDraftLabel()}`
+              : (isDisabled && !redundancyAnalysis
+                  ? 'Requires redundancy analysis to determine final draft'
+                  : `Select ${getCurrentDraftLabel()} as final draft`)
           }
         >
-          {isSelecting ? (
-            <span className="loading-spinner">⏳</span>
-          ) : hasFinalDraft ? (
-            <span className="final-draft-icon">✅</span>
-          ) : (
-            <span className="final-draft-icon">🎯</span>
-          )}
-          <span className="final-draft-label">
-            {hasFinalDraft ? 'Final Selected' : 'Select Final'}
-          </span>
+          {isSelecting ? 'Selecting…' : (hasFinalDraft ? 'Final Selected' : 'Select Final')}
         </button>
       </AnimatedBorder>
     </div>

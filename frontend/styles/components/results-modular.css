@@ -57,6 +57,8 @@ ORIGINAL results.css is preserved for reference during migration.
 
 /* Final Draft Selector - Coordinates with positioning system */
 @import './results/final-draft-selector.css';
+/* Tool tray overrides: inline flow for controls inside tray */
+@import './results/tool-tray.css';
 
 /*
 🎯 MODULAR ARCHITECTURE COMPLETE
