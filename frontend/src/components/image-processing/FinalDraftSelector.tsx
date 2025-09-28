@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AnimatedBorder } from '../AnimatedBorder';
 import { selectFinalDraftAPI } from '../../services/imageProcessingApi';
 
@@ -35,10 +35,12 @@ export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
-  const [hasFinalDraft, setHasFinalDraft] = useState(false);
+  // Track which draft was selected as final within this session
+  const [selectedFinalDraft, setSelectedFinalDraft] = useState<number | 'consensus' | 'best' | null>(null);
 
   // Always render the button; rely on disabled state when insufficient context
   const isDisabled = isSelecting || isProcessing || !redundancyAnalysis;
+  const hasFinalDraft = useMemo(() => selectedFinalDraft !== null && selectedFinalDraft === selectedDraft, [selectedFinalDraft, selectedDraft]);
 
   const handleSelectFinalDraft = async () => {
     if (isSelecting || isProcessing) return;
@@ -62,7 +64,7 @@ export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
       );
 
       if (result.success) {
-        setHasFinalDraft(true);
+        setSelectedFinalDraft(selectedDraft);
         onFinalDraftSelected?.(result.final_text, result.metadata);
         
         console.log('✅ Final draft selected successfully:', {
