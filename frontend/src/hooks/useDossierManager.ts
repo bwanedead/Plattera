@@ -5,7 +5,7 @@
 // Features: optimistic updates, error recovery, caching, offline support
 // ============================================================================
 
-import { useReducer, useCallback, useEffect, useMemo, useState } from 'react';
+import { useReducer, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useProcessingPoller } from './useProcessingPoller';
 import { Dossier, DossierPath, DossierManagerState, DossierAction, SortOption } from '../types/dossier';
 import { dossierApi, DossierApiError } from '../services/dossier/dossierApi';
@@ -242,6 +242,12 @@ export function useDossierManager() {
     })
   );
 
+  // Pagination state (internal to hook to avoid broad type changes)
+  const PAGE_SIZE = 50;
+  const nextOffsetRef = useRef(0);
+  const isFetchingMoreRef = useRef(false);
+  const [hasMore, setHasMore] = useState(true);
+
   // ============================================================================
   // OPTIMISTIC UPDATE UTILITIES
   // ============================================================================
@@ -318,7 +324,11 @@ export function useDossierManager() {
     dispatch({ type: 'SET_ERROR', payload: { key: 'dossiers', error: null } });
 
     try {
-      const dossiers = await dossierApi.getDossiers();
+      // Reset pagination
+      nextOffsetRef.current = 0;
+      const dossiers = await dossierApi.getDossiers({ limit: PAGE_SIZE, offset: 0 });
+      nextOffsetRef.current = dossiers.length;
+      setHasMore(dossiers.length === PAGE_SIZE);
 
       // Heuristic auto-reconcile: if all drafts appear completed but run status isn't, ask backend to reconcile
       try {
@@ -358,6 +368,27 @@ export function useDossierManager() {
       dispatch({ type: 'SET_LOADING', payload: { key: 'dossiers', loading: false } });
     }
   }, []);
+
+  const loadMoreDossiers = useCallback(async () => {
+    if (isFetchingMoreRef.current || !hasMore) return;
+    isFetchingMoreRef.current = true;
+    try {
+      const offset = nextOffsetRef.current;
+      const more = await dossierApi.getDossiers({ limit: PAGE_SIZE, offset });
+      nextOffsetRef.current = offset + more.length;
+      setHasMore(more.length === PAGE_SIZE);
+      if (more.length > 0) {
+        // Append and dedupe by id
+        const existing = new Set<string>((state.dossiers || []).map(d => d.id));
+        const merged = [...state.dossiers, ...more.filter(d => !existing.has(d.id))];
+        dispatch({ type: 'UPDATE_DOSSIERS', payload: merged });
+      }
+    } catch (e) {
+      // Non-fatal; keep hasMore as-is
+    } finally {
+      isFetchingMoreRef.current = false;
+    }
+  }, [hasMore, state.dossiers]);
 
   // ============================================================================
   // CRUD OPERATIONS
@@ -617,7 +648,11 @@ export function useDossierManager() {
     bulkDelete,
 
     // Utilities
-    executeOptimistically
+    executeOptimistically,
+
+    // Pagination
+    loadMoreDossiers,
+    hasMore
   };
 }
 

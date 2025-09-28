@@ -5,7 +5,7 @@
 // Features: hierarchical navigation, optimistic updates, error recovery
 // ============================================================================
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { dossierHighlightBus } from '../../services/dossier/dossierHighlightBus';
 import { DossierManagerProps, DossierPath } from '../../types/dossier';
 import { useDossierManager, useDossierKeyboardNavigation } from '../../hooks/useDossierManager';
@@ -45,6 +45,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     isLoading,
     hasError,
     loadDossiers,
+    loadMoreDossiers,
     createDossier,
     updateDossier,
     deleteDossier,
@@ -76,45 +77,85 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
 
   // Listen for global dossier refresh events (triggered after processing completes)
   useEffect(() => {
+    // Keep latest loader
+    const loadRef = { current: loadDossiers };
+
+    // Debounced refresh helper
+    const debounceRef = { current: null as number | null };
+    const safeRefresh = () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      debounceRef.current = window.setTimeout(() => {
+        try { loadRef.current(); } catch (e) { console.warn('⚠️ DossierManager: refresh failed', e); }
+      }, 300);
+    };
+
+    // Fallback polling (2.5s) for up to 60s
+    const pollState = { timer: null as number | null, ticks: 0 };
+    const startFallbackPoll = () => {
+      if (pollState.timer) return;
+      pollState.ticks = 0;
+      pollState.timer = window.setInterval(() => {
+        pollState.ticks += 1;
+        try { loadRef.current(); } catch {}
+        if (pollState.ticks >= 24) { // ~60s
+          if (pollState.timer) window.clearInterval(pollState.timer);
+          pollState.timer = null;
+        }
+      }, 2500);
+    };
+
+    // Event bus handler
     const handler = () => {
-      try {
-        loadDossiers();
-      } catch (e) {
-        console.warn('⚠️ DossierManager: failed to refresh dossiers on event', e);
-      }
+      try { safeRefresh(); } catch (e) { console.warn('⚠️ DossierManager: failed to refresh dossiers on event', e); }
     };
     document.addEventListener('dossiers:refresh', handler);
-    // Server-sent events auto-refresh (backend push)
+
+    // Single EventSource instance with auto-reconnect
     let es: EventSource | null = null;
-    try {
-      es = new EventSource('http://localhost:8000/api/dossier/events');
-      es.onmessage = (ev) => {
-        try {
-          const data = JSON.parse(ev.data || '{}');
-          if (data && data.type === 'dossier:update') {
-            loadDossiers();
-          }
-        } catch {}
-      };
-      es.onerror = () => {
-        // On error, close and rely on manual refresh/event bus
-        try { es && es.close(); } catch {}
-        es = null;
-      };
-    } catch {}
+    let reconnectTimer: number | null = null;
+    const connect = () => {
+      try {
+        es = new EventSource('http://localhost:8000/api/dossier/events');
+        es.onmessage = (ev) => {
+          try {
+            const data = JSON.parse(ev.data || '{}');
+            if (data && data.type === 'dossier:update') {
+              safeRefresh();
+            }
+          } catch {}
+        };
+        es.onerror = () => {
+          try { es && es.close(); } catch {}
+          es = null;
+          startFallbackPoll();
+          if (reconnectTimer) window.clearTimeout(reconnectTimer);
+          reconnectTimer = window.setTimeout(() => {
+            if (!es) connect();
+          }, 2000);
+        };
+      } catch {
+        startFallbackPoll();
+        if (reconnectTimer) window.clearTimeout(reconnectTimer);
+        reconnectTimer = window.setTimeout(() => connect(), 2000);
+      }
+    };
+    connect();
+
     // Listen for consensus retry requests dispatched from DraftItem
-    const retryHandler = async (e: Event) => {
-      const ce = e as CustomEvent;
-      console.log('🔁 DossierManager: received consensus:retry event', ce.detail);
-      // Trigger a refresh immediately to reflect placeholder state
-      loadDossiers();
+    const retryHandler = async () => {
+      safeRefresh();
     };
     document.addEventListener('consensus:retry', retryHandler as EventListener);
     return () => {
       document.removeEventListener('dossiers:refresh', handler);
+      document.removeEventListener('consensus:retry', retryHandler as EventListener);
       try { es && es.close(); } catch {}
+      es = null;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (pollState.timer) window.clearInterval(pollState.timer);
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
-  }, [loadDossiers]);
+  }, []);
 
   // ============================================================================
   // SELECTION HANDLING
@@ -341,6 +382,8 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
         onSelectItem={selectItem}
         onDeselectItem={deselectItem}
         onViewRequest={onViewRequest}
+        loadMoreDossiers={loadMoreDossiers}
+        hasMore={true}
       />
 
       {/* Footer with bulk actions */}

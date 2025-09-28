@@ -154,6 +154,23 @@ class ImageToTextQueueService:
                     except Exception:
                         pass
 
+                    # Ensure dossier title updated (fallback to file stem, then consensus if available)
+                    try:
+                        from services.dossier.management_service import DossierManagementService as _DMS2
+                        _ms2 = _DMS2()
+                        from pathlib import Path as _PathT
+                        stem = _PathT((job or {}).get('source_filename') or 'document').stem
+                        if dossier_id:
+                            # Fallback first
+                            _ms2.update_dossier(str(dossier_id), {"title": stem})
+                            # Then override if consensus title exists
+                            ra_for_title = (result or {}).get('metadata', {}).get('redundancy_analysis', {}) or {}
+                            consensus_title = ra_for_title.get('consensus_title')
+                            if consensus_title and str(consensus_title).strip():
+                                _ms2.update_dossier(str(dossier_id), {"title": consensus_title})
+                    except Exception:
+                        pass
+
                     # Create provenance and attach image thumbnails metadata to association for UI
                     try:
                         from api.endpoints.dossier.dossier_utils import create_transcription_provenance

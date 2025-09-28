@@ -290,6 +290,59 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
     setRedundancySettings(newDefaults);
   }, [extractionMode]);
 
+  // Periodic reconciliation while there are active/queued jobs
+  useEffect(() => {
+    const hasActive = processingQueue.some(q => q.status === 'queued' || q.status === 'processing');
+    if (!hasActive) return;
+
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      if (cancelled) return;
+      try {
+        const resp = await fetch('http://localhost:8000/api/image-to-text/jobs');
+        if (!resp.ok) return;
+        const payload = await resp.json();
+        const jobs = (payload?.jobs || []) as Array<{ id: string; status: string; result?: any; error?: string }>;
+        const statusById = new Map(jobs.map(j => [j.id, j]));
+
+        let anyCompleted = false;
+        setProcessingQueue(prev => {
+          const list = prev.map(item => {
+            if (!item.jobId) return item;
+            const j = statusById.get(item.jobId);
+            if (!j) return item;
+            if (j.status === 'SUCCEEDED' && item.status !== 'done') {
+              anyCompleted = true;
+              return { ...item, status: 'done' };
+            }
+            if ((j.status === 'FAILED' || j.status === 'CANCELED') && item.status !== 'error') {
+              return { ...item, status: 'error' };
+            }
+            return item;
+          });
+
+          const hasProcessing = list.some(i => i.status === 'processing');
+          if (!hasProcessing) {
+            const idxNext = list.findIndex(i => i.status === 'queued');
+            if (idxNext >= 0) list[idxNext] = { ...list[idxNext], status: 'processing' };
+          }
+          return list;
+        });
+
+        if (anyCompleted) {
+          document.dispatchEvent(new Event('dossiers:refresh'));
+        }
+      } catch {
+        // ignore; next tick will retry
+      }
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [processingQueue]);
+
   return {
     // State
     stagedFiles,

@@ -8,3 +8,4 @@ import os
 IMAGE_TO_TEXT_BATCH_MAX: int = int(os.getenv("IMAGE_TO_TEXT_BATCH_MAX", "20"))
 
 
+

@@ -5,7 +5,7 @@
 // Features: virtual scrolling, lazy loading, efficient re-rendering
 // ============================================================================
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { dossierHighlightBus } from '../../services/dossier/dossierHighlightBus';
 import { Dossier, DossierPath } from '../../types/dossier';
 import { DossierItem } from './items/DossierItem';
@@ -24,6 +24,8 @@ interface DossierListProps {
   onSelectItem: (itemId: string) => void;
   onDeselectItem: (itemId: string) => void;
   onViewRequest?: (path: DossierPath) => void;
+  loadMoreDossiers?: () => void;
+  hasMore?: boolean;
 }
 
 export const DossierList: React.FC<DossierListProps> = ({
@@ -39,7 +41,9 @@ export const DossierList: React.FC<DossierListProps> = ({
   onItemAction,
   onSelectItem,
   onDeselectItem,
-  onViewRequest
+  onViewRequest,
+  loadMoreDossiers,
+  hasMore
 }) => {
   // Note: Do not block render during loading; show current contents and let updates stream in.
 
@@ -95,6 +99,22 @@ export const DossierList: React.FC<DossierListProps> = ({
     }
   };
 
+  // IntersectionObserver for infinite scroll
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!loadMoreDossiers) return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (entry.isIntersecting) {
+        loadMoreDossiers();
+      }
+    }, { root: null, rootMargin: '200px', threshold: 0 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMoreDossiers, dossiers.length]);
+
   return (
     <div className="dossier-list" onClick={handleBackgroundClick}>
       <div className="dossier-items-container">
@@ -129,15 +149,11 @@ export const DossierList: React.FC<DossierListProps> = ({
         ))}
       </div>
 
-      {/* Load more indicator for future pagination */}
-      {dossiers.length >= 50 && (
-        <div className="dossier-load-more">
-          <button
-            className="load-more-btn"
-            onClick={() => onItemAction('load_more')}
-          >
-            Load More Dossiers
-          </button>
+      {/* Infinite scroll sentinel */}
+      <div ref={sentinelRef} style={{ height: 1 }} />
+      {hasMore === false && dossiers.length > 0 && (
+        <div className="dossier-load-more" style={{ opacity: 0.6 }}>
+          <span>All dossiers loaded</span>
         </div>
       )}
     </div>

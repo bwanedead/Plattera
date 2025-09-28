@@ -23,8 +23,12 @@ class DossierApiClient {
   // CORE CRUD OPERATIONS
   // ============================================================================
 
-  async getDossiers(): Promise<Dossier[]> {
-    const response = await this.request<any>('/dossier-management/list');
+  async getDossiers(params?: { limit?: number; offset?: number }): Promise<Dossier[]> {
+    const qs = new URLSearchParams();
+    if (params?.limit != null) qs.set('limit', String(params.limit));
+    if (params?.offset != null) qs.set('offset', String(params.offset));
+    const endpoint = qs.toString() ? `/dossier-management/list?${qs.toString()}` : '/dossier-management/list';
+    const response = await this.request<any>(endpoint);
     return response.dossiers || [];
   }
 
