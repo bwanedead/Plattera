@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 import json
 from datetime import datetime
+import shutil
 
 
 class EditPersistenceService:
@@ -164,4 +165,98 @@ class EditPersistenceService:
 		self.set_raw_head(dossier_id, transcription_id, "v2")
 		return True, "v2"
 
+	def save_draft_v2(self, dossier_id: str, transcription_id: str, draft_index: int,
+	                  edited_text: Optional[str] = None, edited_sections: Optional[Any] = None) -> Tuple[bool, str]:
+		"""
+		Per-draft edit save:
+		- Backup current per-draft HEAD to .v1.json if not already backed up
+		- Write edited content to .v2.json
+		- Overwrite per-draft HEAD file ({tid}_v{n}.json) with edited content
+		- Update head.json raw_heads map for this draft to 'v2'
+		"""
+		raw_dir = self._raw_dir(dossier_id, transcription_id)
+		raw_dir.mkdir(parents=True, exist_ok=True)
+		n = int(draft_index) + 1
+		base = raw_dir / f"{transcription_id}_v{n}.json"
+		v1_backup = raw_dir / f"{transcription_id}_v{n}.v1.json"
+		v2_file = raw_dir / f"{transcription_id}_v{n}.v2.json"
 
+		# Build payload
+		if edited_sections is not None and isinstance(edited_sections, list):
+			payload = {
+				"documentId": "edited",
+				"sections": edited_sections,
+				"_status": "completed",
+				"_draft_index": draft_index,
+				"_updated_at": datetime.utcnow().isoformat()
+			}
+		else:
+			text = edited_text or ""
+			payload = {
+				"documentId": "edited",
+				"sections": [{"id": 1, "body": text}],
+				"_status": "completed",
+				"_draft_index": draft_index,
+				"_updated_at": datetime.utcnow().isoformat()
+			}
+
+		# Backup v1 if not present
+		try:
+			if base.exists() and not v1_backup.exists():
+				shutil.copyfile(base, v1_backup)
+		except Exception:
+			pass
+
+		# Write v2 and update per-draft HEAD pointer
+		self._write_json(v2_file, payload)
+		self._write_json(base, payload)
+
+		# Update head.json: per-draft heads map
+		head = self._ensure_head(dossier_id, transcription_id)
+		if "raw_heads" not in head:
+			head["raw_heads"] = {}
+		draft_key = f"{transcription_id}_v{n}"
+		head["raw_heads"][draft_key] = "v2"
+		self._write_json(self._head_file(dossier_id, transcription_id), head)
+
+		return True, "v2"
+
+	def revert_draft_to_v1(self, dossier_id: str, transcription_id: str, draft_index: int, purge: bool = False) -> bool:
+		"""
+		Per-draft revert:
+		- If .v1.json exists, copy it back into per-draft HEAD ({tid}_v{n}.json)
+		- Optionally delete .v2.json
+		- Update head.json raw_heads map for this draft to 'v1'
+		"""
+		raw_dir = self._raw_dir(dossier_id, transcription_id)
+		n = int(draft_index) + 1
+		base = raw_dir / f"{transcription_id}_v{n}.json"
+		v1_backup = raw_dir / f"{transcription_id}_v{n}.v1.json"
+		v2_file = raw_dir / f"{transcription_id}_v{n}.v2.json"
+
+		if not v1_backup.exists():
+			# No backup to revert to
+			return False
+
+		try:
+			with open(v1_backup, "r", encoding="utf-8") as f:
+				data = json.load(f)
+			self._write_json(base, data)
+		except Exception:
+			return False
+
+		if purge:
+			try:
+				if v2_file.exists():
+					v2_file.unlink()
+			except Exception:
+				pass
+
+		# Update head.json map
+		head = self._ensure_head(dossier_id, transcription_id)
+		if "raw_heads" not in head:
+			head["raw_heads"] = {}
+		draft_key = f"{transcription_id}_v{n}"
+		head["raw_heads"][draft_key] = "v1"
+		self._write_json(self._head_file(dossier_id, transcription_id), head)
+		return True

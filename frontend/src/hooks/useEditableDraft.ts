@@ -43,16 +43,9 @@ export const useEditableDraft = (
   selectedDraft: number | 'consensus' | 'best',
   selectedConsensusStrategy: string
 ) => {
-  // ============================================================================
-  // ARCHITECTURAL LIMITATION: Editing only supported for redundancy=1
-  // ============================================================================
-  // Check if this is a multi-draft (redundancy > 1) scenario
+  // Draft context (for logging/UI; editing allowed regardless of redundancy)
   const redundancyCount = selectedResult?.result?.metadata?.redundancy_analysis?.count || 1;
   const isMultiDraft = redundancyCount > 1;
-  
-  if (isMultiDraft) {
-    console.warn(`⚠️ EDIT LIMITATION: Redundancy=${redundancyCount}. Editing not supported for multi-draft transcriptions due to architectural limitation. See DRAFT_VERSIONING_ARCHITECTURE_ISSUE.md`);
-  }
   
   // Get text using alignment tokens when available, fallback to clean text
   const originalText = useMemo(() => {
@@ -192,10 +185,9 @@ export const useEditableDraft = (
 
   // Apply edit function
   const applyEdit = useCallback((blockIndex: number, tokenIndex: number, newValue: string, alternatives?: string[]) => {
-    // Guard against editing multi-draft transcriptions
-    if (isMultiDraft) {
-      console.warn('❌ Cannot apply edit: Multi-draft editing not supported');
-      alert('Editing is currently only supported for single-draft transcriptions.\n\nThis transcription has ' + redundancyCount + ' drafts. Please select a specific draft version or wait for the upcoming multi-draft editing feature.');
+    // Ensure a specific raw draft is selected for edits
+    if (typeof selectedDraft !== 'number') {
+      alert('Please select a specific raw draft before editing.');
       return;
     }
     console.log('🎯 Applying edit:', { blockIndex, tokenIndex, newValue, selectedDraft });
@@ -367,10 +359,9 @@ export const useEditableDraft = (
 
   // Reset to original - with backend integration and confirmation
   const resetToOriginal = useCallback(async () => {
-    // Guard against resetting multi-draft transcriptions
-    if (isMultiDraft) {
-      console.warn('❌ Cannot reset: Multi-draft editing not supported');
-      alert('Resetting is currently only supported for single-draft transcriptions.\n\nThis transcription has ' + redundancyCount + ' drafts. The edit versioning system needs to be updated to support per-draft versioning.');
+    // Ensure a specific raw draft is selected for reset
+    if (typeof selectedDraft !== 'number') {
+      alert('Please select a specific raw draft to reset.');
       return;
     }
     
@@ -428,14 +419,15 @@ export const useEditableDraft = (
     }));
     console.log('✅ Frontend state reset complete');
 
-    // Call backend to revert HEAD to v1 and purge v2
+    // Call backend to revert per-draft HEAD to v1 and purge v2
     if (dossierId && transcriptionId) {
       try {
         console.log('🔄 Calling backend revert API...');
         await revertToV1API({
           dossierId: String(dossierId),
           transcriptionId: String(transcriptionId),
-          purge: true // Delete v2 files completely
+          purge: true, // Delete v2 files completely
+          draftIndex: selectedDraft as number
         });
         console.log('✅ Backend revert successful - v2 deleted, HEAD now points to v1');
         
@@ -510,16 +502,16 @@ export const useEditableDraft = (
     redoEdit,
     resetToOriginal,
     saveAsOriginal,
-    canUndo: editableDraftState.currentHistoryIndex >= 0 && !isMultiDraft,
-    canRedo: editableDraftState.currentHistoryIndex < editableDraftState.editHistory.length - 1 && !isMultiDraft,
+    canUndo: editableDraftState.currentHistoryIndex >= 0,
+    canRedo: editableDraftState.currentHistoryIndex < editableDraftState.editHistory.length - 1,
     getCurrentDisplayText,
     originalText, // Export for debugging
-    isMultiDraft, // Export limitation flag for UI
-    redundancyCount, // Export for UI messaging
+    isMultiDraft, // For UI messaging only
+    redundancyCount, // For UI messaging only
     setEditedContent: (text: string) => {
-      // Guard against editing multi-draft transcriptions
-      if (isMultiDraft) {
-        console.warn('❌ Cannot set edited content: Multi-draft editing not supported');
+      // Require a specific raw draft is selected
+      if (typeof selectedDraft !== 'number') {
+        alert('Please select a specific raw draft before editing.');
         return;
       }
       const blocks = extractBlockTexts(text);

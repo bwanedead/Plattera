@@ -12,7 +12,8 @@ async def save_raw_edit(
 	dossier_id: str = Form(...),
 	transcription_id: str = Form(...),
 	edited_text: Optional[str] = Form(None),
-	edited_sections: Optional[str] = Form(None)
+	edited_sections: Optional[str] = Form(None),
+	draft_index: Optional[int] = Form(None)
 ):
 	try:
 		svc = EditPersistenceService()
@@ -23,7 +24,10 @@ async def save_raw_edit(
 			except Exception:
 				sections = None
 
-		ok, head = svc.save_raw_v2(dossier_id, transcription_id, edited_text=edited_text, edited_sections=sections)
+		if draft_index is not None:
+			ok, head = svc.save_draft_v2(dossier_id, transcription_id, int(draft_index), edited_text=edited_text, edited_sections=sections)
+		else:
+			ok, head = svc.save_raw_v2(dossier_id, transcription_id, edited_text=edited_text, edited_sections=sections)
 		if not ok:
 			raise HTTPException(status_code=500, detail="Failed to save v2")
 		return {"success": True, "raw_head": head}

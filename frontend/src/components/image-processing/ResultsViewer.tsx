@@ -526,7 +526,6 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                       }
                     }}
                     title={isEditing ? 'Save edits and close editor' : 'Enable Edit Mode'}
-                    disabled={(editableDraftState as any)?.isMultiDraft}
                   >
                     {isEditing ? 'Save' : 'Edit'}
                   </button>

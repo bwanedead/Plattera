@@ -24,10 +24,14 @@ async def set_raw_head(
 async def revert_to_v1(
 	dossier_id: str = Form(...),
 	transcription_id: str = Form(...),
-	purge: Optional[bool] = Form(False)
+	purge: Optional[bool] = Form(False),
+	draft_index: Optional[int] = Form(None)
 ):
 	svc = EditPersistenceService()
-	ok = svc.revert_to_v1(dossier_id, transcription_id, purge=bool(purge))
+	if draft_index is not None:
+		ok = svc.revert_draft_to_v1(dossier_id, transcription_id, int(draft_index), purge=bool(purge))
+	else:
+		ok = svc.revert_to_v1(dossier_id, transcription_id, purge=bool(purge))
 	if not ok:
 		raise HTTPException(status_code=404, detail="v1 not found")
 	return {"success": True}

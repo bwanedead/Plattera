@@ -193,6 +193,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       alert('Missing dossier or transcription context.');
       return;
     }
+    if (typeof selectedDraft !== 'number') {
+      alert('Please select a specific raw draft to save edits.');
+      return;
+    }
 
     const blocks = editableDraft.editableDraftState.editedDraft.blockTexts;
     const sections = (blocks && blocks.length > 0)
@@ -203,7 +207,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       await saveDossierEditAPI({
         dossierId: String(dossierId),
         transcriptionId: String(transcriptionId),
-        editedSections: sections
+        editedSections: sections,
+        draftIndex: selectedDraft
       });
       console.log('✅ Saved v2 and updated HEAD to v2');
       alignmentState.resetAlignmentState();

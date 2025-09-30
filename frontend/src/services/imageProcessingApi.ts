@@ -242,6 +242,7 @@ export const saveDossierEditAPI = async (params: {
   transcriptionId: string;
   editedText?: string;
   editedSections?: Array<{ id: number | string; body: string }>;
+  draftIndex?: number; // NEW
 }): Promise<{ success: boolean; raw_head: string }> => {
   const formData = new FormData();
   formData.append('dossier_id', params.dossierId);
@@ -250,6 +251,9 @@ export const saveDossierEditAPI = async (params: {
     formData.append('edited_sections', JSON.stringify(params.editedSections));
   } else {
     formData.append('edited_text', params.editedText || '');
+  }
+  if (typeof params.draftIndex === 'number') {
+    formData.append('draft_index', String(params.draftIndex));
   }
 
   const response = await fetch('http://localhost:8000/api/dossier/edits/save', {
@@ -273,12 +277,16 @@ export const revertToV1API = async (params: {
   dossierId: string;
   transcriptionId: string;
   purge?: boolean;
+  draftIndex?: number; // NEW
 }): Promise<{ success: boolean }> => {
   const formData = new FormData();
   formData.append('dossier_id', params.dossierId);
   formData.append('transcription_id', params.transcriptionId);
   if (params.purge) {
     formData.append('purge', 'true');
+  }
+  if (typeof params.draftIndex === 'number') {
+    formData.append('draft_index', String(params.draftIndex));
   }
 
   const response = await fetch('http://localhost:8000/api/dossier/versions/revert-to-v1', {
