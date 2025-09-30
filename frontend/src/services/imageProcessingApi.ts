@@ -262,3 +262,34 @@ export const saveDossierEditAPI = async (params: {
   }
   return response.json();
 };
+
+// --- Dossier Version Management API ---
+
+/**
+ * Revert a draft to its original v1 state
+ * This sets HEAD back to v1 and optionally purges v2 files
+ */
+export const revertToV1API = async (params: {
+  dossierId: string;
+  transcriptionId: string;
+  purge?: boolean;
+}): Promise<{ success: boolean }> => {
+  const formData = new FormData();
+  formData.append('dossier_id', params.dossierId);
+  formData.append('transcription_id', params.transcriptionId);
+  if (params.purge) {
+    formData.append('purge', 'true');
+  }
+
+  const response = await fetch('http://localhost:8000/api/dossier/versions/revert-to-v1', {
+    method: 'POST',
+    body: formData
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`HTTP ${response.status}: ${errorText}`);
+  }
+
+  return response.json();
+};

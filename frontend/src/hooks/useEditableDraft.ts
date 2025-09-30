@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { AlignmentResult } from '../types/imageProcessing';
 import { getCurrentText, getRawText } from '../utils/textSelectionUtils';
 import { extractCleanText } from '../utils/jsonFormatter';
+import { revertToV1API } from '../services/imageProcessingApi';
 
 interface EditOperation {
   id: string;
@@ -42,6 +43,17 @@ export const useEditableDraft = (
   selectedDraft: number | 'consensus' | 'best',
   selectedConsensusStrategy: string
 ) => {
+  // ============================================================================
+  // ARCHITECTURAL LIMITATION: Editing only supported for redundancy=1
+  // ============================================================================
+  // Check if this is a multi-draft (redundancy > 1) scenario
+  const redundancyCount = selectedResult?.result?.metadata?.redundancy_analysis?.count || 1;
+  const isMultiDraft = redundancyCount > 1;
+  
+  if (isMultiDraft) {
+    console.warn(`⚠️ EDIT LIMITATION: Redundancy=${redundancyCount}. Editing not supported for multi-draft transcriptions due to architectural limitation. See DRAFT_VERSIONING_ARCHITECTURE_ISSUE.md`);
+  }
+  
   // Get text using alignment tokens when available, fallback to clean text
   const originalText = useMemo(() => {
     if (!selectedResult) return '';
@@ -180,6 +192,12 @@ export const useEditableDraft = (
 
   // Apply edit function
   const applyEdit = useCallback((blockIndex: number, tokenIndex: number, newValue: string, alternatives?: string[]) => {
+    // Guard against editing multi-draft transcriptions
+    if (isMultiDraft) {
+      console.warn('❌ Cannot apply edit: Multi-draft editing not supported');
+      alert('Editing is currently only supported for single-draft transcriptions.\n\nThis transcription has ' + redundancyCount + ' drafts. Please select a specific draft version or wait for the upcoming multi-draft editing feature.');
+      return;
+    }
     console.log('🎯 Applying edit:', { blockIndex, tokenIndex, newValue, selectedDraft });
     
     setEditableDraftState(prevState => {
@@ -347,8 +365,56 @@ export const useEditableDraft = (
     });
   }, [selectedDraft]);
 
-  // Reset to original
-  const resetToOriginal = useCallback(() => {
+  // Reset to original - with backend integration and confirmation
+  const resetToOriginal = useCallback(async () => {
+    // Guard against resetting multi-draft transcriptions
+    if (isMultiDraft) {
+      console.warn('❌ Cannot reset: Multi-draft editing not supported');
+      alert('Resetting is currently only supported for single-draft transcriptions.\n\nThis transcription has ' + redundancyCount + ' drafts. The edit versioning system needs to be updated to support per-draft versioning.');
+      return;
+    }
+    
+    console.log('🔴 RESET TO ORIGINAL BUTTON CLICKED');
+    console.log('🔍 Current state:', {
+      hasUnsavedChanges: editableDraftState.hasUnsavedChanges,
+      editHistoryLength: editableDraftState.editHistory.length,
+      editedFromDraft: editableDraftState.editedFromDraft,
+      originalLength: editableDraftState.originalDraft.content.length,
+      editedLength: editableDraftState.editedDraft.content.length,
+      contentsMatch: editableDraftState.originalDraft.content === editableDraftState.editedDraft.content
+    });
+
+    const hasUnsavedChanges = editableDraftState.hasUnsavedChanges;
+    const hasSavedEdits = editableDraftState.originalDraft.content !== editableDraftState.editedDraft.content;
+    const hasAnyEdits = hasUnsavedChanges || hasSavedEdits;
+    
+    console.log('🔍 Edit status:', { hasUnsavedChanges, hasSavedEdits, hasAnyEdits });
+    
+    // ALWAYS show confirmation dialog if there are any edits (saved or unsaved)
+    // This catches the case where user saved v2 in previous session
+    if (hasAnyEdits) {
+      console.log('⚠️ Showing confirmation dialog - edits will be lost');
+      const confirmed = window.confirm(
+        'Are you sure you want to reset to the original?\n\n' +
+        'This will permanently delete all edits (including previously saved edits) and restore the original version.'
+      );
+      if (!confirmed) {
+        console.log('❌ User cancelled reset');
+        return;
+      }
+      console.log('✅ User confirmed reset');
+    } else {
+      console.log('ℹ️ No edits detected - proceeding without confirmation');
+    }
+
+    // Extract backend context
+    const dossierId = selectedResult?.result?.metadata?.dossier_id;
+    const transcriptionId = selectedResult?.result?.metadata?.transcription_id;
+    
+    console.log('📋 Context:', { dossierId, transcriptionId });
+
+    // Optimistically reset frontend state
+    console.log('🔄 Resetting frontend state...');
     setEditableDraftState(prevState => ({
       ...prevState,
       editedDraft: {
@@ -360,7 +426,47 @@ export const useEditableDraft = (
       hasUnsavedChanges: false,
       editedFromDraft: null
     }));
-  }, []);
+    console.log('✅ Frontend state reset complete');
+
+    // Call backend to revert HEAD to v1 and purge v2
+    if (dossierId && transcriptionId) {
+      try {
+        console.log('🔄 Calling backend revert API...');
+        await revertToV1API({
+          dossierId: String(dossierId),
+          transcriptionId: String(transcriptionId),
+          purge: true // Delete v2 files completely
+        });
+        console.log('✅ Backend revert successful - v2 deleted, HEAD now points to v1');
+        
+        // Force a re-fetch of the current draft to show v1 content
+        // Instead of refreshing entire dossier (which causes scroll jump)
+        console.log('🔄 Triggering focused refresh...');
+        try {
+          // Dispatch a custom event with the specific draft info
+          const event = new CustomEvent('draft:reverted', {
+            detail: { dossierId, transcriptionId }
+          });
+          document.dispatchEvent(event);
+          console.log('✅ Draft revert event dispatched');
+        } catch (e) {
+          console.warn('⚠️ Could not dispatch draft revert event:', e);
+        }
+        
+      } catch (error) {
+        console.error('❌ Backend revert failed:', error);
+        alert(
+          `Warning: Local edits were cleared but backend revert failed.\n\n${
+            error instanceof Error ? error.message : String(error)
+          }\n\nYou may need to refresh the page.`
+        );
+      }
+    } else {
+      console.warn('⚠️ Missing dossier or transcription context - backend revert skipped');
+    }
+    
+    console.log('🏁 Reset to original complete');
+  }, [editableDraftState, selectedResult, isMultiDraft, redundancyCount]);
 
   // Save current state as new original
   const saveAsOriginal = useCallback(() => {
@@ -404,11 +510,18 @@ export const useEditableDraft = (
     redoEdit,
     resetToOriginal,
     saveAsOriginal,
-    canUndo: editableDraftState.currentHistoryIndex >= 0,
-    canRedo: editableDraftState.currentHistoryIndex < editableDraftState.editHistory.length - 1,
+    canUndo: editableDraftState.currentHistoryIndex >= 0 && !isMultiDraft,
+    canRedo: editableDraftState.currentHistoryIndex < editableDraftState.editHistory.length - 1 && !isMultiDraft,
     getCurrentDisplayText,
     originalText, // Export for debugging
+    isMultiDraft, // Export limitation flag for UI
+    redundancyCount, // Export for UI messaging
     setEditedContent: (text: string) => {
+      // Guard against editing multi-draft transcriptions
+      if (isMultiDraft) {
+        console.warn('❌ Cannot set edited content: Multi-draft editing not supported');
+        return;
+      }
       const blocks = extractBlockTexts(text);
       setEditableDraftState(prev => ({
         ...prev,

@@ -99,21 +99,46 @@ export const DossierList: React.FC<DossierListProps> = ({
     }
   };
 
-  // IntersectionObserver for infinite scroll
+  // IntersectionObserver for infinite scroll (fixed implementation)
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const isLoadingMoreRef = useRef(false);
+  
   useEffect(() => {
-    if (!loadMoreDossiers) return;
+    if (!loadMoreDossiers || !hasMore) return;
+    
     const el = sentinelRef.current;
     if (!el) return;
-    const observer = new IntersectionObserver((entries) => {
-      const entry = entries[0];
-      if (entry.isIntersecting) {
-        loadMoreDossiers();
+    
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        // Only trigger if intersecting AND not currently loading AND more items available
+        if (entry.isIntersecting && !isLoadingMoreRef.current && hasMore) {
+          console.log('📜 Dossier list sentinel intersecting - loading more...');
+          isLoadingMoreRef.current = true;
+          
+          loadMoreDossiers();
+          
+          // Reset loading flag after a delay to prevent rapid-fire calls
+          setTimeout(() => {
+            isLoadingMoreRef.current = false;
+          }, 500);
+        }
+      },
+      { 
+        root: null, 
+        rootMargin: '400px', // Increased buffer for smoother loading
+        threshold: 0 
       }
-    }, { root: null, rootMargin: '200px', threshold: 0 });
+    );
+    
     observer.observe(el);
-    return () => observer.disconnect();
-  }, [loadMoreDossiers, dossiers.length]);
+    
+    return () => {
+      observer.disconnect();
+      isLoadingMoreRef.current = false;
+    };
+  }, [loadMoreDossiers, hasMore]); // Removed dossiers.length dependency to prevent re-creation
 
   return (
     <div className="dossier-list" onClick={handleBackgroundClick}>
@@ -150,10 +175,21 @@ export const DossierList: React.FC<DossierListProps> = ({
       </div>
 
       {/* Infinite scroll sentinel */}
-      <div ref={sentinelRef} style={{ height: 1 }} />
-      {hasMore === false && dossiers.length > 0 && (
-        <div className="dossier-load-more" style={{ opacity: 0.6 }}>
-          <span>All dossiers loaded</span>
+      {hasMore && (
+        <div ref={sentinelRef} style={{ height: 1, width: '100%' }} />
+      )}
+      
+      {/* Loading indicator */}
+      {isLoading && hasMore && dossiers.length > 0 && (
+        <div className="dossier-load-more" style={{ padding: '12px', textAlign: 'center', opacity: 0.7 }}>
+          <span>Loading more dossiers...</span>
+        </div>
+      )}
+      
+      {/* End of list indicator */}
+      {!hasMore && dossiers.length > 0 && (
+        <div className="dossier-load-more" style={{ padding: '12px', textAlign: 'center', opacity: 0.6 }}>
+          <span>✓ All dossiers loaded ({dossiers.length} total)</span>
         </div>
       )}
     </div>

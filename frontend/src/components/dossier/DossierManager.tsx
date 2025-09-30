@@ -46,6 +46,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     hasError,
     loadDossiers,
     loadMoreDossiers,
+    hasMore,
     createDossier,
     updateDossier,
     deleteDossier,
@@ -383,7 +384,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
         onDeselectItem={deselectItem}
         onViewRequest={onViewRequest}
         loadMoreDossiers={loadMoreDossiers}
-        hasMore={true}
+        hasMore={hasMore}
       />
 
       {/* Footer with bulk actions */}

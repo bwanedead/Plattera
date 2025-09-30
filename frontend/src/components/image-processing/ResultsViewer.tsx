@@ -124,6 +124,128 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
     }
   }, [selectedResult]);
 
+  // Listen for draft revert events to reload the current draft
+  React.useEffect(() => {
+    const handleDraftReverted = async (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const { dossierId, transcriptionId } = customEvent.detail || {};
+      
+      console.log('🔄 Draft reverted event received:', { dossierId, transcriptionId });
+      
+      // Check if this revert affects the currently displayed draft
+      const currentDossierId = selectedResult?.result?.metadata?.dossier_id;
+      const currentTranscriptionId = selectedResult?.result?.metadata?.transcription_id;
+      
+      if (dossierId === currentDossierId && transcriptionId === currentTranscriptionId) {
+        console.log('✅ Revert affects current draft - reloading from dossier manager');
+        
+        // Re-trigger the view request for the current display path to force reload
+        if (currentDisplayPath) {
+          console.log('🔄 Re-requesting view for path:', currentDisplayPath);
+          
+          // Import the resolver here to avoid circular dependencies
+          const { resolveSelectionToText } = await import('../../services/dossier/selectionResolver');
+          const { textApi } = await import('../../services/textApi');
+          
+          try {
+            const resolved = await resolveSelectionToText(currentDisplayPath, undefined);
+            
+            // Rebuild the result with fresh data from v1
+            const path = currentDisplayPath;
+            const isDossierLevel = !path.segmentId && !path.runId && !path.draftId;
+            
+            if (!isDossierLevel && path.draftId) {
+              // Re-fetch the draft data
+              const allDrafts = resolved.context?.run?.drafts || [];
+              const rawDrafts = allDrafts.filter(d => !d.id.endsWith('_consensus_llm') && !d.id.endsWith('_consensus_alignment'));
+              
+              // Fetch fresh JSON for all drafts
+              const draftIds = allDrafts.map(d => d.id);
+              const jsonStrings: string[] = [];
+              const cleanTexts: string[] = [];
+              
+              for (const draftId of draftIds) {
+                try {
+                  const js = await textApi.getDraftJson(transcriptionId, draftId, dossierId);
+                  jsonStrings.push(typeof js === 'string' ? js : JSON.stringify(js));
+                } catch {
+                  jsonStrings.push('');
+                }
+                try {
+                  const text = await textApi.getDraftText(transcriptionId, draftId, dossierId);
+                  cleanTexts.push(text || '');
+                } catch {
+                  cleanTexts.push('');
+                }
+              }
+              
+              // Rebuild individual_results
+              const individual_results = rawDrafts.map((draft, i) => {
+                const draftIndexInAll = allDrafts.findIndex(d => d.id === draft.id);
+                return {
+                  success: true,
+                  text: jsonStrings[draftIndexInAll] || '',
+                  display_text: cleanTexts[draftIndexInAll] || '',
+                  model: 'dossier-selection',
+                  confidence: 1.0,
+                  draft_index: i
+                };
+              });
+              
+              // Find selected draft index
+              const selectedDraftId = path.draftId;
+              const isConsensus = selectedDraftId?.endsWith('_consensus_llm') || selectedDraftId?.endsWith('_consensus_alignment');
+              const selectedIndex = isConsensus ? 'consensus' : Math.max(0, rawDrafts.findIndex(d => d.id === selectedDraftId));
+              
+              const displayJsonStr = isConsensus 
+                ? (jsonStrings[allDrafts.findIndex(d => d.id === selectedDraftId)] || '')
+                : (jsonStrings[allDrafts.findIndex(d => d.id === rawDrafts[selectedIndex as number]?.id)] || '');
+              
+              const syntheticResult = {
+                input: 'Dossier Selection (Reloaded)',
+                status: 'completed' as const,
+                result: {
+                  extracted_text: displayJsonStr,
+                  metadata: {
+                    model_used: 'dossier-selection',
+                    service_type: 'dossier',
+                    is_imported_draft: true,
+                    selected_draft_index: typeof selectedIndex === 'number' ? selectedIndex : undefined,
+                    is_consensus_selected: isConsensus,
+                    transcription_id: transcriptionId,
+                    dossier_id: dossierId,
+                    redundancy_analysis: {
+                      enabled: false,
+                      count: rawDrafts.length,
+                      individual_results,
+                      consensus_text: resolved.text || ''
+                    }
+                  }
+                }
+              };
+              
+              console.log('✅ Reloaded draft result:', syntheticResult);
+              onSelectResult(syntheticResult);
+              console.log('✅ Draft view refreshed with v1 content');
+            }
+          } catch (error) {
+            console.error('❌ Failed to reload draft after revert:', error);
+          }
+        } else {
+          console.warn('⚠️ No currentDisplayPath to reload - draft may not refresh properly');
+        }
+      } else {
+        console.log('ℹ️ Revert does not affect current draft - ignoring');
+      }
+    };
+    
+    document.addEventListener('draft:reverted', handleDraftReverted);
+    
+    return () => {
+      document.removeEventListener('draft:reverted', handleDraftReverted);
+    };
+  }, [selectedResult, currentDisplayPath, onSelectResult]);
+
   // Text update handler from editing functionality
   const handleTextUpdate = (newText: string) => {
     if (onTextUpdate) {
@@ -372,6 +494,24 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   }}
                 />
 
+                {/* Multi-draft editing limitation warning */}
+                {editableDraftState && (editableDraftState as any).isMultiDraft && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '1rem',
+                    left: '16px',
+                    right: '16px',
+                    padding: '8px 12px',
+                    background: '#fff3cd',
+                    border: '1px solid #ffc107',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    zIndex: 1000
+                  }}>
+                    ⚠️ <strong>Note:</strong> Editing currently only supported for single-draft transcriptions. This has {(editableDraftState as any).redundancyCount} drafts.
+                  </div>
+                )}
+
                 {/* Left column ToolTray aligned with Copy column (Copy remains separate) */}
                 <ToolTray topRem={7.8} leftPx={-48} zIndex={4000}>
                   {/* Edit */}
@@ -386,6 +526,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                       }
                     }}
                     title={isEditing ? 'Save edits and close editor' : 'Enable Edit Mode'}
+                    disabled={(editableDraftState as any)?.isMultiDraft}
                   >
                     {isEditing ? 'Save' : 'Edit'}
                   </button>
@@ -393,8 +534,8 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                     <>
                       <button
                         className="final-draft-button"
-                        onClick={() => {
-                          if (onResetToOriginal) onResetToOriginal();
+                        onClick={async () => {
+                          if (onResetToOriginal) await onResetToOriginal();
                           setIsEditing(false);
                         }}
                         title="Cancel edits and revert to original"
@@ -404,8 +545,10 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                       </button>
                       <button
                         className="final-draft-button"
-                        onClick={() => { if (onResetToOriginal) onResetToOriginal(); }}
-                        title="Reset current edits to original content"
+                        onClick={async () => { 
+                          if (onResetToOriginal) await onResetToOriginal(); 
+                        }}
+                        title="Reset to original content (deletes v2 and reverts to v1)"
                         style={{ marginTop: 6 }}
                       >
                         Reset to Original

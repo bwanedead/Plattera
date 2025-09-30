@@ -4,6 +4,7 @@ import { alignDraftsAPI } from '../services/imageProcessingApi';
 import { generateConsensusDrafts } from '../services/consensusApi';
 import { selectFinalDraftAPI } from '../services/imageProcessingApi';
 import { workspaceStateManager } from '../services/workspaceStateManager';
+import { textApi } from '../services/textApi';
 
 // Frontend no longer persists alignment consensus; backend handles saving.
 
@@ -27,35 +28,72 @@ export const useAlignmentState = () => {
     try {
       const redundancyAnalysis = selectedResult.result.metadata.redundancy_analysis;
       const individualResults = redundancyAnalysis.individual_results || [];
+      const transcriptionId = selectedResult?.result?.metadata?.transcription_id;
+      const dossierId = selectedResult?.result?.metadata?.dossier_id;
       
-      // Exclude LLM consensus or any consensus-like entries from alignment inputs
-      const drafts: AlignmentDraft[] = individualResults
+      // Filter out consensus entries
+      const rawDraftResults = individualResults
         .filter((result: any) => result.success)
         .filter((result: any) => {
           const isConsensusId = typeof result?.imported_draft_id === 'string' && result.imported_draft_id.endsWith('_consensus_llm');
           const isConsensusType = (result?.metadata && result.metadata.type === 'llm_consensus') || false;
           return !(isConsensusId || isConsensusType);
-        })
-        .map((result: any, index: number) => ({
-          draft_id: `Draft_${index + 1}`,
-          blocks: [
-            {
-              id: 'legal_text',
-              text: result.text || ''
-            }
-          ]
-        }));
+        });
 
-      if (drafts.length < 2) {
+      if (rawDraftResults.length < 2) {
         console.warn('At least 2 successful drafts are required for alignment');
         return;
       }
 
       setAlignmentState(prev => ({ ...prev, isAligning: true }));
 
-      console.log('🚀 Aligning drafts:', drafts);
-      const transcriptionId = selectedResult?.result?.metadata?.transcription_id || undefined;
-      const dossierId = selectedResult?.result?.metadata?.dossier_id || undefined;
+      console.log('🔄 Fetching current draft versions from backend (respects HEAD pointer)...');
+      
+      // Fetch current versions from backend - this respects HEAD pointer (v1 or v2)
+      const draftPromises = rawDraftResults.map(async (result: any, index: number) => {
+        let currentText = result.text || '';
+        
+        // If we have dossier context, fetch fresh from backend
+        if (transcriptionId && dossierId) {
+          try {
+            // For redundancy=1 (single draft), fetch HEAD pointer by requesting base transcription ID
+            // This respects edit versioning (v1 = original, v2 = edited)
+            if (rawDraftResults.length === 1) {
+              console.log(`📥 Fetching HEAD pointer for ${transcriptionId} (respects v1/v2 edits)...`);
+              currentText = await textApi.getDraftText(transcriptionId, transcriptionId, dossierId);
+              console.log(`✅ Fetched HEAD: ${currentText.length} chars`);
+            } else {
+              // For redundancy>1, fetch specific versioned drafts
+              // Note: Edit versioning not fully supported for redundancy>1 yet
+              const draftId = `${transcriptionId}_v${index + 1}`;
+              console.log(`📥 Fetching ${draftId}...`);
+              currentText = await textApi.getDraftText(transcriptionId, draftId, dossierId);
+              console.log(`✅ Fetched ${draftId}: ${currentText.length} chars`);
+            }
+          } catch (error) {
+            console.warn(`⚠️ Failed to fetch current version for draft ${index + 1}, using cached:`, error);
+            // Fallback to cached text if fetch fails
+          }
+        }
+
+        return {
+          draft_id: `Draft_${index + 1}`,
+          blocks: [
+            {
+              id: 'legal_text',
+              text: currentText
+            }
+          ]
+        };
+      });
+
+      // Wait for all draft fetches to complete
+      const drafts = await Promise.all(draftPromises);
+
+      console.log('🚀 Aligning drafts with current HEAD versions:', 
+        drafts.map(d => `${d.draft_id}: ${d.blocks[0].text.length} chars`)
+      );
+      
       const alignmentResult = await alignDraftsAPI(
         drafts,
         selectedConsensusStrategy,
