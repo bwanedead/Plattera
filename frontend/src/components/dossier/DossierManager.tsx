@@ -59,7 +59,8 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     selectItem,
     deselectItem,
     clearSelection,
-    bulkDelete
+    bulkDelete,
+    refreshDossiersSoft
   } = useDossierManager();
 
   // Reduce state spam; keep actionable logs elsewhere
@@ -76,18 +77,30 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     return unsubscribe;
   }, []);
 
-  // Listen for global dossier refresh events (triggered after processing completes)
+  // Listen for global dossier refresh events (soft merge) and persist scroll
   useEffect(() => {
-    // Keep latest loader
-    const loadRef = { current: loadDossiers };
+    const listEl = document.querySelector('.dossier-items-container') as HTMLDivElement | null;
+    const SCROLL_KEY = 'dossierManager.scrollTop';
+    try {
+      const saved = window.sessionStorage.getItem(SCROLL_KEY);
+      if (saved && listEl) listEl.scrollTop = parseInt(saved, 10) || 0;
+    } catch {}
 
-    // Debounced refresh helper
+    const saveScroll = () => {
+      try {
+        const n = listEl?.scrollTop || 0;
+        window.sessionStorage.setItem(SCROLL_KEY, String(n));
+      } catch {}
+    };
+    listEl?.addEventListener('scroll', saveScroll);
+
+    // Debounced soft refresh helper
     const debounceRef = { current: null as number | null };
-    const safeRefresh = () => {
+    const safeSoftRefresh = () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
       debounceRef.current = window.setTimeout(() => {
-        try { loadRef.current(); } catch (e) { console.warn('⚠️ DossierManager: refresh failed', e); }
-      }, 300);
+        try { refreshDossiersSoft(); } catch (e) { console.warn('⚠️ DossierManager: soft refresh failed', e); }
+      }, 250);
     };
 
     // Fallback polling (2.5s) for up to 60s
@@ -97,21 +110,19 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
       pollState.ticks = 0;
       pollState.timer = window.setInterval(() => {
         pollState.ticks += 1;
-        try { loadRef.current(); } catch {}
-        if (pollState.ticks >= 24) { // ~60s
+        try { refreshDossiersSoft(); } catch {}
+        if (pollState.ticks >= 24) {
           if (pollState.timer) window.clearInterval(pollState.timer);
           pollState.timer = null;
         }
       }, 2500);
     };
 
-    // Event bus handler
     const handler = () => {
-      try { safeRefresh(); } catch (e) { console.warn('⚠️ DossierManager: failed to refresh dossiers on event', e); }
+      try { safeSoftRefresh(); } catch (e) { console.warn('⚠️ DossierManager: failed soft refresh on event', e); }
     };
     document.addEventListener('dossiers:refresh', handler);
 
-    // Single EventSource instance with auto-reconnect
     let es: EventSource | null = null;
     let reconnectTimer: number | null = null;
     const connect = () => {
@@ -121,7 +132,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
           try {
             const data = JSON.parse(ev.data || '{}');
             if (data && data.type === 'dossier:update') {
-              safeRefresh();
+              safeSoftRefresh();
             }
           } catch {}
         };
@@ -130,9 +141,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
           es = null;
           startFallbackPoll();
           if (reconnectTimer) window.clearTimeout(reconnectTimer);
-          reconnectTimer = window.setTimeout(() => {
-            if (!es) connect();
-          }, 2000);
+          reconnectTimer = window.setTimeout(() => { if (!es) connect(); }, 2000);
         };
       } catch {
         startFallbackPoll();
@@ -142,21 +151,16 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     };
     connect();
 
-    // Listen for consensus retry requests dispatched from DraftItem
-    const retryHandler = async () => {
-      safeRefresh();
-    };
-    document.addEventListener('consensus:retry', retryHandler as EventListener);
     return () => {
       document.removeEventListener('dossiers:refresh', handler);
-      document.removeEventListener('consensus:retry', retryHandler as EventListener);
       try { es && es.close(); } catch {}
       es = null;
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       if (pollState.timer) window.clearInterval(pollState.timer);
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      listEl?.removeEventListener('scroll', saveScroll);
     };
-  }, []);
+  }, [refreshDossiersSoft]);
 
   // ============================================================================
   // SELECTION HANDLING

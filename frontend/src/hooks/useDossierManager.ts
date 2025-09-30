@@ -390,6 +390,33 @@ export function useDossierManager() {
     }
   }, [hasMore, state.dossiers]);
 
+  // Soft refresh: merge first page without resetting pagination or order
+  const refreshDossiersSoft = useCallback(async () => {
+    try {
+      const firstPage = await dossierApi.getDossiers({ limit: PAGE_SIZE, offset: 0 });
+      if (!Array.isArray(firstPage)) return;
+
+      const existing = state.dossiers || [];
+      const byId = new Map(existing.map(d => [d.id, d]));
+
+      // Update/insert items from first page
+      for (const d of firstPage) {
+        const prev = byId.get(d.id);
+        byId.set(d.id, { ...(prev || {}), ...d });
+      }
+
+      // Preserve existing order, append newcomers to end to avoid top jumps
+      const existingIds = new Set(existing.map(d => d.id));
+      const mergedExisting = existing.map(d => byId.get(d.id) as typeof d).filter(Boolean);
+      const newcomers = firstPage.filter(d => !existingIds.has(d.id));
+      const merged = [...mergedExisting, ...newcomers];
+
+      dispatch({ type: 'UPDATE_DOSSIERS', payload: merged });
+    } catch {
+      // non-fatal
+    }
+  }, [state.dossiers]);
+
   // ============================================================================
   // CRUD OPERATIONS
   // ============================================================================
@@ -649,6 +676,7 @@ export function useDossierManager() {
 
     // Utilities
     executeOptimistically,
+    refreshDossiersSoft,
 
     // Pagination
     loadMoreDossiers,

@@ -102,6 +102,7 @@ export const DossierList: React.FC<DossierListProps> = ({
   // IntersectionObserver for infinite scroll (fixed implementation)
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const isLoadingMoreRef = useRef(false);
+  const resetLoadingFlagRef = useRef<number | null>(null);
   
   useEffect(() => {
     if (!loadMoreDossiers || !hasMore) return;
@@ -118,11 +119,12 @@ export const DossierList: React.FC<DossierListProps> = ({
           isLoadingMoreRef.current = true;
           
           loadMoreDossiers();
-          
-          // Reset loading flag after a delay to prevent rapid-fire calls
-          setTimeout(() => {
+
+          // Reset loading flag after a short delay; robust to concurrent refreshes
+          if (resetLoadingFlagRef.current) window.clearTimeout(resetLoadingFlagRef.current);
+          resetLoadingFlagRef.current = window.setTimeout(() => {
             isLoadingMoreRef.current = false;
-          }, 500);
+          }, 700);
         }
       },
       { 
@@ -137,6 +139,8 @@ export const DossierList: React.FC<DossierListProps> = ({
     return () => {
       observer.disconnect();
       isLoadingMoreRef.current = false;
+      if (resetLoadingFlagRef.current) window.clearTimeout(resetLoadingFlagRef.current);
+      resetLoadingFlagRef.current = null;
     };
   }, [loadMoreDossiers, hasMore]); // Removed dossiers.length dependency to prevent re-creation
 

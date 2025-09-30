@@ -16,8 +16,9 @@ class DossierApiError extends Error {
 
 class DossierApiClient {
   private baseUrl = 'http://localhost:8000/api';
-  private retryAttempts = 8; // more resilient during backend startup
-  private retryDelay = 500;  // base delay (ms) for exponential backoff
+  private retryAttempts = 5; // trimmed for quicker feedback
+  private retryDelay = 400;  // slightly lower base delay
+  private warmedUp = false;  // mark after first success
 
   // ============================================================================
   // CORE CRUD OPERATIONS
@@ -184,7 +185,8 @@ class DossierApiClient {
 
     let lastError: Error | null = null;
 
-    for (let attempt = 1; attempt <= this.retryAttempts; attempt++) {
+    const maxAttempts = this.warmedUp ? this.retryAttempts : 4;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const response = await fetch(url, defaultOptions);
         const data: DossierApiResponse<T> = await response.json();
@@ -196,16 +198,16 @@ class DossierApiClient {
             data
           );
         }
-
+        this.warmedUp = true;
         return data;
       } catch (error) {
         lastError = error as Error;
 
-        if (attempt < this.retryAttempts && this.isRetryableError(error)) {
-          // Exponential backoff with jitter
+        if (attempt < maxAttempts && this.isRetryableError(error)) {
           const exp = Math.pow(2, attempt - 1);
-          const jitter = Math.floor(Math.random() * 250);
-          const delayMs = Math.min(15000, this.retryDelay * exp + jitter);
+          const jitter = Math.floor(Math.random() * 200);
+          const cap = this.warmedUp ? 12000 : 8000;
+          const delayMs = Math.min(cap, this.retryDelay * exp + jitter);
           await this.delay(delayMs);
           continue;
         }
