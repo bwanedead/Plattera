@@ -212,7 +212,11 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       });
       console.log('✅ Saved v2 and updated HEAD to v2');
       alignmentState.resetAlignmentState();
-      try { document.dispatchEvent(new Event('dossiers:refresh')); } catch {}
+      try {
+        document.dispatchEvent(new Event('dossiers:refresh'));
+        document.dispatchEvent(new CustomEvent('dossier:refreshOne', { detail: { dossierId } }));
+        document.dispatchEvent(new CustomEvent('draft:saved', { detail: { dossierId, transcriptionId, draftId: `${transcriptionId}_v${(selectedDraft as number) + 1}_v2` } }));
+      } catch {}
     } catch (e: any) {
       console.error('Failed to save edit', e);
       alert(`Failed to save edit: ${e?.message || e}`);

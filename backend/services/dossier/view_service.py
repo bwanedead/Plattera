@@ -417,20 +417,54 @@ class DossierViewService:
                             logger.info(f"📄 Loaded alignment draft (scoped HEAD): dossier={dossier_id} id={transcription_id} path={scoped}")
                             return json.load(f)
 
-            # Raw versioned file first: <root>/<base_id>/raw/<transcription_id>.json
+            # Raw versioned files (per-draft v1/v2 and HEAD)
+            #   underscore: <root>/<folder_tid>/raw/<transcription_id>.json            e.g. tid_v3_v1.json
+            #   dot:        <root>/<folder_tid>/raw/<base_draft>.v1.json or .v2.json  e.g. tid_v3.v1.json
             if "_v" in transcription_id:
-                base_id = transcription_id.rsplit("_v", 1)[0]
-                raw_versioned = root / base_id / 'raw' / f"{transcription_id}.json"
+                import re
+                # Folder is always the transcription root (before first _v<number>)
+                folder_tid = re.split(r"_v\d+", transcription_id)[0] or transcription_id
+                # Per-draft base (e.g., tid_v3) = up to first _v<number>
+                m = re.match(r"(.+?_v\d+)", transcription_id)
+                base_draft = m.group(1) if m else transcription_id
+
+                ver = None
+                if transcription_id.endswith('_v1'):
+                    ver = 'v1'
+                elif transcription_id.endswith('_v2'):
+                    ver = 'v2'
+
+                raw_dir = root / folder_tid / 'raw'
+
+                # Prefer explicit v1/v2 dot-suffix if requested (what the saver writes)
+                if ver:
+                    dot_path = raw_dir / f"{base_draft}.{ver}.json"
+                    if dot_path.exists():
+                        with open(dot_path, 'r', encoding='utf-8') as f:
+                            logger.info(f"📄 Loaded raw (scoped {ver}): dossier={dossier_id} id={transcription_id} folder={folder_tid} base={base_draft} path={dot_path}")
+                            return json.load(f)
+
+                # Try underscore-suffixed file (legacy)
+                raw_versioned = raw_dir / f"{transcription_id}.json"
                 if raw_versioned.exists():
                     with open(raw_versioned, 'r', encoding='utf-8') as f:
-                        logger.info(f"📄 Loaded transcription (scoped versioned): dossier={dossier_id} id={transcription_id} base_id={base_id} path={raw_versioned}")
+                        logger.info(f"📄 Loaded raw (scoped underscore): dossier={dossier_id} id={transcription_id} folder={folder_tid} base={base_draft} path={raw_versioned}")
                         return json.load(f)
-                # Fallback to base aggregated file if versioned is not found
-                raw_base = root / base_id / 'raw' / f"{base_id}.json"
+
+                # Fallback to per-draft HEAD (base_draft.json)
+                head_path = raw_dir / f"{base_draft}.json"
+                if head_path.exists():
+                    with open(head_path, 'r', encoding='utf-8') as f:
+                        logger.info(f"📄 Loaded raw (scoped HEAD): dossier={dossier_id} id={transcription_id} folder={folder_tid} base={base_draft} path={head_path}")
+                        return json.load(f)
+
+                # Last resort: base aggregated file if nothing else
+                raw_base = raw_dir / f"{folder_tid}.json"
                 if raw_base.exists():
                     with open(raw_base, 'r', encoding='utf-8') as f:
-                        logger.info(f"📄 Loaded transcription (scoped base fallback): dossier={dossier_id} id={transcription_id} base_id={base_id} path={raw_base}")
+                        logger.info(f"📄 Loaded raw (scoped base fallback): dossier={dossier_id} id={transcription_id} folder={folder_tid} path={raw_base}")
                         return json.load(f)
+
             else:
                 # Non-versioned raw file: <root>/<id>/raw/<id>.json
                 raw_exact = root / transcription_id / 'raw' / f"{transcription_id}.json"

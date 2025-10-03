@@ -326,15 +326,22 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         // Check if selected draft is consensus
                         const isConsensusSelected = selectedDraftId ? isConsensusId(selectedDraftId) : false;
 
-                        // Map selected index to raw drafts only
+                        // Compute selection context
+                        // - If a specific versioned draftId was requested, keep it for display
+                        // - Also compute base raw draft index for selection purposes
+                        const isVersionedRaw = !!(selectedDraftId && /_v(1|2)$/.test(selectedDraftId));
+                        const isVersionedAlign = !!(selectedDraftId && /_draft_\d+_v(1|2)$/.test(selectedDraftId));
+
                         let selectedIndex: number | 'consensus' = 0;
                         if (selectedDraftId) {
                           if (isConsensusSelected) {
-                            // For consensus, we don't include it in individual_results
                             selectedIndex = 'consensus';
                           } else {
-                            // Find index in raw drafts array
-                            selectedIndex = Math.max(0, rawDrafts.findIndex(d => d.id === selectedDraftId));
+                            const baseCandidate = isVersionedRaw
+                              ? selectedDraftId.replace(/_v(1|2)$/,'')
+                              : (isVersionedAlign ? selectedDraftId.replace(/_v(1|2)$/,'') : selectedDraftId);
+                            const baseIdx = rawDrafts.findIndex(d => d.id === baseCandidate);
+                            selectedIndex = Math.max(0, baseIdx);
                           }
                         }
 
@@ -380,21 +387,25 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         // Determine which text to show for the selected draft
                         let displayJson: any = '';
                         if (isConsensusSelected && consensusDrafts.length > 0) {
-                          // Show the selected consensus JSON directly
                           const consensusIndexInFetched = draftIds.findIndex(d => d === selectedDraftId);
                           displayJson = jsonStrings[consensusIndexInFetched] || '';
-                        } else {
-                          // Show selected raw draft JSON
-                          const rawDraftIndex = rawDrafts.findIndex(d => d.id === selectedDraftId);
-                          if (rawDraftIndex >= 0) {
-                            const draftIndexInAll = allDrafts.findIndex(d => d.id === rawDrafts[rawDraftIndex].id);
-                            const idxInFetched = draftIds.findIndex(d => d === allDrafts[draftIndexInAll]?.id);
-                            displayJson = jsonStrings[idxInFetched] || '';
-                          } else if (selectedDraftId) {
-                            // Versioned selection (e.g., *_v1 or *_v2)
-                            const idxInFetched = draftIds.findIndex(d => d === selectedDraftId);
-                            displayJson = jsonStrings[idxInFetched] || '';
+                        } else if (selectedDraftId) {
+                          // Prefer the explicitly requested versioned/raw id
+                          const idxInFetched = draftIds.findIndex(d => d === selectedDraftId);
+                          if (idxInFetched >= 0) displayJson = jsonStrings[idxInFetched] || '';
+                          else {
+                            // Fallback to base raw draft
+                            const baseIdx = typeof selectedIndex === 'number' ? selectedIndex : 0;
+                            const baseDraftId = rawDrafts[baseIdx]?.id;
+                            const idxBase = draftIds.findIndex(d => d === baseDraftId);
+                            displayJson = idxBase >= 0 ? (jsonStrings[idxBase] || '') : '';
                           }
+                        } else {
+                          // No explicit selection: use base raw draft by index
+                          const baseIdx = typeof selectedIndex === 'number' ? selectedIndex : 0;
+                          const baseDraftId = rawDrafts[baseIdx]?.id;
+                          const idxBase = draftIds.findIndex(d => d === baseDraftId);
+                          displayJson = idxBase >= 0 ? (jsonStrings[idxBase] || '') : '';
                         }
 
                         const displayJsonStr = typeof displayJson === 'string' ? displayJson : (displayJson ? JSON.stringify(displayJson) : '');
@@ -404,13 +415,13 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                             const idxInFetched = draftIds.findIndex(d => d === selectedDraftId);
                             return cleanTexts[idxInFetched] || '';
                           }
-                          if (typeof selectedIndex === 'number') {
-                            const draftIndexInAll = allDrafts.findIndex(d => d.id === rawDrafts[selectedIndex as number]?.id);
-                            const idxInFetched = draftIndexInAll >= 0 ? draftIds.findIndex(d => d === allDrafts[draftIndexInAll]?.id) : -1;
-                            return idxInFetched >= 0 ? (cleanTexts[idxInFetched] || '') : '';
-                          }
                           if (selectedDraftId) {
                             const idxInFetched = draftIds.findIndex(d => d === selectedDraftId);
+                            if (idxInFetched >= 0) return cleanTexts[idxInFetched] || '';
+                          }
+                          if (typeof selectedIndex === 'number') {
+                            const baseDraftId = rawDrafts[selectedIndex as number]?.id;
+                            const idxInFetched = draftIds.findIndex(d => d === baseDraftId);
                             return idxInFetched >= 0 ? (cleanTexts[idxInFetched] || '') : '';
                           }
                           return '';
@@ -420,8 +431,8 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           input: 'Dossier Selection',
                           status: 'completed' as const,
                           result: {
-                            // Always store string for compatibility with JSON detection
-                            extracted_text: displayJsonStr,
+                            // Store the actual fetched content for the selected version
+                            extracted_text: selectedCleanText || displayJsonStr,
                             metadata: {
                               model_used: 'dossier-selection',
                               service_type: 'dossier',
@@ -430,6 +441,8 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                               is_consensus_selected: isConsensusSelected,
                               transcription_id: transcriptionId, // Add transcription ID for saving alignment consensus
                               dossier_id: path.dossierId, // Ensure dossier_id is present for alignment persistence
+                              // Store the versioned draftId for text selection utils to use
+                              selected_versioned_draft_id: selectedDraftId,
                               redundancy_analysis: {
                                 enabled: false,
                                 count: rawDrafts.length, // Only count raw drafts for alignment
@@ -441,6 +454,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           }
                         };
                         onSelectResult(syntheticResult);
+                        // For versioned raw selections, keep base raw draft index for editing selection
                         onDraftSelect((isConsensusSelected ? 'consensus' : (selectedIndex as any)));
                         setActiveTab('text');
                       }

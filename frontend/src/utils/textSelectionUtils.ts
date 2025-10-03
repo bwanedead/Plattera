@@ -161,6 +161,13 @@ export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensu
     return 'No result available';
   }
 
+  // PRIORITY 0: Check if we have versioned content from dossier selection
+  if (result.metadata?.selected_versioned_draft_id && result.extracted_text) {
+    console.log('✅ FRONTEND DEBUG: Using versioned content from dossier selection');
+    console.log('✅ FRONTEND DEBUG: Versioned draftId:', result.metadata.selected_versioned_draft_id);
+    return isJsonResult(result.extracted_text) ? formatJsonAsText(result.extracted_text) : result.extracted_text;
+  }
+
   // PRIORITY 1: Use formatted text from alignment results if available
   if (alignmentResult?.success) {
     console.log('✅ FRONTEND DEBUG: Alignment result available, attempting to extract formatted text');

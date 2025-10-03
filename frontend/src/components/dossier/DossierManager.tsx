@@ -127,6 +127,18 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     };
     document.addEventListener('dossiers:refresh', handler);
 
+    // Targeted single dossier refresh support
+    const singleHandler = (ev: Event) => {
+      try {
+        const d: any = (ev as CustomEvent)?.detail;
+        if (d?.dossierId) {
+          // Prefer a soft refresh to keep order, then load details for that dossier via the header refresh button if needed
+          safeSoftRefresh();
+        }
+      } catch (e) { console.warn('⚠️ DossierManager: failed single dossier refresh', e); }
+    };
+    document.addEventListener('dossier:refreshOne', singleHandler as any);
+
     let es: EventSource | null = null;
     let reconnectTimer: number | null = null;
     const connect = () => {
@@ -157,6 +169,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
 
     return () => {
       document.removeEventListener('dossiers:refresh', handler);
+      document.removeEventListener('dossier:refreshOne', singleHandler as any);
       try { es && es.close(); } catch {}
       es = null;
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
