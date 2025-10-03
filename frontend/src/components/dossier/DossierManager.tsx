@@ -79,7 +79,11 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
 
   // Listen for global dossier refresh events (soft merge) and persist scroll
   useEffect(() => {
-    const listEl = document.querySelector('.dossier-items-container') as HTMLDivElement | null;
+    // Try to find the scrollable container (prefer .dossier-list; fall back to items container)
+    let listEl = document.querySelector('.dossier-list') as HTMLDivElement | null;
+    if (!listEl) {
+      listEl = document.querySelector('.dossier-items-container') as HTMLDivElement | null;
+    }
     const SCROLL_KEY = 'dossierManager.scrollTop';
     try {
       const saved = window.sessionStorage.getItem(SCROLL_KEY);

@@ -46,6 +46,9 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   // COMPUTED VALUES
   // ============================================================================
 
+  // Resolve the base transcription id reliably across backend/FE variants
+  const baseTid = (run as any)?.transcription_id || (run as any)?.transcriptionId || (draft as any)?.transcriptionId || (draft as any)?.transcription_id || '';
+
   const stats = {
     size: draft.metadata?.sizeBytes || 0,
     confidence: draft.metadata?.confidence || 0,
@@ -55,6 +58,7 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   const isProcessing = draft.metadata?.status === 'processing' || Boolean((draft.metadata as any)?.['_placeholder'] === true);
   const isFailed = draft.metadata?.status === 'failed';
   const isLLMConsensus = (draft.metadata as any)?.type === 'llm_consensus';
+  const versions = (draft.metadata as any)?.versions as any | undefined;
 
   const formatSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes}B`;
@@ -108,12 +112,16 @@ export const DraftItem: React.FC<DraftItemProps> = ({
 
   const handleDoubleClick = useCallback(() => {
     console.log('👁️ Draft view request', { draftId: draft.id, runId: run.id, segmentId: segment.id, dossierId: dossier.id });
-    onViewRequest?.({
-      dossierId: dossier.id,
-      segmentId: segment.id,
-      runId: run.id,
-      draftId: draft.id
-    });
+    // Default to HEAD for raw if available; else just open the draft id
+    const v = (draft.metadata as any)?.versions as any;
+    let headId = draft.id;
+    try {
+      if (v && v.raw && typeof v.raw.head === 'string') {
+        const head = v.raw.head; // 'v1' | 'v2'
+        headId = `${baseTid}_v${draft.position + 1}_${head}`;
+      }
+    } catch {}
+    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: headId });
   }, [onViewRequest, dossier.id, segment.id, run.id, draft.id]);
 
   // ============================================================================
@@ -147,6 +155,60 @@ export const DraftItem: React.FC<DraftItemProps> = ({
                {formatSize(stats.size)} • {formatQuality(stats.quality, stats.confidence)}
              </span>
           </div>
+          {/* Version indicators: only render available versions; grey text; current selection highlighted */}
+          {versions && (
+            <div className="draft-versions" style={{ marginTop: 6, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              {/* Raw lineage */}
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: `${baseTid}_v${draft.position + 1}_v1` });
+                }}
+                style={{ cursor: 'pointer', color: (currentDisplayPath?.draftId === `${baseTid}_v${draft.position + 1}_v1` || versions.raw?.head === 'v1' && currentDisplayPath?.draftId === draft.id) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                title="Raw v1"
+              >
+                v1
+              </span>
+              {versions.raw?.v2 && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: `${baseTid}_v${draft.position + 1}_v2` });
+                  }}
+                  style={{ cursor: 'pointer', color: (currentDisplayPath?.draftId === `${baseTid}_v${draft.position + 1}_v2` || versions.raw?.head === 'v2' && currentDisplayPath?.draftId === draft.id) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                  title="Raw v2"
+                >
+                  v2
+                </span>
+              )}
+
+              {/* Alignment lineage */}
+              {versions.alignment?.v1 && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: `${baseTid}_draft_${draft.position + 1}_v1` });
+                  }}
+                  style={{ cursor: 'pointer', color: (currentDisplayPath?.draftId === `${baseTid}_draft_${draft.position + 1}_v1`) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                  title="Alignment v1"
+                >
+                  Av1
+                </span>
+              )}
+              {versions.alignment?.v2 && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: `${baseTid}_draft_${draft.position + 1}_v2` });
+                  }}
+                  style={{ cursor: 'pointer', color: (currentDisplayPath?.draftId === `${baseTid}_draft_${draft.position + 1}_v2`) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                  title="Alignment v2"
+                >
+                  Av2
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="draft-actions">
@@ -160,12 +222,16 @@ export const DraftItem: React.FC<DraftItemProps> = ({
               onClick={(e) => {
                 e.stopPropagation();
                 console.log('👁️ Draft view button', { draftId: draft.id, runId: run.id, segmentId: segment.id, dossierId: dossier.id });
-                onViewRequest?.({
-                  dossierId: dossier.id,
-                  segmentId: segment.id,
-                  runId: run.id,
-                  draftId: draft.id
-                });
+                // Open HEAD if available so version pill highlights correctly
+                const v = (draft.metadata as any)?.versions as any;
+                let headId = draft.id;
+                try {
+                  if (v && v.raw && typeof v.raw.head === 'string') {
+                    const head = v.raw.head; // 'v1' | 'v2'
+                    headId = `${baseTid}_v${draft.position + 1}_${head}`;
+                  }
+                } catch {}
+                onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: headId });
               }}
               title="View draft"
             >

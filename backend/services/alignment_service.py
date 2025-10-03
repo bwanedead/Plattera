@@ -76,6 +76,41 @@ class AlignmentService:
             normalized_draft_jsons = self.section_normalizer.normalize_draft_sections(draft_jsons)
             logger.info(f"✅ SECTION NORMALIZATION ► Processed {len(normalized_draft_jsons)} drafts")
             
+            # Persist alignment v1 per-draft if dossier context given
+            try:
+                if save_context and isinstance(save_context.get('transcription_id'), str):
+                    from services.dossier.edit_persistence_service import EditPersistenceService as _EPS
+                    _svc = _EPS()
+                    dossier_id = (save_context or {}).get('dossier_id') or ''
+                    transcription_id = (save_context or {}).get('transcription_id') or ''
+                    for i, nd in enumerate(normalized_draft_jsons):
+                        # Expect nd to be { blocks: [{id, text}, ...] } or already sectioned
+                        sections = []
+                        try:
+                            # Prefer existing sections if present
+                            if isinstance(nd, dict) and isinstance(nd.get('sections'), list):
+                                sections = nd.get('sections')
+                            else:
+                                blocks = nd.get('blocks') if isinstance(nd, dict) else None
+                                if isinstance(blocks, list) and len(blocks) > 0:
+                                    # Convert each block.text into a section
+                                    sections = [{ 'id': idx + 1, 'body': str(b.get('text', '')) } for idx, b in enumerate(blocks) if isinstance(b, dict)]
+                                else:
+                                    # Fallback: single section with joined text
+                                    text = ''
+                                    try:
+                                        text = ' '.join([str(b.get('text','')) for b in (blocks or []) if isinstance(b, dict)])
+                                    except Exception:
+                                        text = ''
+                                    if not text and isinstance(nd, dict) and isinstance(nd.get('text'), str):
+                                        text = nd.get('text')
+                                    sections = [{ 'id': 1, 'body': text }]
+                        except Exception:
+                            sections = [{ 'id': 1, 'body': '' }]
+                        _svc.save_alignment_v1(str(dossier_id), str(transcription_id), i, sections)
+            except Exception as _persist_av1_err:
+                logger.warning(f"⚠️ Failed to persist alignment v1 drafts (non-critical): {_persist_av1_err}")
+
             # STEP 2: BioPython Alignment (Core Processing)
             logger.info("🧬 STEP 2 ► BioPython alignment processing")
             alignment_results = self.alignment_engine.align_drafts(

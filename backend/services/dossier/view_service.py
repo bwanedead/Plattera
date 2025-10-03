@@ -393,6 +393,30 @@ class DossierViewService:
                         logger.info(f"📄 Loaded transcription (scoped alignment consensus): dossier={dossier_id} id={transcription_id} path={scoped}")
                         return json.load(f)
 
+            # Alignment per-draft IDs
+            # - {tid}_draft_{n}           (HEAD)
+            # - {tid}_draft_{n}_v1.json   (specific)
+            # - {tid}_draft_{n}_v2.json   (specific)
+            if '_draft_' in transcription_id:
+                base_id, _, tail = transcription_id.partition('_draft_')
+                # Specific version
+                if tail.endswith('_v1') or tail.endswith('_v2'):
+                    ver = tail.split('_')[-1]
+                    n = tail.split('_')[0]
+                    scoped = root / base_id / 'alignment' / f"draft_{n}_{ver}.json"
+                    if scoped.exists():
+                        with open(scoped, 'r', encoding='utf-8') as f:
+                            logger.info(f"📄 Loaded alignment draft (scoped specific): dossier={dossier_id} id={transcription_id} path={scoped}")
+                            return json.load(f)
+                else:
+                    # HEAD
+                    n = tail
+                    scoped = root / base_id / 'alignment' / f"draft_{n}.json"
+                    if scoped.exists():
+                        with open(scoped, 'r', encoding='utf-8') as f:
+                            logger.info(f"📄 Loaded alignment draft (scoped HEAD): dossier={dossier_id} id={transcription_id} path={scoped}")
+                            return json.load(f)
+
             # Raw versioned file first: <root>/<base_id>/raw/<transcription_id>.json
             if "_v" in transcription_id:
                 base_id = transcription_id.rsplit("_v", 1)[0]

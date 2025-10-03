@@ -130,14 +130,27 @@ export async function resolveSelectionToText(path: DossierPath, dossier?: Dossie
   const segment: Segment | null = ds.segments?.find(s => s.id === path.segmentId) ?? null;
   const run: Run | null = segment?.runs?.find(r => r.id === path.runId) ?? null;
   const drafts: Draft[] = (run?.drafts ?? []) as Draft[];
-  const draft = drafts.find(d => d.id === path.draftId) ?? null;
+  let draft = drafts.find(d => d.id === path.draftId) ?? null;
+
+  // If a specific version was requested (e.g., _v1/_v2 or _draft_{n}_v1/_v2),
+  // map it to the base draft for context while still loading the requested version's content.
+  if (!draft && path.draftId) {
+    try {
+      // Remove trailing _v1/_v2 only (do not touch _v{n} numbering)
+      const baseCandidate = path.draftId.replace(/_v[12]$/, '');
+      const maybe = drafts.find(d => d.id === baseCandidate) ?? null;
+      if (maybe) {
+        draft = maybe;
+      }
+    } catch {}
+  }
 
   if (draft) {
-    const draftId = draft.id;
     const dossierId = ds.id;
-    const selectedIsConsensus = draftId.endsWith('_consensus_llm') || draftId.endsWith('_consensus_alignment');
-    console.info(`selectionResolver: draft mode -> draftId=${draftId} dossierId=${dossierId} isConsensus=${selectedIsConsensus}`);
-    const text = await textApi.getDraftText((run as any)?.transcriptionId || (run as any)?.transcription_id, draftId, dossierId);
+    const requestedDraftId = path.draftId || draft.id;
+    const selectedIsConsensus = requestedDraftId.endsWith('_consensus_llm') || requestedDraftId.endsWith('_consensus_alignment');
+    console.info(`selectionResolver: draft mode -> draftId=${requestedDraftId} dossierId=${dossierId} isConsensus=${selectedIsConsensus}`);
+    const text = await textApi.getDraftText((run as any)?.transcriptionId || (run as any)?.transcription_id, requestedDraftId, dossierId);
     return { mode: 'draft', path, text, context: { dossier: ds, segment, run, draft } };
   }
 

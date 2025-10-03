@@ -207,12 +207,31 @@ class DossierManagementService:
                 _BACKEND_DIR = _Path(__file__).resolve().parents[2]
                 # Use structured path: dossiers_data/views/transcriptions/{dossier_id}/{transcription_id}/raw/
                 _struct_raw = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier.id) / str(transcription.transcription_id) / "raw"
+                _struct_align = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier.id) / str(transcription.transcription_id) / "alignment"
+                _head_path = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier.id) / str(transcription.transcription_id) / "head.json"
+                head_map = {}
+                try:
+                    if _head_path.exists():
+                        with open(_head_path, 'r', encoding='utf-8') as hf:
+                            head_map = json.load(hf) or {}
+                except Exception:
+                    head_map = {}
 
                 longest_idx = None
                 max_len = -1
 
                 for i, d in enumerate(run.drafts):
                     fpath = _struct_raw / f"{transcription.transcription_id}_v{i+1}.json"
+                    # Version flags for UI: raw v1 always implied, raw v2 only if .v2.json exists
+                    raw_v2_path = _struct_raw / f"{transcription.transcription_id}_v{i+1}.v2.json"
+                    align_v1_path = _struct_align / f"draft_{i+1}_v1.json"
+                    align_v2_path = _struct_align / f"draft_{i+1}_v2.json"
+                    # Heads
+                    raw_heads = (head_map.get('raw_heads') or {}) if isinstance(head_map, dict) else {}
+                    alignment_heads = (head_map.get('alignment_heads') or {}) if isinstance(head_map, dict) else {}
+                    raw_head_val = raw_heads.get(f"{transcription.transcription_id}_v{i+1}") or 'v1'
+                    align_head_val = alignment_heads.get(f"{transcription.transcription_id}_draft_{i+1}")
+
                     length = 0
                     if fpath.exists():
                         with open(fpath, 'r', encoding='utf-8') as fp:
@@ -259,6 +278,24 @@ class DossierManagementService:
                     if length > max_len:
                         max_len = length
                         longest_idx = i
+
+                    # Attach version flags for UI consumption
+                    try:
+                        d.metadata = d.metadata or {}
+                        d.metadata['versions'] = {
+                            'raw': {
+                                'v1': True,
+                                'v2': raw_v2_path.exists(),
+                                'head': raw_head_val
+                            },
+                            'alignment': {
+                                'v1': align_v1_path.exists(),
+                                'v2': align_v2_path.exists(),
+                                'head': align_head_val
+                            }
+                        }
+                    except Exception:
+                        pass
 
                 if longest_idx is not None:
                     for i, d in enumerate(run.drafts):

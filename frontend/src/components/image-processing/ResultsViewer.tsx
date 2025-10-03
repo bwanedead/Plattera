@@ -277,11 +277,10 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   }}
                   onViewRequest={async (path: DossierPath) => {
                     console.log('👁️ View requested:', path);
+                    // Highlight immediately so the selected version pill turns blue without waiting for fetch
+                    setCurrentDisplayPath(path);
                     try {
                       const resolved: ResolvedSelection = await resolveSelectionToText(path, undefined);
-
-                      // Update the current display path for highlighting
-                      setCurrentDisplayPath(path);
 
                       // Check if this is dossier-level viewing (no segment/run/draft specified)
                       const isDossierLevel = !path.segmentId && !path.runId && !path.draftId;
@@ -308,7 +307,8 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                       } else {
                         // Handle individual draft/run/segment selection
                         const draftCount = resolved.context?.run?.drafts?.length || 1;
-                        const selectedDraftId = resolved.context?.draft?.id;
+                        // Use the explicitly requested draftId from the path so versioned selections (v1/v2/Av1/Av2) are respected
+                        const selectedDraftId = path.draftId;
                         const allDrafts = resolved.context?.run?.drafts || [];
 
                         // Extract transcription ID for saving alignment consensus
@@ -339,33 +339,30 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         }
 
                         // Fetch raw JSON for all drafts for JSON tab, and clean text for TEXT tab
-                        const draftIds = allDrafts.map(d => d.id);
-                        const jsonStrings: string[] = [];
-                        const cleanTexts: string[] = [];
-                        for (let i = 0; i < draftIds.length; i++) {
-                          const draftId = draftIds[i];
-                          try {
-                            const js = await textApi.getDraftJson(
-                              transcriptionId || '',
-                              draftId,
-                              path.dossierId
-                            );
-                            const jsStr = typeof js === 'string' ? js : (js ? JSON.stringify(js) : '');
-                            jsonStrings.push(jsStr);
-                          } catch (e) {
-                            jsonStrings.push('');
-                          }
-                          try {
-                            const text = await textApi.getDraftText(
-                              resolved.context?.run?.transcriptionId || (resolved.context?.run as any)?.transcription_id || '',
-                              draftId,
-                              path.dossierId
-                            );
-                            cleanTexts.push(text || '');
-                          } catch (e) {
-                            cleanTexts.push('');
-                          }
-                        }
+                        // Ensure we fetch JSON/text for the requested version as well, even if it's not listed in run.drafts
+                        const draftIds = Array.from(new Set([
+                          ...allDrafts.map(d => d.id),
+                          ...(selectedDraftId ? [selectedDraftId] : [])
+                        ]));
+                        // Fetch JSON and text in parallel per draftId, and across all draftIds
+                        const jsonPromises = draftIds.map(draftId => (
+                          textApi.getDraftJson(
+                            transcriptionId || '',
+                            draftId,
+                            path.dossierId
+                          ).then(js => (typeof js === 'string' ? js : (js ? JSON.stringify(js) : ''))).catch(() => '')
+                        ));
+                        const textPromises = draftIds.map(draftId => (
+                          textApi.getDraftText(
+                            resolved.context?.run?.transcriptionId || (resolved.context?.run as any)?.transcription_id || '',
+                            draftId,
+                            path.dossierId
+                          ).then(t => t || '').catch(() => '')
+                        ));
+                        const [jsonStrings, cleanTexts] = await Promise.all([
+                          Promise.all(jsonPromises),
+                          Promise.all(textPromises)
+                        ]);
 
                         // Build redundancy_analysis with ONLY raw drafts (exclude consensus)
                         const individual_results = rawDrafts.map((draft, i) => {
@@ -384,14 +381,19 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         let displayJson: any = '';
                         if (isConsensusSelected && consensusDrafts.length > 0) {
                           // Show the selected consensus JSON directly
-                          const consensusIndex = allDrafts.findIndex(d => d.id === selectedDraftId);
-                          displayJson = jsonStrings[consensusIndex] || '';
+                          const consensusIndexInFetched = draftIds.findIndex(d => d === selectedDraftId);
+                          displayJson = jsonStrings[consensusIndexInFetched] || '';
                         } else {
                           // Show selected raw draft JSON
                           const rawDraftIndex = rawDrafts.findIndex(d => d.id === selectedDraftId);
                           if (rawDraftIndex >= 0) {
                             const draftIndexInAll = allDrafts.findIndex(d => d.id === rawDrafts[rawDraftIndex].id);
-                            displayJson = jsonStrings[draftIndexInAll] || '';
+                            const idxInFetched = draftIds.findIndex(d => d === allDrafts[draftIndexInAll]?.id);
+                            displayJson = jsonStrings[idxInFetched] || '';
+                          } else if (selectedDraftId) {
+                            // Versioned selection (e.g., *_v1 or *_v2)
+                            const idxInFetched = draftIds.findIndex(d => d === selectedDraftId);
+                            displayJson = jsonStrings[idxInFetched] || '';
                           }
                         }
 
@@ -399,12 +401,17 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         // Also compute the clean text for the selected draft for TEXT tab usage
                         const selectedCleanText = (() => {
                           if (isConsensusSelected) {
-                            const idxInAll = allDrafts.findIndex(d => d.id === selectedDraftId);
-                            return cleanTexts[idxInAll] || '';
+                            const idxInFetched = draftIds.findIndex(d => d === selectedDraftId);
+                            return cleanTexts[idxInFetched] || '';
                           }
                           if (typeof selectedIndex === 'number') {
                             const draftIndexInAll = allDrafts.findIndex(d => d.id === rawDrafts[selectedIndex as number]?.id);
-                            return draftIndexInAll >= 0 ? (cleanTexts[draftIndexInAll] || '') : '';
+                            const idxInFetched = draftIndexInAll >= 0 ? draftIds.findIndex(d => d === allDrafts[draftIndexInAll]?.id) : -1;
+                            return idxInFetched >= 0 ? (cleanTexts[idxInFetched] || '') : '';
+                          }
+                          if (selectedDraftId) {
+                            const idxInFetched = draftIds.findIndex(d => d === selectedDraftId);
+                            return idxInFetched >= 0 ? (cleanTexts[idxInFetched] || '') : '';
                           }
                           return '';
                         })();

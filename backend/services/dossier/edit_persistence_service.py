@@ -61,6 +61,11 @@ class EditPersistenceService:
 			head["raw"] = {"head": "v1"}
 		if "alignment" not in head:
 			head["alignment"] = {"head": None}
+		# Per-draft head maps
+		if "raw_heads" not in head:
+			head["raw_heads"] = {}
+		if "alignment_heads" not in head:
+			head["alignment_heads"] = {}
 		if "consensus" not in head:
 			head["consensus"] = {"llm": {"head": None}, "alignment": {"head": None}}
 		return head
@@ -258,5 +263,86 @@ class EditPersistenceService:
 			head["raw_heads"] = {}
 		draft_key = f"{transcription_id}_v{n}"
 		head["raw_heads"][draft_key] = "v1"
+		self._write_json(self._head_file(dossier_id, transcription_id), head)
+		return True
+
+	# ---------------- Alignment per-draft persistence ----------------
+	def save_alignment_v1(self, dossier_id: str, transcription_id: str, draft_index: int, sections: Any) -> Tuple[bool, str]:
+		"""
+		Persist alignment v1 for a specific draft and set alignment HEAD to v1.
+		Writes:
+		- alignment/draft_{n}_v1.json
+		- alignment/draft_{n}.json (HEAD copy)
+		Updates head.json.alignment_heads["{tid}_draft_{n}"] = "v1"
+		"""
+		align_dir = self._alignment_dir(dossier_id, transcription_id)
+		align_dir.mkdir(parents=True, exist_ok=True)
+		n = int(draft_index) + 1
+		v1_path = align_dir / f"draft_{n}_v1.json"
+		head_path = align_dir / f"draft_{n}.json"
+
+		payload = {
+			"documentId": "alignment_v1",
+			"sections": sections if isinstance(sections, list) else [{"id": 1, "body": str(sections or "")}],
+			"_status": "completed",
+			"_draft_index": draft_index,
+			"_updated_at": datetime.utcnow().isoformat()
+		}
+		self._write_json(v1_path, payload)
+		self._write_json(head_path, payload)
+
+		head = self._ensure_head(dossier_id, transcription_id)
+		dkey = f"{transcription_id}_draft_{n}"
+		head.setdefault("alignment_heads", {})[dkey] = "v1"
+		self._write_json(self._head_file(dossier_id, transcription_id), head)
+		return True, "v1"
+
+	def save_alignment_v2(self, dossier_id: str, transcription_id: str, draft_index: int, sections: Any) -> Tuple[bool, str]:
+		"""
+		Persist alignment v2 for a specific draft and set alignment HEAD to v2.
+		Writes alignment/draft_{n}_v2.json and overwrites alignment/draft_{n}.json
+		Updates head.json.alignment_heads accordingly.
+		"""
+		align_dir = self._alignment_dir(dossier_id, transcription_id)
+		align_dir.mkdir(parents=True, exist_ok=True)
+		n = int(draft_index) + 1
+		v2_path = align_dir / f"draft_{n}_v2.json"
+		head_path = align_dir / f"draft_{n}.json"
+
+		payload = {
+			"documentId": "alignment_v2",
+			"sections": sections if isinstance(sections, list) else [{"id": 1, "body": str(sections or "")}],
+			"_status": "completed",
+			"_draft_index": draft_index,
+			"_updated_at": datetime.utcnow().isoformat()
+		}
+		self._write_json(v2_path, payload)
+		self._write_json(head_path, payload)
+
+		head = self._ensure_head(dossier_id, transcription_id)
+		dkey = f"{transcription_id}_draft_{n}"
+		head.setdefault("alignment_heads", {})[dkey] = "v2"
+		self._write_json(self._head_file(dossier_id, transcription_id), head)
+		return True, "v2"
+
+	def revert_alignment_to_v1(self, dossier_id: str, transcription_id: str, draft_index: int, purge: bool = False) -> bool:
+		"""
+		Revert alignment HEAD for a draft back to v1; optionally remove v2 file.
+		"""
+		align_dir = self._alignment_dir(dossier_id, transcription_id)
+		n = int(draft_index) + 1
+		v1_path = align_dir / f"draft_{n}_v1.json"
+		v2_path = align_dir / f"draft_{n}_v2.json"
+		head_path = align_dir / f"draft_{n}.json"
+		if not v1_path.exists():
+			return False
+		data = self._read_json(v1_path) or {}
+		self._write_json(head_path, data)
+		if purge and v2_path.exists():
+			try: v2_path.unlink()
+			except Exception: pass
+		head = self._ensure_head(dossier_id, transcription_id)
+		dkey = f"{transcription_id}_draft_{n}"
+		head.setdefault("alignment_heads", {})[dkey] = "v1"
 		self._write_json(self._head_file(dossier_id, transcription_id), head)
 		return True
