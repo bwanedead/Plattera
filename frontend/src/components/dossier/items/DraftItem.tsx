@@ -47,7 +47,17 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   // ============================================================================
 
   // Resolve the base transcription id reliably across backend/FE variants
-  const baseTid = (run as any)?.transcription_id || (run as any)?.transcriptionId || (draft as any)?.transcriptionId || (draft as any)?.transcription_id || '';
+  // Sanitize to avoid double-suffix like "..._v2_v2" by stripping a trailing _v1/_v2 if present
+  const baseTidRaw = (run as any)?.transcription_id || (run as any)?.transcriptionId || (draft as any)?.transcriptionId || (draft as any)?.transcription_id || '';
+  const baseTid = String(baseTidRaw).replace(/_v[12]$/, '');
+  const vIndex = draft.position + 1;
+  const rawV1Id = `${baseTid}_v${vIndex}_v1`;
+  const rawV2Id = `${baseTid}_v${vIndex}_v2`;
+  const alignV1Id = `${baseTid}_draft_${vIndex}_v1`;
+  const alignV2Id = `${baseTid}_draft_${vIndex}_v2`;
+  const baseSelected = currentDisplayPath?.draftId === draft.id;
+  const explicitRawVersionSelected = currentDisplayPath?.draftId === rawV1Id || currentDisplayPath?.draftId === rawV2Id;
+  const explicitAlignVersionSelected = currentDisplayPath?.draftId === alignV1Id || currentDisplayPath?.draftId === alignV2Id;
 
   const stats = {
     size: draft.metadata?.sizeBytes || 0,
@@ -162,9 +172,9 @@ export const DraftItem: React.FC<DraftItemProps> = ({
               <span
                 onClick={(e) => {
                   e.stopPropagation();
-                  onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: `${baseTid}_v${draft.position + 1}_v1` });
+                  onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: rawV1Id });
                 }}
-                style={{ cursor: 'pointer', color: (currentDisplayPath?.draftId === `${baseTid}_v${draft.position + 1}_v1` || versions.raw?.head === 'v1' && currentDisplayPath?.draftId === draft.id) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                style={{ cursor: 'pointer', color: ((explicitRawVersionSelected ? (currentDisplayPath?.draftId === rawV1Id) : (versions.raw?.head === 'v1' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
                 title="Raw v1"
               >
                 v1
@@ -173,9 +183,9 @@ export const DraftItem: React.FC<DraftItemProps> = ({
                 <span
                   onClick={(e) => {
                     e.stopPropagation();
-                    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: `${baseTid}_v${draft.position + 1}_v2` });
+                    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: rawV2Id });
                   }}
-                  style={{ cursor: 'pointer', color: (currentDisplayPath?.draftId === `${baseTid}_v${draft.position + 1}_v2` || versions.raw?.head === 'v2' && currentDisplayPath?.draftId === draft.id) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                  style={{ cursor: 'pointer', color: ((explicitRawVersionSelected ? (currentDisplayPath?.draftId === rawV2Id) : (versions.raw?.head === 'v2' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
                   title="Raw v2"
                 >
                   v2
@@ -187,9 +197,9 @@ export const DraftItem: React.FC<DraftItemProps> = ({
                 <span
                   onClick={(e) => {
                     e.stopPropagation();
-                    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: `${baseTid}_draft_${draft.position + 1}_v1` });
+                    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: alignV1Id });
                   }}
-                  style={{ cursor: 'pointer', color: (currentDisplayPath?.draftId === `${baseTid}_draft_${draft.position + 1}_v1`) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                  style={{ cursor: 'pointer', color: ((explicitAlignVersionSelected ? (currentDisplayPath?.draftId === alignV1Id) : (versions.alignment?.head === 'v1' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
                   title="Alignment v1"
                 >
                   Av1
@@ -199,9 +209,9 @@ export const DraftItem: React.FC<DraftItemProps> = ({
                 <span
                   onClick={(e) => {
                     e.stopPropagation();
-                    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: `${baseTid}_draft_${draft.position + 1}_v2` });
+                    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: alignV2Id });
                   }}
-                  style={{ cursor: 'pointer', color: (currentDisplayPath?.draftId === `${baseTid}_draft_${draft.position + 1}_v2`) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                  style={{ cursor: 'pointer', color: ((explicitAlignVersionSelected ? (currentDisplayPath?.draftId === alignV2Id) : (versions.alignment?.head === 'v2' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
                   title="Alignment v2"
                 >
                   Av2

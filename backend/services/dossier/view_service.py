@@ -443,15 +443,18 @@ class DossierViewService:
                         with open(dot_path, 'r', encoding='utf-8') as f:
                             logger.info(f"📄 Loaded raw (scoped {ver}): dossier={dossier_id} id={transcription_id} folder={folder_tid} base={base_draft} path={dot_path}")
                             return json.load(f)
+                    # STRICT: if explicit version requested and not found, do not fallback
+                    logger.warning(f"❌ Explicit raw {ver} not found for {transcription_id} in dossier {dossier_id}. No fallback when version explicitly requested.")
+                    return None
 
-                # Try underscore-suffixed file (legacy)
+                # Try underscore-suffixed file (legacy HEAD naming for versioned id)
                 raw_versioned = raw_dir / f"{transcription_id}.json"
                 if raw_versioned.exists():
                     with open(raw_versioned, 'r', encoding='utf-8') as f:
                         logger.info(f"📄 Loaded raw (scoped underscore): dossier={dossier_id} id={transcription_id} folder={folder_tid} base={base_draft} path={raw_versioned}")
                         return json.load(f)
 
-                # Fallback to per-draft HEAD (base_draft.json)
+                # Fallback to per-draft HEAD (base_draft.json) only when no explicit _v1/_v2 requested
                 head_path = raw_dir / f"{base_draft}.json"
                 if head_path.exists():
                     with open(head_path, 'r', encoding='utf-8') as f:

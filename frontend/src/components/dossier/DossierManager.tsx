@@ -60,7 +60,8 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     deselectItem,
     clearSelection,
     bulkDelete,
-    refreshDossiersSoft
+    refreshDossiersSoft,
+    refreshDossierById
   } = useDossierManager();
 
   // Reduce state spam; keep actionable logs elsewhere
@@ -132,8 +133,9 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
       try {
         const d: any = (ev as CustomEvent)?.detail;
         if (d?.dossierId) {
-          // Prefer a soft refresh to keep order, then load details for that dossier via the header refresh button if needed
+          // Soft refresh for list, plus targeted fetch to immediately merge updated versions
           safeSoftRefresh();
+          try { (async () => { await refreshDossierById(d.dossierId); })(); } catch {}
         }
       } catch (e) { console.warn('⚠️ DossierManager: failed single dossier refresh', e); }
     };

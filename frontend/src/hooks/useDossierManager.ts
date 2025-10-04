@@ -399,10 +399,41 @@ export function useDossierManager() {
       const existing = state.dossiers || [];
       const byId = new Map(existing.map(d => [d.id, d]));
 
-      // Update/insert items from first page
+      // Update/insert items from first page (shallow), then deep-merge drafts metadata
       for (const d of firstPage) {
         const prev = byId.get(d.id);
-        byId.set(d.id, { ...(prev || {}), ...d });
+        const base = { ...(prev || {}), ...d } as any;
+
+        // Deep-merge drafts to preserve richer metadata (like versions) if missing in incoming page
+        try {
+          const prevSegments = (prev as any)?.segments || [];
+          const nextSegments = (d as any)?.segments || [];
+          const mergedSegments = nextSegments.map((seg: any) => {
+            const prevSeg = prevSegments.find((ps: any) => ps.id === seg.id) || {};
+            const prevRuns = prevSeg.runs || [];
+            const nextRuns = seg.runs || [];
+            const mergedRuns = nextRuns.map((run: any) => {
+              const prevRun = prevRuns.find((pr: any) => pr.id === run.id) || {};
+              const prevDrafts = prevRun.drafts || [];
+              const nextDrafts = run.drafts || [];
+              const mergedDrafts = nextDrafts.map((dr: any) => {
+                const prevDr = prevDrafts.find((pdr: any) => pdr.id === dr.id) || {};
+                const mergedDr: any = { ...prevDr, ...dr };
+                // Preserve versions if missing on incoming
+                if (!mergedDr.metadata) mergedDr.metadata = {};
+                if (!dr?.metadata?.versions && prevDr?.metadata?.versions) {
+                  mergedDr.metadata.versions = prevDr.metadata.versions;
+                }
+                return mergedDr;
+              });
+              return { ...prevRun, ...run, drafts: mergedDrafts };
+            });
+            return { ...prevSeg, ...seg, runs: mergedRuns };
+          });
+          base.segments = mergedSegments;
+        } catch {}
+
+        byId.set(d.id, base);
       }
 
       // Preserve existing order, append newcomers to end to avoid top jumps
@@ -413,6 +444,20 @@ export function useDossierManager() {
 
       dispatch({ type: 'UPDATE_DOSSIERS', payload: merged });
     } catch {
+      // non-fatal
+    }
+  }, [state.dossiers]);
+
+  // Targeted refresh: fetch single dossier details and merge
+  const refreshDossierById = useCallback(async (dossierId: string) => {
+    try {
+      const updated = await dossierApi.getDossier(dossierId);
+      const exists = (state.dossiers || []).some(d => d.id === dossierId);
+      const merged = exists
+        ? (state.dossiers || []).map(d => (d.id === dossierId ? updated : d))
+        : [...(state.dossiers || []), updated];
+      dispatch({ type: 'UPDATE_DOSSIERS', payload: merged });
+    } catch (e) {
       // non-fatal
     }
   }, [state.dossiers]);
@@ -677,6 +722,7 @@ export function useDossierManager() {
     // Utilities
     executeOptimistically,
     refreshDossiersSoft,
+    refreshDossierById,
 
     // Pagination
     loadMoreDossiers,

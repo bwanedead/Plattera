@@ -88,6 +88,16 @@ class ProgressiveDraftSaver:
 
             logger.info(f"✅ Draft saved: {version_file}")
 
+            # Create immutable v1 snapshot once (never overwrite)
+            try:
+                v1_snapshot = drafts_dir / f"{transcription_id}_v{draft_index + 1}.v1.json"
+                if not v1_snapshot.exists():
+                    with open(v1_snapshot, 'w', encoding='utf-8') as vf:
+                        json.dump(content, vf, indent=2, ensure_ascii=False)
+                    logger.info(f"📌 Created immutable v1 snapshot: {v1_snapshot}")
+            except Exception as snap_err:
+                logger.warning(f"⚠️ Failed to write v1 snapshot for v{draft_index + 1}: {snap_err}")
+
             # ALSO SAVE BASE FILE so frontend can find it by transcription_id
             base_file = drafts_dir / f"{transcription_id}.json"
             with open(base_file, 'w', encoding='utf-8') as f:

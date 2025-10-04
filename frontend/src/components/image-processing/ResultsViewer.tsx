@@ -155,65 +155,38 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
             const isDossierLevel = !path.segmentId && !path.runId && !path.draftId;
             
             if (!isDossierLevel && path.draftId) {
-              // Re-fetch the draft data
+              const selectedDraftId = path.draftId;
+              // Strict: fetch only the selected draft's clean text; no fallback
+              let selectedCleanText = '';
+              try {
+                selectedCleanText = await textApi.getDraftText(transcriptionId, selectedDraftId, dossierId);
+              } catch {}
+
               const allDrafts = resolved.context?.run?.drafts || [];
               const rawDrafts = allDrafts.filter(d => !d.id.endsWith('_consensus_llm') && !d.id.endsWith('_consensus_alignment'));
-              
-              // Fetch fresh JSON for all drafts
-              const draftIds = allDrafts.map(d => d.id);
-              const jsonStrings: string[] = [];
-              const cleanTexts: string[] = [];
-              
-              for (const draftId of draftIds) {
-                try {
-                  const js = await textApi.getDraftJson(transcriptionId, draftId, dossierId);
-                  jsonStrings.push(typeof js === 'string' ? js : JSON.stringify(js));
-                } catch {
-                  jsonStrings.push('');
-                }
-                try {
-                  const text = await textApi.getDraftText(transcriptionId, draftId, dossierId);
-                  cleanTexts.push(text || '');
-                } catch {
-                  cleanTexts.push('');
-                }
-              }
-              
-              // Rebuild individual_results
-              const individual_results = rawDrafts.map((draft, i) => {
-                const draftIndexInAll = allDrafts.findIndex(d => d.id === draft.id);
-                return {
-                  success: true,
-                  text: jsonStrings[draftIndexInAll] || '',
-                  display_text: cleanTexts[draftIndexInAll] || '',
-                  model: 'dossier-selection',
-                  confidence: 1.0,
-                  draft_index: i
-                };
-              });
-              
-              // Find selected draft index
-              const selectedDraftId = path.draftId;
-              const isConsensus = selectedDraftId?.endsWith('_consensus_llm') || selectedDraftId?.endsWith('_consensus_alignment');
-              const selectedIndex = isConsensus ? 'consensus' : Math.max(0, rawDrafts.findIndex(d => d.id === selectedDraftId));
-              
-              const displayJsonStr = isConsensus 
-                ? (jsonStrings[allDrafts.findIndex(d => d.id === selectedDraftId)] || '')
-                : (jsonStrings[allDrafts.findIndex(d => d.id === rawDrafts[selectedIndex as number]?.id)] || '');
-              
+              const individual_results = rawDrafts.map((draft, i) => ({
+                success: true,
+                text: '',
+                display_text: '',
+                model: 'dossier-selection',
+                confidence: 1.0,
+                draft_index: i
+              }));
+
               const syntheticResult = {
                 input: 'Dossier Selection (Reloaded)',
                 status: 'completed' as const,
                 result: {
-                  extracted_text: displayJsonStr,
+                  extracted_text: selectedCleanText || '',
                   metadata: {
                     model_used: 'dossier-selection',
                     service_type: 'dossier',
                     is_imported_draft: true,
-                    selected_draft_index: typeof selectedIndex === 'number' ? selectedIndex : undefined,
-                    is_consensus_selected: isConsensus,
+                    selected_draft_index: undefined,
+                    is_consensus_selected: false,
                     transcription_id: transcriptionId,
                     dossier_id: dossierId,
+                    selected_versioned_draft_id: selectedDraftId,
                     redundancy_analysis: {
                       enabled: false,
                       count: rawDrafts.length,
@@ -223,10 +196,10 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   }
                 }
               };
-              
-              console.log('✅ Reloaded draft result:', syntheticResult);
+
+              console.log('✅ Reloaded draft result (strict):', syntheticResult);
               onSelectResult(syntheticResult);
-              console.log('✅ Draft view refreshed with v1 content');
+              console.log('✅ Draft view refreshed (strict)');
             }
           } catch (error) {
             console.error('❌ Failed to reload draft after revert:', error);
@@ -245,6 +218,98 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
       document.removeEventListener('draft:reverted', handleDraftReverted);
     };
   }, [selectedResult, currentDisplayPath, onSelectResult]);
+
+  // Listen for draft saved events to immediately switch view/highlight to v2
+  React.useEffect(() => {
+    const handler = async (event: Event) => {
+      const custom = event as CustomEvent;
+      const detail = custom.detail || {};
+      const savedDossierId = detail?.dossierId;
+      const savedTranscriptionId = detail?.transcriptionId;
+      const savedDraftId = detail?.draftId as string | undefined;
+
+      const currentDossierId = selectedResult?.result?.metadata?.dossier_id;
+      const currentTranscriptionId = selectedResult?.result?.metadata?.transcription_id;
+
+      if (!savedDossierId || !savedTranscriptionId || savedDossierId !== currentDossierId || savedTranscriptionId !== currentTranscriptionId) return;
+
+      // Build the v2 path from event, keep current segment/run
+      const nextPath: DossierPath | undefined = currentDisplayPath && savedDraftId ? {
+        dossierId: currentDisplayPath.dossierId,
+        segmentId: currentDisplayPath.segmentId,
+        runId: currentDisplayPath.runId,
+        draftId: savedDraftId
+      } : undefined;
+
+      if (!nextPath) return;
+
+      console.log('🔵 Draft saved -> switching view to:', nextPath);
+      setCurrentDisplayPath(nextPath);
+
+      try {
+        const resolved: ResolvedSelection = await resolveSelectionToText(nextPath, undefined);
+
+        const allDrafts = resolved.context?.run?.drafts || [];
+        const rawDrafts = allDrafts.filter(d => !d.id.endsWith('_consensus_llm') && !d.id.endsWith('_consensus_alignment'));
+
+        const draftIds = Array.from(new Set([
+          ...allDrafts.map(d => d.id),
+          nextPath.draftId
+        ].filter(Boolean))) as string[];
+
+        const [jsonStrings, cleanTexts] = await Promise.all([
+          Promise.all(draftIds.map(did => textApi.getDraftJson(currentTranscriptionId || '', did, nextPath.dossierId).then(js => (typeof js === 'string' ? js : (js ? JSON.stringify(js) : ''))).catch(() => ''))),
+          Promise.all(draftIds.map(did => textApi.getDraftText(currentTranscriptionId || '', did, nextPath.dossierId).then(t => t || '').catch(() => '')))
+        ]);
+
+        const individual_results = rawDrafts.map((draft, i) => {
+          const draftIndexInAll = allDrafts.findIndex(d => d.id === draft.id);
+          return {
+            success: true,
+            text: jsonStrings[draftIndexInAll] || '',
+            display_text: cleanTexts[draftIndexInAll] || '',
+            model: 'dossier-selection',
+            confidence: 1.0,
+            draft_index: i
+          };
+        });
+
+        const idxInFetched = draftIds.findIndex(d => d === nextPath.draftId);
+        const selectedCleanText = idxInFetched >= 0 ? (cleanTexts[idxInFetched] || '') : '';
+
+        const syntheticResult = {
+          input: 'Dossier Selection (Saved)',
+          status: 'completed' as const,
+          result: {
+            extracted_text: selectedCleanText,
+            metadata: {
+              model_used: 'dossier-selection',
+              service_type: 'dossier',
+              is_imported_draft: true,
+              selected_draft_index: undefined,
+              is_consensus_selected: false,
+              transcription_id: currentTranscriptionId,
+              dossier_id: nextPath.dossierId,
+              selected_versioned_draft_id: nextPath.draftId,
+              redundancy_analysis: {
+                enabled: false,
+                count: rawDrafts.length,
+                individual_results,
+                consensus_text: resolved.text || ''
+              }
+            }
+          }
+        };
+        onSelectResult(syntheticResult);
+        setActiveTab('text');
+      } catch (e) {
+        console.warn('⚠️ Failed to switch view to saved draft', e);
+      }
+    };
+
+    document.addEventListener('draft:saved', handler);
+    return () => document.removeEventListener('draft:saved', handler);
+  }, [currentDisplayPath, selectedResult, onSelectResult]);
 
   // Text update handler from editing functionality
   const handleTextUpdate = (newText: string) => {
@@ -345,30 +410,19 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           }
                         }
 
-                        // Fetch raw JSON for all drafts for JSON tab, and clean text for TEXT tab
-                        // Ensure we fetch JSON/text for the requested version as well, even if it's not listed in run.drafts
-                        const draftIds = Array.from(new Set([
-                          ...allDrafts.map(d => d.id),
-                          ...(selectedDraftId ? [selectedDraftId] : [])
-                        ]));
-                        // Fetch JSON and text in parallel per draftId, and across all draftIds
-                        const jsonPromises = draftIds.map(draftId => (
-                          textApi.getDraftJson(
+                        // STRICT: If a specific versioned id is provided, fetch only that id
+                        const draftIds = selectedDraftId ? [selectedDraftId] : allDrafts.map(d => d.id);
+                        const [jsonStrings, cleanTexts] = await Promise.all([
+                          Promise.all(draftIds.map(draftId => textApi.getDraftJson(
                             transcriptionId || '',
                             draftId,
                             path.dossierId
-                          ).then(js => (typeof js === 'string' ? js : (js ? JSON.stringify(js) : ''))).catch(() => '')
-                        ));
-                        const textPromises = draftIds.map(draftId => (
-                          textApi.getDraftText(
+                          ).then(js => (typeof js === 'string' ? js : (js ? JSON.stringify(js) : ''))).catch(() => ''))),
+                          Promise.all(draftIds.map(draftId => textApi.getDraftText(
                             resolved.context?.run?.transcriptionId || (resolved.context?.run as any)?.transcription_id || '',
                             draftId,
                             path.dossierId
-                          ).then(t => t || '').catch(() => '')
-                        ));
-                        const [jsonStrings, cleanTexts] = await Promise.all([
-                          Promise.all(jsonPromises),
-                          Promise.all(textPromises)
+                          ).then(t => t || '').catch(() => '')))
                         ]);
 
                         // Build redundancy_analysis with ONLY raw drafts (exclude consensus)
@@ -390,16 +444,9 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           const consensusIndexInFetched = draftIds.findIndex(d => d === selectedDraftId);
                           displayJson = jsonStrings[consensusIndexInFetched] || '';
                         } else if (selectedDraftId) {
-                          // Prefer the explicitly requested versioned/raw id
+                          // Strict: only show the explicitly requested id; no fallback
                           const idxInFetched = draftIds.findIndex(d => d === selectedDraftId);
-                          if (idxInFetched >= 0) displayJson = jsonStrings[idxInFetched] || '';
-                          else {
-                            // Fallback to base raw draft
-                            const baseIdx = typeof selectedIndex === 'number' ? selectedIndex : 0;
-                            const baseDraftId = rawDrafts[baseIdx]?.id;
-                            const idxBase = draftIds.findIndex(d => d === baseDraftId);
-                            displayJson = idxBase >= 0 ? (jsonStrings[idxBase] || '') : '';
-                          }
+                          displayJson = idxInFetched >= 0 ? (jsonStrings[idxInFetched] || '') : '';
                         } else {
                           // No explicit selection: use base raw draft by index
                           const baseIdx = typeof selectedIndex === 'number' ? selectedIndex : 0;
@@ -417,7 +464,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           }
                           if (selectedDraftId) {
                             const idxInFetched = draftIds.findIndex(d => d === selectedDraftId);
-                            if (idxInFetched >= 0) return cleanTexts[idxInFetched] || '';
+                            return idxInFetched >= 0 ? (cleanTexts[idxInFetched] || '') : '';
                           }
                           if (typeof selectedIndex === 'number') {
                             const baseDraftId = rawDrafts[selectedIndex as number]?.id;
