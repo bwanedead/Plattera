@@ -46,7 +46,12 @@ async function resolveDraftText(dossier: Dossier, path: DossierPath): Promise<Re
   if (!transcriptionId) {
     return { mode: 'draft', path, text: '', context: { dossier, segment, run, draft } };
   }
-  const text = await textApi.getDraftText(transcriptionId, draft.id, dossier.id);
+  let text = '';
+  try {
+    text = await textApi.getDraftText(transcriptionId, draft.id, dossier.id);
+  } catch (e) {
+    console.warn('selectionResolver: failed to load base draft text, returning empty', e);
+  }
   return { mode: 'draft', path, text, context: { dossier, segment, run, draft } };
 }
 
@@ -81,7 +86,12 @@ async function resolveRunText(dossier: Dossier, path: DossierPath): Promise<Reso
   if (!transcriptionId) {
     return { mode: 'run', path, text: '', context: { dossier, segment, run, draft } };
   }
-  const text = await textApi.getDraftText(transcriptionId, draft.id, dossier.id);
+  let text = '';
+  try {
+    text = await textApi.getDraftText(transcriptionId, draft.id, dossier.id);
+  } catch (e) {
+    console.warn('selectionResolver: failed to load run draft text, returning empty', e);
+  }
   return { mode: 'run', path, text, context: { dossier, segment, run, draft } };
 }
 
@@ -108,7 +118,12 @@ async function resolveSegmentText(dossier: Dossier, path: DossierPath): Promise<
   if (!transcriptionId) {
     return { mode: 'segment', path, text: '', context: { dossier, segment, run, draft } };
   }
-  const text = await textApi.getDraftText(transcriptionId, draft.id, dossier.id);
+  let text = '';
+  try {
+    text = await textApi.getDraftText(transcriptionId, draft.id, dossier.id);
+  } catch (e) {
+    console.warn('selectionResolver: failed to load segment draft text, returning empty', e);
+  }
   return { mode: 'segment', path, text, context: { dossier, segment, run, draft } };
 }
 
@@ -150,7 +165,12 @@ export async function resolveSelectionToText(path: DossierPath, dossier?: Dossie
     const requestedDraftId = path.draftId || draft.id;
     const selectedIsConsensus = requestedDraftId.endsWith('_consensus_llm') || requestedDraftId.endsWith('_consensus_alignment');
     console.info(`selectionResolver: draft mode -> draftId=${requestedDraftId} dossierId=${dossierId} isConsensus=${selectedIsConsensus}`);
-    const text = await textApi.getDraftText((run as any)?.transcriptionId || (run as any)?.transcription_id, requestedDraftId, dossierId);
+    let text = '';
+    try {
+      text = await textApi.getDraftText((run as any)?.transcriptionId || (run as any)?.transcription_id, requestedDraftId, dossierId);
+    } catch (e) {
+      console.warn('selectionResolver: failed to load requested draft text, returning empty', requestedDraftId, e);
+    }
     return { mode: 'draft', path, text, context: { dossier: ds, segment, run, draft } };
   }
 

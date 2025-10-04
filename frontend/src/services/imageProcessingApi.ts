@@ -267,6 +267,32 @@ export const saveDossierEditAPI = async (params: {
   return response.json();
 };
 
+// --- Backend-driven alignment by IDs (server loads v2→v1 JSON) ---
+export const alignDraftsByIdsAPI = async (params: {
+  dossierId: string;
+  transcriptionId: string;
+  draftIndices: number[]; // 1-based indices
+  versionPolicy?: 'prefer_v2_else_v1' | 'prefer_v1_else_v2';
+  excludeAlignmentVersions?: boolean;
+}): Promise<AlignmentResult> => {
+  const response = await fetch('http://localhost:8000/api/alignment/align-drafts/by-ids', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      dossier_id: params.dossierId,
+      transcription_id: params.transcriptionId,
+      draft_indices: params.draftIndices,
+      version_policy: params.versionPolicy ?? 'prefer_v2_else_v1',
+      exclude_alignment_versions: params.excludeAlignmentVersions ?? true
+    })
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
+  }
+  return response.json();
+};
+
 // --- Dossier Version Management API ---
 
 /**

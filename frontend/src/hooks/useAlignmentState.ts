@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { AlignmentState, AlignmentDraft, AlignmentResult } from '../types/imageProcessing';
-import { alignDraftsAPI } from '../services/imageProcessingApi';
+import { alignDraftsAPI, alignDraftsByIdsAPI } from '../services/imageProcessingApi';
 import { generateConsensusDrafts } from '../services/consensusApi';
 import { selectFinalDraftAPI } from '../services/imageProcessingApi';
 import { workspaceStateManager } from '../services/workspaceStateManager';
@@ -47,58 +47,44 @@ export const useAlignmentState = () => {
 
       setAlignmentState(prev => ({ ...prev, isAligning: true }));
 
-      console.log('🔄 Fetching current draft versions from backend (respects HEAD pointer)...');
-      
-      // Fetch current versions from backend - this respects HEAD pointer (v1 or v2)
-      const draftPromises = rawDraftResults.map(async (result: any, index: number) => {
-        let currentText = result.text || '';
-        
-        // If we have dossier context, fetch fresh from backend
-        if (transcriptionId && dossierId) {
-          try {
-            // For redundancy=1 (single draft), fetch HEAD pointer by requesting base transcription ID
-            // This respects edit versioning (v1 = original, v2 = edited)
-            if (rawDraftResults.length === 1) {
-              console.log(`📥 Fetching HEAD pointer for ${transcriptionId} (respects v1/v2 edits)...`);
-              currentText = await textApi.getDraftText(transcriptionId, transcriptionId, dossierId);
-              console.log(`✅ Fetched HEAD: ${currentText.length} chars`);
-            } else {
-              // For redundancy>1, fetch specific versioned drafts
-              // Note: Edit versioning not fully supported for redundancy>1 yet
-              const draftId = `${transcriptionId}_v${index + 1}`;
-              console.log(`📥 Fetching ${draftId}...`);
-              currentText = await textApi.getDraftText(transcriptionId, draftId, dossierId);
-              console.log(`✅ Fetched ${draftId}: ${currentText.length} chars`);
-            }
-          } catch (error) {
-            console.warn(`⚠️ Failed to fetch current version for draft ${index + 1}, using cached:`, error);
-            // Fallback to cached text if fetch fails
-          }
+      // Prefer backend-driven alignment when dossier/transcription context is available
+      let alignmentResult;
+      if (transcriptionId && dossierId) {
+        try {
+          const draftIndices = rawDraftResults.map((_: any, i: number) => i + 1);
+          alignmentResult = await alignDraftsByIdsAPI({
+            dossierId,
+            transcriptionId,
+            draftIndices,
+            versionPolicy: 'prefer_v2_else_v1',
+            excludeAlignmentVersions: true
+          });
+        } catch (e) {
+          console.warn('⚠️ Backend-driven alignment failed, falling back to client-built payload:', e);
         }
+      }
 
-        return {
-          draft_id: `Draft_${index + 1}`,
-          blocks: [
-            {
-              id: 'legal_text',
-              text: currentText
-            }
-          ]
-        };
-      });
-
-      // Wait for all draft fetches to complete
-      const drafts = await Promise.all(draftPromises);
-
-      console.log('🚀 Aligning drafts with current HEAD versions:', 
-        drafts.map(d => `${d.draft_id}: ${d.blocks[0].text.length} chars`)
-      );
-      
-      const alignmentResult = await alignDraftsAPI(
-        drafts,
-        selectedConsensusStrategy,
-        { transcriptionId, dossierId, consensusDraftId: transcriptionId ? `${transcriptionId}_consensus_alignment` : undefined }
-      );
+      // Fallback: build minimal client-side payload only if backend path failed or no context
+      if (!alignmentResult) {
+        console.log('🔄 Building client-side drafts (no backend context)...');
+        const draftsAll = await Promise.all(
+          rawDraftResults.map(async (_r: any, index: number) => ({
+            draft_id: `Draft_${index + 1}`,
+            blocks: [{ id: 'legal_text', text: String(_r?.text || '') }]
+          }))
+        );
+        const drafts = draftsAll.filter(d => (d?.blocks?.[0]?.text || '').trim().length > 0);
+        if (drafts.length < 2) {
+          console.warn('⚠️ Alignment aborted: need at least 2 non-empty drafts');
+          setAlignmentState(prev => ({ ...prev, isAligning: false }));
+          return;
+        }
+        alignmentResult = await alignDraftsAPI(
+          drafts,
+          selectedConsensusStrategy,
+          { transcriptionId, dossierId, consensusDraftId: transcriptionId ? `${transcriptionId}_consensus_alignment` : undefined }
+        );
+      }
 
       console.log('📊 Alignment result received:', alignmentResult);
 

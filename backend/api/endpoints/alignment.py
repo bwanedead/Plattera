@@ -21,6 +21,7 @@ from alignment.section_normalizer import SectionNormalizer
 from alignment.biopython_engine import BioPythonAlignmentEngine
 from alignment.alignment_utils import check_dependencies
 from services.alignment_service import AlignmentService
+from services.dossier.view_service import DossierViewService
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +184,103 @@ async def align_legal_drafts(request: AlignmentRequest):
             summary={},
             error=f"Alignment processing failed: {str(e)}"
         )
+
+
+# ---------------- New: Backend-driven alignment by IDs ----------------
+class AlignmentByIdsRequest(BaseModel):
+    dossier_id: str
+    transcription_id: str
+    draft_indices: List[int]  # 1-based indices
+    version_policy: str = "prefer_v2_else_v1"
+    exclude_alignment_versions: bool = True
+
+
+@router.post("/align-drafts/by-ids", response_model=AlignmentResponse)
+async def align_drafts_by_ids(req: AlignmentByIdsRequest):
+    """
+    Load raw drafts directly from the dossier (v2 if present, else v1) and run alignment.
+    """
+    logger.info(
+        f"🧬 ALIGN BY IDS ► dossier={req.dossier_id} tid={req.transcription_id} indices={req.draft_indices}"
+    )
+
+    if not req.draft_indices or len(req.draft_indices) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 drafts are required for alignment")
+
+    view = DossierViewService()
+    draft_jsons: List[Dict[str, Any]] = []
+
+    for n in req.draft_indices:
+        base = f"{req.transcription_id}_v{n}"
+        if req.version_policy == "prefer_v1_else_v2":
+            candidates = [f"{base}_v1", f"{base}_v2"]
+        else:
+            candidates = [f"{base}_v2", f"{base}_v1"]
+
+        content = None
+        for did in candidates:
+            content = view._load_transcription_content_scoped(did, req.dossier_id)
+            if content:
+                break
+
+        if not content:
+            logger.warning(f"⚠️ Missing content for draft index {n}; skipping")
+            continue
+
+        # Normalize to sectioned JSON expected by pipeline
+        if isinstance(content, dict) and isinstance(content.get("sections"), list):
+            draft_jsons.append(content)
+        elif isinstance(content, dict) and isinstance(content.get("blocks"), list):
+            blocks = content.get("blocks")
+            sections = [{"id": i + 1, "body": str(b.get("text", ""))} for i, b in enumerate(blocks) if isinstance(b, dict)]
+            draft_jsons.append({"documentId": content.get("documentId", "raw"), "sections": sections})
+        else:
+            # Fallback into single-section text (should be rare)
+            try:
+                text = str(content.get("text", "")) if isinstance(content, dict) else str(content)
+            except Exception:
+                text = ""
+            draft_jsons.append({"documentId": "raw", "sections": [{"id": 1, "body": text}]})
+
+    if len(draft_jsons) < 2:
+        return AlignmentResponse(
+            success=False,
+            processing_time=0.0,
+            summary={},
+            error="At least 2 non-empty drafts are required for alignment",
+        )
+
+    alignment_service = AlignmentService()
+    results = alignment_service.process_alignment_request(
+        draft_jsons=draft_jsons,
+        generate_visualization=True,
+        consensus_strategy="highest_confidence",
+        save_context={
+            "transcription_id": req.transcription_id,
+            "dossier_id": req.dossier_id,
+        },
+    )
+
+    if not results.get("success"):
+        logger.error(f"❌ Alignment processing failed: {results.get('error')}")
+        return AlignmentResponse(
+            success=False,
+            processing_time=results.get("processing_time", 0.0),
+            summary=results.get("summary", {}),
+            error=results.get("error", "Alignment failed"),
+        )
+
+    logger.info("✅ Align-by-ids completed successfully")
+    return AlignmentResponse(
+        success=True,
+        processing_time=results.get("processing_time", 0.0),
+        summary=results.get("summary", {}),
+        consensus_text=results.get("consensus_text"),
+        visualization_html=results.get("visualization_html"),
+        per_draft_alignment_mapping=results.get("per_draft_alignment_mapping"),
+        confidence_results=results.get("confidence_results"),
+        alignment_results=results.get("alignment_results"),
+    )
 
 
 @router.post("/generate-visualization")

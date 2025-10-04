@@ -307,7 +307,6 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         prevSelectedDraft: selectedDraft
       });
       setSelectedDraft(isConsensus ? 'consensus' : (typeof idx === 'number' ? idx : 0));
-      alignmentState.resetAlignmentState();
     }
   }, [imageProcessing.selectedResult]);
 
@@ -524,7 +523,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
               const idx = meta?.selected_draft_index;
               const isConsensus = !!meta?.is_consensus_selected;
               setSelectedDraft(isConsensus ? 'consensus' : (typeof idx === 'number' ? idx : 0));
-              alignmentState.resetAlignmentState();
+              // Do not reset alignment state here; keep panel/results visible
                 }}
                             isHistoryVisible={workspaceState.isHistoryVisible}
             onToggleHistory={(visible) => updateWorkspaceState({ isHistoryVisible: visible })}
