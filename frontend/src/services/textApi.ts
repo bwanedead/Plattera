@@ -77,10 +77,15 @@ export const textApi = {
 
     const json = await this.getDraftJson(transcriptionId, draftId, dossierId);
     try {
-      if ((draftId.endsWith('_consensus_llm') || draftId.endsWith('_consensus_alignment')) && json && typeof json === 'object' && 'text' in json) {
-        const value = String((json as any).text || '');
-        setInCache(TEXT_CACHE, key, value);
-        return value;
+      // Treat both base and versioned consensus ids the same (_consensus_llm[_v1|_v2], _consensus_alignment[_v1|_v2])
+      const isConsensusId = draftId.includes('_consensus_llm') || draftId.includes('_consensus_alignment');
+      if (isConsensusId && json && typeof json === 'object') {
+        if ('text' in (json as any)) {
+          const value = String((json as any).text || '');
+          setInCache(TEXT_CACHE, key, value);
+          return value;
+        }
+        // If consensus JSON happens to be saved as sections, fall through to sections handling below
       }
       // Common JSON schema path
       if (json && typeof json === 'object') {
