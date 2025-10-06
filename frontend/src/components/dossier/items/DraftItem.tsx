@@ -55,9 +55,17 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   const rawV2Id = `${baseTid}_v${vIndex}_v2`;
   const alignV1Id = `${baseTid}_draft_${vIndex}_v1`;
   const alignV2Id = `${baseTid}_draft_${vIndex}_v2`;
+  const consLLMHeadId = `${baseTid}_consensus_llm`;
+  const consLLMV1Id = `${baseTid}_consensus_llm_v1`;
+  const consLLMV2Id = `${baseTid}_consensus_llm_v2`;
+  const consAlignHeadId = `${baseTid}_consensus_alignment`;
+  const consAlignV1Id = `${baseTid}_consensus_alignment_v1`;
+  const consAlignV2Id = `${baseTid}_consensus_alignment_v2`;
   const baseSelected = currentDisplayPath?.draftId === draft.id;
   const explicitRawVersionSelected = currentDisplayPath?.draftId === rawV1Id || currentDisplayPath?.draftId === rawV2Id;
   const explicitAlignVersionSelected = currentDisplayPath?.draftId === alignV1Id || currentDisplayPath?.draftId === alignV2Id;
+  const explicitConsLLMSelected = currentDisplayPath?.draftId === consLLMV1Id || currentDisplayPath?.draftId === consLLMV2Id || currentDisplayPath?.draftId === consLLMHeadId;
+  const explicitConsAlignSelected = currentDisplayPath?.draftId === consAlignV1Id || currentDisplayPath?.draftId === consAlignV2Id || currentDisplayPath?.draftId === consAlignHeadId;
 
   const stats = {
     size: draft.metadata?.sizeBytes || 0,
@@ -68,6 +76,7 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   const isProcessing = draft.metadata?.status === 'processing' || Boolean((draft.metadata as any)?.['_placeholder'] === true);
   const isFailed = draft.metadata?.status === 'failed';
   const isLLMConsensus = (draft.metadata as any)?.type === 'llm_consensus';
+  const isAlignmentConsensus = (draft.metadata as any)?.type === 'alignment_consensus';
   const versions = (draft.metadata as any)?.versions as any | undefined;
 
   const formatSize = (bytes: number): string => {
@@ -161,61 +170,114 @@ export const DraftItem: React.FC<DraftItemProps> = ({
             <span className="draft-date">
               {formatDate(draft.metadata?.createdAt || new Date().toISOString())}
             </span>
-             <span className="draft-stats">
-               {formatSize(stats.size)} • {formatQuality(stats.quality, stats.confidence)}
-             </span>
           </div>
           {/* Version indicators: only render available versions; grey text; current selection highlighted */}
           {versions && (
             <div className="draft-versions" style={{ marginTop: 6, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              {/* Raw lineage */}
-              <span
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: rawV1Id });
-                }}
-                style={{ cursor: 'pointer', color: ((explicitRawVersionSelected ? (currentDisplayPath?.draftId === rawV1Id) : (versions.raw?.head === 'v1' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
-                title="Raw v1"
-              >
-                v1
-              </span>
-              {versions.raw?.v2 && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: rawV2Id });
-                  }}
-                  style={{ cursor: 'pointer', color: ((explicitRawVersionSelected ? (currentDisplayPath?.draftId === rawV2Id) : (versions.raw?.head === 'v2' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
-                  title="Raw v2"
-                >
-                  v2
-                </span>
+              {/* Raw + Alignment only for raw draft items */}
+              {!(isLLMConsensus || isAlignmentConsensus) && (
+                <>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: rawV1Id });
+                    }}
+                    style={{ cursor: 'pointer', color: ((explicitRawVersionSelected ? (currentDisplayPath?.draftId === rawV1Id) : (versions.raw?.head === 'v1' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                    title="Raw v1"
+                  >
+                    v1
+                  </span>
+                  {versions.raw?.v2 && (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: rawV2Id });
+                      }}
+                      style={{ cursor: 'pointer', color: ((explicitRawVersionSelected ? (currentDisplayPath?.draftId === rawV2Id) : (versions.raw?.head === 'v2' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                      title="Raw v2"
+                    >
+                      v2
+                    </span>
+                  )}
+                  {versions.alignment?.v1 && (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: alignV1Id });
+                      }}
+                      style={{ cursor: 'pointer', color: ((explicitAlignVersionSelected ? (currentDisplayPath?.draftId === alignV1Id) : (versions.alignment?.head === 'v1' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                      title="Alignment v1"
+                    >
+                      Av1
+                    </span>
+                  )}
+                  {versions.alignment?.v2 && (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: alignV2Id });
+                      }}
+                      style={{ cursor: 'pointer', color: ((explicitAlignVersionSelected ? (currentDisplayPath?.draftId === alignV2Id) : (versions.alignment?.head === 'v2' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                      title="Alignment v2"
+                    >
+                      Av2
+                    </span>
+                  )}
+                </>
               )}
 
-              {/* Alignment lineage */}
-              {versions.alignment?.v1 && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: alignV1Id });
-                  }}
-                  style={{ cursor: 'pointer', color: ((explicitAlignVersionSelected ? (currentDisplayPath?.draftId === alignV1Id) : (versions.alignment?.head === 'v1' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
-                  title="Alignment v1"
-                >
-                  Av1
-                </span>
+              {/* Consensus pills only for consensus items; labels are simple v1/v2 */}
+              {isLLMConsensus && versions.consensus?.llm && (versions.consensus.llm.v1 || versions.consensus.llm.v2) && (
+                <>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: consLLMV1Id });
+                    }}
+                    style={{ cursor: 'pointer', color: (((currentDisplayPath?.draftId === consLLMV1Id)) || (versions.consensus.llm.head === 'v1' && baseSelected)) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                    title="v1"
+                  >
+                    v1
+                  </span>
+                  {versions.consensus.llm.v2 && (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: consLLMV2Id });
+                      }}
+                      style={{ cursor: 'pointer', color: (((currentDisplayPath?.draftId === consLLMV2Id)) || (versions.consensus.llm.head === 'v2' && baseSelected)) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                      title="v2"
+                    >
+                      v2
+                    </span>
+                  )}
+                </>
               )}
-              {versions.alignment?.v2 && (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: alignV2Id });
-                  }}
-                  style={{ cursor: 'pointer', color: ((explicitAlignVersionSelected ? (currentDisplayPath?.draftId === alignV2Id) : (versions.alignment?.head === 'v2' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
-                  title="Alignment v2"
-                >
-                  Av2
-                </span>
+              {isAlignmentConsensus && versions.consensus?.alignment && (versions.consensus.alignment.v1 || versions.consensus.alignment.v2) && (
+                <>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: consAlignV1Id });
+                    }}
+                    style={{ cursor: 'pointer', color: (((currentDisplayPath?.draftId === consAlignV1Id)) || (versions.consensus.alignment.head === 'v1' && baseSelected)) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                    title="v1"
+                  >
+                    v1
+                  </span>
+                  {versions.consensus.alignment.v2 && (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: consAlignV2Id });
+                      }}
+                      style={{ cursor: 'pointer', color: (((currentDisplayPath?.draftId === consAlignV2Id)) || (versions.consensus.alignment.head === 'v2' && baseSelected)) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
+                      title="v2"
+                    >
+                      v2
+                    </span>
+                  )}
+                </>
               )}
             </div>
           )}

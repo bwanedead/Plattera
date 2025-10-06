@@ -185,11 +185,6 @@ export const useEditableDraft = (
 
   // Apply edit function
   const applyEdit = useCallback((blockIndex: number, tokenIndex: number, newValue: string, alternatives?: string[]) => {
-    // Ensure a specific raw draft is selected for edits
-    if (typeof selectedDraft !== 'number') {
-      alert('Please select a specific raw draft before editing.');
-      return;
-    }
     console.log('🎯 Applying edit:', { blockIndex, tokenIndex, newValue, selectedDraft });
     
     setEditableDraftState(prevState => {
@@ -509,11 +504,6 @@ export const useEditableDraft = (
     isMultiDraft, // For UI messaging only
     redundancyCount, // For UI messaging only
     setEditedContent: (text: string) => {
-      // Require a specific raw draft is selected
-      if (typeof selectedDraft !== 'number') {
-        alert('Please select a specific raw draft before editing.');
-        return;
-      }
       const blocks = extractBlockTexts(text);
       setEditableDraftState(prev => ({
         ...prev,

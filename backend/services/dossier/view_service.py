@@ -375,7 +375,17 @@ class DossierViewService:
             BACKEND_DIR = Path(__file__).resolve().parents[2]
             root = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier_id)
 
-            # Consensus (LLM) first
+            # Consensus (LLM) explicit versions
+            if transcription_id.endswith('_consensus_llm_v1') or transcription_id.endswith('_consensus_llm_v2'):
+                base_id = transcription_id.split('_consensus_llm_')[0]
+                ver = 'v1' if transcription_id.endswith('_v1') else 'v2'
+                scoped = root / base_id / 'consensus' / f"llm_{base_id}_{ver}.json"
+                if scoped.exists():
+                    with open(scoped, 'r', encoding='utf-8') as f:
+                        logger.info(f"📄 Loaded transcription (scoped LLM consensus {ver}): dossier={dossier_id} id={transcription_id} path={scoped}")
+                        return json.load(f)
+                logger.warning(f"❌ Explicit LLM consensus {ver} not found for {transcription_id} in dossier {dossier_id}. No fallback when version explicitly requested.")
+                return None
             if transcription_id.endswith('_consensus_llm'):
                 base_id = transcription_id[:-len('_consensus_llm')]
                 scoped = root / base_id / 'consensus' / f"llm_{base_id}.json"
@@ -384,7 +394,17 @@ class DossierViewService:
                         logger.info(f"📄 Loaded transcription (scoped LLM consensus): dossier={dossier_id} id={transcription_id} path={scoped}")
                         return json.load(f)
 
-            # Consensus (alignment)
+            # Consensus (alignment) explicit versions
+            if transcription_id.endswith('_consensus_alignment_v1') or transcription_id.endswith('_consensus_alignment_v2'):
+                base_id = transcription_id.split('_consensus_alignment_')[0]
+                ver = 'v1' if transcription_id.endswith('_v1') else 'v2'
+                scoped = root / base_id / 'consensus' / f"alignment_{base_id}_{ver}.json"
+                if scoped.exists():
+                    with open(scoped, 'r', encoding='utf-8') as f:
+                        logger.info(f"📄 Loaded transcription (scoped alignment consensus {ver}): dossier={dossier_id} id={transcription_id} path={scoped}")
+                        return json.load(f)
+                logger.warning(f"❌ Explicit alignment consensus {ver} not found for {transcription_id} in dossier {dossier_id}. No fallback when version explicitly requested.")
+                return None
             if transcription_id.endswith('_consensus_alignment'):
                 base_id = transcription_id[:-len('_consensus_alignment')]
                 scoped = root / base_id / 'consensus' / f"alignment_{base_id}.json"

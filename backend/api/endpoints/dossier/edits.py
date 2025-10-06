@@ -13,7 +13,8 @@ async def save_raw_edit(
 	transcription_id: str = Form(...),
 	edited_text: Optional[str] = Form(None),
 	edited_sections: Optional[str] = Form(None),
-	draft_index: Optional[int] = Form(None)
+	draft_index: Optional[int] = Form(None),
+	consensus_type: Optional[str] = Form(None)  # 'llm' | 'alignment'
 ):
 	try:
 		svc = EditPersistenceService()
@@ -24,13 +25,20 @@ async def save_raw_edit(
 			except Exception:
 				sections = None
 
-		if draft_index is not None:
+		# Consensus save path
+		if consensus_type in ("llm", "alignment"):
+			if consensus_type == "llm":
+				ok, head = svc.save_llm_consensus_v2(dossier_id, transcription_id, sections or edited_text or "")
+			else:
+				ok, head = svc.save_alignment_consensus_v2(dossier_id, transcription_id, sections or edited_text or "")
+		# Raw save path
+		elif draft_index is not None:
 			ok, head = svc.save_draft_v2(dossier_id, transcription_id, int(draft_index), edited_text=edited_text, edited_sections=sections)
 		else:
 			ok, head = svc.save_raw_v2(dossier_id, transcription_id, edited_text=edited_text, edited_sections=sections)
 		if not ok:
 			raise HTTPException(status_code=500, detail="Failed to save v2")
-		return {"success": True, "raw_head": head}
+		return {"success": True, "head": head}
 	except HTTPException:
 		raise
 	except Exception as e:

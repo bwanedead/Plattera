@@ -118,6 +118,14 @@ export const useAlignmentState = () => {
         showHeatmap: false
       });
 
+      // Targeted dossier refresh to reflect any version flag changes immediately
+      try {
+        const dossierIdStr = String(dossierId || '');
+        if (dossierIdStr) {
+          document.dispatchEvent(new CustomEvent('dossier:refreshOne', { detail: { dossierId: dossierIdStr } }));
+        }
+      } catch {}
+
       // NEW: Automatically select consensus draft for text-to-schema
       if (alignmentResult.success) {
         try {

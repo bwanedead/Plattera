@@ -185,16 +185,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     workspaceStateManager.syncFinalDraft(finalText, metadata);
   }, [updateWorkspaceState]);
 
-  // Save edited content to v2 and update HEAD
+  // Save edited content to v2 and update HEAD (raw or consensus)
   const handleSaveEditedContent = useCallback(async () => {
     const dossierId = selectedDossierId || imageProcessing.selectedResult?.result?.metadata?.dossier_id;
     const transcriptionId = imageProcessing.selectedResult?.result?.metadata?.transcription_id;
     if (!dossierId || !transcriptionId) {
       alert('Missing dossier or transcription context.');
-      return;
-    }
-    if (typeof selectedDraft !== 'number') {
-      alert('Please select a specific raw draft to save edits.');
       return;
     }
 
@@ -204,18 +200,36 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       : [{ id: 1, body: editableDraft.editableDraftState.editedDraft.content }];
 
     try {
+      const meta = imageProcessing.selectedResult?.result?.metadata || {};
+      const isConsensusSelected = !!meta?.is_consensus_selected || (typeof selectedDraft === 'string' && selectedDraft === 'consensus');
+      const consensusType = meta?.selected_versioned_draft_id && /_consensus_alignment$/.test(String(meta.selected_versioned_draft_id))
+        ? 'alignment'
+        : (meta?.selected_versioned_draft_id && /_consensus_llm$/.test(String(meta.selected_versioned_draft_id)) ? 'llm' : undefined);
+
       await saveDossierEditAPI({
         dossierId: String(dossierId),
         transcriptionId: String(transcriptionId),
         editedSections: sections,
-        draftIndex: selectedDraft
+        // When editing consensus, omit draftIndex and send consensusType; else send draftIndex
+        ...(isConsensusSelected && consensusType ? { consensusType } : { draftIndex: selectedDraft as number })
       });
       console.log('✅ Saved v2 and updated HEAD to v2');
       alignmentState.resetAlignmentState();
       try {
         document.dispatchEvent(new Event('dossiers:refresh'));
         document.dispatchEvent(new CustomEvent('dossier:refreshOne', { detail: { dossierId } }));
-        document.dispatchEvent(new CustomEvent('draft:saved', { detail: { dossierId, transcriptionId, draftId: `${transcriptionId}_v${(selectedDraft as number) + 1}_v2` } }));
+        // Emit a draft:saved for highlighting. For consensus, construct proper id.
+        let savedDraftId = '';
+        if (isConsensusSelected && consensusType === 'alignment') {
+          savedDraftId = `${transcriptionId}_consensus_alignment`;
+        } else if (isConsensusSelected && consensusType === 'llm') {
+          savedDraftId = `${transcriptionId}_consensus_llm`;
+        } else if (typeof selectedDraft === 'number') {
+          savedDraftId = `${transcriptionId}_v${(selectedDraft as number) + 1}_v2`;
+        }
+        if (savedDraftId) {
+          document.dispatchEvent(new CustomEvent('draft:saved', { detail: { dossierId, transcriptionId, draftId: savedDraftId } }));
+        }
       } catch {}
     } catch (e: any) {
       console.error('Failed to save edit', e);

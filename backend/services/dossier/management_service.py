@@ -205,9 +205,10 @@ class DossierManagementService:
             try:
                 from pathlib import Path as _Path
                 _BACKEND_DIR = _Path(__file__).resolve().parents[2]
-                # Use structured path: dossiers_data/views/transcriptions/{dossier_id}/{transcription_id}/raw/
+                # Use structured path: dossiers_data/views/transcriptions/{dossier_id}/{transcription_id}/{raw,alignment,consensus}
                 _struct_raw = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier.id) / str(transcription.transcription_id) / "raw"
                 _struct_align = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier.id) / str(transcription.transcription_id) / "alignment"
+                _struct_cons = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier.id) / str(transcription.transcription_id) / "consensus"
                 _head_path = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier.id) / str(transcription.transcription_id) / "head.json"
                 head_map = {}
                 try:
@@ -282,18 +283,32 @@ class DossierManagementService:
                     # Attach version flags for UI consumption
                     try:
                         d.metadata = d.metadata or {}
-                        d.metadata['versions'] = {
+                        versions = {
                             'raw': {
                                 'v1': True,
-                                'v2': raw_v2_path.exists(),
+                                # Consider head map indicating v2 to avoid transient misses
+                                'v2': (raw_v2_path.exists() or (raw_head_val == 'v2')),
                                 'head': raw_head_val
                             },
                             'alignment': {
                                 'v1': align_v1_path.exists(),
                                 'v2': align_v2_path.exists(),
                                 'head': align_head_val
+                            },
+                            'consensus': {
+                                'llm': {
+                                    'v1': (_struct_cons / f"llm_{transcription.transcription_id}_v1.json").exists(),
+                                    'v2': (_struct_cons / f"llm_{transcription.transcription_id}_v2.json").exists(),
+                                    'head': (head_map.get('consensus') or {}).get('llm', {}).get('head') if isinstance(head_map, dict) else None
+                                },
+                                'alignment': {
+                                    'v1': (_struct_cons / f"alignment_{transcription.transcription_id}_v1.json").exists(),
+                                    'v2': (_struct_cons / f"alignment_{transcription.transcription_id}_v2.json").exists(),
+                                    'head': (head_map.get('consensus') or {}).get('alignment', {}).get('head') if isinstance(head_map, dict) else None
+                                }
                             }
                         }
+                        d.metadata['versions'] = versions
                     except Exception:
                         pass
 
@@ -325,6 +340,22 @@ class DossierManagementService:
                             'label': 'AI Generated Consensus',
                             'status': 'completed'
                         }
+                        # Attach consensus version flags for LLM consensus
+                        try:
+                            cons_v1 = (_struct_cons / f"llm_{transcription.transcription_id}_v1.json").exists()
+                            cons_v2 = (_struct_cons / f"llm_{transcription.transcription_id}_v2.json").exists()
+                            cons_head = (head_map.get('consensus') or {}).get('llm', {}).get('head') if isinstance(head_map, dict) else None
+                            consensus_draft.metadata['versions'] = {
+                                'consensus': {
+                                    'llm': {
+                                        'v1': cons_v1,
+                                        'v2': cons_v2,
+                                        'head': cons_head
+                                    }
+                                }
+                            }
+                        except Exception:
+                            pass
                         run.drafts.append(consensus_draft)
                     else:
                         # Create placeholder if enabled but not yet completed
@@ -339,6 +370,19 @@ class DossierManagementService:
                             'label': 'AI Generated Consensus',
                             'status': 'failed' if run_metadata.get('llm_consensus_status') == 'failed' else 'processing'
                         }
+                        try:
+                            cons_head = (head_map.get('consensus') or {}).get('llm', {}).get('head') if isinstance(head_map, dict) else None
+                            consensus_draft.metadata['versions'] = {
+                                'consensus': {
+                                    'llm': {
+                                        'v1': False,
+                                        'v2': False,
+                                        'head': cons_head
+                                    }
+                                }
+                            }
+                        except Exception:
+                            pass
                         run.drafts.append(consensus_draft)
                 except Exception as _e2:
                     logger.warning(f"⚠️ Failed to append LLM consensus draft for {transcription.transcription_id}: {_e2}")
@@ -364,6 +408,22 @@ class DossierManagementService:
                         'label': 'Alignment Consensus',
                         'status': 'completed'
                     }
+                    # Attach consensus version flags for alignment consensus
+                    try:
+                        cons_v1 = (_struct_cons / f"alignment_{transcription.transcription_id}_v1.json").exists()
+                        cons_v2 = (_struct_cons / f"alignment_{transcription.transcription_id}_v2.json").exists()
+                        cons_head = (head_map.get('consensus') or {}).get('alignment', {}).get('head') if isinstance(head_map, dict) else None
+                        alignment_consensus_draft.metadata['versions'] = {
+                            'consensus': {
+                                'alignment': {
+                                    'v1': cons_v1,
+                                    'v2': cons_v2,
+                                    'head': cons_head
+                                }
+                            }
+                        }
+                    except Exception:
+                        pass
                     run.drafts.append(alignment_consensus_draft)
                 elif getattr(run, 'has_alignment_consensus', False):
                     # Create placeholder if expected by run metadata but file not yet present
@@ -378,6 +438,19 @@ class DossierManagementService:
                         'label': 'Alignment Consensus',
                         'status': 'processing'
                     }
+                    try:
+                        cons_head = (head_map.get('consensus') or {}).get('alignment', {}).get('head') if isinstance(head_map, dict) else None
+                        alignment_consensus_draft.metadata['versions'] = {
+                            'consensus': {
+                                'alignment': {
+                                    'v1': False,
+                                    'v2': False,
+                                    'head': cons_head
+                                }
+                            }
+                        }
+                    except Exception:
+                        pass
                     run.drafts.append(alignment_consensus_draft)
             except Exception as _e3:
                 logger.warning(f"⚠️ Failed to append alignment consensus draft for {transcription.transcription_id}: {_e3}")

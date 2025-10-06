@@ -346,3 +346,87 @@ class EditPersistenceService:
 		head.setdefault("alignment_heads", {})[dkey] = "v1"
 		self._write_json(self._head_file(dossier_id, transcription_id), head)
 		return True
+
+	# ---------------- Consensus (LLM/Alignment) v1/v2 persistence ----------------
+	def _ensure_consensus_head(self, dossier_id: str, transcription_id: str) -> Dict[str, Any]:
+		head = self._ensure_head(dossier_id, transcription_id)
+		head.setdefault("consensus", {"llm": {"head": None}, "alignment": {"head": None}})
+		return head
+
+	def save_llm_consensus_v2(self, dossier_id: str, transcription_id: str, sections: Any) -> Tuple[bool, str]:
+		"""
+		Persist LLM consensus v2 and set consensus.llm.head to v2.
+		Files:
+		- consensus/llm_{tid}_v1.json (snapshot if missing)
+		- consensus/llm_{tid}_v2.json
+		- consensus/llm_{tid}.json (HEAD pointer)
+		"""
+		cons_dir = self._consensus_dir(dossier_id, transcription_id)
+		cons_dir.mkdir(parents=True, exist_ok=True)
+		v1_path = cons_dir / f"llm_{transcription_id}_v1.json"
+		v2_path = cons_dir / f"llm_{transcription_id}_v2.json"
+		head_path = cons_dir / f"llm_{transcription_id}.json"
+
+		payload = {
+			"type": "llm_consensus",
+			"documentId": "llm_consensus_v2",
+			"sections": sections if isinstance(sections, list) else [{"id": 1, "body": str(sections or "")}],
+			"_status": "completed",
+			"_updated_at": datetime.utcnow().isoformat()
+		}
+
+		# Snapshot v1 if not present from current head if exists
+		try:
+			if not v1_path.exists() and head_path.exists():
+				data = self._read_json(head_path)
+				if data is not None:
+					self._write_json(v1_path, data)
+		except Exception:
+			pass
+
+		self._write_json(v2_path, payload)
+		self._write_json(head_path, payload)
+
+		head = self._ensure_consensus_head(dossier_id, transcription_id)
+		head.setdefault("consensus", {}).setdefault("llm", {})["head"] = "v2"
+		self._write_json(self._head_file(dossier_id, transcription_id), head)
+		return True, "v2"
+
+	def save_alignment_consensus_v2(self, dossier_id: str, transcription_id: str, sections: Any) -> Tuple[bool, str]:
+		"""
+		Persist Alignment consensus v2 and set consensus.alignment.head to v2.
+		Files:
+		- consensus/alignment_{tid}_v1.json (snapshot if missing)
+		- consensus/alignment_{tid}_v2.json
+		- consensus/alignment_{tid}.json (HEAD pointer)
+		"""
+		cons_dir = self._consensus_dir(dossier_id, transcription_id)
+		cons_dir.mkdir(parents=True, exist_ok=True)
+		v1_path = cons_dir / f"alignment_{transcription_id}_v1.json"
+		v2_path = cons_dir / f"alignment_{transcription_id}_v2.json"
+		head_path = cons_dir / f"alignment_{transcription_id}.json"
+
+		payload = {
+			"type": "alignment_consensus",
+			"documentId": "alignment_consensus_v2",
+			"sections": sections if isinstance(sections, list) else [{"id": 1, "body": str(sections or "")}],
+			"_status": "completed",
+			"_updated_at": datetime.utcnow().isoformat()
+		}
+
+		# Snapshot v1 from current head if available
+		try:
+			if not v1_path.exists() and head_path.exists():
+				data = self._read_json(head_path)
+				if data is not None:
+					self._write_json(v1_path, data)
+		except Exception:
+			pass
+
+		self._write_json(v2_path, payload)
+		self._write_json(head_path, payload)
+
+		head = self._ensure_consensus_head(dossier_id, transcription_id)
+		head.setdefault("consensus", {}).setdefault("alignment", {})["head"] = "v2"
+		self._write_json(self._head_file(dossier_id, transcription_id), head)
+		return True, "v2"
