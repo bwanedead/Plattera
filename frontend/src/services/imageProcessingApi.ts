@@ -244,6 +244,7 @@ export const saveDossierEditAPI = async (params: {
   editedSections?: Array<{ id: number | string; body: string }>;
   draftIndex?: number; // NEW
   consensusType?: 'llm' | 'alignment';
+  alignmentDraftIndex?: number; // NEW: for Av2 saves
 }): Promise<{ success: boolean; head?: string; raw_head?: string }> => {
   const formData = new FormData();
   formData.append('dossier_id', params.dossierId);
@@ -258,6 +259,9 @@ export const saveDossierEditAPI = async (params: {
   }
   if (params.consensusType) {
     formData.append('consensus_type', params.consensusType);
+  }
+  if (typeof params.alignmentDraftIndex === 'number') {
+    formData.append('alignment_draft_index', String(params.alignmentDraftIndex));
   }
 
   const response = await fetch('http://localhost:8000/api/dossier/edits/save', {

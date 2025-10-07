@@ -185,8 +185,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     workspaceStateManager.syncFinalDraft(finalText, metadata);
   }, [updateWorkspaceState]);
 
-  // Save edited content to v2 and update HEAD (raw or consensus)
-  const handleSaveEditedContent = useCallback(async () => {
+  // Save edited content to v2/Av2/consensus, preferring provided sections from heatmap
+  const handleSaveEditedContent = useCallback(async (payload?: { sections?: Array<{ id: number | string; body: string }>; text?: string }) => {
     const dossierId = selectedDossierId || imageProcessing.selectedResult?.result?.metadata?.dossier_id;
     const transcriptionId = imageProcessing.selectedResult?.result?.metadata?.transcription_id;
     if (!dossierId || !transcriptionId) {
@@ -194,10 +194,15 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       return;
     }
 
-    const blocks = editableDraft.editableDraftState.editedDraft.blockTexts;
-    const sections = (blocks && blocks.length > 0)
-      ? blocks.map((body, i) => ({ id: i + 1, body }))
-      : [{ id: 1, body: editableDraft.editableDraftState.editedDraft.content }];
+    // Prefer sections supplied by heatmap; fallback to current edited buffer
+    const sections = (payload?.sections && payload.sections.length > 0)
+      ? payload.sections
+      : (() => {
+          const blocks = editableDraft.editableDraftState.editedDraft.blockTexts;
+          return (blocks && blocks.length > 0)
+            ? blocks.map((body, i) => ({ id: i + 1, body }))
+            : [{ id: 1, body: editableDraft.editableDraftState.editedDraft.content }];
+        })();
 
     try {
       const meta = imageProcessing.selectedResult?.result?.metadata || {};
@@ -206,15 +211,33 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         ? 'alignment'
         : (meta?.selected_versioned_draft_id && /_consensus_llm$/.test(String(meta.selected_versioned_draft_id)) ? 'llm' : undefined);
 
-      await saveDossierEditAPI({
+      // Decide where edits funnel: alignment Av2 if heatmap is shown or viewing alignment draft; else raw/consensus v2
+      const saveParams: any = {
         dossierId: String(dossierId),
         transcriptionId: String(transcriptionId),
         editedSections: sections,
-        // When editing consensus, omit draftIndex and send consensusType; else send draftIndex
-        ...(isConsensusSelected && consensusType ? { consensusType } : { draftIndex: selectedDraft as number })
-      });
-      console.log('✅ Saved v2 and updated HEAD to v2');
-      alignmentState.resetAlignmentState();
+      };
+      const selectedId = String(meta?.selected_versioned_draft_id || '');
+      const isAlignmentId = /_draft_\d+(?:_v[12])?$/.test(selectedId);
+      if (alignmentState.alignmentState.showHeatmap || isAlignmentId) {
+        // Prefer deriving draft number from the currently selected versioned draft id if alignment
+        let draftNumberFromId: number | null = null;
+        try {
+          const m = selectedId.match(/_draft_(\d+)(?:_v[12])?$/);
+          if (m) draftNumberFromId = parseInt(m[1], 10);
+        } catch {}
+        const oneBased = draftNumberFromId || ((typeof selectedDraft === 'number') ? (selectedDraft + 1) : 1);
+        // alignmentDraftIndex is 0-based in backend signature
+        saveParams.alignmentDraftIndex = Math.max(0, oneBased - 1);
+      } else if (isConsensusSelected && consensusType) {
+        saveParams.consensusType = consensusType;
+      } else if (typeof selectedDraft === 'number') {
+        saveParams.draftIndex = selectedDraft;
+      }
+
+      await saveDossierEditAPI(saveParams);
+      console.log('✅ Saved edit to appropriate v2 (raw/consensus/alignment) and updated HEAD');
+      // Keep alignment panel visible; do not reset alignment state
       try {
         document.dispatchEvent(new Event('dossiers:refresh'));
         document.dispatchEvent(new CustomEvent('dossier:refreshOne', { detail: { dossierId } }));
@@ -224,6 +247,15 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
           savedDraftId = `${transcriptionId}_consensus_alignment`;
         } else if (isConsensusSelected && consensusType === 'llm') {
           savedDraftId = `${transcriptionId}_consensus_llm`;
+        } else if (alignmentState.alignmentState.showHeatmap || isAlignmentId) {
+          // Use the same draft number resolution as for save
+          let draftNumberFromId: number | null = null;
+          try {
+            const m = selectedId.match(/_draft_(\d+)(?:_v[12])?$/);
+            if (m) draftNumberFromId = parseInt(m[1], 10);
+          } catch {}
+          const oneBased = draftNumberFromId || ((typeof selectedDraft === 'number') ? (selectedDraft + 1) : 1);
+          savedDraftId = `${transcriptionId}_draft_${oneBased}_v2`;
         } else if (typeof selectedDraft === 'number') {
           savedDraftId = `${transcriptionId}_v${(selectedDraft as number) + 1}_v2`;
         }
@@ -236,6 +268,16 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       alert(`Failed to save edit: ${e?.message || e}`);
     }
   }, [selectedDossierId, imageProcessing.selectedResult, editableDraft.editableDraftState, alignmentState]);
+
+  // Warn when editing raw while alignment exists (staleness indicator)
+  useEffect(() => {
+    const meta = imageProcessing.selectedResult?.result?.metadata || {};
+    const alignmentExists = !!alignmentState.alignmentState.alignmentResult?.success;
+    if (alignmentExists && !alignmentState.alignmentState.showHeatmap && typeof selectedDraft === 'number') {
+      // Simple non-blocking hint; could be upgraded to a banner/toast
+      console.log('⚠️ Editing raw while alignment exists: alignment results may be stale until rerun');
+    }
+  }, [imageProcessing.selectedResult, alignmentState.alignmentState.alignmentResult, alignmentState.alignmentState.showHeatmap, selectedDraft]);
 
   // Text retrieval functions with edit-aware logic
   const getCurrentTextCallback = useCallback(() => {
@@ -324,10 +366,22 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     }
   }, [imageProcessing.selectedResult]);
 
-  // Reset editing when alignment result changes
+  // Ensure edited buffer does not mask version switches; reset edits on versioned selection change
+  useEffect(() => {
+    try {
+      const versionedId = imageProcessing.selectedResult?.result?.metadata?.selected_versioned_draft_id;
+      // Reset when explicit version changes or when selectedDraft changes
+      if (versionedId !== undefined) {
+        // Silent local reset only; do NOT call backend or show confirmation
+        (editableDraft as any).resetLocalEdits?.();
+      }
+    } catch {}
+  }, [imageProcessing.selectedResult?.result?.metadata?.selected_versioned_draft_id, selectedDraft]);
+
+  // Reset local buffer when alignment result changes (no backend revert)
   useEffect(() => {
     if (alignmentState.alignmentState.alignmentResult) {
-      editableDraft.resetToOriginal();
+      (editableDraft as any).resetLocalEdits?.();
     }
   }, [alignmentState.alignmentState.alignmentResult]);
 
@@ -513,6 +567,31 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
               onToggleHeatmap={alignmentState.toggleHeatmap}
               onClose={alignmentState.closeAlignmentPanel}
               onToggleAlignmentTable={alignmentState.toggleAlignmentTable}
+              onRerun={async (fresh?: boolean) => {
+                if (!imageProcessing.selectedResult) return;
+                // If fresh, revert alignment heads Av2->Av1 for all drafts with alignment
+                if (fresh) {
+                  try {
+                    const dossierId = imageProcessing.selectedResult?.result?.metadata?.dossier_id;
+                    const transcriptionId = imageProcessing.selectedResult?.result?.metadata?.transcription_id;
+                    const ra = imageProcessing.selectedResult?.result?.metadata?.redundancy_analysis;
+                    const rawCount = (ra?.individual_results || []).filter((r: any) => r?.success && !(r?.metadata?.type === 'llm_consensus')).length;
+                    // Revert each alignment draft to v1 (best-effort)
+                    const calls: Promise<any>[] = [];
+                    for (let i = 0; i < rawCount; i++) {
+                      const form = new FormData();
+                      form.append('dossier_id', String(dossierId || ''));
+                      form.append('transcription_id', String(transcriptionId || ''));
+                      form.append('alignment_draft_index', String(i));
+                      form.append('purge', 'true');
+                      calls.push(fetch('http://localhost:8000/api/dossier/versions/revert-to-v1', { method: 'POST', body: form }).catch(() => null));
+                    }
+                    await Promise.all(calls);
+                  } catch {}
+                }
+                // Rerun alignment
+                await alignmentState.handleAlign(imageProcessing.selectedResult);
+              }}
             />
           </Allotment.Pane>
         )}
@@ -553,16 +632,29 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             alignmentResult={alignmentState.alignmentState.alignmentResult}
             showHeatmap={alignmentState.alignmentState.showHeatmap}
             onAlign={() => alignmentState.handleAlign(imageProcessing.selectedResult)}
+            onToggleAlignmentPanel={() => {
+              const hasResults = !!alignmentState.alignmentState.alignmentResult?.success;
+              if (hasResults) {
+                alignmentState.setShowAlignmentPanel(!alignmentState.alignmentState.showAlignmentPanel);
+              } else {
+                alignmentState.handleAlign(imageProcessing.selectedResult);
+              }
+            }}
             isAligning={alignmentState.alignmentState.isAligning}
             onTextUpdate={(newText: string) => {
-              // This is called when text is edited in the heatmap
-              console.log('Text updated in heatmap:', newText);
-              // The text update is handled by the editableDraft hook automatically
+              // Persist the rebuilt text from heatmap into the editable state
+              try {
+                editableDraft.setEditedContent(newText);
+              } catch {}
             }}
             onApplyEdit={(blockIndex: number, tokenIndex: number, newValue: string, editType?: 'alternative_selection' | 'manual_edit') => {
               // Convert editType to alternatives array format
               const alternatives = editType === 'alternative_selection' ? [newValue] : undefined;
               editableDraft.applyEdit(blockIndex, tokenIndex, newValue, alternatives);
+              // Auto-save immediately as Av2 when editing inside heatmap for alignment-selected draft
+              if (alignmentState.alignmentState.showHeatmap) {
+                handleSaveEditedContent().catch(() => {});
+              }
             }}
             editableDraftState={{
               hasUnsavedChanges: editableDraft.editableDraftState.hasUnsavedChanges,

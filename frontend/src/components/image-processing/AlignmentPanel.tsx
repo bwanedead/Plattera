@@ -7,6 +7,7 @@ interface AlignmentPanelProps {
   onToggleHeatmap: (show: boolean) => void;
   onClose: () => void;
   onToggleAlignmentTable: (show: boolean) => void;
+  onRerun?: (fresh?: boolean) => void; // NEW: rerun alignment, optionally fresh reset
 }
 
 export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
@@ -15,6 +16,7 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
   onToggleHeatmap,
   onClose,
   onToggleAlignmentTable,
+  onRerun,
 }) => {
   if (!alignmentResult || !alignmentResult.success) {
     return (
@@ -63,9 +65,34 @@ export const AlignmentPanel: React.FC<AlignmentPanelProps> = ({
     <div className="alignment-panel">
       <div className="alignment-panel-header">
         <h3>Alignment Analysis</h3>
-        <button className="panel-close-btn" onClick={onClose}>
-          ×
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {onRerun && (
+            <>
+              <button
+                className="panel-rerun-btn"
+                title="Rerun alignment"
+                onClick={() => onRerun(false)}
+                style={{ fontSize: 12 }}
+              >
+                Rerun
+              </button>
+              <button
+                className="panel-rerun-fresh-btn"
+                title="Fresh rerun (resets Av1/Av2)"
+                onClick={() => {
+                  const ok = window.confirm('Fresh rerun will reset alignment Av1/Av2 heads and discard Av2 edits. Continue?');
+                  if (ok) onRerun(true);
+                }}
+                style={{ fontSize: 12 }}
+              >
+                Fresh
+              </button>
+            </>
+          )}
+          <button className="panel-close-btn" onClick={onClose}>
+            ×
+          </button>
+        </div>
       </div>
       
       <div className="alignment-panel-content">

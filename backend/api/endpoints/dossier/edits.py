@@ -14,6 +14,7 @@ async def save_raw_edit(
 	edited_text: Optional[str] = Form(None),
 	edited_sections: Optional[str] = Form(None),
 	draft_index: Optional[int] = Form(None),
+	alignment_draft_index: Optional[int] = Form(None),  # NEW: per-draft alignment Av2 save
 	consensus_type: Optional[str] = Form(None)  # 'llm' | 'alignment'
 ):
 	try:
@@ -31,6 +32,9 @@ async def save_raw_edit(
 				ok, head = svc.save_llm_consensus_v2(dossier_id, transcription_id, sections or edited_text or "")
 			else:
 				ok, head = svc.save_alignment_consensus_v2(dossier_id, transcription_id, sections or edited_text or "")
+		# Alignment per-draft Av2 save path
+		elif alignment_draft_index is not None:
+			ok, head = svc.save_alignment_v2(dossier_id, transcription_id, int(alignment_draft_index), sections or edited_text or "")
 		# Raw save path
 		elif draft_index is not None:
 			ok, head = svc.save_draft_v2(dossier_id, transcription_id, int(draft_index), edited_text=edited_text, edited_sections=sections)

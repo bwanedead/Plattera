@@ -165,7 +165,8 @@ export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensu
   if (result.metadata?.selected_versioned_draft_id && result.extracted_text) {
     console.log('✅ FRONTEND DEBUG: Using versioned content from dossier selection');
     console.log('✅ FRONTEND DEBUG: Versioned draftId:', result.metadata.selected_versioned_draft_id);
-    return isJsonResult(result.extracted_text) ? formatJsonAsText(result.extracted_text) : result.extracted_text;
+    // extracted_text may be plain text for alignment Av2; only JSON-format when truly JSON
+    return (isJsonResult(result.extracted_text) ? formatJsonAsText(result.extracted_text) : result.extracted_text);
   }
 
   // PRIORITY 1: Use formatted text from alignment results if available

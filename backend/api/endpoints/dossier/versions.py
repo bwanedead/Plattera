@@ -25,10 +25,14 @@ async def revert_to_v1(
 	dossier_id: str = Form(...),
 	transcription_id: str = Form(...),
 	purge: Optional[bool] = Form(False),
-	draft_index: Optional[int] = Form(None)
+	draft_index: Optional[int] = Form(None),
+	alignment_draft_index: Optional[int] = Form(None)  # NEW: per-draft alignment revert
 ):
 	svc = EditPersistenceService()
-	if draft_index is not None:
+	# Alignment per-draft revert takes precedence if provided
+	if alignment_draft_index is not None:
+		ok = svc.revert_alignment_to_v1(dossier_id, transcription_id, int(alignment_draft_index), purge=bool(purge))
+	elif draft_index is not None:
 		ok = svc.revert_draft_to_v1(dossier_id, transcription_id, int(draft_index), purge=bool(purge))
 	else:
 		ok = svc.revert_to_v1(dossier_id, transcription_id, purge=bool(purge))

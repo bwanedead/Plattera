@@ -455,6 +455,21 @@ export const useEditableDraft = (
     console.log('🏁 Reset to original complete');
   }, [editableDraftState, selectedResult, isMultiDraft, redundancyCount]);
 
+  // Reset local buffer to original silently (no confirmation, no backend)
+  const resetLocalEdits = useCallback(() => {
+    setEditableDraftState(prevState => ({
+      ...prevState,
+      editedDraft: {
+        content: prevState.originalDraft.content,
+        blockTexts: [...prevState.originalDraft.blockTexts]
+      },
+      editHistory: [],
+      currentHistoryIndex: -1,
+      hasUnsavedChanges: false,
+      editedFromDraft: null
+    }));
+  }, []);
+
   // Save current state as new original
   const saveAsOriginal = useCallback(() => {
     setEditableDraftState(prevState => ({
@@ -496,6 +511,7 @@ export const useEditableDraft = (
     undoEdit,
     redoEdit,
     resetToOriginal,
+    resetLocalEdits,
     saveAsOriginal,
     canUndo: editableDraftState.currentHistoryIndex >= 0,
     canRedo: editableDraftState.currentHistoryIndex < editableDraftState.editHistory.length - 1,

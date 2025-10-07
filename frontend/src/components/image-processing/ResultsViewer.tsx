@@ -40,6 +40,7 @@ interface ResultsViewerProps {
   showHeatmap?: boolean;
   onAlign?: () => void;
   isAligning?: boolean;
+  onToggleAlignmentPanel?: () => void;
   // New editing-related props
   onTextUpdate?: (newText: string) => void;
   onApplyEdit?: (blockIndex: number, tokenIndex: number, newValue: string, editType?: 'alternative_selection' | 'manual_edit') => void;
@@ -64,7 +65,7 @@ interface ResultsViewerProps {
   onFinalDraftSelected?: (finalText: string, metadata: any) => void;
   // NEW: Free-form edit plumbing
   onSetEditedContent?: (text: string) => void;
-  onSaveEditedContent?: () => Promise<void>;
+  onSaveEditedContent?: (payload?: { sections?: Array<{ id: number | string; body: string }>; text?: string }) => Promise<void>;
 }
 
 export const ResultsViewer: React.FC<ResultsViewerProps> = ({
@@ -87,6 +88,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   showHeatmap = false,
   onAlign,
   isAligning = false,
+  onToggleAlignmentPanel,
   onTextUpdate,
   onApplyEdit,
   editableDraftState,
@@ -243,7 +245,11 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
 
       if (!nextPath) return;
 
-      console.log('🔵 Draft saved -> switching view to:', nextPath);
+      console.log(`🔵 Draft saved -> switching view to: draftId=${savedDraftId} (dossier=${savedDossierId}, transcription=${savedTranscriptionId})`);
+      // Guard: if currentDisplayPath already points to this draftId, avoid redundant reloads
+      if (currentDisplayPath?.draftId === savedDraftId) {
+        return;
+      }
       setCurrentDisplayPath(nextPath);
 
       try {
@@ -277,6 +283,18 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
         const idxInFetched = draftIds.findIndex(d => d === nextPath.draftId);
         const selectedCleanText = idxInFetched >= 0 ? (cleanTexts[idxInFetched] || '') : '';
 
+        // Compute raw draft index from savedDraftId when alignment Av2 was saved
+        let selectedIndexFromId: number | undefined = undefined;
+        try {
+          if (savedDraftId && /_draft_\d+(_v[12])?$/.test(savedDraftId)) {
+            const m = savedDraftId.match(/_draft_(\d+)/);
+            if (m) selectedIndexFromId = Math.max(0, parseInt(m[1], 10) - 1);
+          } else if (savedDraftId && /_v\d+_v[12]$/.test(savedDraftId)) {
+            const m = savedDraftId.match(/_v(\d+)_v[12]$/);
+            if (m) selectedIndexFromId = Math.max(0, parseInt(m[1], 10) - 1);
+          }
+        } catch {}
+
         const syntheticResult = {
           input: 'Dossier Selection (Saved)',
           status: 'completed' as const,
@@ -286,7 +304,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
               model_used: 'dossier-selection',
               service_type: 'dossier',
               is_imported_draft: true,
-              selected_draft_index: undefined,
+              selected_draft_index: selectedIndexFromId,
               is_consensus_selected: false,
               transcription_id: currentTranscriptionId,
               dossier_id: nextPath.dossierId,
@@ -395,18 +413,25 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         // - If a specific versioned draftId was requested, keep it for display
                         // - Also compute base raw draft index for selection purposes
                         const isVersionedRaw = !!(selectedDraftId && /_v(1|2)$/.test(selectedDraftId));
-                        const isVersionedAlign = !!(selectedDraftId && /_draft_\d+_v(1|2)$/.test(selectedDraftId));
+                        const isVersionedAlign = !!(selectedDraftId && /_draft_\d+(_v(1|2))?$/.test(selectedDraftId));
 
                         let selectedIndex: number | 'consensus' = 0;
                         if (selectedDraftId) {
                           if (isConsensusSelected) {
                             selectedIndex = 'consensus';
                           } else {
-                            const baseCandidate = isVersionedRaw
-                              ? selectedDraftId.replace(/_v(1|2)$/,'')
-                              : (isVersionedAlign ? selectedDraftId.replace(/_v(1|2)$/,'') : selectedDraftId);
-                            const baseIdx = rawDrafts.findIndex(d => d.id === baseCandidate);
-                            selectedIndex = Math.max(0, baseIdx);
+                            if (isVersionedAlign) {
+                              // Map alignment draft_n[_v1|v2] to raw draft index n-1
+                              const m = selectedDraftId.match(/_draft_(\d+)(?:_v[12])?$/);
+                              const n = m ? parseInt(m[1], 10) : 1;
+                              selectedIndex = Math.max(0, (n - 1));
+                            } else {
+                              const baseCandidate = isVersionedRaw
+                                ? selectedDraftId.replace(/_v(1|2)$/,'')
+                                : selectedDraftId;
+                              const baseIdx = rawDrafts.findIndex(d => d.id === baseCandidate);
+                              selectedIndex = Math.max(0, baseIdx);
+                            }
                           }
                         }
 
@@ -585,7 +610,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   {/* Edit */}
                   <button
                     className="final-draft-button"
-                    onClick={async () => {
+                      onClick={async () => {
                       if (isEditing) {
                         if (onSaveEditedContent) await onSaveEditedContent();
                         setIsEditing(false);
@@ -628,6 +653,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                     <AlignmentButton
                       visible={true}
                       onAlign={onAlign || (() => {})}
+                      onTogglePanel={onToggleAlignmentPanel}
                       isAligning={isAligning}
                       disabled={!canAlign}
                       tooltip={!canAlign ? 'Requires redundancy > 1 (at least 2 drafts) to run alignment' : undefined}
@@ -737,6 +763,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           alignmentResult={alignmentResult}
                           onTextUpdate={handleTextUpdate}
                           onApplyEdit={onApplyEdit}
+                          onSaveEditedContent={onSaveEditedContent}
                           editableDraftState={editableDraftState ? {
                             hasUnsavedChanges: editableDraftState.hasUnsavedChanges,
                             canUndo: editableDraftState.canUndo,

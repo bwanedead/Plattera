@@ -200,6 +200,10 @@ export const useAlignmentState = () => {
     setShowAlignmentTable(show);
   }, []);
 
+  const setShowAlignmentPanel = useCallback((show: boolean) => {
+    setAlignmentState(prev => ({ ...prev, showAlignmentPanel: show }));
+  }, []);
+
   const resetAlignmentState = useCallback(() => {
     setAlignmentState(prev => ({
       isAligning: false,
@@ -220,6 +224,7 @@ export const useAlignmentState = () => {
     toggleSuggestionPopup,
     closeAlignmentPanel,
     toggleAlignmentTable,
+    setShowAlignmentPanel,
     resetAlignmentState,
   };
 }; 
