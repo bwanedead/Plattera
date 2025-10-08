@@ -64,10 +64,20 @@ export const DossierList: React.FC<DossierListProps> = ({
   }
 
   // ============================================================================
-  // EMPTY STATE
+  // EMPTY/LOADING STATE
   // ============================================================================
 
   if (dossiers.length === 0) {
+    if (isLoading) {
+      return (
+        <div className="dossier-list loading">
+          <div className="dossier-loading-indicator">
+            <div className="loading-spinner" />
+            <div>Loading dossiers…</div>
+          </div>
+        </div>
+      );
+    }
     console.log('📭 No dossiers found - showing empty state');
     return (
       <div className="dossier-list empty">

@@ -232,6 +232,9 @@ class DossierManagementService:
                     alignment_heads = (head_map.get('alignment_heads') or {}) if isinstance(head_map, dict) else {}
                     raw_head_val = raw_heads.get(f"{transcription.transcription_id}_v{i+1}") or 'v1'
                     align_head_val = alignment_heads.get(f"{transcription.transcription_id}_draft_{i+1}")
+                    
+                    # Final selection for stitching and UI
+                    final_selected_id = (head_map.get('final') or {}).get('selected_id') if isinstance(head_map, dict) else None
 
                     length = 0
                     if fpath.exists():
@@ -315,6 +318,24 @@ class DossierManagementService:
                 if longest_idx is not None:
                     for i, d in enumerate(run.drafts):
                         d.is_best = (i == longest_idx)
+                
+                # Expose final selection at run-level metadata for FE and stitching
+                try:
+                    from services.dossier.final_registry_service import FinalRegistryService
+                    fr = FinalRegistryService()
+                    # Prefer registry value if present
+                    seg_id = getattr(segment, 'id', None)
+                    reg_val = fr.get_segment_final(str(dossier.id), str(seg_id)) if (getattr(dossier, 'id', None) and seg_id) else None
+                    chosen_final = None
+                    if isinstance(reg_val, dict):
+                        chosen_final = reg_val.get('draft_id')
+                    if not chosen_final:
+                        # Read-only fallback to head.json legacy field computed above
+                        chosen_final = final_selected_id
+                    run.metadata = (run.metadata or {})
+                    run.metadata['final_selected_id'] = chosen_final
+                except Exception:
+                    pass
             except Exception as _e:
                 logger.warning(f"⚠️ Failed to determine best draft by length for {transcription.transcription_id}: {_e}")
 

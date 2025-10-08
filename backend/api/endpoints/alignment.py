@@ -20,7 +20,7 @@ from datetime import datetime
 from alignment.section_normalizer import SectionNormalizer
 from alignment.biopython_engine import BioPythonAlignmentEngine
 from alignment.alignment_utils import check_dependencies
-from services.alignment_service import AlignmentService
+from services.alignment_service_singleton import get_alignment
 from services.dossier.view_service import DossierViewService
 
 logger = logging.getLogger(__name__)
@@ -99,8 +99,8 @@ async def align_legal_drafts(request: AlignmentRequest):
             }
             draft_jsons.append(draft_dict)
         
-        # Use the service layer for processing
-        alignment_service = AlignmentService()
+        # Use the service layer for processing (lazy singleton)
+        alignment_service = get_alignment()
         results = alignment_service.process_alignment_request(
             draft_jsons=draft_jsons,
             generate_visualization=request.generate_visualization,
@@ -250,7 +250,7 @@ async def align_drafts_by_ids(req: AlignmentByIdsRequest):
             error="At least 2 non-empty drafts are required for alignment",
         )
 
-    alignment_service = AlignmentService()
+    alignment_service = get_alignment()
     results = alignment_service.process_alignment_request(
         draft_jsons=draft_jsons,
         generate_visualization=True,

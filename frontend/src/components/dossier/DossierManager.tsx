@@ -71,6 +71,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; type: string } | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
   const [hoverHighlightId, setHoverHighlightId] = useState<string | null>(null);
+  const [finalizeResult, setFinalizeResult] = useState<{ success: boolean; errors: any[]; dossierId: string } | null>(null);
 
   // Subscribe to hover highlight bus
   useEffect(() => {
@@ -167,7 +168,30 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
         reconnectTimer = window.setTimeout(() => connect(), 2000);
       }
     };
-    connect();
+    // Gate initial SSE on a fast health check to avoid hammering a dead server
+    (async () => {
+      try {
+        const ok = await dossierApi.health(1000);
+        if (ok) {
+          connect();
+          // kick a soft refresh immediately after health success
+          try { refreshDossiersSoft(); } catch {}
+        } else {
+          // start fallback poll and retry health shortly
+          startFallbackPoll();
+          if (reconnectTimer) window.clearTimeout(reconnectTimer);
+          reconnectTimer = window.setTimeout(async () => {
+            const ok2 = await dossierApi.health(1500);
+            if (ok2 && !es) {
+              connect();
+              try { refreshDossiersSoft(); } catch {}
+            }
+          }, 1200);
+        }
+      } catch {
+        startFallbackPoll();
+      }
+    })();
 
     return () => {
       document.removeEventListener('dossiers:refresh', handler);
@@ -193,6 +217,25 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   // ============================================================================
   // ACTION HANDLERS
   // ============================================================================
+
+  const handleFinalizeDossier = useCallback(async (dossierId: string) => {
+    try {
+      console.log('🎯 Finalizing dossier:', dossierId);
+      const result = await dossierApi.finalizeDossier(dossierId);
+      setFinalizeResult(result);
+      console.log('✅ Finalize result:', result);
+      // Show result
+      if (result.success) {
+        const msg = `✅ Finalized ${result.segments?.length || 0} segments\n${result.errors?.length ? `⚠️ ${result.errors.length} errors` : ''}`;
+        alert(msg);
+      }
+      // Refresh the dossier tree
+      await refreshDossierById(dossierId);
+    } catch (e: any) {
+      console.error('❌ Finalize failed:', e);
+      throw e;
+    }
+  }, [refreshDossierById]);
 
   const handleItemAction = useCallback(async (action: string, data?: any) => {
     try {
@@ -378,6 +421,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
           createDossier({ title: `Dossier ${new Date().toLocaleDateString()}` });
         }}
         onRefresh={loadDossiers}
+        onFinalizeDossier={handleFinalizeDossier}
         stats={stats}
       />
 

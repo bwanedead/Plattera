@@ -90,6 +90,14 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
       if (!isAutoCreateBatch) {
         try {
           const { dossierApi } = await import('../services/dossier/dossierApi');
+          // Ensure backend is reachable before first init-run to avoid long cold-start hangs
+          try {
+            let ok = await dossierApi.health(800);
+            if (!ok) {
+              await new Promise(r => setTimeout(r, 1200));
+              ok = await dossierApi.health(800);
+            }
+          } catch {}
           const initResult = await dossierApi.initRun({
             dossierId: dossierIdToSend || undefined,
             fileName: firstFile?.name,

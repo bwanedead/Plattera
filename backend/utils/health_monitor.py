@@ -27,6 +27,7 @@ class HealthMonitor:
         self.memory_threshold_mb = 500  # 500MB threshold
         self.last_cleanup_time = 0
         self.cleanup_interval_seconds = 300  # 5 minutes
+        self._last_health_log_ts = 0.0  # rate-limit info logs
         
     def check_system_health(self) -> Dict[str, Any]:
         """
@@ -70,8 +71,14 @@ class HealthMonitor:
                     health_status['recommendations'] = []
                 health_status['recommendations'].append('Perform scheduled cleanup')
             
-            logger.info(f"🏥 HEALTH CHECK ► Memory: {memory_mb:.1f}MB, CPU: {cpu_percent:.1f}%, Status: {health_status['overall_status']}")
-            
+            msg = f"🏥 HEALTH CHECK ► Memory: {memory_mb:.1f}MB, CPU: {cpu_percent:.1f}%, Status: {health_status['overall_status']}"
+            now = time.time()
+            if now - self._last_health_log_ts > 60:
+                logger.info(msg)
+                self._last_health_log_ts = now
+            else:
+                logger.debug(msg)
+
             return health_status
             
         except Exception as e:

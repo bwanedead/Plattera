@@ -106,6 +106,40 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   const [showAlignedText, setShowAlignedText] = useState(false);
   const [currentDisplayPath, setCurrentDisplayPath] = useState<DossierPath | undefined>();
   const [isEditing, setIsEditing] = useState(false);
+  const [showFinalConfirm, setShowFinalConfirm] = useState<null | { nextDraftId: string }>(null);
+
+  const setFinalForCurrentView = async (nextDraftId?: string) => {
+    const dossierId = currentDisplayPath?.dossierId || selectedResult?.result?.metadata?.dossier_id;
+    const transcriptionId = selectedResult?.result?.metadata?.transcription_id;
+    const draftId = nextDraftId || currentDisplayPath?.draftId || selectedResult?.result?.metadata?.selected_versioned_draft_id;
+    const segmentId = currentDisplayPath?.segmentId; // ensure segment scope
+    if (!dossierId || !transcriptionId || !draftId) {
+      alert('Select a specific versioned draft in the Dossier Manager first.');
+      return;
+    }
+    if (!segmentId) {
+      alert('Segment is not selected. Choose a segment in the Dossier Manager.');
+      return;
+    }
+    // confirm only if overwriting an existing different final
+    let needsConfirm = false;
+    try {
+      const { dossierApi } = await import('../../services/dossier/dossierApi');
+      const existing = await dossierApi.getSegmentFinal(String(dossierId), String(segmentId));
+      needsConfirm = !!(existing && existing.draft_id && existing.draft_id !== draftId);
+    } catch {}
+    if (needsConfirm) {
+      setShowFinalConfirm({ nextDraftId: String(draftId) });
+      return;
+    }
+    const { dossierApi } = await import('../../services/dossier/dossierApi');
+    await dossierApi.setSegmentFinal(String(dossierId), String(segmentId), String(transcriptionId), String(draftId));
+    try {
+      document.dispatchEvent(new Event('dossiers:refresh'));
+      document.dispatchEvent(new CustomEvent('dossier:refreshOne', { detail: { dossierId } }));
+    } catch {}
+    console.log('✅ Set final selection:', { dossierId, transcriptionId, draftId });
+  };
 
   // Check if current result has multiple drafts for alignment
   const hasMultipleDrafts = selectedResult?.result?.metadata?.redundancy_analysis?.individual_results?.length > 1;
@@ -660,6 +694,29 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                     />
                   </div>
 
+                  {/* Inline confirm UI for overwriting (triggered by Select Final button) */}
+                  {showFinalConfirm && (
+                    <div style={{ marginTop: 6, background: '#fff', border: '1px solid #ddd', borderRadius: 6, padding: 8 }}>
+                      <div style={{ fontSize: 12, marginBottom: 6 }}>Replace the existing final selection for this segment?</div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          className="final-draft-button"
+                          onClick={async () => {
+                            try {
+                              const nextDraftId = showFinalConfirm.nextDraftId;
+                              await setFinalForCurrentView(nextDraftId);
+                            } finally {
+                              setShowFinalConfirm(null);
+                            }
+                          }}
+                        >
+                          Confirm
+                        </button>
+                        <button className="final-draft-button" onClick={() => setShowFinalConfirm(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Select Final */}
                   <div style={{ marginTop: 4 }}>
                     <FinalDraftSelector
@@ -673,8 +730,33 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                          ? editableDraftState.editedDraft.content 
                          : undefined}
                       editedFromDraft={editableDraftState?.editedFromDraft}
+                      dossierId={currentDisplayPath?.dossierId || selectedResult?.result?.metadata?.dossier_id}
+                      transcriptionId={selectedResult?.result?.metadata?.transcription_id}
+                      currentDraftId={currentDisplayPath?.draftId || selectedResult?.result?.metadata?.selected_versioned_draft_id}
                     />
                   </div>
+                  {/* Finalize dossier when in dossier-level view */}
+                  {isDossierView && (
+                    <button
+                      className="final-draft-button"
+                      style={{ marginTop: 12 }}
+                      title="Finalize this dossier (stitch all segments into a snapshot)"
+                      onClick={async () => {
+                        try {
+                          const dossierId = currentDisplayPath?.dossierId || selectedResult?.result?.metadata?.dossier_id;
+                          if (!dossierId) { alert('No dossier selected'); return; }
+                          const { dossierApi } = await import('../../services/dossier/dossierApi');
+                          const res = await dossierApi.finalizeDossier(String(dossierId));
+                          alert(`Finalized dossier.\nSegments: ${(res?.segments || []).length}\nErrors: ${(res?.errors || []).length}`);
+                        } catch (e: any) {
+                          console.error('❌ Finalize failed', e);
+                          alert(`Finalize failed: ${e?.message || e}`);
+                        }
+                      }}
+                    >
+                      Finalize Dossier
+                    </button>
+                  )}
                 </ToolTray>
 
                 {/* Controls toolbar: absolute, pinned under tabs; always above text viewer */}

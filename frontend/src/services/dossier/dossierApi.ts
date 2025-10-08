@@ -188,7 +188,15 @@ class DossierApiClient {
     const maxAttempts = this.warmedUp ? this.retryAttempts : 4;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const response = await fetch(url, defaultOptions);
+        // Add a short first-hop timeout when not warmed up to avoid long hangs on cold starts
+        const controller = new AbortController();
+        const attemptTimeoutMs = this.warmedUp ? undefined : 1500;
+        let timeoutHandle: number | undefined;
+        if (attemptTimeoutMs) {
+          timeoutHandle = window.setTimeout(() => controller.abort(), attemptTimeoutMs);
+        }
+        const response = await fetch(url, { ...defaultOptions, signal: controller.signal } as RequestInit);
+        if (timeoutHandle) window.clearTimeout(timeoutHandle);
         const data: DossierApiResponse<T> = await response.json();
 
         if (!response.ok) {
@@ -217,6 +225,23 @@ class DossierApiClient {
     }
 
     throw lastError || new DossierApiError('Unknown error occurred');
+  }
+
+  // Fast health probe (1s timeout) to gate initial contact
+  async health(timeoutMs = 1000): Promise<boolean> {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${this.baseUrl}/health`, { signal: controller.signal } as RequestInit);
+      if (!res.ok) return false;
+      await res.json().catch(() => ({}));
+      this.warmedUp = true;
+      return true;
+    } catch {
+      return false;
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
 
   private isRetryableError(error: any): boolean {
@@ -292,6 +317,118 @@ class DossierApiClient {
   async suggestNames(dossierId: string): Promise<any> {
     // Future implementation for AI-powered naming suggestions
     throw new DossierApiError('Auto-naming not yet implemented');
+  }
+
+  // ============================================================================
+  // FINAL SELECTION (per-segment/run)
+  // ============================================================================
+
+  // New registry-backed finals endpoints (segment-scoped)
+  async getAllSegmentFinals(dossierId: string): Promise<Record<string, { transcription_id: string; draft_id: string; set_at?: string; set_by?: string }>> {
+    const res = await fetch(`${this.baseUrl}/dossier/${encodeURIComponent(dossierId)}/finals`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new DossierApiError(data?.detail || 'Failed to get finals map', res.status, data);
+    }
+    return (data?.segments || {}) as any;
+  }
+
+  async getSegmentFinal(dossierId: string, segmentId: string): Promise<{ transcription_id: string; draft_id: string } | null> {
+    const res = await fetch(`${this.baseUrl}/dossier/${encodeURIComponent(dossierId)}/segments/${encodeURIComponent(segmentId)}/final`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // Treat as unset
+      return null;
+    }
+    return data?.final ?? null;
+  }
+
+  async setSegmentFinal(dossierId: string, segmentId: string, transcriptionId: string, draftId: string, setBy?: string): Promise<{ success: boolean; final: any }> {
+    const res = await fetch(`${this.baseUrl}/dossier/${encodeURIComponent(dossierId)}/segments/${encodeURIComponent(segmentId)}/final`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcription_id: transcriptionId, draft_id: draftId, set_by: setBy })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new DossierApiError(data?.detail || 'Failed to set segment final', res.status, data);
+    }
+    try {
+      document.dispatchEvent(new Event('dossiers:refresh'));
+      document.dispatchEvent(new CustomEvent('dossier:refreshOne', { detail: { dossierId } }));
+      document.dispatchEvent(new CustomEvent('dossier:final-set', { detail: { dossierId, segmentId, transcriptionId, draftId } }));
+    } catch {}
+    return data;
+  }
+
+  async clearSegmentFinal(dossierId: string, segmentId: string): Promise<{ success: boolean; removed: boolean }> {
+    const res = await fetch(`${this.baseUrl}/dossier/${encodeURIComponent(dossierId)}/segments/${encodeURIComponent(segmentId)}/final`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new DossierApiError(data?.detail || 'Failed to clear segment final', res.status, data);
+    }
+    try {
+      document.dispatchEvent(new Event('dossiers:refresh'));
+      document.dispatchEvent(new CustomEvent('dossier:refreshOne', { detail: { dossierId } }));
+      document.dispatchEvent(new CustomEvent('dossier:final-set', { detail: { dossierId, segmentId, transcriptionId: null, draftId: null } }));
+    } catch {}
+    return data;
+  }
+
+  async setFinalSelection(dossierId: string, transcriptionId: string, draftId: string): Promise<{ success: boolean; draft_id: string }> {
+    const form = new FormData();
+    form.append('dossier_id', dossierId);
+    form.append('transcription_id', transcriptionId);
+    form.append('draft_id', draftId);
+    const res = await fetch(`${this.baseUrl}/dossier/final-selection/set`, { method: 'POST', body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new DossierApiError(data?.detail || 'Failed to set final selection', res.status, data);
+    }
+    // Nudge caches and refresh dossier UI quickly
+    try {
+      document.dispatchEvent(new Event('dossiers:refresh'));
+      document.dispatchEvent(new CustomEvent('dossier:refreshOne', { detail: { dossierId } }));
+      document.dispatchEvent(new CustomEvent('dossier:final-set', { detail: { dossierId, transcriptionId, draftId } }));
+    } catch {}
+    return data;
+  }
+
+  async clearFinalSelection(dossierId: string, transcriptionId: string): Promise<{ success: boolean }> {
+    const form = new FormData();
+    form.append('dossier_id', dossierId);
+    form.append('transcription_id', transcriptionId);
+    const res = await fetch(`${this.baseUrl}/dossier/final-selection/clear`, { method: 'POST', body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new DossierApiError(data?.detail || 'Failed to clear final selection', res.status, data);
+    }
+    try { document.dispatchEvent(new CustomEvent('dossier:final-set', { detail: { dossierId, transcriptionId, draftId: null } })); } catch {}
+    return data;
+  }
+
+  async getFinalSelection(dossierId: string, transcriptionId: string): Promise<string | null> {
+    const url = `${this.baseUrl}/dossier/final-selection/get?dossier_id=${encodeURIComponent(dossierId)}&transcription_id=${encodeURIComponent(transcriptionId)}`;
+    const res = await fetch(url);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new DossierApiError(data?.detail || 'Failed to get final selection', res.status, data);
+    }
+    return data?.draft_id ?? null;
+  }
+
+  async finalizeDossier(dossierId: string): Promise<any> {
+    const res = await fetch(`${this.baseUrl}/dossier/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dossier_id: dossierId })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new DossierApiError(data?.detail || 'Failed to finalize dossier', res.status, data);
+    }
+    try { document.dispatchEvent(new CustomEvent('dossier:finalized', { detail: { dossierId } })); } catch {}
+    return data;
   }
 }
 

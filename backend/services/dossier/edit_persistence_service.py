@@ -68,6 +68,8 @@ class EditPersistenceService:
 			head["alignment_heads"] = {}
 		if "consensus" not in head:
 			head["consensus"] = {"llm": {"head": None}, "alignment": {"head": None}}
+		if "final" not in head:
+			head["final"] = {"selected_id": None, "set_at": None}
 		return head
 
 	def _current_raw_head(self, dossier_id: str, transcription_id: str) -> str:
@@ -430,3 +432,35 @@ class EditPersistenceService:
 		head.setdefault("consensus", {}).setdefault("alignment", {})["head"] = "v2"
 		self._write_json(self._head_file(dossier_id, transcription_id), head)
 		return True, "v2"
+
+	# ---------------- Final selection persistence ----------------
+	def set_final_selection(self, dossier_id: str, transcription_id: str, draft_id: str) -> bool:
+		"""
+		Set the final selection for this transcription to an exact versioned draftId.
+		Examples: {tid}_v1_v2, {tid}_draft_2_v1, {tid}_consensus_llm_v2, etc.
+		"""
+		if not isinstance(draft_id, str) or not draft_id.strip():
+			return False
+		head = self._ensure_head(dossier_id, transcription_id)
+		head.setdefault("final", {})
+		head["final"]["selected_id"] = draft_id
+		head["final"]["set_at"] = datetime.utcnow().isoformat()
+		self._write_json(self._head_file(dossier_id, transcription_id), head)
+		return True
+
+	def clear_final_selection(self, dossier_id: str, transcription_id: str) -> bool:
+		"""Clear the final selection for this transcription."""
+		head = self._ensure_head(dossier_id, transcription_id)
+		head.setdefault("final", {})
+		head["final"]["selected_id"] = None
+		head["final"]["set_at"] = datetime.utcnow().isoformat()
+		self._write_json(self._head_file(dossier_id, transcription_id), head)
+		return True
+
+	def get_final_selection(self, dossier_id: str, transcription_id: str) -> Optional[str]:
+		"""Get the final selection for this transcription."""
+		head = self._ensure_head(dossier_id, transcription_id)
+		try:
+			return (head.get("final") or {}).get("selected_id")
+		except Exception:
+			return None

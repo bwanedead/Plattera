@@ -672,9 +672,19 @@ export function useDossierManager() {
   // EFFECTS
   // ============================================================================
 
-  // Load dossiers on mount
+  // Load dossiers on mount, but give backend a brief moment to become reachable
   useEffect(() => {
-    loadDossiers();
+    (async () => {
+      try {
+        const { dossierApi } = await import('../services/dossier/dossierApi');
+        let ok = await dossierApi.health(600);
+        if (!ok) {
+          await new Promise(r => setTimeout(r, 700));
+          ok = await dossierApi.health(600);
+        }
+      } catch {}
+      await loadDossiers();
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // loadDossiers is stable due to useCallback with empty deps
 

@@ -78,6 +78,29 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   const isLLMConsensus = (draft.metadata as any)?.type === 'llm_consensus';
   const isAlignmentConsensus = (draft.metadata as any)?.type === 'alignment_consensus';
   const versions = (draft.metadata as any)?.versions as any | undefined;
+  const finalSelectedId = (run as any)?.metadata?.final_selected_id as string | undefined;
+  const isFinal = (id: string) => typeof finalSelectedId === 'string' && finalSelectedId === id;
+  const [confirmFinalId, setConfirmFinalId] = React.useState<string | null>(null);
+  const [confirmAnchor, setConfirmAnchor] = React.useState<{ x: number; y: number } | null>(null);
+
+  const setFinalWithConfirm = async (draftId: string, ev?: React.MouseEvent) => {
+    try {
+      const { dossierApi } = await import('../../../services/dossier/dossierApi');
+      const dossierId = dossier.id;
+      const transcriptionId = (run as any).transcriptionId || (run as any).transcription_id;
+      const segmentId = (segment as any)?.id;
+      if (!dossierId || !transcriptionId || !segmentId) return;
+      const existing = await dossierApi.getSegmentFinal(String(dossierId), String(segmentId)).catch(() => null);
+      if (existing && existing.draft_id && existing.draft_id !== draftId) {
+        setConfirmFinalId(draftId);
+        if (ev) setConfirmAnchor({ x: ev.clientX, y: ev.clientY });
+        return;
+      }
+      await dossierApi.setSegmentFinal(String(dossierId), String(segmentId), String(transcriptionId), String(draftId));
+    } catch (e) {
+      console.error('❌ Failed to set final', e);
+    }
+  };
 
   const formatSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes}B`;
@@ -182,10 +205,21 @@ export const DraftItem: React.FC<DraftItemProps> = ({
                       e.stopPropagation();
                       onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: rawV1Id });
                     }}
-                    style={{ cursor: 'pointer', color: ((explicitRawVersionSelected ? (currentDisplayPath?.draftId === rawV1Id) : (versions.raw?.head === 'v1' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
-                    title="Raw v1"
+                    onContextMenu={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      await setFinalWithConfirm(rawV1Id, e);
+                    }}
+                    style={{
+                      cursor: 'pointer',
+                      color: ((explicitRawVersionSelected ? (currentDisplayPath?.draftId === rawV1Id) : (versions.raw?.head === 'v1' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                      background: isFinal(rawV1Id) ? 'linear-gradient(90deg, rgba(255,215,0,0.18), rgba(255,215,0,0.08))' : undefined,
+                      borderRadius: isFinal(rawV1Id) ? 4 : undefined,
+                      padding: isFinal(rawV1Id) ? '0 4px' : undefined
+                    }}
+                    title={isFinal(rawV1Id) ? 'Raw v1 (Final selection)' : 'Raw v1 - Right-click to set as final'}
                   >
-                    v1
+                    {isFinal(rawV1Id) ? '★ ' : ''}v1
                   </span>
                   {versions.raw?.v2 && (
                     <span
@@ -193,10 +227,21 @@ export const DraftItem: React.FC<DraftItemProps> = ({
                         e.stopPropagation();
                         onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: rawV2Id });
                       }}
-                      style={{ cursor: 'pointer', color: ((explicitRawVersionSelected ? (currentDisplayPath?.draftId === rawV2Id) : (versions.raw?.head === 'v2' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
-                      title="Raw v2"
+                      onContextMenu={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        await setFinalWithConfirm(rawV2Id, e);
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        color: ((explicitRawVersionSelected ? (currentDisplayPath?.draftId === rawV2Id) : (versions.raw?.head === 'v2' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        background: isFinal(rawV2Id) ? 'linear-gradient(90deg, rgba(255,215,0,0.18), rgba(255,215,0,0.08))' : undefined,
+                        borderRadius: isFinal(rawV2Id) ? 4 : undefined,
+                        padding: isFinal(rawV2Id) ? '0 4px' : undefined
+                      }}
+                      title={isFinal(rawV2Id) ? 'Raw v2 (Final selection)' : 'Raw v2 - Right-click to set as final'}
                     >
-                      v2
+                      {isFinal(rawV2Id) ? '★ ' : ''}v2
                     </span>
                   )}
                   {versions.alignment?.v1 && (
@@ -205,10 +250,21 @@ export const DraftItem: React.FC<DraftItemProps> = ({
                         e.stopPropagation();
                         onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: alignV1Id });
                       }}
-                      style={{ cursor: 'pointer', color: ((explicitAlignVersionSelected ? (currentDisplayPath?.draftId === alignV1Id) : (versions.alignment?.head === 'v1' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
-                      title="Alignment v1"
+                      onContextMenu={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        await setFinalWithConfirm(alignV1Id, e);
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        color: ((explicitAlignVersionSelected ? (currentDisplayPath?.draftId === alignV1Id) : (versions.alignment?.head === 'v1' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        background: isFinal(alignV1Id) ? 'linear-gradient(90deg, rgba(255,215,0,0.18), rgba(255,215,0,0.08))' : undefined,
+                        borderRadius: isFinal(alignV1Id) ? 4 : undefined,
+                        padding: isFinal(alignV1Id) ? '0 4px' : undefined
+                      }}
+                      title={isFinal(alignV1Id) ? 'Alignment v1 (Final selection)' : 'Alignment v1 - Right-click to set as final'}
                     >
-                      Av1
+                      {isFinal(alignV1Id) ? '★ ' : ''}Av1
                     </span>
                   )}
                   {versions.alignment?.v2 && (
@@ -217,10 +273,21 @@ export const DraftItem: React.FC<DraftItemProps> = ({
                         e.stopPropagation();
                         onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: alignV2Id });
                       }}
-                      style={{ cursor: 'pointer', color: ((explicitAlignVersionSelected ? (currentDisplayPath?.draftId === alignV2Id) : (versions.alignment?.head === 'v2' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
-                      title="Alignment v2"
+                      onContextMenu={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        await setFinalWithConfirm(alignV2Id, e);
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        color: ((explicitAlignVersionSelected ? (currentDisplayPath?.draftId === alignV2Id) : (versions.alignment?.head === 'v2' && baseSelected))) ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        background: isFinal(alignV2Id) ? 'linear-gradient(90deg, rgba(255,215,0,0.18), rgba(255,215,0,0.08))' : undefined,
+                        borderRadius: isFinal(alignV2Id) ? 4 : undefined,
+                        padding: isFinal(alignV2Id) ? '0 4px' : undefined
+                      }}
+                      title={isFinal(alignV2Id) ? 'Alignment v2 (Final selection)' : 'Alignment v2 - Right-click to set as final'}
                     >
-                      Av2
+                      {isFinal(alignV2Id) ? '★ ' : ''}Av2
                     </span>
                   )}
                 </>
@@ -234,10 +301,21 @@ export const DraftItem: React.FC<DraftItemProps> = ({
                       e.stopPropagation();
                       onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: consLLMV1Id });
                     }}
-                    style={{ cursor: 'pointer', color: (((currentDisplayPath?.draftId === consLLMV1Id)) || (versions.consensus.llm.head === 'v1' && baseSelected)) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
-                    title="v1"
+                    onContextMenu={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      await setFinalWithConfirm(consLLMV1Id, e);
+                    }}
+                    style={{
+                      cursor: 'pointer',
+                      color: (((currentDisplayPath?.draftId === consLLMV1Id)) || (versions.consensus.llm.head === 'v1' && baseSelected)) ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                      background: isFinal(consLLMV1Id) ? 'linear-gradient(90deg, rgba(255,215,0,0.18), rgba(255,215,0,0.08))' : undefined,
+                      borderRadius: isFinal(consLLMV1Id) ? 4 : undefined,
+                      padding: isFinal(consLLMV1Id) ? '0 4px' : undefined
+                    }}
+                    title={isFinal(consLLMV1Id) ? 'LLM Consensus v1 (Final)' : 'LLM Consensus v1 - Right-click to set as final'}
                   >
-                    v1
+                    {isFinal(consLLMV1Id) ? '★ ' : ''}v1
                   </span>
                   {versions.consensus.llm.v2 && (
                     <span
@@ -245,10 +323,21 @@ export const DraftItem: React.FC<DraftItemProps> = ({
                         e.stopPropagation();
                         onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: consLLMV2Id });
                       }}
-                      style={{ cursor: 'pointer', color: (((currentDisplayPath?.draftId === consLLMV2Id)) || (versions.consensus.llm.head === 'v2' && baseSelected)) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
-                      title="v2"
+                      onContextMenu={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        await setFinalWithConfirm(consLLMV2Id, e);
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        color: (((currentDisplayPath?.draftId === consLLMV2Id)) || (versions.consensus.llm.head === 'v2' && baseSelected)) ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        background: isFinal(consLLMV2Id) ? 'linear-gradient(90deg, rgba(255,215,0,0.18), rgba(255,215,0,0.08))' : undefined,
+                        borderRadius: isFinal(consLLMV2Id) ? 4 : undefined,
+                        padding: isFinal(consLLMV2Id) ? '0 4px' : undefined
+                      }}
+                      title={isFinal(consLLMV2Id) ? 'LLM Consensus v2 (Final)' : 'LLM Consensus v2 - Right-click to set as final'}
                     >
-                      v2
+                      {isFinal(consLLMV2Id) ? '★ ' : ''}v2
                     </span>
                   )}
                 </>
@@ -260,10 +349,21 @@ export const DraftItem: React.FC<DraftItemProps> = ({
                       e.stopPropagation();
                       onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: consAlignV1Id });
                     }}
-                    style={{ cursor: 'pointer', color: (((currentDisplayPath?.draftId === consAlignV1Id)) || (versions.consensus.alignment.head === 'v1' && baseSelected)) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
-                    title="v1"
+                    onContextMenu={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      await setFinalWithConfirm(consAlignV1Id, e);
+                    }}
+                    style={{
+                      cursor: 'pointer',
+                      color: (((currentDisplayPath?.draftId === consAlignV1Id)) || (versions.consensus.alignment.head === 'v1' && baseSelected)) ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                      background: isFinal(consAlignV1Id) ? 'linear-gradient(90deg, rgba(255,215,0,0.18), rgba(255,215,0,0.08))' : undefined,
+                      borderRadius: isFinal(consAlignV1Id) ? 4 : undefined,
+                      padding: isFinal(consAlignV1Id) ? '0 4px' : undefined
+                    }}
+                    title={isFinal(consAlignV1Id) ? 'Alignment Consensus v1 (Final)' : 'Alignment Consensus v1 - Right-click to set as final'}
                   >
-                    v1
+                    {isFinal(consAlignV1Id) ? '★ ' : ''}v1
                   </span>
                   {versions.consensus.alignment.v2 && (
                     <span
@@ -271,10 +371,21 @@ export const DraftItem: React.FC<DraftItemProps> = ({
                         e.stopPropagation();
                         onViewRequest?.({ dossierId: dossier.id, segmentId: segment.id, runId: run.id, draftId: consAlignV2Id });
                       }}
-                      style={{ cursor: 'pointer', color: (((currentDisplayPath?.draftId === consAlignV2Id)) || (versions.consensus.alignment.head === 'v2' && baseSelected)) ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
-                      title="v2"
+                      onContextMenu={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        await setFinalWithConfirm(consAlignV2Id, e);
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        color: (((currentDisplayPath?.draftId === consAlignV2Id)) || (versions.consensus.alignment.head === 'v2' && baseSelected)) ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        background: isFinal(consAlignV2Id) ? 'linear-gradient(90deg, rgba(255,215,0,0.18), rgba(255,215,0,0.08))' : undefined,
+                        borderRadius: isFinal(consAlignV2Id) ? 4 : undefined,
+                        padding: isFinal(consAlignV2Id) ? '0 4px' : undefined
+                      }}
+                      title={isFinal(consAlignV2Id) ? 'Alignment Consensus v2 (Final)' : 'Alignment Consensus v2 - Right-click to set as final'}
                     >
-                      v2
+                      {isFinal(consAlignV2Id) ? '★ ' : ''}v2
                     </span>
                   )}
                 </>
@@ -283,6 +394,44 @@ export const DraftItem: React.FC<DraftItemProps> = ({
           )}
         </div>
 
+      {confirmFinalId && confirmAnchor && (
+        <div
+          style={{
+            position: 'fixed',
+            top: confirmAnchor.y + 6,
+            left: confirmAnchor.x + 6,
+            background: '#fff',
+            border: '1px solid #ddd',
+            borderRadius: 6,
+            padding: '8px 10px',
+            zIndex: 99999
+          }}
+        >
+          <div style={{ fontSize: 12, marginBottom: 6 }}>Replace existing final selection?</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="final-draft-button"
+              onClick={async () => {
+                try {
+                  const { dossierApi } = await import('../../../services/dossier/dossierApi');
+                  const dossierId = dossier.id;
+                  const transcriptionId = (run as any).transcriptionId || (run as any).transcription_id;
+                  const segmentId = (segment as any)?.id;
+                  await dossierApi.setSegmentFinal(String(dossierId), String(segmentId), String(transcriptionId), String(confirmFinalId));
+                } catch (e) {
+                  console.error('❌ Failed to set final', e);
+                } finally {
+                  setConfirmFinalId(null);
+                  setConfirmAnchor(null);
+                }
+              }}
+            >
+              Confirm
+            </button>
+            <button className="final-draft-button" onClick={() => { setConfirmFinalId(null); setConfirmAnchor(null); }}>Cancel</button>
+          </div>
+        </div>
+      )}
         <div className="draft-actions">
           {isProcessing ? (
             <div className="draft-loading">

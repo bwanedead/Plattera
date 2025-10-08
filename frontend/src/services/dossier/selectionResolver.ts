@@ -58,7 +58,24 @@ async function resolveDraftText(dossier: Dossier, path: DossierPath): Promise<Re
 async function resolveRunText(dossier: Dossier, path: DossierPath): Promise<ResolvedSelection> {
   const segment = findById(dossier.segments, path.segmentId);
   const run = findById(segment?.runs, path.runId);
-  // Prefer consensus drafts when available, otherwise fall back to "best" (or first available)
+  
+  // Prefer explicit final selection if present
+  const finalId = (run as any)?.metadata?.final_selected_id as string | undefined;
+  if (segment && run && typeof finalId === 'string' && finalId.trim()) {
+    const transcriptionId = getTranscriptionIdSafe(run, null as any);
+    if (transcriptionId) {
+      try {
+        const text = await textApi.getDraftText(transcriptionId, finalId, dossier.id);
+        return { mode: 'run', path, text, context: { dossier, segment, run, draft: null } };
+      } catch (e) {
+        // Strict: no fallback on 404 for final selection
+        console.warn(`selectionResolver: final selection ${finalId} failed to load, no fallback`, e);
+        return { mode: 'run', path, text: '', context: { dossier, segment, run, draft: null } };
+      }
+    }
+  }
+  
+  // Otherwise current policy (consensus/best/longest)
   let draft: Draft | null = null;
   const drafts = run?.drafts || [];
   if (drafts.length > 0) {
@@ -98,6 +115,23 @@ async function resolveRunText(dossier: Dossier, path: DossierPath): Promise<Reso
 async function resolveSegmentText(dossier: Dossier, path: DossierPath): Promise<ResolvedSelection> {
   const segment = findById(dossier.segments, path.segmentId);
   const run = (segment?.runs || [])[0] || null;
+  
+  // Prefer explicit final selection if present
+  const finalId = (run as any)?.metadata?.final_selected_id as string | undefined;
+  if (segment && run && typeof finalId === 'string' && finalId.trim()) {
+    const transcriptionId = getTranscriptionIdSafe(run, null as any);
+    if (transcriptionId) {
+      try {
+        const text = await textApi.getDraftText(transcriptionId, finalId, dossier.id);
+        return { mode: 'segment', path, text, context: { dossier, segment, run, draft: null } };
+      } catch (e) {
+        // Strict: no fallback on 404 for final selection
+        console.warn(`selectionResolver: final selection ${finalId} failed to load, no fallback`, e);
+        return { mode: 'segment', path, text: '', context: { dossier, segment, run, draft: null } };
+      }
+    }
+  }
+  
   // Prefer consensus drafts when available, otherwise fall back to "best" (or first available)
   let draft: Draft | null = null;
   const drafts = run?.drafts || [];

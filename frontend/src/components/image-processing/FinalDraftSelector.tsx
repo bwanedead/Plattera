@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { AnimatedBorder } from '../AnimatedBorder';
-import { selectFinalDraftAPI } from '../../services/imageProcessingApi';
+import { dossierApi } from '../../services/dossier/dossierApi';
 
 interface FinalDraftSelectorProps {
   redundancyAnalysis?: {
@@ -22,6 +22,10 @@ interface FinalDraftSelectorProps {
   // Add edited draft support
   editedDraftContent?: string;
   editedFromDraft?: number | 'consensus' | 'best' | null;
+  // New: IDs for setting final selection via dossier endpoints
+  dossierId?: string;
+  transcriptionId?: string;
+  currentDraftId?: string; // strict versioned id currently viewed
 }
 
 export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
@@ -31,15 +35,19 @@ export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
   onFinalDraftSelected,
   isProcessing = false,
   editedDraftContent,
-  editedFromDraft
+  editedFromDraft,
+  dossierId,
+  transcriptionId,
+  currentDraftId
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
   // Track which draft was selected as final within this session
   const [selectedFinalDraft, setSelectedFinalDraft] = useState<number | 'consensus' | 'best' | null>(null);
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
 
   // Always render the button; rely on disabled state when insufficient context
-  const isDisabled = isSelecting || isProcessing || !redundancyAnalysis;
+  const isDisabled = isSelecting || isProcessing || !currentDraftId || !dossierId || !transcriptionId;
   const hasFinalDraft = useMemo(() => selectedFinalDraft !== null && selectedFinalDraft === selectedDraft, [selectedFinalDraft, selectedDraft]);
 
   const handleSelectFinalDraft = async () => {
@@ -47,34 +55,19 @@ export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
 
     setIsSelecting(true);
     try {
-      console.log('🎯 Selecting final draft:', {
-        selectedDraft,
-        hasAlignmentResult: !!alignmentResult,
-        hasEditedContent: !!editedDraftContent,
-        editedFromDraft,
-        redundancyAnalysis: !!redundancyAnalysis
-      });
+      // Confirm overwrite when a different final already exists
+      try {
+        const existing = await dossierApi.getFinalSelection(String(dossierId), String(transcriptionId));
+        if (existing && existing !== currentDraftId) {
+          setConfirmOverwrite(true);
+          return;
+        }
+      } catch {}
 
-      const result = await selectFinalDraftAPI(
-        redundancyAnalysis,
-        selectedDraft,
-        alignmentResult,
-        editedDraftContent, // Pass edited content
-        editedFromDraft     // Pass edited from draft
-      );
-
-      if (result.success) {
-        setSelectedFinalDraft(selectedDraft);
-        onFinalDraftSelected?.(result.final_text, result.metadata);
-        
-        console.log('✅ Final draft selected successfully:', {
-          finalText: result.final_text?.substring(0, 100) + '...',
-          metadata: result.metadata,
-          usedEditedContent: !!editedDraftContent
-        });
-      } else {
-        console.error('❌ Failed to select final draft:', result.error);
-      }
+      await dossierApi.setFinalSelection(String(dossierId), String(transcriptionId), String(currentDraftId));
+      setSelectedFinalDraft(selectedDraft);
+      onFinalDraftSelected?.('', { draft_id: currentDraftId });
+      console.log('✅ Final selection set via dossier API:', { dossierId, transcriptionId, draftId: currentDraftId });
     } catch (error) {
       console.error('❌ Error selecting final draft:', error);
     } finally {
@@ -104,14 +97,39 @@ export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
           title={
             hasFinalDraft
               ? `Final draft selected: ${getCurrentDraftLabel()}`
-              : (isDisabled && !redundancyAnalysis
-                  ? 'Requires redundancy analysis to determine final draft'
+              : (isDisabled
+                  ? 'Select a specific versioned draft to enable final selection'
                   : `Select ${getCurrentDraftLabel()} as final draft`)
           }
         >
           {isSelecting ? 'Selecting…' : (hasFinalDraft ? 'Final Selected' : 'Select Final')}
         </button>
       </AnimatedBorder>
+
+      {confirmOverwrite && (
+        <div style={{ marginTop: 6, background: '#fff', border: '1px solid #ddd', borderRadius: 6, padding: 8 }}>
+          <div style={{ fontSize: 12, marginBottom: 6 }}>Replace the existing final selection for this segment?</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="final-draft-button"
+              onClick={async () => {
+                try {
+                  await dossierApi.setFinalSelection(String(dossierId), String(transcriptionId), String(currentDraftId));
+                  setSelectedFinalDraft(selectedDraft);
+                  onFinalDraftSelected?.('', { draft_id: currentDraftId });
+                } catch (e) {
+                  console.error('❌ Failed to overwrite final selection', e);
+                } finally {
+                  setConfirmOverwrite(false);
+                }
+              }}
+            >
+              Confirm
+            </button>
+            <button className="final-draft-button" onClick={() => setConfirmOverwrite(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }; 

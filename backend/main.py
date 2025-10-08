@@ -137,9 +137,12 @@ async def startup_event():
     health_monitor = get_health_monitor()
     logger.info("🏥 Health monitoring initialized")
     
-    # Perform initial health check
+    # Perform initial health check (cheap)
     health_status = health_monitor.check_system_health()
     logger.info(f"🏥 Initial health check: {health_status['overall_status']}")
+
+    # Alignment warm-up is disabled by default to ensure fastest startup. The
+    # first alignment request will lazily initialize the service.
     
     logger.info("✅ Plattera API Server started successfully")
 

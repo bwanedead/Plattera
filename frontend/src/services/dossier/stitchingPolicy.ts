@@ -31,6 +31,18 @@ export const latestRunBestDraftPolicy: StitchPolicy = (dossier) => {
   for (const segment of dossier.segments || []) {
     const run = pickLatestRun(segment.runs || []);
     if (!run) continue;
+    
+    // Prefer explicit final selection if present
+    const finalId = (run as any)?.metadata?.final_selected_id as string | undefined;
+    if (finalId && typeof finalId === 'string' && finalId.trim()) {
+      chosen.push({
+        segmentId: segment.id,
+        transcriptionId: (run as any).transcriptionId || (run as any).transcription_id,
+        draftId: finalId
+      });
+      continue;
+    }
+    
     const drafts = run.drafts || [];
     // Prefer consensus drafts first (LLM or alignment); if multiple, pick latest by createdAt
     let pick: any = null;
