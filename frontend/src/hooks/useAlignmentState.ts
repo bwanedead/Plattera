@@ -20,16 +20,20 @@ export const useAlignmentState = () => {
   const [selectedConsensusStrategy, setSelectedConsensusStrategy] = useState<string>('highest_confidence');
 
   const handleAlign = useCallback(async (selectedResult: any) => {
-    if (!selectedResult || !selectedResult.result?.metadata?.redundancy_analysis) {
-      console.warn('No redundancy analysis available for alignment');
+    const transcriptionId = selectedResult?.result?.metadata?.transcription_id;
+    const dossierId = selectedResult?.result?.metadata?.dossier_id;
+
+    // Primary path expects redundancy analysis from processing results
+    const hasRedundancy = !!(selectedResult && selectedResult.result?.metadata?.redundancy_analysis);
+    if (!hasRedundancy && !(transcriptionId && dossierId)) {
+      console.warn('No redundancy analysis available and no dossier/transcription context; cannot run alignment');
       return;
     }
 
     try {
-      const redundancyAnalysis = selectedResult.result.metadata.redundancy_analysis;
+      const redundancyAnalysis = selectedResult.result?.metadata?.redundancy_analysis;
       const individualResults = redundancyAnalysis.individual_results || [];
-      const transcriptionId = selectedResult?.result?.metadata?.transcription_id;
-      const dossierId = selectedResult?.result?.metadata?.dossier_id;
+      // transcriptionId and dossierId derived above
       
       // Filter out consensus entries
       const rawDraftResults = individualResults
@@ -51,7 +55,10 @@ export const useAlignmentState = () => {
       let alignmentResult;
       if (transcriptionId && dossierId) {
         try {
-          const draftIndices = rawDraftResults.map((_: any, i: number) => i + 1);
+          // If we have redundancy results, map to indices; otherwise, fall back to first two drafts
+          const draftIndices = hasRedundancy
+            ? rawDraftResults.map((_: any, i: number) => i + 1)
+            : [1, 2];
           alignmentResult = await alignDraftsByIdsAPI({
             dossierId,
             transcriptionId,
@@ -67,23 +74,27 @@ export const useAlignmentState = () => {
       // Fallback: build minimal client-side payload only if backend path failed or no context
       if (!alignmentResult) {
         console.log('🔄 Building client-side drafts (no backend context)...');
-        const draftsAll = await Promise.all(
-          rawDraftResults.map(async (_r: any, index: number) => ({
-            draft_id: `Draft_${index + 1}`,
-            blocks: [{ id: 'legal_text', text: String(_r?.text || '') }]
-          }))
-        );
+        const draftsAll = hasRedundancy
+          ? await Promise.all(
+              rawDraftResults.map(async (_r: any, index: number) => ({
+                draft_id: `Draft_${index + 1}`,
+                blocks: [{ id: 'legal_text', text: String(_r?.text || '') }]
+              }))
+            )
+          : [];
         const drafts = draftsAll.filter(d => (d?.blocks?.[0]?.text || '').trim().length > 0);
-        if (drafts.length < 2) {
+        if (!transcriptionId && drafts.length < 2) {
           console.warn('⚠️ Alignment aborted: need at least 2 non-empty drafts');
           setAlignmentState(prev => ({ ...prev, isAligning: false }));
           return;
         }
-        alignmentResult = await alignDraftsAPI(
-          drafts,
-          selectedConsensusStrategy,
-          { transcriptionId, dossierId, consensusDraftId: transcriptionId ? `${transcriptionId}_consensus_alignment` : undefined }
-        );
+        if (drafts.length >= 2) {
+          alignmentResult = await alignDraftsAPI(
+            drafts,
+            selectedConsensusStrategy,
+            { transcriptionId, dossierId, consensusDraftId: transcriptionId ? `${transcriptionId}_consensus_alignment` : undefined }
+          );
+        }
       }
 
       console.log('📊 Alignment result received:', alignmentResult);
