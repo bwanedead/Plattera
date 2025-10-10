@@ -70,12 +70,12 @@ export class TextApiError extends Error {
 }
 
 export const textApi = {
-  async getDraftText(transcriptionId: string, draftId: string, dossierId?: string): Promise<string> {
+  async getDraftText(transcriptionId: string, draftId: string, dossierId?: string, options?: { signal?: AbortSignal }): Promise<string> {
     const key = cacheKeyText(draftId, dossierId);
     const cached = getFromCache<string>(TEXT_CACHE, key);
     if (cached !== undefined) return cached;
 
-    const json = await this.getDraftJson(transcriptionId, draftId, dossierId);
+    const json = await this.getDraftJson(transcriptionId, draftId, dossierId, options);
     try {
       // Treat both base and versioned consensus ids the same (_consensus_llm[_v1|_v2], _consensus_alignment[_v1|_v2])
       const isConsensusId = draftId.includes('_consensus_llm') || draftId.includes('_consensus_alignment');
@@ -104,7 +104,7 @@ export const textApi = {
     }
   },
 
-  async getDraftJson(transcriptionId: string, draftId: string, dossierId?: string): Promise<any> {
+  async getDraftJson(transcriptionId: string, draftId: string, dossierId?: string, options?: { signal?: AbortSignal }): Promise<any> {
     const primary = `${BASE_URL}/dossier-management/drafts/${encodeURIComponent(draftId)}${dossierId ? `?dossier_id=${encodeURIComponent(dossierId)}` : ''}`;
     const key = cacheKeyJson(draftId, dossierId);
     const cached = getFromCache<any>(JSON_CACHE, key);
@@ -122,7 +122,7 @@ export const textApi = {
     }
 
     const p = (async () => {
-      const res = await fetch(primary);
+      const res = await fetch(primary, options?.signal ? { signal: options.signal } as RequestInit : undefined);
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new TextApiError(`HTTP ${res.status} loading draft`, res.status, data);

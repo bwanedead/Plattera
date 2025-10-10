@@ -6,6 +6,7 @@ import { dossierApi } from './dossierApi';
 import { textApi } from '../textApi';
 import { latestRunBestDraftPolicy } from './stitchingPolicy';
 import { stitchToText } from './stitcher';
+import { getVersionIndex } from './versioning';
 
 type ResolveMode = 'draft' | 'run' | 'segment' | 'dossier';
 
@@ -176,41 +177,89 @@ export async function resolveSelectionToText(path: DossierPath, dossier?: Dossie
     return { mode: 'dossier', path, text: '', context: { dossier: ds } };
   }
 
+  // Compute a deterministic fetch plan: exact versionedId + transcriptionId
   const segment: Segment | null = ds.segments?.find(s => s.id === path.segmentId) ?? null;
   const run: Run | null = segment?.runs?.find(r => r.id === path.runId) ?? null;
-  const drafts: Draft[] = (run?.drafts ?? []) as Draft[];
-  let draft = drafts.find(d => d.id === path.draftId) ?? null;
 
-  // If a specific version was requested (e.g., _v1/_v2 or _draft_{n}_v1/_v2),
-  // map it to the base draft for context while still loading the requested version's content.
-  if (!draft && path.draftId) {
+  // Exact versioned selection via index
+  if (path.draftId) {
     try {
-      // Remove trailing _v1/_v2 only (do not touch _v{n} numbering)
-      const baseCandidate = path.draftId.replace(/_v[12]$/, '');
-      const maybe = drafts.find(d => d.id === baseCandidate) ?? null;
-      if (maybe) {
-        draft = maybe;
+      const index = getVersionIndex(ds);
+      const entry = index.get(path.draftId);
+      if (entry) {
+        const draftCtx = (run?.drafts || []).find(d => d.id === entry.baseDraftId) || null;
+        let text = '';
+        try {
+          text = await textApi.getDraftText(entry.transcriptionId, entry.versionedId, ds.id);
+        } catch (e) {
+          console.warn('selectionResolver: failed to load text for', entry.versionedId, e);
+        }
+        return { mode: 'draft', path, text, context: { dossier: ds, segment, run, draft: draftCtx } };
       }
     } catch {}
+
+    // No index match: still allow direct fetch using run transcriptionId (no fallback to best)
+    if (run) {
+      const tId = (run as any)?.transcriptionId || (run as any)?.transcription_id;
+      if (tId) {
+        let text = '';
+        try {
+          text = await textApi.getDraftText(tId, path.draftId, ds.id);
+        } catch (e) {
+          console.warn('selectionResolver: direct versioned fetch failed', path.draftId, e);
+        }
+        return { mode: 'draft', path, text, context: { dossier: ds, segment, run, draft: null } };
+      }
+    }
   }
 
-  if (draft) {
-    const dossierId = ds.id;
-    const requestedDraftId = path.draftId || draft.id;
-    const selectedIsConsensus = requestedDraftId.endsWith('_consensus_llm') || requestedDraftId.endsWith('_consensus_alignment');
-    console.info(`selectionResolver: draft mode -> draftId=${requestedDraftId} dossierId=${dossierId} isConsensus=${selectedIsConsensus}`);
+  // No explicit draftId: use existing policy, but resolve to concrete HEAD version
+  if (run) {
+    const drafts: Draft[] = (run?.drafts ?? []) as Draft[];
+    let chosen: Draft | null = null;
+    const consensus = drafts.filter((d: any) => (d.id || '').endsWith('_consensus_llm') || (d.id || '').endsWith('_consensus_alignment'));
+    if (consensus.length > 0) {
+      chosen = consensus
+        .map((d: any) => ({ d, t: (() => { try { return d.metadata?.createdAt ? new Date(d.metadata.createdAt as any).getTime() : 0; } catch { return 0; } })() }))
+        .sort((a, b) => b.t - a.t)[0].d;
+    } else {
+      chosen = (drafts as any).find((d: any) => d.isBest || d.is_best) || drafts[0] || null;
+    }
+    if (!chosen) {
+      return { mode: 'run', path, text: '', context: { dossier: ds, segment, run, draft: null } };
+    }
+
+    const tId = (run as any)?.transcriptionId || (run as any)?.transcription_id || '';
+    const head =
+      ((chosen.metadata as any)?.versions?.raw?.head) ||
+      ((chosen.metadata as any)?.versions?.alignment?.head) ||
+      ((chosen.metadata as any)?.versions?.consensus?.llm?.head) ||
+      ((chosen.metadata as any)?.versions?.consensus?.alignment?.head) ||
+      'v1';
+    const pos = (chosen.position ?? 0) + 1;
+    const baseTid = String(tId).replace(/_v[12]$/, '');
+
+    let versionedId = '';
+    if (/_consensus_llm$/.test(String(chosen.id))) {
+      versionedId = `${baseTid}_consensus_llm_${head}`;
+    } else if (/_consensus_alignment$/.test(String(chosen.id))) {
+      versionedId = `${baseTid}_consensus_alignment_${head}`;
+    } else {
+      const hasRaw = (chosen.metadata as any)?.versions?.raw?.head === head;
+      if (hasRaw) {
+        versionedId = `${baseTid}_v${pos}_${head}`;
+      } else {
+        versionedId = `${baseTid}_draft_${pos}_${head}`;
+      }
+    }
+
     let text = '';
     try {
-      text = await textApi.getDraftText((run as any)?.transcriptionId || (run as any)?.transcription_id, requestedDraftId, dossierId);
+      text = await textApi.getDraftText(tId, versionedId, ds.id);
     } catch (e) {
-      console.warn('selectionResolver: failed to load requested draft text, returning empty', requestedDraftId, e);
+      console.warn('selectionResolver: failed to load run HEAD text', versionedId, e);
     }
-    return { mode: 'draft', path, text, context: { dossier: ds, segment, run, draft } };
-  }
-
-  // Handle run-level selection (no specific draft)
-  if (run) {
-    return await resolveRunText(ds, path);
+    return { mode: 'draft', path, text, context: { dossier: ds, segment, run, draft: chosen } };
   }
 
   // Handle segment-level selection (pick first run -> consensus or best)

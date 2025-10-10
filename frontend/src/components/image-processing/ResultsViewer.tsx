@@ -107,6 +107,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   const [currentDisplayPath, setCurrentDisplayPath] = useState<DossierPath | undefined>();
   const [isEditing, setIsEditing] = useState(false);
   const [showFinalConfirm, setShowFinalConfirm] = useState<null | { nextDraftId: string }>(null);
+  const latestViewReqRef = React.useRef<string | null>(null);
 
   const setFinalForCurrentView = async (nextDraftId?: string) => {
     const dossierId = currentDisplayPath?.dossierId || selectedResult?.result?.metadata?.dossier_id;
@@ -396,8 +397,12 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                     console.log('👁️ View requested:', path);
                     // Highlight immediately so the selected version pill turns blue without waiting for fetch
                     setCurrentDisplayPath(path);
+                    // Race-proof: only apply latest request
+                    const reqId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                    latestViewReqRef.current = reqId;
                     try {
                       const resolved: ResolvedSelection = await resolveSelectionToText(path, undefined);
+                      if (latestViewReqRef.current !== reqId) return;
 
                       // Check if this is dossier-level viewing (no segment/run/draft specified)
                       const isDossierLevel = !path.segmentId && !path.runId && !path.draftId;
@@ -565,6 +570,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         setActiveTab('text');
                       }
                     } catch (e) {
+                      if (latestViewReqRef.current !== reqId) return;
                       console.warn('Failed to resolve dossier selection', e);
                     }
                   }}
