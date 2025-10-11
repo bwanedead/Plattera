@@ -608,11 +608,18 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         <Allotment.Pane>
             <ResultsViewer
             isProcessing={imageProcessing.isProcessing}
-            sessionResults={imageProcessing.sessionResults}
-            selectedResult={imageProcessing.selectedResult}
-            onSelectResult={(res: any) => {
-              imageProcessing.selectResult(res);
-              const meta = res?.result?.metadata;
+              sessionResults={imageProcessing.sessionResults}
+              selectedResult={imageProcessing.selectedResult}
+              onSelectResult={(res: any) => {
+                console.log('🏢 WORKSPACE: onSelectResult called with:', {
+                  status: res.status,
+                  metadata_selected_versioned_draft_id: res.result?.metadata?.selected_versioned_draft_id,
+                  metadata_selected_draft_index: res.result?.metadata?.selected_draft_index,
+                  extracted_text_length: res.result?.extracted_text?.length
+                });
+                imageProcessing.selectResult(res);
+                console.log('🏢 WORKSPACE: selectResult completed');
+                const meta = res?.result?.metadata;
               const idx = meta?.selected_draft_index;
               const isConsensus = !!meta?.is_consensus_selected;
               setSelectedDraft(isConsensus ? 'consensus' : (typeof idx === 'number' ? idx : 0));

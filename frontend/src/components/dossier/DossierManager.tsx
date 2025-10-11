@@ -487,7 +487,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
       )}
 
       {/* Error state */}
-      {hasError && !isLoading && (
+      {hasError && !isLoading && state.dossiers.length > 0 && (
         <div className="dossier-error-state">
           <p>⚠️ Error loading dossiers</p>
           <button onClick={loadDossiers}>Retry</button>

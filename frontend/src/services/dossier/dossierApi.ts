@@ -190,7 +190,7 @@ class DossierApiClient {
       try {
         // Add a short first-hop timeout when not warmed up to avoid long hangs on cold starts
         const controller = new AbortController();
-        const attemptTimeoutMs = this.warmedUp ? undefined : 1500;
+        const attemptTimeoutMs = this.warmedUp ? undefined : 6000;
         let timeoutHandle: number | undefined;
         if (attemptTimeoutMs) {
           timeoutHandle = window.setTimeout(() => controller.abort(), attemptTimeoutMs);

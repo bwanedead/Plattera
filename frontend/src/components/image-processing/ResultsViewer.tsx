@@ -394,15 +394,46 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                     console.log('📁 Dossier selection changed:', path);
                   }}
                   onViewRequest={async (path: DossierPath) => {
-                    console.log('👁️ View requested:', path);
+                    const reqId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                    console.log('👁️ VIEW REQUEST START:', {
+                      reqId,
+                      path: {
+                        dossierId: path.dossierId,
+                        segmentId: path.segmentId,
+                        runId: path.runId,
+                        draftId: path.draftId
+                      }
+                    });
                     // Highlight immediately so the selected version pill turns blue without waiting for fetch
                     setCurrentDisplayPath(path);
+                    // Reset draft selector to reflect requested version for UI coherency
+                    try {
+                      const id = path.draftId || '';
+                      const isConsensus = id.endsWith('_consensus_llm') || id.endsWith('_consensus_alignment');
+                      if (isConsensus) {
+                        onDraftSelect('consensus');
+                      } else if (id) {
+                        const mAlign = id.match(/_draft_(\d+)(?:_v[12])?$/);
+                        const mRaw = id.match(/_v(\d+)_v[12]$/);
+                        if (mAlign && mAlign[1]) {
+                          const n = Math.max(0, parseInt(mAlign[1], 10) - 1);
+                          onDraftSelect(n as any);
+                        } else if (mRaw && mRaw[1]) {
+                          const n = Math.max(0, parseInt(mRaw[1], 10) - 1);
+                          onDraftSelect(n as any);
+                        }
+                      }
+                    } catch {}
                     // Race-proof: only apply latest request
-                    const reqId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
                     latestViewReqRef.current = reqId;
+                    console.log('🔒 RACE GUARD: Set latestViewReqRef to', reqId);
                     try {
                       const resolved: ResolvedSelection = await resolveSelectionToText(path, undefined);
-                      if (latestViewReqRef.current !== reqId) return;
+                      console.log('🔍 RACE CHECK: Current reqId:', reqId, 'Latest reqId:', latestViewReqRef.current);
+                      if (latestViewReqRef.current !== reqId) {
+                        console.log('⚠️ RACE ABORT: Request superseded, aborting', reqId);
+                        return;
+                      }
 
                       // Check if this is dossier-level viewing (no segment/run/draft specified)
                       const isDossierLevel = !path.segmentId && !path.runId && !path.draftId;
@@ -564,7 +595,23 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                             }
                           }
                         };
+                        console.log('🎯 RESULTS VIEWER: About to call onSelectResult with:', {
+                          reqId,
+                          isDossierLevel: false,
+                          path: {
+                            dossierId: path.dossierId,
+                            segmentId: path.segmentId,
+                            runId: path.runId,
+                            draftId: path.draftId
+                          },
+                          selectedDraftId,
+                          selectedIndex,
+                          isConsensusSelected,
+                          metadata_selected_versioned_draft_id: syntheticResult.result.metadata.selected_versioned_draft_id,
+                          extracted_text_length: syntheticResult.result.extracted_text?.length
+                        });
                         onSelectResult(syntheticResult);
+                        console.log('✅ RESULTS VIEWER: onSelectResult called successfully');
                         // For versioned raw selections, keep base raw draft index for editing selection
                         onDraftSelect((isConsensusSelected ? 'consensus' : (selectedIndex as any)));
                         setActiveTab('text');
@@ -835,7 +882,14 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   </button>
                 </div>
 
-                <div className="result-tab-content">
+                <div
+                  className="result-tab-content"
+                  key={
+                    selectedResult?.result?.metadata?.selected_versioned_draft_id
+                    || selectedResult?.result?.metadata?.transcription_id
+                    || activeTab
+                  }
+                >
                   {activeTab === 'text' && (
                     <div
                       className="text-viewer-pane"

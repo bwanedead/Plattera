@@ -48,11 +48,11 @@ export const DossierList: React.FC<DossierListProps> = ({
   // Note: Do not block render during loading; show current contents and let updates stream in.
 
   // ============================================================================
-  // ERROR STATE
+  // ERROR/LOADING STATE (non-breaking)
   // ============================================================================
 
-  if (error) {
-    // Soft error UI to avoid dev overlay noise during backend startup
+  // Show a soft error banner only when some content is already present
+  if (error && dossiers.length > 0) {
     return (
       <div className="dossier-list error">
         <div className="dossier-error-message">
@@ -68,12 +68,12 @@ export const DossierList: React.FC<DossierListProps> = ({
   // ============================================================================
 
   if (dossiers.length === 0) {
-    if (isLoading) {
+    if (isLoading || error) {
       return (
         <div className="dossier-list loading">
           <div className="dossier-loading-indicator">
             <div className="loading-spinner" />
-            <div>Loading dossiers…</div>
+            <div>{error ? 'Connecting to backend…' : 'Loading dossiers…'}</div>
           </div>
         </div>
       );

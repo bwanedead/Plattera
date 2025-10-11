@@ -1,5 +1,6 @@
 import type { AppProps } from 'next/app'
 import { useEffect } from 'react'
+import { startDossierPreload } from '@/services/dossier/dossierPreload'
 // import '../styles/globals.css'        // OLD (backup)
 import '../styles/main.css'             // NEW (modular) - testing now!
 import '../src/components/mapping/CleanMap.css'  // Map overlay/loading CSS (global)
@@ -8,6 +9,9 @@ import '../src/styles/components/loaders.css' // Any global loaders referenced b
 
 export default function App({ Component, pageProps }: AppProps) {
   useEffect(() => {
+    // Fire-and-forget dossier prewarm on app mount (read-only)
+    try { startDossierPreload(); } catch {}
+
     // Cleanup PLSS cache on application shutdown/page unload
     const handleBeforeUnload = () => {
       try {

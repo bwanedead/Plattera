@@ -141,10 +141,11 @@ const extractFormattedTextFromAlignment = (alignmentResult: any, selectedDraft: 
 };
 
 export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensusStrategy, alignmentResult }: TextSelectionParams): string => {
-  console.log('🔍 FRONTEND DEBUG: getCurrentText called');
+  console.log('🔍 FRONTEND DEBUG: ===== getCurrentText called =====');
   console.log('🔍 FRONTEND DEBUG: selectedResult status:', selectedResult?.status);
   console.log('🔍 FRONTEND DEBUG: selectedDraft:', selectedDraft);
   console.log('🔍 FRONTEND DEBUG: alignmentResult success:', alignmentResult?.success);
+  console.log('🔍 FRONTEND DEBUG: Full metadata:', JSON.stringify(selectedResult?.result?.metadata, null, 2));
   
   if (!selectedResult || selectedResult.status !== 'completed' || !selectedResult.result) {
     console.log('⚠️ FRONTEND DEBUG: No valid result available');
@@ -165,6 +166,7 @@ export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensu
   if (result.metadata?.selected_versioned_draft_id && result.extracted_text) {
     console.log('✅ FRONTEND DEBUG: Using versioned content from dossier selection');
     console.log('✅ FRONTEND DEBUG: Versioned draftId:', result.metadata.selected_versioned_draft_id);
+    console.log('✅ FRONTEND DEBUG: extracted_text preview (first 100 chars):', result.extracted_text.substring(0, 100));
     // extracted_text may be plain text for alignment Av2; only JSON-format when truly JSON
     return (isJsonResult(result.extracted_text) ? formatJsonAsText(result.extracted_text) : result.extracted_text);
   }

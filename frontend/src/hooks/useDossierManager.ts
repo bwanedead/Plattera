@@ -9,6 +9,7 @@ import { useReducer, useCallback, useEffect, useMemo, useState, useRef } from 'r
 import { useProcessingPoller } from './useProcessingPoller';
 import { Dossier, DossierPath, DossierManagerState, DossierAction, SortOption } from '../types/dossier';
 import { dossierApi, DossierApiError } from '../services/dossier/dossierApi';
+import { getCachedDossiers } from '@/services/dossier/dossierPreload';
 
 // ============================================================================
 // INITIAL STATE
@@ -241,6 +242,17 @@ export function useDossierManager() {
       selectedPath: loadSelectedPathFromSession()
     })
   );
+
+  // Hydrate from read-only preload cache (first paint only)
+  useEffect(() => {
+    try {
+      const cached = getCachedDossiers();
+      if (cached && cached.length > 0) {
+        dispatch({ type: 'UPDATE_DOSSIERS', payload: cached as any });
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Pagination state (internal to hook to avoid broad type changes)
   const PAGE_SIZE = 50;
