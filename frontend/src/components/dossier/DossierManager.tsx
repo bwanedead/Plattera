@@ -16,6 +16,7 @@ import { DossierSearch } from './DossierSearch';
 import { DossierContextMenu } from './DossierContextMenu';
 import { ConfirmDeleteModal } from './modals/ConfirmDeleteModal';
 import { dossierApi } from '../../services/dossier/dossierApi';
+import { BulkDeleteView } from './bulk/BulkDeleteView';
 
 // ============================================================================
 // MAIN DOSSIER MANAGER COMPONENT
@@ -72,6 +73,10 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   const [searchFocused, setSearchFocused] = useState(false);
   const [hoverHighlightId, setHoverHighlightId] = useState<string | null>(null);
   const [finalizeResult, setFinalizeResult] = useState<{ success: boolean; errors: any[]; dossierId: string } | null>(null);
+
+  // Bulk delete mode
+  const [bulkMode, setBulkMode] = useState(false);
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
 
   // Subscribe to hover highlight bus
   useEffect(() => {
@@ -423,6 +428,14 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
         onRefresh={loadDossiers}
         onFinalizeDossier={handleFinalizeDossier}
         stats={stats}
+        onToggleBulkMode={() => {
+          setBulkMode((v) => !v);
+          // When leaving bulk mode, clear any multi-selection to avoid footer actions
+          if (bulkMode) {
+            clearSelection();
+          }
+        }}
+        isBulkMode={bulkMode}
       />
 
       {/* Search and filter controls */}
@@ -435,27 +448,66 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
         onFocusChange={setSearchFocused}
       />
 
-      {/* Main dossier list */}
-      <DossierList
-        dossiers={filteredDossiers}
-        selectedPath={state.selectedPath}
-        currentDisplayPath={currentDisplayPath}
-        expandedItems={state.expandedItems}
-        selectedItems={state.selectedItems}
-        isLoading={isLoading}
-        error={state.errorStates.dossiers}
-        onSelectionChange={handleSelectionChange}
-        onToggleExpand={toggleExpand}
-        onItemAction={handleItemAction}
-        onSelectItem={selectItem}
-        onDeselectItem={deselectItem}
-        onViewRequest={onViewRequest}
-        loadMoreDossiers={loadMoreDossiers}
-        hasMore={hasMore}
-      />
+      {/* Main dossier list (or bulk view) */}
+      {bulkMode ? (
+        <BulkDeleteView
+          dossiers={filteredDossiers}
+          selectedIds={state.selectedItems}
+          isLoading={isLoading}
+          hasMore={hasMore}
+          onLoadMore={loadMoreDossiers}
+          onToggle={(id) => {
+            if (state.selectedItems.has(id)) {
+              deselectItem(id);
+            } else {
+              selectItem(id);
+            }
+          }}
+          onSelectAll={() => {
+            filteredDossiers.forEach(d => { if (!state.selectedItems.has(d.id)) selectItem(d.id); });
+          }}
+          onClearSelection={clearSelection}
+          onInvertSelection={() => {
+            filteredDossiers.forEach(d => {
+              if (state.selectedItems.has(d.id)) {
+                deselectItem(d.id);
+              } else {
+                selectItem(d.id);
+              }
+            });
+          }}
+          onSelectRange={(start, end, replace) => {
+            const [a, b] = start <= end ? [start, end] : [end, start];
+            const ids = filteredDossiers.slice(a, b + 1).map(d => d.id);
+            if (replace) {
+              clearSelection();
+            }
+            ids.forEach(id => selectItem(id));
+          }}
+          onDeleteSelected={() => setShowBulkConfirm(true)}
+        />
+      ) : (
+        <DossierList
+          dossiers={filteredDossiers}
+          selectedPath={state.selectedPath}
+          currentDisplayPath={currentDisplayPath}
+          expandedItems={state.expandedItems}
+          selectedItems={state.selectedItems}
+          isLoading={isLoading}
+          error={state.errorStates.dossiers}
+          onSelectionChange={handleSelectionChange}
+          onToggleExpand={toggleExpand}
+          onItemAction={handleItemAction}
+          onSelectItem={selectItem}
+          onDeselectItem={deselectItem}
+          onViewRequest={onViewRequest}
+          loadMoreDossiers={loadMoreDossiers}
+          hasMore={hasMore}
+        />
+      )}
 
-      {/* Footer with bulk actions */}
-      {state.selectedItems.size > 0 && (
+      {/* Footer with bulk actions (hidden in bulk mode to maximize space) */}
+      {state.selectedItems.size > 0 && !bulkMode && (
         <DossierFooter
           selectedCount={state.selectedItems.size}
           onBulkDelete={async () => {
@@ -483,6 +535,32 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
             setShowDeleteModal(false);
             setDeleteTarget(null);
           }}
+        />
+      )}
+
+      {/* Bulk delete confirmation */}
+      {showBulkConfirm && (
+        <ConfirmDeleteModal
+          itemName={`${state.selectedItems.size} dossiers`}
+          itemType="dossiers"
+          busyText={undefined}
+          onConfirm={async () => {
+            const ids = Array.from(state.selectedItems);
+            if (ids.length === 0) { setShowBulkConfirm(false); return; }
+            try {
+              await bulkDelete(ids, (done, total) => {
+                // Could wire to modal if needed later
+              });
+              clearSelection();
+            } finally {
+              setShowBulkConfirm(false);
+              setBulkMode(false);
+              setSearchQuery('');
+              await loadDossiers();
+              try { document.dispatchEvent(new Event('dossiers:refresh')); } catch {}
+            }
+          }}
+          onCancel={() => setShowBulkConfirm(false)}
         />
       )}
 

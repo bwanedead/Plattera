@@ -9,7 +9,7 @@ import { Dossier } from '../../types/dossier';
 
 interface DossierHeaderProps {
   selectedDossier?: Dossier;
-  onCreateDossier: () => void;
+  onCreateDossier: any;
   onRefresh: () => void;
   onFinalizeDossier?: (dossierId: string) => void;
   stats: {
@@ -18,6 +18,8 @@ interface DossierHeaderProps {
     totalRuns: number;
     totalDrafts: number;
   };
+  onToggleBulkMode?: () => void;
+  isBulkMode?: boolean;
 }
 
 export const DossierHeader: React.FC<DossierHeaderProps> = ({
@@ -25,7 +27,9 @@ export const DossierHeader: React.FC<DossierHeaderProps> = ({
   onCreateDossier,
   onRefresh,
   onFinalizeDossier,
-  stats
+  stats,
+  onToggleBulkMode,
+  isBulkMode
 }) => {
   const handleCreateDossier = async () => {
     try {
@@ -79,6 +83,14 @@ export const DossierHeader: React.FC<DossierHeaderProps> = ({
           title="Create new dossier"
         >
           New
+        </button>
+
+        <button
+          className={`dossier-action-btn ${isBulkMode ? 'danger' : ''}`}
+          onClick={onToggleBulkMode}
+          title="Bulk delete mode"
+        >
+          {isBulkMode ? 'Exit Bulk' : 'Bulk Delete'}
         </button>
 
         {selectedDossier && onFinalizeDossier && (

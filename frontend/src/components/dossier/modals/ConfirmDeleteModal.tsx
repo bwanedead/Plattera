@@ -11,13 +11,19 @@ interface ConfirmDeleteModalProps {
   itemType: string;
   onConfirm: () => void;
   onCancel: () => void;
+  busyText?: string;
+  progressCurrent?: number;
+  progressTotal?: number;
 }
 
 export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
   itemName,
   itemType,
   onConfirm,
-  onCancel
+  onCancel,
+  busyText,
+  progressCurrent,
+  progressTotal
 }) => {
   // ============================================================================
   // LOCAL STATE
@@ -102,6 +108,11 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
             <h3>Delete {itemType}?</h3>
             <p className="delete-item-name">{itemName}</p>
             <p className="delete-warning-text">This action cannot be undone.</p>
+            {typeof progressCurrent === 'number' && typeof progressTotal === 'number' && (
+              <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+                {progressCurrent}/{progressTotal}
+              </div>
+            )}
           </div>
         </div>
 
@@ -122,7 +133,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
             onClick={handleConfirm}
             disabled={isDeleting}
           >
-            {isDeleting ? 'Deleting...' : 'Delete'}
+            {isDeleting ? (busyText || 'Deleting…') : 'Delete'}
           </button>
         </div>
       </div>

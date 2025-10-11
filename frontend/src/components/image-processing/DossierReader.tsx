@@ -46,13 +46,24 @@ export const DossierReader: React.FC<DossierReaderProps> = ({
       setError(null);
 
       // Load the full dossier with segments, runs, and drafts
-      const fullDossier = await dossierApi.getDossier(dossierId);
+      const fullDossier = await dossierApi.getDossier(dossierId).catch((e: any) => {
+        if (e?.statusCode === 404) {
+          console.warn('DossierReader: dossier not found (404), refreshing list');
+          try { document.dispatchEvent(new Event('dossiers:refresh')); } catch {}
+          throw e;
+        }
+        throw e;
+      });
       setDossier(fullDossier);
 
       await loadDossierContent(fullDossier);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load dossier:', err);
-      setError('Failed to load dossier');
+      if (err?.statusCode === 404) {
+        setError('Dossier was removed');
+      } else {
+        setError('Failed to load dossier');
+      }
     } finally {
       setIsLoading(false);
     }

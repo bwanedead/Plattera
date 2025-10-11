@@ -404,6 +404,9 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         draftId: path.draftId
                       }
                     });
+                    if (path?.draftId) {
+                      console.log('🧩 Requested draftId:', path.draftId);
+                    }
                     // Highlight immediately so the selected version pill turns blue without waiting for fetch
                     setCurrentDisplayPath(path);
                     // Reset draft selector to reflect requested version for UI coherency
@@ -462,6 +465,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                         const draftCount = resolved.context?.run?.drafts?.length || 1;
                         // Use the explicitly requested draftId from the path so versioned selections (v1/v2/Av1/Av2) are respected
                         const selectedDraftId = path.draftId;
+                        console.log('🧩 Selected draft id (from path):', selectedDraftId);
                         const allDrafts = resolved.context?.run?.drafts || [];
 
                         // Extract transcription ID for saving alignment consensus
@@ -884,11 +888,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
 
                 <div
                   className="result-tab-content"
-                  key={
-                    selectedResult?.result?.metadata?.selected_versioned_draft_id
-                    || selectedResult?.result?.metadata?.transcription_id
-                    || activeTab
-                  }
+                  key={`${selectedResult?.result?.metadata?.selected_versioned_draft_id ?? selectedResult?.result?.metadata?.transcription_id ?? ''}:${selectedDraft}:${activeTab}`}
                 >
                   {activeTab === 'text' && (
                     <div

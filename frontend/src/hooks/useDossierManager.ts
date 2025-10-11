@@ -259,6 +259,10 @@ export function useDossierManager() {
   const nextOffsetRef = useRef(0);
   const isFetchingMoreRef = useRef(false);
   const [hasMore, setHasMore] = useState(true);
+  // Tombstones: ids we deleted locally; never show until a successful reload confirms removal
+  const tombstonedIdsRef = useRef<Set<string>>(new Set());
+  // Version token to guard against stale merges
+  const listVersionRef = useRef<number>(0);
 
   // ============================================================================
   // OPTIMISTIC UPDATE UTILITIES
@@ -302,6 +306,8 @@ export function useDossierManager() {
           dispatch({ type: 'REMOVE_DOSSIER', payload: optimisticAction.payload.id });
           dispatch({ type: 'ADD_DOSSIER', payload: realDossier });
         }
+      } else if (optimisticAction.type === 'DELETE_DOSSIER') {
+        tombstonedIdsRef.current.add((optimisticAction as any).payload);
       }
 
       // Update was successful, clear any errors
@@ -331,6 +337,7 @@ export function useDossierManager() {
   // ============================================================================
 
   const loadDossiers = useCallback(async () => {
+    const myVersion = ++listVersionRef.current;
     const t0 = Date.now();
     dispatch({ type: 'SET_LOADING', payload: { key: 'dossiers', loading: true } });
     dispatch({ type: 'SET_ERROR', payload: { key: 'dossiers', error: null } });
@@ -339,6 +346,8 @@ export function useDossierManager() {
       // Reset pagination
       nextOffsetRef.current = 0;
       const dossiers = await dossierApi.getDossiers({ limit: PAGE_SIZE, offset: 0 });
+      // Guard against stale responses
+      if (myVersion !== listVersionRef.current) return;
       nextOffsetRef.current = dossiers.length;
       setHasMore(dossiers.length === PAGE_SIZE);
 
@@ -371,7 +380,9 @@ export function useDossierManager() {
           }
         }
       } catch {}
-      dispatch({ type: 'UPDATE_DOSSIERS', payload: dossiers });
+      // Filter out tombstoned ids defensively
+      const filtered = dossiers.filter(d => !tombstonedIdsRef.current.has(d.id));
+      dispatch({ type: 'UPDATE_DOSSIERS', payload: filtered });
     } catch (error) {
       const errorMessage = error instanceof DossierApiError
         ? error.message
@@ -384,15 +395,17 @@ export function useDossierManager() {
   const loadMoreDossiers = useCallback(async () => {
     if (isFetchingMoreRef.current || !hasMore) return;
     isFetchingMoreRef.current = true;
+    const myVersion = listVersionRef.current;
     try {
       const offset = nextOffsetRef.current;
       const more = await dossierApi.getDossiers({ limit: PAGE_SIZE, offset });
+      if (myVersion !== listVersionRef.current) return; // stale
       nextOffsetRef.current = offset + more.length;
       setHasMore(more.length === PAGE_SIZE);
       if (more.length > 0) {
         // Append and dedupe by id
         const existing = new Set<string>((state.dossiers || []).map(d => d.id));
-        const merged = [...state.dossiers, ...more.filter(d => !existing.has(d.id))];
+        const merged = [...state.dossiers, ...more.filter(d => !existing.has(d.id))].filter(d => !tombstonedIdsRef.current.has(d.id));
         dispatch({ type: 'UPDATE_DOSSIERS', payload: merged });
       }
     } catch (e) {
@@ -405,14 +418,17 @@ export function useDossierManager() {
   // Soft refresh: merge first page without resetting pagination or order
   const refreshDossiersSoft = useCallback(async () => {
     try {
+      const myVersion = listVersionRef.current;
       const firstPage = await dossierApi.getDossiers({ limit: PAGE_SIZE, offset: 0 });
+      if (myVersion !== listVersionRef.current) return; // stale
       if (!Array.isArray(firstPage)) return;
 
-      const existing = state.dossiers || [];
+      const existing = (state.dossiers || []).filter(d => !tombstonedIdsRef.current.has(d.id));
       const byId = new Map(existing.map(d => [d.id, d]));
 
       // Update/insert items from first page (shallow), then deep-merge drafts metadata
       for (const d of firstPage) {
+        if (tombstonedIdsRef.current.has(d.id)) return; // skip tombstoned
         const prev = byId.get(d.id);
         const base = { ...(prev || {}), ...d } as any;
 
@@ -451,7 +467,7 @@ export function useDossierManager() {
       // Preserve existing order, append newcomers to end to avoid top jumps
       const existingIds = new Set(existing.map(d => d.id));
       const mergedExisting = existing.map(d => byId.get(d.id) as typeof d).filter(Boolean);
-      const newcomers = firstPage.filter(d => !existingIds.has(d.id));
+      const newcomers = firstPage.filter(d => !existingIds.has(d.id) && !tombstonedIdsRef.current.has(d.id));
       const merged = [...mergedExisting, ...newcomers];
 
       dispatch({ type: 'UPDATE_DOSSIERS', payload: merged });
@@ -598,7 +614,8 @@ export function useDossierManager() {
     dispatch({ type: 'CLEAR_SELECTION' });
   }, []);
 
-  const bulkDelete = useCallback(async (itemIds: string[]) => {
+  // Limited-concurrency bulk delete with summary and optional progress callback
+  const bulkDelete = useCallback(async (itemIds: string[], onProgress?: (done: number, total: number) => void) => {
     // Optimistically remove items
     const itemsToRestore: Dossier[] = [];
     itemIds.forEach(id => {
@@ -610,17 +627,47 @@ export function useDossierManager() {
     });
 
     try {
-      await dossierApi.bulkAction({
-        type: 'delete',
-        targetIds: itemIds
-      });
-    } catch (error) {
-      // Restore items on failure
-      itemsToRestore.forEach(dossier => {
-        dispatch({ type: 'ADD_DOSSIER', payload: dossier });
-      });
-      throw error;
+      // Try bulk endpoint first
+      await dossierApi.bulkAction({ type: 'delete', targetIds: itemIds });
+      if (onProgress) onProgress(itemIds.length, itemIds.length);
+    } catch (error: any) {
+      const status = (error && (error.statusCode || error.status)) || 0;
+      if (status === 404 || status === 405) {
+        // Fallback: limited-concurrency per-id
+        const CONCURRENCY = Math.min(4, Math.max(1, itemIds.length));
+        let done = 0;
+        const queue = [...itemIds];
+        const workers = new Array(CONCURRENCY).fill(0).map(async () => {
+          while (queue.length) {
+            const id = queue.shift() as string;
+            try { await dossierApi.deleteDossier(id); } catch (e) { throw { id, error: e }; }
+            done += 1;
+            if (onProgress) onProgress(done, itemIds.length);
+          }
+        });
+        const failedIds: string[] = [];
+        try {
+          await Promise.all(workers);
+        } catch (e: any) {
+          if (e && e.id) failedIds.push(e.id);
+        }
+        if (failedIds.length) {
+          // Restore failures only
+          failedIds.forEach(fid => {
+            const restore = itemsToRestore.find(d => d.id === fid);
+            if (restore) dispatch({ type: 'ADD_DOSSIER', payload: restore });
+          });
+          throw new Error(`Failed to delete ${failedIds.length} dossier(s).`);
+        }
+      } else {
+        // Unknown error, restore everything
+        itemsToRestore.forEach(dossier => {
+          dispatch({ type: 'ADD_DOSSIER', payload: dossier });
+        });
+        throw error;
+      }
     }
+    return { deletedIds: itemIds, failedIds: [] as string[] };
   }, [state.dossiers]);
 
   // ============================================================================
@@ -628,7 +675,7 @@ export function useDossierManager() {
   // ============================================================================
 
   const filteredDossiers = useMemo(() => {
-    let filtered = state.dossiers || [];
+    let filtered = (state.dossiers || []).filter(d => !tombstonedIdsRef.current.has(d.id));
 
     // Apply search filter
     if (state.searchQuery) {
