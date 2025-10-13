@@ -69,8 +69,8 @@ export const BulkDeleteView: React.FC<BulkDeleteViewProps> = ({
   };
 
   return (
-    <div className="bulk-delete-view" style={{ display: 'flex', flexDirection: 'column', gap: 8, color: '#111', height: '100%', minHeight: 0 }}>
-      <div className="bulk-list" style={{ border: '1px solid #ddd', borderRadius: 6, overflow: 'hidden', background: '#fff', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+    <div className="bulk-delete-view" style={{ display: 'flex', flexDirection: 'column', gap: 8, color: '#111', height: '100%', minHeight: 0, overflow: 'auto' }}>
+      <div className="bulk-list" style={{ border: '1px solid #ddd', borderRadius: 6, overflow: 'hidden', background: '#fff', flex: 1, minHeight: 0 }}>
         {rows.map((row) => {
           const checked = selectedIds.has(row.id);
           return (
@@ -112,7 +112,7 @@ export const BulkDeleteView: React.FC<BulkDeleteViewProps> = ({
         )}
       </div>
 
-      <div style={{ position: 'sticky', bottom: 0, background: 'rgba(10,10,10,0.85)', padding: '10px 12px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ position: 'sticky', bottom: 0, background: 'rgba(10,10,10,0.85)', padding: '10px 12px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8, zIndex: 1 }}>
         {(hasMore || isLoading) && (
           <button
             className="dossier-action-btn"

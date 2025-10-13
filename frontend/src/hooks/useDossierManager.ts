@@ -616,12 +616,13 @@ export function useDossierManager() {
 
   // Limited-concurrency bulk delete with summary and optional progress callback
   const bulkDelete = useCallback(async (itemIds: string[], onProgress?: (done: number, total: number) => void) => {
-    // Optimistically remove items
+    // Optimistically remove items and tombstone to prevent reinsertion on stale merges
     const itemsToRestore: Dossier[] = [];
     itemIds.forEach(id => {
       const dossier = state.dossiers.find(d => d.id === id);
       if (dossier) {
         itemsToRestore.push(dossier);
+        tombstonedIdsRef.current.add(id);
         dispatch({ type: 'DELETE_DOSSIER', payload: id });
       }
     });
@@ -652,16 +653,18 @@ export function useDossierManager() {
           if (e && e.id) failedIds.push(e.id);
         }
         if (failedIds.length) {
-          // Restore failures only
+          // Restore failures only and clear tombstones for them
           failedIds.forEach(fid => {
+            tombstonedIdsRef.current.delete(fid);
             const restore = itemsToRestore.find(d => d.id === fid);
             if (restore) dispatch({ type: 'ADD_DOSSIER', payload: restore });
           });
           throw new Error(`Failed to delete ${failedIds.length} dossier(s).`);
         }
       } else {
-        // Unknown error, restore everything
+        // Unknown error, restore everything and clear tombstones
         itemsToRestore.forEach(dossier => {
+          tombstonedIdsRef.current.delete(dossier.id);
           dispatch({ type: 'ADD_DOSSIER', payload: dossier });
         });
         throw error;

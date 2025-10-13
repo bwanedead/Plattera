@@ -77,6 +77,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   // Bulk delete mode
   const [bulkMode, setBulkMode] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
 
   // Subscribe to hover highlight bus
   useEffect(() => {
@@ -155,7 +156,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
         es.onmessage = (ev) => {
           try {
             const data = JSON.parse(ev.data || '{}');
-            if (data && data.type === 'dossier:update') {
+            if (data && (data.type === 'dossier:update' || data.type === 'dossier:deleted')) {
               safeSoftRefresh();
             }
           } catch {}
@@ -514,6 +515,9 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
             const selectedArray = Array.from(state.selectedItems);
             await bulkDelete(selectedArray);
             clearSelection();
+            setSearchQuery('');
+            await loadDossiers();
+            try { document.dispatchEvent(new Event('dossiers:refresh')); } catch {}
           }}
           onClearSelection={clearSelection}
         />
@@ -543,17 +547,22 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
         <ConfirmDeleteModal
           itemName={`${state.selectedItems.size} dossiers`}
           itemType="dossiers"
-          busyText={undefined}
+          busyText={"Deleting…"}
+          progressCurrent={bulkProgress?.done ?? 0}
+          progressTotal={bulkProgress?.total ?? Array.from(state.selectedItems).length}
+          allowBackgroundClose={true}
+          onBackground={() => setShowBulkConfirm(false)}
           onConfirm={async () => {
             const ids = Array.from(state.selectedItems);
             if (ids.length === 0) { setShowBulkConfirm(false); return; }
             try {
               await bulkDelete(ids, (done, total) => {
-                // Could wire to modal if needed later
+                setBulkProgress({ done, total });
               });
               clearSelection();
             } finally {
               setShowBulkConfirm(false);
+              setBulkProgress(null);
               setBulkMode(false);
               setSearchQuery('');
               await loadDossiers();

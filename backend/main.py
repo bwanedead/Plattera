@@ -116,8 +116,16 @@ try:
     images_root.mkdir(parents=True, exist_ok=True)
     (images_root / "original").mkdir(parents=True, exist_ok=True)
     (images_root / "processed").mkdir(parents=True, exist_ok=True)
+    # Diagnostics for path issues
+    logging.getLogger(__name__).info(f"BOOT: __file__={Path(__file__).resolve()}")
+    logging.getLogger(__name__).info(f"BOOT: images_root={images_root.resolve()} exists={images_root.exists()}")
+    logging.getLogger(__name__).info(f"BOOT: original={(images_root / 'original').resolve()} exists={(images_root / 'original').exists()}")
+    logging.getLogger(__name__).info(f"BOOT: processed={(images_root / 'processed').resolve()} exists={(images_root / 'processed').exists()}")
+    stray = backend_root / "dossiers_data" / "immages"
+    if stray.exists():
+        logging.getLogger(__name__).warning(f"BOOT: stray folder detected (typo): {stray.resolve()}")
     app.mount("/static/images", StaticFiles(directory=str(images_root), html=False), name="static-images")
-    logging.getLogger(__name__).info(f"🖼️ Static images mounted at /static/images -> {images_root}")
+    logging.getLogger(__name__).info(f"🖼️ Static images mounted at /static/images -> {images_root.resolve()}")
 except Exception as e:
     logging.getLogger(__name__).warning(f"⚠️ Failed to mount static images: {e}")
 

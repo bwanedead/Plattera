@@ -14,6 +14,9 @@ interface ConfirmDeleteModalProps {
   busyText?: string;
   progressCurrent?: number;
   progressTotal?: number;
+  allowBackgroundClose?: boolean;
+  onBackground?: () => void;
+  showProgressBar?: boolean;
 }
 
 export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
@@ -23,7 +26,10 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
   onCancel,
   busyText,
   progressCurrent,
-  progressTotal
+  progressTotal,
+  allowBackgroundClose = true,
+  onBackground,
+  showProgressBar = true
 }) => {
   // ============================================================================
   // LOCAL STATE
@@ -93,8 +99,8 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
           </div>
           <button
             className="modal-close-btn"
-            onClick={onCancel}
-            disabled={isDeleting}
+            onClick={allowBackgroundClose ? (onBackground || onCancel) : onCancel}
+            disabled={isDeleting && !allowBackgroundClose}
             title="Close"
           >
             ✕
@@ -113,6 +119,11 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
                 {progressCurrent}/{progressTotal}
               </div>
             )}
+            {showProgressBar && typeof progressCurrent === 'number' && typeof progressTotal === 'number' && progressTotal > 0 && (
+              <div style={{ marginTop: 6, width: '100%', height: 6, background: '#eee', borderRadius: 4 }}>
+                <div style={{ width: `${Math.min(100, Math.floor((progressCurrent / Math.max(1, progressTotal)) * 100))}%`, height: '100%', background: '#d33', borderRadius: 4 }} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -121,10 +132,10 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
           <button
             type="button"
             className="btn-secondary-simple"
-            onClick={onCancel}
-            disabled={isDeleting}
+          onClick={allowBackgroundClose ? (onBackground || onCancel) : onCancel}
+          disabled={isDeleting && !allowBackgroundClose}
           >
-            Cancel
+          {allowBackgroundClose ? 'Close' : 'Cancel'}
           </button>
 
           <button

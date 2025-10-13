@@ -188,9 +188,9 @@ class DossierApiClient {
     const maxAttempts = this.warmedUp ? this.retryAttempts : 4;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        // Add a short first-hop timeout when not warmed up to avoid long hangs on cold starts
+        // Add a bounded timeout on all attempts to avoid indefinite hangs
         const controller = new AbortController();
-        const attemptTimeoutMs = this.warmedUp ? undefined : 6000;
+        const attemptTimeoutMs = this.warmedUp ? 12000 : 6000;
         let timeoutHandle: number | undefined;
         if (attemptTimeoutMs) {
           timeoutHandle = window.setTimeout(() => controller.abort(), attemptTimeoutMs);
@@ -247,10 +247,11 @@ class DossierApiClient {
   private isRetryableError(error: any): boolean {
     // Retry on network errors, 5xx server errors
     if (error instanceof DossierApiError) {
-      return error.statusCode && error.statusCode >= 500;
+      return !!(error.statusCode && error.statusCode >= 500);
     }
 
-    // Retry on network/fetch errors
+    // Retry on network/fetch errors and aborts/timeouts
+    if (error?.name === 'AbortError') return true;
     return error.name === 'TypeError' || error.name === 'NetworkError';
   }
 

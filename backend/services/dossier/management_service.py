@@ -14,6 +14,7 @@ from pathlib import Path
 from datetime import datetime
 
 from .models import Dossier, DossierSummary
+from .purge_service import DossierPurgeService
 from .event_bus import event_bus
 
 logger = logging.getLogger(__name__)
@@ -644,84 +645,15 @@ class DossierManagementService:
             return False
 
         try:
-            # Load associations first if purging (to find flat legacy files)
-            assoc_transcription_ids = []
-            try:
-                if purge:
-                    from pathlib import Path as _Path
-                    import json as _json
-                    backend_dir = _Path(__file__).resolve().parents[2]
-                    assoc_file = backend_dir / "dossiers_data" / "associations" / f"assoc_{dossier_id}.json"
-                    if assoc_file.exists():
-                        with open(assoc_file, 'r', encoding='utf-8') as af:
-                            assoc_data = _json.load(af)
-                        # Try common shapes
-                        if isinstance(assoc_data, dict):
-                            items = assoc_data.get('transcriptions') or assoc_data.get('items') or []
-                            for it in items:
-                                tid = it.get('transcription_id') or it.get('id') or it.get('transcriptionId')
-                                if tid:
-                                    assoc_transcription_ids.append(str(tid))
-            except Exception as e_a:
-                logger.warning(f"⚠️ Failed to read associations for purge: {e_a}")
+            # Verify dossier exists (metadata file present)
+            if not dossier_file.exists():
+                logger.warning(f"⚠️ Cannot delete non-existent dossier: {dossier_id}")
+                return False
 
-            # Remove dossier metadata file
-            dossier_file.unlink()
-            logger.info(f"✅ Deleted dossier metadata: {dossier_id}")
-
-            if purge:
-                from pathlib import Path as _Path
-                import shutil as _shutil
-                backend_dir = _Path(__file__).resolve().parents[2]
-                transcriptions_root = backend_dir / "dossiers_data" / "views" / "transcriptions"
-
-                # Remove structured directory for this dossier
-                dossier_dir = transcriptions_root / str(dossier_id)
-                if dossier_dir.exists():
-                    try:
-                        _shutil.rmtree(dossier_dir)
-                        logger.info(f"🧹 Purged transcriptions for dossier: {dossier_dir}")
-                    except Exception as e_rm:
-                        logger.warning(f"⚠️ Failed to remove dossier transcriptions dir: {e_rm}")
-
-                # Remove associations file
-                assoc_file_path = backend_dir / "dossiers_data" / "associations" / f"assoc_{dossier_id}.json"
-                if assoc_file_path.exists():
-                    try:
-                        assoc_file_path.unlink()
-                        logger.info(f"🧹 Removed association file: {assoc_file_path}")
-                    except Exception as e_un:
-                        logger.warning(f"⚠️ Failed to remove association file: {e_un}")
-
-                # Best-effort cleanup of legacy flat files for this dossier
-                try:
-                    if assoc_transcription_ids:
-                        for tid in assoc_transcription_ids:
-                            # Base and versions
-                            for p in list(transcriptions_root.glob(f"{tid}.json")):
-                                try:
-                                    p.unlink()
-                                    logger.info(f"🧹 Removed legacy flat file: {p}")
-                                except Exception:
-                                    pass
-                            for p in list(transcriptions_root.glob(f"{tid}_v*.json")):
-                                try:
-                                    p.unlink()
-                                    logger.info(f"🧹 Removed legacy flat version: {p}")
-                                except Exception:
-                                    pass
-                            # Consensus legacy
-                            for p in [transcriptions_root / f"{tid}_consensus_llm.json",
-                                      transcriptions_root / f"{tid}_consensus_alignment.json"]:
-                                if p.exists():
-                                    try:
-                                        p.unlink()
-                                        logger.info(f"🧹 Removed legacy flat consensus: {p}")
-                                    except Exception:
-                                        pass
-                except Exception as e_legacy:
-                    logger.warning(f"⚠️ Legacy cleanup failed: {e_legacy}")
-
+            # Delegate to centralized purge service
+            purge_service = DossierPurgeService()
+            summary = purge_service.purge_dossier(str(dossier_id), scrub_jobs=True)
+            logger.info(f"✅ Purged dossier via service: {dossier_id}")
             return True
         except Exception as e:
             logger.error(f"❌ Error deleting dossier {dossier_id}: {e}")

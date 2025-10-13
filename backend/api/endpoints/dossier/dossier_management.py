@@ -13,6 +13,7 @@ import logging
 
 from services.dossier.management_service import DossierManagementService
 from services.dossier.view_service import DossierViewService
+from services.dossier.event_bus import event_bus
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,6 +55,18 @@ class DossierListResponse(BaseModel):
     dossiers: List[Dict[str, Any]]
     total_count: int
     error: Optional[str] = None
+
+
+# Bulk operations models
+class BulkDeleteRequest(BaseModel):
+    type: str
+    targetIds: List[str]
+
+
+class BulkDeleteResponse(BaseModel):
+    success: bool
+    deletedIds: List[str]
+    failed: List[Dict[str, Any]]
 
 
 # Initialize service
@@ -278,6 +291,13 @@ async def delete_dossier(dossier_id: str):
             raise HTTPException(status_code=404, detail=f"Dossier not found: {dossier_id}")
 
         logger.info(f"✅ API: Deleted dossier {dossier_id}")
+        try:
+            await event_bus.publish({
+                "type": "dossier:deleted",
+                "dossier_id": str(dossier_id)
+            })
+        except Exception:
+            pass
         return DossierResponse(success=True)
 
     except HTTPException:
@@ -285,6 +305,42 @@ async def delete_dossier(dossier_id: str):
     except Exception as e:
         logger.error(f"❌ API: Failed to delete dossier {dossier_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete dossier: {str(e)}")
+
+
+@router.post("/bulk", response_model=BulkDeleteResponse)
+async def bulk_action(request: BulkDeleteRequest):
+    """
+    Perform a bulk action on dossiers. Currently supports type 'delete'.
+
+    Body: { type: 'delete', targetIds: string[] }
+    Returns list of deleted ids and failures with error messages.
+    """
+    if request.type != 'delete':
+        raise HTTPException(status_code=405, detail=f"Unsupported bulk action: {request.type}")
+
+    deleted_ids: List[str] = []
+    failed: List[Dict[str, Any]] = []
+
+    for did in request.targetIds:
+        try:
+            ok = dossier_service.delete_dossier(did, purge=True)
+            if ok:
+                deleted_ids.append(did)
+                try:
+                    # Notify SSE listeners about the deletion
+                    await event_bus.publish({
+                        "type": "dossier:deleted",
+                        "dossier_id": str(did)
+                    })
+                except Exception:
+                    # Non-fatal publish error
+                    pass
+            else:
+                failed.append({"id": did, "error": "not_found"})
+        except Exception as e:
+            failed.append({"id": did, "error": str(e)})
+
+    return BulkDeleteResponse(success=True, deletedIds=deleted_ids, failed=failed)
 
 
 @router.get("/list", response_model=DossierListResponse)
