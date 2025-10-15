@@ -76,7 +76,8 @@ class DossierApiClient {
 
   async deleteDossier(dossierId: string): Promise<void> {
     await this.request(`/dossier-management/${dossierId}/delete`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      timeoutMs: 60000
     });
   }
 
@@ -165,7 +166,8 @@ class DossierApiClient {
   async bulkAction(action: BulkAction): Promise<void> {
     await this.request('/dossier-management/bulk', {
       method: 'POST',
-      body: JSON.stringify(action)
+      body: JSON.stringify(action),
+      timeoutMs: 120000
     });
   }
 
@@ -173,7 +175,7 @@ class DossierApiClient {
   // UTILITY METHODS
   // ============================================================================
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<DossierApiResponse<T>> {
+  private async request<T>(endpoint: string, options: (RequestInit & { timeoutMs?: number }) = {}): Promise<DossierApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint}`;
 
     const defaultOptions: RequestInit = {
@@ -190,7 +192,7 @@ class DossierApiClient {
       try {
         // Add a bounded timeout on all attempts to avoid indefinite hangs
         const controller = new AbortController();
-        const attemptTimeoutMs = this.warmedUp ? 12000 : 6000;
+        const attemptTimeoutMs = options.timeoutMs ?? (this.warmedUp ? 12000 : 6000);
         let timeoutHandle: number | undefined;
         if (attemptTimeoutMs) {
           timeoutHandle = window.setTimeout(() => controller.abort(), attemptTimeoutMs);

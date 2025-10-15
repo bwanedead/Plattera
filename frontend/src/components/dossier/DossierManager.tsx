@@ -65,6 +65,10 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     refreshDossierById
   } = useDossierManager();
 
+  // Keep a stable reference to the latest soft refresh to avoid remounting SSE effect
+  const refreshSoftRef = useRef(refreshDossiersSoft);
+  useEffect(() => { refreshSoftRef.current = refreshDossiersSoft; }, [refreshDossiersSoft]);
+
   // Reduce state spam; keep actionable logs elsewhere
 
   // Local UI state
@@ -78,6 +82,9 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   const [bulkMode, setBulkMode] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  // Track pending IDs for SSE-driven progress during backend-bulk
+  const pendingBulkIdsRef = useRef<Set<string> | null>(null);
+  const sseProgressArmedRef = useRef<boolean>(false);
 
   // Subscribe to hover highlight bus
   useEffect(() => {
@@ -111,7 +118,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     const safeSoftRefresh = () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
       debounceRef.current = window.setTimeout(() => {
-        try { refreshDossiersSoft(); } catch (e) { console.warn('⚠️ DossierManager: soft refresh failed', e); }
+        try { refreshSoftRef.current?.(); } catch (e) { console.warn('⚠️ DossierManager: soft refresh failed', e); }
       }, 250);
     };
 
@@ -159,6 +166,19 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
             if (data && (data.type === 'dossier:update' || data.type === 'dossier:deleted')) {
               safeSoftRefresh();
             }
+            // Increment modal progress on SSE deletions when armed
+            if (data && data.type === 'dossier:deleted' && sseProgressArmedRef.current) {
+              const did = String(data.dossier_id || data.dossierId || '');
+              const pending = pendingBulkIdsRef.current;
+              if (did && pending && pending.has(did)) {
+                pending.delete(did);
+                setBulkProgress(prev => {
+                  const total = prev?.total ?? pending.size + 1; // fallback guard
+                  const done = Math.min((prev?.done ?? 0) + 1, total);
+                  return { done, total };
+                });
+              }
+            }
           } catch {}
         };
         es.onerror = () => {
@@ -181,7 +201,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
         if (ok) {
           connect();
           // kick a soft refresh immediately after health success
-          try { refreshDossiersSoft(); } catch {}
+          try { refreshSoftRef.current?.(); } catch {}
         } else {
           // start fallback poll and retry health shortly
           startFallbackPoll();
@@ -190,7 +210,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
             const ok2 = await dossierApi.health(1500);
             if (ok2 && !es) {
               connect();
-              try { refreshDossiersSoft(); } catch {}
+              try { refreshSoftRef.current?.(); } catch {}
             }
           }, 1200);
         }
@@ -209,7 +229,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
       listEl?.removeEventListener('scroll', saveScroll);
     };
-  }, [refreshDossiersSoft]);
+  }, []);
 
   // ============================================================================
   // SELECTION HANDLING
@@ -556,11 +576,18 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
             const ids = Array.from(state.selectedItems);
             if (ids.length === 0) { setShowBulkConfirm(false); return; }
             try {
+              // Arm SSE-driven progress: initialize pending set and progress totals
+              pendingBulkIdsRef.current = new Set(ids);
+              sseProgressArmedRef.current = true;
+              setBulkProgress({ done: 0, total: ids.length });
               await bulkDelete(ids, (done, total) => {
                 setBulkProgress({ done, total });
               });
               clearSelection();
             } finally {
+              // Disarm SSE progress and cleanup
+              sseProgressArmedRef.current = false;
+              pendingBulkIdsRef.current = null;
               setShowBulkConfirm(false);
               setBulkProgress(null);
               setBulkMode(false);

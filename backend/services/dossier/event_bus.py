@@ -39,6 +39,10 @@ class DossierEventBus:
                     except Exception:
                         pass
 
+    def get_subscriber_count(self) -> int:
+        # helper for logging purposes only
+        return len(self._subscribers)
+
 
 # Global singleton
 event_bus = DossierEventBus()

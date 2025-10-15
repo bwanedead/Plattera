@@ -628,12 +628,75 @@ export function useDossierManager() {
     });
 
     try {
-      // Try bulk endpoint first
-      await dossierApi.bulkAction({ type: 'delete', targetIds: itemIds });
-      if (onProgress) onProgress(itemIds.length, itemIds.length);
+      // New job-based bulk delete: start job, drive progress via SSE then polling
+      const startRes = await fetch('http://localhost:8000/api/dossier-management/bulk/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetIds: itemIds })
+      });
+      if (!startRes.ok) throw new Error('Failed to start bulk delete');
+      const startData = await startRes.json();
+      const jobId = startData.job_id as string;
+      const total = startData.total as number;
+      if (onProgress) onProgress(0, total);
+
+      // Prefer SSE for real-time progress
+      let doneCount = 0;
+      let completed = false;
+      await new Promise<void>((resolve, reject) => {
+        let es: EventSource | null = null;
+        const finish = (ok: boolean) => {
+          try { es && es.close(); } catch {}
+          es = null;
+          if (ok) resolve(); else reject(new Error('Bulk delete failed'));
+        };
+        try {
+          es = new EventSource(`http://localhost:8000/api/dossier/bulk/progress/${encodeURIComponent(jobId)}`);
+          es.onmessage = (ev) => {
+            try {
+              const data = JSON.parse(ev.data || '{}');
+              if (data.type === 'dossier:deleted') {
+                doneCount += 1;
+                if (onProgress) onProgress(doneCount, total);
+              } else if (data.type === 'bulk:done') {
+                completed = true;
+                if (onProgress) onProgress(total, total);
+                finish(true);
+              }
+            } catch {}
+          };
+          es.onerror = () => {
+            try { es && es.close(); } catch {}
+            es = null;
+            // Switch to polling
+            const poll = async () => {
+              try {
+                while (!completed) {
+                  const stRes = await fetch(`http://localhost:8000/api/dossier-management/bulk/status/${encodeURIComponent(jobId)}`);
+                  if (!stRes.ok) throw new Error('status failed');
+                  const st = await stRes.json();
+                  doneCount = st.done || 0;
+                  if (onProgress) onProgress(doneCount, total);
+                  if (doneCount >= total) { completed = true; break; }
+                  await new Promise(r => setTimeout(r, 1000));
+                }
+                finish(true);
+              } catch {
+                finish(false);
+              }
+            };
+            (async () => { await poll(); })();
+          };
+        } catch {
+          finish(false);
+        }
+      });
     } catch (error: any) {
       const status = (error && (error.statusCode || error.status)) || 0;
-      if (status === 404 || status === 405) {
+      const isAbort = error?.name === 'AbortError';
+      const isNetwork = error?.name === 'TypeError' || error?.name === 'NetworkError';
+      const isServer = typeof (error?.statusCode) === 'number' && error.statusCode >= 500;
+      if (status === 404 || status === 405 || isAbort || isNetwork || isServer) {
         // Fallback: limited-concurrency per-id
         const CONCURRENCY = Math.min(4, Math.max(1, itemIds.length));
         let done = 0;

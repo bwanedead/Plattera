@@ -7,9 +7,12 @@ Handles dossier lifecycle: create, read, update, delete.
 """
 
 from fastapi import APIRouter, HTTPException, Query
+import asyncio
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 import logging
+from starlette.concurrency import run_in_threadpool
+from services.dossier.delete_job_manager import delete_job_manager
 
 from services.dossier.management_service import DossierManagementService
 from services.dossier.view_service import DossierViewService
@@ -285,7 +288,8 @@ async def delete_dossier(dossier_id: str):
     logger.info(f"🗑️ API: Deleting dossier {dossier_id}")
 
     try:
-        success = dossier_service.delete_dossier(dossier_id, purge=True)
+        # Offload purge to threadpool to avoid blocking the event loop
+        success = await run_in_threadpool(dossier_service.delete_dossier, dossier_id, True)
 
         if not success:
             raise HTTPException(status_code=404, detail=f"Dossier not found: {dossier_id}")
@@ -318,29 +322,78 @@ async def bulk_action(request: BulkDeleteRequest):
     if request.type != 'delete':
         raise HTTPException(status_code=405, detail=f"Unsupported bulk action: {request.type}")
 
+    logger.info(f"🗑️ API: Bulk delete start count={len(request.targetIds)}")
+
     deleted_ids: List[str] = []
     failed: List[Dict[str, Any]] = []
 
-    for did in request.targetIds:
+    # Bound concurrent filesystem operations to avoid overwhelming disk/locks
+    semaphore = asyncio.Semaphore(4)
+
+    async def purge_one(dossier_id: str) -> None:
         try:
-            ok = dossier_service.delete_dossier(did, purge=True)
+            async with semaphore:
+                ok = await run_in_threadpool(dossier_service.delete_dossier, dossier_id, True)
             if ok:
-                deleted_ids.append(did)
+                deleted_ids.append(dossier_id)
                 try:
-                    # Notify SSE listeners about the deletion
                     await event_bus.publish({
                         "type": "dossier:deleted",
-                        "dossier_id": str(did)
+                        "dossier_id": str(dossier_id)
                     })
                 except Exception:
                     # Non-fatal publish error
                     pass
             else:
-                failed.append({"id": did, "error": "not_found"})
+                failed.append({"id": dossier_id, "error": "not_found"})
         except Exception as e:
-            failed.append({"id": did, "error": str(e)})
+            failed.append({"id": dossier_id, "error": str(e)})
 
+    await asyncio.gather(*(purge_one(did) for did in request.targetIds))
+
+    logger.info(f"🗑️ API: Bulk delete done deleted={len(deleted_ids)} failed={len(failed)}")
     return BulkDeleteResponse(success=True, deletedIds=deleted_ids, failed=failed)
+
+
+# -----------------------------
+# Background job-based bulk API
+# -----------------------------
+
+class BulkStartRequest(BaseModel):
+    targetIds: List[str]
+
+class BulkStartResponse(BaseModel):
+    success: bool
+    job_id: str
+    total: int
+    acceptedIds: List[str]
+    rejectedIds: List[str]
+
+@router.post("/bulk/start", response_model=BulkStartResponse)
+async def bulk_start(request: BulkStartRequest):
+    ids = [str(i) for i in (request.targetIds or []) if isinstance(i, str)]
+    if not ids:
+        raise HTTPException(status_code=400, detail="No targetIds provided")
+    job = await delete_job_manager.create_job(ids)
+    await delete_job_manager.start_job(job.job_id)
+    return BulkStartResponse(success=True, job_id=job.job_id, total=job.total, acceptedIds=ids, rejectedIds=[])
+
+
+class BulkStatusResponse(BaseModel):
+    success: bool
+    job_id: str
+    total: int
+    done: int
+    deletedIds: List[str]
+    failedIds: List[str]
+    inProgressIds: List[str]
+
+@router.get("/bulk/status/{job_id}", response_model=BulkStatusResponse)
+async def bulk_status(job_id: str):
+    st = await delete_job_manager.status(job_id)
+    if not st:
+        raise HTTPException(status_code=404, detail="job not found")
+    return BulkStatusResponse(success=True, **st)
 
 
 @router.get("/list", response_model=DossierListResponse)
