@@ -78,23 +78,29 @@ export const DossierReader: React.FC<DossierReaderProps> = ({
 
       // Load content for each chosen draft
       for (const choice of chosenDrafts) {
-        // Find the segment, run, and draft
+        // Find the segment
         const segment = dossierData.segments.find(s => s.id === choice.segmentId);
         if (!segment) continue;
 
-        const run = segment.runs.find(r => r.transcriptionId === choice.transcriptionId);
+        // Find the run by transcription id (support both casing styles)
+        const run = segment.runs.find(r =>
+          (r as any).transcriptionId === choice.transcriptionId ||
+          (r as any).transcription_id === choice.transcriptionId
+        );
         if (!run) continue;
 
-        const draft = run.drafts.find(d => d.id === choice.draftId);
-        if (!draft) continue;
+        // Resolve a display draft for labeling even if strict id doesn't exist in run.drafts
+        const displayDraft = resolveDisplayDraft(run, choice.draftId);
 
-        // Load the text content
-        const text = await textApi.getDraftText(choice.transcriptionId, choice.draftId);
+        // Always fetch the exact strict versioned id for content, scoped by dossier
+        const text = await textApi
+          .getDraftText(choice.transcriptionId, choice.draftId, dossierId)
+          .catch(() => '');
 
         contents.push({
           segment,
           run,
-          draft,
+          draft: displayDraft || ({ id: choice.draftId, position: 0, isBest: false, metadata: {} } as any),
           text: text || ''
         });
       }
@@ -106,6 +112,37 @@ export const DossierReader: React.FC<DossierReaderProps> = ({
       throw err;
     }
   };
+
+  function resolveDisplayDraft(run: Run, choiceDraftId: string): Draft | null {
+    const exact = (run.drafts || []).find(d => d.id === choiceDraftId);
+    if (exact) return exact;
+
+    const id = String(choiceDraftId);
+
+    // Consensus strict -> base consensus
+    if (/_consensus_(llm|alignment)_v[12]$/.test(id)) {
+      const baseId = id.replace(/_v[12]$/, '');
+      const base = (run.drafts || []).find(d => d.id === baseId);
+      if (base) return base;
+    }
+
+    // Raw strict tid_vN_v1/v2 -> base raw tid_vN
+    if (/_v\d+_v[12]$/.test(id)) {
+      const baseId = id.replace(/_v(1|2)$/, '');
+      const base = (run.drafts || []).find(d => d.id === baseId);
+      if (base) return base;
+    }
+
+    // Alignment strict tid_draft_N_v1/v2 -> display Nth raw draft if present
+    const m = id.match(/_draft_(\d+)_v[12]$/);
+    if (m) {
+      const n = Math.max(0, parseInt(m[1], 10) - 1);
+      const byIndex = (run.drafts || [])[n];
+      if (byIndex) return byIndex;
+    }
+
+    return (run.drafts || [])[0] || null;
+  }
 
   const formatDraftSource = (run: Run, draft: Draft): string => {
     const runPosition = run.position + 1;

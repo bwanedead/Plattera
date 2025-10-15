@@ -60,6 +60,7 @@ if (typeof document !== 'undefined') {
   safeAdd('draft:saved');
   safeAdd('draft:reverted');
   safeAdd('dossiers:refresh');
+  safeAdd('dossier:final-set');
 }
 
 export class TextApiError extends Error {

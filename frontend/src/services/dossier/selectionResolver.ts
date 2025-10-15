@@ -7,6 +7,7 @@ import { textApi } from '../textApi';
 import { latestRunBestDraftPolicy } from './stitchingPolicy';
 import { stitchToText } from './stitcher';
 import { getVersionIndex } from './versioning';
+import { pickStrictVersionedId, pickConsensusStrictId, pickRunFinalId } from './versionResolver';
 
 type ResolveMode = 'draft' | 'run' | 'segment' | 'dossier';
 
@@ -60,16 +61,15 @@ async function resolveRunText(dossier: Dossier, path: DossierPath): Promise<Reso
   const segment = findById(dossier.segments, path.segmentId);
   const run = findById(segment?.runs, path.runId);
   
-  // Prefer explicit final selection if present
-  const finalId = (run as any)?.metadata?.final_selected_id as string | undefined;
-  if (segment && run && typeof finalId === 'string' && finalId.trim()) {
+  // Finals-first (strict, no fallback)
+  const finalId = run ? pickRunFinalId(run as any) : null;
+  if (segment && run && finalId) {
     const transcriptionId = getTranscriptionIdSafe(run, null as any);
     if (transcriptionId) {
       try {
         const text = await textApi.getDraftText(transcriptionId, finalId, dossier.id);
         return { mode: 'run', path, text, context: { dossier, segment, run, draft: null } };
       } catch (e) {
-        // Strict: no fallback on 404 for final selection
         console.warn(`selectionResolver: final selection ${finalId} failed to load, no fallback`, e);
         return { mode: 'run', path, text: '', context: { dossier, segment, run, draft: null } };
       }
@@ -77,94 +77,109 @@ async function resolveRunText(dossier: Dossier, path: DossierPath): Promise<Reso
   }
   
   // Otherwise current policy (consensus/best/longest)
-  let draft: Draft | null = null;
   const drafts = run?.drafts || [];
-  if (drafts.length > 0) {
-    // 1) Try consensus drafts (both LLM and alignment). If multiple, pick latest by createdAt.
-    const consensusDrafts = drafts.filter((d: any) => typeof d.id === 'string' && (d.id.endsWith('_consensus_llm') || d.id.endsWith('_consensus_alignment')));
-    if (consensusDrafts.length > 0) {
-      draft = consensusDrafts
-        .map((d: any) => ({ d, t: (() => { try { return d.metadata?.createdAt ? new Date(d.metadata.createdAt as any).getTime() : 0; } catch { return 0; } })() }))
-        .sort((a, b) => b.t - a.t)[0].d;
-    } else {
-      // 2) Fall back to best flag
-      draft = (drafts as any).find((d: any) => d.isBest || d.is_best) || null;
-      // 3) Fall back to longest by size if best not flagged
-      if (!draft) {
-        draft = drafts
-          .map((d: any) => ({ d, sz: Number(d.metadata?.sizeBytes || 0) }))
-          .sort((a, b) => b.sz - a.sz)[0]?.d || drafts[0] || null;
+  if (segment && run && drafts.length > 0) {
+    // Consensus LLM
+    const llmId = pickConsensusStrictId(run as any, 'llm');
+    if (llmId) {
+      const transcriptionId = getTranscriptionIdSafe(run, null as any);
+      try {
+        const text = await textApi.getDraftText(String(transcriptionId), llmId, dossier.id);
+        if (text) return { mode: 'run', path, text, context: { dossier, segment, run, draft: null } };
+      } catch { /* try next */ }
+    }
+
+    // Consensus alignment
+    const alignId = pickConsensusStrictId(run as any, 'alignment');
+    if (alignId) {
+      const transcriptionId = getTranscriptionIdSafe(run, null as any);
+      try {
+        const text = await textApi.getDraftText(String(transcriptionId), alignId, dossier.id);
+        if (text) return { mode: 'run', path, text, context: { dossier, segment, run, draft: null } };
+      } catch { /* try next */ }
+    }
+
+    // Best → longest → first, fetch via strict versioned id
+    const best = (drafts as any).find((d: any) => d.isBest || d.is_best) || null;
+    const fallback = best || drafts
+      .map((d: any) => ({ d, sz: Number(d.metadata?.sizeBytes || 0) }))
+      .sort((a, b) => b.sz - a.sz)[0]?.d || drafts[0] || null;
+
+    if (fallback) {
+      const transcriptionId = getTranscriptionIdSafe(run, fallback);
+      const strictId = pickStrictVersionedId(run as any, fallback as any);
+      try {
+        const text = await textApi.getDraftText(String(transcriptionId), strictId, dossier.id);
+        return { mode: 'run', path, text, context: { dossier, segment, run, draft: fallback } };
+      } catch (e) {
+        console.warn('selectionResolver: failed to load run draft text, returning empty', e);
       }
     }
   }
-  if (!segment || !run || !draft) {
-    return { mode: 'run', path, text: '', context: { dossier, segment, run, draft } };
-  }
-  const transcriptionId = getTranscriptionIdSafe(run, draft);
-  if (!transcriptionId) {
-    return { mode: 'run', path, text: '', context: { dossier, segment, run, draft } };
-  }
-  let text = '';
-  try {
-    text = await textApi.getDraftText(transcriptionId, draft.id, dossier.id);
-  } catch (e) {
-    console.warn('selectionResolver: failed to load run draft text, returning empty', e);
-  }
-  return { mode: 'run', path, text, context: { dossier, segment, run, draft } };
+  return { mode: 'run', path, text: '', context: { dossier, segment, run, draft: null } };
 }
 
 async function resolveSegmentText(dossier: Dossier, path: DossierPath): Promise<ResolvedSelection> {
   const segment = findById(dossier.segments, path.segmentId);
-  const run = (segment?.runs || [])[0] || null;
+  const run = (segment?.runs || []).slice().sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))[0] || null;
   
-  // Prefer explicit final selection if present
-  const finalId = (run as any)?.metadata?.final_selected_id as string | undefined;
-  if (segment && run && typeof finalId === 'string' && finalId.trim()) {
+  // Finals-first (strict, no fallback)
+  const finalId = run ? pickRunFinalId(run as any) : null;
+  if (segment && run && finalId) {
     const transcriptionId = getTranscriptionIdSafe(run, null as any);
     if (transcriptionId) {
       try {
         const text = await textApi.getDraftText(transcriptionId, finalId, dossier.id);
         return { mode: 'segment', path, text, context: { dossier, segment, run, draft: null } };
       } catch (e) {
-        // Strict: no fallback on 404 for final selection
         console.warn(`selectionResolver: final selection ${finalId} failed to load, no fallback`, e);
         return { mode: 'segment', path, text: '', context: { dossier, segment, run, draft: null } };
       }
     }
   }
   
-  // Prefer consensus drafts when available, otherwise fall back to "best" (or first available)
-  let draft: Draft | null = null;
   const drafts = run?.drafts || [];
-  if (drafts.length > 0) {
-    const consensusDrafts = drafts.filter((d: any) => typeof d.id === 'string' && (d.id.endsWith('_consensus_llm') || d.id.endsWith('_consensus_alignment')));
-    if (consensusDrafts.length > 0) {
-      draft = consensusDrafts
-        .map((d: any) => ({ d, t: (() => { try { return d.metadata?.createdAt ? new Date(d.metadata.createdAt as any).getTime() : 0; } catch { return 0; } })() }))
-        .sort((a, b) => b.t - a.t)[0].d;
-    } else {
-      draft = (drafts as any).find((d: any) => d.isBest || d.is_best) || drafts[0] || null;
+  if (segment && run && drafts.length > 0) {
+    const llmId = pickConsensusStrictId(run as any, 'llm');
+    if (llmId) {
+      const tId = getTranscriptionIdSafe(run, null as any);
+      try {
+        const text = await textApi.getDraftText(String(tId), llmId, dossier.id);
+        if (text) return { mode: 'segment', path, text, context: { dossier, segment, run, draft: null } };
+      } catch { /* try next */ }
+    }
+
+    const alignId = pickConsensusStrictId(run as any, 'alignment');
+    if (alignId) {
+      const tId = getTranscriptionIdSafe(run, null as any);
+      try {
+        const text = await textApi.getDraftText(String(tId), alignId, dossier.id);
+        if (text) return { mode: 'segment', path, text, context: { dossier, segment, run, draft: null } };
+      } catch { /* try next */ }
+    }
+
+    let draft: Draft | null =
+      (drafts as any).find((d: any) => d.isBest || d.is_best) ||
+      drafts
+        .map((d: any) => ({ d, sz: Number(d.metadata?.sizeBytes || 0) }))
+        .sort((a, b) => b.sz - a.sz)[0]?.d ||
+      drafts[0] || null;
+
+    if (draft) {
+      const tId = getTranscriptionIdSafe(run, draft);
+      const strictId = pickStrictVersionedId(run as any, draft as any);
+      try {
+        const text = await textApi.getDraftText(String(tId), strictId, dossier.id);
+        return { mode: 'segment', path, text, context: { dossier, segment, run, draft } };
+      } catch { /* empty text return below */ }
     }
   }
-  if (!segment || !run || !draft) {
-    return { mode: 'segment', path, text: '', context: { dossier, segment, run, draft } };
-  }
-  const transcriptionId = getTranscriptionIdSafe(run, draft);
-  if (!transcriptionId) {
-    return { mode: 'segment', path, text: '', context: { dossier, segment, run, draft } };
-  }
-  let text = '';
-  try {
-    text = await textApi.getDraftText(transcriptionId, draft.id, dossier.id);
-  } catch (e) {
-    console.warn('selectionResolver: failed to load segment draft text, returning empty', e);
-  }
-  return { mode: 'segment', path, text, context: { dossier, segment, run, draft } };
+  return { mode: 'segment', path, text: '', context: { dossier, segment, run, draft: null } };
 }
 
 async function resolveDossierText(dossier: Dossier, path: DossierPath): Promise<ResolvedSelection> {
   const chosen = latestRunBestDraftPolicy(dossier);
-  const text = await stitchToText(chosen, (tId, dId) => textApi.getDraftText(tId, dId));
+  const text = await stitchToText(chosen, (tId, dId) => textApi.getDraftText(tId, dId, dossier.id));
   return { mode: 'dossier', path, text, context: { dossier } };
 }
 
@@ -198,13 +213,21 @@ export async function resolveSelectionToText(path: DossierPath, dossier?: Dossie
       }
     } catch {}
 
-    // No index match: still allow direct fetch using run transcriptionId (no fallback to best)
+    // No index match: attempt strict resolution within the selected draft only (no consensus fallback)
     if (run) {
       const tId = (run as any)?.transcriptionId || (run as any)?.transcription_id;
       if (tId) {
         let text = '';
         try {
-          text = await textApi.getDraftText(tId, path.draftId, ds.id);
+          // If the provided id is already strict, use it directly
+          const candidate = (run?.drafts || []).find(d => d.id === path.draftId) || null;
+          if (candidate) {
+            const strictId = pickStrictVersionedId(run as any, candidate as any);
+            text = await textApi.getDraftText(String(tId), strictId, ds.id);
+            return { mode: 'draft', path, text, context: { dossier: ds, segment, run, draft: candidate } };
+          }
+          // Otherwise, allow direct fetch; this supports explicit strict ids typed into path
+          text = await textApi.getDraftText(String(tId), path.draftId, ds.id);
         } catch (e) {
           console.warn('selectionResolver: direct versioned fetch failed', path.draftId, e);
         }
