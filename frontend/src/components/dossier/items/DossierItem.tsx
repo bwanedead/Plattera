@@ -133,19 +133,17 @@ export const DossierItem: React.FC<DossierItemProps> = ({
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
-    // Show context menu with options
-    const choice = window.prompt(`Choose action for "${dossier.title || dossier.name}":\n1. Rename\n2. Delete\n\nEnter 1 or 2:`);
-
+    const choice = window.prompt(`Choose action for "${dossier.title || dossier.name}":\n1. Rename\n2. Delete\n3. Finalize\n\nEnter 1, 2, or 3:`);
     if (choice === '1') {
-      // Rename mode
       const currentName = dossier.title || dossier.name || '';
       setEditValue(currentName);
       setIsEditing(true);
     } else if (choice === '2') {
-      // Delete with confirmation
       if (window.confirm(`Delete dossier "${dossier.title || dossier.name}"? This will permanently remove all associated data.`)) {
         onAction('delete', { dossierId: dossier.id, dossierName: dossier.title || dossier.name });
       }
+    } else if (choice === '3') {
+      onAction('finalize_dossier', { targetId: dossier.id });
     }
   }, [dossier.title, dossier.name, dossier.id, onAction]);
 

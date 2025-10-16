@@ -60,6 +60,25 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const alignmentState = useAlignmentState();
   const dossierState = useDossierManager();
 
+  // Keep the workspace's dossier list in sync with global updates (creation, rename, etc.)
+  useEffect(() => {
+    const onRefresh = () => {
+      try { dossierState.refreshDossiersSoft(); } catch {}
+    };
+    const onRefreshOne = (ev: Event) => {
+      const d: any = (ev as CustomEvent)?.detail;
+      if (d?.dossierId) {
+        try { dossierState.refreshDossierById(d.dossierId); } catch {}
+      }
+    };
+    document.addEventListener('dossiers:refresh', onRefresh);
+    document.addEventListener('dossier:refreshOne', onRefreshOne as any);
+    return () => {
+      document.removeEventListener('dossiers:refresh', onRefresh);
+      document.removeEventListener('dossier:refreshOne', onRefreshOne as any);
+    };
+  }, [dossierState.refreshDossiersSoft, dossierState.refreshDossierById]);
+
   // Send an immediate refresh event when processing starts
   useEffect(() => {
     if (imageProcessing.isProcessing) {

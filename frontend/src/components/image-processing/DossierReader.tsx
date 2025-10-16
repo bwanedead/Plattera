@@ -93,9 +93,45 @@ export const DossierReader: React.FC<DossierReaderProps> = ({
         const displayDraft = resolveDisplayDraft(run, choice.draftId);
 
         // Always fetch the exact strict versioned id for content, scoped by dossier
-        const text = await textApi
+        let text = await textApi
           .getDraftText(choice.transcriptionId, choice.draftId, dossierId)
           .catch(() => '');
+
+        // Fallback policy: if final/strict id content is empty, try consensus → best → longest → first
+        if (!text || !String(text).trim()) {
+          const drafts = run?.drafts || [];
+          const tId = (run as any).transcriptionId || (run as any).transcription_id || '';
+
+          const tryFetch = async (id?: string) => {
+            if (!id) return '';
+            try { return await textApi.getDraftText(tId, id, dossierId); } catch { return ''; }
+          };
+
+          // 1) LLM consensus
+          let candidate = drafts.find(d => typeof d.id === 'string' && d.id.endsWith('_consensus_llm'))?.id;
+          text = await tryFetch(candidate);
+
+          // 2) Alignment consensus
+          if (!text) {
+            candidate = drafts.find(d => typeof d.id === 'string' && d.id.endsWith('_consensus_alignment'))?.id;
+            text = await tryFetch(candidate);
+          }
+
+          // 3) Best flag
+          if (!text) {
+            const best = drafts.find((d: any) => d.isBest || d.is_best)?.id;
+            text = await tryFetch(best);
+          }
+
+          // 4) Longest or first
+          if (!text) {
+            const pick = drafts
+              .map((d: any) => ({ d, sz: Number(d.metadata?.sizeBytes || 0) }))
+              .sort((a, b) => b.sz - a.sz)[0]?.d || drafts[0];
+            text = await tryFetch(pick?.id);
+          }
+          if (!text) text = '';
+        }
 
         contents.push({
           segment,

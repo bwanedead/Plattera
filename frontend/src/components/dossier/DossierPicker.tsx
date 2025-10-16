@@ -81,7 +81,20 @@ export const DossierPicker: React.FC<DossierPickerProps> = ({ dossiers, value, o
               className="dossier-picker-item"
               onMouseEnter={() => dossierHighlightBus.emit(d.id)}
               onClick={() => { onChange(d.id); setOpen(false); dossierHighlightBus.emit(null); }}
-              style={{ padding: '8px 10px', cursor: 'pointer' }}
+              style={{
+                padding: '8px 10px',
+                cursor: 'pointer',
+                // Slightly stronger visual affordances on hover while preserving existing behavior
+                transition: 'background 120ms ease, transform 80ms ease',
+              }}
+              onMouseOver={(e) => {
+                (e.currentTarget as HTMLDivElement).style.background = 'var(--hover-bg, rgba(120,120,120,0.12))';
+                (e.currentTarget as HTMLDivElement).style.transform = 'translateX(2px)';
+              }}
+              onMouseOut={(e) => {
+                (e.currentTarget as HTMLDivElement).style.background = '';
+                (e.currentTarget as HTMLDivElement).style.transform = '';
+              }}
             >
               {d.title || d.name || d.id}
             </div>

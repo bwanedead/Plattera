@@ -11,6 +11,7 @@ from api.endpoints.dossier import events as dossier_events
 from api.endpoints.dossier import edits as dossier_edits, versions as dossier_versions
 from api.endpoints.dossier import final_selection as dossier_final_selection, finalize as dossier_finalize
 from api.endpoints.dossier import finals as dossier_finals
+from api.endpoints.dossier import finalized_list as dossier_finalized_list
 
 # Create the main API router
 api_router = APIRouter()
@@ -45,6 +46,7 @@ api_router.include_router(dossier_versions.router, prefix="/api/dossier/versions
 api_router.include_router(dossier_final_selection.router, prefix="/api/dossier/final-selection", tags=["dossier-final-selection"])
 api_router.include_router(dossier_finalize.router, prefix="/api/dossier", tags=["dossier-finalize"])
 api_router.include_router(dossier_finals.router, prefix="/api", tags=["dossier-finals"])
+api_router.include_router(dossier_finalized_list.router, prefix="/api/dossier", tags=["dossier-finalized"])
 
 # Quick access to pipeline-specific endpoints for backwards compatibility
 api_router.include_router(models.router, prefix="/api/image-to-text", tags=["image-to-text"])

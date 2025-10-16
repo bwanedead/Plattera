@@ -18,6 +18,7 @@ from services.dossier.management_service import DossierManagementService
 from services.dossier.view_service import DossierViewService
 from services.dossier.edit_persistence_service import EditPersistenceService
 from services.dossier.final_registry_service import FinalRegistryService
+from services.dossier.finalization_service import FinalizationService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -57,133 +58,31 @@ class FinalizeResponse(BaseModel):
 
 @router.post("/finalize", response_model=FinalizeResponse)
 async def finalize_dossier(request: FinalizeRequest):
-    """
-    Finalize a dossier by stitching all segment final selections.
-
-    For each segment:
-    - If final.selected_id is set, load that exact version strictly (with retry, no fallback).
-    - If not set, use fallback policy (consensus → best → longest).
-    - Record errors for any 404s.
-
-    Writes the result to .../final/dossier_final.json.
-
-    Args:
-        request: Contains dossier_id
-
-    Returns:
-        FinalizeResponse with stitched text info and any errors
-    """
     dossier_id = request.dossier_id
-    logger.info(f"🎯 Finalizing dossier: {dossier_id}")
-
+    logger.info(f"🎯 Finalizing dossier via service: {dossier_id}")
     try:
-        # Load dossier structure
-        mgmt_svc = DossierManagementService()
-        dossier = mgmt_svc.get_dossier(dossier_id)
-        if not dossier:
-            raise HTTPException(status_code=404, detail=f"Dossier not found: {dossier_id}")
-
-        view_svc = DossierViewService()
-        persist_svc = EditPersistenceService()
-        fr_svc = FinalRegistryService()
-
-        # Build stitched content
-        stitched_parts: list[str] = []
-        segments_info: list[dict[str, Any]] = []
-        errors_list: list[dict[str, Any]] = []
-
-        for segment in dossier.segments:
-            # Pick latest run for this segment
-            runs = segment.runs or []
-            if not runs:
-                logger.warning(f"⚠️ Segment {segment.id} has no runs, skipping")
-                continue
-
-            # Sort by position desc to get latest
-            run = sorted(runs, key=lambda r: r.position, reverse=True)[0]
-            transcription_id = run.transcription_id
-
-            # Prefer registry final for this segment
-            final_entry = fr_svc.get_segment_final(dossier_id, str(segment.id))
-            final_id = (final_entry or {}).get('draft_id')
-
-            if final_id and isinstance(final_id, str) and final_id.strip():
-                # Strict load with retry
-                text = await _load_with_retry(view_svc, transcription_id, final_id, dossier_id, retries=2)
-                if text is None:
-                    # Record error, skip this segment
-                    errors_list.append({
-                        "segment_id": segment.id,
-                        "transcription_id": transcription_id,
-                        "draft_id": final_id,
-                        "reason": "Draft not found (404 after retries)"
-                    })
-                    logger.warning(f"⚠️ Final selection {final_id} not found for segment {segment.id}, skipping")
-                    continue
-
-                stitched_parts.append(text)
-                segments_info.append({
-                    "segment_id": segment.id,
-                    "transcription_id": transcription_id,
-                    "draft_id_used": final_id,
-                    "text_length": len(text)
-                })
-                logger.info(f"✅ Segment {segment.id} finalized with final selection: {final_id}")
-            else:
-                # Fallback to policy (consensus → best → longest)
-                draft_id, text = await _load_with_policy(view_svc, run, dossier_id)
-                if text:
-                    stitched_parts.append(text)
-                    segments_info.append({
-                        "segment_id": segment.id,
-                        "transcription_id": transcription_id,
-                        "draft_id_used": draft_id,
-                        "text_length": len(text)
-                    })
-                    logger.info(f"✅ Segment {segment.id} finalized with policy fallback: {draft_id}")
-                else:
-                    errors_list.append({
-                        "segment_id": segment.id,
-                        "transcription_id": transcription_id,
-                        "draft_id": "none",
-                        "reason": "No drafts available"
-                    })
-                    logger.warning(f"⚠️ No drafts available for segment {segment.id}")
-
-        # Stitch and persist
-        stitched_text = "\n\n".join(stitched_parts)
-
-        # Write to final directory
+        svc = FinalizationService()
+        snap = svc.finalize_dossier(dossier_id)
         backend_dir = Path(__file__).resolve().parents[3]
-        final_dir = backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / "final"
-        final_dir.mkdir(parents=True, exist_ok=True)
-        final_path = final_dir / "dossier_final.json"
-
-        final_payload = {
-            "dossier_id": dossier_id,
-            "text": stitched_text,
-            "segments": segments_info,
-            "errors": errors_list,
-            "generated_at": datetime.utcnow().isoformat(),
-            "total_segments": len(dossier.segments),
-            "finalized_segments": len(segments_info),
-            "failed_segments": len(errors_list)
-        }
-
-        with open(final_path, 'w', encoding='utf-8') as f:
-            json.dump(final_payload, f, indent=2, ensure_ascii=False)
-
-        logger.info(f"✅ Dossier finalized: {dossier_id} ({len(segments_info)}/{len(dossier.segments)} segments, {len(errors_list)} errors)")
-
+        final_path = backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / "final" / "dossier_final.json"
         return FinalizeResponse(
             success=True,
             dossier_id=dossier_id,
-            text_length=len(stitched_text),
-            segments=segments_info,
-            errors=errors_list,
+            text_length=len(snap.get("stitched_text") or ""),
+            segments=[{
+                "segment_id": s.get("segment_id"),
+                "transcription_id": s.get("transcription_id"),
+                "draft_id_used": s.get("draft_id_used"),
+                "text_length": len((s.get("text") or ""))
+            } for s in (snap.get("sections") or [])],
+            errors=[{
+                "segment_id": e.get("segment_id"),
+                "transcription_id": e.get("transcription_id"),
+                "draft_id": e.get("draft_id"),
+                "reason": e.get("reason")
+            } for e in (snap.get("errors") or [])],
             path=str(final_path)
         )
-
     except HTTPException:
         raise
     except Exception as e:

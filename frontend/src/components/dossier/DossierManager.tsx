@@ -331,6 +331,12 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
           }
           break;
 
+        case 'finalize_dossier':
+          if (data?.targetId) {
+            await handleFinalizeDossier(data.targetId);
+          }
+          break;
+
         case 'expand_all':
           state.dossiers.forEach(dossier => {
             expandItem(dossier.id);

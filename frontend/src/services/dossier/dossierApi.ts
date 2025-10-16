@@ -56,6 +56,14 @@ class DossierApiClient {
     if (!response.dossier) {
       throw new DossierApiError('Failed to create dossier');
     }
+    // Notify other views to refresh (e.g., Image-to-Text workspace Control Panel)
+    try {
+      const newId = response.dossier.id;
+      document.dispatchEvent(new Event('dossiers:refresh'));
+      if (newId) {
+        document.dispatchEvent(new CustomEvent('dossier:refreshOne', { detail: { dossierId: newId } }));
+      }
+    } catch {}
     return response.dossier;
   }
 

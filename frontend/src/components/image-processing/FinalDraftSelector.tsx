@@ -27,6 +27,7 @@ interface FinalDraftSelectorProps {
   dossierId?: string;
   transcriptionId?: string;
   currentDraftId?: string; // strict versioned id currently viewed
+  segmentId?: string; // prefer segment-scoped finals when available
 }
 
 export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
@@ -56,32 +57,39 @@ export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
 
     setIsSelecting(true);
     try {
-      // Normalize to a strict versioned id when possible (default to v1 when missing)
+      // Normalize: keep base ids for consensus/alignment/raw heads; do not append v1 by default
       const normalize = (id?: string) => {
         const val = String(id || '').trim();
         if (!val) return val;
         if (isStrictVersionedId(val)) return val;
-        // consensus base -> default v1
-        if (/_consensus_llm$/.test(val)) return `${val}_v1`;
-        if (/_consensus_alignment$/.test(val)) return `${val}_v1`;
-        // alignment draft head -> default v1
-        if (/_draft_\d+$/.test(val)) return `${val}_v1`;
-        // raw draft head -> default v1 (e.g., tid_v2 -> tid_v2_v1)
-        if (/_v\d+$/.test(val)) return `${val}_v1`;
+        // consensus: keep base id (matches llm_{tid}.json)
+        if (/_consensus_llm$/.test(val)) return val;
+        if (/_consensus_alignment$/.test(val)) return val;
+        // alignment head (draft_n): keep base
+        if (/_draft_\d+$/.test(val)) return val;
+        // raw head (tid_vN): keep base
+        if (/_v\d+$/.test(val)) return val;
         return val;
       };
       const strictId = normalize(currentDraftId);
 
       // Confirm overwrite when a different final already exists
       try {
-        const existing = await dossierApi.getFinalSelection(String(dossierId), String(transcriptionId));
-        if (existing && existing !== strictId) {
+        const existing = (typeof segmentId === 'string' && segmentId.trim())
+          ? await dossierApi.getSegmentFinal(String(dossierId), String(segmentId))
+          : await dossierApi.getFinalSelection(String(dossierId), String(transcriptionId));
+        const existingId = (existing as any)?.draft_id ?? existing;
+        if (existingId && existingId !== strictId) {
           setConfirmOverwrite(true);
           return;
         }
       } catch {}
 
-      await dossierApi.setFinalSelection(String(dossierId), String(transcriptionId), String(strictId));
+      if (typeof segmentId === 'string' && segmentId.trim()) {
+        await dossierApi.setSegmentFinal(String(dossierId), String(segmentId), String(transcriptionId), String(strictId));
+      } else {
+        await dossierApi.setFinalSelection(String(dossierId), String(transcriptionId), String(strictId));
+      }
       setSelectedFinalDraft(selectedDraft);
       onFinalDraftSelected?.('', { draft_id: strictId });
       console.log('✅ Final selection set via dossier API:', { dossierId, transcriptionId, draftId: strictId });
@@ -135,14 +143,18 @@ export const FinalDraftSelector: React.FC<FinalDraftSelectorProps> = ({
                     const val = String(id || '').trim();
                     if (!val) return val;
                     if (isStrictVersionedId(val)) return val;
-                    if (/_consensus_llm$/.test(val)) return `${val}_v1`;
-                    if (/_consensus_alignment$/.test(val)) return `${val}_v1`;
-                    if (/_draft_\d+$/.test(val)) return `${val}_v1`;
-                    if (/_v\d+$/.test(val)) return `${val}_v1`;
+                    if (/_consensus_llm$/.test(val)) return val;
+                    if (/_consensus_alignment$/.test(val)) return val;
+                    if (/_draft_\d+$/.test(val)) return val;
+                    if (/_v\d+$/.test(val)) return val;
                     return val;
                   };
                   const strictId = normalize(currentDraftId);
-                  await dossierApi.setFinalSelection(String(dossierId), String(transcriptionId), String(strictId));
+                  if (typeof segmentId === 'string' && segmentId.trim()) {
+                    await dossierApi.setSegmentFinal(String(dossierId), String(segmentId), String(transcriptionId), String(strictId));
+                  } else {
+                    await dossierApi.setFinalSelection(String(dossierId), String(transcriptionId), String(strictId));
+                  }
                   setSelectedFinalDraft(selectedDraft);
                   onFinalDraftSelected?.('', { draft_id: strictId });
                 } catch (e) {

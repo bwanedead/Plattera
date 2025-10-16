@@ -789,7 +789,8 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                       editedFromDraft={editableDraftState?.editedFromDraft}
                       dossierId={currentDisplayPath?.dossierId || selectedResult?.result?.metadata?.dossier_id}
                       transcriptionId={selectedResult?.result?.metadata?.transcription_id}
-                      currentDraftId={currentDisplayPath?.draftId || selectedResult?.result?.metadata?.selected_versioned_draft_id}
+                    currentDraftId={currentDisplayPath?.draftId || selectedResult?.result?.metadata?.selected_versioned_draft_id}
+                    segmentId={currentDisplayPath?.segmentId}
                     />
                   </div>
                   {/* Finalize dossier when in dossier-level view */}
