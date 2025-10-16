@@ -5,7 +5,7 @@
 // Features: inline editing, context menus, drag & drop preparation
 // ============================================================================
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Dossier, DossierPath } from '../../../types/dossier';
 import { SegmentItem } from './SegmentItem';
 
@@ -23,6 +23,7 @@ interface DossierItemProps {
   onMultiSelect?: () => void;
   classNameOverride?: string;
   onViewRequest?: (path: DossierPath) => void;
+  isFinalized?: boolean;
 }
 
 export const DossierItem: React.FC<DossierItemProps> = ({
@@ -38,7 +39,8 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   onAction,
   onMultiSelect,
   classNameOverride,
-  onViewRequest
+  onViewRequest,
+  isFinalized
 }) => {
   // ============================================================================
   // DEBUGGING
@@ -62,6 +64,13 @@ export const DossierItem: React.FC<DossierItemProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(dossier?.title || dossier?.name || '');
   const [isHovered, setIsHovered] = useState(false);
+
+  // ==========================================================================
+  // CONTEXT MENU STATE
+  // ==========================================================================
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // ============================================================================
   // COMPUTED VALUES
@@ -133,19 +142,54 @@ export const DossierItem: React.FC<DossierItemProps> = ({
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
-    const choice = window.prompt(`Choose action for "${dossier.title || dossier.name}":\n1. Rename\n2. Delete\n3. Finalize\n\nEnter 1, 2, or 3:`);
-    if (choice === '1') {
-      const currentName = dossier.title || dossier.name || '';
-      setEditValue(currentName);
-      setIsEditing(true);
-    } else if (choice === '2') {
-      if (window.confirm(`Delete dossier "${dossier.title || dossier.name}"? This will permanently remove all associated data.`)) {
-        onAction('delete', { dossierId: dossier.id, dossierName: dossier.title || dossier.name });
+    setMenuPos({ x: event.clientX, y: event.clientY });
+    setMenuOpen(true);
+  }, []);
+
+  // Close context menu on outside click / escape / second contextmenu
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest?.('.dossier-context-menu')) {
+        setMenuOpen(false);
       }
-    } else if (choice === '3') {
-      onAction('finalize_dossier', { targetId: dossier.id });
-    }
-  }, [dossier.title, dossier.name, dossier.id, onAction]);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    const onCtx = () => setMenuOpen(false);
+    document.addEventListener('click', onClick, true);
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('contextmenu', onCtx, true);
+    return () => {
+      document.removeEventListener('click', onClick, true);
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('contextmenu', onCtx, true);
+    };
+  }, [menuOpen]);
+
+  const doRename = () => {
+    setMenuOpen(false);
+    const currentName = dossier.title || dossier.name || '';
+    setEditValue(currentName);
+    setIsEditing(true);
+  };
+
+  const doDelete = () => {
+    setMenuOpen(false);
+    onAction('delete', { dossierId: dossier.id, dossierName: dossier.title || dossier.name });
+  };
+
+  const doFinalize = () => {
+    setMenuOpen(false);
+    onAction('finalize_dossier', { targetId: dossier.id });
+  };
+
+  const doUnfinalize = () => {
+    setMenuOpen(false);
+    onAction('unfinalize_dossier', { targetId: dossier.id });
+  };
 
   // ============================================================================
   // RENDER
@@ -156,6 +200,8 @@ export const DossierItem: React.FC<DossierItemProps> = ({
       {/* Main dossier row */}
       <div
         className={`dossier-item ${(isSelected || currentDisplayPath?.dossierId === dossier.id) ? 'selected' : ''} ${isMultiSelected ? 'multi-selected' : ''} ${classNameOverride || ''}`}
+        data-finalized={isFinalized ? true : undefined}
+        style={isFinalized ? { border: '1px solid #d4af37', boxShadow: '0 0 0 1px rgba(212,175,55,0.25) inset' } : undefined}
         onClick={(e) => {
           // Clicking the header selects and toggles expand/collapse for responsiveness
           handleClick(e);
@@ -201,6 +247,20 @@ export const DossierItem: React.FC<DossierItemProps> = ({
           )}
         </div>
 
+        {/* Finalized badge (non-intrusive) */}
+        {isFinalized && (
+          <span className="dossier-badges" style={{ marginLeft: 8, display: 'inline-flex', gap: 6 }}>
+            <span style={{
+              fontSize: 11,
+              padding: '2px 6px',
+              borderRadius: 10,
+              background: 'rgba(212,175,55,0.12)',
+              color: '#e7c65c',
+              border: '1px solid rgba(212,175,55,0.35)'
+            }}>Finalized</span>
+          </span>
+        )}
+
         {/* Statistics */}
 
         {/* Action buttons (visible on hover) */}
@@ -229,6 +289,98 @@ export const DossierItem: React.FC<DossierItemProps> = ({
           </div>
         )}
       </div>
+
+      {/* Per-item right-click menu */}
+      {menuOpen && (
+        <div
+          className="dossier-context-menu"
+          role="menu"
+          style={{
+            position: 'fixed',
+            top: menuPos.y,
+            left: menuPos.x,
+            zIndex: 10000,
+            minWidth: 160,
+            background: '#1f1f1f',
+            border: '1px solid #333',
+            boxShadow: '0 6px 24px rgba(0,0,0,0.3)',
+            borderRadius: 6,
+            padding: '6px 0',
+            color: '#eee'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            role="menuitem"
+            className="ctx-item"
+            onClick={doRename}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '8px 14px',
+              background: 'transparent',
+              border: 'none',
+              color: 'inherit',
+              cursor: 'pointer'
+            }}
+          >
+            Rename
+          </button>
+          <button
+            role="menuitem"
+            className="ctx-item"
+            onClick={doDelete}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '8px 14px',
+              background: 'transparent',
+              border: 'none',
+              color: '#ffb3b3',
+              cursor: 'pointer'
+            }}
+          >
+            Delete
+          </button>
+          {!isFinalized && (
+          <button
+            role="menuitem"
+            className="ctx-item"
+            onClick={doFinalize}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '8px 14px',
+              background: 'transparent',
+              border: 'none',
+              color: '#b3e5ff',
+              cursor: 'pointer'
+            }}
+          >
+            Finalize
+          </button>
+          )}
+          {isFinalized && <div style={{ height: 1, background: '#2a2a2a', margin: '6px 0' }} />}
+          {isFinalized && (
+          <button
+            role="menuitem"
+            className="ctx-item"
+            onClick={doUnfinalize}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              padding: '8px 14px',
+              background: 'transparent',
+              border: 'none',
+              color: '#ffd6a5',
+              cursor: 'pointer'
+            }}
+          >
+            Unfinalize
+          </button>
+          )}
+        </div>
+      )}
 
       {/* Expanded content */}
       {isExpanded && (

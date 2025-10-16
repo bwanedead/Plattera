@@ -45,17 +45,12 @@ export const DossierHeader: React.FC<DossierHeaderProps> = ({
   
   const handleFinalize = async () => {
     if (!selectedDossier) {
-      alert('Please select a dossier first');
-      return;
-    }
-    if (!window.confirm(`Finalize "${selectedDossier.title || selectedDossier.name}"?\n\nThis will stitch all segment final selections into a snapshot.`)) {
       return;
     }
     try {
       await onFinalizeDossier?.(selectedDossier.id);
     } catch (e: any) {
       console.error('Finalize failed:', e);
-      alert(`Finalize failed: ${e?.message || e}`);
     }
   };
   

@@ -126,6 +126,23 @@ async def get_finalized_dossier(dossier_id: str):
 		raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/final/{dossier_id}")
+async def delete_finalized_dossier(dossier_id: str):
+	"""
+	Soft-unfinalize: remove current pointer file for finalized dossier.
+	Does not delete historical snapshots. Frontend can refresh badges from index.
+	"""
+	try:
+		backend_dir = Path(__file__).resolve().parents[3]
+		final_dir = backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / "final"
+		pointer_path = final_dir / "dossier_final.json"
+		if pointer_path.exists():
+			pointer_path.unlink()
+		return {"success": True}
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
 async def _load_with_retry(view_svc: DossierViewService, transcription_id: str, draft_id: str, dossier_id: str, retries: int = 2) -> Optional[str]:
 	"""Load draft with retry, return None on failure."""
 	import asyncio

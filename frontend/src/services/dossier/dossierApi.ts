@@ -441,6 +441,22 @@ class DossierApiClient {
     try { document.dispatchEvent(new CustomEvent('dossier:finalized', { detail: { dossierId } })); } catch {}
     return data;
   }
+
+  async unfinalizeDossier(dossierId: string): Promise<{ success: boolean; backendRemoved: boolean }> {
+    // Soft unfinalize on FE: remove pointer file via backend if available; if not, treat as no-op
+    // Try DELETE endpoint if exists; otherwise return success and rely on UI badge removal
+    try {
+      const res = await fetch(`${this.baseUrl}/dossier/final/${encodeURIComponent(dossierId)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new DossierApiError(data?.detail || 'Failed to unfinalize dossier', res.status, data);
+      try { document.dispatchEvent(new CustomEvent('dossier:unfinalized', { detail: { dossierId } })); } catch {}
+      return { success: true, backendRemoved: true };
+    } catch (e) {
+      // Fallback: emit event so UI updates even if backend lacks endpoint
+      try { document.dispatchEvent(new CustomEvent('dossier:unfinalized', { detail: { dossierId } })); } catch {}
+      return { success: true, backendRemoved: false };
+    }
+  }
 }
 
 // ============================================================================

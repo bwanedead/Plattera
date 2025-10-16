@@ -26,6 +26,7 @@ interface DossierListProps {
   onViewRequest?: (path: DossierPath) => void;
   loadMoreDossiers?: () => void;
   hasMore?: boolean;
+  finalizedIds?: Set<string>;
 }
 
 export const DossierList: React.FC<DossierListProps> = ({
@@ -43,7 +44,8 @@ export const DossierList: React.FC<DossierListProps> = ({
   onDeselectItem,
   onViewRequest,
   loadMoreDossiers,
-  hasMore
+  hasMore,
+  finalizedIds
 }) => {
   // Note: Do not block render during loading; show current contents and let updates stream in.
 
@@ -184,6 +186,10 @@ export const DossierList: React.FC<DossierListProps> = ({
             }}
             classNameOverride={hoverId === dossier.id ? 'hover-highlight' : ''}
             onViewRequest={onViewRequest}
+            isFinalized={finalizedIds ? finalizedIds.has(dossier.id) : false}
+            // Pass down finalized state via className flag for styling, or we could add a prop
+            // Here we add a data attribute to enable CSS styling without extra props explosion
+            // Note: DossierItem already accepts classNameOverride; we can merge it there
           />
         ))}
       </div>

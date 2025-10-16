@@ -802,13 +802,12 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                       onClick={async () => {
                         try {
                           const dossierId = currentDisplayPath?.dossierId || selectedResult?.result?.metadata?.dossier_id;
-                          if (!dossierId) { alert('No dossier selected'); return; }
+                          if (!dossierId) { return; }
                           const { dossierApi } = await import('../../services/dossier/dossierApi');
-                          const res = await dossierApi.finalizeDossier(String(dossierId));
-                          alert(`Finalized dossier.\nSegments: ${(res?.segments || []).length}\nErrors: ${(res?.errors || []).length}`);
+                          await dossierApi.finalizeDossier(String(dossierId));
+                          try { document.dispatchEvent(new CustomEvent('dossier:finalized', { detail: { dossierId: String(dossierId) } })); } catch {}
                         } catch (e: any) {
                           console.error('❌ Finalize failed', e);
-                          alert(`Finalize failed: ${e?.message || e}`);
                         }
                       }}
                     >

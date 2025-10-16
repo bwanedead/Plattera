@@ -16,6 +16,7 @@ import { DossierSearch } from './DossierSearch';
 import { DossierContextMenu } from './DossierContextMenu';
 import { ConfirmDeleteModal } from './modals/ConfirmDeleteModal';
 import { dossierApi } from '../../services/dossier/dossierApi';
+import { finalizedApi } from '../../services/dossier/finalizedApi';
 import { BulkDeleteView } from './bulk/BulkDeleteView';
 
 // ============================================================================
@@ -77,6 +78,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
   const [searchFocused, setSearchFocused] = useState(false);
   const [hoverHighlightId, setHoverHighlightId] = useState<string | null>(null);
   const [finalizeResult, setFinalizeResult] = useState<{ success: boolean; errors: any[]; dossierId: string } | null>(null);
+  const [finalizedIds, setFinalizedIds] = useState<Set<string>>(new Set());
 
   // Bulk delete mode
   const [bulkMode, setBulkMode] = useState(false);
@@ -219,6 +221,36 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
       }
     })();
 
+    // Initial load of finalized index for badges
+    (async () => {
+      try {
+        const list = await finalizedApi.listFinalized();
+        setFinalizedIds(new Set((list || []).map(e => String(e.dossier_id))));
+      } catch {}
+    })();
+
+    // Listen for finalize/unfinalize events to update badges immediately
+    const onFinalized = (ev: Event) => {
+      try {
+        const d: any = (ev as CustomEvent)?.detail;
+        if (d?.dossierId) setFinalizedIds(prev => new Set(prev).add(String(d.dossierId)));
+      } catch {}
+    };
+    const onUnfinalized = (ev: Event) => {
+      try {
+        const d: any = (ev as CustomEvent)?.detail;
+        if (d?.dossierId) {
+          setFinalizedIds(prev => {
+            const next = new Set(prev);
+            next.delete(String(d.dossierId));
+            return next;
+          });
+        }
+      } catch {}
+    };
+    document.addEventListener('dossier:finalized', onFinalized as any);
+    document.addEventListener('dossier:unfinalized', onUnfinalized as any);
+
     return () => {
       document.removeEventListener('dossiers:refresh', handler);
       document.removeEventListener('dossier:refreshOne', singleHandler as any);
@@ -250,11 +282,6 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
       const result = await dossierApi.finalizeDossier(dossierId);
       setFinalizeResult(result);
       console.log('✅ Finalize result:', result);
-      // Show result
-      if (result.success) {
-        const msg = `✅ Finalized ${result.segments?.length || 0} segments\n${result.errors?.length ? `⚠️ ${result.errors.length} errors` : ''}`;
-        alert(msg);
-      }
       // Refresh the dossier tree
       await refreshDossierById(dossierId);
     } catch (e: any) {
@@ -334,6 +361,31 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
         case 'finalize_dossier':
           if (data?.targetId) {
             await handleFinalizeDossier(data.targetId);
+          }
+          break;
+
+        case 'unfinalize_dossier':
+          if (data?.targetId) {
+            try {
+              const res = await dossierApi.unfinalizeDossier(data.targetId);
+              // Update local finalized set immediately
+              setFinalizedIds(prev => {
+                const next = new Set(prev);
+                next.delete(String(data.targetId));
+                return next;
+              });
+              // Refresh from backend index to stay authoritative
+              if (res.backendRemoved) {
+                try {
+                  const list = await finalizedApi.listFinalized();
+                  setFinalizedIds(new Set((list || []).map((e: any) => String(e.dossier_id))));
+                } catch {}
+              }
+              // Also emit event for any listeners
+              try { document.dispatchEvent(new CustomEvent('dossier:unfinalized', { detail: { dossierId: data.targetId, backendRemoved: res.backendRemoved } })); } catch {}
+            } catch (e) {
+              console.error('Failed to unfinalize dossier', e);
+            }
           }
           break;
 
@@ -528,6 +580,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
           onSelectItem={selectItem}
           onDeselectItem={deselectItem}
           onViewRequest={onViewRequest}
+          finalizedIds={finalizedIds}
           loadMoreDossiers={loadMoreDossiers}
           hasMore={hasMore}
         />
