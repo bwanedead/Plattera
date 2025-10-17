@@ -16,6 +16,7 @@ class TextToSchemaRequest(BaseModel):
     text: str
     parcel_id: Optional[str] = None
     model: Optional[str] = "gpt-4o"
+    dossier_id: Optional[str] = None
 
 class TextToSchemaResponse(BaseModel):
     """Response model for text-to-schema processing"""
@@ -84,7 +85,10 @@ async def convert_text_to_schema(request: TextToSchemaRequest):
             tokens_used=result.get("tokens_used"),
             confidence_score=result.get("confidence_score"),
             validation_warnings=result.get("validation_warnings", []),
-            metadata=result.get("metadata")
+            metadata={
+                **(result.get("metadata") or {}),
+                **({"dossier_id": request.dossier_id} if request.dossier_id else {})
+            }
         )
         
     except HTTPException:
@@ -93,6 +97,26 @@ async def convert_text_to_schema(request: TextToSchemaRequest):
         logger.error(f"💥 Text-to-schema conversion error: {str(e)}")
         logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=f"Text-to-schema conversion failed: {str(e)}")
+
+
+class SaveSchemaRequest(BaseModel):
+    dossier_id: str
+    model_used: Optional[str] = None
+    structured_data: Dict[str, Any]
+    original_text: str
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@router.post("/save")
+async def save_schema_for_dossier(body: SaveSchemaRequest):
+    try:
+        from services.text_to_schema.schema_persistence_service import SchemaPersistenceService
+        svc = SchemaPersistenceService()
+        result = svc.save(body.dossier_id, body.structured_data, body.original_text, body.model_used, body.metadata)
+        return {"status": "success", **result}
+    except Exception as e:
+        logger.error(f"💥 Failed to save schema: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/schema")
 async def get_parcel_schema():

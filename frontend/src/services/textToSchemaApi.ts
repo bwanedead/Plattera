@@ -7,6 +7,7 @@ export interface TextToSchemaRequest {
   text: string;
   parcel_id?: string;
   model?: string;
+  dossier_id?: string; // optional, included for metadata tagging
 }
 
 export interface TextToSchemaResponse {
@@ -131,3 +132,25 @@ export const getParcelSchema = async () => {
     throw error;
   }
 }; 
+
+/**
+ * Persist a schema result associated with a dossier
+ */
+export const saveSchemaForDossier = async (payload: {
+  dossier_id: string;
+  model_used?: string;
+  structured_data: any;
+  original_text: string;
+  metadata?: any;
+}) => {
+  const response = await fetch(`${API_BASE_URL}/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const txt = await response.text().catch(() => '');
+    throw new Error(`Failed to save schema (${response.status}): ${txt}`);
+  }
+  return response.json();
+};

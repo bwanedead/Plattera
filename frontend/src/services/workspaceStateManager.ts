@@ -25,6 +25,7 @@ export interface TextToSchemaState {
   schemaResults: any | null;
   selectedModel: string;
   isProcessing: boolean;
+  selectedFinalizedDossierId?: string | null;
 }
 
 export interface WorkspaceState {
@@ -53,6 +54,7 @@ const defaultTextToSchemaState: TextToSchemaState = {
   schemaResults: null,
   selectedModel: 'gpt-4o',
   isProcessing: false,
+  selectedFinalizedDossierId: null,
 };
 
 const defaultWorkspaceState: WorkspaceState = {

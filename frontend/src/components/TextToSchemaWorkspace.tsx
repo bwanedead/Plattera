@@ -4,6 +4,8 @@ import "allotment/dist/style.css";
 import { AnimatedBorder } from './AnimatedBorder';
 import { useTextToSchemaState, useWorkspaceNavigation } from '../hooks/useWorkspaceState';
 import { convertTextToSchema, getTextToSchemaModels } from '../services/textToSchemaApi';
+import { finalizedApi } from '../services/dossier/finalizedApi';
+import { saveSchemaForDossier } from '../services/textToSchemaApi';
 import { TextToSchemaControlPanel } from './text-to-schema/TextToSchemaControlPanel';
 import { SchemaResultsTabs } from './text-to-schema/SchemaResultsTabs';
 import { OriginalTextTab } from './text-to-schema/OriginalTextTab';
@@ -30,6 +32,13 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   const [availableModels, setAvailableModels] = useState<Record<string, any>>({});
   const [selectedTab, setSelectedTab] = useState<SchemaTab>('original');
 
+  // Finalized dossier selection state
+  const [finalizedList, setFinalizedList] = useState<Array<{ dossier_id: string; title?: string; latest_generated_at?: string }>>([]);
+  const [finalizedLoading, setFinalizedLoading] = useState(false);
+  const [selectedFinalizedId, setSelectedFinalizedId] = useState<string | null>(
+    (state as any)?.selectedFinalizedDossierId || null
+  );
+
   // Debug the final draft text
   useEffect(() => {
     console.log('🔍 TEXT-TO-SCHEMA DEBUG: Final draft text type and value:', {
@@ -48,6 +57,21 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   // Load models on mount
   useEffect(() => {
     loadAvailableModels();
+  }, []);
+
+  // Load finalized dossiers list on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        setFinalizedLoading(true);
+        const list = await finalizedApi.listFinalized();
+        setFinalizedList(list || []);
+      } catch (e) {
+        console.warn('Failed to load finalized dossiers', e);
+      } finally {
+        setFinalizedLoading(false);
+      }
+    })();
   }, []);
 
   // Load available models
@@ -100,8 +124,10 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       const response = await convertTextToSchema({
         text: textToProcess,
         model: state.selectedModel,
-        parcel_id: `parcel-${Date.now()}`
-      });
+        parcel_id: `parcel-${Date.now()}`,
+        // pass dossier id for metadata if a finalized dossier is selected
+        dossier_id: selectedFinalizedId || undefined as any
+      } as any);
 
       const result: TextToSchemaResult = {
         success: response.status === 'success',
@@ -117,6 +143,25 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
 
       updateState({ schemaResults: result, isProcessing: false });
       console.log('✅ Schema processing completed:', result);
+
+      // Persist schema to dossier if a finalized dossier is selected
+      if (selectedFinalizedId && result.success && result.structured_data) {
+        try {
+          await saveSchemaForDossier({
+            dossier_id: selectedFinalizedId,
+            model_used: result.model_used,
+            structured_data: result.structured_data,
+            original_text: textToProcess,
+            metadata: {
+              ...(state.finalDraftMetadata || {}),
+              selection_source: 'finalized_dossier'
+            }
+          });
+          console.log('💾 Schema saved for dossier', selectedFinalizedId);
+        } catch (e) {
+          console.warn('Failed to save schema for dossier', e);
+        }
+      }
       
       // Auto-switch to Field View tab when results come in
       setSelectedTab('fields');
@@ -132,7 +177,33 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       });
       console.error('❌ Schema processing failed:', error);
     }
-  }, [state.finalDraftText, state.selectedModel, updateState]);
+  }, [state.finalDraftText, state.selectedModel, updateState, selectedFinalizedId]);
+
+  // Finalized selection handler
+  const handleSelectFinalized = useCallback(async (dossierId: string) => {
+    try {
+      setSelectedFinalizedId(dossierId);
+      updateState({ selectedFinalizedDossierId: dossierId } as any);
+      const data = await finalizedApi.getFinal(dossierId);
+      const stitched = String(
+        data?.stitched_text ||
+        (Array.isArray(data?.sections) ? data.sections.map((s: any) => s?.text || '').join('\n\n') : '')
+      );
+      updateState({
+        finalDraftText: stitched,
+        finalDraftMetadata: {
+          source: 'finalized-dossier',
+          dossierId,
+          dossierTitle: data?.dossier_title,
+          generatedAt: data?.generated_at
+        },
+        schemaResults: null
+      });
+      setSelectedTab('original');
+    } catch (e) {
+      console.error('Failed to load finalized dossier', e);
+    }
+  }, [updateState]);
 
   // Render the appropriate tab content
   const renderTabContent = () => {
@@ -223,6 +294,10 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             isProcessing={state.isProcessing}
             onModelChange={handleModelChange}
             onStartProcessing={handleStartTextToSchema} // Now accepts optional text parameter
+            finalizedDossiers={finalizedList}
+            finalizedLoading={finalizedLoading}
+            selectedFinalizedId={selectedFinalizedId}
+            onSelectFinalized={handleSelectFinalized}
           />
         </Allotment.Pane>
 

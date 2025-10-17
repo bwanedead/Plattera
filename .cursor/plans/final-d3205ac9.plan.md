@@ -1,75 +1,94 @@
-<!-- d3205ac9-abbf-49b0-8534-98e0a5aeb47d c5e12a39-003d-4cd2-8c1b-36d95539c0c5 -->
-# Dossier Finalization & Text→Schema Integration
+<!-- d3205ac9-abbf-49b0-8534-98e0a5aeb47d 4c4fdb69-232a-40e1-a52c-e47ded8674f4 -->
+# Finalized Dossier → Text to Schema Integration
 
-### Objectives
+## Scope
 
-- Persist finalized dossier snapshots with strong provenance and associations to their source dossier.
-- Provide a discovery API for finalized dossiers (robust, rebuildable).
-- Enable finalization from stitched dossier view and the Dossier Manager context menu.
-- Add a Text→Schema workspace dropdown to select a finalized dossier and load stitched or per-section content.
+- Replace "Use Final Draft" with a "Finalized Dossier" selector in the Text→Schema control panel
+- Selecting a finalized dossier loads its stitched text into the viewer
+- Converting to schema uses the selected finalized dossier text
+- Persist schema results to disk, associated with the dossier
 
-### Backend (modular services)
+## Frontend
 
-1) FinalizationService (new file, used by finalize endpoint)
+1) TextToSchemaWorkspace (`frontend/src/components/TextToSchemaWorkspace.tsx`)
 
-- Inputs: `dossier_id`
-- Builds snapshot: stitched_text, sections[], selection_map[], counts, errors, sha256, timestamps, dossier title
-- Writes to `.../views/transcriptions/{dossier_id}/final/dossier_final_{ts}.json` and updates pointer `dossier_final.json`
-- Updates `backend/dossiers_data/state/finalized_index.json` (atomic write). Index entry: { dossier_id, title, latest_generated_at, text_length, section_count, has_errors }
+- Load list via `finalizedApi.listFinalized()` on mount
+- Add state: `finalizedList`, `finalizedLoading`, `selectedFinalizedId`
+- On select: `finalizedApi.getFinal(id)`, set `finalDraftText` and metadata; switch to Original tab
+- Pass props to control panel: list, loading, selected id, onSelect handler
 
-2) Endpoint updates
+2) Control Panel (`frontend/src/components/text-to-schema/TextToSchemaControlPanel.tsx`)
 
-- Extend existing POST `/api/dossier/finalize` to use FinalizationService and include `sections` + `selection_map` in response
-- Add GET `/api/dossier/finalized/list` to return index (scan directory if index missing)
-- Keep existing GET `/api/dossier/final/{dossier_id}`
+- Replace input mode with: `finalized` | `direct-input` (default `finalized`)
+- Render dropdown of finalized dossiers; show loaded status and char count
+- Keep direct text input as alternative path
+- Process button uses currently active text (finalized loaded or direct input)
 
-### Frontend
+3) Persist selection between sessions
 
-1) Dossier Manager
+- Store `selectedFinalizedId` and `finalDraftText` in `workspaceStateManager` (`textToSchema` domain)
+- On mount, if `selectedFinalizedId` exists, try to reload snapshot (optional best-effort)
 
-- Add “Finalize Dossier” to context menu of each dossier item (not inline button to avoid clutter)
-- When in stitched dossier view, keep the primary “Finalize Dossier” button (already present)
-- After success, show toast with CTA: “Open in Text→Schema” and dispatch refresh events
+## Backend
 
-2) Text→Schema workspace
+1) Save schema results associated to dossier
 
-- Add a dropdown: “Select finalized dossier” using GET `/api/dossier/finalized/list`
-- On select: GET `/api/dossier/final/{id}` and allow user to choose:
-- Process stitched_text
-- Process per-section
-- Wire save endpoints (future): POST schema version under `processing_jobs/text_to_schema/{dossier_id}`
+- Add endpoint `POST /api/text-to-schema/save` with body: `{ dossier_id, snapshot_generated_at?, model_used, structured_data, original_text, metadata }`
+- Service: `SchemaPersistenceService` (new file `backend/services/text_to_schema/schema_persistence_service.py`)
+- Path: `backend/dossiers_data/processing_jobs/text_to_schema/{dossier_id}/schema_{ts}.json`
+- also write/maintain pointer `latest.json`
+- Append entry in an index `backend/dossiers_data/state/text_to_schema_index.json` (atomic)
 
-### Data Contracts
+2) Extend existing convert endpoint to accept optional `dossier_id`
 
-- Final snapshot JSON fields:
-- dossier_id, dossier_title, generated_at
-- stitched_text
-- sections: [{ segment_id, order, transcription_id, draft_id_used, text }]
-- selection_map: [{ segment_id, transcription_id, draft_id_used, version_type, version_num, size_bytes }]
-- counts: { segments, text_length }
-- errors: []
-- sha256
+- If `dossier_id` provided, include it in response metadata; FE will call save endpoint after successful convert
 
-### Non-breaking & SoC
+## Wiring Convert + Save
 
-- FinalizationService encapsulates assembly and persistence; endpoints thin wrappers
-- Index is additive, optional (fallback to scan)
-- Text→Schema consumes read-only snapshots; editing continues in Dossier Manager
+- FE: After `convert_text_to_schema` success, if `selectedFinalizedId` is set, call save endpoint with dossier id, model, structured_data, original_text, metadata
+- On save success, show inline non-blocking confirmation (no browser modal)
 
-### Follow-ups
+## Types & Contracts
 
-- Pagination in `/finalized/list` for large sets
-- Schema persistence endpoints and UI
-- Section-level navigation in Text→Schema
+- Snapshot fields already defined
+- Schema save object fields:
+- `dossier_id`, `saved_at`, `model_used`, `original_text_sha256`, `structured_data`, `original_text_length`, optional `source`: `finalized_dossier` with `dossier_title`, `generated_at`
+
+## UI Indicators
+
+- Control panel shows the selected finalized dossier (title, timestamp)
+- Results tabs unchanged; Original shows loaded text; converting populates schema tabs
+
+## Tests
+
+- Backend: unit tests for `SchemaPersistenceService` (atomic write, index update)
+- Backend: endpoint tests: save accepts and writes; convert returns metadata
+- Frontend: simple happy-path test for dropdown select loads text; conversion triggers save when selectedFinalizedId exists
+
+## Files Touched
+
+- frontend/src/components/TextToSchemaWorkspace.tsx
+- frontend/src/components/text-to-schema/TextToSchemaControlPanel.tsx
+- frontend/src/services/dossier/finalizedApi.ts (already exists)
+- frontend/src/services/textToSchemaApi.ts (add `saveSchemaForDossier`)
+- frontend/src/services/workspaceStateManager.ts (add selectedFinalizedId)
+- backend/api/endpoints/text_to_schema.py (accept optional dossier_id; add `/save` route)
+- backend/services/text_to_schema/schema_persistence_service.py (new)
+
+## Acceptance
+
+- User can pick a finalized dossier from dropdown, preview text
+- "Convert to Schema" uses that text and, on success, persists schema to `{dossier_id}` location
+- No browser prompts; UI reflects selection and save non-intrusively
 
 ### To-dos
 
-- [ ] Create FinalizationService to write snapshot and update index
-- [ ] Extend finalize endpoint to include sections + selection_map
-- [ ] Add endpoint to list finalized dossiers
-- [ ] Add Finalize action to Dossier Manager context menu
-- [ ] Add dropdown to select finalized dossier in Text→Schema
-- [ ] Load stitched or per-section content after select
-- [ ] Add toast/CTA to open in Text→Schema post-finalize
-- [ ] Backend tests for FinalizationService and index
-- [ ] Frontend tests for finalize action and Text→Schema selection
+- [ ] Wire finalized list/loading and selection in TextToSchemaWorkspace
+- [ ] Replace input source toggle with finalized dropdown + direct input
+- [ ] Persist selectedFinalizedId in workspaceStateManager
+- [ ] Allow dossier_id in convert endpoint metadata
+- [ ] Create POST /api/text-to-schema/save to persist schema
+- [ ] Implement SchemaPersistenceService with atomic write and index
+- [ ] FE calls save endpoint after convert when finalized selected
+- [ ] Add tests for schema persistence and endpoints
+- [ ] Add tests for finalized selection & convert-save flow
