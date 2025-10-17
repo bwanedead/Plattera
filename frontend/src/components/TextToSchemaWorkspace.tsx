@@ -61,18 +61,71 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
 
   // Load finalized dossiers list on mount
   useEffect(() => {
+    let mounted = true;
     (async () => {
       try {
         setFinalizedLoading(true);
         const list = await finalizedApi.listFinalized();
+        if (!mounted) return;
         setFinalizedList(list || []);
+        // Detect staleness if selected dossier is chosen and timestamps differ
+        if (selectedFinalizedId) {
+          const entry = (list || []).find(e => String(e.dossier_id) === String(selectedFinalizedId));
+          const latest = entry?.latest_generated_at;
+          if (latest && state.selectedFinalizedSnapshotAt && latest !== state.selectedFinalizedSnapshotAt) {
+            updateState({ isFinalizedSnapshotStale: true } as any);
+          }
+        }
       } catch (e) {
         console.warn('Failed to load finalized dossiers', e);
       } finally {
+        if (!mounted) return;
         setFinalizedLoading(false);
       }
     })();
-  }, []);
+
+    const onFinalized = async (ev: Event) => {
+      try {
+        const d: any = (ev as CustomEvent)?.detail;
+        if (d?.dossierId) {
+          // refresh list and, if this is the selected dossier, reload snapshot
+          const list = await finalizedApi.listFinalized();
+          setFinalizedList(list || []);
+          if (String(d.dossierId) === String(selectedFinalizedId)) {
+            try {
+              const data = await finalizedApi.getFinal(String(d.dossierId));
+              const sectionsArr: string[] = Array.isArray(data?.sections)
+                ? data.sections.map((s: any) => String(s?.text || '').trim())
+                : (data?.stitched_text ? [String(data.stitched_text)] : []);
+              const stitched = sectionsArr.filter(Boolean).join('\n\n');
+              updateState({
+                finalDraftText: stitched,
+                finalDraftMetadata: {
+                  source: 'finalized-dossier',
+                  dossierId: String(d.dossierId),
+                  dossierTitle: data?.dossier_title,
+                  generatedAt: data?.generated_at
+                },
+                schemaResults: null,
+                selectedFinalizedSnapshotAt: data?.generated_at || null,
+                isFinalizedSnapshotStale: false,
+                selectedFinalizedSections: sectionsArr
+              } as any);
+              setSelectedTab('original');
+            } catch (e) {
+              console.warn('Failed to reload finalized snapshot after event', e);
+            }
+          }
+        }
+      } catch {}
+    };
+    document.addEventListener('dossier:finalized', onFinalized as any);
+
+    return () => {
+      mounted = false;
+      document.removeEventListener('dossier:finalized', onFinalized as any);
+    };
+  }, [selectedFinalizedId, state.selectedFinalizedSnapshotAt, updateState]);
 
   // Load available models
   const loadAvailableModels = async () => {
@@ -185,10 +238,10 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       setSelectedFinalizedId(dossierId);
       updateState({ selectedFinalizedDossierId: dossierId } as any);
       const data = await finalizedApi.getFinal(dossierId);
-      const stitched = String(
-        data?.stitched_text ||
-        (Array.isArray(data?.sections) ? data.sections.map((s: any) => s?.text || '').join('\n\n') : '')
-      );
+      const sectionsArr: string[] = Array.isArray(data?.sections)
+        ? data.sections.map((s: any) => String(s?.text || '').trim())
+        : (data?.stitched_text ? [String(data.stitched_text)] : []);
+      const stitched = sectionsArr.filter(Boolean).join('\n\n');
       updateState({
         finalDraftText: stitched,
         finalDraftMetadata: {
@@ -197,7 +250,10 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
           dossierTitle: data?.dossier_title,
           generatedAt: data?.generated_at
         },
-        schemaResults: null
+        schemaResults: null,
+        selectedFinalizedSnapshotAt: data?.generated_at || null,
+        isFinalizedSnapshotStale: false,
+        selectedFinalizedSections: sectionsArr
       });
       setSelectedTab('original');
     } catch (e) {
@@ -215,7 +271,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     switch (selectedTab) {
       case 'original':
         return finalText ? (
-          <OriginalTextTab text={finalText} />
+          <OriginalTextTab text={finalText} showSectionMarkers={true} sections={state.selectedFinalizedSections || undefined} />
         ) : (
           <div className="processing-placeholder">
             <p>No final draft available. Complete image-to-text processing to continue.</p>

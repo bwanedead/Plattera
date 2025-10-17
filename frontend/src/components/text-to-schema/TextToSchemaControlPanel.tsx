@@ -116,6 +116,16 @@ export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> =
             {finalText?.trim()
               ? <span className="status-indicator available">✅ Loaded</span>
               : <span className="status-indicator unavailable">❌ Not Loaded</span>}
+            {/* Manual refresh control */}
+            <button
+              className="mode-button"
+              style={{ padding: '4px 8px' }}
+              disabled={!selectedFinalizedId || isProcessing}
+              onClick={() => selectedFinalizedId && onSelectFinalized(selectedFinalizedId)}
+              title="Refresh finalized snapshot"
+            >
+              Refresh
+            </button>
           </div>
           {!!finalText?.length && (
             <div className="draft-info">

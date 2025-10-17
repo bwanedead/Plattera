@@ -26,6 +26,9 @@ export interface TextToSchemaState {
   selectedModel: string;
   isProcessing: boolean;
   selectedFinalizedDossierId?: string | null;
+  selectedFinalizedSnapshotAt?: string | null; // from generated_at in snapshot
+  isFinalizedSnapshotStale?: boolean; // true if backend has newer generated_at than our loaded one
+  selectedFinalizedSections?: string[] | null; // per-dossier-section texts for proper boundaries
 }
 
 export interface WorkspaceState {
@@ -55,6 +58,9 @@ const defaultTextToSchemaState: TextToSchemaState = {
   selectedModel: 'gpt-4o',
   isProcessing: false,
   selectedFinalizedDossierId: null,
+  selectedFinalizedSnapshotAt: null,
+  isFinalizedSnapshotStale: false,
+  selectedFinalizedSections: null,
 };
 
 const defaultWorkspaceState: WorkspaceState = {
