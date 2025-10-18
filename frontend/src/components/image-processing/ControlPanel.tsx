@@ -30,9 +30,7 @@ interface ControlPanelProps {
   onShowDraftLoader: () => void;
   isProcessing: boolean;
   onProcess: () => void;
-  // New: toggle between single vs batch mode
-  processingMode?: 'single' | 'batch';
-  onProcessingModeChange?: (mode: 'single' | 'batch') => void;
+  // processing mode is now auto-detected in the hook; no manual toggle
   availableModels: Record<string, any>;
   selectedModel: string;
   onModelChange: (model: string) => void;
@@ -64,8 +62,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onShowDraftLoader,
   isProcessing,
   onProcess,
-  processingMode = 'batch',
-  onProcessingModeChange,
+  // processingMode removed; auto-managed
   availableModels,
   selectedModel,
   onModelChange,
@@ -113,39 +110,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       <div className="import-section">
         <label>Import Files</label>
 
-        {/* Single/Batch toggle */}
-        <div className="mode-toggle" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-          <label>
-            <input
-              type="radio"
-              name="processing-mode"
-              checked={processingMode === 'single'}
-              onChange={() => onProcessingModeChange?.('single')}
-              disabled={isProcessing}
-            />
-            Single
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="processing-mode"
-              checked={processingMode === 'batch'}
-              onChange={() => onProcessingModeChange?.('batch')}
-              disabled={isProcessing}
-            />
-            Batch (up to 20)
-          </label>
-        </div>
+        {/* Mode toggle removed: mode auto-selected based on number of staged files */}
 
-        <div className="draft-loader-section">
-          <button
-            className="load-drafts-button"
-            onClick={onShowDraftLoader}
-            disabled={draftCount === 0}
-          >
-            📁 Load Saved Drafts ({draftCount})
-          </button>
-        </div>
+        {/* Removed testing-only load saved drafts button */}
 
         <div
           {...getRootProps()}
@@ -365,9 +332,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         >
           {isProcessing
             ? 'Processing...'
-            : processingMode === 'single'
-              ? `Process 1 File`
-              : `Queue ${Math.min(stagedFiles.length, 20)} File${stagedFiles.length !== 1 ? 's' : ''}`}
+            : (stagedFiles.length <= 1
+                ? `Process 1 File`
+                : `Queue ${Math.min(stagedFiles.length, 20)} File${stagedFiles.length !== 1 ? 's' : ''}`)}
         </button>
       </div>
 
