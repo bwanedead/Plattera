@@ -30,7 +30,7 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
     consensusStrategy: 'highest_confidence'
   });
   // Single vs Batch processing toggle (UI preference)
-  const [processingMode, setProcessingMode] = useState<'single' | 'batch'>('batch');
+  const [processingMode, setProcessingMode] = useState<'single' | 'batch'>('single');
   const [consensusSettings, setConsensusSettings] = useState<ConsensusSettings>({
     enabled: false,
     model: 'gpt-5-consensus'
@@ -68,6 +68,17 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
   const removeStagedFile = (fileName: string) => {
     setStagedFiles(prev => prev.filter(f => f.name !== fileName));
   };
+
+  // Auto-switch processing mode based on number of staged files
+  useEffect(() => {
+    try {
+      if (stagedFiles.length > 1) {
+        if (processingMode !== 'batch') setProcessingMode('batch');
+      } else {
+        if (processingMode !== 'single') setProcessingMode('single');
+      }
+    } catch {}
+  }, [stagedFiles.length, processingMode]);
 
   const handleProcess = async () => {
     if (stagedFiles.length === 0) return;

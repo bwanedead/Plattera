@@ -458,12 +458,26 @@ class DossierViewService:
 
                 # Prefer explicit v1/v2 dot-suffix if requested (what the saver writes)
                 if ver:
+                    # 1) dot-suffix (e.g., base.v1.json)
                     dot_path = raw_dir / f"{base_draft}.{ver}.json"
                     if dot_path.exists():
                         with open(dot_path, 'r', encoding='utf-8') as f:
-                            logger.info(f"📄 Loaded raw (scoped {ver}): dossier={dossier_id} id={transcription_id} folder={folder_tid} base={base_draft} path={dot_path}")
+                            logger.info(f"📄 Loaded raw (scoped {ver} dot): dossier={dossier_id} id={transcription_id} folder={folder_tid} base={base_draft} path={dot_path}")
                             return json.load(f)
-                    # STRICT: if explicit version requested and not found, do not fallback
+                    # 2) underscore full id (e.g., base_v1.json)
+                    underscore_full = raw_dir / f"{base_draft}_{ver}.json"
+                    if underscore_full.exists():
+                        with open(underscore_full, 'r', encoding='utf-8') as f:
+                            logger.info(f"📄 Loaded raw (scoped {ver} underscore_full): dossier={dossier_id} id={transcription_id} folder={folder_tid} base={base_draft} path={underscore_full}")
+                            return json.load(f)
+                    # 3) plain base for v1 (common saver output): base.json
+                    if ver == 'v1':
+                        plain_v1 = raw_dir / f"{base_draft}.json"
+                        if plain_v1.exists():
+                            with open(plain_v1, 'r', encoding='utf-8') as f:
+                                logger.info(f"📄 Loaded raw (scoped v1 plain): dossier={dossier_id} id={transcription_id} path={plain_v1}")
+                                return json.load(f)
+                    # STRICT: explicit version requested and none of the forms found
                     logger.warning(f"❌ Explicit raw {ver} not found for {transcription_id} in dossier {dossier_id}. No fallback when version explicitly requested.")
                     return None
 
