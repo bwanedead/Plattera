@@ -25,6 +25,7 @@ interface LayerSettings {
 interface VisualizationWorkspaceProps {
   polygon?: PolygonResult;
   schemaData?: any; // Add schema data
+  dossierId?: string; // Optional dossier context for persistence
   isOpen: boolean;
   onClose: () => void;
 }
@@ -32,6 +33,7 @@ interface VisualizationWorkspaceProps {
 export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
   polygon,
   schemaData, // Add schema data parameter
+  dossierId,
   isOpen,
   onClose
 }) => {
@@ -135,6 +137,7 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
                     schemaData={schemaData}
                     polygonData={polygon}
                     onPolygonUpdate={setGeoPolygonData}
+                    dossierId={dossierId || schemaData?.metadata?.dossierId || schemaData?.metadata?.dossier_id}
                   />
                 )}
                 
@@ -143,6 +146,7 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
                     schemaData={schemaData}
                     polygonData={polygon}
                     onPolygonUpdate={setGeoPolygonData}
+                    dossierId={dossierId || schemaData?.metadata?.dossierId || schemaData?.metadata?.dossier_id}
                   />
                 )}
               </div>

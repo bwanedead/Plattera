@@ -8,12 +8,14 @@ interface CleanMapBackgroundProps {
   schemaData?: any;
   polygonData?: any;
   onPolygonUpdate?: (data: any) => void;
+  dossierId?: string; // optional pass-through
 }
 
 export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
   schemaData,
   polygonData,
-  onPolygonUpdate
+  onPolygonUpdate,
+  dossierId
 }) => {
   // Get PLSS state from schema data
   const state = schemaData?.descriptions?.[0]?.plss?.state;
@@ -68,6 +70,7 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
         schemaData={schemaData}
         polygonData={polygonData}
         onPolygonUpdate={onPolygonUpdate}
+        dossierId={dossierId || schemaData?.metadata?.dossierId || schemaData?.metadata?.dossier_id}
         className="w-full h-full"
       />
     </div>

@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import logging
+from pathlib import Path
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -164,3 +166,42 @@ async def get_text_to_schema_models():
     except Exception as e:
         logger.error(f"💥 Error fetching models: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch models: {str(e)}") 
+
+
+@router.get("/list")
+async def list_schemas(dossier_id: str):
+    """
+    List schema summaries for a dossier (from schemas_index.json)
+    """
+    try:
+        backend_dir = Path(__file__).resolve().parents[2]
+        index_path = backend_dir / "dossiers_data" / "state" / "schemas_index.json"
+        if not index_path.exists():
+            return {"status": "success", "schemas": []}
+        with open(index_path, "r", encoding="utf-8") as f:
+            data = json.load(f) or {}
+        items = [e for e in data.get("schemas", []) if (e or {}).get("dossier_id") == str(dossier_id)]
+        return {"status": "success", "schemas": items}
+    except Exception as e:
+        logger.error(f"💥 Error listing schemas: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list schemas: {str(e)}")
+
+
+@router.get("/get")
+async def get_schema(dossier_id: str, schema_id: str):
+    """
+    Get a saved schema artifact by dossier_id and schema_id
+    """
+    try:
+        backend_dir = Path(__file__).resolve().parents[2]
+        artifact_path = backend_dir / "dossiers_data" / "artifacts" / "schemas" / str(dossier_id) / f"{schema_id}.json"
+        if not artifact_path.exists():
+            raise HTTPException(status_code=404, detail="Schema artifact not found")
+        with open(artifact_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        return {"status": "success", "artifact": payload}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"💥 Error fetching schema: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch schema: {str(e)}")

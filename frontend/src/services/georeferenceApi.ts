@@ -147,4 +147,31 @@ class GeoreferenceApiService {
 
 export const georeferenceApi = new GeoreferenceApiService();
 
+export const saveGeoreferenceForDossier = async (payload: {
+  dossier_id: string;
+  georef_result: any;
+  metadata?: any;
+}) => {
+  const res = await fetch(`${API_BASE}/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Failed to save georeference (${res.status}): ${txt}`);
+  }
+  return res.json();
+};
 
+export const listGeoreferences = async (dossierId: string) => {
+  const res = await fetch(`${API_BASE}/list?dossier_id=${encodeURIComponent(dossierId)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
+
+export const getGeoreference = async (dossierId: string, georefId: string) => {
+  const res = await fetch(`${API_BASE}/get?dossier_id=${encodeURIComponent(dossierId)}&georef_id=${encodeURIComponent(georefId)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};

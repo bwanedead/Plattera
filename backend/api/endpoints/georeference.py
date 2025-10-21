@@ -3,8 +3,11 @@ Georeference API Endpoints
 Dedicated endpoints for georeferencing polygons and resolving POB
 """
 from fastapi import APIRouter, HTTPException, status, Body
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import logging
+from pydantic import BaseModel
+from pathlib import Path
+import json
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/georeference")
@@ -256,3 +259,54 @@ async def resolve_pob_endpoint(request: Dict[str, Any]) -> Dict[str, Any]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"POB resolution failed: {str(e)}"
         )
+
+
+class SaveGeorefRequest(BaseModel):
+    dossier_id: str
+    georef_result: Dict[str, Any]
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@router.post("/save")
+async def save_georeference(body: SaveGeorefRequest) -> Dict[str, Any]:
+    try:
+        from services.georeference.georeference_persistence_service import GeoreferencePersistenceService
+        svc = GeoreferencePersistenceService()
+        result = svc.save(dossier_id=body.dossier_id, georef_result=body.georef_result, metadata=body.metadata)
+        return {"status": "success", **result}
+    except Exception as e:
+        logger.error(f"💥 Failed to save georeference: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/list")
+async def list_georeferences(dossier_id: str) -> Dict[str, Any]:
+    try:
+        backend_dir = Path(__file__).resolve().parents[2]
+        index_path = backend_dir / "dossiers_data" / "state" / "georefs_index.json"
+        if not index_path.exists():
+            return {"status": "success", "georefs": []}
+        with open(index_path, "r", encoding="utf-8") as f:
+            data = json.load(f) or {}
+        items = [e for e in data.get("georefs", []) if (e or {}).get("dossier_id") == str(dossier_id)]
+        return {"status": "success", "georefs": items}
+    except Exception as e:
+        logger.error(f"💥 Error listing georeferences: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list georeferences: {str(e)}")
+
+
+@router.get("/get")
+async def get_georeference(dossier_id: str, georef_id: str) -> Dict[str, Any]:
+    try:
+        backend_dir = Path(__file__).resolve().parents[2]
+        artifact_path = backend_dir / "dossiers_data" / "artifacts" / "georefs" / str(dossier_id) / f"{georef_id}.json"
+        if not artifact_path.exists():
+            raise HTTPException(status_code=404, detail="Georeference artifact not found")
+        with open(artifact_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        return {"status": "success", "artifact": payload}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"💥 Error fetching georeference: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch georeference: {str(e)}")

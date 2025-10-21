@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { georeferenceApi, GeoreferenceProjectResponse } from '../../services/georeferenceApi';
+import React, { useEffect, useRef, useState } from 'react';
+import { georeferenceApi, GeoreferenceProjectResponse, saveGeoreferenceForDossier } from '../../services/georeferenceApi';
 import { MapWorkspace } from './MapWorkspace';
 
 interface GeoreferenceControllerProps {
@@ -7,6 +7,7 @@ interface GeoreferenceControllerProps {
   polygonData?: any;
   className?: string;
   onPolygonUpdate?: (data: GeoreferenceProjectResponse) => void;
+  dossierId?: string; // optional; if omitted, will attempt to derive from schemaData.metadata
 }
 
 /**
@@ -20,11 +21,14 @@ export const GeoreferenceController: React.FC<GeoreferenceControllerProps> = ({
   schemaData, 
   polygonData, 
   className = '',
-  onPolygonUpdate 
+  onPolygonUpdate,
+  dossierId
 }) => {
   const [georeferencedPolygonData, setGeoreferencedPolygonData] = useState<GeoreferenceProjectResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  // Prevent duplicate saves for the same computed result
+  const lastSavedSignatureRef = useRef<string | null>(null);
 
   // Handle georeference when inputs change
   useEffect(() => {
@@ -33,11 +37,13 @@ export const GeoreferenceController: React.FC<GeoreferenceControllerProps> = ({
         if (!polygonData || !schemaData) {
           setGeoreferencedPolygonData(null);
           setError(null);
+          lastSavedSignatureRef.current = null;
           return;
         }
 
         setLoading(true);
         setError(null);
+        lastSavedSignatureRef.current = null;
 
         console.log('🗺️ GeoreferenceController: Starting schema-based georeference');
         console.log('📊 Schema data:', schemaData);
@@ -71,6 +77,41 @@ export const GeoreferenceController: React.FC<GeoreferenceControllerProps> = ({
           
           setGeoreferencedPolygonData(result);
           onPolygonUpdate?.(result);
+
+          // Attempt persistence (explicit save) if we know the dossier
+          try {
+            const derivedDossierId =
+              dossierId ||
+              schemaData?.metadata?.dossierId ||
+              schemaData?.metadata?.dossier_id ||
+              null;
+            if (derivedDossierId) {
+              const sig = JSON.stringify({
+                coords: result.geographic_polygon.coordinates,
+                bounds: result.geographic_polygon.bounds
+              });
+              if (sig !== lastSavedSignatureRef.current) {
+                const meta: any = { source: 'auto-save-on-map' };
+                if (schemaData?.schema_id) meta.schema_id = schemaData.schema_id;
+                // Also attach schema_id directly into the georef_result for lineage
+                const georefResultToSave: any = { ...result };
+                if (schemaData?.schema_id && !georefResultToSave.schema_id) {
+                  georefResultToSave.schema_id = schemaData.schema_id;
+                }
+                await saveGeoreferenceForDossier({
+                  dossier_id: String(derivedDossierId),
+                  georef_result: georefResultToSave,
+                  metadata: meta
+                });
+                lastSavedSignatureRef.current = sig;
+                console.log('💾 Georeference persisted for dossier', derivedDossierId);
+              }
+            } else {
+              console.warn('⚠️ Skipping georef save: no dossierId available (pass prop or include schemaData.metadata.dossierId)');
+            }
+          } catch (saveErr) {
+            console.warn('⚠️ Georeference save failed (non-blocking):', saveErr);
+          }
         } else {
           console.error('❌ GeoreferenceController: Georeference failed:', result.error);
           setError(result.error || 'Projection failed');

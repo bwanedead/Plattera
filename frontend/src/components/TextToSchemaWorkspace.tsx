@@ -3,7 +3,7 @@ import { Allotment } from "allotment";
 import "allotment/dist/style.css";
 import { AnimatedBorder } from './AnimatedBorder';
 import { useTextToSchemaState, useWorkspaceNavigation } from '../hooks/useWorkspaceState';
-import { convertTextToSchema, getTextToSchemaModels } from '../services/textToSchemaApi';
+import { convertTextToSchema, getTextToSchemaModels, getSchema } from '../services/textToSchemaApi';
 import { finalizedApi } from '../services/dossier/finalizedApi';
 import { saveSchemaForDossier } from '../services/textToSchemaApi';
 import { TextToSchemaControlPanel } from './text-to-schema/TextToSchemaControlPanel';
@@ -200,7 +200,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       // Persist schema to dossier if a finalized dossier is selected
       if (selectedFinalizedId && result.success && result.structured_data) {
         try {
-          await saveSchemaForDossier({
+          const saveRes = await saveSchemaForDossier({
             dossier_id: selectedFinalizedId,
             model_used: result.model_used,
             structured_data: result.structured_data,
@@ -210,7 +210,38 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
               selection_source: 'finalized_dossier'
             }
           });
-          console.log('💾 Schema saved for dossier', selectedFinalizedId);
+          console.log('💾 Schema saved for dossier', selectedFinalizedId, saveRes);
+
+          // Enrich schemaData with persisted artifact (schema_id + metadata.dossierId) for mapping flow
+          if (saveRes?.schema_id) {
+            try {
+              const artRes = await getSchema(selectedFinalizedId, saveRes.schema_id);
+              const artifact = artRes?.artifact || artRes;
+              const enriched = {
+                ...(artifact?.structured_data || result.structured_data),
+                schema_id: artifact?.schema_id || saveRes.schema_id,
+                metadata: {
+                  ...((artifact && artifact.metadata) || (result.structured_data?.metadata) || {}),
+                  dossierId: String(selectedFinalizedId)
+                }
+              };
+              updateState({ schemaResults: { ...result, structured_data: enriched } });
+            } catch (fetchErr) {
+              // Fallback: minimally inject dossierId into current structured_data
+              updateState({
+                schemaResults: {
+                  ...result,
+                  structured_data: {
+                    ...result.structured_data,
+                    metadata: {
+                      ...(result.structured_data?.metadata || {}),
+                      dossierId: String(selectedFinalizedId)
+                    }
+                  }
+                }
+              });
+            }
+          }
         } catch (e) {
           console.warn('Failed to save schema for dossier', e);
         }

@@ -154,3 +154,15 @@ export const saveSchemaForDossier = async (payload: {
   }
   return response.json();
 };
+
+export const listSchemas = async (dossierId: string) => {
+  const res = await fetch(`${API_BASE_URL}/list?dossier_id=${encodeURIComponent(dossierId)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
+
+export const getSchema = async (dossierId: string, schemaId: string) => {
+  const res = await fetch(`${API_BASE_URL}/get?dossier_id=${encodeURIComponent(dossierId)}&schema_id=${encodeURIComponent(schemaId)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};

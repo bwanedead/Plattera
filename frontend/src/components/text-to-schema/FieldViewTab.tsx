@@ -5,6 +5,7 @@ interface FieldViewTabProps {
   schemaData: any;
   isSuccess: boolean;
   error?: string;
+  dossierId?: string; // Optional dossier context for persistence
 }
 
 // Utility function to convert field names to human-readable labels
@@ -227,7 +228,8 @@ const ObjectField: React.FC<{ data: any; title: string; level?: number }> = ({
 export const FieldViewTab: React.FC<FieldViewTabProps> = ({ 
   schemaData, 
   isSuccess, 
-  error 
+  error,
+  dossierId
 }) => {
   const [dismissedAdvisories, setDismissedAdvisories] = useState<Set<string>>(new Set());
 
@@ -313,6 +315,7 @@ export const FieldViewTab: React.FC<FieldViewTabProps> = ({
       <PolygonDrawingControls 
         schemaData={schemaData}
         isVisible={isSuccess && !!schemaData}
+        dossierId={dossierId || schemaData?.metadata?.dossierId || schemaData?.metadata?.dossier_id}
       />
       
       <div className="field-view">
