@@ -99,6 +99,15 @@ const App: React.FC = () => {
                 <p>Convert blocks of legal text into structured JSON for analysis.</p>
                 <button>Launch Workspace</button>
               </div>
+
+              {/* Mapping Card (New) */}
+              <Link href="/mapping" passHref legacyBehavior>
+                <a className="pipeline-card" style={{ textDecoration: 'none' }}>
+                  <h3>Mapping</h3>
+                  <p>View saved plots, load schemas, and georeference parcels.</p>
+                  <button>Open Mapping</button>
+                </a>
+              </Link>
             </div>
             <div style={{ marginTop: '4rem', textAlign: 'center' }}>
               <Link href="/animation-tester" passHref legacyBehavior>

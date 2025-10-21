@@ -8,6 +8,7 @@ interface GeoreferenceControllerProps {
   className?: string;
   onPolygonUpdate?: (data: GeoreferenceProjectResponse) => void;
   dossierId?: string; // optional; if omitted, will attempt to derive from schemaData.metadata
+  extraParcels?: any[]; // optional extra saved plots to display concurrently
 }
 
 /**
@@ -22,7 +23,8 @@ export const GeoreferenceController: React.FC<GeoreferenceControllerProps> = ({
   polygonData, 
   className = '',
   onPolygonUpdate,
-  dossierId
+  dossierId,
+  extraParcels
 }) => {
   const [georeferencedPolygonData, setGeoreferencedPolygonData] = useState<GeoreferenceProjectResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -212,7 +214,7 @@ export const GeoreferenceController: React.FC<GeoreferenceControllerProps> = ({
       {/* MapWorkspace handles the actual map display with georeferenced polygon */}
       <MapWorkspace 
         initialView={{ center: mapCenter, zoom: mapZoom }}
-        initialParcels={georeferencedPolygonData ? [georeferencedPolygonData] : []}
+        initialParcels={(georeferencedPolygonData ? [georeferencedPolygonData] : []).concat(extraParcels || [])}
         schemaData={schemaData}
       />
     </div>
