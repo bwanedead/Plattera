@@ -10,79 +10,9 @@ type DossierSummary = { id: string; title?: string; name?: string };
 type SchemaSummary = { dossier_id: string; schema_id: string; saved_at?: string };
 type GeorefSummary = { dossier_id: string; georef_id: string; saved_at?: string; bounds?: any };
 
-const ControlBar: React.FC<{
-  dossiers: DossierSummary[];
-  selectedDossierId: string | null;
-  onSelectDossier: (id: string | null) => void;
-  schemaSummaries: SchemaSummary[];
-  selectedSchemaId: string | null;
-  onSelectSchema: (schemaId: string | null) => void;
-  georefSummaries: GeorefSummary[];
-  selectedGeorefId: string | null;
-  onSelectGeoref: (georefId: string | null) => void;
-}> = ({
-  dossiers,
-  selectedDossierId,
-  onSelectDossier,
-  schemaSummaries,
-  selectedSchemaId,
-  onSelectSchema,
-  georefSummaries,
-  selectedGeorefId,
-  onSelectGeoref,
-}) => {
+const ControlBar: React.FC = () => {
   return (
-    <div className="mapping-controls" style={{ display: 'flex', gap: 12, padding: 12, alignItems: 'center' }}>
-      <div>
-        <label style={{ display: 'block', fontSize: 12, color: '#666', marginBottom: 4 }}>Dossier</label>
-        <select
-          value={selectedDossierId || ''}
-          onChange={(e) => onSelectDossier(e.target.value || null)}
-          style={{ padding: '6px 8px', minWidth: 260 }}
-        >
-          <option value="">Select dossier…</option>
-          {dossiers.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.title || d.name || d.id}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label style={{ display: 'block', fontSize: 12, color: '#666', marginBottom: 4 }}>Schema</label>
-        <select
-          value={selectedSchemaId || ''}
-          onChange={(e) => onSelectSchema(e.target.value || null)}
-          disabled={!selectedDossierId}
-          style={{ padding: '6px 8px', minWidth: 280 }}
-        >
-          <option value="">Select saved schema…</option>
-          {schemaSummaries.map((s) => (
-            <option key={s.schema_id} value={s.schema_id}>
-              {s.schema_id.slice(0, 8)}… {s.saved_at ? `(${new Date(s.saved_at).toLocaleString()})` : ''}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label style={{ display: 'block', fontSize: 12, color: '#666', marginBottom: 4 }}>Saved Plot</label>
-        <select
-          value={selectedGeorefId || ''}
-          onChange={(e) => onSelectGeoref(e.target.value || null)}
-          disabled={!selectedDossierId}
-          style={{ padding: '6px 8px', minWidth: 280 }}
-        >
-          <option value="">Select saved plot…</option>
-          {georefSummaries.map((g) => (
-            <option key={g.georef_id} value={g.georef_id}>
-              {g.georef_id.slice(0, 8)}… {g.saved_at ? `(${new Date(g.saved_at).toLocaleString()})` : ''}
-            </option>
-          ))}
-        </select>
-      </div>
-    </div>
+    <div className="mapping-controls" style={{ height: 48, display: 'flex', alignItems: 'center' }} />
   );
 };
 
@@ -100,6 +30,8 @@ export default function MappingPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [multiPlots, setMultiPlots] = useState<Record<string, any>>({}); // georef_id -> artifact
+  const dossierIdToTitle = useMemo(() => Object.fromEntries(dossiers.map(d => [d.id, d.title || d.name || d.id])), [dossiers]);
+  const [showSavedPlots, setShowSavedPlots] = useState<boolean>(false);
 
   useEffect(() => {
     const q = router.query;
@@ -140,31 +72,23 @@ export default function MappingPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!selectedDossierId) {
-        setSchemaSummaries([]);
-        setGeorefSummaries([]);
-        setSelectedSchemaId(null);
-        setSelectedGeorefId(null);
-        setSchemaData(null);
-        setGeorefArtifact(null);
-        return;
-      }
+      // Aggregate all dossiers' georefs into a single list
       try {
-        const [schemasRes, georefsRes] = await Promise.all([
-          listSchemas(selectedDossierId),
-          listGeoreferences(selectedDossierId)
-        ]);
-        if (cancelled) return;
-        const schemas = (schemasRes?.schemas || []) as SchemaSummary[];
-        const georefs = (georefsRes?.georefs || []) as GeorefSummary[];
-        setSchemaSummaries(schemas);
-        setGeorefSummaries(georefs);
+        const all: GeorefSummary[] = [];
+        for (const d of dossiers) {
+          try {
+            const res = await listGeoreferences(d.id);
+            const items = (res?.georefs || []) as GeorefSummary[];
+            all.push(...items);
+          } catch {}
+        }
+        if (!cancelled) setGeorefSummaries(all);
       } catch (e) {
-        if (!cancelled) setError('Failed to load schema/georef lists');
+        if (!cancelled) setError('Failed to load saved plots');
       }
     })();
     return () => { cancelled = true; };
-  }, [selectedDossierId]);
+  }, [dossiers]);
 
   useEffect(() => {
     let cancelled = false;
@@ -226,30 +150,38 @@ export default function MappingPage() {
     return null;
   }, [georefArtifact]);
 
+  const extraParcels = useMemo(() => Object.values(multiPlots), [multiPlots]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100vh' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #eee' }}>
-        <div style={{ paddingLeft: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #222', background: '#0f172a', color: '#e5e7eb' }}>
+        <div style={{ paddingLeft: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
           <Link href="/" legacyBehavior>
-            <a style={{ textDecoration: 'none', color: '#2563eb', fontWeight: 600 }}>← Home</a>
+            <a style={{ textDecoration: 'none', color: '#93c5fd', fontWeight: 600 }}>← Home</a>
           </Link>
+          <span style={{ fontWeight: 600 }}>
+            {(() => {
+              const keys = Object.keys(multiPlots);
+              if (keys.length === 1) {
+                const g = georefSummaries.find(s => s.georef_id === keys[0]);
+                if (g) return dossierIdToTitle[g.dossier_id] || g.dossier_id;
+              }
+              return 'Mapping';
+            })()}
+          </span>
         </div>
-        <ControlBar
-          dossiers={dossiers}
-          selectedDossierId={selectedDossierId}
-          onSelectDossier={(id) => setSelectedDossierId(id)}
-          schemaSummaries={schemaSummaries}
-          selectedSchemaId={selectedSchemaId}
-          onSelectSchema={(id) => setSelectedSchemaId(id)}
-          georefSummaries={georefSummaries}
-          selectedGeorefId={selectedGeorefId}
-          onSelectGeoref={(id) => setSelectedGeorefId(id)}
-        />
-        <div style={{ paddingRight: 12 }} />
+        <div style={{ paddingRight: 12 }}>
+          <button
+            onClick={() => setShowSavedPlots(prev => !prev)}
+            style={{ background: '#111827', color: '#e5e7eb', border: '1px solid #374151', padding: '6px 10px', borderRadius: 6 }}
+          >
+            Saved Plots ▾
+          </button>
+        </div>
       </div>
 
       {error && (
-        <div style={{ padding: 12, color: '#b91c1c', background: '#fee2e2' }}>{error}</div>
+        <div style={{ padding: 12, color: '#fca5a5', background: '#7f1d1d' }}>{error}</div>
       )}
 
       <div style={{ flex: 1, minHeight: 0 }}>
@@ -257,13 +189,14 @@ export default function MappingPage() {
           schemaData={schemaData || undefined}
           polygonData={polygonData || undefined}
           dossierId={selectedDossierId || undefined}
+          extraParcels={extraParcels as any[]}
         />
       </div>
 
       {/* Multi-plot toggles (checkbox list) */}
-      {selectedDossierId && georefSummaries.length > 0 && (
-        <div style={{ position: 'absolute', right: 16, top: 64, background: 'white', border: '1px solid #eee', borderRadius: 8, padding: 8, maxHeight: '60vh', overflow: 'auto' }}>
-          <div style={{ fontSize: 12, color: '#555', marginBottom: 6 }}>Saved Plots</div>
+      {showSavedPlots && georefSummaries.length > 0 && (
+        <div style={{ position: 'absolute', right: 16, top: 56, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8, padding: 8, maxHeight: '60vh', overflow: 'auto', minWidth: 360, color: '#e5e7eb' }}>
+          <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 6 }}>Saved Plots</div>
           {georefSummaries.map((g) => {
             const checked = !!multiPlots[g.georef_id];
             return (
@@ -272,12 +205,25 @@ export default function MappingPage() {
                   type="checkbox"
                   checked={checked}
                   onChange={async (e) => {
-                    if (!selectedDossierId) return;
                     if (e.target.checked) {
                       try {
-                        const res = await getGeoreference(selectedDossierId, g.georef_id);
+                        const res = await getGeoreference(g.dossier_id, g.georef_id);
                         const artifact = res?.artifact || res;
                         setMultiPlots(prev => ({ ...prev, [g.georef_id]: artifact }));
+                        // Load corresponding schema for PLSS overlays
+                        const lineageSchemaId = artifact?.lineage?.schema_id || artifact?.schema_id;
+                        if (lineageSchemaId) {
+                          try {
+                            const sres = await getSchema(g.dossier_id, lineageSchemaId);
+                            const sart = sres?.artifact || sres;
+                            const enriched = {
+                              ...(sart?.structured_data || {}),
+                              schema_id: sart?.schema_id || lineageSchemaId,
+                              metadata: { ...((sart && sart.metadata) || {}), dossierId: String(g.dossier_id) }
+                            };
+                            setSchemaData(enriched);
+                          } catch {}
+                        }
                       } catch {}
                     } else {
                       setMultiPlots(prev => {
@@ -288,7 +234,9 @@ export default function MappingPage() {
                     }
                   }}
                 />
-                <span style={{ fontSize: 12 }}>{(g.georef_id || '').slice(0, 8)}… {g.saved_at ? new Date(g.saved_at).toLocaleString() : ''}</span>
+                <span style={{ fontSize: 12 }}>
+                  {(dossierIdToTitle[g.dossier_id] || g.dossier_id)} — {(g.georef_id || '').slice(0, 8)}… {g.saved_at ? new Date(g.saved_at).toLocaleString() : ''}
+                </span>
               </label>
             );
           })}
