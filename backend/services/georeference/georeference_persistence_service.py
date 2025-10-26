@@ -5,7 +5,7 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from utils.id_hash import content_hash
 
@@ -26,6 +26,7 @@ class GeoreferencePersistenceService:
         self._state_dir = backend_dir / "dossiers_data" / "state"
         self._index_path = self._state_dir / "georefs_index.json"
         self._state_dir.mkdir(parents=True, exist_ok=True)
+        self._management_dir = backend_dir / "dossiers_data" / "management"
 
     def _atomic_write(self, path: Path, data: Dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,7 +70,8 @@ class GeoreferencePersistenceService:
             "georef_id": georef_id,
             "latest_path": str(latest_pointer),
             "bounds": bounds or {},
-            "saved_at": saved_at
+            "saved_at": saved_at,
+            "dossier_title_snapshot": self._read_dossier_title(dossier_id)
         })
         idx["georefs"] = sorted(filtered, key=lambda e: e.get("saved_at", ""), reverse=True)
         self._atomic_write(self._index_path, idx)
@@ -86,13 +88,18 @@ class GeoreferencePersistenceService:
         georef_id = content_hash(core)
         now_iso = datetime.utcnow().isoformat()
 
+        # merge metadata and add snapshots
+        meta = dict(metadata or {})
+        meta.setdefault("dossier_id", str(dossier_id))
+        meta.setdefault("dossier_title_snapshot", self._read_dossier_title(dossier_id))
+
         payload = {
             "artifact_type": "georef",
             "georef_id": georef_id,
             "dossier_id": dossier_id,
             "saved_at": now_iso,
             **georef_result,
-            "metadata": metadata or {},
+            "metadata": meta,
             "lineage": {
                 "primary_dossier_id": dossier_id,
                 "schema_id": georef_result.get("schema_id")
@@ -111,5 +118,60 @@ class GeoreferencePersistenceService:
         self._write_index(dossier_id=dossier_id, georef_id=georef_id, latest_pointer=latest_pointer, saved_at=now_iso, bounds=bounds)
 
         return {"success": True, "georef_id": georef_id, "path": str(artifact_path), "latest": str(latest_pointer)}
+
+    # --------------
+    # Title utilities
+    # --------------
+    def _read_dossier_title(self, dossier_id: str) -> str:
+        try:
+            mgmt_file = self._management_dir / f"dossier_{dossier_id}.json"
+            if mgmt_file.exists():
+                with open(mgmt_file, "r", encoding="utf-8") as f:
+                    data = json.load(f) or {}
+                return str(data.get("title") or data.get("name") or dossier_id)
+        except Exception:
+            pass
+        return str(dossier_id)
+
+    # --------------
+    # Delete helpers
+    # --------------
+    def delete_georef(self, dossier_id: str, georef_id: str) -> Dict[str, Any]:
+        """
+        Delete a georeference artifact and remove its index entry. Clears latest.json if it pointed
+        to the deleted artifact. Best-effort, returns success flag.
+        """
+        artifact_path = self._artifacts_root / str(dossier_id) / f"{georef_id}.json"
+        latest_pointer = self._artifacts_root / str(dossier_id) / "latest.json"
+        removed = False
+        try:
+            if artifact_path.exists():
+                os.remove(artifact_path)
+                removed = True
+        except Exception:
+            removed = False
+
+        # Update index to drop entry
+        try:
+            idx = self._read_json_file(self._index_path) or {"georefs": []}
+            idx["georefs"] = [
+                e for e in idx.get("georefs", [])
+                if not ((e or {}).get("dossier_id") == str(dossier_id) and (e or {}).get("georef_id") == georef_id)
+            ]
+            self._atomic_write(self._index_path, idx)
+        except Exception:
+            pass
+
+        # Clear latest.json if pointing at deleted artifact
+        try:
+            if latest_pointer.exists():
+                with open(latest_pointer, "r", encoding="utf-8") as lf:
+                    latest_obj = json.load(lf) or {}
+                if latest_obj.get("georef_id") == georef_id:
+                    os.remove(latest_pointer)
+        except Exception:
+            pass
+
+        return {"success": bool(removed)}
 
 

@@ -7,7 +7,7 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from utils.id_hash import content_hash
 
@@ -27,6 +27,8 @@ class SchemaPersistenceService:
         self._schemas_index_path = self._state_dir / "schemas_index.json"
         self._legacy_index_path = self._state_dir / "text_to_schema_index.json"
         self._state_dir.mkdir(parents=True, exist_ok=True)
+        # Management dir (for dossier title lookups)
+        self._management_dir = backend_dir / "dossiers_data" / "management"
 
     def _atomic_write(self, path: Path, data: Dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,12 +63,17 @@ class SchemaPersistenceService:
         if isinstance(existing, dict):
             index = existing
 
-        entries = [e for e in index.get("schemas", []) if (e or {}).get("dossier_id") != str(dossier_id)]
+        # preserve other entries; dedupe only same (dossier_id, schema_id)
+        entries = [
+            e for e in index.get("schemas", [])
+            if not ((e or {}).get("dossier_id") == str(dossier_id) and (e or {}).get("schema_id") == schema_id)
+        ]
         entries.append({
             "dossier_id": dossier_id,
             "schema_id": schema_id,
             "latest_path": str(latest_pointer),
-            "saved_at": saved_at
+            "saved_at": saved_at,
+            "dossier_title_snapshot": self._read_dossier_title(dossier_id)
         })
         index["schemas"] = sorted(entries, key=lambda e: e.get("saved_at", ""), reverse=True)
         self._atomic_write(self._schemas_index_path, index)
@@ -106,6 +113,11 @@ class SchemaPersistenceService:
         schema_id = content_hash(structured_data)
 
         # Build payload (include reserved lineage placeholders)
+        meta = dict(metadata or {})
+        # Always thread dossier id + title snapshot through metadata for durable labeling
+        meta.setdefault("dossier_id", str(dossier_id))
+        meta.setdefault("dossier_title_snapshot", self._read_dossier_title(dossier_id))
+
         payload = {
             "artifact_type": "schema",
             "schema_id": schema_id,
@@ -116,7 +128,7 @@ class SchemaPersistenceService:
             "original_text_sha256": text_sha,
             "original_text": original_text or "",
             "structured_data": structured_data,
-            "metadata": metadata or {},
+            "metadata": meta,
             "lineage": {
                 "primary_dossier_id": dossier_id
             },
@@ -150,5 +162,91 @@ class SchemaPersistenceService:
             "path": str(artifact_path),
             "latest": str(latest_pointer_artifacts),
         }
+
+    # --------------
+    # Title utilities
+    # --------------
+    def _read_dossier_title(self, dossier_id: str) -> str:
+        try:
+            mgmt_file = self._management_dir / f"dossier_{dossier_id}.json"
+            if mgmt_file.exists():
+                with open(mgmt_file, "r", encoding="utf-8") as f:
+                    data = json.load(f) or {}
+                return str(data.get("title") or data.get("name") or dossier_id)
+        except Exception:
+            pass
+        return str(dossier_id)
+
+    # --------------
+    # Delete helpers
+    # --------------
+    def delete_schema(self, dossier_id: str, schema_id: str, force: bool = False) -> Dict[str, Any]:
+        """
+        Delete a schema artifact. If force is False, refuse deletion when any georeference
+        still references this schema (via lineage.schema_id) in the same dossier.
+        """
+        backend_dir = Path(__file__).resolve().parents[2]
+        artifact_path = self._artifacts_root / str(dossier_id) / f"{schema_id}.json"
+        latest_pointer = self._artifacts_root / str(dossier_id) / "latest.json"
+        georef_index = backend_dir / "dossiers_data" / "state" / "georefs_index.json"
+
+        # Check references unless forcing
+        dependents: List[str] = []
+        if not force and georef_index.exists():
+            try:
+                with open(georef_index, "r", encoding="utf-8") as f:
+                    idx = json.load(f) or {}
+                for entry in idx.get("georefs", []) or []:
+                    if (entry or {}).get("dossier_id") == str(dossier_id):
+                        georef_id = (entry or {}).get("georef_id")
+                        if georef_id:
+                            georef_art = backend_dir / "dossiers_data" / "artifacts" / "georefs" / str(dossier_id) / f"{georef_id}.json"
+                            if georef_art.exists():
+                                try:
+                                    with open(georef_art, "r", encoding="utf-8") as gf:
+                                        g = json.load(gf) or {}
+                                    sid = g.get("schema_id") or ((g.get("lineage") or {}).get("schema_id"))
+                                    if sid == schema_id:
+                                        dependents.append(georef_id)
+                                except Exception:
+                                    pass
+                if dependents:
+                    return {"success": False, "blocked_by": dependents}
+            except Exception:
+                # If we cannot read index, be conservative and refuse unless force
+                return {"success": False, "blocked_by": ["index_read_error"]}
+
+        # Proceed with deletion
+        removed = False
+        try:
+            if artifact_path.exists():
+                os.remove(artifact_path)
+                removed = True
+        except Exception:
+            removed = False
+
+        # Update index to drop the (dossier_id, schema_id) entry
+        try:
+            idx = self._read_json_file(self._schemas_index_path) or {"schemas": []}
+            idx["schemas"] = [
+                e for e in idx.get("schemas", [])
+                if not ((e or {}).get("dossier_id") == str(dossier_id) and (e or {}).get("schema_id") == schema_id)
+            ]
+            self._atomic_write(self._schemas_index_path, idx)
+        except Exception:
+            pass
+
+        # If latest.json points to this schema, clear it (best-effort)
+        try:
+            if latest_pointer.exists():
+                with open(latest_pointer, "r", encoding="utf-8") as lf:
+                    latest_obj = json.load(lf) or {}
+                if latest_obj.get("schema_id") == schema_id:
+                    # remove latest.json to avoid stale pointer
+                    os.remove(latest_pointer)
+        except Exception:
+            pass
+
+        return {"success": bool(removed)}
 
 

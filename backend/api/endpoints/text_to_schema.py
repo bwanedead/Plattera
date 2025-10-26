@@ -4,7 +4,7 @@ Dedicated endpoints for converting text to structured parcel data
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import logging
 from pathlib import Path
 import json
@@ -205,3 +205,67 @@ async def get_schema(dossier_id: str, schema_id: str):
     except Exception as e:
         logger.error(f"💥 Error fetching schema: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch schema: {str(e)}")
+
+
+@router.delete("/delete")
+async def delete_schema(dossier_id: str, schema_id: str, force: bool = False):
+    try:
+        from services.text_to_schema.schema_persistence_service import SchemaPersistenceService
+        svc = SchemaPersistenceService()
+        result = svc.delete_schema(dossier_id=str(dossier_id), schema_id=str(schema_id), force=force)
+        # If blocked by dependents, surface conflict
+        if not result.get("success") and result.get("blocked_by"):
+            raise HTTPException(status_code=409, detail={"blocked_by": result.get("blocked_by")})
+        return {"status": "success", **result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"💥 Failed to delete schema: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BulkSchemaDeleteRequest(BaseModel):
+    items: List[Dict[str, str]]
+    force: bool = False
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_schemas(body: BulkSchemaDeleteRequest):
+    try:
+        from services.text_to_schema.schema_persistence_service import SchemaPersistenceService
+        svc = SchemaPersistenceService()
+        deleted: List[Dict[str, str]] = []
+        blocked: List[Dict[str, Any]] = []
+        failed: List[Dict[str, str]] = []
+        for it in body.items or []:
+            dossier_id = str(it.get("dossier_id"))
+            schema_id = str(it.get("schema_id"))
+            try:
+                res = svc.delete_schema(dossier_id=dossier_id, schema_id=schema_id, force=body.force)
+                if res.get("success"):
+                    deleted.append(it)
+                elif res.get("blocked_by"):
+                    blocked.append({**it, "blocked_by": res.get("blocked_by")})
+                else:
+                    failed.append(it)
+            except Exception:
+                failed.append(it)
+        return {"status": "success", "deleted": deleted, "blocked": blocked, "failed": failed}
+    except Exception as e:
+        logger.error(f"💥 Failed bulk delete schemas: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/list-all")
+async def list_all_schemas():
+    try:
+        backend_dir = Path(__file__).resolve().parents[2]
+        index_path = backend_dir / "dossiers_data" / "state" / "schemas_index.json"
+        if not index_path.exists():
+            return {"status": "success", "schemas": []}
+        with open(index_path, "r", encoding="utf-8") as f:
+            data = json.load(f) or {}
+        return {"status": "success", "schemas": data.get("schemas", [])}
+    except Exception as e:
+        logger.error(f"💥 Error list-all schemas: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list schemas: {str(e)}")

@@ -3,12 +3,14 @@ import { useRouter } from 'next/router';
 import { CleanMapBackground } from '../../src/components/visualization/backgrounds/CleanMapBackground';
 import Link from 'next/link';
 import { dossierApi } from '../../src/services/dossier/dossierApi';
-import { listSchemas, getSchema } from '../../src/services/textToSchemaApi';
-import { listGeoreferences, getGeoreference } from '../../src/services/georeferenceApi';
+import { listSchemas, getSchema, deleteSchema } from '../../src/services/textToSchemaApi';
+import { listGeoreferences, getGeoreference, listAllGeoreferences, deleteGeoreference, bulkDeleteGeoreferences } from '../../src/services/georeferenceApi';
+import { ConfirmDialog } from '../../src/components/ui/ConfirmDialog';
+import { useToast } from '../../src/components/ui/ToastProvider';
 
 type DossierSummary = { id: string; title?: string; name?: string };
 type SchemaSummary = { dossier_id: string; schema_id: string; saved_at?: string };
-type GeorefSummary = { dossier_id: string; georef_id: string; saved_at?: string; bounds?: any };
+type GeorefSummary = { dossier_id: string; georef_id: string; saved_at?: string; bounds?: any; dossier_title_snapshot?: string };
 
 const ControlBar: React.FC = () => {
   return (
@@ -18,6 +20,7 @@ const ControlBar: React.FC = () => {
 
 export default function MappingPage() {
   const router = useRouter();
+  const toast = useToast();
 
   const [dossiers, setDossiers] = useState<DossierSummary[]>([]);
   const [selectedDossierId, setSelectedDossierId] = useState<string | null>(null);
@@ -32,6 +35,11 @@ export default function MappingPage() {
   const [multiPlots, setMultiPlots] = useState<Record<string, any>>({}); // georef_id -> artifact
   const dossierIdToTitle = useMemo(() => Object.fromEntries(dossiers.map(d => [d.id, d.title || d.name || d.id])), [dossiers]);
   const [showSavedPlots, setShowSavedPlots] = useState<boolean>(false);
+  const [selectMode, setSelectMode] = useState<boolean>(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<Record<string, boolean>>({});
+  // Schema deletion is implicit with plot deletion; only warn on dependency conflicts
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState<{ message: string; onConfirm: () => void; onCancel?: () => void } | null>(null);
 
   useEffect(() => {
     const q = router.query;
@@ -72,23 +80,17 @@ export default function MappingPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Aggregate all dossiers' georefs into a single list
       try {
-        const all: GeorefSummary[] = [];
-        for (const d of dossiers) {
-          try {
-            const res = await listGeoreferences(d.id);
-            const items = (res?.georefs || []) as GeorefSummary[];
-            all.push(...items);
-          } catch {}
-        }
-        if (!cancelled) setGeorefSummaries(all);
+        const res = await listAllGeoreferences();
+        if (cancelled) return;
+        const items = (res?.georefs || []) as GeorefSummary[];
+        setGeorefSummaries(items);
       } catch (e) {
         if (!cancelled) setError('Failed to load saved plots');
       }
     })();
     return () => { cancelled = true; };
-  }, [dossiers]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,7 +166,7 @@ export default function MappingPage() {
               const keys = Object.keys(multiPlots);
               if (keys.length === 1) {
                 const g = georefSummaries.find(s => s.georef_id === keys[0]);
-                if (g) return dossierIdToTitle[g.dossier_id] || g.dossier_id;
+                if (g) return g.dossier_title_snapshot || dossierIdToTitle[g.dossier_id] || g.dossier_id;
               }
               return 'Mapping';
             })()}
@@ -195,12 +197,98 @@ export default function MappingPage() {
 
       {/* Multi-plot toggles (checkbox list) */}
       {showSavedPlots && georefSummaries.length > 0 && (
-        <div style={{ position: 'absolute', right: 16, top: 56, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8, padding: 8, maxHeight: '60vh', overflow: 'auto', minWidth: 360, color: '#e5e7eb' }}>
-          <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 6 }}>Saved Plots</div>
+        <div style={{ position: 'absolute', right: 16, top: 56, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8, padding: 8, maxHeight: '60vh', overflow: 'auto', minWidth: 400, color: '#e5e7eb' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+            <div style={{ fontSize: 12, color: '#9ca3af' }}>Saved Plots</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#cbd5e1' }}>
+                <input type="checkbox" checked={selectMode} onChange={() => setSelectMode(v => !v)} />
+                Select
+              </label>
+              {/* spacer for future controls */}
+              {selectMode && Object.values(selectedForDelete).some(Boolean) && (
+                <button
+                  onClick={() => {
+                    const ids = Object.entries(selectedForDelete).filter(([, v]) => !!v).map(([k]) => k);
+                    if (ids.length === 0) return;
+                    setConfirmConfig({
+                      message: `Delete ${ids.length} plot(s) and their associated schema data?`,
+                      onConfirm: async () => {
+                        try {
+                          // Delete georefs grouped by dossier
+                          const byDossier: Record<string, string[]> = {};
+                          ids.forEach(id => {
+                            const g = georefSummaries.find(x => x.georef_id === id);
+                            if (!g) return;
+                            byDossier[g.dossier_id] = byDossier[g.dossier_id] || [];
+                            byDossier[g.dossier_id].push(id);
+                          });
+                          for (const [dossierId, georefIds] of Object.entries(byDossier)) {
+                            try { await bulkDeleteGeoreferences(dossierId, georefIds); } catch {}
+                          }
+
+                          // Remove from UI
+                          setMultiPlots(prev => { const n = { ...prev }; ids.forEach(id => delete n[id]); return n; });
+                          setGeorefSummaries(prev => prev.filter(x => !ids.includes(x.georef_id)));
+                          setSelectedForDelete({});
+
+                          // Delete associated schemas (implicit), with conflict prompts
+                          const schemaTargets: Array<{ dossier_id: string; schema_id: string }> = [];
+                          for (const id of ids) {
+                            const g = georefSummaries.find(x => x.georef_id === id);
+                            if (!g) continue;
+                            try {
+                              const res = await getGeoreference(g.dossier_id, g.georef_id);
+                              const art = res?.artifact || res;
+                              const sid = art?.schema_id || art?.lineage?.schema_id;
+                              if (sid && !schemaTargets.some(t => t.dossier_id === g.dossier_id && t.schema_id === sid)) {
+                                schemaTargets.push({ dossier_id: g.dossier_id, schema_id: sid });
+                              }
+                            } catch {}
+                          }
+                          for (const t of schemaTargets) {
+                            try {
+                              await deleteSchema(t.dossier_id, t.schema_id, false);
+                            } catch (err: any) {
+                              try {
+                                const parsed = JSON.parse(err?.message || '{}');
+                                if (parsed?.type === 'conflict') {
+                                  // conflict confirm dialog
+                                  await new Promise<void>((resolve) => {
+                                    setConfirmConfig({
+                                      message: `Schema ${t.schema_id.slice(0,8)}… is still referenced by other plots. Delete anyway?`,
+                                      onConfirm: async () => { try { await deleteSchema(t.dossier_id, t.schema_id, true); toast.success('Schema deleted'); } catch {} finally { resolve(); } },
+                                      onCancel: () => { resolve(); }
+                                    });
+                                    setConfirmOpen(true);
+                                  });
+                                }
+                              } catch {}
+                            }
+                          }
+                          toast.success(`Deleted ${ids.length} plot(s)`);
+                        } catch (e) {
+                          toast.error('Bulk delete failed');
+                        }
+                      }
+                    });
+                    setConfirmOpen(true);
+                  }}
+                  style={{ background: '#7f1d1d', color: '#fde68a', border: '1px solid #991b1b', padding: '4px 8px', borderRadius: 6, fontSize: 12 }}
+                >
+                  Delete selected
+                </button>
+              )}
+            </div>
+          </div>
+
           {georefSummaries.map((g) => {
             const checked = !!multiPlots[g.georef_id];
+            const labelTitle = g.dossier_title_snapshot || dossierIdToTitle[g.dossier_id] || g.dossier_id;
+            const isMarked = !!selectedForDelete[g.georef_id];
             return (
-              <label key={g.georef_id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0' }}>
+              <div key={g.georef_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0' }}>
+                {/* visibility toggle */}
                 <input
                   type="checkbox"
                   checked={checked}
@@ -210,7 +298,6 @@ export default function MappingPage() {
                         const res = await getGeoreference(g.dossier_id, g.georef_id);
                         const artifact = res?.artifact || res;
                         setMultiPlots(prev => ({ ...prev, [g.georef_id]: artifact }));
-                        // Load corresponding schema for PLSS overlays
                         const lineageSchemaId = artifact?.lineage?.schema_id || artifact?.schema_id;
                         if (lineageSchemaId) {
                           try {
@@ -234,14 +321,83 @@ export default function MappingPage() {
                     }
                   }}
                 />
-                <span style={{ fontSize: 12 }}>
-                  {(dossierIdToTitle[g.dossier_id] || g.dossier_id)} — {(g.georef_id || '').slice(0, 8)}… {g.saved_at ? new Date(g.saved_at).toLocaleString() : ''}
+
+                {/* selection for delete */}
+                {selectMode && (
+                  <input
+                    type="checkbox"
+                    checked={isMarked}
+                    onChange={(e) => setSelectedForDelete(prev => ({ ...prev, [g.georef_id]: e.target.checked }))}
+                  />
+                )}
+
+                <span style={{ fontSize: 12, flex: 1 }}>
+                  {labelTitle} ({(g.georef_id || '').slice(0, 8)}…) {g.saved_at ? new Date(g.saved_at).toLocaleString() : ''}
                 </span>
-              </label>
+
+                {/* single delete */}
+                <button
+                  onClick={() => {
+                    setConfirmConfig({
+                      message: 'Delete this plot and its associated schema data?',
+                      onConfirm: async () => {
+                        try {
+                          await deleteGeoreference(g.dossier_id, g.georef_id);
+                          setMultiPlots(prev => { const n = { ...prev }; delete n[g.georef_id]; return n; });
+                          setGeorefSummaries(prev => prev.filter(x => x.georef_id !== g.georef_id));
+                          try {
+                            const res = await getGeoreference(g.dossier_id, g.georef_id).catch(() => null);
+                            const art = res?.artifact || res;
+                            const sid = art?.schema_id || art?.lineage?.schema_id;
+                            if (sid) {
+                              try {
+                                await deleteSchema(g.dossier_id, sid, false);
+                              } catch (err: any) {
+                                try {
+                                  const parsed = JSON.parse(err?.message || '{}');
+                                  if (parsed?.type === 'conflict') {
+                                    // secondary confirm for forced schema delete
+                                    await new Promise<void>((resolve) => {
+                                      setConfirmConfig({
+                                        message: `Schema ${sid.slice(0,8)}… is still referenced by other plots. Delete anyway?`,
+                                        onConfirm: async () => { try { await deleteSchema(g.dossier_id, sid, true); toast.success('Schema deleted'); } catch {} finally { resolve(); } },
+                                        onCancel: () => { resolve(); }
+                                      });
+                                      setConfirmOpen(true);
+                                    });
+                                  }
+                                } catch {}
+                              }
+                            }
+                          } catch {}
+                          toast.success('Plot deleted');
+                        } catch {
+                          toast.error('Delete failed');
+                        }
+                      }
+                    });
+                    setConfirmOpen(true);
+                  }}
+                  title="Delete plot"
+                  style={{ background: 'transparent', color: '#fca5a5', border: '1px solid #ef4444', padding: '2px 6px', borderRadius: 6, fontSize: 12 }}
+                >
+                  🗑️
+                </button>
+              </div>
             );
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Confirm Deletion"
+        message={confirmConfig?.message || ''}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={() => { try { confirmConfig?.onConfirm?.(); } finally { setConfirmOpen(false); setConfirmConfig(null); } }}
+        onCancel={() => { try { confirmConfig?.onCancel?.(); } finally { setConfirmOpen(false); setConfirmConfig(null); } }}
+      />
     </div>
   );
 }

@@ -610,6 +610,12 @@ class DossierManagementService:
         if 'title' in updates:
             dossier.title = updates['title']
             logger.info(f"🔄 Applied title update: '{dossier.title}'")
+            # Propagate to artifacts and indices (best-effort)
+            try:
+                from .title_propagation_service import TitlePropagationService
+                TitlePropagationService().propagate(str(dossier_id), str(dossier.title))
+            except Exception as _pe:
+                logger.warning(f"Title propagation failed for dossier {dossier_id}: {_pe}")
         if 'description' in updates:
             dossier.description = updates['description']
             logger.info(f"🔄 Applied description update: '{dossier.description}'")

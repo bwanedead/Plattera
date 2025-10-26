@@ -3,7 +3,7 @@ Georeference API Endpoints
 Dedicated endpoints for georeferencing polygons and resolving POB
 """
 from fastapi import APIRouter, HTTPException, status, Body
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import logging
 from pydantic import BaseModel
 from pathlib import Path
@@ -310,3 +310,59 @@ async def get_georeference(dossier_id: str, georef_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"💥 Error fetching georeference: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch georeference: {str(e)}")
+
+
+@router.delete("/delete")
+async def delete_georeference(dossier_id: str, georef_id: str) -> Dict[str, Any]:
+    try:
+        from services.georeference.georeference_persistence_service import GeoreferencePersistenceService
+        svc = GeoreferencePersistenceService()
+        result = svc.delete_georef(dossier_id=dossier_id, georef_id=georef_id)
+        if not result.get("success"):
+            return {"status": "failed", **result}
+        return {"status": "success", **result}
+    except Exception as e:
+        logger.error(f"💥 Failed to delete georeference: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BulkDeleteRequest(BaseModel):
+    dossier_id: str
+    georef_ids: List[str]
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_georeferences(body: BulkDeleteRequest) -> Dict[str, Any]:
+    try:
+        from services.georeference.georeference_persistence_service import GeoreferencePersistenceService
+        svc = GeoreferencePersistenceService()
+        deleted: List[str] = []
+        failed: List[str] = []
+        for gid in body.georef_ids or []:
+            try:
+                res = svc.delete_georef(dossier_id=body.dossier_id, georef_id=gid)
+                if res.get("success"):
+                    deleted.append(gid)
+                else:
+                    failed.append(gid)
+            except Exception:
+                failed.append(gid)
+        return {"status": "success", "deleted": deleted, "failed": failed}
+    except Exception as e:
+        logger.error(f"💥 Failed bulk delete georeferences: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/list-all")
+async def list_all_georeferences() -> Dict[str, Any]:
+    try:
+        backend_dir = Path(__file__).resolve().parents[2]
+        index_path = backend_dir / "dossiers_data" / "state" / "georefs_index.json"
+        if not index_path.exists():
+            return {"status": "success", "georefs": []}
+        with open(index_path, "r", encoding="utf-8") as f:
+            data = json.load(f) or {}
+        return {"status": "success", "georefs": data.get("georefs", [])}
+    except Exception as e:
+        logger.error(f"💥 Error list-all georeferences: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list georeferences: {str(e)}")

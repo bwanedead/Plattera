@@ -166,3 +166,30 @@ export const getSchema = async (dossierId: string, schemaId: string) => {
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   return res.json();
 };
+
+export const deleteSchema = async (dossierId: string, schemaId: string, force = false) => {
+  const res = await fetch(`${API_BASE_URL}/delete?dossier_id=${encodeURIComponent(dossierId)}&schema_id=${encodeURIComponent(schemaId)}&force=${force ? 'true' : 'false'}`, { method: 'DELETE' });
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}));
+    const detail = (body && body.detail) || body;
+    throw new Error(JSON.stringify({ type: 'conflict', detail }));
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
+
+export const bulkDeleteSchemas = async (items: Array<{ dossier_id: string; schema_id: string }>, force = false) => {
+  const res = await fetch(`${API_BASE_URL}/bulk-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, force })
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
+
+export const listAllSchemas = async () => {
+  const res = await fetch(`${API_BASE_URL}/list-all`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
