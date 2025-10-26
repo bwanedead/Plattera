@@ -102,7 +102,7 @@ const App: React.FC = () => {
 
               {/* Mapping Card (New) */}
               <Link href="/mapping" passHref legacyBehavior>
-                <a className="pipeline-card" style={{ textDecoration: 'none' }}>
+                <a className="pipeline-card" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <h3>Mapping</h3>
                   <p>View saved plots, load schemas, and georeference parcels.</p>
                   <button>Open Mapping</button>
