@@ -526,26 +526,34 @@ async def _handle_dossier_association(
             else:
                 logger.warning(f"⚠️ Failed to associate transcription {transcription_id} with dossier {dossier_id}")
 
-        # Update dossier title if consensus title available; else set fallback
+        # Update dossier title only once (first segment wins)
         try:
             from pathlib import Path as _PathT
             from datetime import datetime as _DT
-            ra_for_title = result.get('metadata', {}).get('redundancy_analysis', {})
-            consensus_title = ra_for_title.get('consensus_title')
 
-            if consensus_title and str(consensus_title).strip():
-                management_service.update_dossier(dossier_id, {"title": consensus_title})
-                logger.info(f"🏷️ Updated dossier {dossier_id} title from LLM consensus: {consensus_title}")
-            else:
-                # Fallback: use original uploaded filename if available; else temp file stem
-                if original_filename and str(original_filename).strip():
-                    stem = _PathT(original_filename).stem
+            current = management_service.get_dossier(dossier_id)
+            current_title = (getattr(current, "title", "") or "").strip()
+            allow_auto = (not current_title) or ("processing" in current_title.lower())
+
+            if allow_auto:
+                ra_for_title = result.get('metadata', {}).get('redundancy_analysis', {}) or {}
+                consensus_title = ra_for_title.get('consensus_title')
+
+                if consensus_title and str(consensus_title).strip():
+                    management_service.update_dossier(dossier_id, {"title": str(consensus_title).strip()})
+                    logger.info(f"🏷️ Updated dossier {dossier_id} title from LLM consensus: {consensus_title}")
                 else:
-                    stem = _PathT(temp_path).stem if temp_path else 'document'
-                timestamp = _DT.now().strftime('%Y-%m-%d %H:%M')
-                fallback_title = f"{stem} • {timestamp}"
-                management_service.update_dossier(dossier_id, {"title": fallback_title})
-                logger.info(f"🏷️ Updated dossier {dossier_id} title to fallback: {fallback_title}")
+                    # Fallback: use original uploaded filename if available; else temp file stem
+                    if original_filename and str(original_filename).strip():
+                        stem = _PathT(original_filename).stem
+                    else:
+                        stem = _PathT(temp_path).stem if temp_path else 'document'
+                    timestamp = _DT.now().strftime('%Y-%m-%d %H:%M')
+                    fallback_title = f"{stem} • {timestamp}"
+                    management_service.update_dossier(dossier_id, {"title": fallback_title})
+                    logger.info(f"🏷️ Updated dossier {dossier_id} title to fallback: {fallback_title}")
+            else:
+                logger.info(f"🏷️ Skipping auto title update for dossier {dossier_id}; title already set")
         except Exception as e:
             logger.debug(f"(non-critical) Could not update dossier title: {e}")
 

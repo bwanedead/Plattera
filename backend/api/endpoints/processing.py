@@ -483,26 +483,33 @@ async def _process_image_to_text(
                     else:
                         logger.warning(f"⚠️ Failed to associate transcription {transcription_id} with dossier {dossier_id}")
 
-                    # Update dossier title to reflect completion (non-blocking)
+                    # Update dossier title once (only if empty or placeholder)
                     try:
                         from services.dossier.management_service import DossierManagementService as _DMS2
                         _ms2 = _DMS2()
 
-                        # Try to use consensus title if available, otherwise use a completion title
-                        ra_for_title = (result or {}).get('metadata', {}).get('redundancy_analysis', {}) or {}
-                        consensus_title_for_dossier = ra_for_title.get('consensus_title')
+                        current = _ms2.get_dossier(str(dossier_id))
+                        current_title = (getattr(current, "title", "") or "").strip()
+                        allow_auto = (not current_title) or ("processing" in current_title.lower())
 
-                        if consensus_title_for_dossier:
-                            new_title = consensus_title_for_dossier
-                            logger.info(f"🏷️ Updated dossier {dossier_id} title from LLM consensus: {new_title}")
+                        if allow_auto:
+                            # Try to use consensus title if available, otherwise use a completion title
+                            ra_for_title = (result or {}).get('metadata', {}).get('redundancy_analysis', {}) or {}
+                            consensus_title_for_dossier = ra_for_title.get('consensus_title')
+
+                            if consensus_title_for_dossier and str(consensus_title_for_dossier).strip():
+                                new_title = str(consensus_title_for_dossier).strip()
+                                logger.info(f"🏷️ Updated dossier {dossier_id} title from LLM consensus: {new_title}")
+                            else:
+                                # Use a completion title based on the file
+                                from pathlib import Path
+                                file_base = Path(temp_path).stem
+                                new_title = file_base
+                                logger.info(f"🏷️ Updated dossier {dossier_id} title to completed: {new_title}")
+
+                            _ms2.update_dossier(str(dossier_id), {"title": new_title})
                         else:
-                            # Use a completion title based on the file
-                            from pathlib import Path
-                            file_base = Path(temp_path).stem
-                            new_title = file_base
-                            logger.info(f"🏷️ Updated dossier {dossier_id} title to completed: {new_title}")
-
-                        _ms2.update_dossier(str(dossier_id), {"title": new_title})
+                            logger.info(f"🏷️ Skipping auto title update for dossier {dossier_id}; title already set")
                     except Exception as e_title:
                         logger.debug(f"(non-critical) Could not update dossier title: {e_title}")
 

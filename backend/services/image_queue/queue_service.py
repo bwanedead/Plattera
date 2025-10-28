@@ -154,20 +154,23 @@ class ImageToTextQueueService:
                     except Exception:
                         pass
 
-                    # Ensure dossier title updated (fallback to file stem, then consensus if available)
+                    # Ensure dossier title updated only once (first segment wins)
                     try:
                         from services.dossier.management_service import DossierManagementService as _DMS2
                         _ms2 = _DMS2()
                         from pathlib import Path as _PathT
-                        stem = _PathT((job or {}).get('source_filename') or 'document').stem
                         if dossier_id:
-                            # Fallback first
-                            _ms2.update_dossier(str(dossier_id), {"title": stem})
-                            # Then override if consensus title exists
-                            ra_for_title = (result or {}).get('metadata', {}).get('redundancy_analysis', {}) or {}
-                            consensus_title = ra_for_title.get('consensus_title')
-                            if consensus_title and str(consensus_title).strip():
-                                _ms2.update_dossier(str(dossier_id), {"title": consensus_title})
+                            current = _ms2.get_dossier(str(dossier_id))
+                            current_title = (getattr(current, "title", "") or "").strip()
+                            allow_auto = (not current_title) or ("processing" in current_title.lower())
+                            if allow_auto:
+                                ra_for_title = (result or {}).get('metadata', {}).get('redundancy_analysis', {}) or {}
+                                consensus_title = ra_for_title.get('consensus_title')
+                                if consensus_title and str(consensus_title).strip():
+                                    _ms2.update_dossier(str(dossier_id), {"title": str(consensus_title).strip()})
+                                else:
+                                    stem = _PathT((job or {}).get('source_filename') or 'document').stem
+                                    _ms2.update_dossier(str(dossier_id), {"title": stem})
                     except Exception:
                         pass
 

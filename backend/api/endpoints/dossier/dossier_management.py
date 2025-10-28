@@ -17,6 +17,7 @@ from services.dossier.delete_job_manager import delete_job_manager
 from services.dossier.management_service import DossierManagementService
 from services.dossier.view_service import DossierViewService
 from services.dossier.event_bus import event_bus
+from services.dossier.title_lock_service import TitleLockService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -75,6 +76,7 @@ class BulkDeleteResponse(BaseModel):
 # Initialize service
 dossier_service = DossierManagementService()
 view_service = DossierViewService()
+title_lock_service = TitleLockService()
 
 
 @router.post("/create", response_model=DossierResponse)
@@ -432,3 +434,27 @@ async def list_dossiers(limit: int = 50, offset: int = 0):
 async def dossier_management_health_check():
     """Simple health check for dossier management service"""
     return {"status": "healthy", "service": "dossier-management"}
+
+
+class TitleLockResponse(BaseModel):
+    success: bool
+    data: Dict[str, Any] | None = None
+    error: str | None = None
+
+
+@router.post("/{dossier_id}/lock-title", response_model=TitleLockResponse)
+async def lock_title_from_first_segment(dossier_id: str):
+    try:
+        out = title_lock_service.lock_title_from_first_segment(str(dossier_id))
+        return TitleLockResponse(success=True, data=out)
+    except Exception as e:
+        return TitleLockResponse(success=False, error=str(e))
+
+
+@router.post("/lock-title/all", response_model=TitleLockResponse)
+async def lock_all_titles():
+    try:
+        out = title_lock_service.lock_all()
+        return TitleLockResponse(success=True, data=out)
+    except Exception as e:
+        return TitleLockResponse(success=False, error=str(e))
