@@ -160,7 +160,7 @@ This Indenture, made this 3rd day of August, A.D. 1915, by and between...
 Beginning at a point on the west boundary of Section Two (2), Township Fourteen (14) North, Range Seventy-five (75) West..."
             className="direct-text-input"
             disabled={isProcessing}
-            rows={12}
+            rows={18}
           />
           {directText.trim() && (
             <div className="input-status">
