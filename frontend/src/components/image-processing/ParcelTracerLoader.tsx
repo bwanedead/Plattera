@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 const VIEWBOX_SIZE = 120;
 
@@ -104,19 +104,19 @@ export const ParcelTracerLoader: React.FC = () => {
   const [polygonKey, setPolygonKey] = useState(0);
   const [segments, setSegments] = useState<Segment[]>([]);
 
-  const generateNewPolygon = () => {
+  const generateNewPolygon = useCallback(() => {
     const newVertexCount = Math.floor(Math.random() * 4) + 4;
     setSegments(generatePolygonSegments(newVertexCount));
     setPolygonKey(prev => prev + 1);
-  };
+  }, []);
 
-  const handlePolygonComplete = () => {
+  const handlePolygonComplete = useCallback(() => {
     generateNewPolygon();
-  };
+  }, [generateNewPolygon]);
 
   useEffect(() => {
     generateNewPolygon();
-  }, []);
+  }, [generateNewPolygon]);
 
   return (
     <div className="parcel-tracer-loader">
