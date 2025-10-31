@@ -79,8 +79,8 @@ async fn start_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
             tauri::async_runtime::spawn(async move {
                 while let Some(event) = rx.recv().await {
                     match event {
-                        CommandEvent::Stdout(line) => println!("[backend] {}", String::from_utf8_lossy(&line)),
-                        CommandEvent::Stderr(line) => eprintln!("[backend] {}", String::from_utf8_lossy(&line)),
+                        CommandEvent::Stdout(line) => print!("{}", String::from_utf8_lossy(&line)),
+                        CommandEvent::Stderr(line) => eprint!("{}", String::from_utf8_lossy(&line)),
                         _ => {}
                     }
                 }
@@ -107,8 +107,8 @@ async fn start_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
                 tauri::async_runtime::spawn(async move {
                     while let Some(event) = rx.recv().await {
                         match event {
-                            CommandEvent::Stdout(line) => println!("[backend] {}", String::from_utf8_lossy(&line)),
-                            CommandEvent::Stderr(line) => eprintln!("[backend] {}", String::from_utf8_lossy(&line)),
+                            CommandEvent::Stdout(line) => print!("{}", String::from_utf8_lossy(&line)),
+                            CommandEvent::Stderr(line) => eprint!("{}", String::from_utf8_lossy(&line)),
                             _ => {}
                         }
                     }
