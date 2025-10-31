@@ -1,7 +1,8 @@
-import React from 'react'
-import Link from 'next/link';
+import React, { useState } from 'react'
+import { ApiKeyModal } from '../components/ApiKeyModal';
 
 const HomePage: React.FC = () => {
+  const [showKeyModal, setShowKeyModal] = useState(false)
   return (
     <div className="page">
       <div className="container">
@@ -26,32 +27,31 @@ const HomePage: React.FC = () => {
         </div>
 
         <div style={{ marginTop: '4rem', textAlign: 'center' }}>
-          <Link href="/animation-tester" passHref>
-            <a style={{
+          <button
+            onClick={() => setShowKeyModal(true)}
+            style={{
               display: 'inline-block',
               padding: '12px 24px',
-              backgroundColor: 'var(--surface-secondary)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
+              backgroundColor: 'var(--accent-primary)',
+              color: 'white',
+              border: '1px solid var(--accent-primary)',
               borderRadius: '4px',
               textDecoration: 'none',
               fontWeight: 600,
               transition: 'all 0.2s ease'
             }}
             onMouseOver={e => {
-              e.currentTarget.style.backgroundColor = 'var(--accent-primary)';
-              e.currentTarget.style.color = 'white';
-              e.currentTarget.style.borderColor = 'var(--accent-primary)';
+              (e.currentTarget as HTMLButtonElement).style.opacity = '0.95';
             }}
             onMouseOut={e => {
-              e.currentTarget.style.backgroundColor = 'var(--surface-secondary)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-              e.currentTarget.style.borderColor = 'var(--border-color)';
-            }}>
-              Animation Tester
-            </a>
-          </Link>
+              (e.currentTarget as HTMLButtonElement).style.opacity = '1';
+            }}
+          >
+            Set / Update API Key
+          </button>
         </div>
+
+        <ApiKeyModal open={showKeyModal} onClose={() => setShowKeyModal(false)} onSaved={() => location.reload()} />
 
       </div>
     </div>

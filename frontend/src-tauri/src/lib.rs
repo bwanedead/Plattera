@@ -1,5 +1,5 @@
 use tauri::Manager;
-use std::process::{Command, Child};
+use tauri_plugin_shell::{process::{CommandChild, CommandEvent}, ShellExt};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -13,7 +13,7 @@ fn cleanup_via_http(timeout_ms: u64) {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_millis(timeout_ms))
         .build();
-    let _ = agent.get("http://127.0.0.1:8000/api/cleanup").call();
+    let _ = agent.post("http://127.0.0.1:8000/api/cleanup").call();
 }
 
 fn pid_file_path() -> PathBuf {
@@ -53,67 +53,70 @@ fn port_in_use(port: u16) -> bool {
     TcpStream::connect(("127.0.0.1", port)).is_ok()
 }
 
-struct BackendProcess(Mutex<Option<Child>>);
+struct BackendProcess(Mutex<Option<CommandChild>>);
 
 #[tauri::command]
 async fn start_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
     let backend_process = app_handle.state::<BackendProcess>();
     let mut process_guard = backend_process.0.lock().unwrap();
     
-    // If a stale PID exists, try to clean it up first
-    if let Some(pid) = read_pid() {
-        if pid_alive(pid) {
-            // Best-effort cleanup then kill
-            cleanup_via_http(600);
-            kill_by_pid(pid);
-        }
-        remove_pid_file();
-    }
-
     if process_guard.is_none() {
-        // Use a more direct approach - go directly to the backend directory
-        let backend_dir = Path::new("../../backend");  // From src-tauri, go up 2 levels then into backend
-        
-        // Check if backend directory exists
-        if !backend_dir.exists() {
-            return Err(format!("Backend directory does not exist: {:?}", backend_dir.canonicalize().unwrap_or_else(|_| backend_dir.to_path_buf())));
-        }
-        
         // If port 8000 is already in use (external server), don't spawn another
         if port_in_use(8000) {
             return Ok("Backend already running (detected on port 8000)".to_string());
         }
 
-        // Try to use the virtual environment Python first  
-        let venv_python = Path::new("../../.venv/Scripts/python.exe");
-        let python_cmd = if venv_python.exists() {
-            venv_python.to_string_lossy().to_string()
-        } else {
-            "python".to_string()
-        };
-        
-        println!("Backend dir: {:?}", backend_dir);
-        println!("Python cmd: {}", python_cmd);
-        
-        // Start Python backend
-        let child = Command::new(&python_cmd)
-            .arg("main.py")
-            .current_dir(&backend_dir)
-            .spawn()
-            .map_err(|e| format!("Failed to start backend with {}: {}", python_cmd, e))?;
-            
-        // Persist PID for robust cleanup on next start
-        write_pid(child.id());
+        // Try sidecar first; if that fails, fall back to Python (dev)
+        let try_sidecar = (|| -> Result<CommandChild, String> {
+            let sidecar = app_handle
+                .shell()
+                .sidecar("plattera-backend")
+                .map_err(|e| format!("sidecar error: {}", e))?;
+            let sidecar = sidecar
+                .env("PYTHONIOENCODING", "utf-8")
+                .env("PYTHONUTF8", "1");
+            let (mut rx, child) = sidecar.spawn().map_err(|e| format!("spawn error: {}", e))?;
+            tauri::async_runtime::spawn(async move {
+                while let Some(event) = rx.recv().await {
+                    match event {
+                        CommandEvent::Stdout(line) => println!("[backend] {}", String::from_utf8_lossy(&line)),
+                        CommandEvent::Stderr(line) => eprintln!("[backend] {}", String::from_utf8_lossy(&line)),
+                        _ => {}
+                    }
+                }
+            });
+            Ok(child)
+        })();
 
-        // Spawn a watcher to remove pid file when process exits
-        thread::spawn(|| {
-            // Small delay to avoid racing immediate exits
-            thread::sleep(Duration::from_millis(250));
-            // If process exits, remove PID file on best-effort next start
-        });
-
-        *process_guard = Some(child);
-        Ok(format!("Backend started successfully with {}", python_cmd))
+        match try_sidecar {
+            Ok(child) => {
+                *process_guard = Some(child);
+                Ok("Backend sidecar started".to_string())
+            }
+            Err(_e) => {
+                // DEV FALLBACK: run Python backend directly from venv
+                let (mut rx, child) = app_handle
+                    .shell()
+                    .command("../../.venv/Scripts/python.exe")
+                    .args(["-X", "utf8", "main.py"])
+                    .current_dir("../../backend")
+                    .env("PYTHONIOENCODING", "utf-8")
+                    .env("PYTHONUTF8", "1")
+                    .spawn()
+                    .map_err(|err| format!("fallback python spawn error: {}", err))?;
+                tauri::async_runtime::spawn(async move {
+                    while let Some(event) = rx.recv().await {
+                        match event {
+                            CommandEvent::Stdout(line) => println!("[backend] {}", String::from_utf8_lossy(&line)),
+                            CommandEvent::Stderr(line) => eprintln!("[backend] {}", String::from_utf8_lossy(&line)),
+                            _ => {}
+                        }
+                    }
+                });
+                *process_guard = Some(child);
+                Ok("Backend started via Python fallback".to_string())
+            }
+        }
     } else {
         Ok("Backend already running".to_string())
     }
@@ -137,6 +140,8 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            // Register shell plugin for sidecar
+            app.handle().plugin(tauri_plugin_shell::init())?;
             
             // Auto-start backend when app launches
             let app_handle = app.handle().clone();
@@ -190,10 +195,7 @@ pub fn run() {
                     let backend_process = app_handle.state::<BackendProcess>();
                     if let Some(mut child) = backend_process.0.lock().unwrap().take() {
                         let _ = child.kill();
-                        let _ = child.wait();
                     }
-                    if let Some(pid) = read_pid() { kill_by_pid(pid); }
-                    remove_pid_file();
                     std::process::exit(0);
                 });
             }
@@ -212,11 +214,7 @@ pub fn run() {
                 let backend_process = window.app_handle().state::<BackendProcess>();
                 if let Some(mut child) = backend_process.0.lock().unwrap().take() {
                     let _ = child.kill();
-                    let _ = child.wait();
                 }
-                // Also kill any stale PID and remove pid file
-                if let Some(pid) = read_pid() { kill_by_pid(pid); }
-                remove_pid_file();
                 println!("✅ Backend process terminated");
             }
             _ => {}

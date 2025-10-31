@@ -17,6 +17,13 @@ import time
 from dotenv import load_dotenv
 load_dotenv()  # Load .env file
 
+# Ensure UTF-8 output for console/logging handlers (Windows cp1252 fix)
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
 from api.router import api_router
 from utils.health_monitor import get_health_monitor
 from pipelines.mapping.georeference.georeference_service import GeoreferenceService
@@ -234,7 +241,7 @@ if __name__ == "__main__":
     # Configure uvicorn settings
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8000,
         reload=False,  # ← This will fix it
         log_level="info",

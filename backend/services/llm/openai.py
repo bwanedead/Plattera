@@ -89,6 +89,7 @@ import time
 import logging
 import random
 from pathlib import Path
+import keyring
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,14 @@ except ImportError:
 # class ParcelOrigin(BaseModel):  # DELETE THESE
 # class ParcelLeg(BaseModel):     # DELETE THESE  
 # class PlatteraParcel(BaseModel): # DELETE THESE
+
+def _get_openai_api_key():
+    """Retrieve OpenAI API key from OS keyring, falling back to env."""
+    try:
+        key = keyring.get_password("plattera", "openai_api_key")
+    except Exception:
+        key = None
+    return key or os.getenv("OPENAI_API_KEY")
 
 class OpenAIService(LLMService):
     """OpenAI LLM service provider"""
@@ -208,12 +217,13 @@ class OpenAIService(LLMService):
     
     def __init__(self):
         self.client = None
-        if self.is_available():
-            self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        api_key = _get_openai_api_key()
+        if OPENAI_AVAILABLE and api_key:
+            self.client = OpenAI(api_key=api_key)
     
     def is_available(self) -> bool:
         """Check if OpenAI is available and configured"""
-        return OPENAI_AVAILABLE and os.getenv("OPENAI_API_KEY") is not None
+        return OPENAI_AVAILABLE and (_get_openai_api_key() is not None)
     
     def _get_api_model_name(self, model: str) -> str:
         """Get the actual API model name (some models have different display vs API names)"""

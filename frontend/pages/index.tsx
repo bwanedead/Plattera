@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { ApiKeyModal } from '../src/components/ApiKeyModal'
 import TextBatchProcessor from '../src/components/TextBatchProcessor'
 import ImageBatchProcessor from '../src/components/ImageBatchProcessor'
 import ResultsViewer from '../src/components/ResultsViewer'
@@ -24,6 +25,7 @@ const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode>('home')
   const [results, setResults] = useState<ProcessingResult[]>([])
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null)
+  const [showKeyModal, setShowKeyModal] = useState(false)
   
   // Navigation state management
   const { lastActiveWorkspace, setActiveWorkspace } = useWorkspaceNavigation()
@@ -110,21 +112,22 @@ const App: React.FC = () => {
               </Link>
             </div>
             <div style={{ marginTop: '4rem', textAlign: 'center' }}>
-              <Link href="/animation-tester" passHref legacyBehavior>
-                <a style={{
+              <button
+                onClick={() => setShowKeyModal(true)}
+                style={{
                   display: 'inline-block',
-                  padding: '8px 16px',
-                  color: 'var(--text-secondary)',
+                  padding: '12px 24px',
+                  backgroundColor: 'var(--accent-primary)',
+                  color: 'white',
+                  border: '1px solid var(--accent-primary)',
+                  borderRadius: '4px',
                   textDecoration: 'none',
-                  fontSize: '0.8rem',
-                  transition: 'color 0.2s ease'
+                  fontWeight: 600,
+                  transition: 'all 0.2s ease'
                 }}
-                onMouseOver={e => e.currentTarget.style.color = 'var(--accent-primary)'}
-                onMouseOut={e => e.currentTarget.style.color = 'var(--text-secondary)'}
-                >
-                  Animation Tester
-                </a>
-              </Link>
+              >
+                Set / Update API Key
+              </button>
             </div>
           </div>
         )
@@ -134,6 +137,7 @@ const App: React.FC = () => {
   return (
     <div className="app-workspace">
       {renderContent()}
+      <ApiKeyModal open={showKeyModal} onClose={() => setShowKeyModal(false)} onSaved={() => location.reload()} />
     </div>
   )
 }

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@tauri-apps/api": "^2.9.0",
     "@types/node": "^24.0.3",
     "allotment": "^1.20.4",
     "maplibre-gl": "^3.6.2",

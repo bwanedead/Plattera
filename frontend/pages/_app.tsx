@@ -1,5 +1,5 @@
 import type { AppProps } from 'next/app'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { startDossierPreload } from '@/services/dossier/dossierPreload'
 // import '../styles/globals.css'        // OLD (backup)
 import '../styles/main.css'             // NEW (modular) - testing now!
@@ -7,11 +7,38 @@ import '../src/components/mapping/CleanMap.css'  // Map overlay/loading CSS (glo
 import '../src/components/visualization/backgrounds/CleanMapBackground.css' // Background placeholders
 import '../src/styles/components/loaders.css' // Any global loaders referenced by components
 import { ToastProvider } from '../src/components/ui/ToastProvider'
+import { ApiKeyModal } from '../src/components/ApiKeyModal'
 
 export default function App({ Component, pageProps }: AppProps) {
+  const [showKeyModal, setShowKeyModal] = useState(false)
   useEffect(() => {
     // Fire-and-forget dossier prewarm on app mount (read-only)
     try { startDossierPreload(); } catch {}
+
+    // Check for stored API key and prompt if absent (retry/backoff + focus recheck)
+    const checkKeyStatus = async () => {
+      const delays = [500, 1000, 1500, 2500, 4000, 6000]
+      for (let i = 0; i < delays.length; i++) {
+        try {
+          const res = await fetch('http://127.0.0.1:8000/config/key-status')
+          if (res.ok) {
+            const data = await res.json().catch(() => ({}))
+            if (!data?.hasKey) setShowKeyModal(true)
+            break
+          }
+        } catch {}
+        await new Promise(r => setTimeout(r, delays[i]))
+      }
+    }
+    ;(async () => {
+      try {
+        if ((window as any).__TAURI__) {
+          const { invoke } = await import('@tauri-apps/api/tauri')
+          await invoke('start_backend')
+        }
+      } catch {}
+      checkKeyStatus()
+    })()
 
     // Cleanup PLSS cache on application shutdown/page unload
     const handleBeforeUnload = () => {
@@ -62,11 +89,15 @@ export default function App({ Component, pageProps }: AppProps) {
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    // Re-check key status when app gains focus (helps if backend finished starting later)
+    const handleFocus = () => { if (!showKeyModal) { checkKeyStatus(); } };
+    window.addEventListener('focus', handleFocus);
 
     // Cleanup function - handles React unmount and manual cleanup
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
       handleAppClose(); // Clear cache on component unmount
     };
   }, []);
@@ -76,6 +107,7 @@ export default function App({ Component, pageProps }: AppProps) {
       <div className="App">
         <main>
           <Component {...pageProps} />
+          <ApiKeyModal open={showKeyModal} onClose={() => setShowKeyModal(false)} onSaved={() => location.reload()} />
         </main>
       </div>
     </ToastProvider>

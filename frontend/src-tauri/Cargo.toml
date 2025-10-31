@@ -27,3 +27,4 @@ tokio = { version = "1.0", features = ["full"] }
 sysinfo = { version = "0.30", features = ["multithread"] }
 ureq = { version = "2.9", default-features = false, features = ["tls", "json"] }
 ctrlc = "3.4"
+tauri-plugin-shell = "2"
