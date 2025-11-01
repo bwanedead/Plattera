@@ -39,6 +39,7 @@ async def enqueue_image_to_text_jobs(
     transcription_id: Optional[str] = Form(None),
     segment_id: Optional[str] = Form(None),
     auto_create_dossier_per_file: str = Form("false"),
+    user_instruction: Optional[str] = Form(None),
 ):
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
@@ -53,6 +54,8 @@ async def enqueue_image_to_text_jobs(
             'brightness': max(0.1, min(3.0, float(brightness))),
             'color': max(0.0, min(3.0, float(color)))
         }
+        if user_instruction and user_instruction.strip():
+            enhancement_settings['user_instruction'] = user_instruction.strip()
     except Exception:
         enhancement_settings = {'contrast': 1.5, 'sharpness': 1.2, 'brightness': 1.0, 'color': 1.0}
 

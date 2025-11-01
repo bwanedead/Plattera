@@ -2,7 +2,18 @@ import { EnhancementSettings, ProcessingResult, RedundancySettings, ConsensusSet
 
 // --- API Calls for Image Processing Feature ---
 
-export const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings, consensusSettings: ConsensusSettings, dossierId?: string, segmentId?: string, transcriptionId?: string): Promise<ProcessingResult[]> => {
+export const processFilesAPI = async (
+  files: File[],
+  model: string,
+  mode: string,
+  enhancementSettings: EnhancementSettings,
+  redundancySettings: RedundancySettings,
+  consensusSettings: ConsensusSettings,
+  dossierId?: string,
+  segmentId?: string,
+  transcriptionId?: string,
+  userInstruction?: string
+): Promise<ProcessingResult[]> => {
   console.log(`Processing ${files.length} files with model: ${model} and mode: ${mode}`);
 
   // If multiple files, enqueue as a batch to the server queue; else fall back to single endpoint
@@ -22,6 +33,7 @@ export const processFilesAPI = async (files: File[], model: string, mode: string
     if (dossierId) form.append('dossier_id', dossierId);
     // Auto-create per-file dossier when user selected auto-create new dossier (no dossierId present)
     form.append('auto_create_dossier_per_file', (!dossierId).toString());
+    if (userInstruction) form.append('user_instruction', userInstruction);
     // Do NOT send a single transcription_id for batch; server will generate per-file IDs
 
     const resp = await fetch('http://localhost:8000/api/image-to-text/jobs', { method: 'POST', body: form });
@@ -57,6 +69,7 @@ export const processFilesAPI = async (files: File[], model: string, mode: string
     if (dossierId) formData.append('dossier_id', dossierId);
     if (segmentId) formData.append('segment_id', segmentId);
     if (transcriptionId) formData.append('transcription_id', transcriptionId);
+    if (userInstruction) formData.append('user_instruction', userInstruction);
 
     const endpoint = dossierId ? 'http://localhost:8000/api/dossier/process' : 'http://localhost:8000/api/process';
     const response = await fetch(endpoint, { method: 'POST', body: formData });

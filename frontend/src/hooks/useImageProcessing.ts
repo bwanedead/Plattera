@@ -80,7 +80,7 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
     } catch {}
   }, [stagedFiles.length, processingMode]);
 
-  const handleProcess = async () => {
+  const handleProcess = async (userInstruction?: string) => {
     if (stagedFiles.length === 0) return;
 
     setIsProcessing(true);
@@ -149,7 +149,8 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
         consensusSettings,
         dossierIdToSend,
         selectedSegmentId || undefined,
-        initTranscriptionId
+        initTranscriptionId,
+        userInstruction
       );
 
       // Initialize queue from results (batch path returns job ids in metadata)

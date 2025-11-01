@@ -141,6 +141,14 @@ class ImageToTextPipeline:
             # CRITICAL: Get the prompt for this extraction mode and model
             # Different models may need different prompts
             prompt = get_image_to_text_prompt(extraction_mode, model)
+            # Append optional user instruction if present
+            try:
+                ui = (enhancement_settings or {}).get('user_instruction')
+                if ui:
+                    prompt = f"{prompt}\n\nUser instruction:\n{ui}\n"
+                    logger.info(f"🧩 Appended user instruction ({len(ui)} chars)")
+            except Exception:
+                pass
             
             # CRITICAL: Process based on service type
             # OpenAI service MUST have process_image_with_text method
@@ -337,6 +345,14 @@ class ImageToTextPipeline:
 
             # Use same prompt as original process
             prompt = get_image_to_text_prompt(extraction_mode, model)
+            # Append optional user instruction if present
+            try:
+                ui = (enhancement_settings or {}).get('user_instruction')
+                if ui:
+                    prompt = f"{prompt}\n\nUser instruction:\n{ui}\n"
+                    logger.info(f"🧩 Appended user instruction ({len(ui)} chars)")
+            except Exception:
+                pass
 
             # Set up progressive save callback if dossier context provided
             progressive_save_callback = None

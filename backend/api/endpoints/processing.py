@@ -114,7 +114,9 @@ async def process_content(
     consensus_strategy: str = Form("sequential"),
     # LLM consensus settings - optional
     auto_llm_consensus: str = Form("false"),
-    llm_consensus_model: str = Form("gpt-5-consensus")
+    llm_consensus_model: str = Form("gpt-5-consensus"),
+    # Optional user instruction to append to prompt
+    user_instruction: Optional[str] = Form(None)
 ):
     """
     Universal processing endpoint that routes to appropriate pipeline
@@ -157,6 +159,8 @@ async def process_content(
             'brightness': max(0.1, min(3.0, float(brightness))),  # Clamp between 0.1-3.0
             'color': max(0.0, min(3.0, float(color)))  # Clamp between 0.0-3.0
         }
+        if user_instruction and user_instruction.strip():
+            enhancement_settings['user_instruction'] = user_instruction.strip()
         logger.info(f"✅ Enhancement settings parsed: {enhancement_settings}")
     except (ValueError, TypeError) as e:
         logger.warning(f"⚠️ Invalid enhancement parameters, using defaults: {e}")

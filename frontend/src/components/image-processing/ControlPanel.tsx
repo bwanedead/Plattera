@@ -29,7 +29,7 @@ interface ControlPanelProps {
   draftCount: number;
   onShowDraftLoader: () => void;
   isProcessing: boolean;
-  onProcess: () => void;
+  onProcess: (userInstruction?: string) => void;
   // processing mode is now auto-detected in the hook; no manual toggle
   availableModels: Record<string, any>;
   selectedModel: string;
@@ -94,6 +94,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     multiple: true,
     noDragEventsBubbling: true,
   });
+
+  // Optional user instruction appended to prompt
+  const [showInstruction, setShowInstruction] = React.useState(false);
+  const [instructionText, setInstructionText] = React.useState('');
 
   // Desktop bridge: consume forwarded files from Tauri file-drop
   React.useEffect(() => {
@@ -179,6 +183,42 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           <option value="o3">o3 (Premium)</option>
           <option value="gpt-4">GPT-4</option>
         </select>
+      </div>
+
+      {/* Optional instruction */}
+      <div className="instruction-section" style={{ marginBottom: '1rem' }}>
+        <button
+          type="button"
+          className="enhancement-modal-btn"
+          onClick={() => setShowInstruction(v => !v)}
+          disabled={isProcessing}
+        >
+          {showInstruction ? 'Hide instruction' : 'Add instruction'}
+        </button>
+        {showInstruction && (
+          <div style={{ marginTop: '0.5rem' }}>
+            <textarea
+              value={instructionText}
+              onChange={(e) => setInstructionText(e.target.value)}
+              placeholder="Optional: add special instructions to append to the prompt..."
+              rows={4}
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '1px solid var(--border-color)',
+                borderRadius: 6,
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.9rem'
+              }}
+              disabled={isProcessing}
+            />
+            <small className="dossier-hint">
+              This will be appended to the prompt for this run.
+            </small>
+          </div>
+        )}
       </div>
 
       <div className="extraction-section">
@@ -336,7 +376,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       <div className="process-section">
         <button
           className={`process-button ${isProcessing ? 'processing' : ''}`}
-          onClick={onProcess}
+          onClick={() => onProcess(instructionText.trim() || undefined)}
           disabled={stagedFiles.length === 0 || isProcessing}
         >
           {isProcessing

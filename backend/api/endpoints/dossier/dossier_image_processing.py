@@ -85,7 +85,9 @@ async def process_with_dossier_association(
     consensus_strategy: str = Form("sequential"),
     # LLM consensus settings
     auto_llm_consensus: str = Form("false"),
-    llm_consensus_model: str = Form("gpt-5-consensus")
+    llm_consensus_model: str = Form("gpt-5-consensus"),
+    # Optional user instruction appended to prompt
+    user_instruction: Optional[str] = Form(None)
 ):
     """
     Process an image with dossier association and progressive draft saving.
@@ -145,6 +147,8 @@ async def process_with_dossier_association(
             'brightness': max(0.1, min(3.0, float(brightness))),
             'color': max(0.0, min(3.0, float(color)))
         }
+        if user_instruction and user_instruction.strip():
+            enhancement_settings['user_instruction'] = user_instruction.strip()
         logger.info(f"✅ Enhancement settings parsed: {enhancement_settings}")
     except (ValueError, TypeError) as e:
         logger.warning(f"⚠️ Invalid enhancement parameters, using defaults: {e}")
