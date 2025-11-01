@@ -6,6 +6,7 @@ import os
 import importlib
 import glob
 from typing import Dict, Any, List, Union
+import logging
 from services.llm.base import LLMService
 from services.ocr.base import OCRService
 
@@ -19,7 +20,8 @@ class ServiceRegistry:
     
     def _discover_services(self):
         """Auto-discover all available LLM and OCR services"""
-        print("🔍 Discovering services...")
+        logger = logging.getLogger(__name__)
+        logger.info("🔍 Discovering services...")
         
         # Discover LLM services
         self._discover_llm_services()
@@ -27,7 +29,7 @@ class ServiceRegistry:
         # Discover OCR services  
         self._discover_ocr_services()
         
-        print(f"✅ Loaded {len(self.llm_services)} LLM services, {len(self.ocr_services)} OCR services")
+        logger.info(f"✅ Loaded {len(self.llm_services)} LLM services, {len(self.ocr_services)} OCR services")
     
     def _discover_llm_services(self):
         """Discover all LLM providers in services/llm/"""
@@ -60,14 +62,14 @@ class ServiceRegistry:
                             service = attr()
                             if service.is_available():
                                 self.llm_services[service.name] = service
-                                print(f"✅ LLM: {service.name}")
+                                logging.getLogger(__name__).info(f"✅ LLM: {service.name}")
                             else:
-                                print(f"⚠️  LLM: {service.name} (not configured)")
+                                logging.getLogger(__name__).warning(f"⚠️  LLM: {service.name} (not configured)")
                         except Exception as e:
-                            print(f"❌ LLM: {module_name} failed to load: {e}")
+                            logging.getLogger(__name__).error(f"❌ LLM: {module_name} failed to load: {e}")
                         
             except Exception as e:
-                print(f"❌ Failed to import LLM module {module_name}: {e}")
+                logging.getLogger(__name__).error(f"❌ Failed to import LLM module {module_name}: {e}")
     
     def _discover_ocr_services(self):
         """Discover all OCR providers in services/ocr/"""
@@ -100,14 +102,14 @@ class ServiceRegistry:
                             service = attr()
                             if service.is_available():
                                 self.ocr_services[service.name] = service
-                                print(f"✅ OCR: {service.name}")
+                                logging.getLogger(__name__).info(f"✅ OCR: {service.name}")
                             else:
-                                print(f"⚠️  OCR: {service.name} (not available)")
+                                logging.getLogger(__name__).warning(f"⚠️  OCR: {service.name} (not available)")
                         except Exception as e:
-                            print(f"❌ OCR: {module_name} failed to load: {e}")
+                            logging.getLogger(__name__).error(f"❌ OCR: {module_name} failed to load: {e}")
                         
             except Exception as e:
-                print(f"❌ Failed to import OCR module {module_name}: {e}")
+                logging.getLogger(__name__).error(f"❌ Failed to import OCR module {module_name}: {e}")
     
     def get_all_models(self) -> Dict[str, Dict[str, Any]]:
         """Get all models from all available services"""
@@ -122,7 +124,7 @@ class ServiceRegistry:
                     model_info["service_name"] = service.name
                     all_models[model_id] = model_info
             except Exception as e:
-                print(f"Error getting models from LLM service {service.name}: {e}")
+                logging.getLogger(__name__).error(f"Error getting models from LLM service {service.name}: {e}")
         
         # Get OCR models
         for service in self.ocr_services.values():
@@ -133,7 +135,7 @@ class ServiceRegistry:
                     model_info["service_name"] = service.name
                     all_models[model_id] = model_info
             except Exception as e:
-                print(f"Error getting models from OCR service {service.name}: {e}")
+                logging.getLogger(__name__).error(f"Error getting models from OCR service {service.name}: {e}")
         
         return all_models
     

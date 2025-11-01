@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from api.endpoints import models, processing, system, alignment, consensus, final_draft, text_to_schema, polygon, mapping, plss_overlays, georeference, plss_endpoints, coordinates_endpoints, llm_consensus
 from api.endpoints import config as config_endpoints
 from api.endpoints import image_to_text_jobs
+from api import logs as logs_router
 from api.endpoints.plss import container_router
 from api.endpoints.dossier import management_router, association_router, navigation_router, views_router, dossier_image_processing_router, runs_router
 from api.endpoints.dossier import events as dossier_events
@@ -48,6 +49,9 @@ api_router.include_router(dossier_final_selection.router, prefix="/api/dossier/f
 api_router.include_router(dossier_finalize.router, prefix="/api/dossier", tags=["dossier-finalize"])
 api_router.include_router(dossier_finals.router, prefix="/api", tags=["dossier-finals"])
 api_router.include_router(dossier_finalized_list.router, prefix="/api/dossier", tags=["dossier-finalized"])
+
+# Logs (backend diagnostics)
+api_router.include_router(logs_router.router, prefix="/api", tags=["logs"])
 
 # Quick access to pipeline-specific endpoints for backwards compatibility
 api_router.include_router(models.router, prefix="/api/image-to-text", tags=["image-to-text"])

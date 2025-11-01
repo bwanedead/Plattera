@@ -25,6 +25,7 @@ except Exception:
     pass
 
 from api.router import api_router
+from services.logging_service import init_logging
 from utils.health_monitor import get_health_monitor
 from pipelines.mapping.georeference.georeference_service import GeoreferenceService
 
@@ -96,6 +97,12 @@ def setup_logging():
 
 # Initialize logging
 setup_logging()
+try:
+    # Add rotating file + ring buffer handlers
+    init_logging()
+except Exception:
+    # Do not fail startup if file logging isn't available
+    pass
 logger = logging.getLogger(__name__)
 
 # Create FastAPI app

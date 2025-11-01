@@ -8,6 +8,8 @@ import '../src/components/visualization/backgrounds/CleanMapBackground.css' // B
 import '../src/styles/components/loaders.css' // Any global loaders referenced by components
 import { ToastProvider } from '../src/components/ui/ToastProvider'
 import { ApiKeyModal } from '../src/components/ApiKeyModal'
+import { LogsButton } from '../src/components/logs/LogsButton'
+import { installGlobalLogCapture } from '../src/services/logging/logStore'
 
 export default function App({ Component, pageProps }: AppProps) {
   const [showKeyModal, setShowKeyModal] = useState(false)
@@ -33,7 +35,7 @@ export default function App({ Component, pageProps }: AppProps) {
     ;(async () => {
       try {
         if ((window as any).__TAURI__) {
-          const { invoke } = await import('@tauri-apps/api/tauri')
+          const { invoke } = await import('@tauri-apps/api/core')
           await invoke('start_backend')
         }
       } catch {}
@@ -102,12 +104,35 @@ export default function App({ Component, pageProps }: AppProps) {
     };
   }, []);
 
+  // Install frontend logging capture and prevent default browser file-open on drops outside dropzones
+  useEffect(() => {
+    try { installGlobalLogCapture(); } catch {}
+
+    const preventIfOutsideDropzone = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      // Allow drops inside our dropzones; block elsewhere to prevent browser hijacking
+      if (target && typeof (target as any).closest === 'function' && (target as any).closest('.file-drop-zone')) {
+        return;
+      }
+      e.preventDefault();
+    };
+
+    window.addEventListener('dragover', preventIfOutsideDropzone as any, { passive: false });
+    window.addEventListener('drop', preventIfOutsideDropzone as any, { passive: false });
+
+    return () => {
+      window.removeEventListener('dragover', preventIfOutsideDropzone as any);
+      window.removeEventListener('drop', preventIfOutsideDropzone as any);
+    };
+  }, []);
+
   return (
     <ToastProvider>
       <div className="App">
         <main>
           <Component {...pageProps} />
           <ApiKeyModal open={showKeyModal} onClose={() => setShowKeyModal(false)} onSaved={() => location.reload()} />
+          <LogsButton />
         </main>
       </div>
     </ToastProvider>
