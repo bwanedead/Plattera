@@ -31,6 +31,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   onExit, 
   onNavigateToTextSchema 
 }) => {
+  const VERBOSE_DEBUG = typeof process !== 'undefined' && (process as any).env && (process as any).env.NEXT_PUBLIC_VERBOSE_LOGS === 'true';
   // State persistence hooks
   const { state: workspaceState, updateState: updateWorkspaceState } = useImageProcessingState();
   const { setActiveWorkspace } = useWorkspaceNavigation();
@@ -82,17 +83,19 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   // Send an immediate refresh event when processing starts
   useEffect(() => {
     if (imageProcessing.isProcessing) {
-      console.log('📡 Processing started - dispatching dossiers:refresh');
+      if (VERBOSE_DEBUG) console.log('📡 Processing started - dispatching dossiers:refresh');
       document.dispatchEvent(new Event('dossiers:refresh'));
     }
   }, [imageProcessing.isProcessing]);
 
   // Debug: Log when dossier state changes
   React.useEffect(() => {
-    console.log('🏢 ImageProcessingWorkspace: dossierState updated:', dossierState.state.dossiers);
-    if (selectedDossierId) {
-      const selectedDossier = dossierState.state.dossiers.find(d => d.id === selectedDossierId);
-      console.log('🏢 ImageProcessingWorkspace: selected dossier:', selectedDossier);
+    if (VERBOSE_DEBUG) {
+      console.log('🏢 ImageProcessingWorkspace: dossierState updated:', dossierState.state.dossiers);
+      if (selectedDossierId) {
+        const selectedDossier = dossierState.state.dossiers.find(d => d.id === selectedDossierId);
+        console.log('🏢 ImageProcessingWorkspace: selected dossier:', selectedDossier);
+      }
     }
   }, [dossierState.state.dossiers, selectedDossierId]);
   

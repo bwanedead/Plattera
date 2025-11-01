@@ -23,6 +23,8 @@ export interface ProcessingResult {
   }
 }
 
+const VERBOSE_DEBUG = typeof process !== 'undefined' && (process as any).env && (process as any).env.NEXT_PUBLIC_VERBOSE_LOGS === 'true';
+
 /**
  * Check if the extracted text is JSON format
  */
@@ -35,7 +37,7 @@ export function isJsonResult(extractedText: string): boolean {
     const hasMainText = parsed && typeof parsed === 'object' && typeof (parsed as any).mainText === 'string'
     const isStructuredJson = !!(hasSections || hasMainText)
     
-    console.log('🔍 JSON Detection:', {
+    if (VERBOSE_DEBUG) console.log('🔍 JSON Detection:', {
       textLength: extractedText.length,
       textPreview: extractedText.substring(0, 100),
       canParse: true,
@@ -47,7 +49,7 @@ export function isJsonResult(extractedText: string): boolean {
     
     return isStructuredJson
   } catch (error) {
-    console.log('❌ JSON Detection failed:', {
+    if (VERBOSE_DEBUG) console.log('❌ JSON Detection failed:', {
       textLength: extractedText.length,
       textPreview: extractedText.substring(0, 100),
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -76,14 +78,14 @@ export function parseJsonResult(extractedText: string): DocumentTranscription | 
     if (parsed && Array.isArray((parsed as any).sections)) {
       return parsed as DocumentTranscription
     }
-    console.log('⚠️ Parsed JSON but missing required structure:', {
+    if (VERBOSE_DEBUG) console.log('⚠️ Parsed JSON but missing required structure:', {
       hasDocumentId: !!(parsed as any).documentId,
       hasSections: Array.isArray((parsed as any).sections),
       keys: Object.keys(parsed)
     });
     return null
   } catch (error) {
-    console.log('❌ JSON parse error, attempting to fix common issues:', error instanceof Error ? error.message : 'Unknown error');
+    if (VERBOSE_DEBUG) console.log('❌ JSON parse error, attempting to fix common issues:', error instanceof Error ? error.message : 'Unknown error');
     
     // Try to fix common JSON issues that might occur from editing
     try {
@@ -94,14 +96,14 @@ export function parseJsonResult(extractedText: string): DocumentTranscription | 
         .replace(/'/g, '"') // Replace single quotes with double quotes
         .replace(/,(\s*[}\]])/g, '$1'); // Remove trailing commas
       
-      console.log('🔧 Attempting to parse fixed JSON...');
+      if (VERBOSE_DEBUG) console.log('🔧 Attempting to parse fixed JSON...');
       const parsed = JSON.parse(fixedText)
       if (parsed && Array.isArray((parsed as any).sections)) {
-        console.log('✅ Successfully parsed fixed JSON!');
+        if (VERBOSE_DEBUG) console.log('✅ Successfully parsed fixed JSON!');
         return parsed as DocumentTranscription
       }
     } catch (fixError) {
-      console.log('❌ Could not fix JSON:', fixError instanceof Error ? fixError.message : 'Unknown error');
+      if (VERBOSE_DEBUG) console.log('❌ Could not fix JSON:', fixError instanceof Error ? fixError.message : 'Unknown error');
     }
     
     return null
@@ -112,7 +114,7 @@ export function parseJsonResult(extractedText: string): DocumentTranscription | 
  * Format JSON result as readable text with proper formatting
  */
 export function formatJsonAsText(extractedText: string): string {
-  console.log('🎨 Formatting JSON text:', {
+  if (VERBOSE_DEBUG) console.log('🎨 Formatting JSON text:', {
     inputLength: extractedText.length,
     inputPreview: extractedText.substring(0, 100)
   });
@@ -136,7 +138,7 @@ export function formatJsonAsText(extractedText: string): string {
         }
       })
       const result = formattedText.trim();
-      console.log('🎨 Formatting complete (sections):', {
+      if (VERBOSE_DEBUG) console.log('🎨 Formatting complete (sections):', {
         outputLength: result.length,
         outputPreview: result.substring(0, 200)
       });
@@ -164,7 +166,7 @@ export function formatJsonAsText(extractedText: string): string {
       }
 
       const result = formatted.trim()
-      console.log('🎨 Formatting complete (generic):', {
+      if (VERBOSE_DEBUG) console.log('🎨 Formatting complete (generic):', {
         outputLength: result.length,
         outputPreview: result.substring(0, 200)
       });
@@ -173,11 +175,11 @@ export function formatJsonAsText(extractedText: string): string {
 
     // Fallback: pretty-print JSON
     const prettyFormatted = JSON.stringify(parsed, null, 2);
-    console.log('📝 Applied basic JSON pretty-formatting as fallback');
+    if (VERBOSE_DEBUG) console.log('📝 Applied basic JSON pretty-formatting as fallback');
     return prettyFormatted;
   } catch {
     // Last-resort minimal formatting if JSON fails
-    console.log('📝 Applying minimal text formatting as last resort');
+    if (VERBOSE_DEBUG) console.log('📝 Applying minimal text formatting as last resort');
     return extractedText
       .replace(/},/g, '},\n')
       .replace(/{"/g, '{\n  "')
@@ -305,7 +307,7 @@ export const extractCleanText = (content: string): string => {
       }
     } catch (e) {
       // If JSON parsing fails, clean up manually
-      console.log('Cleaning non-JSON text manually');
+      if (VERBOSE_DEBUG) console.log('Cleaning non-JSON text manually');
     }
   }
   

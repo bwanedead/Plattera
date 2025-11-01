@@ -29,15 +29,6 @@ export const DossierPicker: React.FC<DossierPickerProps> = ({ dossiers, value, o
     return () => document.removeEventListener('click', handleDocClick);
   }, []);
 
-  // Debug: Log when dossiers change
-  useEffect(() => {
-    console.log('📋 DossierPicker: dossiers prop updated:', dossiers);
-    if (value) {
-      const selectedDossier = dossiers.find(d => d.id === value);
-      console.log('📋 DossierPicker: selected dossier:', selectedDossier);
-    }
-  }, [dossiers, value]);
-
   const selectedLabel = value
     ? (dossiers.find(d => d.id === value)?.title || dossiers.find(d => d.id === value)?.name || value)
     : 'Auto-create new dossier';

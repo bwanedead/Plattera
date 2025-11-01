@@ -1,5 +1,7 @@
 import { isJsonResult, formatJsonAsText } from './jsonFormatter';
 
+const VERBOSE_DEBUG = typeof process !== 'undefined' && (process as any).env && (process as any).env.NEXT_PUBLIC_VERBOSE_LOGS === 'true';
+
 export interface TextSelectionParams {
   selectedResult: any;
   selectedDraft: number | 'consensus' | 'best';
@@ -141,58 +143,64 @@ const extractFormattedTextFromAlignment = (alignmentResult: any, selectedDraft: 
 };
 
 export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensusStrategy, alignmentResult }: TextSelectionParams): string => {
-  console.log('🔍 FRONTEND DEBUG: ===== getCurrentText called =====');
-  console.log('🔍 FRONTEND DEBUG: selectedResult status:', selectedResult?.status);
-  console.log('🔍 FRONTEND DEBUG: selectedDraft:', selectedDraft);
-  console.log('🔍 FRONTEND DEBUG: alignmentResult success:', alignmentResult?.success);
-  console.log('🔍 FRONTEND DEBUG: Full metadata:', JSON.stringify(selectedResult?.result?.metadata, null, 2));
+  if (VERBOSE_DEBUG) {
+    console.log('🔍 FRONTEND DEBUG: ===== getCurrentText called =====');
+    console.log('🔍 FRONTEND DEBUG: selectedResult status:', selectedResult?.status);
+    console.log('🔍 FRONTEND DEBUG: selectedDraft:', selectedDraft);
+    console.log('🔍 FRONTEND DEBUG: alignmentResult success:', alignmentResult?.success);
+    console.log('🔍 FRONTEND DEBUG: Full metadata:', JSON.stringify(selectedResult?.result?.metadata, null, 2));
+  }
   
   if (!selectedResult || selectedResult.status !== 'completed' || !selectedResult.result) {
-    console.log('⚠️ FRONTEND DEBUG: No valid result available');
+    if (VERBOSE_DEBUG) console.log('⚠️ FRONTEND DEBUG: No valid result available');
     return selectedResult?.error || 'No result available';
   }
 
   const { result, error } = selectedResult;
   if (error) {
-    console.log('⚠️ FRONTEND DEBUG: Result has error:', error);
+    if (VERBOSE_DEBUG) console.log('⚠️ FRONTEND DEBUG: Result has error:', error);
     return error;
   }
   if (!result) {
-    console.log('⚠️ FRONTEND DEBUG: No result data');
+    if (VERBOSE_DEBUG) console.log('⚠️ FRONTEND DEBUG: No result data');
     return 'No result available';
   }
 
   // PRIORITY 0: Check if we have versioned content from dossier selection
   if (result.metadata?.selected_versioned_draft_id && result.extracted_text) {
-    console.log('✅ FRONTEND DEBUG: Using versioned content from dossier selection');
-    console.log('✅ FRONTEND DEBUG: Versioned draftId:', result.metadata.selected_versioned_draft_id);
-    console.log('✅ FRONTEND DEBUG: extracted_text preview (first 100 chars):', result.extracted_text.substring(0, 100));
+    if (VERBOSE_DEBUG) {
+      console.log('✅ FRONTEND DEBUG: Using versioned content from dossier selection');
+      console.log('✅ FRONTEND DEBUG: Versioned draftId:', result.metadata.selected_versioned_draft_id);
+      console.log('✅ FRONTEND DEBUG: extracted_text preview (first 100 chars):', result.extracted_text.substring(0, 100));
+    }
     // extracted_text may be plain text for alignment Av2; only JSON-format when truly JSON
     return (isJsonResult(result.extracted_text) ? formatJsonAsText(result.extracted_text) : result.extracted_text);
   }
 
   // PRIORITY 1: Use formatted text from alignment results if available
   if (alignmentResult?.success) {
-    console.log('✅ FRONTEND DEBUG: Alignment result available, attempting to extract formatted text');
+    if (VERBOSE_DEBUG) console.log('✅ FRONTEND DEBUG: Alignment result available, attempting to extract formatted text');
     const formattedText = extractFormattedTextFromAlignment(alignmentResult, selectedDraft);
     if (formattedText) {
-      console.log('✅ FRONTEND DEBUG: Using formatted text from alignment results');
-      console.log('🔍 FRONTEND DEBUG: Formatted text length:', formattedText.length);
+      if (VERBOSE_DEBUG) {
+        console.log('✅ FRONTEND DEBUG: Using formatted text from alignment results');
+        console.log('🔍 FRONTEND DEBUG: Formatted text length:', formattedText.length);
+      }
       return isJsonResult(formattedText) ? formatJsonAsText(formattedText) : formattedText;
     } else {
-      console.log('⚠️ FRONTEND DEBUG: No formatted text extracted from alignment results');
+      if (VERBOSE_DEBUG) console.log('⚠️ FRONTEND DEBUG: No formatted text extracted from alignment results');
     }
   } else {
-    console.log('⚠️ FRONTEND DEBUG: No alignment result available');
+    if (VERBOSE_DEBUG) console.log('⚠️ FRONTEND DEBUG: No alignment result available');
   }
 
   // PRIORITY 2: Fall back to original redundancy analysis logic
-  console.log('🔍 FRONTEND DEBUG: Falling back to redundancy analysis');
+  if (VERBOSE_DEBUG) console.log('🔍 FRONTEND DEBUG: Falling back to redundancy analysis');
   const redundancyAnalysis = result.metadata?.redundancy_analysis;
   
   // Use selected consensus strategy if available
   if (redundancyAnalysis?.all_consensus_results?.[selectedConsensusStrategy]) {
-    console.log('✅ FRONTEND DEBUG: Using consensus strategy:', selectedConsensusStrategy);
+    if (VERBOSE_DEBUG) console.log('✅ FRONTEND DEBUG: Using consensus strategy:', selectedConsensusStrategy);
     const consensusText = redundancyAnalysis.all_consensus_results[selectedConsensusStrategy].consensus_text;
     // Format JSON as readable text if it's JSON
     return isJsonResult(consensusText) ? formatJsonAsText(consensusText) : consensusText;
@@ -200,7 +208,7 @@ export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensu
   
   // Fallback to original logic
   if (!redundancyAnalysis) {
-    console.log('⚠️ FRONTEND DEBUG: No redundancy analysis, using extracted text');
+    if (VERBOSE_DEBUG) console.log('⚠️ FRONTEND DEBUG: No redundancy analysis, using extracted text');
     const extractedText = result.extracted_text || 'No text available';
     // Format JSON as readable text if it's JSON
     return isJsonResult(extractedText) ? formatJsonAsText(extractedText) : extractedText;
@@ -208,12 +216,12 @@ export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensu
 
   // UPDATED DRAFT SELECTION LOGIC
   if (selectedDraft === 'consensus') {
-    console.log('✅ FRONTEND DEBUG: Using consensus text');
+    if (VERBOSE_DEBUG) console.log('✅ FRONTEND DEBUG: Using consensus text');
     const consensusText = redundancyAnalysis.consensus_text || result.extracted_text || '';
     // Format JSON as readable text if it's JSON
     return isJsonResult(consensusText) ? formatJsonAsText(consensusText) : consensusText;
   } else if (selectedDraft === 'best') {
-    console.log('✅ FRONTEND DEBUG: Using best draft');
+    if (VERBOSE_DEBUG) console.log('✅ FRONTEND DEBUG: Using best draft');
     // "Best" now maps to the specific best draft index, not the main extracted text
     const bestIndex = redundancyAnalysis.best_result_index || 0;
     const individualResults = (redundancyAnalysis.individual_results || []).filter((r: any) => r.success);
@@ -225,7 +233,7 @@ export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensu
     const extractedText = result.extracted_text || '';
     return isJsonResult(extractedText) ? formatJsonAsText(extractedText) : extractedText;
   } else if (typeof selectedDraft === 'number') {
-    console.log('✅ FRONTEND DEBUG: Using specific draft:', selectedDraft);
+    if (VERBOSE_DEBUG) console.log('✅ FRONTEND DEBUG: Using specific draft:', selectedDraft);
     const individualResults = (redundancyAnalysis.individual_results || []).filter((r: any) => r.success);
     if (selectedDraft < individualResults.length) {
       // Prefer pre-cleaned display_text when available
@@ -237,7 +245,7 @@ export const getCurrentText = ({ selectedResult, selectedDraft, selectedConsensu
   }
 
   // Fallback to main text
-  console.log('⚠️ FRONTEND DEBUG: Using fallback main text');
+  if (VERBOSE_DEBUG) console.log('⚠️ FRONTEND DEBUG: Using fallback main text');
   const fallbackText = result.extracted_text || '';
   return isJsonResult(fallbackText) ? formatJsonAsText(fallbackText) : fallbackText;
 };

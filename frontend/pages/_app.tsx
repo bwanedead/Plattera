@@ -109,20 +109,81 @@ export default function App({ Component, pageProps }: AppProps) {
     try { installGlobalLogCapture(); } catch {}
 
     const preventIfOutsideDropzone = (e: Event) => {
-      const target = e.target as HTMLElement | null;
-      // Allow drops inside our dropzones; block elsewhere to prevent browser hijacking
-      if (target && typeof (target as any).closest === 'function' && (target as any).closest('.file-drop-zone')) {
-        return;
-      }
+      try {
+        // Allow drops when any element in the composed path is within the dropzone
+        const path: any[] = (e as any).composedPath ? (e as any).composedPath() : [];
+        if (Array.isArray(path)) {
+          for (const node of path) {
+            const el = node as any;
+            if (!el) continue;
+            if (el.classList && el.classList.contains('file-drop-zone')) {
+              return; // inside a valid dropzone
+            }
+            if (el.getAttribute && el.getAttribute('data-allow-drop') === 'true') {
+              return; // inside a valid dropzone
+            }
+          }
+        }
+        // Fallback: check target.closest when available
+        const target = e.target as any;
+        if (target && typeof target.closest === 'function' && (target.closest('.file-drop-zone') || target.closest('[data-allow-drop="true"]')) ) {
+          return;
+        }
+      } catch {}
       e.preventDefault();
     };
 
     window.addEventListener('dragover', preventIfOutsideDropzone as any, { passive: false });
     window.addEventListener('drop', preventIfOutsideDropzone as any, { passive: false });
 
+    // Tauri desktop: bridge OS file-drop to DOM event for our dropzone
+    let unlisten: (() => void) | null = null;
+    (async () => {
+      try {
+        if ((window as any).__TAURI__) {
+          const { listen } = await import('@tauri-apps/api/event');
+          const { convertFileSrc } = await import('@tauri-apps/api/core');
+          unlisten = await (listen as any)('tauri://file-drop', async (evt: any) => {
+            try {
+              const payload = evt?.payload;
+              let paths: string[] = [];
+              if (Array.isArray(payload)) {
+                paths = payload as string[];
+              } else if (Array.isArray(payload?.paths)) {
+                paths = payload.paths as string[];
+              }
+              if (!paths || paths.length === 0) return;
+
+              const files: File[] = [];
+              for (const p of paths) {
+                try {
+                  const url = (convertFileSrc as any)(p);
+                  const resp = await fetch(url);
+                  const blob = await resp.blob();
+                  const name = (p.split(/[/\\]/).pop() || 'file');
+                  const ext = name.toLowerCase().split('.').pop() || '';
+                  const mime = ext === 'png' ? 'image/png'
+                    : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+                    : ext === 'gif' ? 'image/gif'
+                    : ext === 'bmp' ? 'image/bmp'
+                    : ext === 'webp' ? 'image/webp'
+                    : blob.type || 'application/octet-stream';
+                  files.push(new File([blob], name, { type: mime }));
+                } catch {}
+              }
+              if (files.length) {
+                document.dispatchEvent(new CustomEvent('files:dropped', { detail: { files } }));
+              }
+            } catch {}
+          });
+        }
+      } catch {}
+    })();
+
     return () => {
       window.removeEventListener('dragover', preventIfOutsideDropzone as any);
       window.removeEventListener('drop', preventIfOutsideDropzone as any);
+      try { unlisten && unlisten(); } catch {}
     };
   }, []);
 

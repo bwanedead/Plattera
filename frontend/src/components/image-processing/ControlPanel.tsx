@@ -84,14 +84,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onSegmentChange,
   processingQueue = [],
 }) => {
-  // Debug: Log when dossiers change
-  React.useEffect(() => {
-    console.log('🎛️ ControlPanel: dossiers prop updated:', dossiers);
-    if (selectedDossierId) {
-      const selectedDossier = dossiers.find(d => d.id === selectedDossierId);
-      console.log('🎛️ ControlPanel: selected dossier:', selectedDossier);
-    }
-  }, [dossiers, selectedDossierId]);
+  // Removed noisy debug logs for production clarity
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -99,7 +92,22 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'],
     },
     multiple: true,
+    noDragEventsBubbling: true,
   });
+
+  // Desktop bridge: consume forwarded files from Tauri file-drop
+  React.useEffect(() => {
+    const handler = (ev: Event) => {
+      try {
+        const files: File[] = (ev as CustomEvent)?.detail?.files || [];
+        if (Array.isArray(files) && files.length > 0) {
+          onDrop(files);
+        }
+      } catch {}
+    };
+    document.addEventListener('files:dropped', handler as any);
+    return () => document.removeEventListener('files:dropped', handler as any);
+  }, [onDrop]);
 
   return (
     <div className="control-panel">
@@ -116,6 +124,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
         <div
           {...getRootProps()}
+          data-allow-drop="true"
           className={`file-drop-zone ${isDragActive ? 'drag-active' : ''} ${
             stagedFiles.length > 0 ? 'has-files' : ''
           }`}
@@ -126,7 +135,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               <>
                 <div className="drop-icon">📁</div>
                 <div className="drop-text">
-                  <strong>Click to select files</strong> or drag and drop
+                  <strong>Click to select files</strong>
                 </div>
                 <div className="drop-hint">PNG, JPG, JPEG, GIF, BMP, WebP</div>
               </>
@@ -135,7 +144,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <div className="files-count">
                   {stagedFiles.length} file{stagedFiles.length > 1 ? 's' : ''} ready
                 </div>
-                <div className="drop-hint">Click to add more or drag additional files</div>
+                <div className="drop-hint">Click to add more</div>
               </>
             )}
           </div>
