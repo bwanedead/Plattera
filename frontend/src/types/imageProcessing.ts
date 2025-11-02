@@ -13,11 +13,16 @@ export interface RedundancySettings {
   consensusStrategy: string;
 }
 
+export interface ConsensusSettings {
+  enabled: boolean;
+  model: string; // gpt-5-consensus | gpt-5-mini-consensus | gpt-5-nano-consensus
+}
+
 export interface ProcessingResult {
   input: string;
-  status: 'completed' | 'error';
+  status: 'processing' | 'completed' | 'error';
   result: {
-    extracted_text: string;
+    extracted_text?: string;
     metadata: any;
   } | null;
   error?: string;

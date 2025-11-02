@@ -42,7 +42,7 @@ Use your judgment to break the text into meaningful sections (paragraphs, clause
 Return only the extracted text with section markers, without any additional commentary.
 """
 
-# JSON structured transcription
+# JSON structured transcription (LEGAL - existing, do not change)
 LEGAL_DOCUMENT_JSON = """
 You are an expert legal transcriptionist. Output **ONLY** valid JSON conforming to the schema below. Do not wrap in markdown or add any other text.
 
@@ -78,6 +78,36 @@ SECTIONING RULES:
 Transcribe this legal document image into the JSON format above. Focus on accuracy and preserve all names, dates, property descriptions, and legal language.
 """
 
+# Generic document transcription (structured JSON, no internal sectioning of main text)
+GENERIC_DOCUMENT_JSON = """
+You are an expert transcriptionist. Output ONLY valid JSON exactly matching the schema below. Do not wrap in markdown or add any other text.
+
+Schema:
+{
+  "documentId": "<string>",
+  "pageNumber": <int|null>,
+  "mainText": "<string>",
+  "sideTexts": [
+    {
+      "text": "<string>",
+      "type": "<caption|footnote|margin|sidebar|label|other>"
+    }
+  ]
+}
+
+INSTRUCTIONS:
+1) TRANSCRIBE VERBATIM: Preserve all characters, line breaks, punctuation, casing, and spacing. Do not normalize or correct spelling.
+2) MAIN TEXT: Put the full body of the primary text into "mainText" as a single continuous string (no internal sectioning) but still maintain fromatting such as paragraph breaks and indents, etc. try to preserve the structure of the original text as exactly as possible.
+3) SIDE TEXTS: Capture captions, footnotes, marginal notes, sidebar text, labels, and similar elements as separate entries in "sideTexts".
+   - Use the best-fitting "type" from the enum.
+4) PAGE NUMBER: If a page number is visible anywhere on the page, set "pageNumber" to that integer; otherwise set it to null.
+5) NO INVENTION: Do not invent text or metadata. If something isn't visible, leave it out or set to null where allowed.
+6) Do NOT include document ID in any text fields; only in "documentId". If no identifier is visible, set "documentId" to "generic".
+7) Output strictly valid JSON conforming to the schema with no additional commentary.
+
+Transcribe this image according to the schema and rules above.
+"""
+
 def get_image_to_text_prompt(extraction_mode: str, model: str = None) -> str:
     """
     Get the appropriate prompt for the given extraction mode and model
@@ -90,20 +120,16 @@ def get_image_to_text_prompt(extraction_mode: str, model: str = None) -> str:
         str: The prompt text for the given mode and model
         
     Available modes:
-        - ultra_precise_legal: Ultra-precise transcription without sections
-        - legal_document_plain: Plain transcription without sections  
-        - legal_document_sectioned: Transcription with DONUT section markers
-        - legal_document_json: Structured JSON transcription
+        - legal_document_json: Structured JSON transcription (sectioned legal deeds)
+        - generic_document_json: Structured JSON transcription (verbatim mainText + sideTexts)
     """
     
     prompts = {
-        "ultra_precise_legal": ULTRA_PRECISE_LEGAL,
-        "legal_document_plain": LEGAL_DOCUMENT_PLAIN,
-        "legal_document_sectioned": LEGAL_DOCUMENT_SECTIONED, 
-        "legal_document_json": LEGAL_DOCUMENT_JSON
+        "legal_document_json": LEGAL_DOCUMENT_JSON,
+        "generic_document_json": GENERIC_DOCUMENT_JSON
     }
     
-    return prompts.get(extraction_mode, LEGAL_DOCUMENT_PLAIN)
+    return prompts.get(extraction_mode, LEGAL_DOCUMENT_JSON)
 
 def get_available_extraction_modes() -> dict:
     """
@@ -113,20 +139,12 @@ def get_available_extraction_modes() -> dict:
         dict: Dictionary of mode_id -> {name, description}
     """
     return {
-        "ultra_precise_legal": {
-            "name": "Ultra Precise Legal",
-            "description": "Ultra-precise transcription without sections (maximum accuracy)"
-        },
-        "legal_document_plain": {
-            "name": "Legal Document Plain", 
-            "description": "Plain legal document transcription without section markers"
-        },
-        "legal_document_sectioned": {
-            "name": "Legal Document Sectioned",
-            "description": "Legal document transcription with DONUT section markers for alignment"
-        },
         "legal_document_json": {
             "name": "Legal Document JSON",
-            "description": "Structured JSON transcription with deterministic parsing (recommended for alignment)"
+            "description": "Structured JSON transcription for legal deeds (sections)"
+        },
+        "generic_document_json": {
+            "name": "Generic Document JSON",
+            "description": "Verbatim mainText + sideTexts (captions/footnotes/margins), single pageNumber"
         }
     } 

@@ -147,4 +147,53 @@ class GeoreferenceApiService {
 
 export const georeferenceApi = new GeoreferenceApiService();
 
+export const saveGeoreferenceForDossier = async (payload: {
+  dossier_id: string;
+  georef_result: any;
+  metadata?: any;
+}) => {
+  const res = await fetch(`${API_BASE}/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Failed to save georeference (${res.status}): ${txt}`);
+  }
+  return res.json();
+};
 
+export const listGeoreferences = async (dossierId: string) => {
+  const res = await fetch(`${API_BASE}/list?dossier_id=${encodeURIComponent(dossierId)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
+
+export const getGeoreference = async (dossierId: string, georefId: string) => {
+  const res = await fetch(`${API_BASE}/get?dossier_id=${encodeURIComponent(dossierId)}&georef_id=${encodeURIComponent(georefId)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
+
+export const deleteGeoreference = async (dossierId: string, georefId: string) => {
+  const res = await fetch(`${API_BASE}/delete?dossier_id=${encodeURIComponent(dossierId)}&georef_id=${encodeURIComponent(georefId)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
+
+export const bulkDeleteGeoreferences = async (dossierId: string, georefIds: string[]) => {
+  const res = await fetch(`${API_BASE}/bulk-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dossier_id: dossierId, georef_ids: georefIds })
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
+
+export const listAllGeoreferences = async () => {
+  const res = await fetch(`${API_BASE}/list-all`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};

@@ -13,12 +13,15 @@ import logging
 import json
 import numpy as np
 from fastapi.responses import JSONResponse
+from pathlib import Path
+from datetime import datetime
 
 # ABSOLUTE IMPORTS ONLY - never relative imports
 from alignment.section_normalizer import SectionNormalizer
 from alignment.biopython_engine import BioPythonAlignmentEngine
 from alignment.alignment_utils import check_dependencies
-from services.alignment_service import AlignmentService
+from services.alignment_service_singleton import get_alignment
+from services.dossier.view_service import DossierViewService
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,10 @@ class AlignmentRequest(BaseModel):
     drafts: List[JsonDraft]
     generate_visualization: bool = True
     consensus_strategy: str = "highest_confidence"
+    # Optional: when provided, backend will persist alignment consensus to dossier
+    transcription_id: Optional[str] = None
+    dossier_id: Optional[str] = None
+    consensus_draft_id: Optional[str] = None
 
 
 class AlignmentResponse(BaseModel):
@@ -75,6 +82,10 @@ async def align_legal_drafts(request: AlignmentRequest):
     """
     logger.info(f"🧬 BIOPYTHON ALIGNMENT REQUEST ► Processing {len(request.drafts)} drafts")
     
+    # Guard: alignment requires at least two drafts
+    if len(request.drafts) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 drafts are required for alignment")
+    
     try:
         # Convert Pydantic models to dictionaries
         draft_jsons = []
@@ -88,12 +99,17 @@ async def align_legal_drafts(request: AlignmentRequest):
             }
             draft_jsons.append(draft_dict)
         
-        # Use the service layer for processing
-        alignment_service = AlignmentService()
+        # Use the service layer for processing (lazy singleton)
+        alignment_service = get_alignment()
         results = alignment_service.process_alignment_request(
             draft_jsons=draft_jsons,
             generate_visualization=request.generate_visualization,
-            consensus_strategy=request.consensus_strategy
+            consensus_strategy=request.consensus_strategy,
+            save_context={
+                "transcription_id": request.transcription_id or "",
+                "dossier_id": request.dossier_id or "",
+                "consensus_draft_id": request.consensus_draft_id or ""
+            } if (request.transcription_id) else None
         )
         
         if not results['success']:
@@ -107,6 +123,47 @@ async def align_legal_drafts(request: AlignmentRequest):
         
         logger.info(f"✅ BioPython alignment completed successfully in {results['processing_time']:.2f}s")
         
+        # Persist alignment consensus draft if requested and available (structured path only)
+        try:
+            transcription_id = getattr(request, 'transcription_id', None)
+            dossier_id = getattr(request, 'dossier_id', None)
+            consensus_text = results.get('consensus_text')
+            if transcription_id and isinstance(transcription_id, str) and transcription_id.strip() and consensus_text:
+                backend_dir = Path(__file__).resolve().parents[2]
+                transcriptions_root = backend_dir / "dossiers_data" / "views" / "transcriptions"
+
+                if dossier_id:
+                    run_dir = transcriptions_root / str(dossier_id) / str(transcription_id)
+                else:
+                    run_dir = transcriptions_root / "_unassigned" / str(transcription_id)
+
+                consensus_dir = run_dir / "consensus"
+                consensus_dir.mkdir(parents=True, exist_ok=True)
+                consensus_file = consensus_dir / f"alignment_{transcription_id}.json"
+
+                payload = {
+                    "type": "alignment_consensus",
+                    "model": "biopython_alignment",
+                    "strategy": request.consensus_strategy,
+                    "title": "Alignment Consensus",
+                    "text": consensus_text,
+                    "source_drafts": len(request.drafts),
+                    "tokens_used": 0,
+                    "created_at": datetime.now().isoformat(),
+                    "metadata": {
+                        "alignment_summary": results.get('summary', {}),
+                        "processing_time": results.get('processing_time', 0)
+                    }
+                }
+                try:
+                    with open(consensus_file, 'w', encoding='utf-8') as cf:
+                        json.dump(payload, cf, indent=2, ensure_ascii=False)
+                    logger.info(f"💾 Persisted alignment consensus JSON: {consensus_file}")
+                except Exception as se:
+                    logger.warning(f"⚠️ Failed to persist alignment consensus JSON: {se}")
+        except Exception as persist_err:
+            logger.warning(f"⚠️ Consensus persistence step failed (non-critical): {persist_err}")
+
         return AlignmentResponse(
             success=True,
             processing_time=results['processing_time'],
@@ -127,6 +184,103 @@ async def align_legal_drafts(request: AlignmentRequest):
             summary={},
             error=f"Alignment processing failed: {str(e)}"
         )
+
+
+# ---------------- New: Backend-driven alignment by IDs ----------------
+class AlignmentByIdsRequest(BaseModel):
+    dossier_id: str
+    transcription_id: str
+    draft_indices: List[int]  # 1-based indices
+    version_policy: str = "prefer_v2_else_v1"
+    exclude_alignment_versions: bool = True
+
+
+@router.post("/align-drafts/by-ids", response_model=AlignmentResponse)
+async def align_drafts_by_ids(req: AlignmentByIdsRequest):
+    """
+    Load raw drafts directly from the dossier (v2 if present, else v1) and run alignment.
+    """
+    logger.info(
+        f"🧬 ALIGN BY IDS ► dossier={req.dossier_id} tid={req.transcription_id} indices={req.draft_indices}"
+    )
+
+    if not req.draft_indices or len(req.draft_indices) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 drafts are required for alignment")
+
+    view = DossierViewService()
+    draft_jsons: List[Dict[str, Any]] = []
+
+    for n in req.draft_indices:
+        base = f"{req.transcription_id}_v{n}"
+        if req.version_policy == "prefer_v1_else_v2":
+            candidates = [f"{base}_v1", f"{base}_v2"]
+        else:
+            candidates = [f"{base}_v2", f"{base}_v1"]
+
+        content = None
+        for did in candidates:
+            content = view._load_transcription_content_scoped(did, req.dossier_id)
+            if content:
+                break
+
+        if not content:
+            logger.warning(f"⚠️ Missing content for draft index {n}; skipping")
+            continue
+
+        # Normalize to sectioned JSON expected by pipeline
+        if isinstance(content, dict) and isinstance(content.get("sections"), list):
+            draft_jsons.append(content)
+        elif isinstance(content, dict) and isinstance(content.get("blocks"), list):
+            blocks = content.get("blocks")
+            sections = [{"id": i + 1, "body": str(b.get("text", ""))} for i, b in enumerate(blocks) if isinstance(b, dict)]
+            draft_jsons.append({"documentId": content.get("documentId", "raw"), "sections": sections})
+        else:
+            # Fallback into single-section text (should be rare)
+            try:
+                text = str(content.get("text", "")) if isinstance(content, dict) else str(content)
+            except Exception:
+                text = ""
+            draft_jsons.append({"documentId": "raw", "sections": [{"id": 1, "body": text}]})
+
+    if len(draft_jsons) < 2:
+        return AlignmentResponse(
+            success=False,
+            processing_time=0.0,
+            summary={},
+            error="At least 2 non-empty drafts are required for alignment",
+        )
+
+    alignment_service = get_alignment()
+    results = alignment_service.process_alignment_request(
+        draft_jsons=draft_jsons,
+        generate_visualization=True,
+        consensus_strategy="highest_confidence",
+        save_context={
+            "transcription_id": req.transcription_id,
+            "dossier_id": req.dossier_id,
+        },
+    )
+
+    if not results.get("success"):
+        logger.error(f"❌ Alignment processing failed: {results.get('error')}")
+        return AlignmentResponse(
+            success=False,
+            processing_time=results.get("processing_time", 0.0),
+            summary=results.get("summary", {}),
+            error=results.get("error", "Alignment failed"),
+        )
+
+    logger.info("✅ Align-by-ids completed successfully")
+    return AlignmentResponse(
+        success=True,
+        processing_time=results.get("processing_time", 0.0),
+        summary=results.get("summary", {}),
+        consensus_text=results.get("consensus_text"),
+        visualization_html=results.get("visualization_html"),
+        per_draft_alignment_mapping=results.get("per_draft_alignment_mapping"),
+        confidence_results=results.get("confidence_results"),
+        alignment_results=results.get("alignment_results"),
+    )
 
 
 @router.post("/generate-visualization")

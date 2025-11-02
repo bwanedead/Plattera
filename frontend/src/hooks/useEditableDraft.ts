@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { AlignmentResult } from '../types/imageProcessing';
 import { getCurrentText, getRawText } from '../utils/textSelectionUtils';
 import { extractCleanText } from '../utils/jsonFormatter';
+import { revertToV1API } from '../services/imageProcessingApi';
 
 interface EditOperation {
   id: string;
@@ -42,6 +43,10 @@ export const useEditableDraft = (
   selectedDraft: number | 'consensus' | 'best',
   selectedConsensusStrategy: string
 ) => {
+  // Draft context (for logging/UI; editing allowed regardless of redundancy)
+  const redundancyCount = selectedResult?.result?.metadata?.redundancy_analysis?.count || 1;
+  const isMultiDraft = redundancyCount > 1;
+  
   // Get text using alignment tokens when available, fallback to clean text
   const originalText = useMemo(() => {
     if (!selectedResult) return '';
@@ -347,8 +352,111 @@ export const useEditableDraft = (
     });
   }, [selectedDraft]);
 
-  // Reset to original
-  const resetToOriginal = useCallback(() => {
+  // Reset to original - with backend integration and confirmation
+  const resetToOriginal = useCallback(async () => {
+    // Ensure a specific raw draft is selected for reset
+    if (typeof selectedDraft !== 'number') {
+      alert('Please select a specific raw draft to reset.');
+      return;
+    }
+    
+    console.log('🔴 RESET TO ORIGINAL BUTTON CLICKED');
+    console.log('🔍 Current state:', {
+      hasUnsavedChanges: editableDraftState.hasUnsavedChanges,
+      editHistoryLength: editableDraftState.editHistory.length,
+      editedFromDraft: editableDraftState.editedFromDraft,
+      originalLength: editableDraftState.originalDraft.content.length,
+      editedLength: editableDraftState.editedDraft.content.length,
+      contentsMatch: editableDraftState.originalDraft.content === editableDraftState.editedDraft.content
+    });
+
+    const hasUnsavedChanges = editableDraftState.hasUnsavedChanges;
+    const hasSavedEdits = editableDraftState.originalDraft.content !== editableDraftState.editedDraft.content;
+    const hasAnyEdits = hasUnsavedChanges || hasSavedEdits;
+    
+    console.log('🔍 Edit status:', { hasUnsavedChanges, hasSavedEdits, hasAnyEdits });
+    
+    // ALWAYS show confirmation dialog if there are any edits (saved or unsaved)
+    // This catches the case where user saved v2 in previous session
+    if (hasAnyEdits) {
+      console.log('⚠️ Showing confirmation dialog - edits will be lost');
+      const confirmed = window.confirm(
+        'Are you sure you want to reset to the original?\n\n' +
+        'This will permanently delete all edits (including previously saved edits) and restore the original version.'
+      );
+      if (!confirmed) {
+        console.log('❌ User cancelled reset');
+        return;
+      }
+      console.log('✅ User confirmed reset');
+    } else {
+      console.log('ℹ️ No edits detected - proceeding without confirmation');
+    }
+
+    // Extract backend context
+    const dossierId = selectedResult?.result?.metadata?.dossier_id;
+    const transcriptionId = selectedResult?.result?.metadata?.transcription_id;
+    
+    console.log('📋 Context:', { dossierId, transcriptionId });
+
+    // Optimistically reset frontend state
+    console.log('🔄 Resetting frontend state...');
+    setEditableDraftState(prevState => ({
+      ...prevState,
+      editedDraft: {
+        content: prevState.originalDraft.content,
+        blockTexts: [...prevState.originalDraft.blockTexts]
+      },
+      editHistory: [],
+      currentHistoryIndex: -1,
+      hasUnsavedChanges: false,
+      editedFromDraft: null
+    }));
+    console.log('✅ Frontend state reset complete');
+
+    // Call backend to revert per-draft HEAD to v1 and purge v2
+    if (dossierId && transcriptionId) {
+      try {
+        console.log('🔄 Calling backend revert API...');
+        await revertToV1API({
+          dossierId: String(dossierId),
+          transcriptionId: String(transcriptionId),
+          purge: true, // Delete v2 files completely
+          draftIndex: selectedDraft as number
+        });
+        console.log('✅ Backend revert successful - v2 deleted, HEAD now points to v1');
+        
+        // Force a re-fetch of the current draft to show v1 content
+        // Instead of refreshing entire dossier (which causes scroll jump)
+        console.log('🔄 Triggering focused refresh...');
+        try {
+          // Dispatch a custom event with the specific draft info
+          const event = new CustomEvent('draft:reverted', {
+            detail: { dossierId, transcriptionId }
+          });
+          document.dispatchEvent(event);
+          console.log('✅ Draft revert event dispatched');
+        } catch (e) {
+          console.warn('⚠️ Could not dispatch draft revert event:', e);
+        }
+        
+      } catch (error) {
+        console.error('❌ Backend revert failed:', error);
+        alert(
+          `Warning: Local edits were cleared but backend revert failed.\n\n${
+            error instanceof Error ? error.message : String(error)
+          }\n\nYou may need to refresh the page.`
+        );
+      }
+    } else {
+      console.warn('⚠️ Missing dossier or transcription context - backend revert skipped');
+    }
+    
+    console.log('🏁 Reset to original complete');
+  }, [editableDraftState, selectedResult, isMultiDraft, redundancyCount]);
+
+  // Reset local buffer to original silently (no confirmation, no backend)
+  const resetLocalEdits = useCallback(() => {
     setEditableDraftState(prevState => ({
       ...prevState,
       editedDraft: {
@@ -403,11 +511,23 @@ export const useEditableDraft = (
     undoEdit,
     redoEdit,
     resetToOriginal,
+    resetLocalEdits,
     saveAsOriginal,
     canUndo: editableDraftState.currentHistoryIndex >= 0,
     canRedo: editableDraftState.currentHistoryIndex < editableDraftState.editHistory.length - 1,
     getCurrentDisplayText,
-    originalText // Export for debugging
+    originalText, // Export for debugging
+    isMultiDraft, // For UI messaging only
+    redundancyCount, // For UI messaging only
+    setEditedContent: (text: string) => {
+      const blocks = extractBlockTexts(text);
+      setEditableDraftState(prev => ({
+        ...prev,
+        editedDraft: { content: text, blockTexts: blocks },
+        hasUnsavedChanges: true,
+        editedFromDraft: selectedDraft
+      }));
+    }
   };
 };
 

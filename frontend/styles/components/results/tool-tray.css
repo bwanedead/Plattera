@@ -1,0 +1,21 @@
+/* ToolTray context overrides to render controls inline within the left column */
+
+.tool-tray .alignment-button-container {
+  position: static !important;
+  right: auto !important;
+  top: auto !important;
+  z-index: auto !important;
+  display: inline-flex;
+  align-items: center;
+}
+
+.tool-tray .final-draft-selector {
+  position: static !important;
+  right: auto !important;
+  top: auto !important;
+  z-index: auto !important;
+  display: inline-flex;
+  align-items: center;
+}
+
+

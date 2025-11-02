@@ -1,9 +1,12 @@
 import { useState, useCallback } from 'react';
 import { AlignmentState, AlignmentDraft, AlignmentResult } from '../types/imageProcessing';
-import { alignDraftsAPI } from '../services/imageProcessingApi';
+import { alignDraftsAPI, alignDraftsByIdsAPI } from '../services/imageProcessingApi';
 import { generateConsensusDrafts } from '../services/consensusApi';
 import { selectFinalDraftAPI } from '../services/imageProcessingApi';
 import { workspaceStateManager } from '../services/workspaceStateManager';
+import { textApi } from '../services/textApi';
+
+// Frontend no longer persists alignment consensus; backend handles saving.
 
 export const useAlignmentState = () => {
   const [alignmentState, setAlignmentState] = useState<AlignmentState>({
@@ -17,35 +20,82 @@ export const useAlignmentState = () => {
   const [selectedConsensusStrategy, setSelectedConsensusStrategy] = useState<string>('highest_confidence');
 
   const handleAlign = useCallback(async (selectedResult: any) => {
-    if (!selectedResult || !selectedResult.result?.metadata?.redundancy_analysis) {
-      console.warn('No redundancy analysis available for alignment');
+    const transcriptionId = selectedResult?.result?.metadata?.transcription_id;
+    const dossierId = selectedResult?.result?.metadata?.dossier_id;
+
+    // Primary path expects redundancy analysis from processing results
+    const hasRedundancy = !!(selectedResult && selectedResult.result?.metadata?.redundancy_analysis);
+    if (!hasRedundancy && !(transcriptionId && dossierId)) {
+      console.warn('No redundancy analysis available and no dossier/transcription context; cannot run alignment');
       return;
     }
 
-    setAlignmentState(prev => ({ ...prev, isAligning: true }));
-
     try {
-      const redundancyAnalysis = selectedResult.result.metadata.redundancy_analysis;
+      const redundancyAnalysis = selectedResult.result?.metadata?.redundancy_analysis;
       const individualResults = redundancyAnalysis.individual_results || [];
+      // transcriptionId and dossierId derived above
       
-      const drafts: AlignmentDraft[] = individualResults
+      // Filter out consensus entries
+      const rawDraftResults = individualResults
         .filter((result: any) => result.success)
-        .map((result: any, index: number) => ({
-          draft_id: `Draft_${index + 1}`,
-          blocks: [
-            {
-              id: 'legal_text',
-              text: result.text || ''
-            }
-          ]
-        }));
+        .filter((result: any) => {
+          const isConsensusId = typeof result?.imported_draft_id === 'string' && result.imported_draft_id.endsWith('_consensus_llm');
+          const isConsensusType = (result?.metadata && result.metadata.type === 'llm_consensus') || false;
+          return !(isConsensusId || isConsensusType);
+        });
 
-      if (drafts.length < 2) {
-        throw new Error('At least 2 successful drafts are required for alignment');
+      if (rawDraftResults.length < 2) {
+        console.warn('At least 2 successful drafts are required for alignment');
+        return;
       }
 
-      console.log('🚀 Aligning drafts:', drafts);
-      const alignmentResult = await alignDraftsAPI(drafts, selectedConsensusStrategy);
+      setAlignmentState(prev => ({ ...prev, isAligning: true }));
+
+      // Prefer backend-driven alignment when dossier/transcription context is available
+      let alignmentResult;
+      if (transcriptionId && dossierId) {
+        try {
+          // If we have redundancy results, map to indices; otherwise, fall back to first two drafts
+          const draftIndices = hasRedundancy
+            ? rawDraftResults.map((_: any, i: number) => i + 1)
+            : [1, 2];
+          alignmentResult = await alignDraftsByIdsAPI({
+            dossierId,
+            transcriptionId,
+            draftIndices,
+            versionPolicy: 'prefer_v2_else_v1',
+            excludeAlignmentVersions: true
+          });
+        } catch (e) {
+          console.warn('⚠️ Backend-driven alignment failed, falling back to client-built payload:', e);
+        }
+      }
+
+      // Fallback: build minimal client-side payload only if backend path failed or no context
+      if (!alignmentResult) {
+        console.log('🔄 Building client-side drafts (no backend context)...');
+        const draftsAll = hasRedundancy
+          ? await Promise.all(
+              rawDraftResults.map(async (_r: any, index: number) => ({
+                draft_id: `Draft_${index + 1}`,
+                blocks: [{ id: 'legal_text', text: String(_r?.text || '') }]
+              }))
+            )
+          : [];
+        const drafts = draftsAll.filter(d => (d?.blocks?.[0]?.text || '').trim().length > 0);
+        if (!transcriptionId && drafts.length < 2) {
+          console.warn('⚠️ Alignment aborted: need at least 2 non-empty drafts');
+          setAlignmentState(prev => ({ ...prev, isAligning: false }));
+          return;
+        }
+        if (drafts.length >= 2) {
+          alignmentResult = await alignDraftsAPI(
+            drafts,
+            selectedConsensusStrategy,
+            { transcriptionId, dossierId, consensusDraftId: transcriptionId ? `${transcriptionId}_consensus_alignment` : undefined }
+          );
+        }
+      }
 
       console.log('📊 Alignment result received:', alignmentResult);
 
@@ -56,6 +106,8 @@ export const useAlignmentState = () => {
           if (consensusResult.success && consensusResult.enhanced_alignment_results) {
             // Update the alignment result with consensus data
             alignmentResult.alignment_results = consensusResult.enhanced_alignment_results;
+
+            // Backend now persists consensus; no frontend save needed
           }
         } catch (error) {
           console.warn('Failed to generate consensus drafts:', error);
@@ -76,6 +128,14 @@ export const useAlignmentState = () => {
         showAlignmentPanel: true,
         showHeatmap: false
       });
+
+      // Targeted dossier refresh to reflect any version flag changes immediately
+      try {
+        const dossierIdStr = String(dossierId || '');
+        if (dossierIdStr) {
+          document.dispatchEvent(new CustomEvent('dossier:refreshOne', { detail: { dossierId: dossierIdStr } }));
+        }
+      } catch {}
 
       // NEW: Automatically select consensus draft for text-to-schema
       if (alignmentResult.success) {
@@ -151,6 +211,10 @@ export const useAlignmentState = () => {
     setShowAlignmentTable(show);
   }, []);
 
+  const setShowAlignmentPanel = useCallback((show: boolean) => {
+    setAlignmentState(prev => ({ ...prev, showAlignmentPanel: show }));
+  }, []);
+
   const resetAlignmentState = useCallback(() => {
     setAlignmentState(prev => ({
       isAligning: false,
@@ -171,6 +235,7 @@ export const useAlignmentState = () => {
     toggleSuggestionPopup,
     closeAlignmentPanel,
     toggleAlignmentTable,
+    setShowAlignmentPanel,
     resetAlignmentState,
   };
 }; 

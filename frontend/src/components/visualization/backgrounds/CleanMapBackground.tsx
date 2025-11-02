@@ -8,12 +8,16 @@ interface CleanMapBackgroundProps {
   schemaData?: any;
   polygonData?: any;
   onPolygonUpdate?: (data: any) => void;
+  dossierId?: string; // optional pass-through
+  extraParcels?: any[]; // optional extra saved plots to display concurrently
 }
 
 export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
   schemaData,
   polygonData,
-  onPolygonUpdate
+  onPolygonUpdate,
+  dossierId,
+  extraParcels
 }) => {
   // Get PLSS state from schema data
   const state = schemaData?.descriptions?.[0]?.plss?.state;
@@ -68,6 +72,8 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
         schemaData={schemaData}
         polygonData={polygonData}
         onPolygonUpdate={onPolygonUpdate}
+        dossierId={dossierId || schemaData?.metadata?.dossierId || schemaData?.metadata?.dossier_id}
+        extraParcels={extraParcels}
         className="w-full h-full"
       />
     </div>

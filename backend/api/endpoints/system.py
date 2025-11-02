@@ -10,7 +10,8 @@ from pydantic import BaseModel
 from typing import Dict, Any, List
 import logging
 
-from services.alignment_service import AlignmentService
+import time
+from utils.health_monitor import check_health as hm_check
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -25,6 +26,8 @@ class HealthResponse(BaseModel):
     overall_status: str
     recommendations: List[str] = []
     errors: List[str] = []
+    # Readiness of heavy subsystems (alignment service) without triggering heavy work
+    ready: bool = True
 
 
 class CleanupResponse(BaseModel):
@@ -37,39 +40,46 @@ class CleanupResponse(BaseModel):
     errors: List[str] = []
 
 
+_LAST_HEALTH_LOG_TS: float = 0.0
+
 @router.get("/health", response_model=HealthResponse)
 async def check_system_health():
-    """
-    Check system health status including memory usage, CPU, and file system health.
-    """
+    """Cheap health using HealthMonitor only (no heavy service init)."""
     try:
-        logger.info("🏥 SYSTEM HEALTH CHECK REQUEST")
-        
-        alignment_service = AlignmentService()
-        health_status = alignment_service.get_health_status()
-        
-        # Calculate memory freed
-        memory_freed = health_status.get('memory_before_mb', 0) - health_status.get('memory_after_mb', 0)
-        
-        response = HealthResponse(
+        health_status = hm_check() or {}
+        msg = (
+            f"🏥 HEALTH ► mem={health_status.get('memory_usage_mb', 0)}MB "
+            f"cpu={health_status.get('cpu_percent', 0)}% "
+            f"status={health_status.get('overall_status', 'unknown')}"
+        )
+        global _LAST_HEALTH_LOG_TS
+        now = time.time()
+        if now - _LAST_HEALTH_LOG_TS > 60:
+            logger.info(msg)
+            _LAST_HEALTH_LOG_TS = now
+        else:
+            logger.debug(msg)
+
+        # Import readiness lazily; this module is cheap
+        try:
+            from services.alignment_service_singleton import is_ready  # type: ignore
+            ready_flag = bool(is_ready())
+        except Exception:
+            ready_flag = True  # default to true if readiness probe unavailable
+
+        return HealthResponse(
             status="success",
-            memory_usage_mb=health_status.get('memory_usage_mb', 0),
-            cpu_percent=health_status.get('cpu_percent', 0),
-            uptime_seconds=health_status.get('uptime_seconds', 0),
-            overall_status=health_status.get('overall_status', 'unknown'),
-            recommendations=health_status.get('recommendations', []),
-            errors=health_status.get('errors', [])
+            memory_usage_mb=float(health_status.get('memory_usage_mb', 0.0)),
+            cpu_percent=float(health_status.get('cpu_percent', 0.0)),
+            uptime_seconds=float(health_status.get('uptime_seconds', 0.0)),
+            overall_status=str(health_status.get('overall_status', 'unknown')),
+            recommendations=list(health_status.get('recommendations', [])),
+            errors=list(health_status.get('errors', [])),
+            ready=ready_flag,
         )
-        
-        logger.info(f"✅ HEALTH CHECK COMPLETE ► Status: {response.overall_status}")
-        return response
-        
     except Exception as e:
-        logger.error(f"❌ Health check failed: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Health check failed: {str(e)}"
-        )
+        logger.warning(f"❌ /health failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
 
 @router.post("/cleanup", response_model=CleanupResponse)
@@ -80,8 +90,9 @@ async def perform_system_cleanup():
     try:
         logger.info("🧹 SYSTEM CLEANUP REQUEST")
         
-        alignment_service = AlignmentService()
-        cleanup_results = alignment_service.force_cleanup()
+        # Lazy import to avoid heavy init for unrelated routes
+        from services.alignment_service import AlignmentService  # type: ignore
+        cleanup_results = AlignmentService().force_cleanup()
         
         # Calculate memory freed
         memory_freed = cleanup_results.get('memory_before_mb', 0) - cleanup_results.get('memory_after_mb', 0)
@@ -114,6 +125,7 @@ async def get_services_status():
     try:
         logger.info("🔍 SERVICES STATUS REQUEST")
         
+        from services.alignment_service import AlignmentService  # type: ignore
         alignment_service = AlignmentService()
         
         # Check dependencies

@@ -16,11 +16,13 @@ interface Description {
 interface PolygonDrawingControlsProps {
   schemaData: any;
   isVisible: boolean;
+  dossierId?: string; // Optional dossier context for persistence
 }
 
 export const PolygonDrawingControls: React.FC<PolygonDrawingControlsProps> = ({
   schemaData,
-  isVisible
+  isVisible,
+  dossierId
 }) => {
   const [drawingStates, setDrawingStates] = useState<Record<number, 'idle' | 'loading' | 'success' | 'error'>>({});
   const [polygonResults, setPolygonResults] = useState<Record<number, PolygonResult>>({});
@@ -160,6 +162,7 @@ export const PolygonDrawingControls: React.FC<PolygonDrawingControlsProps> = ({
         <VisualizationWorkspace
           polygon={viewingPolygon}
           schemaData={schemaData} // Add schema data
+          dossierId={dossierId}
           isOpen={!!viewingPolygon}
           onClose={() => setViewingPolygon(null)}
         />

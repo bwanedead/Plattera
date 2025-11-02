@@ -1,0 +1,25 @@
+# Repository Guidelines
+
+## Project Structure & Module Organization
+`backend/` holds the FastAPI service. Key submodules: `api/` routers, `services/` for dossier, LLM, and georeference helpers, `pipelines/` for alignment and projection, plus `config/` and `prompts/` for runtime defaults. Reference tables live in `dossiers_data/` and `raw_alignment_tables/`; keep replacements lightweight. The Next.js client lives in `frontend/`, with `src/components/`, `src/services/`, `src/hooks/`, and route files under `src/pages/`. Static assets belong in `frontend/public/`. Legacy diagnostics stay as top-level `test_*.py`; migrate long-lived code back into the owning package.
+
+## Build, Test, and Development Commands
+Install backend deps with `pip install -r backend/requirements.txt`, then run `uvicorn main:app --reload` (from `backend/`) or `python main.py` for quick checks. Frontend setup uses `npm install` in `frontend/`, `npm run dev` for local preview, `npm run build` for production, and `npm run tauri:dev` for the desktop shell. Manage secrets through `backend/.env`; update header comments when introducing new variables.
+
+## Coding Style & Naming Conventions
+Follow PEP 8: four-space indentation, `snake_case` functions, `PascalCase` classes, and descriptive module names (`georeference_service.py`). Prefer type hints and Pydantic models for payloads. In TypeScript, use functional components, `PascalCase` filenames in `components/`, and `camelCase` for hooks or util exports (for example `useAlignmentStatus`). Co-locate styles in `styles/` and reuse Leaflet tokens. Log via `logging.getLogger(__name__)` or the colored formatter configured in `backend/main.py`.
+
+## Testing Guidelines
+Most integration checks assume the API is running at `localhost:8000`; start the server before executing scripts such as `python test_alignment_api.py` or `python test_api.py`. For deterministic coverage, add pytest cases alongside the code (`pytest backend/test_pyproj_behavior.py`) and keep fixtures in JSON next to the test. Document required environment variables in the test docstring when hitting external services.
+
+## Commit & Pull Request Guidelines
+Recent commits are concise status lines (`ui improvements in regard to buttons...`). Mirror that style: keep the subject under 72 characters, mention the affected surface first, and describe the user-visible change. Reference issues when possible. Pull requests should include a short intent paragraph, manual test evidence (CLI output or screenshots for UI changes), notes on schema or prompt updates, and any datasets that need regeneration.
+
+## Architecture Expectations
+All development must follow modular, scalable architecture with strict separation of concerns. Code should not be placed into large, catch-all files or allowed to deteriorate into spaghetti structures. Each module or component should have a clearly defined responsibility, and coupling between unrelated parts of the system should be avoided. Maintainability, clarity, extensibility, and long-term soundness take priority over any fast workaround or short-term patch. When there is a choice between a quick implementation and a structurally correct solution, the more robust and reliable option should always be taken. Shortcuts that compromise future stability, readability, or adaptability should not be used.
+
+## Git Command Restrictions
+Git commands must never be executed under any circumstances. This includes any use of git init, git add, git commit, git push, git pull, git checkout, git reset, git clean, git rebase, git merge, or any other command that may alter repository state or history. If version control actions are necessary, the solution should be described for a human to perform manually rather than executed automatically. The agent should not stage, modify, delete, or reorganize tracked or untracked files through git. Git usage is entirely off limits and treated as a hard prohibition.
+
+## Virtual Environment (venv) Requirements
+The virtual environment must always be active before any terminal commands are executed, and no Python-related shell actions should ever run outside of it. The existing virtual environment is located at the project root and must always be used; no alternative environments or new venvs should be created. Dependencies must never be installed unless the venv is active, including pip installs, upgrades, development tooling, and any CLI actions that rely on Python packages. The venv must be activated as a separate, explicit step before running Python scripts, formatting or linting commands, tests, or build and pipeline scripts. If the venv is not already active, the agent must not proceed under any circumstances. The agent should not attempt to create new virtual environments, modify interpreter paths, or bypass the existing venv in any way. The venv for this repository is located at `\Plattera\.venv` and must be activated using the command `.venv\scripts\activate.ps1` before any other terminal operations.

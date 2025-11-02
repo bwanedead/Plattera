@@ -1,0 +1,908 @@
+/* ============================================================================
+   DOSSIER MANAGER - ELITE MODULAR STYLES
+   ============================================================================
+   Comprehensive styling for the hierarchical dossier management system
+   Designed for maximum visual clarity and intuitive interaction
+   ============================================================================ */
+
+/* ============================================================================
+   MAIN DOSSIER MANAGER CONTAINER
+   ============================================================================ */
+
+.dossier-manager {
+  height: 100%;
+  width: 100%;
+  background-color: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+/* ============================================================================
+   DOSSIER HEADER
+   ============================================================================ */
+
+.dossier-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+  background-color: var(--bg-primary);
+  min-height: 50px;
+}
+
+.dossier-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.dossier-header-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+/* Minimal search bar layout */
+.dossier-search {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+
+.search-input-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.dossier-search-input {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.search-clear-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.sort-options {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.sort-select {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.dossier-current-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.dossier-current-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--accent-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.dossier-current-stats {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.dossier-no-selection {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.dossier-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.dossier-action-btn {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.dossier-action-btn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-primary);
+}
+
+.dossier-action-btn.primary {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
+}
+
+.dossier-action-btn.primary:hover {
+  background: rgba(var(--accent-primary-rgb), 0.8);
+}
+
+/* ============================================================================
+   DOSSIER LIST CONTAINER
+   ============================================================================ */
+
+.dossier-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.dossier-list.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.dossier-loading-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2rem;
+}
+
+.loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border-color);
+  border-top: 2px solid var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.dossier-list.error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 2rem;
+}
+
+.dossier-error-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.error-icon {
+  font-size: 2rem;
+}
+
+.error-text {
+  color: var(--error-color, #e74c3c);
+  font-size: 0.9rem;
+}
+
+.dossier-list.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+.dossier-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  max-width: 300px;
+}
+
+.empty-icon {
+  font-size: 3rem;
+  opacity: 0.5;
+}
+
+.dossier-empty-state h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: var(--text-primary);
+}
+
+.dossier-empty-state p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.empty-hint {
+  margin-top: 0.5rem;
+}
+
+.empty-hint small {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.create-first-dossier-btn {
+  padding: 0.75rem 1rem;
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.create-first-dossier-btn:hover {
+  background: rgba(var(--accent-primary-rgb), 0.8);
+}
+
+.dossier-items-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* ============================================================================
+   DOSSIER ITEM STYLES
+   ============================================================================ */
+
+.dossier-item-container {
+  margin-bottom: 0.25rem;
+}
+
+.dossier-item {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.5rem; /* slimmer */
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  gap: 0.5rem;
+}
+
+.dossier-item:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.dossier-item.selected {
+  background: rgba(var(--accent-primary-rgb), 0.1);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb), 0.2);
+}
+
+.dossier-item.hover-highlight {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb), 0.35);
+}
+
+.dossier-item.multi-selected {
+  background: rgba(var(--warning-color-rgb, 255, 193, 7), 0.1);
+  border-color: var(--warning-color, #ffc107);
+}
+
+.dossier-expand-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 2px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+.dossier-expand-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--accent-primary);
+}
+
+.dossier-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+}
+
+.dossier-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dossier-name-section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dossier-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dossier-name-input {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--accent-primary);
+  border-radius: 4px;
+  padding: 0.3rem 0.6rem;
+  outline: none;
+  width: 100%;
+  min-width: 120px;
+  box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb), 0.1);
+}
+
+.dossier-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+
+.dossier-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.dossier-action-small {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 2px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+.dossier-action-small:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.dossier-action-small.delete:hover {
+  color: var(--error-color, #e74c3c);
+}
+
+/* ============================================================================
+   EXPANDED DOSSIER CONTENT
+   ============================================================================ */
+
+.dossier-expanded-content {
+  margin-top: 0.4rem;
+  padding-left: 0.75rem; /* slight indent, keep slim */
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+/* Removed dossier description block for minimal UI */
+
+.description-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.description-text {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  flex: 1;
+}
+
+.dossier-segments { display: flex; flex-direction: column; gap: 0.35rem; }
+
+/* Segment item boxed aesthetic */
+/* .segment-item-container intentionally omitted to avoid empty ruleset */
+.segment-item {
+  display: flex;
+  align-items: center;
+  padding: 0.45rem 0.5rem; /* slim */
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  gap: 0.5rem;
+}
+.segment-item:hover { background: var(--bg-tertiary); border-color: var(--accent-primary); }
+.segment-item.selected { background: rgba(var(--accent-primary-rgb), 0.06); border-color: var(--accent-primary); }
+.segment-expand-btn { background: none; border: none; color: var(--text-secondary); font-size: 0.85rem; cursor: pointer; padding: 0.2rem; }
+.segment-name { font-weight: 600; color: var(--text-primary); }
+.segment-name-input { font-size: 0.9rem; font-weight: 600; color: var(--text-primary); background: transparent; border: 1px solid var(--accent-primary); border-radius: 3px; padding: 0.2rem 0.4rem; }
+.segment-stats { margin-left: auto; display: flex; gap: 0.6rem; color: var(--text-secondary); font-size: 0.75rem; }
+.segment-actions { margin-left: 0.5rem; display: flex; gap: 0.25rem; }
+.segment-expanded-content { margin-top: 0.35rem; padding-left: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.segment-runs { display: flex; flex-direction: column; gap: 0.3rem; }
+
+.no-segments {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  text-align: center;
+}
+
+/* Removed emoji icons for minimal look */
+
+.no-segments-text {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+
+/* Run item boxed aesthetic */
+.run-item { display: flex; flex-direction: column; gap: 0.25rem; }
+.run-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.5rem; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; }
+.run-header:hover { background: var(--bg-tertiary); border-color: var(--accent-primary); }
+.run-expand-button { background: none; border: none; color: var(--text-secondary); font-size: 0.85rem; cursor: pointer; padding: 0.2rem; }
+.run-info { display: flex; align-items: baseline; gap: 0.5rem; width: 100%; }
+.run-name { font-weight: 600; color: var(--text-primary); }
+.run-details { margin-left: auto; display: flex; gap: 0.6rem; color: var(--text-secondary); font-size: 0.75rem; }
+.run-content { padding-left: 0.75rem; }
+.run-drafts { display: flex; flex-direction: column; gap: 0.25rem; }
+
+/* Draft item styling */
+.draft-item { padding: 0.35rem 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); cursor: pointer; }
+.draft-header { display: flex; align-items: center; }
+.draft-info { display: flex; flex-direction: column; gap: 0.15rem; }
+.draft-name { font-weight: 600; color: var(--text-primary); }
+.draft-name.consensus { color: #bfa671; font-weight: 700; }
+.draft-name.alignment-consensus { color: #8b6f47; font-weight: 700; }
+.draft-details { color: var(--text-secondary); font-size: 0.75rem; }
+.draft-actions { margin-left: auto; }
+
+/* Draft loading indicator with cycling dots */
+.draft-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.loading-dots::after {
+  content: '';
+  animation: loading-dots 1.5s infinite;
+  font-weight: bold;
+}
+
+@keyframes loading-dots {
+  0%, 20% { content: ''; }
+  40% { content: '.'; }
+  60% { content: '..'; }
+  80%, 100% { content: '...'; }
+}
+
+.loading-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-color);
+  border-top: 2px solid var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  opacity: 0;
+  animation-delay: 3s;
+  animation-fill-mode: forwards;
+}
+
+.loading-spinner.show {
+  opacity: 1;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Best draft indicator */
+.best-indicator {
+  color: var(--accent-primary);
+  font-weight: bold;
+  margin-left: 0.25rem;
+  font-size: 1.1em;
+}
+
+.add-first-segment-btn {
+  padding: 0.5rem 1rem;
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.add-first-segment-btn:hover {
+  background: rgba(var(--accent-primary-rgb), 0.8);
+}
+
+/* ============================================================================
+   MODAL STYLES
+   ============================================================================ */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-content {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  max-width: 500px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.modal-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.modal-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 2px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.modal-close-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.modal-close-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  transition: border-color 0.2s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb), 0.1);
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+}
+
+.form-hint {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.25rem;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.modal-btn {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.modal-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.modal-btn.primary {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
+}
+
+.modal-btn.primary:hover {
+  background: rgba(var(--accent-primary-rgb), 0.8);
+}
+
+.modal-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  cursor: not-allowed;
+}
+
+/* ============================================================================
+   UTILITY CLASSES
+   ============================================================================ */
+
+.hidden {
+  display: none !important;
+}
+
+.loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.error {
+  border-color: var(--error-color, #e74c3c) !important;
+  background: rgba(231, 76, 60, 0.1) !important;
+}
+
+/* ============================================================================
+   RESPONSIVE DESIGN
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  .dossier-header {
+    padding: 0.5rem;
+    flex-direction: column;
+    gap: 0.75rem;
+    align-items: stretch;
+  }
+
+  .dossier-current-name {
+    max-width: none;
+  }
+
+  .dossier-expanded-content {
+    margin-left: 1rem;
+    padding: 0.75rem;
+  }
+
+  .modal-content {
+    margin: 0.5rem;
+    max-width: none;
+  }
+
+  .modal-header,
+  .modal-body,
+  .modal-footer {
+    padding: 1rem;
+  }
+}
+
+/* ============================================================================
+   SIMPLIFIED DELETE MODAL STYLES
+   ============================================================================ */
+
+.delete-confirmation {
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.delete-icon-large {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.delete-confirmation h3 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.delete-item-name {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: 0 0 1rem 0;
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.delete-warning-text {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.modal-footer-simple {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+
+.btn-secondary-simple,
+.btn-danger-simple {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 80px;
+}
+
+.btn-secondary-simple {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.btn-secondary-simple:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn-danger-simple {
+  background: #dc3545;
+  color: white;
+  border-color: #dc3545;
+}
+
+.btn-danger-simple:hover:not(:disabled) {
+  background: #c82333;
+  border-color: #bd2130;
+}
+
+.btn-secondary-simple:disabled,
+.btn-danger-simple:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

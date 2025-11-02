@@ -141,6 +141,14 @@ class ImageToTextPipeline:
             # CRITICAL: Get the prompt for this extraction mode and model
             # Different models may need different prompts
             prompt = get_image_to_text_prompt(extraction_mode, model)
+            # Append optional user instruction if present
+            try:
+                ui = (enhancement_settings or {}).get('user_instruction')
+                if ui:
+                    prompt = f"{prompt}\n\nUser instruction:\n{ui}\n"
+                    logger.info(f"🧩 Appended user instruction ({len(ui)} chars)")
+            except Exception:
+                pass
             
             # CRITICAL: Process based on service type
             # OpenAI service MUST have process_image_with_text method
@@ -295,19 +303,30 @@ class ImageToTextPipeline:
         from prompts.image_to_text import get_available_extraction_modes
         return get_available_extraction_modes()
     
-    def process_with_redundancy(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document_json", 
-                              enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = "sequential") -> dict:
+    def process_with_redundancy(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document_json",
+                              enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = "sequential",
+                              dossier_id: str = None, transcription_id: str = None) -> dict:
         """
         Process with redundancy using the dedicated RedundancyProcessor
-        
+
         This method orchestrates redundancy processing while maintaining the same interface.
         All redundancy logic has been moved to the RedundancyProcessor class for better separation of concerns.
+
+        Args:
+            image_path: Path to the image file
+            model: Model identifier to use
+            extraction_mode: Extraction mode (legal_document_json, etc.)
+            enhancement_settings: Image enhancement settings
+            redundancy_count: Number of parallel calls
+            consensus_strategy: Consensus algorithm to use
+            dossier_id: Optional dossier ID for progressive saving
+            transcription_id: Optional transcription ID for progressive saving
         """
         try:
             # Handle single redundancy by falling back to original method
             if redundancy_count <= 1:
                 return self.process(image_path, model, extraction_mode, enhancement_settings)
-            
+
             # Get service and prepare image (same as original process)
             service = self._get_service_for_model(model)
             if not service:
@@ -315,7 +334,7 @@ class ImageToTextPipeline:
                     "success": False,
                     "error": f"No service available for model: {model}"
                 }
-            
+
             # Use same image preparation as original process
             image_data, image_format = self._prepare_image(image_path, enhancement_settings)
             if not image_data:
@@ -323,10 +342,27 @@ class ImageToTextPipeline:
                     "success": False,
                     "error": "Failed to prepare image data"
                 }
-            
+
             # Use same prompt as original process
             prompt = get_image_to_text_prompt(extraction_mode, model)
-            
+            # Append optional user instruction if present
+            try:
+                ui = (enhancement_settings or {}).get('user_instruction')
+                if ui:
+                    prompt = f"{prompt}\n\nUser instruction:\n{ui}\n"
+                    logger.info(f"🧩 Appended user instruction ({len(ui)} chars)")
+            except Exception:
+                pass
+
+            # Set up progressive save callback if dossier context provided
+            progressive_save_callback = None
+            if dossier_id and transcription_id:
+                logger.info(f"💾 PROGRESSIVE SAVING ENABLED for dossier {dossier_id}, transcription {transcription_id}")
+                progressive_save_callback = self._create_progressive_save_callback(dossier_id, transcription_id)
+                logger.info("✅ Progressive save callback created and assigned")
+            else:
+                logger.info(f"⚠️ PROGRESSIVE SAVING DISABLED: dossier_id={dossier_id}, transcription_id={transcription_id}")
+
             # Delegate to redundancy processor
             json_mode = extraction_mode == "legal_document_json"
             return self.redundancy_processor.process(
@@ -336,15 +372,46 @@ class ImageToTextPipeline:
                 prompt=prompt,
                 model=model,
                 redundancy_count=redundancy_count,
-                json_mode=json_mode
+                json_mode=json_mode,
+                progressive_save_callback=progressive_save_callback
             )
-            
+
         except Exception as e:
             logger.error(f"Redundancy processing failed: {str(e)}")
             return {
                 "success": False,
                 "error": f"Redundancy processing failed: {str(e)}"
             }
+
+    def _create_progressive_save_callback(self, dossier_id: str, transcription_id: str):
+        """
+        Create a callback function for progressive draft saving.
+
+        Args:
+            dossier_id: The dossier identifier
+            transcription_id: The transcription identifier
+
+        Returns:
+            Callback function that saves individual drafts
+        """
+        def progressive_save_callback(draft_index: int, result: dict):
+            """Callback to save individual draft results progressively"""
+            try:
+                # Import here to avoid circular dependencies
+                from services.dossier.progressive_draft_saver import ProgressiveDraftSaver
+
+                saver = ProgressiveDraftSaver()
+                success = saver.save_draft_result(dossier_id, transcription_id, draft_index, result)
+
+                if success:
+                    logger.info(f"✅ Progressive save successful for draft v{draft_index + 1}")
+                else:
+                    logger.warning(f"⚠️ Progressive save failed for draft v{draft_index + 1}")
+
+            except Exception as e:
+                logger.error(f"❌ Progressive save callback failed for draft v{draft_index + 1}: {e}")
+
+        return progressive_save_callback
 
     async def select_final_draft(
         self,

@@ -1,5 +1,7 @@
 import React from 'react';
 import { useDropzone } from 'react-dropzone';
+import { dossierHighlightBus } from '../../services/dossier/dossierHighlightBus';
+import { DossierPicker } from '../dossier/DossierPicker';
 
 // Define interfaces for props to ensure type safety
 interface EnhancementSettings {
@@ -15,6 +17,11 @@ interface RedundancySettings {
   consensusStrategy: string;
 }
 
+interface ConsensusSettings {
+  enabled: boolean;
+  model: string;
+}
+
 interface ControlPanelProps {
   stagedFiles: File[];
   onDrop: (acceptedFiles: File[]) => void;
@@ -22,7 +29,8 @@ interface ControlPanelProps {
   draftCount: number;
   onShowDraftLoader: () => void;
   isProcessing: boolean;
-  onProcess: () => void;
+  onProcess: (userInstruction?: string) => void;
+  // processing mode is now auto-detected in the hook; no manual toggle
   availableModels: Record<string, any>;
   selectedModel: string;
   onModelChange: (model: string) => void;
@@ -34,6 +42,16 @@ interface ControlPanelProps {
   onShowEnhancementModal: () => void;
   redundancySettings: RedundancySettings;
   onRedundancySettingsChange: (settings: RedundancySettings) => void;
+  consensusSettings: ConsensusSettings;
+  onConsensusSettingsChange: (settings: ConsensusSettings) => void;
+  // DOSSIER SUPPORT
+  selectedDossierId?: string | null;
+  onDossierChange?: (dossierId: string | null) => void;
+  dossiers?: { id: string; title?: string; name?: string; segments?: { id: string; name: string }[] }[];
+  selectedSegmentId?: string | null; // null => new segment
+  onSegmentChange?: (segmentId: string | null) => void;
+  // Queue status
+  processingQueue?: { fileName: string; jobId?: string; status: 'queued' | 'processing' | 'done' | 'error' }[];
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -44,6 +62,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onShowDraftLoader,
   isProcessing,
   onProcess,
+  // processingMode removed; auto-managed
   availableModels,
   selectedModel,
   onModelChange,
@@ -55,14 +74,44 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onShowEnhancementModal,
   redundancySettings,
   onRedundancySettingsChange,
+  consensusSettings,
+  onConsensusSettingsChange,
+  // DOSSIER SUPPORT
+  selectedDossierId,
+  onDossierChange,
+  dossiers = [],
+  selectedSegmentId = null,
+  onSegmentChange,
+  processingQueue = [],
 }) => {
+  // Removed noisy debug logs for production clarity
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
       'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'],
     },
     multiple: true,
+    noDragEventsBubbling: true,
   });
+
+  // Optional user instruction appended to prompt
+  const [showInstruction, setShowInstruction] = React.useState(false);
+  const [instructionText, setInstructionText] = React.useState('');
+
+  // Desktop bridge: consume forwarded files from Tauri file-drop
+  React.useEffect(() => {
+    const handler = (ev: Event) => {
+      try {
+        const files: File[] = (ev as CustomEvent)?.detail?.files || [];
+        if (Array.isArray(files) && files.length > 0) {
+          onDrop(files);
+        }
+      } catch {}
+    };
+    document.addEventListener('files:dropped', handler as any);
+    return () => document.removeEventListener('files:dropped', handler as any);
+  }, [onDrop]);
 
   return (
     <div className="control-panel">
@@ -73,18 +122,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       <div className="import-section">
         <label>Import Files</label>
 
-        <div className="draft-loader-section">
-          <button
-            className="load-drafts-button"
-            onClick={onShowDraftLoader}
-            disabled={draftCount === 0}
-          >
-            📁 Load Saved Drafts ({draftCount})
-          </button>
-        </div>
+        {/* Mode toggle removed: mode auto-selected based on number of staged files */}
+
+        {/* Removed testing-only load saved drafts button */}
 
         <div
           {...getRootProps()}
+          data-allow-drop="true"
           className={`file-drop-zone ${isDragActive ? 'drag-active' : ''} ${
             stagedFiles.length > 0 ? 'has-files' : ''
           }`}
@@ -95,7 +139,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               <>
                 <div className="drop-icon">📁</div>
                 <div className="drop-text">
-                  <strong>Click to select files</strong> or drag and drop
+                  <strong>Click to select files</strong>
                 </div>
                 <div className="drop-hint">PNG, JPG, JPEG, GIF, BMP, WebP</div>
               </>
@@ -104,7 +148,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <div className="files-count">
                   {stagedFiles.length} file{stagedFiles.length > 1 ? 's' : ''} ready
                 </div>
-                <div className="drop-hint">Click to add more or drag additional files</div>
+                <div className="drop-hint">Click to add more</div>
               </>
             )}
           </div>
@@ -141,6 +185,42 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         </select>
       </div>
 
+      {/* Optional instruction */}
+      <div className="instruction-section" style={{ marginBottom: '1rem' }}>
+        <button
+          type="button"
+          className="enhancement-modal-btn"
+          onClick={() => setShowInstruction(v => !v)}
+          disabled={isProcessing}
+        >
+          {showInstruction ? 'Hide instruction' : 'Add instruction'}
+        </button>
+        {showInstruction && (
+          <div style={{ marginTop: '0.5rem' }}>
+            <textarea
+              value={instructionText}
+              onChange={(e) => setInstructionText(e.target.value)}
+              placeholder="Optional: add special instructions to append to the prompt..."
+              rows={4}
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '1px solid var(--border-color)',
+                borderRadius: 6,
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.9rem'
+              }}
+              disabled={isProcessing}
+            />
+            <small className="dossier-hint">
+              This will be appended to the prompt for this run.
+            </small>
+          </div>
+        )}
+      </div>
+
       <div className="extraction-section">
         <label>Extraction Mode</label>
         <select
@@ -159,6 +239,36 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             ))
           )}
         </select>
+      </div>
+
+      {/* DOSSIER SELECTION */}
+      <div className="dossier-section">
+        <label>Dossier Association</label>
+        <DossierPicker
+          dossiers={dossiers}
+          value={selectedDossierId || null}
+          onChange={(id) => onDossierChange?.(id)}
+          className="dossier-selector"
+        />
+        <small className="dossier-hint">
+          Choose an existing dossier or auto-create a new one
+        </small>
+        {selectedDossierId && (
+          <div className="segment-subsection" style={{ marginTop: '0.5rem' }}>
+            <label>Segment</label>
+            <select
+              value={selectedSegmentId || 'new'}
+              onChange={(e) => onSegmentChange?.(e.target.value === 'new' ? null : e.target.value)}
+              className="segment-selector"
+            >
+              <option value="new">Add as new segment</option>
+              {(dossiers.find(d => d.id === selectedDossierId)?.segments || []).map(s => (
+                <option key={s.id} value={s.id}>Add as run to: {s.name}</option>
+              ))}
+            </select>
+            <small className="dossier-hint">Default: new segment. Or pick an existing segment to add a new run.</small>
+          </div>
+        )}
       </div>
 
       <div className="enhancement-section">
@@ -230,19 +340,69 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         </div>
       </div>
 
+      {/* LLM Consensus Settings */}
+      <div className="consensus-section">
+        <label>AI Consensus</label>
+        <div className="redundancy-controls">
+          <div className="redundancy-toggle">
+            <input
+              type="checkbox"
+              id="consensus-enabled"
+              checked={consensusSettings.enabled}
+              onChange={(e) => onConsensusSettingsChange({ ...consensusSettings, enabled: e.target.checked })}
+            />
+            <label htmlFor="consensus-enabled">Enable LLM Consensus</label>
+          </div>
+
+          {consensusSettings.enabled && (
+            <div className="consensus-strategy-group" style={{ marginTop: '0.5rem' }}>
+              <label htmlFor="consensus-model">Consensus Model</label>
+              <select
+                id="consensus-model"
+                value={consensusSettings.model}
+                onChange={(e) => onConsensusSettingsChange({ ...consensusSettings, model: e.target.value })}
+                className="consensus-strategy-select"
+              >
+                <option value="gpt-5-consensus">GPT-5 (Consensus)</option>
+                <option value="gpt-5-mini-consensus">GPT-5 Mini (Consensus)</option>
+                <option value="gpt-5-nano-consensus">GPT-5 Nano (Consensus)</option>
+              </select>
+              <small className="consensus-strategy-hint">Runs only when redundancy is enabled (>1 drafts)</small>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="process-section">
         <button
           className={`process-button ${isProcessing ? 'processing' : ''}`}
-          onClick={onProcess}
+          onClick={() => onProcess(instructionText.trim() || undefined)}
           disabled={stagedFiles.length === 0 || isProcessing}
         >
           {isProcessing
             ? 'Processing...'
-            : `Process ${stagedFiles.length} File${
-                stagedFiles.length !== 1 ? 's' : ''
-              }`}
+            : (stagedFiles.length <= 1
+                ? `Process 1 File`
+                : `Queue ${Math.min(stagedFiles.length, 20)} File${stagedFiles.length !== 1 ? 's' : ''}`)}
         </button>
       </div>
+
+      {/* In-progress queue list persists after staging clears */}
+      {(isProcessing || (processingQueue && processingQueue.length > 0)) && (
+        <div className="queue-status" style={{ marginTop: '0.75rem' }}>
+          <label>In-Progress Queue</label>
+          <ul style={{ margin: 0, paddingLeft: '1rem' }}>
+            {processingQueue.map((q, idx) => {
+              const badge = q.status === 'processing' ? 'Processing' : q.status === 'queued' ? 'Queued' : q.status === 'done' ? 'Done' : 'Error';
+              return (
+                <li key={q.jobId || `${q.fileName}-${idx}`} style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  {badge} • {q.fileName}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }; 

@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { ParcelTracerLoader } from '../image-processing/ParcelTracerLoader';
 
-type InputMode = 'final-draft' | 'direct-input';
+type InputMode = 'finalized' | 'direct-input';
 
 interface TextToSchemaControlPanelProps {
   finalDraftText: string | null;
@@ -11,6 +11,10 @@ interface TextToSchemaControlPanelProps {
   isProcessing: boolean;
   onModelChange: (model: string) => void;
   onStartProcessing: (text?: string) => void; // Updated to accept optional text
+  finalizedDossiers: Array<{ dossier_id: string; title?: string; latest_generated_at?: string }>;
+  finalizedLoading: boolean;
+  selectedFinalizedId: string | null | undefined;
+  onSelectFinalized: (dossierId: string) => void;
 }
 
 export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> = ({
@@ -20,9 +24,13 @@ export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> =
   availableModels,
   isProcessing,
   onModelChange,
-  onStartProcessing
+  onStartProcessing,
+  finalizedDossiers,
+  finalizedLoading,
+  selectedFinalizedId,
+  onSelectFinalized
 }) => {
-  const [inputMode, setInputMode] = useState<InputMode>('final-draft');
+  const [inputMode, setInputMode] = useState<InputMode>('finalized');
   const [directText, setDirectText] = useState('');
 
   // Ensure we have a valid string for final draft
@@ -70,11 +78,11 @@ export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> =
         <h3>Input Source</h3>
         <div className="input-mode-toggle">
           <button
-            className={`mode-button ${inputMode === 'final-draft' ? 'active' : ''}`}
-            onClick={() => setInputMode('final-draft')}
+            className={`mode-button ${inputMode === 'finalized' ? 'active' : ''}`}
+            onClick={() => setInputMode('finalized')}
             disabled={isProcessing}
           >
-            📄 Use Final Draft
+            📦 Finalized Dossier
           </button>
           <button
             className={`mode-button ${inputMode === 'direct-input' ? 'active' : ''}`}
@@ -87,27 +95,41 @@ export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> =
       </div>
 
       {/* Input Source Status/Content */}
-      {inputMode === 'final-draft' ? (
-        <div className="final-draft-status">
-          <h3>Final Draft Status</h3>
-          {hasFinalDraft ? (
-            <div className="draft-available">
-              <div className="status-indicator available">✅ Available</div>
-              <div className="draft-info">
-                <span className="draft-length">{finalText.length} characters</span>
-                {finalDraftMetadata && (
-                  <span className="draft-method">
-                    Method: {finalDraftMetadata.selection_method || 'Unknown'}
-                  </span>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="draft-unavailable">
-              <div className="status-indicator unavailable">❌ Not Available</div>
-              <p className="draft-hint">
-                Complete image-to-text processing and select a final draft, or switch to direct text input.
-              </p>
+      {inputMode === 'finalized' ? (
+        <div className="finalized-selector">
+          <h3>Choose Finalized Dossier</h3>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <select
+              value={selectedFinalizedId || ''}
+              onChange={(e) => e.target.value && onSelectFinalized(e.target.value)}
+              disabled={isProcessing || finalizedLoading}
+              className="model-selector"
+              title="Select a finalized dossier snapshot"
+            >
+              <option value="">{finalizedLoading ? 'Loading...' : 'Select a finalized dossier…'}</option>
+              {finalizedDossiers.map(f => (
+                <option key={f.dossier_id} value={f.dossier_id}>
+                  {(f.title || f.dossier_id) + (f.latest_generated_at ? ` — ${new Date(f.latest_generated_at).toLocaleString()}` : '')}
+                </option>
+              ))}
+            </select>
+            {finalText?.trim()
+              ? <span className="status-indicator available">✅ Loaded</span>
+              : <span className="status-indicator unavailable">❌ Not Loaded</span>}
+            {/* Manual refresh control */}
+            <button
+              className="mode-button"
+              style={{ padding: '4px 8px' }}
+              disabled={!selectedFinalizedId || isProcessing}
+              onClick={() => selectedFinalizedId && onSelectFinalized(selectedFinalizedId)}
+              title="Refresh finalized snapshot"
+            >
+              Refresh
+            </button>
+          </div>
+          {!!finalText?.length && (
+            <div className="draft-info">
+              <span className="draft-length">{finalText.length} characters</span>
             </div>
           )}
         </div>
@@ -138,7 +160,7 @@ This Indenture, made this 3rd day of August, A.D. 1915, by and between...
 Beginning at a point on the west boundary of Section Two (2), Township Fourteen (14) North, Range Seventy-five (75) West..."
             className="direct-text-input"
             disabled={isProcessing}
-            rows={12}
+            rows={18}
           />
           {directText.trim() && (
             <div className="input-status">

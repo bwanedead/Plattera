@@ -2,23 +2,26 @@ import React, { useState } from 'react';
 import { AnimatedBorder } from '../AnimatedBorder';
 
 interface AlignmentButtonProps {
-  visible: boolean;
+  // visible is kept for backward compatibility but no longer hides the button
+  visible?: boolean;
   onAlign: () => void;
+  onTogglePanel?: () => void; // NEW: open/close panel without rerun
   isAligning: boolean;
   disabled?: boolean;
+  tooltip?: string;
 }
 
 export const AlignmentButton: React.FC<AlignmentButtonProps> = ({
-  visible,
+  visible = true,
   onAlign,
+  onTogglePanel,
   isAligning,
-  disabled = false
+  disabled = false,
+  tooltip
 }) => {
   const [isHovered, setIsHovered] = useState(false);
 
-  if (!visible) {
-    return null;
-  }
+  // Always render; rely on disabled state instead of hiding entirely
 
   return (
     <div className="alignment-button-container">
@@ -29,11 +32,21 @@ export const AlignmentButton: React.FC<AlignmentButtonProps> = ({
       >
         <button
           className={`alignment-button-bubble ${isAligning ? 'aligning' : ''} ${disabled ? 'disabled' : ''}`}
-          onClick={onAlign}
+          onClick={() => {
+            if (onTogglePanel && !isAligning) {
+              onTogglePanel();
+              return;
+            }
+            onAlign();
+          }}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
           disabled={disabled || isAligning}
-          title={isAligning ? 'Aligning drafts...' : 'Align drafts for confidence analysis'}
+          title={
+            isAligning
+              ? 'Aligning drafts...'
+              : (disabled ? (tooltip || 'Requires redundancy > 1 (at least 2 drafts) to run alignment') : 'Align drafts or toggle alignment panel')
+          }
         >
           {isAligning ? '⏳' : '🧬'}
         </button>

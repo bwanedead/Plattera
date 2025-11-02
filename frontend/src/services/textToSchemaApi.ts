@@ -7,6 +7,7 @@ export interface TextToSchemaRequest {
   text: string;
   parcel_id?: string;
   model?: string;
+  dossier_id?: string; // optional, included for metadata tagging
 }
 
 export interface TextToSchemaResponse {
@@ -104,6 +105,7 @@ export const getTextToSchemaModels = async (): Promise<SchemaModelsResponse> => 
     return {
       status: 'success',
       models: {
+        "gpt-5-nano": { name: "GPT-5 Nano", provider: "openai" },
         "gpt-5-mini": { name: "GPT-5 Mini", provider: "openai" },
         "gpt-5": { name: "GPT-5", provider: "openai" },
         "gpt-4o": { name: "GPT-4o", provider: "openai" }
@@ -130,3 +132,64 @@ export const getParcelSchema = async () => {
     throw error;
   }
 }; 
+
+/**
+ * Persist a schema result associated with a dossier
+ */
+export const saveSchemaForDossier = async (payload: {
+  dossier_id: string;
+  model_used?: string;
+  structured_data: any;
+  original_text: string;
+  metadata?: any;
+}) => {
+  const response = await fetch(`${API_BASE_URL}/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const txt = await response.text().catch(() => '');
+    throw new Error(`Failed to save schema (${response.status}): ${txt}`);
+  }
+  return response.json();
+};
+
+export const listSchemas = async (dossierId: string) => {
+  const res = await fetch(`${API_BASE_URL}/list?dossier_id=${encodeURIComponent(dossierId)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
+
+export const getSchema = async (dossierId: string, schemaId: string) => {
+  const res = await fetch(`${API_BASE_URL}/get?dossier_id=${encodeURIComponent(dossierId)}&schema_id=${encodeURIComponent(schemaId)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
+
+export const deleteSchema = async (dossierId: string, schemaId: string, force = false) => {
+  const res = await fetch(`${API_BASE_URL}/delete?dossier_id=${encodeURIComponent(dossierId)}&schema_id=${encodeURIComponent(schemaId)}&force=${force ? 'true' : 'false'}`, { method: 'DELETE' });
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}));
+    const detail = (body && body.detail) || body;
+    throw new Error(JSON.stringify({ type: 'conflict', detail }));
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
+
+export const bulkDeleteSchemas = async (items: Array<{ dossier_id: string; schema_id: string }>, force = false) => {
+  const res = await fetch(`${API_BASE_URL}/bulk-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, force })
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};
+
+export const listAllSchemas = async () => {
+  const res = await fetch(`${API_BASE_URL}/list-all`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+};

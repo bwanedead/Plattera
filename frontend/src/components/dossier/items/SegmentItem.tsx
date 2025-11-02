@@ -1,0 +1,271 @@
+// ============================================================================
+// SEGMENT ITEM COMPONENT
+// ============================================================================
+// Displays document segments with expandable runs and drafts
+// ============================================================================
+
+import React, { useState, useCallback } from 'react';
+import { Segment, DossierPath } from '../../../types/dossier';
+import { RunItem } from './RunItem';
+
+interface SegmentItemProps {
+  segment: Segment;
+  dossierId: string;
+  isExpanded: boolean;
+  isSelected: boolean;
+  selectedPath: DossierPath;
+  currentDisplayPath?: DossierPath;
+  expandedItems: Set<string>;
+  onToggleExpand: (id: string) => void;
+  onSelect: (path: DossierPath) => void;
+  onAction: (action: string, data?: any) => void;
+  onViewRequest?: (path: DossierPath) => void;
+}
+
+export const SegmentItem: React.FC<SegmentItemProps> = ({
+  segment,
+  dossierId,
+  isExpanded,
+  isSelected,
+  selectedPath,
+  currentDisplayPath,
+  expandedItems,
+  onToggleExpand,
+  onSelect,
+  onAction,
+  onViewRequest
+}) => {
+  // ============================================================================
+  // EARLY RETURN FOR INVALID DATA
+  // ============================================================================
+
+  if (!segment) {
+    console.warn('🚨 SegmentItem: No segment provided');
+    return null;
+  }
+
+  // ============================================================================
+  // LOCAL STATE
+  // ============================================================================
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(segment.name);
+  const [isHovered, setIsHovered] = useState(false);
+
+  // ============================================================================
+  // COMPUTED VALUES
+  // ============================================================================
+
+  const stats = {
+    runs: segment.runs?.length || 0,
+    drafts: (segment.runs || []).reduce((sum, run) => sum + (run.drafts?.length || 0), 0),
+    totalSize: (segment.runs || []).reduce((sum, run) =>
+      sum + (run.drafts || []).reduce((draftSum, draft) => draftSum + (draft.metadata?.sizeBytes || 0), 0), 0)
+  };
+
+  const formatSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  };
+
+  // ============================================================================
+  // EVENT HANDLERS
+  // ============================================================================
+
+  const handleClick = useCallback(() => {
+    onSelect({
+      dossierId,
+      segmentId: segment.id
+    });
+  }, [dossierId, segment.id, onSelect]);
+
+  const handleExpandWithAutoExpansion = useCallback(() => {
+    // First, toggle the segment expansion
+    onToggleExpand(segment.id);
+
+    // Check for auto-expansion: if segment has exactly 1 run,
+    // auto-expand the run to show drafts immediately
+    const runs = segment.runs || [];
+    if (runs.length === 1) {
+      // Auto-expand: segment -> run (which shows drafts)
+      setTimeout(() => {
+        onToggleExpand(runs[0].id);
+      }, 0);
+    }
+  }, [segment.id, segment.runs, onToggleExpand]);
+
+  const handleDoubleClick = useCallback(() => {
+    // Double-click now views the segment (first run's first draft)
+    console.log('👁️ Segment view request', { dossierId, segmentId: segment.id });
+    onViewRequest?.({ dossierId, segmentId: segment.id });
+  }, [onViewRequest, dossierId, segment.id]);
+
+  const handleContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    // Right-click → begin rename mode for segment
+    setIsEditing(true);
+    setEditValue(segment.name);
+  }, [segment.name]);
+
+  const handleEditSubmit = useCallback(() => {
+    const trimmedValue = editValue.trim();
+    if (trimmedValue && trimmedValue !== segment.name) {
+      onAction('rename_segment', { segmentId: segment.id, newName: trimmedValue });
+    }
+    setIsEditing(false);
+    setEditValue(segment.name);
+  }, [editValue, segment.name, onAction]);
+
+  const handleEditCancel = useCallback(() => {
+    setIsEditing(false);
+    setEditValue(segment.name);
+  }, [segment.name]);
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key === 'Enter') {
+      handleEditSubmit();
+    } else if (event.key === 'Escape') {
+      handleEditCancel();
+    }
+  }, [handleEditSubmit, handleEditCancel]);
+
+  // ============================================================================
+  // RENDER
+  // ============================================================================
+
+  return (
+    <div className="segment-item-container">
+      {/* Main segment row */}
+      <div
+        className={`segment-item ${(isSelected || (currentDisplayPath?.dossierId === dossierId && currentDisplayPath?.segmentId === segment.id)) ? 'selected' : ''}`}
+        onClick={(e) => {
+          // Click should not create lingering selection for sub-items
+          handleExpandWithAutoExpansion();
+        }}
+        onDoubleClick={handleDoubleClick}
+        onContextMenu={handleContextMenu}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        {/* Expand/collapse button */}
+        <div className="segment-indent">
+          <button
+            className="segment-expand-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleExpandWithAutoExpansion();
+            }}
+            aria-label={isExpanded ? 'Collapse segment' : 'Expand segment'}
+          >
+            {isExpanded ? '▼' : '▶'}
+          </button>
+        </div>
+
+        {/* Segment icon removed for minimal aesthetic */}
+
+        {/* Segment name (editable) */}
+        <div className="segment-name-section">
+          {isEditing ? (
+            <input
+              type="text"
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={handleEditSubmit}
+              onKeyDown={handleKeyDown}
+              className="segment-name-input"
+              autoFocus
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <span className="segment-name">
+              {segment.name}
+            </span>
+          )}
+        </div>
+
+        {/* Statistics */}
+        <div className="segment-stats">
+          <span className="stat-runs">{stats.runs} runs</span>
+          <span className="stat-drafts">{stats.drafts} drafts</span>
+          <span className="stat-size">{formatSize(stats.totalSize)}</span>
+        </div>
+
+        {/* Action buttons (visible on hover) */}
+        {(isHovered || isSelected) && (
+          <div className="segment-actions">
+            <button
+              className="dossier-action-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewRequest?.({ dossierId, segmentId: segment.id });
+              }}
+              title="View segment"
+            >
+              View
+            </button>
+            <button
+              className="dossier-action-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAction('add_segment', { targetId: dossierId });
+              }}
+              title="Add segment"
+            >
+              Add
+            </button>
+            <button
+              className="dossier-action-btn danger"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAction('delete_segment', { segmentId: segment.id, dossierId });
+              }}
+              title="Delete segment"
+            >
+              Delete
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Expanded content */}
+      {isExpanded && (
+        <div className="segment-expanded-content">
+          {/* Runs list */}
+          <div className="segment-runs">
+            {(segment.runs?.length || 0) === 0 ? (
+              <div className="no-runs">
+                <span className="no-runs-text">No runs yet</span>
+                <button
+                  className="add-first-run-btn"
+                  onClick={() => onAction('add_run')}
+                >
+                  Add Run
+                </button>
+              </div>
+            ) : (
+              segment.runs.map((run) => (
+                <RunItem
+                  key={run.id}
+                  run={run}
+                  segment={{ id: segment.id, name: segment.name }}
+                  dossier={{ id: dossierId }}
+                  isExpanded={expandedItems.has(run.id)}
+                  isSelected={selectedPath.runId === run.id}
+                  currentDisplayPath={currentDisplayPath}
+                  onToggleExpand={(id) => onToggleExpand(id)}
+                  onItemSelect={(path) => onSelect(path)}
+                  onItemAction={(action, data) => onAction(action, {
+                    ...data,
+                    runId: run.id
+                  })}
+                  onViewRequest={onViewRequest}
+                />
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

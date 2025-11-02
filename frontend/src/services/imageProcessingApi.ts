@@ -1,71 +1,88 @@
-import { EnhancementSettings, ProcessingResult, RedundancySettings, AlignmentDraft, AlignmentResult } from '../types/imageProcessing';
+import { EnhancementSettings, ProcessingResult, RedundancySettings, ConsensusSettings, AlignmentDraft, AlignmentResult } from '../types/imageProcessing';
 
 // --- API Calls for Image Processing Feature ---
 
-export const processFilesAPI = async (files: File[], model: string, mode: string, enhancementSettings: EnhancementSettings, redundancySettings: RedundancySettings): Promise<ProcessingResult[]> => {
+export const processFilesAPI = async (
+  files: File[],
+  model: string,
+  mode: string,
+  enhancementSettings: EnhancementSettings,
+  redundancySettings: RedundancySettings,
+  consensusSettings: ConsensusSettings,
+  dossierId?: string,
+  segmentId?: string,
+  transcriptionId?: string,
+  userInstruction?: string
+): Promise<ProcessingResult[]> => {
   console.log(`Processing ${files.length} files with model: ${model} and mode: ${mode}`);
-  
-  const results: ProcessingResult[] = [];
-  
-  for (const file of files) {
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('content_type', 'image-to-text');
-      formData.append('extraction_mode', mode);
-      formData.append('model', model);
-      formData.append('cleanup_after', 'true');
-      
-      // Add enhancement settings
-      formData.append('contrast', enhancementSettings.contrast.toString());
-      formData.append('sharpness', enhancementSettings.sharpness.toString());
-      formData.append('brightness', enhancementSettings.brightness.toString());
-      formData.append('color', enhancementSettings.color.toString());
-      
-      // Add redundancy setting
-      formData.append('redundancy', redundancySettings.enabled ? redundancySettings.count.toString() : '1');
-      
-      // Consensus strategy (only relevant when redundancy is enabled)
-      if (redundancySettings.enabled) {
-        formData.append('consensus_strategy', redundancySettings.consensusStrategy);
-      }
 
-      const response = await fetch('http://localhost:8000/api/process', {
-        method: 'POST',
-        body: formData
-      });
+  // If multiple files, enqueue as a batch to the server queue; else fall back to single endpoint
+  if (files.length > 1) {
+    const form = new FormData();
+    files.forEach((f) => form.append('files', f));
+    form.append('model', model);
+    form.append('extraction_mode', mode);
+    form.append('contrast', enhancementSettings.contrast.toString());
+    form.append('sharpness', enhancementSettings.sharpness.toString());
+    form.append('brightness', enhancementSettings.brightness.toString());
+    form.append('color', enhancementSettings.color.toString());
+    form.append('redundancy', (redundancySettings.enabled ? redundancySettings.count : 1).toString());
+    form.append('consensus_strategy', redundancySettings.consensusStrategy);
+    form.append('auto_llm_consensus', consensusSettings.enabled ? 'true' : 'false');
+    form.append('llm_consensus_model', consensusSettings.model);
+    if (dossierId) form.append('dossier_id', dossierId);
+    // Auto-create per-file dossier when user selected auto-create new dossier (no dossierId present)
+    form.append('auto_create_dossier_per_file', (!dossierId).toString());
+    if (userInstruction) form.append('user_instruction', userInstruction);
+    // Do NOT send a single transcription_id for batch; server will generate per-file IDs
 
-      const data = await response.json();
-
-      console.log("API response data:", data);
-
-      if (data.status === 'success') {
-        results.push({
-          input: file.name,
-          status: 'completed' as const,
-          result: {
-            extracted_text: data.extracted_text,
-            metadata: { ...data.metadata }
-          }
-        });
-      } else {
-        results.push({
-          input: file.name,
-          status: 'error' as const,
-          result: null,
-          error: data.error || 'Processing failed'
-        });
-      }
-    } catch (error) {
-      results.push({
-        input: file.name,
-        status: 'error' as const,
-        result: null,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+    const resp = await fetch('http://localhost:8000/api/image-to-text/jobs', { method: 'POST', body: form });
+    const data = await resp.json();
+    if (!resp.ok) {
+      throw new Error(data?.detail || data?.error || `HTTP ${resp.status}`);
     }
+    // We return placeholders for UI; results will be polled via job status if needed
+    const jobIds: string[] = data.job_ids || [];
+    return files.map((f, i) => ({ input: f.name, status: 'processing' as const, result: { metadata: { job_id: jobIds[i] } } } as ProcessingResult));
   }
-  
+
+  // Single file path - call existing endpoint to preserve behavior
+  const results: ProcessingResult[] = [];
+  const file = files[0];
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('content_type', 'image-to-text');
+    formData.append('extraction_mode', mode);
+    formData.append('model', model);
+    formData.append('cleanup_after', 'true');
+    formData.append('contrast', enhancementSettings.contrast.toString());
+    formData.append('sharpness', enhancementSettings.sharpness.toString());
+    formData.append('brightness', enhancementSettings.brightness.toString());
+    formData.append('color', enhancementSettings.color.toString());
+    formData.append('redundancy', redundancySettings.enabled ? redundancySettings.count.toString() : '1');
+    if (redundancySettings.enabled) {
+      formData.append('consensus_strategy', redundancySettings.consensusStrategy);
+    }
+    formData.append('auto_llm_consensus', consensusSettings.enabled ? 'true' : 'false');
+    formData.append('llm_consensus_model', consensusSettings.model);
+    if (dossierId) formData.append('dossier_id', dossierId);
+    if (segmentId) formData.append('segment_id', segmentId);
+    if (transcriptionId) formData.append('transcription_id', transcriptionId);
+    if (userInstruction) formData.append('user_instruction', userInstruction);
+
+    const endpoint = dossierId ? 'http://localhost:8000/api/dossier/process' : 'http://localhost:8000/api/process';
+    const response = await fetch(endpoint, { method: 'POST', body: formData });
+    const data = await response.json();
+    if (data.status === 'success') {
+      results.push({ input: file.name, status: 'completed' as const, result: { extracted_text: data.extracted_text, metadata: { ...data.metadata } } });
+    } else {
+      results.push({ input: file.name, status: 'error' as const, result: null, error: data.error || 'Processing failed' });
+    }
+  } catch (error) {
+    results.push({ input: file.name, status: 'error' as const, result: null, error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+
   return results;
 };
 
@@ -95,9 +112,36 @@ export const fetchModelsAPI = async () => {
   }
 };
 
+// --- LLM Consensus Retry API ---
+export const retryLlmConsensusAPI = async (params: {
+  drafts: string[];
+  model: string; // gpt-5-consensus | gpt-5-mini-consensus | gpt-5-nano-consensus
+  maxTokens?: number;
+  temperature?: number;
+  dossierId?: string;
+  transcriptionId?: string;
+}): Promise<{ success: boolean; consensus_text?: string; consensus_title?: string; error?: string }> => {
+  const response = await fetch('http://localhost:8000/api/llm-consensus/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      drafts: params.drafts,
+      model: params.model,
+      max_tokens: params.maxTokens ?? 6000,
+      temperature: params.temperature ?? 0.2
+    })
+  });
+  const data = await response.json();
+  return data;
+};
+
 // --- Alignment Engine API ---
 
-export const alignDraftsAPI = async (drafts: AlignmentDraft[], consensusStrategy: string = 'highest_confidence'): Promise<AlignmentResult> => {
+export const alignDraftsAPI = async (
+  drafts: AlignmentDraft[],
+  consensusStrategy: string = 'highest_confidence',
+  opts?: { transcriptionId?: string; consensusDraftId?: string; dossierId?: string }
+): Promise<AlignmentResult> => {
   try {
     console.log(`Aligning ${drafts.length} drafts with strategy: ${consensusStrategy}`);
     
@@ -110,7 +154,10 @@ export const alignDraftsAPI = async (drafts: AlignmentDraft[], consensusStrategy
         body: JSON.stringify({
           drafts,
           generate_visualization: true,
-          consensus_strategy: consensusStrategy
+          consensus_strategy: consensusStrategy,
+          transcription_id: opts?.transcriptionId,
+          dossier_id: opts?.dossierId,
+          consensus_draft_id: opts?.consensusDraftId
         })
       });
       if (!response.ok) {
@@ -201,3 +248,103 @@ export const selectFinalDraftAPI = async (
   console.log('✅ API Response:', data);
   return data;
 }; 
+
+// --- Dossier Edit Save API ---
+export const saveDossierEditAPI = async (params: {
+  dossierId: string;
+  transcriptionId: string;
+  editedText?: string;
+  editedSections?: Array<{ id: number | string; body: string }>;
+  draftIndex?: number; // NEW
+  consensusType?: 'llm' | 'alignment';
+  alignmentDraftIndex?: number; // NEW: for Av2 saves
+}): Promise<{ success: boolean; head?: string; raw_head?: string }> => {
+  const formData = new FormData();
+  formData.append('dossier_id', params.dossierId);
+  formData.append('transcription_id', params.transcriptionId);
+  if (params.editedSections && params.editedSections.length > 0) {
+    formData.append('edited_sections', JSON.stringify(params.editedSections));
+  } else {
+    formData.append('edited_text', params.editedText || '');
+  }
+  if (typeof params.draftIndex === 'number') {
+    formData.append('draft_index', String(params.draftIndex));
+  }
+  if (params.consensusType) {
+    formData.append('consensus_type', params.consensusType);
+  }
+  if (typeof params.alignmentDraftIndex === 'number') {
+    formData.append('alignment_draft_index', String(params.alignmentDraftIndex));
+  }
+
+  const response = await fetch('http://localhost:8000/api/dossier/edits/save', {
+    method: 'POST',
+    body: formData
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`HTTP ${response.status}: ${errorText}`);
+  }
+  return response.json();
+};
+
+// --- Backend-driven alignment by IDs (server loads v2→v1 JSON) ---
+export const alignDraftsByIdsAPI = async (params: {
+  dossierId: string;
+  transcriptionId: string;
+  draftIndices: number[]; // 1-based indices
+  versionPolicy?: 'prefer_v2_else_v1' | 'prefer_v1_else_v2';
+  excludeAlignmentVersions?: boolean;
+}): Promise<AlignmentResult> => {
+  const response = await fetch('http://localhost:8000/api/alignment/align-drafts/by-ids', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      dossier_id: params.dossierId,
+      transcription_id: params.transcriptionId,
+      draft_indices: params.draftIndices,
+      version_policy: params.versionPolicy ?? 'prefer_v2_else_v1',
+      exclude_alignment_versions: params.excludeAlignmentVersions ?? true
+    })
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
+  }
+  return response.json();
+};
+
+// --- Dossier Version Management API ---
+
+/**
+ * Revert a draft to its original v1 state
+ * This sets HEAD back to v1 and optionally purges v2 files
+ */
+export const revertToV1API = async (params: {
+  dossierId: string;
+  transcriptionId: string;
+  purge?: boolean;
+  draftIndex?: number; // NEW
+}): Promise<{ success: boolean }> => {
+  const formData = new FormData();
+  formData.append('dossier_id', params.dossierId);
+  formData.append('transcription_id', params.transcriptionId);
+  if (params.purge) {
+    formData.append('purge', 'true');
+  }
+  if (typeof params.draftIndex === 'number') {
+    formData.append('draft_index', String(params.draftIndex));
+  }
+
+  const response = await fetch('http://localhost:8000/api/dossier/versions/revert-to-v1', {
+    method: 'POST',
+    body: formData
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`HTTP ${response.status}: ${errorText}`);
+  }
+
+  return response.json();
+};

@@ -6,10 +6,13 @@ Dedicated endpoints for consensus draft generation from alignment results.
 Handles creating consensus drafts from Type 2 alignment table output.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Form
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import logging
+import json
+from datetime import datetime
+from pathlib import Path
 
 # Import the consensus generator
 from alignment.consensus_draft_generator import ConsensusDraftGenerator
@@ -104,6 +107,74 @@ async def generate_consensus_drafts(request: ConsensusRequest):
             success=False,
             error=str(e)
         )
+
+
+@router.post("/save-consensus-draft")
+async def save_consensus_draft(
+    transcription_id: str = Form(...),
+    consensus_id: str = Form(...),
+    consensus_data: str = Form(...)  # JSON string
+):
+    """
+    Save an alignment consensus draft to the dossier structure.
+    This creates a new draft file that will be discoverable in the dossier manager.
+    """
+    try:
+        logger.info(f"💾 Saving alignment consensus draft: {consensus_id}")
+
+        # Parse the consensus data
+        try:
+            consensus_info = json.loads(consensus_data)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid consensus data JSON: {e}")
+
+        # Find the transcription directory
+        backend_dir = Path(__file__).resolve().parents[2]
+        transcriptions_dir = backend_dir / "dossiers_data" / "views" / "transcriptions"
+
+        # Find the transcription directory that contains our transcription_id
+        transcription_dir = None
+        for subdir in transcriptions_dir.iterdir():
+            if subdir.is_dir():
+                for file in subdir.iterdir():
+                    if file.name.startswith(transcription_id) and file.suffix == '.json':
+                        transcription_dir = subdir
+                        break
+                if transcription_dir:
+                    break
+
+        if not transcription_dir:
+            raise HTTPException(status_code=404, detail=f"Transcription directory for {transcription_id} not found")
+
+        # Save the consensus draft JSON file
+        consensus_file = transcription_dir / f"{consensus_id}.json"
+        with open(consensus_file, 'w', encoding='utf-8') as cf:
+            json.dump({
+                "type": consensus_info.get("type", "alignment_consensus"),
+                "model": consensus_info.get("model", "biopython_alignment"),
+                "strategy": consensus_info.get("strategy", "highest_confidence"),
+                "title": f"Alignment Consensus ({consensus_info.get('source_drafts', 0)} drafts)",
+                "text": consensus_info.get("text", ""),
+                "source_drafts": consensus_info.get("source_drafts", 0),
+                "tokens_used": consensus_info.get("tokens_used", 0),
+                "created_at": consensus_info.get("created_at", datetime.now().isoformat()),
+                "metadata": consensus_info.get("metadata", {})
+            }, cf, indent=2, ensure_ascii=False)
+
+        logger.info(f"💾 Persisted alignment consensus JSON: {consensus_file}")
+
+        return {
+            "status": "success",
+            "consensus_id": consensus_id,
+            "file_path": str(consensus_file),
+            "message": "Alignment consensus draft saved successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to save alignment consensus draft: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save consensus draft: {str(e)}")
 
 
 @router.get("/health")

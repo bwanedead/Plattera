@@ -23,6 +23,8 @@ export interface ProcessingResult {
   }
 }
 
+const VERBOSE_DEBUG = typeof process !== 'undefined' && (process as any).env && (process as any).env.NEXT_PUBLIC_VERBOSE_LOGS === 'true';
+
 /**
  * Check if the extracted text is JSON format
  */
@@ -31,26 +33,39 @@ export function isJsonResult(extractedText: string): boolean {
   
   try {
     const parsed = JSON.parse(extractedText)
-    const isStructuredJson = parsed && typeof parsed === 'object' && 
-           parsed.documentId && Array.isArray(parsed.sections)
+    const hasSections = parsed && typeof parsed === 'object' && Array.isArray((parsed as any).sections)
+    const hasMainText = parsed && typeof parsed === 'object' && typeof (parsed as any).mainText === 'string'
+    const isStructuredJson = !!(hasSections || hasMainText)
     
-    console.log('🔍 JSON Detection:', {
+    if (VERBOSE_DEBUG) console.log('🔍 JSON Detection:', {
       textLength: extractedText.length,
       textPreview: extractedText.substring(0, 100),
       canParse: true,
-      hasDocumentId: !!parsed.documentId,
-      hasSections: Array.isArray(parsed.sections),
+      hasDocumentId: !!(parsed as any).documentId,
+      hasSections,
+      hasMainText,
       isStructuredJson
     });
     
     return isStructuredJson
   } catch (error) {
-    console.log('❌ JSON Detection failed:', {
+    if (VERBOSE_DEBUG) console.log('❌ JSON Detection failed:', {
       textLength: extractedText.length,
       textPreview: extractedText.substring(0, 100),
       error: error instanceof Error ? error.message : 'Unknown error'
     });
     return false
+  }
+}
+
+// Accept any valid JSON (used for JSON tab visibility even for non-sections schemas)
+export function canParseJson(text: string): boolean {
+  if (!text) return false;
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -60,17 +75,17 @@ export function isJsonResult(extractedText: string): boolean {
 export function parseJsonResult(extractedText: string): DocumentTranscription | null {
   try {
     const parsed = JSON.parse(extractedText)
-    if (parsed && parsed.documentId && Array.isArray(parsed.sections)) {
+    if (parsed && Array.isArray((parsed as any).sections)) {
       return parsed as DocumentTranscription
     }
-    console.log('⚠️ Parsed JSON but missing required structure:', {
-      hasDocumentId: !!parsed.documentId,
-      hasSections: Array.isArray(parsed.sections),
+    if (VERBOSE_DEBUG) console.log('⚠️ Parsed JSON but missing required structure:', {
+      hasDocumentId: !!(parsed as any).documentId,
+      hasSections: Array.isArray((parsed as any).sections),
       keys: Object.keys(parsed)
     });
     return null
   } catch (error) {
-    console.log('❌ JSON parse error, attempting to fix common issues:', error instanceof Error ? error.message : 'Unknown error');
+    if (VERBOSE_DEBUG) console.log('❌ JSON parse error, attempting to fix common issues:', error instanceof Error ? error.message : 'Unknown error');
     
     // Try to fix common JSON issues that might occur from editing
     try {
@@ -81,14 +96,14 @@ export function parseJsonResult(extractedText: string): DocumentTranscription | 
         .replace(/'/g, '"') // Replace single quotes with double quotes
         .replace(/,(\s*[}\]])/g, '$1'); // Remove trailing commas
       
-      console.log('🔧 Attempting to parse fixed JSON...');
+      if (VERBOSE_DEBUG) console.log('🔧 Attempting to parse fixed JSON...');
       const parsed = JSON.parse(fixedText)
-      if (parsed && parsed.documentId && Array.isArray(parsed.sections)) {
-        console.log('✅ Successfully parsed fixed JSON!');
+      if (parsed && Array.isArray((parsed as any).sections)) {
+        if (VERBOSE_DEBUG) console.log('✅ Successfully parsed fixed JSON!');
         return parsed as DocumentTranscription
       }
     } catch (fixError) {
-      console.log('❌ Could not fix JSON:', fixError instanceof Error ? fixError.message : 'Unknown error');
+      if (VERBOSE_DEBUG) console.log('❌ Could not fix JSON:', fixError instanceof Error ? fixError.message : 'Unknown error');
     }
     
     return null
@@ -96,72 +111,81 @@ export function parseJsonResult(extractedText: string): DocumentTranscription | 
 }
 
 /**
- * Format JSON result as readable text with proper section formatting
+ * Format JSON result as readable text with proper formatting
  */
 export function formatJsonAsText(extractedText: string): string {
-  console.log('🎨 Formatting JSON text:', {
+  if (VERBOSE_DEBUG) console.log('🎨 Formatting JSON text:', {
     inputLength: extractedText.length,
     inputPreview: extractedText.substring(0, 100)
   });
   
-  const parsed = parseJsonResult(extractedText)
-  if (!parsed) {
-    console.log('❌ Failed to parse JSON for formatting, applying basic text formatting as fallback');
-    
-    // Fallback: Apply basic formatting to make unformatted JSON more readable
-    try {
-      // Try to at least format it as pretty JSON for readability
-      const basicParsed = JSON.parse(extractedText);
-      const prettyFormatted = JSON.stringify(basicParsed, null, 2);
-      console.log('📝 Applied basic JSON pretty-formatting as fallback');
-      return prettyFormatted;
-    } catch {
-      // If even basic JSON parsing fails, apply minimal formatting
-      console.log('📝 Applying minimal text formatting as last resort');
-      return extractedText
-        .replace(/},/g, '},\n')
-        .replace(/{"/g, '{\n  "')
-        .replace(/}/g, '\n}')
-        .replace(/","/g, '",\n  "');
+  try {
+    const parsed: any = JSON.parse(extractedText)
+
+    // LEGAL (sections) path — unchanged
+    if (Array.isArray(parsed?.sections)) {
+      let formattedText = ''
+      parsed.sections.forEach((section: any, index: number) => {
+        if (section.header && section.header.trim()) {
+          formattedText += `${section.header.trim()}\n`
+        }
+        if (section.body && section.body.trim()) {
+          const normalizedBody = section.body.trim();
+          formattedText += `${normalizedBody}\n`;
+        }
+        if (index < parsed.sections.length - 1) {
+          formattedText += '\n';
+        }
+      })
+      const result = formattedText.trim();
+      if (VERBOSE_DEBUG) console.log('🎨 Formatting complete (sections):', {
+        outputLength: result.length,
+        outputPreview: result.substring(0, 200)
+      });
+      return result;
     }
+
+    // GENERIC (mainText + sideTexts) path
+    if (typeof parsed?.mainText === 'string') {
+      let formatted = (parsed.mainText || '').trim()
+
+      const sideTexts = Array.isArray(parsed.sideTexts) ? parsed.sideTexts : []
+      if (sideTexts.length) {
+        const sideFormatted = sideTexts
+          .map((s: any) => {
+            const type = (s?.type || 'other').toString().toUpperCase()
+            const text = (s?.text || '').toString().trim()
+            if (!text) return ''
+            return `[${type}]\n${text}`
+          })
+          .filter(Boolean)
+          .join('\n\n')
+        if (sideFormatted) {
+          formatted += (formatted ? '\n\n' : '') + sideFormatted
+        }
+      }
+
+      const result = formatted.trim()
+      if (VERBOSE_DEBUG) console.log('🎨 Formatting complete (generic):', {
+        outputLength: result.length,
+        outputPreview: result.substring(0, 200)
+      });
+      return result
+    }
+
+    // Fallback: pretty-print JSON
+    const prettyFormatted = JSON.stringify(parsed, null, 2);
+    if (VERBOSE_DEBUG) console.log('📝 Applied basic JSON pretty-formatting as fallback');
+    return prettyFormatted;
+  } catch {
+    // Last-resort minimal formatting if JSON fails
+    if (VERBOSE_DEBUG) console.log('📝 Applying minimal text formatting as last resort');
+    return extractedText
+      .replace(/},/g, '},\n')
+      .replace(/{"/g, '{\n  "')
+      .replace(/}/g, '\n}')
+      .replace(/","/g, '",\n  "');
   }
-
-  console.log('✅ Successfully parsed JSON:', {
-    documentId: parsed.documentId,
-    sectionsCount: parsed.sections.length
-  });
-
-  let formattedText = ''
-  
-  parsed.sections.forEach((section, index) => {
-    // Add section header if it exists
-    if (section.header && section.header.trim()) {
-      formattedText += `${section.header.trim()}\n`
-      // You can add an underline or other separator for the header if you like
-      // formattedText += '─'.repeat(Math.min(section.header.trim().length, 50)) + '\n';
-    }
-    
-    // Add section body
-    if (section.body && section.body.trim()) {
-      // Trim leading/trailing whitespace from the body but preserve internal newlines
-      const normalizedBody = section.body.trim();
-      formattedText += `${normalizedBody}\n`;
-    }
-    
-    // Add spacing between sections (except for the last one)
-    if (index < parsed.sections.length - 1) {
-      // Use two newlines to create a blank line between sections
-      formattedText += '\n';
-    }
-  })
-  
-  const result = formattedText.trim();
-  console.log('🎨 Formatting complete:', {
-    outputLength: result.length,
-    outputPreview: result.substring(0, 200)
-  });
-  
-  return result;
 }
 
 /**
@@ -237,7 +261,7 @@ export const extractCleanText = (content: string): string => {
   // Check if this looks like JSON
   if (cleanText.startsWith('{') || cleanText.startsWith('[') || cleanText.includes('"content":')) {
     try {
-      const parsed = JSON.parse(cleanText);
+      const parsed: any = JSON.parse(cleanText);
       
       // Handle different JSON structures
       if (parsed && typeof parsed === 'object') {
@@ -258,6 +282,19 @@ export const extractCleanText = (content: string): string => {
             })
             .filter((text: string) => text.length > 0)
             .join('\n\n'); // Use double newlines to separate sections
+        } else if (typeof parsed.mainText === 'string') {
+          let formatted = parsed.mainText.trim();
+          const sideTexts = Array.isArray(parsed.sideTexts) ? parsed.sideTexts : [];
+          if (sideTexts.length) {
+            const sideFormatted = sideTexts
+              .map((s: any) => (s?.text || '').toString().trim())
+              .filter((t: string) => t.length > 0)
+              .join('\n\n');
+            if (sideFormatted) {
+              formatted += (formatted ? '\n\n' : '') + sideFormatted;
+            }
+          }
+          cleanText = formatted;
         } else if (parsed.text) {
           cleanText = parsed.text;
         } else if (typeof parsed === 'string') {
@@ -270,7 +307,7 @@ export const extractCleanText = (content: string): string => {
       }
     } catch (e) {
       // If JSON parsing fails, clean up manually
-      console.log('Cleaning non-JSON text manually');
+      if (VERBOSE_DEBUG) console.log('Cleaning non-JSON text manually');
     }
   }
   

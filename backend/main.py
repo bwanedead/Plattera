@@ -17,9 +17,21 @@ import time
 from dotenv import load_dotenv
 load_dotenv()  # Load .env file
 
+# Ensure UTF-8 output for console/logging handlers (Windows cp1252 fix)
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
 from api.router import api_router
+from services.logging_service import init_logging
 from utils.health_monitor import get_health_monitor
 from pipelines.mapping.georeference.georeference_service import GeoreferenceService
+
+# NEW: static files for images
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 # Custom colored formatter for better log readability
 class ColoredFormatter(logging.Formatter):
@@ -85,6 +97,12 @@ def setup_logging():
 
 # Initialize logging
 setup_logging()
+try:
+    # Add rotating file + ring buffer handlers
+    init_logging()
+except Exception:
+    # Do not fail startup if file logging isn't available
+    pass
 logger = logging.getLogger(__name__)
 
 # Create FastAPI app
@@ -105,6 +123,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static images (originals and processed)
+try:
+    backend_root = Path(__file__).resolve().parents[0]
+    images_root = backend_root / "dossiers_data" / "images"
+    images_root.mkdir(parents=True, exist_ok=True)
+    (images_root / "original").mkdir(parents=True, exist_ok=True)
+    (images_root / "processed").mkdir(parents=True, exist_ok=True)
+    # Diagnostics for path issues
+    logging.getLogger(__name__).info(f"BOOT: __file__={Path(__file__).resolve()}")
+    logging.getLogger(__name__).info(f"BOOT: images_root={images_root.resolve()} exists={images_root.exists()}")
+    logging.getLogger(__name__).info(f"BOOT: original={(images_root / 'original').resolve()} exists={(images_root / 'original').exists()}")
+    logging.getLogger(__name__).info(f"BOOT: processed={(images_root / 'processed').resolve()} exists={(images_root / 'processed').exists()}")
+    stray = backend_root / "dossiers_data" / "immages"
+    if stray.exists():
+        logging.getLogger(__name__).warning(f"BOOT: stray folder detected (typo): {stray.resolve()}")
+    app.mount("/static/images", StaticFiles(directory=str(images_root), html=False), name="static-images")
+    logging.getLogger(__name__).info(f"🖼️ Static images mounted at /static/images -> {images_root.resolve()}")
+except Exception as e:
+    logging.getLogger(__name__).warning(f"⚠️ Failed to mount static images: {e}")
+
 # Include API router
 app.include_router(api_router)
 
@@ -121,9 +159,12 @@ async def startup_event():
     health_monitor = get_health_monitor()
     logger.info("🏥 Health monitoring initialized")
     
-    # Perform initial health check
+    # Perform initial health check (cheap)
     health_status = health_monitor.check_system_health()
     logger.info(f"🏥 Initial health check: {health_status['overall_status']}")
+
+    # Alignment warm-up is disabled by default to ensure fastest startup. The
+    # first alignment request will lazily initialize the service.
     
     logger.info("✅ Plattera API Server started successfully")
 
@@ -207,7 +248,7 @@ if __name__ == "__main__":
     # Configure uvicorn settings
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8000,
         reload=False,  # ← This will fix it
         log_level="info",

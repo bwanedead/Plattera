@@ -1,0 +1,948 @@
+// ============================================================================
+// DOSSIER MANAGER HOOK - ELITE STATE MANAGEMENT
+// ============================================================================
+// Comprehensive state management for the Dossier System
+// Features: optimistic updates, error recovery, caching, offline support
+// ============================================================================
+
+import { useReducer, useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { useProcessingPoller } from './useProcessingPoller';
+import { Dossier, DossierPath, DossierManagerState, DossierAction, SortOption } from '../types/dossier';
+import { dossierApi, DossierApiError } from '../services/dossier/dossierApi';
+import { getCachedDossiers } from '@/services/dossier/dossierPreload';
+
+// ============================================================================
+// INITIAL STATE
+// ============================================================================
+
+const initialState: DossierManagerState = {
+  dossiers: [],
+  selectedPath: {},
+  expandedItems: new Set(),
+  loadingStates: {
+    dossiers: false,
+    segments: {},
+    runs: {},
+    drafts: {}
+  },
+  errorStates: {
+    dossiers: null,
+    segments: {},
+    runs: {},
+    drafts: {}
+  },
+  searchQuery: '',
+  sortBy: 'date',
+  selectedItems: new Set()
+};
+
+// ============================================================================
+// SESSION STORAGE PERSISTENCE
+// ============================================================================
+
+const SESSION_KEYS = {
+  expanded: 'dossierManager.expandedItems',
+  selectedPath: 'dossierManager.selectedPath'
+} as const;
+
+function loadExpandedFromSession(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_KEYS.expanded);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return new Set(parsed.filter((x) => typeof x === 'string'));
+    return new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function loadSelectedPathFromSession(): DossierPath {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_KEYS.selectedPath);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    // Only allow known keys
+    const path: DossierPath = {
+      dossierId: typeof parsed?.dossierId === 'string' ? parsed.dossierId : undefined,
+      segmentId: typeof parsed?.segmentId === 'string' ? parsed.segmentId : undefined,
+      runId: typeof parsed?.runId === 'string' ? parsed.runId : undefined,
+      draftId: typeof parsed?.draftId === 'string' ? parsed.draftId : undefined
+    };
+    return path;
+  } catch {
+    return {};
+  }
+}
+
+function saveExpandedToSession(expanded: Set<string>) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(SESSION_KEYS.expanded, JSON.stringify(Array.from(expanded)));
+  } catch {}
+}
+
+function saveSelectedPathToSession(path: DossierPath) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(SESSION_KEYS.selectedPath, JSON.stringify(path || {}));
+  } catch {}
+}
+
+// ============================================================================
+// REDUCER - PURE STATE TRANSITIONS
+// ============================================================================
+
+function dossierReducer(state: DossierManagerState, action: DossierAction): DossierManagerState {
+  switch (action.type) {
+    case 'SELECT_PATH':
+      return {
+        ...state,
+        selectedPath: action.payload
+      };
+
+    case 'EXPAND_ITEM':
+      return {
+        ...state,
+        expandedItems: new Set([...state.expandedItems, action.payload])
+      };
+
+    case 'COLLAPSE_ITEM':
+      const newExpanded = new Set(state.expandedItems);
+      newExpanded.delete(action.payload);
+      return {
+        ...state,
+        expandedItems: newExpanded
+      };
+
+    case 'TOGGLE_EXPAND':
+      const toggled = new Set(state.expandedItems);
+      if (toggled.has(action.payload)) {
+        toggled.delete(action.payload);
+      } else {
+        toggled.add(action.payload);
+      }
+      return {
+        ...state,
+        expandedItems: toggled
+      };
+
+    case 'SET_LOADING':
+      return {
+        ...state,
+        loadingStates: {
+          ...state.loadingStates,
+          [action.payload.key]: action.payload.loading
+        }
+      };
+
+    case 'SET_ERROR':
+      return {
+        ...state,
+        errorStates: {
+          ...state.errorStates,
+          [action.payload.key]: action.payload.error
+        }
+      };
+
+    case 'UPDATE_DOSSIERS':
+      return {
+        ...state,
+        dossiers: action.payload,
+        loadingStates: {
+          ...state.loadingStates,
+          dossiers: false
+        },
+        errorStates: {
+          ...state.errorStates,
+          dossiers: null
+        }
+      };
+
+    case 'ADD_DOSSIER':
+      return {
+        ...state,
+        dossiers: [...state.dossiers, action.payload]
+      };
+
+    case 'UPDATE_DOSSIER':
+      return {
+        ...state,
+        dossiers: state.dossiers.map(d =>
+          d.id === action.payload.id ? action.payload : d
+        )
+      };
+
+    case 'DELETE_DOSSIER':
+      return {
+        ...state,
+        dossiers: state.dossiers.filter(d => d.id !== action.payload),
+        selectedPath: state.selectedPath.dossierId === action.payload
+          ? {}
+          : state.selectedPath
+      };
+
+    case 'REMOVE_DOSSIER':
+      return {
+        ...state,
+        dossiers: state.dossiers.filter(d => d.id !== action.payload)
+      };
+
+    case 'SET_SEARCH':
+      return {
+        ...state,
+        searchQuery: action.payload
+      };
+
+    case 'SET_SORT':
+      return {
+        ...state,
+        sortBy: action.payload
+      };
+
+    case 'SELECT_ITEM':
+      return {
+        ...state,
+        selectedItems: new Set([...state.selectedItems, action.payload])
+      };
+
+    case 'DESELECT_ITEM':
+      const deselected = new Set(state.selectedItems);
+      deselected.delete(action.payload);
+      return {
+        ...state,
+        selectedItems: deselected
+      };
+
+    case 'CLEAR_SELECTION':
+      return {
+        ...state,
+        selectedItems: new Set()
+      };
+
+    default:
+      return state;
+  }
+}
+
+// ============================================================================
+// MAIN HOOK - BUSINESS LOGIC & OPTIMISTIC UPDATES
+// ============================================================================
+
+export function useDossierManager() {
+  // Initialize with session state (lazy initializer to play nicely with Fast Refresh)
+  const [state, dispatch] = useReducer(
+    dossierReducer,
+    initialState,
+    (base) => ({
+      ...base,
+      expandedItems: loadExpandedFromSession(),
+      selectedPath: loadSelectedPathFromSession()
+    })
+  );
+
+  // Hydrate from read-only preload cache (first paint only)
+  useEffect(() => {
+    try {
+      const cached = getCachedDossiers();
+      if (cached && cached.length > 0) {
+        dispatch({ type: 'UPDATE_DOSSIERS', payload: cached as any });
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Pagination state (internal to hook to avoid broad type changes)
+  const PAGE_SIZE = 50;
+  const nextOffsetRef = useRef(0);
+  const isFetchingMoreRef = useRef(false);
+  const [hasMore, setHasMore] = useState(true);
+  // Tombstones: ids we deleted locally; never show until a successful reload confirms removal
+  const tombstonedIdsRef = useRef<Set<string>>(new Set());
+  // Version token to guard against stale merges
+  const listVersionRef = useRef<number>(0);
+
+  // ============================================================================
+  // OPTIMISTIC UPDATE UTILITIES
+  // ============================================================================
+
+  const executeOptimistically = useCallback(async <T>(
+    optimisticAction: DossierAction,
+    apiCall: () => Promise<T>,
+    rollbackAction?: DossierAction
+  ): Promise<T> => {
+    console.log('🔄 executeOptimistically: Starting optimistic update with action:', optimisticAction.type);
+    // Apply optimistic update
+    dispatch(optimisticAction);
+    const previousState = state;
+
+    // Debug: Check if the optimistic update was applied
+    console.log('🔄 executeOptimistically: Optimistic update applied, checking state...');
+    if (optimisticAction.type === 'UPDATE_DOSSIER') {
+      const updatedDossier = state.dossiers.find(d => d.id === optimisticAction.payload.id);
+      console.log('🔄 executeOptimistically: Updated dossier in state:', updatedDossier?.title || updatedDossier?.name);
+    }
+
+    try {
+      console.log('🔄 executeOptimistically: Calling API...');
+      const result = await apiCall();
+      console.log('✅ executeOptimistically: API call successful, result:', result);
+
+      // For successful updates, ensure the change is visible by dispatching a fresh update
+      if (optimisticAction.type === 'UPDATE_DOSSIER') {
+        console.log('🔄 executeOptimistically: Ensuring UPDATE_DOSSIER change is visible');
+        // Force a re-render by dispatching a fresh update with the result data
+        if (result && typeof result === 'object' && result !== null && 'id' in result && 'title' in result) {
+          dispatch({ type: 'UPDATE_DOSSIER', payload: result as unknown as Dossier });
+        }
+      } else if (optimisticAction.type === 'ADD_DOSSIER') {
+        console.log('🔄 executeOptimistically: Ensuring ADD_DOSSIER change is visible');
+        // Replace the temporary dossier with the real one from the API
+        if (result && typeof result === 'object' && result !== null && 'id' in result && 'title' in result) {
+          const realDossier = result as unknown as Dossier;
+          // Remove the temporary dossier and add the real one
+          dispatch({ type: 'REMOVE_DOSSIER', payload: optimisticAction.payload.id });
+          dispatch({ type: 'ADD_DOSSIER', payload: realDossier });
+        }
+      } else if (optimisticAction.type === 'DELETE_DOSSIER') {
+        tombstonedIdsRef.current.add((optimisticAction as any).payload);
+      }
+
+      // Update was successful, clear any errors
+      if (optimisticAction.type === 'UPDATE_DOSSIERS') {
+        dispatch({ type: 'SET_ERROR', payload: { key: 'dossiers', error: null } });
+      }
+
+      return result;
+    } catch (error) {
+      console.error('❌ executeOptimistically: API call failed:', error);
+      // Revert optimistic update
+      if (rollbackAction) {
+        console.log('🔄 executeOptimistically: Applying rollback action');
+        dispatch(rollbackAction);
+      } else {
+        console.log('🔄 executeOptimistically: No rollback action, reloading dossiers');
+        // Fallback: reload data
+        loadDossiers();
+      }
+
+      throw error;
+    }
+  }, [state]);
+
+  // ============================================================================
+  // DATA LOADING
+  // ============================================================================
+
+  const loadDossiers = useCallback(async () => {
+    const myVersion = ++listVersionRef.current;
+    const t0 = Date.now();
+    dispatch({ type: 'SET_LOADING', payload: { key: 'dossiers', loading: true } });
+    dispatch({ type: 'SET_ERROR', payload: { key: 'dossiers', error: null } });
+
+    try {
+      // Reset pagination
+      nextOffsetRef.current = 0;
+      const dossiers = await dossierApi.getDossiers({ limit: PAGE_SIZE, offset: 0 });
+      // Guard against stale responses
+      if (myVersion !== listVersionRef.current) return;
+      nextOffsetRef.current = dossiers.length;
+      setHasMore(dossiers.length === PAGE_SIZE);
+
+      // Heuristic auto-reconcile: if all drafts appear completed but run status isn't, ask backend to reconcile
+      try {
+        const candidates = dossiers.filter(d => {
+          const runs = (d.segments || []).flatMap(s => (s.runs || []));
+          return runs.some(r => {
+            const totalDrafts = (r.drafts || []).length || 0;
+            if (totalDrafts <= 0) return false;
+            const completedDrafts = (r.drafts || []).filter(dr => dr?.metadata?.status === 'completed').length;
+            const status = r.metadata?.status;
+            return completedDrafts >= totalDrafts && status !== 'completed';
+          });
+        });
+        if (candidates.length > 0) {
+          for (const d of candidates) {
+            try {
+              const res = await dossierApi.reconcileRuns(d.id);
+            } catch (e) {
+              // no-op
+            }
+          }
+          // Reload after reconciliation
+          try {
+            const refreshed = await dossierApi.getDossiers();
+            dispatch({ type: 'UPDATE_DOSSIERS', payload: refreshed });
+          } catch (e) {
+            // no-op
+          }
+        }
+      } catch {}
+      // Filter out tombstoned ids defensively
+      const filtered = dossiers.filter(d => !tombstonedIdsRef.current.has(d.id));
+      dispatch({ type: 'UPDATE_DOSSIERS', payload: filtered });
+    } catch (error) {
+      const errorMessage = error instanceof DossierApiError
+        ? error.message
+        : 'Failed to load dossiers';
+      dispatch({ type: 'SET_ERROR', payload: { key: 'dossiers', error: errorMessage } });
+      dispatch({ type: 'SET_LOADING', payload: { key: 'dossiers', loading: false } });
+    }
+  }, []);
+
+  const loadMoreDossiers = useCallback(async () => {
+    if (isFetchingMoreRef.current || !hasMore) return;
+    isFetchingMoreRef.current = true;
+    const myVersion = listVersionRef.current;
+    try {
+      const offset = nextOffsetRef.current;
+      const more = await dossierApi.getDossiers({ limit: PAGE_SIZE, offset });
+      if (myVersion !== listVersionRef.current) return; // stale
+      nextOffsetRef.current = offset + more.length;
+      setHasMore(more.length === PAGE_SIZE);
+      if (more.length > 0) {
+        // Append and dedupe by id
+        const existing = new Set<string>((state.dossiers || []).map(d => d.id));
+        const merged = [...state.dossiers, ...more.filter(d => !existing.has(d.id))].filter(d => !tombstonedIdsRef.current.has(d.id));
+        dispatch({ type: 'UPDATE_DOSSIERS', payload: merged });
+      }
+    } catch (e) {
+      // Non-fatal; keep hasMore as-is
+    } finally {
+      isFetchingMoreRef.current = false;
+    }
+  }, [hasMore, state.dossiers]);
+
+  // Soft refresh: merge first page without resetting pagination or order
+  const refreshDossiersSoft = useCallback(async () => {
+    try {
+      const myVersion = listVersionRef.current;
+      const firstPage = await dossierApi.getDossiers({ limit: PAGE_SIZE, offset: 0 });
+      if (myVersion !== listVersionRef.current) return; // stale
+      if (!Array.isArray(firstPage)) return;
+
+      const existing = (state.dossiers || []).filter(d => !tombstonedIdsRef.current.has(d.id));
+      const byId = new Map(existing.map(d => [d.id, d]));
+
+      // Update/insert items from first page (shallow), then deep-merge drafts metadata
+      for (const d of firstPage) {
+        if (tombstonedIdsRef.current.has(d.id)) return; // skip tombstoned
+        const prev = byId.get(d.id);
+        const base = { ...(prev || {}), ...d } as any;
+
+        // Deep-merge drafts to preserve richer metadata (like versions) if missing in incoming page
+        try {
+          const prevSegments = (prev as any)?.segments || [];
+          const nextSegments = (d as any)?.segments || [];
+          const mergedSegments = nextSegments.map((seg: any) => {
+            const prevSeg = prevSegments.find((ps: any) => ps.id === seg.id) || {};
+            const prevRuns = prevSeg.runs || [];
+            const nextRuns = seg.runs || [];
+            const mergedRuns = nextRuns.map((run: any) => {
+              const prevRun = prevRuns.find((pr: any) => pr.id === run.id) || {};
+              const prevDrafts = prevRun.drafts || [];
+              const nextDrafts = run.drafts || [];
+              const mergedDrafts = nextDrafts.map((dr: any) => {
+                const prevDr = prevDrafts.find((pdr: any) => pdr.id === dr.id) || {};
+                const mergedDr: any = { ...prevDr, ...dr };
+                // Preserve versions if missing on incoming
+                if (!mergedDr.metadata) mergedDr.metadata = {};
+                if (!dr?.metadata?.versions && prevDr?.metadata?.versions) {
+                  mergedDr.metadata.versions = prevDr.metadata.versions;
+                }
+                return mergedDr;
+              });
+              return { ...prevRun, ...run, drafts: mergedDrafts };
+            });
+            return { ...prevSeg, ...seg, runs: mergedRuns };
+          });
+          base.segments = mergedSegments;
+        } catch {}
+
+        byId.set(d.id, base);
+      }
+
+      // Preserve existing order, append newcomers to end to avoid top jumps
+      const existingIds = new Set(existing.map(d => d.id));
+      const mergedExisting = existing.map(d => byId.get(d.id) as typeof d).filter(Boolean);
+      const newcomers = firstPage.filter(d => !existingIds.has(d.id) && !tombstonedIdsRef.current.has(d.id));
+      const merged = [...mergedExisting, ...newcomers];
+
+      dispatch({ type: 'UPDATE_DOSSIERS', payload: merged });
+    } catch {
+      // non-fatal
+    }
+  }, [state.dossiers]);
+
+  // Targeted refresh: fetch single dossier details and merge
+  const refreshDossierById = useCallback(async (dossierId: string) => {
+    try {
+      const updated = await dossierApi.getDossier(dossierId);
+      const exists = (state.dossiers || []).some(d => d.id === dossierId);
+      const merged = exists
+        ? (state.dossiers || []).map(d => (d.id === dossierId ? updated : d))
+        : [...(state.dossiers || []), updated];
+      dispatch({ type: 'UPDATE_DOSSIERS', payload: merged });
+    } catch (e) {
+      // non-fatal
+    }
+  }, [state.dossiers]);
+
+  // ============================================================================
+  // CRUD OPERATIONS
+  // ============================================================================
+
+  const createDossier = useCallback(async (data: { title: string; description?: string }) => {
+    const tempId = `temp-${Date.now()}`;
+    const tempDossier: Dossier = {
+      id: tempId,
+      title: data.title,
+      description: data.description,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      segments: []
+    };
+
+    return executeOptimistically(
+      { type: 'ADD_DOSSIER', payload: tempDossier },
+      async () => {
+        const realDossier = await dossierApi.createDossier(data);
+        // Replace temp dossier with real one
+        dispatch({ type: 'UPDATE_DOSSIER', payload: realDossier });
+        dispatch({ type: 'DELETE_DOSSIER', payload: tempId });
+        return realDossier;
+      },
+      { type: 'DELETE_DOSSIER', payload: tempId }
+    );
+  }, [executeOptimistically]);
+
+  const updateDossier = useCallback(async (dossierId: string, data: Partial<Dossier>) => {
+    console.log('📝 updateDossier: Starting update for dossier:', dossierId, 'with data:', data);
+    const currentDossier = state.dossiers.find(d => d.id === dossierId);
+    if (!currentDossier) {
+      console.warn('⚠️ updateDossier: Dossier not found:', dossierId);
+      return;
+    }
+    console.log('📝 updateDossier: Found current dossier:', currentDossier.title || currentDossier.name);
+
+    const updatedDossier = {
+      ...currentDossier,
+      ...data,
+      updated_at: new Date().toISOString(),
+      // Ensure we create a new object reference for React to detect the change
+      title: data.title || currentDossier.title || currentDossier.name
+    };
+    console.log('📝 updateDossier: Created updated dossier:', updatedDossier.title || updatedDossier.name);
+
+    return executeOptimistically(
+      { type: 'UPDATE_DOSSIER', payload: updatedDossier },
+      () => {
+        console.log('📝 updateDossier: Calling dossierApi.updateDossier with data:', data);
+        return dossierApi.updateDossier(dossierId, data);
+      },
+      { type: 'UPDATE_DOSSIER', payload: currentDossier }
+    );
+  }, [state.dossiers, executeOptimistically]);
+
+  const deleteDossier = useCallback(async (dossierId: string) => {
+    const dossierToDelete = state.dossiers.find(d => d.id === dossierId);
+    if (!dossierToDelete) return;
+
+    return executeOptimistically(
+      { type: 'DELETE_DOSSIER', payload: dossierId },
+      () => dossierApi.deleteDossier(dossierId),
+      { type: 'ADD_DOSSIER', payload: dossierToDelete }
+    );
+  }, [state.dossiers, executeOptimistically]);
+
+  // ============================================================================
+  // NAVIGATION & SELECTION
+  // ============================================================================
+
+  const selectPath = useCallback((path: DossierPath) => {
+    dispatch({ type: 'SELECT_PATH', payload: path });
+    saveSelectedPathToSession(path);
+  }, []);
+
+  const expandItem = useCallback((itemId: string) => {
+    console.log('📂 Expanding item:', itemId);
+    dispatch({ type: 'EXPAND_ITEM', payload: itemId });
+  }, []);
+
+  const collapseItem = useCallback((itemId: string) => {
+    console.log('📂 Collapsing item:', itemId);
+    dispatch({ type: 'COLLAPSE_ITEM', payload: itemId });
+  }, []);
+
+  const toggleExpand = useCallback((itemId: string) => {
+    console.log('📂 Toggling expand for item:', itemId);
+    dispatch({ type: 'TOGGLE_EXPAND', payload: itemId });
+  }, []);
+
+  // Persist expandedItems whenever it changes
+  useEffect(() => {
+    saveExpandedToSession(state.expandedItems);
+  }, [state.expandedItems]);
+
+  // ============================================================================
+  // SEARCH & FILTERING
+  // ============================================================================
+
+  const setSearchQuery = useCallback((query: string) => {
+    dispatch({ type: 'SET_SEARCH', payload: query });
+  }, []);
+
+  const setSortBy = useCallback((sortBy: SortOption) => {
+    dispatch({ type: 'SET_SORT', payload: sortBy });
+  }, []);
+
+  // ============================================================================
+  // BULK OPERATIONS
+  // ============================================================================
+
+  const selectItem = useCallback((itemId: string) => {
+    dispatch({ type: 'SELECT_ITEM', payload: itemId });
+  }, []);
+
+  const deselectItem = useCallback((itemId: string) => {
+    dispatch({ type: 'DESELECT_ITEM', payload: itemId });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    dispatch({ type: 'CLEAR_SELECTION' });
+  }, []);
+
+  // Limited-concurrency bulk delete with summary and optional progress callback
+  const bulkDelete = useCallback(async (itemIds: string[], onProgress?: (done: number, total: number) => void) => {
+    // Optimistically remove items and tombstone to prevent reinsertion on stale merges
+    const itemsToRestore: Dossier[] = [];
+    itemIds.forEach(id => {
+      const dossier = state.dossiers.find(d => d.id === id);
+      if (dossier) {
+        itemsToRestore.push(dossier);
+        tombstonedIdsRef.current.add(id);
+        dispatch({ type: 'DELETE_DOSSIER', payload: id });
+      }
+    });
+
+    try {
+      // New job-based bulk delete: start job, drive progress via SSE then polling
+      const startRes = await fetch('http://localhost:8000/api/dossier-management/bulk/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetIds: itemIds })
+      });
+      if (!startRes.ok) throw new Error('Failed to start bulk delete');
+      const startData = await startRes.json();
+      const jobId = startData.job_id as string;
+      const total = startData.total as number;
+      if (onProgress) onProgress(0, total);
+
+      // Prefer SSE for real-time progress
+      let doneCount = 0;
+      let completed = false;
+      await new Promise<void>((resolve, reject) => {
+        let es: EventSource | null = null;
+        const finish = (ok: boolean) => {
+          try { es && es.close(); } catch {}
+          es = null;
+          if (ok) resolve(); else reject(new Error('Bulk delete failed'));
+        };
+        try {
+          es = new EventSource(`http://localhost:8000/api/dossier/bulk/progress/${encodeURIComponent(jobId)}`);
+          es.onmessage = (ev) => {
+            try {
+              const data = JSON.parse(ev.data || '{}');
+              if (data.type === 'dossier:deleted') {
+                doneCount += 1;
+                if (onProgress) onProgress(doneCount, total);
+              } else if (data.type === 'bulk:done') {
+                completed = true;
+                if (onProgress) onProgress(total, total);
+                finish(true);
+              }
+            } catch {}
+          };
+          es.onerror = () => {
+            try { es && es.close(); } catch {}
+            es = null;
+            // Switch to polling
+            const poll = async () => {
+              try {
+                while (!completed) {
+                  const stRes = await fetch(`http://localhost:8000/api/dossier-management/bulk/status/${encodeURIComponent(jobId)}`);
+                  if (!stRes.ok) throw new Error('status failed');
+                  const st = await stRes.json();
+                  doneCount = st.done || 0;
+                  if (onProgress) onProgress(doneCount, total);
+                  if (doneCount >= total) { completed = true; break; }
+                  await new Promise(r => setTimeout(r, 1000));
+                }
+                finish(true);
+              } catch {
+                finish(false);
+              }
+            };
+            (async () => { await poll(); })();
+          };
+        } catch {
+          finish(false);
+        }
+      });
+    } catch (error: any) {
+      const status = (error && (error.statusCode || error.status)) || 0;
+      const isAbort = error?.name === 'AbortError';
+      const isNetwork = error?.name === 'TypeError' || error?.name === 'NetworkError';
+      const isServer = typeof (error?.statusCode) === 'number' && error.statusCode >= 500;
+      if (status === 404 || status === 405 || isAbort || isNetwork || isServer) {
+        // Fallback: limited-concurrency per-id
+        const CONCURRENCY = Math.min(4, Math.max(1, itemIds.length));
+        let done = 0;
+        const queue = [...itemIds];
+        const workers = new Array(CONCURRENCY).fill(0).map(async () => {
+          while (queue.length) {
+            const id = queue.shift() as string;
+            try { await dossierApi.deleteDossier(id); } catch (e) { throw { id, error: e }; }
+            done += 1;
+            if (onProgress) onProgress(done, itemIds.length);
+          }
+        });
+        const failedIds: string[] = [];
+        try {
+          await Promise.all(workers);
+        } catch (e: any) {
+          if (e && e.id) failedIds.push(e.id);
+        }
+        if (failedIds.length) {
+          // Restore failures only and clear tombstones for them
+          failedIds.forEach(fid => {
+            tombstonedIdsRef.current.delete(fid);
+            const restore = itemsToRestore.find(d => d.id === fid);
+            if (restore) dispatch({ type: 'ADD_DOSSIER', payload: restore });
+          });
+          throw new Error(`Failed to delete ${failedIds.length} dossier(s).`);
+        }
+      } else {
+        // Unknown error, restore everything and clear tombstones
+        itemsToRestore.forEach(dossier => {
+          tombstonedIdsRef.current.delete(dossier.id);
+          dispatch({ type: 'ADD_DOSSIER', payload: dossier });
+        });
+        throw error;
+      }
+    }
+    return { deletedIds: itemIds, failedIds: [] as string[] };
+  }, [state.dossiers]);
+
+  // ============================================================================
+  // COMPUTED VALUES
+  // ============================================================================
+
+  const filteredDossiers = useMemo(() => {
+    let filtered = (state.dossiers || []).filter(d => !tombstonedIdsRef.current.has(d.id));
+
+    // Apply search filter
+    if (state.searchQuery) {
+      const query = state.searchQuery.toLowerCase();
+      filtered = filtered.filter(dossier =>
+        (dossier.title || dossier.name || '').toLowerCase().includes(query) ||
+        (dossier.description || '').toLowerCase().includes(query)
+      );
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      switch (state.sortBy) {
+        case 'name':
+          // Backend sends 'title', frontend expects 'name'
+          return (a.title || a.name || '').localeCompare(b.title || b.name || '');
+        case 'date':
+          // Backend sends 'updated_at'
+          const aDateStr = a.updated_at;
+          const bDateStr = b.updated_at;
+          const aDate = aDateStr ? new Date(aDateStr).getTime() : 0;
+          const bDate = bDateStr ? new Date(bDateStr).getTime() : 0;
+          return bDate - aDate;
+        case 'size':
+          // Backend doesn't send metadata yet, use fallback
+          return 0; // Equal for now
+        case 'activity':
+          // Backend doesn't send metadata yet, use fallback
+          return 0; // Equal for now
+        default:
+          return 0;
+      }
+    });
+
+    return filtered;
+  }, [state.dossiers, state.searchQuery, state.sortBy]);
+
+  const isLoading = useMemo(() => {
+    return state.loadingStates.dossiers ||
+           Object.values(state.loadingStates.segments).some(Boolean) ||
+           Object.values(state.loadingStates.runs).some(Boolean) ||
+           Object.values(state.loadingStates.drafts).some(Boolean);
+  }, [state.loadingStates]);
+
+  const hasError = useMemo(() => {
+    return state.errorStates.dossiers !== null ||
+           Object.values(state.errorStates.segments).some(Boolean) ||
+           Object.values(state.errorStates.runs).some(Boolean) ||
+           Object.values(state.errorStates.drafts).some(Boolean);
+  }, [state.errorStates]);
+
+  // ============================================================================
+  // EFFECTS
+  // ============================================================================
+
+  // Load dossiers on mount, but give backend a brief moment to become reachable
+  useEffect(() => {
+    (async () => {
+      try {
+        const { dossierApi } = await import('../services/dossier/dossierApi');
+        let ok = await dossierApi.health(600);
+        if (!ok) {
+          await new Promise(r => setTimeout(r, 700));
+          ok = await dossierApi.health(600);
+        }
+      } catch {}
+      await loadDossiers();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // loadDossiers is stable due to useCallback with empty deps
+
+  // Progressive refresh while processing is ongoing
+  const isProcessingActive = useMemo(() => {
+    return (state.dossiers || []).some(d =>
+      (d.segments || []).some(s =>
+        (s.runs || []).some(r =>
+          r?.metadata?.status === 'processing' ||
+          (r.drafts || []).some(dr => dr?.metadata?.status === 'processing')
+        )
+      )
+    );
+  }, [state.dossiers]);
+
+  useProcessingPoller(state.dossiers, loadDossiers, 2000, isProcessingActive);
+
+  // ============================================================================
+  // RETURN INTERFACE
+  // ============================================================================
+
+  return {
+    // State
+    state,
+    filteredDossiers,
+    isLoading,
+    hasError,
+
+    // Actions
+    loadDossiers,
+    createDossier,
+    updateDossier,
+    deleteDossier,
+    selectPath,
+    expandItem,
+    collapseItem,
+    toggleExpand,
+    setSearchQuery,
+    setSortBy,
+    selectItem,
+    deselectItem,
+    clearSelection,
+    bulkDelete,
+
+    // Utilities
+    executeOptimistically,
+    refreshDossiersSoft,
+    refreshDossierById,
+
+    // Pagination
+    loadMoreDossiers,
+    hasMore
+  };
+}
+
+// ============================================================================
+// ADDITIONAL HOOKS FOR SPECIFIC FUNCTIONALITY
+// ============================================================================
+
+// Hook for keyboard navigation
+export function useDossierKeyboardNavigation(onAction: (action: string, data?: any) => void) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Prevent default browser behavior for our shortcuts
+      if (event.ctrlKey || event.metaKey || event.altKey) {
+        switch (event.key) {
+          case 'n':
+            if (event.ctrlKey || event.metaKey) {
+              event.preventDefault();
+              onAction('create_dossier');
+            }
+            break;
+          case 'f':
+            if (event.ctrlKey || event.metaKey) {
+              event.preventDefault();
+              onAction('focus_search');
+            }
+            break;
+          case 'Delete':
+          case 'Backspace':
+            event.preventDefault();
+            onAction('delete_selected');
+            break;
+          case 'F2':
+            event.preventDefault();
+            onAction('rename_selected');
+            break;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onAction]);
+}
+
+// Hook for context menu handling
+export function useDossierContextMenu(
+  onAction: (action: string, data?: any) => void,
+  selectedItems: Set<string>
+) {
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    targetId: string;
+    targetType: string;
+  } | null>(null);
+
+  const showContextMenu = useCallback((event: MouseEvent, targetId: string, targetType: string) => {
+    event.preventDefault();
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      targetId,
+      targetType
+    });
+  }, []);
+
+  const hideContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  const handleContextAction = useCallback((action: string) => {
+    if (contextMenu) {
+      onAction(action, { targetId: contextMenu.targetId, targetType: contextMenu.targetType });
+      hideContextMenu();
+    }
+  }, [contextMenu, onAction, hideContextMenu]);
+
+  return {
+    contextMenu,
+    showContextMenu,
+    hideContextMenu,
+    handleContextAction
+  };
+}

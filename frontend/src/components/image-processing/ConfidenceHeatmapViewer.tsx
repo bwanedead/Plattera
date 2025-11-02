@@ -13,6 +13,7 @@ interface ConfidenceHeatmapViewerProps {
   onTextUpdate: (newText: string) => void;
   // New editing-related props
   onApplyEdit?: (blockIndex: number, tokenIndex: number, newValue: string, editType?: 'alternative_selection' | 'manual_edit') => void;
+  onSaveEditedContent?: (payload?: { sections?: Array<{ id: number | string; body: string }>; text?: string }) => Promise<void> | void; // Persist Av2 after edit
   editableDraftState?: {
     hasUnsavedChanges: boolean;
     canUndo: boolean;
@@ -46,6 +47,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
   alignmentResult,
   onTextUpdate,
   onApplyEdit,
+  onSaveEditedContent,
   editableDraftState,
   onUndoEdit,
   onRedoEdit,
@@ -76,15 +78,11 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
       if (!alignmentBlock || !alignmentBlock.aligned_sequences) return [];
 
       // === CALCULATE AGREEMENT PERCENTAGE FROM ALIGNMENT TABLE ===
-      console.log(`🌈 DYNAMIC HEATMAP CALCULATION ► Block ${blockIndex}`);
-      
       const sequences = alignmentBlock.aligned_sequences;
       if (!sequences || sequences.length < 2) return [];
 
       const maxLength = Math.max(...sequences.map((seq: any) => seq.tokens?.length || 0));
       const totalDrafts = sequences.length;
-      
-      console.log(`🌈 Block ${blockIndex}: ${totalDrafts} drafts, ${maxLength} positions`);
 
       const wordDataForBlock: WordData[] = [];
       
@@ -146,19 +144,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
           }
         });
 
-        // Log detailed agreement analysis
-        if (agreementPercentage < 1.0) {
-          console.log(`🌈 DISAGREEMENT at position ${position}:`, {
-            totalDrafts,
-            validTokens,
-            tokenCounts: Object.fromEntries(tokenCounts),
-            maxCount,
-            agreementPercentage: `${(agreementPercentage * 100).toFixed(1)}%`,
-            consensusToken,
-            displayToken,
-            alternatives: alternatives.map(a => a.word)
-          });
-        }
+        // Removed verbose disagreement logging
 
         const wordKey = `${blockId}_${position}`;
         const hasBeenEdited = editableDraftState?.editHistory?.some((edit: any) => 
@@ -193,9 +179,7 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
         });
       }
 
-      const disagreementCount = wordDataForBlock.filter(w => w.confidence < 1.0).length;
-      console.log(`🌈 Block ${blockIndex} processed: ${wordDataForBlock.length} tokens, ${disagreementCount} disagreements`);
-      
+      // Removed per-block summary logging
       return wordDataForBlock;
     });
 
@@ -359,10 +343,18 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
     }
   };
 
-  const handleSelectAlternative = (blockIndex: number, wordIndex: number, newWord: string) => {
+  const handleSelectAlternative = async (blockIndex: number, wordIndex: number, newWord: string) => {
     // Use the new editing system if available
     if (onApplyEdit) {
       onApplyEdit(blockIndex, wordIndex, newWord, 'alternative_selection');
+      // Rebuild block strings using current view with the selected replacement
+      const newBlocksOfWordStrings = blocksOfWordData.map((block, bIndex) =>
+        block.map((w, idx) => (bIndex === blockIndex && idx === wordIndex ? newWord : w.word))
+      );
+      const newText = newBlocksOfWordStrings.map(words => words.join(' ')).join('\n\n');
+      onTextUpdate(newText);
+      const sections = newBlocksOfWordStrings.map((words, i) => ({ id: i + 1, body: words.join(' ') }));
+      try { await onSaveEditedContent?.({ sections, text: newText }); } catch {}
     } else {
       // Fallback to old system for backward compatibility
       const newBlocksOfWordData = blocksOfWordData.map((block, bIndex) => {
@@ -376,6 +368,8 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
 
       const newText = newBlocksOfWordData.map(block => block.join(' ')).join('\n\n');
       onTextUpdate(newText);
+      const sections = newBlocksOfWordData.map((block, i) => ({ id: i + 1, body: block.join(' ') }));
+      try { await onSaveEditedContent?.({ sections, text: newText }); } catch {}
     }
 
     // Mark this word as confirmed
@@ -396,12 +390,19 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
     setEditingValue(event.target.value);
   };
 
-  const handleEditSubmit = (blockIndex: number, wordIndex: number) => {
+  const handleEditSubmit = async (blockIndex: number, wordIndex: number) => {
     if (editingValue.trim() === '') return;
     
     // Use the new editing system if available
     if (onApplyEdit) {
       onApplyEdit(blockIndex, wordIndex, editingValue, 'manual_edit');
+      const newBlocks = blocksOfWordData.map((block, bIndex) =>
+        block.map((w, idx) => (bIndex === blockIndex && idx === wordIndex ? editingValue : w.word))
+      );
+      const newText = newBlocks.map(words => words.join(' ')).join('\n\n');
+      onTextUpdate(newText);
+      const sections = newBlocks.map((block, i) => ({ id: i + 1, body: block.join(' ') }));
+      try { await onSaveEditedContent?.({ sections, text: newText }); } catch {}
     } else {
       // Fallback to old system for backward compatibility
       const targetBlock = blocksOfWordData[blockIndex];
@@ -420,7 +421,10 @@ export const ConfidenceHeatmapViewer: React.FC<ConfidenceHeatmapViewerProps> = (
         return block.map(w => w.word).join(' ');
       });
 
-      onTextUpdate(newBlocksOfText.join('\n\n'));
+      const newText = newBlocksOfText.join('\n\n');
+      onTextUpdate(newText);
+      const sections = newBlocksOfText.map((body, i) => ({ id: i + 1, body }));
+      try { await onSaveEditedContent?.({ sections, text: newText }); } catch {}
     }
 
     // Mark as confirmed and exit editing mode
