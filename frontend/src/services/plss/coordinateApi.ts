@@ -178,7 +178,7 @@ export interface PLSSCacheEntry {
   cell_identifier: string;
 }
 
-class PLSSCacheService {
+export class PLSSCacheService {
   private cache = new Map<string, PLSSCacheEntry>();
   private readonly CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 

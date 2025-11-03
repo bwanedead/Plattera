@@ -255,3 +255,6 @@ backend/saved_drafts/
 frontend/src-tauri/keys/**
 updater-private.key
 updater-private.pem
+
+# Build artifacts
+frontend/out/

@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import '../styles/components/loaders.css';
 
 interface ProcessingStatusProps {
   isProcessing: boolean;
