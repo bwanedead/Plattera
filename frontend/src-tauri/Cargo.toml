@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.0"
+version = "0.9.0"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
@@ -28,3 +28,4 @@ sysinfo = { version = "0.30", features = ["multithread"] }
 ureq = { version = "2.9", default-features = false, features = ["tls", "json"] }
 ctrlc = "3.4"
 tauri-plugin-shell = "2"
+tauri-plugin-updater = "2"

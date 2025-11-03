@@ -250,3 +250,8 @@ backend/dossiers_data/
 
 # Legacy alignment test drafts (not part of dossier system)
 backend/saved_drafts/
+
+# Updater signing keys (do not commit)
+frontend/src-tauri/keys/**
+updater-private.key
+updater-private.pem

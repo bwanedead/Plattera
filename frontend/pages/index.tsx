@@ -7,6 +7,7 @@ import ResultsViewer from '../src/components/ResultsViewer'
 import { ImageProcessingWorkspace } from '../src/components/image-processing/ImageProcessingWorkspace';
 import { TextToSchemaWorkspace } from '../src/components/TextToSchemaWorkspace'
 import { useWorkspaceNavigation } from '../src/hooks/useWorkspaceState'
+import { AppVersionBadge } from '../src/components/AppVersionBadge'
 
 type ProcessingMode = 'text' | 'image' | null
 
@@ -128,6 +129,36 @@ const App: React.FC = () => {
               >
                 Set / Update API Key
               </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const { check } = await import('@tauri-apps/plugin-updater')
+                    const update = await check()
+                    if (update?.available) {
+                      await update.downloadAndInstall()
+                      alert('Update downloaded. Please restart the app to finish installing.')
+                    } else {
+                      alert('You are up to date.')
+                    }
+                  } catch (e: any) {
+                    alert('Updater not available in this build or failed to initialize.')
+                  }
+                }}
+                style={{
+                  display: 'inline-block',
+                  marginLeft: 12,
+                  padding: '12px 24px',
+                  backgroundColor: 'transparent',
+                  color: 'var(--accent-primary)',
+                  border: '1px solid var(--accent-primary)',
+                  borderRadius: '4px',
+                  textDecoration: 'none',
+                  fontWeight: 600,
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                Check for Updates
+              </button>
             </div>
           </div>
         )
@@ -138,6 +169,7 @@ const App: React.FC = () => {
     <div className="app-workspace">
       {renderContent()}
       <ApiKeyModal open={showKeyModal} onClose={() => setShowKeyModal(false)} onSaved={() => location.reload()} />
+      <AppVersionBadge />
     </div>
   )
 }

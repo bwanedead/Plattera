@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Plattera",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "identifier": "com.plattera.app",
   "build": {
     "frontendDist": "../out",
@@ -36,5 +36,15 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "dialog": true,
+      "endpoints": [
+        "https://github.com/bwanedead/Plattera/releases/latest/download/latest.json"
+      ],
+      "pubkey": "REPLACE_WITH_BASE64_PUBLIC_KEY"
+    }
   }
 }

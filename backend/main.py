@@ -114,10 +114,14 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Add CORS middleware
+# Add CORS middleware – restrict to Tauri desktop and localhost dev by default
+# This works without any .env and is agnostic to the frontend port.
+SAFE_LOCAL_REGEX = r"^(tauri://localhost|https?://(localhost|127\.0\.0\.1)(:\\d+)?)$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=[],              # use regex instead
+    allow_origin_regex=SAFE_LOCAL_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

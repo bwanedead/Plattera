@@ -142,6 +142,8 @@ pub fn run() {
             }
             // Register shell plugin for sidecar
             app.handle().plugin(tauri_plugin_shell::init())?;
+            // Updater plugin (GitHub Releases)
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             
             // Auto-start backend when app launches
             let app_handle = app.handle().clone();
