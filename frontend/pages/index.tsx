@@ -86,7 +86,6 @@ const App: React.FC = () => {
           <div className="home-view">
             <div className="home-header">
               <h1>Plattera<span>.</span></h1>
-              <p>Professional Legal Description Processing Suite</p>
             </div>
             <div className="home-options">
               {/* Image to Text Card (Left) */}
