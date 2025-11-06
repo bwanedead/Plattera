@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { AlignmentState, AlignmentDraft, AlignmentResult } from '../types/imageProcessing';
 import { alignDraftsAPI, alignDraftsByIdsAPI } from '../services/imageProcessingApi';
 import { generateConsensusDrafts } from '../services/consensusApi';
@@ -19,7 +19,23 @@ export const useAlignmentState = () => {
   const [showAlignmentTable, setShowAlignmentTable] = useState(false);
   const [selectedConsensusStrategy, setSelectedConsensusStrategy] = useState<string>('highest_confidence');
 
+  // Guards to ensure alignment results never bleed across contexts
+  const latestKeyRef = useRef<string>('');
+  const latestRunRef = useRef<string>('');
+  const makeContextKey = (res: any): string => {
+    const t = res?.result?.metadata?.transcription_id || '';
+    const d = res?.result?.metadata?.dossier_id || '';
+    return `${d}:${t}`;
+  };
+
   const handleAlign = useCallback(async (selectedResult: any) => {
+    // Establish run guards
+    const myKey = makeContextKey(selectedResult);
+    const myRun = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    latestKeyRef.current = myKey;
+    latestRunRef.current = myRun;
+    const stillCurrent = () => latestRunRef.current === myRun && latestKeyRef.current === myKey;
+
     const transcriptionId = selectedResult?.result?.metadata?.transcription_id;
     const dossierId = selectedResult?.result?.metadata?.dossier_id;
 
@@ -59,13 +75,15 @@ export const useAlignmentState = () => {
           const draftIndices = hasRedundancy
             ? rawDraftResults.map((_: any, i: number) => i + 1)
             : [1, 2];
-          alignmentResult = await alignDraftsByIdsAPI({
+          const r = await alignDraftsByIdsAPI({
             dossierId,
             transcriptionId,
             draftIndices,
             versionPolicy: 'prefer_v2_else_v1',
             excludeAlignmentVersions: true
           });
+          if (!stillCurrent()) return;
+          alignmentResult = r;
         } catch (e) {
           console.warn('⚠️ Backend-driven alignment failed, falling back to client-built payload:', e);
         }
@@ -82,18 +100,21 @@ export const useAlignmentState = () => {
               }))
             )
           : [];
+        if (!stillCurrent()) return;
         const drafts = draftsAll.filter(d => (d?.blocks?.[0]?.text || '').trim().length > 0);
         if (!transcriptionId && drafts.length < 2) {
           console.warn('⚠️ Alignment aborted: need at least 2 non-empty drafts');
-          setAlignmentState(prev => ({ ...prev, isAligning: false }));
+          if (stillCurrent()) setAlignmentState(prev => ({ ...prev, isAligning: false }));
           return;
         }
         if (drafts.length >= 2) {
-          alignmentResult = await alignDraftsAPI(
+          const r2 = await alignDraftsAPI(
             drafts,
             selectedConsensusStrategy,
             { transcriptionId, dossierId, consensusDraftId: transcriptionId ? `${transcriptionId}_consensus_alignment` : undefined }
           );
+          if (!stillCurrent()) return;
+          alignmentResult = r2;
         }
       }
 
@@ -103,6 +124,7 @@ export const useAlignmentState = () => {
       if (alignmentResult.success && alignmentResult.alignment_results) {
         try {
           const consensusResult = await generateConsensusDrafts(alignmentResult.alignment_results);
+          if (!stillCurrent()) return;
           if (consensusResult.success && consensusResult.enhanced_alignment_results) {
             // Update the alignment result with consensus data
             alignmentResult.alignment_results = consensusResult.enhanced_alignment_results;
@@ -115,6 +137,7 @@ export const useAlignmentState = () => {
         }
       }
 
+      if (!stillCurrent()) return;
       setAlignmentState(prev => ({
         ...prev,
         isAligning: false,
@@ -123,6 +146,7 @@ export const useAlignmentState = () => {
       }));
 
       // Save alignment state for persistence across page navigation
+      if (!stillCurrent()) return;
       workspaceStateManager.setImageProcessingState({
         alignmentResult,
         showAlignmentPanel: true,
@@ -131,6 +155,7 @@ export const useAlignmentState = () => {
 
       // Targeted dossier refresh to reflect any version flag changes immediately
       try {
+        if (!stillCurrent()) return;
         const dossierIdStr = String(dossierId || '');
         if (dossierIdStr) {
           document.dispatchEvent(new CustomEvent('dossier:refreshOne', { detail: { dossierId: dossierIdStr } }));
@@ -138,7 +163,7 @@ export const useAlignmentState = () => {
       } catch {}
 
       // NEW: Automatically select consensus draft for text-to-schema
-      if (alignmentResult.success) {
+      if (alignmentResult.success && stillCurrent()) {
         try {
           console.log('🎯 Auto-selecting consensus draft for text-to-schema');
           const finalDraftResult = await selectFinalDraftAPI(
@@ -147,6 +172,7 @@ export const useAlignmentState = () => {
             alignmentResult
           );
 
+          if (!stillCurrent()) return;
           if (finalDraftResult.success) {
             console.log('✅ Auto-selected consensus draft:', {
               finalTextLength: finalDraftResult.final_text?.length,
@@ -154,6 +180,7 @@ export const useAlignmentState = () => {
             });
             
             // Sync with text-to-schema workspace
+            if (!stillCurrent()) return;
             workspaceStateManager.syncFinalDraft(
               finalDraftResult.final_text, 
               finalDraftResult.metadata
@@ -168,6 +195,7 @@ export const useAlignmentState = () => {
       }
 
     } catch (error) {
+      if (!stillCurrent()) return;
       console.error('💥 Error during alignment:', error);
       
       const errorResult: AlignmentResult = {

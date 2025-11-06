@@ -61,6 +61,17 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const alignmentState = useAlignmentState();
   const dossierState = useDossierManager();
 
+  // Reset alignment state when dossier/transcription context changes
+  const alignCtxRef = React.useRef<string>('');
+  useEffect(() => {
+    const meta = imageProcessing.selectedResult?.result?.metadata;
+    const key = meta ? `${meta.dossier_id || ''}:${meta.transcription_id || ''}` : '';
+    if (alignCtxRef.current !== key) {
+      alignCtxRef.current = key;
+      alignmentState.resetAlignmentState();
+    }
+  }, [imageProcessing.selectedResult, alignmentState]);
+
   // Keep the workspace's dossier list in sync with global updates (creation, rename, etc.)
   useEffect(() => {
     const onRefresh = () => {
