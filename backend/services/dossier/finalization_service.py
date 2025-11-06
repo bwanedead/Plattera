@@ -93,7 +93,7 @@ class FinalizationService:
             return (first.id, text)
         return ("none", "")
 
-    def finalize_dossier(self, dossier_id: str) -> Dict[str, Any]:
+    def finalize_dossier(self, dossier_id: str, write_snapshot: bool = True) -> Dict[str, Any]:
         mgmt = DossierManagementService()
         view = DossierViewService()
         reg = FinalRegistryService()
@@ -159,7 +159,7 @@ class FinalizationService:
         stitched_text = "\n\n".join(stitched_parts)
         sha = hashlib.sha256(stitched_text.encode("utf-8")).hexdigest()
 
-        # Write snapshot
+        # Build payload
         final_dir = self._trans_root / str(dossier_id) / "final"
         final_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -178,32 +178,34 @@ class FinalizationService:
             "sha256": sha
         }
 
-        with open(snap_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, ensure_ascii=False)
-        with open(pointer_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, ensure_ascii=False)
+        if write_snapshot:
+            with open(snap_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, ensure_ascii=False)
+            with open(pointer_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, ensure_ascii=False)
 
-        # Update index
-        index = { "finalized": [] }
-        if self._index_path.exists():
-            try:
-                with open(self._index_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if isinstance(data, dict):
-                        index = data
-            except Exception:
-                index = { "finalized": [] }
-        entries = [e for e in index.get("finalized", []) if (e or {}).get("dossier_id") != str(dossier_id)]
-        entries.append({
-            "dossier_id": dossier_id,
-            "title": getattr(dossier, "title", None),
-            "latest_generated_at": payload["generated_at"],
-            "text_length": len(stitched_text),
-            "section_count": len(sections),
-            "has_errors": bool(errors)
-        })
-        index["finalized"] = sorted(entries, key=lambda e: e.get("latest_generated_at", ""), reverse=True)
-        self._atomic_write(self._index_path, index)
+        # Update index only when writing snapshots
+        if write_snapshot:
+            index = { "finalized": [] }
+            if self._index_path.exists():
+                try:
+                    with open(self._index_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        if isinstance(data, dict):
+                            index = data
+                except Exception:
+                    index = { "finalized": [] }
+            entries = [e for e in index.get("finalized", []) if (e or {}).get("dossier_id") != str(dossier_id)]
+            entries.append({
+                "dossier_id": dossier_id,
+                "title": getattr(dossier, "title", None),
+                "latest_generated_at": payload["generated_at"],
+                "text_length": len(stitched_text),
+                "section_count": len(sections),
+                "has_errors": bool(errors)
+            })
+            index["finalized"] = sorted(entries, key=lambda e: e.get("latest_generated_at", ""), reverse=True)
+            self._atomic_write(self._index_path, index)
 
         return payload
 

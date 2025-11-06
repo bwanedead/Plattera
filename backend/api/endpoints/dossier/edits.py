@@ -42,6 +42,7 @@ async def save_raw_edit(
 			ok, head = svc.save_raw_v2(dossier_id, transcription_id, edited_text=edited_text, edited_sections=sections)
 		if not ok:
 			raise HTTPException(status_code=500, detail="Failed to save v2")
+
 		return {"success": True, "head": head}
 	except HTTPException:
 		raise

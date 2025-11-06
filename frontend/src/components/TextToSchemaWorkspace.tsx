@@ -62,10 +62,24 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   // Load finalized dossiers list on mount
   useEffect(() => {
     let mounted = true;
-    (async () => {
+
+    const waitForBackend = async () => {
+      const delays = [400, 800, 1200, 2000, 3000, 5000, 8000];
+      for (let i = 0; i < delays.length; i++) {
+        try {
+          const r = await fetch('http://localhost:8000/api/health', { cache: 'no-store' as RequestCache });
+          if (r.ok) return true;
+        } catch {}
+        await new Promise(r => setTimeout(r, delays[i]));
+      }
+      return false;
+    };
+
+    const loadList = async () => {
       try {
         setFinalizedLoading(true);
-        const list = await finalizedApi.listFinalized();
+        await waitForBackend();
+        const list = await finalizedApi.listFinalized().catch(() => []);
         if (!mounted) return;
         setFinalizedList(list || []);
         // Detect staleness if selected dossier is chosen and timestamps differ
@@ -76,54 +90,73 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             updateState({ isFinalizedSnapshotStale: true } as any);
           }
         }
-      } catch (e) {
-        console.warn('Failed to load finalized dossiers', e);
       } finally {
         if (!mounted) return;
         setFinalizedLoading(false);
       }
-    })();
+    };
+
+    loadList();
 
     const onFinalized = async (ev: Event) => {
       try {
         const d: any = (ev as CustomEvent)?.detail;
-        if (d?.dossierId) {
-          // refresh list and, if this is the selected dossier, reload snapshot
-          const list = await finalizedApi.listFinalized();
-          setFinalizedList(list || []);
-          if (String(d.dossierId) === String(selectedFinalizedId)) {
-            try {
-              const data = await finalizedApi.getFinal(String(d.dossierId));
-              const sectionsArr: string[] = Array.isArray(data?.sections)
-                ? data.sections.map((s: any) => String(s?.text || '').trim())
-                : (data?.stitched_text ? [String(data.stitched_text)] : []);
-              const stitched = sectionsArr.filter(Boolean).join('\n\n');
-              updateState({
-                finalDraftText: stitched,
-                finalDraftMetadata: {
-                  source: 'finalized-dossier',
-                  dossierId: String(d.dossierId),
-                  dossierTitle: data?.dossier_title,
-                  generatedAt: data?.generated_at
-                },
-                schemaResults: null,
-                selectedFinalizedSnapshotAt: data?.generated_at || null,
-                isFinalizedSnapshotStale: false,
-                selectedFinalizedSections: sectionsArr
-              } as any);
-              setSelectedTab('original');
-            } catch (e) {
-              console.warn('Failed to reload finalized snapshot after event', e);
-            }
+        if (!d?.dossierId) return;
+        // refresh list and, if this is the selected dossier, reload snapshot
+        const list = await finalizedApi.listFinalized().catch(() => []);
+        if (!mounted) return;
+        setFinalizedList(list || []);
+        if (String(d.dossierId) === String(selectedFinalizedId)) {
+          try {
+            const data = await finalizedApi.getFinalLive(String(d.dossierId));
+            const sectionsArr: string[] = Array.isArray(data?.sections)
+              ? data.sections.map((s: any) => String(s?.text || '').trim())
+              : (data?.stitched_text ? [String(data.stitched_text)] : []);
+            const stitched = sectionsArr.filter(Boolean).join('\n\n');
+            updateState({
+              finalDraftText: stitched,
+              finalDraftMetadata: {
+                source: 'finalized-dossier',
+                dossierId: String(d.dossierId),
+                dossierTitle: data?.dossier_title,
+                generatedAt: data?.generated_at
+              },
+              schemaResults: null,
+              selectedFinalizedSnapshotAt: data?.generated_at || null,
+              isFinalizedSnapshotStale: false,
+              selectedFinalizedSections: sectionsArr
+            } as any);
+            setSelectedTab('original');
+          } catch (e) {
+            console.warn('Failed to reload finalized snapshot after event', e);
           }
         }
       } catch {}
     };
+
+    const onFinalSet = async (ev: Event) => {
+      try {
+        const d: any = (ev as CustomEvent)?.detail;
+        if (!d?.dossierId) return;
+        // Refresh list quickly so timestamps reflect latest finalize/unfinalize
+        try {
+          const list = await finalizedApi.listFinalized().catch(() => []);
+          if (mounted) setFinalizedList(list || []);
+        } catch {}
+        // If current selection became cleared/outdated, mark stale in UI
+        if (String(d.dossierId) === String(selectedFinalizedId) && (d?.draftId == null)) {
+          updateState({ isFinalizedSnapshotStale: true } as any);
+        }
+      } catch {}
+    };
+
     document.addEventListener('dossier:finalized', onFinalized as any);
+    document.addEventListener('dossier:final-set', onFinalSet as any);
 
     return () => {
       mounted = false;
       document.removeEventListener('dossier:finalized', onFinalized as any);
+      document.removeEventListener('dossier:final-set', onFinalSet as any);
     };
   }, [selectedFinalizedId, state.selectedFinalizedSnapshotAt, updateState]);
 
@@ -268,7 +301,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     try {
       setSelectedFinalizedId(dossierId);
       updateState({ selectedFinalizedDossierId: dossierId } as any);
-      const data = await finalizedApi.getFinal(dossierId);
+      const data = await finalizedApi.getFinalLive(dossierId);
       const sectionsArr: string[] = Array.isArray(data?.sections)
         ? data.sections.map((s: any) => String(s?.text || '').trim())
         : (data?.stitched_text ? [String(data.stitched_text)] : []);

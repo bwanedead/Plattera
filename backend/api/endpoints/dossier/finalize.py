@@ -110,12 +110,21 @@ async def get_finalized_dossier(dossier_id: str):
 	"""
 	try:
 		backend_dir = Path(__file__).resolve().parents[3]
-		final_path = backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / "final" / "dossier_final.json"
+		final_dir = backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / "final"
+		pointer_path = final_dir / "dossier_final.json"
+
+		target_path = pointer_path
+		if not pointer_path.exists():
+			# Fallback: select latest timestamped snapshot if available
+			try:
+				candidates = sorted(final_dir.glob("dossier_final_*.json"), reverse=True)
+			except Exception:
+				candidates = []
+			if not candidates:
+				raise HTTPException(status_code=404, detail="Finalized dossier not found. Run finalize first.")
+			target_path = candidates[0]
 		
-		if not final_path.exists():
-			raise HTTPException(status_code=404, detail="Finalized dossier not found. Run finalize first.")
-		
-		with open(final_path, 'r', encoding='utf-8') as f:
+		with open(target_path, 'r', encoding='utf-8') as f:
 			data = json.load(f)
 		
 		return {"success": True, "data": data}
@@ -140,6 +149,23 @@ async def delete_finalized_dossier(dossier_id: str):
 			pointer_path.unlink()
 		return {"success": True}
 	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/final/live/{dossier_id}")
+async def get_live_finalized_dossier(dossier_id: str):
+	"""
+	Get a live, pointer-based finalized dossier view (no snapshot writes).
+	This stitches current texts based on segment final selections and current heads.
+	"""
+	try:
+		svc = FinalizationService()
+		payload = svc.finalize_dossier(dossier_id, write_snapshot=False)
+		return {"success": True, "data": payload}
+	except HTTPException:
+		raise
+	except Exception as e:
+		logger.error(f"❌ Failed to get live final for dossier {dossier_id}: {e}")
 		raise HTTPException(status_code=500, detail=str(e))
 
 
