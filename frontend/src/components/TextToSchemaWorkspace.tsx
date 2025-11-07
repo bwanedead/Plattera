@@ -6,11 +6,13 @@ import { useTextToSchemaState, useWorkspaceNavigation } from '../hooks/useWorksp
 import { convertTextToSchema, getTextToSchemaModels, getSchema } from '../services/textToSchemaApi';
 import { finalizedApi } from '../services/dossier/finalizedApi';
 import { saveSchemaForDossier } from '../services/textToSchemaApi';
+import { saveDossierEditAPI } from '../services/imageProcessingApi';
 import { TextToSchemaControlPanel } from './text-to-schema/TextToSchemaControlPanel';
 import { SchemaResultsTabs } from './text-to-schema/SchemaResultsTabs';
 import { OriginalTextTab } from './text-to-schema/OriginalTextTab';
 import { JsonSchemaTab } from './text-to-schema/JsonSchemaTab';
 import { FieldViewTab } from './text-to-schema/FieldViewTab';
+import { FinalTextEditor } from './text-to-schema/FinalTextEditor';
 import { SchemaTab, TextToSchemaResult } from '../types/textToSchema';
 
 interface TextToSchemaWorkspaceProps {
@@ -31,6 +33,10 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   const [imageTextHovered, setImageTextHovered] = useState(false);
   const [availableModels, setAvailableModels] = useState<Record<string, any>>({});
   const [selectedTab, setSelectedTab] = useState<SchemaTab>('original');
+  // Editing toggles and buffers
+  const [finalEditMode, setFinalEditMode] = useState(false);
+  const [finalEdits, setFinalEdits] = useState<string[]>([]);
+  const [jsonEditToken, setJsonEditToken] = useState<number>(0);
 
   // Finalized dossier selection state
   const [finalizedList, setFinalizedList] = useState<Array<{ dossier_id: string; title?: string; latest_generated_at?: string }>>([]);
@@ -112,6 +118,13 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             const sectionsArr: string[] = Array.isArray(data?.sections)
               ? data.sections.map((s: any) => String(s?.text || '').trim())
               : (data?.stitched_text ? [String(data.stitched_text)] : []);
+            const sectionRefs = Array.isArray(data?.sections)
+              ? data.sections.map((s: any) => ({
+                  segmentId: s?.segment_id,
+                  transcriptionId: s?.transcription_id,
+                  draftIdUsed: s?.draft_id_used
+                }))
+              : [];
             const stitched = sectionsArr.filter(Boolean).join('\n\n');
             updateState({
               finalDraftText: stitched,
@@ -124,9 +137,12 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
               schemaResults: null,
               selectedFinalizedSnapshotAt: data?.generated_at || null,
               isFinalizedSnapshotStale: false,
-              selectedFinalizedSections: sectionsArr
+              selectedFinalizedSections: sectionsArr,
+              selectedFinalizedSectionRefs: sectionRefs
             } as any);
             setSelectedTab('original');
+            setFinalEditMode(false);
+            setFinalEdits(sectionsArr);
           } catch (e) {
             console.warn('Failed to reload finalized snapshot after event', e);
           }
@@ -181,6 +197,76 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     updateState({ selectedModel: model });
   }, [updateState]);
 
+  // Synchronize edit buffer with latest sections
+  useEffect(() => {
+    const arr = (state as any)?.selectedFinalizedSections;
+    if (Array.isArray(arr)) {
+      setFinalEdits(arr.slice());
+    } else {
+      setFinalEdits([]);
+    }
+  }, [state.selectedFinalizedSections]);
+
+  // Save a single finalized section edit
+  const handleSaveFinalSection = useCallback(async (index: number) => {
+    try {
+      const refs: Array<{ segmentId: string; transcriptionId: string; draftIdUsed: string }> = (state as any)?.selectedFinalizedSectionRefs || [];
+      const ref = refs[index];
+      const dossierId = (state.finalDraftMetadata as any)?.dossierId || (state.finalDraftMetadata as any)?.dossier_id || selectedFinalizedId;
+      if (!ref || !dossierId) return;
+
+      const transcriptionId = String(ref.transcriptionId || '');
+      const draftIdUsed = String(ref.draftIdUsed || '');
+      const body = finalEdits[index] || '';
+
+      const payload: any = {
+        dossierId: String(dossierId),
+        transcriptionId,
+        editedSections: [{ id: 1, body }]
+      };
+
+      const mAlign = draftIdUsed.match(/_draft_(\d+)(?:_v[12])?$/);
+      const mRaw = draftIdUsed.match(new RegExp(`${transcriptionId}_v(\\d+)`));
+      if (/_consensus_alignment/.test(draftIdUsed)) {
+        payload.consensusType = 'alignment';
+      } else if (/_consensus_llm/.test(draftIdUsed)) {
+        payload.consensusType = 'llm';
+      } else if (mAlign) {
+        payload.alignmentDraftIndex = Math.max(0, parseInt(mAlign[1], 10) - 1);
+      } else if (mRaw) {
+        payload.draftIndex = Math.max(0, parseInt(mRaw[1], 10) - 1);
+      }
+
+      await saveDossierEditAPI(payload);
+
+      const data = await finalizedApi.getFinalLive(String(dossierId));
+      const sectionsArr: string[] = Array.isArray(data?.sections)
+        ? data.sections.map((s: any) => String(s?.text || '').trim())
+        : (data?.stitched_text ? [String(data.stitched_text)] : []);
+      const sectionRefs = Array.isArray(data?.sections)
+        ? data.sections.map((s: any) => ({
+            segmentId: s?.segment_id,
+            transcriptionId: s?.transcription_id,
+            draftIdUsed: s?.draft_id_used
+          }))
+        : [];
+      updateState({
+        finalDraftText: sectionsArr.filter(Boolean).join('\n\n'),
+        finalDraftMetadata: {
+          ...(state.finalDraftMetadata || {}),
+          generatedAt: data?.generated_at
+        },
+        selectedFinalizedSections: sectionsArr,
+        selectedFinalizedSectionRefs: sectionRefs,
+        isFinalizedSnapshotStale: false
+      } as any);
+      setFinalEdits(sectionsArr);
+    } catch (e) {
+      console.error('Failed to save final section edit', e);
+      alert('Failed to save section edit');
+    }
+  }, [state, finalEdits, selectedFinalizedId, updateState]);
+
   // Handle tab change
   const handleTabChange = useCallback((tab: SchemaTab) => {
     setSelectedTab(tab);
@@ -227,7 +313,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
         metadata: response.metadata
       };
 
-      updateState({ schemaResults: result, isProcessing: false });
+      const firstTime = !(state as any)?.schemaResultsOriginal;
+      updateState({ schemaResults: result, isProcessing: false, ...(firstTime ? { schemaResultsOriginal: result } : {}) });
       console.log('✅ Schema processing completed:', result);
 
       // Persist schema to dossier if a finalized dossier is selected
@@ -294,7 +381,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       });
       console.error('❌ Schema processing failed:', error);
     }
-  }, [state.finalDraftText, state.selectedModel, updateState, selectedFinalizedId]);
+  }, [state.finalDraftText, state.selectedModel, updateState, selectedFinalizedId, state]);
 
   // Finalized selection handler
   const handleSelectFinalized = useCallback(async (dossierId: string) => {
@@ -305,6 +392,13 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       const sectionsArr: string[] = Array.isArray(data?.sections)
         ? data.sections.map((s: any) => String(s?.text || '').trim())
         : (data?.stitched_text ? [String(data.stitched_text)] : []);
+      const sectionRefs = Array.isArray(data?.sections)
+        ? data.sections.map((s: any) => ({
+            segmentId: s?.segment_id,
+            transcriptionId: s?.transcription_id,
+            draftIdUsed: s?.draft_id_used
+          }))
+        : [];
       const stitched = sectionsArr.filter(Boolean).join('\n\n');
       updateState({
         finalDraftText: stitched,
@@ -317,9 +411,12 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
         schemaResults: null,
         selectedFinalizedSnapshotAt: data?.generated_at || null,
         isFinalizedSnapshotStale: false,
-        selectedFinalizedSections: sectionsArr
+        selectedFinalizedSections: sectionsArr,
+        selectedFinalizedSectionRefs: sectionRefs
       });
       setSelectedTab('original');
+      setFinalEditMode(false);
+      setFinalEdits(sectionsArr);
     } catch (e) {
       console.error('Failed to load finalized dossier', e);
     }
@@ -335,7 +432,15 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     switch (selectedTab) {
       case 'original':
         return finalText ? (
-          <OriginalTextTab text={finalText} showSectionMarkers={true} sections={state.selectedFinalizedSections || undefined} />
+          finalEditMode ? (
+            <FinalTextEditor
+              sections={finalEdits}
+              onChange={(i, v) => setFinalEdits(prev => prev.map((x, idx) => (idx === i ? v : x)))}
+              onSave={(i) => handleSaveFinalSection(i)}
+            />
+          ) : (
+            <OriginalTextTab text={finalText} showSectionMarkers={true} sections={state.selectedFinalizedSections || undefined} />
+          )
         ) : (
           <div className="processing-placeholder">
             <p>No final draft available. Complete image-to-text processing to continue.</p>
@@ -348,6 +453,17 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             schemaData={state.schemaResults?.structured_data}
             isSuccess={state.schemaResults?.success || false}
             error={state.schemaResults?.error}
+            dossierId={selectedFinalizedId || (state.finalDraftMetadata as any)?.dossierId}
+            originalText={finalText}
+            currentSchemaId={(state.schemaResults?.structured_data as any)?.schema_id}
+            startEditToken={jsonEditToken}
+            onSaved={(artifact: any) => {
+              if (artifact?.schema_id) {
+                const sd = (state.schemaResults?.structured_data || {}) as any;
+                const merged = { ...sd, ...(artifact?.structured_data || sd), schema_id: artifact?.schema_id };
+                updateState({ schemaResults: { ...state.schemaResults, structured_data: merged } as any });
+              }
+            }}
           />
         );
 
@@ -357,6 +473,11 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             schemaData={state.schemaResults?.structured_data || null}
             isSuccess={state.schemaResults?.success || false}
             error={state.schemaResults?.error}
+            dossierId={selectedFinalizedId || (state.finalDraftMetadata as any)?.dossierId}
+            onEditInJson={() => {
+              setSelectedTab('json');
+              setJsonEditToken(prev => prev + 1);
+            }}
           />
         );
 
@@ -450,9 +571,19 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             )}
 
             {(finalText || state.schemaResults) && (
-              <div className="schema-results-viewer">
-                <div className="viewer-header">
+            <div className="schema-results-viewer">
+                <div className="viewer-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <h3>Processing Results</h3>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {selectedTab === 'original' && Array.isArray(state.selectedFinalizedSections) && state.selectedFinalizedSections.length > 0 && (
+                      <button onClick={() => setFinalEditMode(v => !v)}>
+                        {finalEditMode ? 'Done Editing' : 'Edit Final'}
+                      </button>
+                    )}
+                    {state.schemaResults && (state as any)?.schemaResultsOriginal && (
+                      <button onClick={() => updateState({ schemaResults: (state as any).schemaResultsOriginal } as any)}>Revert Schema</button>
+                    )}
+                  </div>
                 </div>
                 
                 {/* Tab Navigation */}

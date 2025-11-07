@@ -6,6 +6,7 @@ interface FieldViewTabProps {
   isSuccess: boolean;
   error?: string;
   dossierId?: string; // Optional dossier context for persistence
+  onEditInJson?: () => void;
 }
 
 // Utility function to convert field names to human-readable labels
@@ -229,7 +230,8 @@ export const FieldViewTab: React.FC<FieldViewTabProps> = ({
   schemaData, 
   isSuccess, 
   error,
-  dossierId
+  dossierId,
+  onEditInJson
 }) => {
   const [dismissedAdvisories, setDismissedAdvisories] = useState<Set<string>>(new Set());
 
@@ -283,6 +285,11 @@ export const FieldViewTab: React.FC<FieldViewTabProps> = ({
 
   return (
     <div className="field-view-tab">
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        {isSuccess && schemaData && (
+          <button onClick={onEditInJson}>Edit in JSON</button>
+        )}
+      </div>
       {/* QC Summary */}
       <div className={`qc-summary ${allAdvisories.length > 0 ? 'has-advisories' : ''}`}>
         <h4>
