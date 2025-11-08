@@ -30,6 +30,13 @@ class SchemaApiClient {
     return data?.schemas || [];
   }
 
+  async listAllSchemas(): Promise<SchemaListItem[]> {
+    const res = await fetch(`${API_BASE_URL}/list-all?t=${Date.now()}`, { cache: 'no-store' as RequestCache });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.detail || 'Failed to list schemas');
+    return data?.schemas || [];
+  }
+
   async getSchema(dossierId: string, schemaId: string): Promise<SchemaArtifact> {
     const url = `${API_BASE_URL}/get?dossier_id=${encodeURIComponent(dossierId)}&schema_id=${encodeURIComponent(schemaId)}&t=${Date.now()}`;
     const res = await fetch(url, { cache: 'no-store' as RequestCache });

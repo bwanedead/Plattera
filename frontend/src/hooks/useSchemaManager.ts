@@ -42,23 +42,39 @@ function reducer(state: State, action: Action): State {
 export function useSchemaManager(dossierId: string | null) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [version, setVersion] = useState(0); // manual invalidation
+  const [metaById, setMetaById] = useState<Record<string, { version_label?: string; parent_schema_id?: string }>>({});
+
+  const prefetchMeta = useCallback(async (items: SchemaListItem[]) => {
+    const top = items.slice(0, 30);
+    const pairs = await Promise.all(top.map(async it => {
+      try {
+        const art = await schemaApi.getSchema(it.dossier_id, it.schema_id);
+        const version_label = art?.metadata?.version_label || (art?.structured_data?.metadata?.version_label);
+        const parent_schema_id = art?.metadata?.parent_schema_id || (art?.structured_data?.metadata?.parent_schema_id);
+        return [it.schema_id, { version_label, parent_schema_id }] as const;
+      } catch {
+        return [it.schema_id, {}] as const;
+      }
+    }));
+    const map: Record<string, { version_label?: string }> = {};
+    pairs.forEach(([id, m]) => { map[id] = m; });
+    setMetaById(map);
+  }, []);
 
   const loadSchemas = useCallback(async () => {
-    if (!dossierId) {
-      dispatch({ type: 'SET_ITEMS', payload: [] });
-      return;
-    }
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ type: 'SET_ERROR', payload: null });
     try {
-      const items = await schemaApi.listSchemas(dossierId);
+      // Always show all schemas across dossiers, independent of dossier selection
+      const items = await schemaApi.listAllSchemas();
       dispatch({ type: 'SET_ITEMS', payload: items });
+      prefetchMeta(items);
     } catch (e: any) {
       dispatch({ type: 'SET_ERROR', payload: e?.message || 'Failed to load schemas' });
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [dossierId]);
+  }, [prefetchMeta]);
 
   useEffect(() => { loadSchemas(); }, [loadSchemas, version]);
 
@@ -96,6 +112,7 @@ export function useSchemaManager(dossierId: string | null) {
   return {
     state,
     filteredSchemas: filtered,
+    metaById,
     loadSchemas,
     refresh,
     setSearchQuery,

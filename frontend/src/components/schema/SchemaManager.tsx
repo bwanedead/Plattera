@@ -1,6 +1,7 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useSchemaManager } from '../../hooks/useSchemaManager';
 import { schemaApi } from '../../services/schema/schemaApi';
+import { ConfirmDeleteModal } from '../dossier/modals/ConfirmDeleteModal';
 
 interface SchemaManagerProps {
   dossierId: string | null;
@@ -10,7 +11,9 @@ interface SchemaManagerProps {
 
 export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelectionChange, className = '' }) => {
   const mgr = useSchemaManager(dossierId);
-  const { state } = mgr;
+  const { state, metaById } = mgr;
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ schemaId: string; dossierId: string; title: string } | null>(null);
 
   const handleSelect = useCallback(async (schemaId: string) => {
     mgr.selectSchema(schemaId);
@@ -39,10 +42,17 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
       <div className="schema-list" style={{ flex: 1, overflow: 'auto', border: '1px solid #333', borderRadius: 4 }}>
         {state.loading && <div style={{ padding: 8 }}>Loading...</div>}
         {!state.loading && mgr.filteredSchemas.length === 0 && (
-          <div style={{ padding: 8, opacity: 0.7 }}>{dossierId ? 'No schemas for this dossier.' : 'Select a dossier to view schemas.'}</div>
+          <div style={{ padding: 8, opacity: 0.7 }}>No schemas found.</div>
         )}
-        {mgr.filteredSchemas.map(item => {
-          const selected = state.selectedSchemaId === item.schema_id;
+    {mgr.filteredSchemas.map(item => {
+      const selected = state.selectedSchemaId === item.schema_id;
+      const meta = metaById?.[item.schema_id] || {};
+      const ver = meta.version_label;
+      const parentId = meta.parent_schema_id;
+      const rootId = parentId || item.schema_id;
+      // find v1 (root) and v2 (child) within current list when metadata available
+      const v1 = mgr.filteredSchemas.find(it => it.schema_id === rootId);
+      const v2 = mgr.filteredSchemas.find(it => (metaById?.[it.schema_id]?.parent_schema_id || null) === rootId);
           return (
             <div
               key={item.schema_id}
@@ -52,44 +62,97 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
                 padding: '8px 10px',
                 cursor: 'pointer',
                 background: selected ? '#1f2937' : 'transparent',
-                borderBottom: '1px solid #2d2d2d'
+                borderBottom: '1px solid #2d2d2d',
+                position: 'relative'
               }}
               title={item.schema_id}
+          onMouseEnter={() => setHoveredId(item.schema_id)}
+          onMouseLeave={() => setHoveredId(null)}
             >
-              <div style={{ fontWeight: 600 }}>{item.dossier_title_snapshot || item.dossier_id}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ fontWeight: 600 }}>{item.dossier_title_snapshot || item.dossier_id}</div>
+            {/* version pills (clickable) */}
+            {v1 && (
+              <button
+                className="dossier-action-btn"
+                style={{ fontSize: 11, padding: '2px 6px', borderRadius: 10 }}
+                onClick={(e) => { e.stopPropagation(); handleSelect(v1.schema_id); onSelectionChange?.({ schema_id: v1.schema_id, dossier_id: v1.dossier_id }); }}
+                title="View v1"
+              >
+                v1
+              </button>
+            )}
+            {v2 && (
+              <button
+                className="dossier-action-btn"
+                style={{ fontSize: 11, padding: '2px 6px', borderRadius: 10 }}
+                onClick={(e) => { e.stopPropagation(); handleSelect(v2.schema_id); onSelectionChange?.({ schema_id: v2.schema_id, dossier_id: v2.dossier_id }); }}
+                title="View v2"
+              >
+                v2
+              </button>
+            )}
+            {!v2 && ver === 'v2' && (
+                  <span style={{
+                    fontSize: 11,
+                    padding: '2px 6px',
+                    borderRadius: 10,
+                    background: ver === 'v2' ? 'rgba(139,92,246,0.12)' : 'rgba(99,102,241,0.12)',
+                    color: ver === 'v2' ? '#c4b5fd' : '#a5b4fc',
+                    border: '1px solid rgba(139,92,246,0.35)'
+                  }}>{ver}</span>
+                )}
+              </div>
               <div style={{ fontSize: 12, opacity: 0.8 }}>
                 {item.saved_at ? new Date(item.saved_at).toLocaleString() : 'Unknown date'}
               </div>
-              <div style={{ fontSize: 11, opacity: 0.6, wordBreak: 'break-all' }}>{item.schema_id}</div>
-              {selected && dossierId && (
-                <div style={{ marginTop: 6 }}>
+          {/* Remove schema_id line (clutter) */}
+          {(hoveredId === item.schema_id || selected) && (
+                <div className="dossier-actions" style={{ marginTop: 6, display: 'flex', gap: 8 }}>
                   <button
+                    className="dossier-action-btn"
                     onClick={async (e) => {
                       e.stopPropagation();
-                      if (!confirm('Delete this schema artifact?')) return;
-                      try { await mgr.deleteSchema(item.schema_id); } catch {}
+                      onSelectionChange?.({ schema_id: item.schema_id, dossier_id: item.dossier_id });
                     }}
+                    title="View schema"
                   >
-                    Delete
+                    View
                   </button>
                   <button
-                    style={{ marginLeft: 8 }}
+                    className="dossier-action-btn danger"
                     onClick={async (e) => {
-                      e.stopPropagation();
-                      if (!confirm('Purge this schema and any dependent georeferences?')) return;
-                      try {
-                        await schemaApi.purgeSchema(dossierId, item.schema_id);
-                        mgr.refresh();
-                      } catch {}
+                  e.stopPropagation();
+                  setDeleteTarget({ schemaId: item.schema_id, dossierId: item.dossier_id, title: item.dossier_title_snapshot || item.schema_id });
                     }}
+                    title="Delete schema and purge dependents"
                   >
-                    Delete + Purge Georefs
+                    Delete
                   </button>
                 </div>
               )}
             </div>
           );
         })}
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          itemName={deleteTarget.title}
+          itemType="schema"
+          onConfirm={async () => {
+            try {
+              await schemaApi.purgeSchema(deleteTarget.dossierId, deleteTarget.schemaId);
+              setDeleteTarget(null);
+              mgr.refresh();
+            } catch (e) {
+              setDeleteTarget(null);
+            }
+          }}
+          onCancel={() => setDeleteTarget(null)}
+          busyText="Deleting…"
+          allowBackgroundClose={false}
+          showProgressBar={false}
+        />
+      )}
       </div>
     </div>
   );
