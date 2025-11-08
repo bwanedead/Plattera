@@ -269,3 +269,77 @@ async def list_all_schemas():
     except Exception as e:
         logger.error(f"💥 Error list-all schemas: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to list schemas: {str(e)}")
+
+
+class PurgeSchemaBody(BaseModel):
+    dossier_id: str
+    schema_id: str
+
+
+@router.post("/purge-schema")
+async def purge_schema(body: PurgeSchemaBody):
+    """
+    Delete a schema artifact and purge any georeferences that depend on it.
+    Leaves dossier-level and unrelated data intact.
+    """
+    try:
+        from services.text_to_schema.schema_persistence_service import SchemaPersistenceService
+        svc = SchemaPersistenceService()
+
+        backend_dir = Path(__file__).resolve().parents[2]
+        georef_index = backend_dir / "dossiers_data" / "state" / "georefs_index.json"
+
+        dependents: List[str] = []
+        if georef_index.exists():
+            try:
+                with open(georef_index, "r", encoding="utf-8") as f:
+                    idx = json.load(f) or {}
+                # Discover georef artifacts referencing this schema
+                for entry in idx.get("georefs", []) or []:
+                    if (entry or {}).get("dossier_id") == str(body.dossier_id):
+                        georef_id = (entry or {}).get("georef_id")
+                        if georef_id:
+                            georef_art = backend_dir / "dossiers_data" / "artifacts" / "georefs" / str(body.dossier_id) / f"{georef_id}.json"
+                            if georef_art.exists():
+                                try:
+                                    with open(georef_art, "r", encoding="utf-8") as gf:
+                                        g = json.load(gf) or {}
+                                    sid = g.get("schema_id") or ((g.get("lineage") or {}).get("schema_id"))
+                                    if sid == body.schema_id:
+                                        # Purge this georef artifact
+                                        try:
+                                            georef_art.unlink()
+                                            dependents.append(georef_id)
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+                # Rewrite georef index without purged items
+                if dependents:
+                    try:
+                        with open(georef_index, "r", encoding="utf-8") as f:
+                            idx2 = json.load(f) or {}
+                        idx2["georefs"] = [
+                            e for e in (idx2.get("georefs", []) or [])
+                            if not ((e or {}).get("dossier_id") == str(body.dossier_id) and (e or {}).get("georef_id") in dependents)
+                        ]
+                        with open(georef_index, "w", encoding="utf-8") as f:
+                            json.dump(idx2, f, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
+            except Exception:
+                # If index cannot be read, proceed with schema deletion only
+                pass
+
+        # Delete the schema artifact (force true semantics by removing dependents first)
+        try:
+            _ = svc.delete_schema(dossier_id=str(body.dossier_id), schema_id=str(body.schema_id), force=True)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to delete schema: {str(e)}")
+
+        return {"status": "success", "purged_georefs": dependents}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"💥 Failed to purge schema: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

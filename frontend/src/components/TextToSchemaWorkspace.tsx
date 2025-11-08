@@ -14,6 +14,8 @@ import { JsonSchemaTab } from './text-to-schema/JsonSchemaTab';
 import { FieldViewTab } from './text-to-schema/FieldViewTab';
 import { FinalTextEditor } from './text-to-schema/FinalTextEditor';
 import { SchemaTab, TextToSchemaResult } from '../types/textToSchema';
+import { SchemaManager } from './schema/SchemaManager';
+import { schemaApi } from '../services/schema/schemaApi';
 
 interface TextToSchemaWorkspaceProps {
   onExit: () => void;
@@ -37,6 +39,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   const [finalEditMode, setFinalEditMode] = useState(false);
   const [finalEdits, setFinalEdits] = useState<string[]>([]);
   const [jsonEditToken, setJsonEditToken] = useState<number>(0);
+  const [showSchemaManagerPanel, setShowSchemaManagerPanel] = useState<boolean>(false);
 
   // Finalized dossier selection state
   const [finalizedList, setFinalizedList] = useState<Array<{ dossier_id: string; title?: string; latest_generated_at?: string }>>([]);
@@ -261,6 +264,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
         isFinalizedSnapshotStale: false
       } as any);
       setFinalEdits(sectionsArr);
+      setFinalEditMode(false);
     } catch (e) {
       console.error('Failed to save final section edit', e);
       alert('Failed to save section edit');
@@ -437,9 +441,16 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
               sections={finalEdits}
               onChange={(i, v) => setFinalEdits(prev => prev.map((x, idx) => (idx === i ? v : x)))}
               onSave={(i) => handleSaveFinalSection(i)}
+              onDone={() => setFinalEditMode(false)}
             />
           ) : (
-            <OriginalTextTab text={finalText} showSectionMarkers={true} sections={state.selectedFinalizedSections || undefined} />
+            <OriginalTextTab
+              text={finalText}
+              showSectionMarkers={true}
+              sections={state.selectedFinalizedSections || undefined}
+              onToggleEdit={() => setFinalEditMode(v => !v)}
+              editMode={finalEditMode}
+            />
           )
         ) : (
           <div className="processing-placeholder">
@@ -524,7 +535,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       </div>
 
       {/* Main Content Area */}
-      <Allotment defaultSizes={[300, 700]} vertical={false}>
+      <Allotment defaultSizes={showSchemaManagerPanel ? [300, 280, 420] : [300, 700]} vertical={false}>
         {/* Control Panel (Left) */}
         <Allotment.Pane minSize={250} maxSize={400}>
           <TextToSchemaControlPanel
@@ -540,11 +551,52 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             selectedFinalizedId={selectedFinalizedId}
             onSelectFinalized={handleSelectFinalized}
           />
+          {showSchemaManagerPanel && (
+            <div style={{ display: 'none' }}></div>
+          )}
         </Allotment.Pane>
+
+        {showSchemaManagerPanel && (
+          <Allotment.Pane minSize={220} maxSize={480}>
+            <div className="results-history-panel visible" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <div className="history-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderBottom: '1px solid #2d2d2d' }}>
+                <h4 style={{ margin: 0 }}>Schema Manager</h4>
+                <button onClick={() => setShowSchemaManagerPanel(false)}>‹</button>
+              </div>
+              <div className="schema-manager-content" style={{ flex: 1, minHeight: 0 }}>
+                <SchemaManager
+                  dossierId={selectedFinalizedId || (state.finalDraftMetadata as any)?.dossierId || null}
+                  onSelectionChange={async (sel) => {
+                    try {
+                      const art = await schemaApi.getSchema(sel.dossier_id, sel.schema_id);
+                      const sd = art?.structured_data || null;
+                      if (sd) {
+                        updateState({ schemaResults: { success: true, structured_data: sd } as any });
+                        setSelectedTab('json');
+                      }
+                    } catch (e) {
+                      console.warn('Failed to load schema artifact', e);
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          </Allotment.Pane>
+        )}
 
         {/* Results Viewer (Right) */}
         <Allotment.Pane>
-          <div className="results-viewer-panel">
+          <div className="results-viewer-panel" style={{ position: 'relative' }}>
+            {!showSchemaManagerPanel && (
+              <button
+                className="history-toggle-button"
+                onClick={() => setShowSchemaManagerPanel(true)}
+                title="Show Schemas"
+                style={{ left: 12 }}
+              >
+                ›
+              </button>
+            )}
             {!finalText && !state.schemaResults && (
               <div className="placeholder-view">
                 <div className="placeholder-content">
@@ -575,11 +627,6 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                 <div className="viewer-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <h3>Processing Results</h3>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    {selectedTab === 'original' && Array.isArray(state.selectedFinalizedSections) && state.selectedFinalizedSections.length > 0 && (
-                      <button onClick={() => setFinalEditMode(v => !v)}>
-                        {finalEditMode ? 'Done Editing' : 'Edit Final'}
-                      </button>
-                    )}
                     {state.schemaResults && (state as any)?.schemaResultsOriginal && (
                       <button onClick={() => updateState({ schemaResults: (state as any).schemaResultsOriginal } as any)}>Revert Schema</button>
                     )}
