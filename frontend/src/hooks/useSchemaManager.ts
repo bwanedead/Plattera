@@ -45,8 +45,7 @@ export function useSchemaManager(dossierId: string | null) {
   const [metaById, setMetaById] = useState<Record<string, { version_label?: string; parent_schema_id?: string }>>({});
 
   const prefetchMeta = useCallback(async (items: SchemaListItem[]) => {
-    const top = items.slice(0, 30);
-    const pairs = await Promise.all(top.map(async it => {
+    const pairs = await Promise.all(items.map(async it => {
       try {
         const art = await schemaApi.getSchema(it.dossier_id, it.schema_id);
         const version_label = art?.metadata?.version_label || (art?.structured_data?.metadata?.version_label);

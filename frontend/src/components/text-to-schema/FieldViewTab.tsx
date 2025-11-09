@@ -287,7 +287,9 @@ export const FieldViewTab: React.FC<FieldViewTabProps> = ({
     <div className="field-view-tab">
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
         {isSuccess && schemaData && (
-          <button onClick={onEditInJson}>Edit in JSON</button>
+          <button onClick={onEditInJson} className="final-draft-button" title="Edit in JSON">
+            Edit in JSON
+          </button>
         )}
       </div>
       {/* QC Summary */}

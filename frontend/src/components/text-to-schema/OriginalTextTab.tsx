@@ -18,13 +18,13 @@ export const OriginalTextTab: React.FC<OriginalTextTabProps> = ({ text, showSect
     <div className="original-text-tab">
       <div className="tab-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h4 style={{ margin: 0 }}>Original Text</h4>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="header-actions">
           <CopyButton
             onCopy={() => navigator.clipboard.writeText(text)}
             title="Copy original text"
           />
           {onToggleEdit && (
-            <button onClick={onToggleEdit} className="mode-button">
+            <button onClick={onToggleEdit} className="final-draft-button" title={editMode ? 'Done editing' : 'Enable Edit Mode'}>
               {editMode ? 'Done' : 'Edit'}
             </button>
           )}

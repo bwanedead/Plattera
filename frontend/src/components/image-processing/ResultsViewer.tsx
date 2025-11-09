@@ -9,7 +9,7 @@ import { ConfidenceHeatmapViewer } from './ConfidenceHeatmapViewer';
 import { formatJsonPretty } from '../../utils/jsonFormatter';
 import { AlignmentResult, ConfidenceWord } from '../../types/imageProcessing';
 import { FinalDraftSelector } from './FinalDraftSelector';
-import ToolTray from './ToolTray';
+import ToolTray from '../ui/ToolTray';
 import { DossierManager } from '../dossier/DossierManager';
 import { DossierPath } from '../../types/dossier';
 import { resolveSelectionToText, ResolvedSelection } from '../../services/dossier/selectionResolver';

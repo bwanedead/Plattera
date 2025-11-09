@@ -185,6 +185,11 @@
 .text-to-schema-workspace .tab-content {
   height: calc(100% - 3rem);
   overflow-y: auto;
+  position: relative;        /* containing block for ToolTray */
+  padding-left: 36px;        /* slimmer left gutter to avoid wasted space */
+  padding-right: 12px;       /* light right breathing room */
+  padding-top: 8px;          /* avoid visual overlap/cropping under tabs */
+  overflow-x: visible;       /* prevent gutter clipping */
 }
 
 /* Tab Components */
@@ -192,7 +197,7 @@
 .json-schema-tab,
 .field-view-tab {
   height: 100%;
-  padding: 1rem;
+  padding: 0;               /* remove extra inset; rely on pre padding */
 }
 
 .tab-header {
@@ -218,7 +223,7 @@
   white-space: pre-wrap;
   color: var(--text-primary);
   margin: 0;
-  padding: 1rem;
+  padding: 0.5rem;          /* slightly tighter */
   background-color: var(--bg-secondary);
   border-radius: 6px;
   border: 1px solid var(--border-color);
@@ -233,15 +238,17 @@
 .json-content {
   height: calc(100% - 3rem);
   overflow-y: auto;
+  position: relative;
+  overflow-x: visible;      /* allow tray/gutter visibility */
 }
 
 .json-schema {
   font-family: 'Courier New', monospace;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   line-height: 1.4;
   color: var(--text-primary);
   margin: 0;
-  padding: 1rem;
+  padding: 0.5rem;          /* slightly tighter */
   background-color: var(--bg-secondary);
   border-radius: 6px;
   border: 1px solid var(--border-color);
@@ -375,6 +382,7 @@
   height: 100%;
   background: var(--bg-primary);
   color: var(--text-primary);
+  overflow: visible;        /* avoid horizontal clipping at panel boundary */
 }
 
 .history-toggle-button {

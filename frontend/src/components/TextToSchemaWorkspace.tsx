@@ -68,6 +68,14 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     loadAvailableModels();
   }, []);
 
+  // Consume one-shot JSON edit token after navigating to JSON tab
+  useEffect(() => {
+    if (selectedTab === 'json' && jsonEditToken > 0) {
+      const id = window.setTimeout(() => setJsonEditToken(0), 0);
+      return () => window.clearTimeout(id);
+    }
+  }, [selectedTab, jsonEditToken]);
+
   // Load finalized dossiers list on mount
   useEffect(() => {
     let mounted = true;

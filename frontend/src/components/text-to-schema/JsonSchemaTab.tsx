@@ -9,7 +9,7 @@ interface JsonSchemaTabProps {
   dossierId?: string;
   originalText?: string;
   currentSchemaId?: string;
-  startEditToken?: number; // toggling this will force edit mode on
+  startEditToken?: number; // toggling this will force edit mode on (must be > 0)
   onSaved?: (artifact: any) => void;
 }
 
@@ -28,13 +28,21 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
   const [err, setErr] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (typeof startEditToken !== 'undefined') {
+    // Only enter edit mode when an explicit token > 0 is provided (Field View "Edit in JSON")
+    if (startEditToken && Number.isFinite(startEditToken)) {
       setEditMode(true);
       if (schemaData) setBuffer(JSON.stringify(schemaData, null, 2));
       setErr(null);
     }
-  }, [startEditToken]);
+  }, [startEditToken, schemaData]);
 
+  // Ensure selecting a schema or switching to JSON tab defaults to preview mode
+  React.useEffect(() => {
+    if (!startEditToken) {
+      setEditMode(false);
+      setErr(null);
+    }
+  }, [schemaData]); 
   React.useEffect(() => {
     if (!editMode) return;
     if (schemaData) setBuffer(JSON.stringify(schemaData, null, 2));
@@ -88,22 +96,35 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
     <div className="json-schema-tab">
       <div className="tab-header">
         <h4>JSON Schema</h4>
-        {!editMode && (
-          <>
-            <CopyButton
-              onCopy={() => navigator.clipboard.writeText(JSON.stringify(schemaData, null, 2))}
-              title="Copy schema JSON"
-            />
-            <button onClick={() => { setEditMode(true); setBuffer(JSON.stringify(schemaData, null, 2)); }}>Edit</button>
-          </>
-        )}
-        {editMode && (
-          <>
-            <button onClick={handleSave}>Save (v2)</button>
-            <button onClick={() => setEditMode(false)}>Cancel</button>
-          </>
-        )}
+        <div className="header-actions">
+          <CopyButton
+            onCopy={() => {
+              const text = editMode ? buffer : JSON.stringify(schemaData, null, 2);
+              navigator.clipboard.writeText(text);
+            }}
+            title="Copy schema JSON"
+          />
+          {!editMode ? (
+            <button
+              onClick={() => { setEditMode(true); setBuffer(JSON.stringify(schemaData, null, 2)); }}
+              className="final-draft-button"
+              title="Enable Edit Mode"
+            >
+              Edit
+            </button>
+          ) : (
+            <>
+              <button onClick={handleSave} className="final-draft-button" title="Save as v2">
+                Save (v2)
+              </button>
+              <button onClick={() => setEditMode(false)} className="final-draft-button" title="Cancel edits">
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
       </div>
+
       <div className="json-content">
         {editMode ? (
           <>
