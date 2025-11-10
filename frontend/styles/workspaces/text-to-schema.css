@@ -254,6 +254,23 @@
   border: 1px solid var(--border-color);
 }
 
+/* Editor matches preview typography and spacing for parity */
+.json-editor {
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--text-primary);
+  margin: 0;
+  padding: 0.5rem;
+  background-color: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 300px;
+}
+
 /* Field View Styles */
 .field-view {
   padding: 0;
@@ -284,9 +301,10 @@
 }
 
 .field-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(100px, auto) 1fr;
+  column-gap: 10px;
+  align-items: start;
   padding: 0.5rem;
   background-color: var(--bg-tertiary);
   border-radius: 4px;
@@ -297,19 +315,32 @@
   font-weight: 600;
   color: var(--text-secondary);
   min-width: 100px;
+  white-space: nowrap;
 }
 
 .field-value {
   color: var(--text-primary);
   font-family: 'Courier New', monospace;
   font-size: 0.9rem;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .field-value.raw-text {
   font-style: italic;
-  max-width: 300px;
+  max-width: none;
   word-wrap: break-word;
   color: var(--text-secondary);
+}
+
+@media (max-width: 1200px) {
+  .field-item {
+    grid-template-columns: 1fr;
+    row-gap: 4px;
+  }
+  .field-label {
+    white-space: normal;
+  }
 }
 
 /* Leg Item Styles */

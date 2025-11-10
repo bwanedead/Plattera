@@ -47,10 +47,11 @@
 }
 
 .field-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 8px 0;
+  display: grid;
+  grid-template-columns: minmax(120px, auto) 1fr;
+  column-gap: 12px;
+  align-items: start;
+  padding: 8px 10px;
   border-bottom: 1px solid #f3f4f6;
 }
 
@@ -62,12 +63,14 @@
   font-weight: 500;
   color: #6b7280;
   min-width: 120px;
-  margin-right: 16px;
+  margin-right: 0;
+  white-space: nowrap;
 }
 
 .field-value {
   flex: 1;
-  text-align: right;
+  text-align: left;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
@@ -99,7 +102,17 @@
   color: #6b7280;
   font-style: italic;
   text-align: left;
-  max-width: 300px;
+  max-width: none;
+}
+
+@media (max-width: 1200px) {
+  .field-item {
+    grid-template-columns: 1fr;
+    row-gap: 4px;
+  }
+  .field-label {
+    white-space: normal;
+  }
 }
 
 .field-value.confidence-value {

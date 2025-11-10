@@ -30,11 +30,15 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
   const [err, setErr] = React.useState<string | null>(null);
   const [localPreview, setLocalPreview] = React.useState<string | null>(null);
   const lastTokenRef = React.useRef<number>(0);
+  // Keep scroll parity between preview and editor
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const lastScrollRef = React.useRef<number>(0);
 
   React.useEffect(() => {
     // Only enter edit mode when token changes (one-shot trigger from Field View)
     if (startEditToken && Number.isFinite(startEditToken) && startEditToken !== lastTokenRef.current) {
       lastTokenRef.current = startEditToken;
+      lastScrollRef.current = contentRef.current?.scrollTop || 0;
       setEditMode(true);
       if (schemaData) setBuffer(JSON.stringify(schemaData, null, 2));
       setErr(null);
@@ -51,6 +55,10 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
   React.useEffect(() => {
     if (!editMode) return;
     if (schemaData) setBuffer(JSON.stringify(schemaData, null, 2));
+    // restore previous scroll position after switching into edit
+    requestAnimationFrame(() => {
+      if (contentRef.current) contentRef.current.scrollTop = lastScrollRef.current;
+    });
   }, [schemaData, editMode]);
 
   // Clear optimistic preview when the parent updates schemaData
@@ -146,7 +154,11 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
           />
           {!editMode ? (
             <button
-              onClick={() => { setEditMode(true); setBuffer(JSON.stringify(schemaData, null, 2)); }}
+              onClick={() => { 
+                lastScrollRef.current = contentRef.current?.scrollTop || 0;
+                setEditMode(true); 
+                setBuffer(JSON.stringify(schemaData, null, 2)); 
+              }}
               className="final-draft-button compact"
               title="Enable Edit Mode"
             >
@@ -165,7 +177,7 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
         </div>
       </div>
 
-      <div className="json-content">
+      <div className="json-content" ref={contentRef}>
         {editMode ? (
           <>
             {err && (
@@ -174,10 +186,10 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
               </div>
             )}
             <textarea
+              className="json-editor"
               value={buffer}
               onChange={(e) => setBuffer(e.target.value)}
               rows={24}
-              style={{ width: '100%' }}
             />
           </>
         ) : (
