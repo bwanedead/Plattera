@@ -406,6 +406,39 @@ async def purge_schema(body: PurgeSchemaBody):
         except Exception:
             pass
 
+        # Cleanup empty artifact directories (schemas and georefs): remove latest.json if it's the last file, then rmdir
+        try:
+            # Schemas directory cleanup
+            remaining_schema_files = [p for p in schemas_dir.glob("*.json") if p.name != "latest.json"]
+            if not remaining_schema_files:
+                latest_schema = schemas_dir / "latest.json"
+                if latest_schema.exists():
+                    latest_schema.unlink()
+                # If directory is now empty, remove it
+                if schemas_dir.exists():
+                    try:
+                        # Only remove if truly empty
+                        next(schemas_dir.iterdir())
+                    except StopIteration:
+                        schemas_dir.rmdir()
+        except Exception:
+            pass
+        try:
+            # Georefs directory cleanup
+            georefs_dir = backend_dir / "dossiers_data" / "artifacts" / "georefs" / str(body.dossier_id)
+            remaining_georef_files = [p for p in georefs_dir.glob("*.json") if p.name != "latest.json"]
+            if not remaining_georef_files:
+                latest_geo = georefs_dir / "latest.json"
+                if latest_geo.exists():
+                    latest_geo.unlink()
+                if georefs_dir.exists():
+                    try:
+                        next(georefs_dir.iterdir())
+                    except StopIteration:
+                        georefs_dir.rmdir()
+        except Exception:
+            pass
+
         return {"status": "success", "purged_georefs": dependents, "purged_schema_ids": list(ids_to_purge)}
     except HTTPException:
         raise
