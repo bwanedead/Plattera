@@ -288,6 +288,26 @@ async def purge_schema(body: PurgeSchemaBody):
 
         backend_dir = Path(__file__).resolve().parents[2]
         georef_index = backend_dir / "dossiers_data" / "state" / "georefs_index.json"
+        schemas_dir = backend_dir / "dossiers_data" / "artifacts" / "schemas" / str(body.dossier_id)
+
+        # Resolve root id so we can purge both v1 and v2
+        root_id = str(body.schema_id)
+        try:
+            # If looks like v2, strip suffix
+            if root_id.endswith("_v2"):
+                root_id = root_id[:-3]
+            else:
+                # Try reading artifact lineage
+                art_path = schemas_dir / f"{body.schema_id}.json"
+                if art_path.exists():
+                    with open(art_path, "r", encoding="utf-8") as f:
+                        art = json.load(f) or {}
+                    rid = (art.get("lineage") or {}).get("root_schema_id")
+                    if isinstance(rid, str) and rid.strip():
+                        root_id = rid.strip()
+        except Exception:
+            pass
+        ids_to_purge = {root_id, f"{root_id}_v2"}
 
         dependents: List[str] = []
         if georef_index.exists():
@@ -305,7 +325,7 @@ async def purge_schema(body: PurgeSchemaBody):
                                     with open(georef_art, "r", encoding="utf-8") as gf:
                                         g = json.load(gf) or {}
                                     sid = g.get("schema_id") or ((g.get("lineage") or {}).get("schema_id"))
-                                    if sid == body.schema_id:
+                                    if isinstance(sid, str) and sid in ids_to_purge:
                                         # Purge this georef artifact
                                         try:
                                             georef_art.unlink()
@@ -331,13 +351,39 @@ async def purge_schema(body: PurgeSchemaBody):
                 # If index cannot be read, proceed with schema deletion only
                 pass
 
-        # Delete the schema artifact (force true semantics by removing dependents first)
-        try:
-            _ = svc.delete_schema(dossier_id=str(body.dossier_id), schema_id=str(body.schema_id), force=True)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to delete schema: {str(e)}")
+        # Delete schema artifacts for both v1 and v2 (force semantics)
+        for sid in ids_to_purge:
+            try:
+                _ = svc.delete_schema(dossier_id=str(body.dossier_id), schema_id=str(sid), force=True)
+            except Exception:
+                # Continue attempting others
+                pass
 
-        return {"status": "success", "purged_georefs": dependents}
+        # Clear schemas latest pointer if it points to one of the purged ids
+        try:
+            latest_pointer = schemas_dir / "latest.json"
+            if latest_pointer.exists():
+                with open(latest_pointer, "r", encoding="utf-8") as f:
+                    latest_obj = json.load(f) or {}
+                if str(latest_obj.get("schema_id")) in ids_to_purge:
+                    latest_pointer.unlink()
+        except Exception:
+            pass
+
+        # Clear georefs latest pointer if it points to a purged georef
+        try:
+            georefs_dir = backend_dir / "dossiers_data" / "artifacts" / "georefs" / str(body.dossier_id)
+            latest_georef = georefs_dir / "latest.json"
+            if dependents and latest_georef.exists():
+                with open(latest_georef, "r", encoding="utf-8") as f:
+                    lg = json.load(f) or {}
+                gid = str(lg.get("georef_id") or lg.get("id") or "")
+                if gid in dependents:
+                    latest_georef.unlink()
+        except Exception:
+            pass
+
+        return {"status": "success", "purged_georefs": dependents, "purged_schema_ids": list(ids_to_purge)}
     except HTTPException:
         raise
     except Exception as e:

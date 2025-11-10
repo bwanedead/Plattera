@@ -109,14 +109,72 @@ class SchemaPersistenceService:
         now_iso = datetime.utcnow().isoformat()
         text_sha = hashlib.sha256((original_text or "").encode("utf-8")).hexdigest()
 
-        # Stable schema id from the structured_data content
-        schema_id = content_hash(structured_data)
-
-        # Build payload (include reserved lineage placeholders)
+        # Build metadata and determine versioning
         meta = dict(metadata or {})
-        # Always thread dossier id + title snapshot through metadata for durable labeling
         meta.setdefault("dossier_id", str(dossier_id))
         meta.setdefault("dossier_title_snapshot", self._read_dossier_title(dossier_id))
+
+        parent_id = str(meta.get("parent_schema_id") or "").strip()
+        version_label = str(meta.get("version_label") or ("v2" if parent_id else "v1")).lower()
+        meta["version_label"] = version_label
+
+        # Schema IDs:
+        #  - v1: content hash (immutable root)
+        #  - v2: stable "<root_id>_v2" so subsequent edits overwrite the same artifact
+        artifacts_dir = self._artifacts_root / str(dossier_id)
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+        # Derive parent id if saving v2 without explicit parent
+        if version_label == "v2" and not parent_id:
+            # 1) Try latest.json
+            latest_pointer = artifacts_dir / "latest.json"
+            try:
+                if latest_pointer.exists():
+                    latest_obj = self._read_json_file(latest_pointer) or {}
+                    lid = str(latest_obj.get("schema_id") or "").strip()
+                    root_from_lineage = (latest_obj.get("lineage") or {}).get("root_schema_id")
+                    if root_from_lineage:
+                        parent_id = str(root_from_lineage)
+                    elif lid:
+                        parent_id = lid[:-3] if lid.endswith("_v2") else lid
+            except Exception:
+                pass
+            # 2) Scan artifacts for most recent v1
+            if not parent_id:
+                try:
+                    candidates = []
+                    for p in artifacts_dir.glob("*.json"):
+                        if p.name == "latest.json":
+                            continue
+                        obj = self._read_json_file(p) or {}
+                        sid = str(obj.get("schema_id") or p.stem)
+                        when = str(obj.get("saved_at") or "")
+                        ver = str((obj.get("metadata") or {}).get("version_label") or (obj.get("lineage") or {}).get("version_label") or "")
+                        # Prefer explicit v1, otherwise anything not ending with _v2
+                        is_v1 = (ver.lower() == "v1") or (not sid.endswith("_v2"))
+                        if is_v1:
+                            candidates.append((when, sid))
+                    if candidates:
+                        candidates.sort(key=lambda x: x[0], reverse=True)
+                        parent_id = candidates[0][1]
+                except Exception:
+                    pass
+        # Now decide ids
+        if version_label == "v2":
+            # If still no parent, fall back to treating this as v1 root to avoid stray hash v2s
+            if not parent_id:
+                schema_id = content_hash(structured_data)
+                root_schema_id = schema_id
+                meta["version_label"] = "v1"
+                meta.pop("parent_schema_id", None)
+            else:
+                root_schema_id = parent_id
+                schema_id = f"{root_schema_id}_v2"
+                meta["parent_schema_id"] = root_schema_id
+        else:
+            schema_id = content_hash(structured_data)
+            root_schema_id = schema_id
+            meta.pop("parent_schema_id", None)
 
         payload = {
             "artifact_type": "schema",
@@ -130,14 +188,14 @@ class SchemaPersistenceService:
             "structured_data": structured_data,
             "metadata": meta,
             "lineage": {
-                "primary_dossier_id": dossier_id
+                "primary_dossier_id": dossier_id,
+                "root_schema_id": root_schema_id,
+                "version_label": version_label,
             },
             "frozen_dependencies": {}
         }
 
-        # New artifact store (immutable per schema_id) + latest pointer
-        artifacts_dir = self._artifacts_root / str(dossier_id)
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        # Persist artifact (v2 overwrites the same "<root>_v2" file)
         artifact_path = artifacts_dir / f"{schema_id}.json"
         latest_pointer_artifacts = artifacts_dir / "latest.json"
         self._atomic_write(artifact_path, payload)
@@ -152,7 +210,7 @@ class SchemaPersistenceService:
         self._atomic_write(versioned_path, payload)
         self._atomic_write(latest_path, payload)
 
-        # Update indices
+        # Update indices (dedupe by (dossier_id, schema_id) so v2 edits refresh same row)
         self._write_schemas_index(dossier_id=dossier_id, schema_id=schema_id, latest_pointer=latest_pointer_artifacts, saved_at=now_iso)
         self._write_legacy_index(dossier_id=dossier_id, now_iso=now_iso, sha=text_sha, original_text_len=len(original_text or ""), model_used=model_used)
 

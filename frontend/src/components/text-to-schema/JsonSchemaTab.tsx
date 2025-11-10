@@ -9,6 +9,7 @@ interface JsonSchemaTabProps {
   dossierId?: string;
   originalText?: string;
   currentSchemaId?: string;
+  rootSchemaId?: string;
   startEditToken?: number; // toggling this will force edit mode on (must be > 0)
   onSaved?: (artifact: any) => void;
 }
@@ -20,16 +21,20 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
   dossierId,
   originalText,
   currentSchemaId,
+  rootSchemaId,
   startEditToken,
   onSaved
 }) => {
   const [editMode, setEditMode] = React.useState(false);
   const [buffer, setBuffer] = React.useState('');
   const [err, setErr] = React.useState<string | null>(null);
+  const [localPreview, setLocalPreview] = React.useState<string | null>(null);
+  const lastTokenRef = React.useRef<number>(0);
 
   React.useEffect(() => {
-    // Only enter edit mode when an explicit token > 0 is provided (Field View "Edit in JSON")
-    if (startEditToken && Number.isFinite(startEditToken)) {
+    // Only enter edit mode when token changes (one-shot trigger from Field View)
+    if (startEditToken && Number.isFinite(startEditToken) && startEditToken !== lastTokenRef.current) {
+      lastTokenRef.current = startEditToken;
       setEditMode(true);
       if (schemaData) setBuffer(JSON.stringify(schemaData, null, 2));
       setErr(null);
@@ -48,23 +53,58 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
     if (schemaData) setBuffer(JSON.stringify(schemaData, null, 2));
   }, [schemaData, editMode]);
 
+  // Clear optimistic preview when the parent updates schemaData
+  React.useEffect(() => {
+    if (!editMode && localPreview) {
+      try {
+        // If parent schemaData now matches our preview, clear the override
+        const s = JSON.stringify(schemaData, null, 2);
+        if (s === localPreview) setLocalPreview(null);
+      } catch {}
+    }
+  }, [schemaData, editMode, localPreview]);
+
+  // Clear optimistic preview when switching between artifacts (schema id changes)
+  React.useEffect(() => {
+    try {
+      const idFromData = (schemaData as any)?.schema_id;
+      // Any change in effective id should reset local preview so we don't stick to prior edits
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      idFromData || currentSchemaId; // reference to satisfy linter in dependency calc
+      setLocalPreview(null);
+    } catch {
+      setLocalPreview(null);
+    }
+    // Depend on the id and currentSchemaId to reset when selection changes
+  }, [(schemaData as any)?.schema_id, currentSchemaId]);
+
   const handleSave = async () => {
     try {
       setErr(null);
       const parsed = JSON.parse(buffer);
-      if (!dossierId) throw new Error('Missing dossier context');
+      // Resolve dossier context from props or embedded metadata
+      const effectiveDossier =
+        dossierId ||
+        (schemaData as any)?.metadata?.dossierId ||
+        (schemaData as any)?.metadata?.dossier_id;
+      if (!effectiveDossier) throw new Error('Missing dossier context');
       const ot = originalText ?? '';
+      const parentBase = String(rootSchemaId || currentSchemaId || (schemaData?.schema_id || ''));
+      const parentForSave = parentBase.endsWith('_v2') ? parentBase.replace(/_v2$/, '') : parentBase;
       const res = await saveSchemaForDossier({
-        dossier_id: String(dossierId),
+        dossier_id: String(effectiveDossier),
         model_used: 'manual_edit',
         structured_data: parsed,
         original_text: ot,
         metadata: {
-          parent_schema_id: currentSchemaId || (schemaData?.schema_id),
+          // Always group under the root v1 so we only have v1/v2 (no v3+)
+          parent_schema_id: parentForSave,
           version_label: 'v2',
           edited: true
         }
       });
+      // Optimistically show the just-saved content
+      setLocalPreview(JSON.stringify(parsed, null, 2));
       try { onSaved?.(res); } catch {}
       setEditMode(false);
     } catch (e: any) {
@@ -99,7 +139,7 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
         <div className="header-actions">
           <CopyButton
             onCopy={() => {
-              const text = editMode ? buffer : JSON.stringify(schemaData, null, 2);
+              const text = editMode ? buffer : (localPreview || JSON.stringify(schemaData, null, 2));
               navigator.clipboard.writeText(text);
             }}
             title="Copy schema JSON"
@@ -107,17 +147,17 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
           {!editMode ? (
             <button
               onClick={() => { setEditMode(true); setBuffer(JSON.stringify(schemaData, null, 2)); }}
-              className="final-draft-button"
+              className="final-draft-button compact"
               title="Enable Edit Mode"
             >
               Edit
             </button>
           ) : (
             <>
-              <button onClick={handleSave} className="final-draft-button" title="Save as v2">
+              <button onClick={handleSave} className="final-draft-button compact" title="Save as v2">
                 Save (v2)
               </button>
-              <button onClick={() => setEditMode(false)} className="final-draft-button" title="Cancel edits">
+              <button onClick={() => setEditMode(false)} className="final-draft-button compact" title="Cancel edits">
                 Cancel
               </button>
             </>
@@ -142,7 +182,7 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
           </>
         ) : (
           <pre className="json-schema">
-            {JSON.stringify(schemaData, null, 2)}
+            {localPreview || JSON.stringify(schemaData, null, 2)}
           </pre>
         )}
       </div>

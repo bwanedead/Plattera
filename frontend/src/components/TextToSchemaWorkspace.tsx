@@ -343,6 +343,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             }
           });
           console.log('💾 Schema saved for dossier', selectedFinalizedId, saveRes);
+          // Notify schema manager to refresh listing
+          try { document.dispatchEvent(new Event('schemas:refresh')); } catch {}
 
           // Enrich schemaData with persisted artifact (schema_id + metadata.dossierId) for mapping flow
           if (saveRes?.schema_id) {
@@ -475,13 +477,38 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             dossierId={selectedFinalizedId || (state.finalDraftMetadata as any)?.dossierId}
             originalText={finalText}
             currentSchemaId={(state.schemaResults?.structured_data as any)?.schema_id}
+            rootSchemaId={(state as any)?.schemaResultsOriginal?.structured_data?.schema_id}
             startEditToken={jsonEditToken}
-            onSaved={(artifact: any) => {
-              if (artifact?.schema_id) {
-                const sd = (state.schemaResults?.structured_data || {}) as any;
-                const merged = { ...sd, ...(artifact?.structured_data || sd), schema_id: artifact?.schema_id };
-                updateState({ schemaResults: { ...state.schemaResults, structured_data: merged } as any });
-              }
+            onSaved={async (artifact: any) => {
+              try {
+                const dossier = selectedFinalizedId || (state.finalDraftMetadata as any)?.dossierId;
+                if (!dossier || !artifact?.schema_id) return;
+                // Retry with short backoff to avoid reading before the atomic write lands
+                const delays = [120, 240, 480, 800];
+                let fetched: any = null;
+                for (let i = 0; i < delays.length; i++) {
+                  try {
+                    const art = await schemaApi.getSchema(dossier, artifact.schema_id);
+                    const sd = (art as any)?.structured_data || (art as any)?.artifact?.structured_data;
+                    if (sd) { fetched = sd; break; }
+                  } catch {}
+                  await new Promise(r => setTimeout(r, delays[i]));
+                }
+                if (fetched) {
+                  // Inject schema_id and dossierId for stable parent/dossier resolution in JSON tab
+                  const mergedFetched = { 
+                    ...fetched, 
+                    schema_id: artifact.schema_id,
+                    metadata: { ...(fetched?.metadata || {}), dossierId: String(dossier) }
+                  };
+                  updateState({ 
+                    schemaResults: { ...(state.schemaResults || {}), structured_data: mergedFetched } as any,
+                    finalDraftMetadata: { ...(state.finalDraftMetadata || {}), dossierId: String(dossier) } as any
+                  });
+                }
+                // Notify schema manager to refresh listing
+                try { document.dispatchEvent(new Event('schemas:refresh')); } catch {}
+              } catch {}
             }}
           />
         );
@@ -579,8 +606,15 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                       const art = await schemaApi.getSchema(sel.dossier_id, sel.schema_id);
                       const sd = art?.structured_data || null;
                       if (sd) {
-                        updateState({ schemaResults: { success: true, structured_data: sd } as any });
-                        setSelectedTab('json');
+                        const merged = { 
+                          ...sd, 
+                          schema_id: art?.schema_id || sel.schema_id,
+                          metadata: { ...(sd?.metadata || {}), dossierId: String(sel.dossier_id) }
+                        };
+                        updateState({ 
+                          schemaResults: { success: true, structured_data: merged } as any,
+                          finalDraftMetadata: { ...(state.finalDraftMetadata || {}), dossierId: String(sel.dossier_id) } as any
+                        });
                       }
                     } catch (e) {
                       console.warn('Failed to load schema artifact', e);

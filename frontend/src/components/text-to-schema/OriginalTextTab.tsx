@@ -24,7 +24,7 @@ export const OriginalTextTab: React.FC<OriginalTextTabProps> = ({ text, showSect
             title="Copy original text"
           />
           {onToggleEdit && (
-            <button onClick={onToggleEdit} className="final-draft-button" title={editMode ? 'Done editing' : 'Enable Edit Mode'}>
+            <button onClick={onToggleEdit} className="final-draft-button compact" title={editMode ? 'Done editing' : 'Enable Edit Mode'}>
               {editMode ? 'Done' : 'Edit'}
             </button>
           )}

@@ -83,6 +83,14 @@ body:has(.dropdown-arrow.open) .final-draft-selector {
 
 .final-draft-label { font-size: 10px; }
 
+/* Compact variant for header toolbars */
+.final-draft-button.compact {
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1;
+  min-height: 28px;
+}
+
 /* LOADING SPINNER ANIMATION */
 .loading-spinner {
   animation: spin 1s linear infinite;
