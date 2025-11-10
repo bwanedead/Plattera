@@ -359,6 +359,29 @@ async def purge_schema(body: PurgeSchemaBody):
                 # Continue attempting others
                 pass
 
+        # Explicitly delete root georef <root_id>_georef if present
+        try:
+            georefs_dir = backend_dir / "dossiers_data" / "artifacts" / "georefs" / str(body.dossier_id)
+            root_georef = georefs_dir / f"{root_id}_georef.json"
+            if root_georef.exists():
+                try:
+                    root_georef.unlink()
+                    dependents.append(f"{root_id}_georef")
+                except Exception:
+                    pass
+            # Also remove it from georefs_index
+            if georef_index.exists():
+                with open(georef_index, "r", encoding="utf-8") as f:
+                    idx3 = json.load(f) or {}
+                idx3["georefs"] = [
+                    e for e in (idx3.get("georefs", []) or [])
+                    if not ((e or {}).get("dossier_id") == str(body.dossier_id) and (e or {}).get("georef_id") == f"{root_id}_georef")
+                ]
+                with open(georef_index, "w", encoding="utf-8") as f:
+                    json.dump(idx3, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
         # Clear schemas latest pointer if it points to one of the purged ids
         try:
             latest_pointer = schemas_dir / "latest.json"

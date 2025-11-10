@@ -85,7 +85,19 @@ class GeoreferencePersistenceService:
             "anchor_info": georef_result.get("anchor_info") or {},
             "projection_metadata": georef_result.get("projection_metadata") or {},
         }
-        georef_id = content_hash(core)
+
+        # Derive schema ids for stable single-per-root storage
+        schema_id_in = str((georef_result.get("schema_id") or "")).strip()
+        schema_root_id = str((georef_result.get("schema_root_id") or "")).strip()
+        if not schema_root_id and schema_id_in:
+            schema_root_id = schema_id_in[:-3] if schema_id_in.endswith("_v2") else schema_id_in
+
+        # Stable id per root; fallback to content hash if schema context missing
+        if schema_root_id:
+            georef_id = f"{schema_root_id}_georef"
+        else:
+            georef_id = content_hash(core)
+
         now_iso = datetime.utcnow().isoformat()
 
         # merge metadata and add snapshots
@@ -102,13 +114,43 @@ class GeoreferencePersistenceService:
             "metadata": meta,
             "lineage": {
                 "primary_dossier_id": dossier_id,
-                "schema_id": georef_result.get("schema_id")
+                "schema_id": schema_id_in or None,
+                "schema_root_id": schema_root_id or None
             },
             "frozen_dependencies": {}
         }
 
         dossier_dir = self._artifacts_root / str(dossier_id)
         dossier_dir.mkdir(parents=True, exist_ok=True)
+
+        # Remove any prior georefs for the same root (stable-id or legacy hashed)
+        if schema_root_id:
+            try:
+                for p in dossier_dir.glob("*.json"):
+                    if p.name == "latest.json":
+                        continue
+                    obj = self._read_json_file(p) or {}
+                    lin = (obj or {}).get("lineage") or {}
+                    sid = str(lin.get("schema_id") or "")
+                    sroot = str(lin.get("schema_root_id") or "")
+                    if sroot == schema_root_id or sid in {schema_root_id, f"{schema_root_id}_v2"}:
+                        try:
+                            os.remove(p)
+                        except Exception:
+                            pass
+                # Clean index entries for this root's georef id
+                try:
+                    idx = self._read_json_file(self._index_path) or {"georefs": []}
+                    idx["georefs"] = [
+                        e for e in idx.get("georefs", [])
+                        if not ((e or {}).get("dossier_id") == str(dossier_id) and str((e or {}).get("georef_id") or "") == f"{schema_root_id}_georef")
+                    ]
+                    self._atomic_write(self._index_path, idx)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
         artifact_path = dossier_dir / f"{georef_id}.json"
         latest_pointer = dossier_dir / "latest.json"
         self._atomic_write(artifact_path, payload)
