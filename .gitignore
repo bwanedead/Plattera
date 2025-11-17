@@ -258,3 +258,6 @@ updater-private.pem
 
 # Build artifacts
 frontend/out/
+frontend/src-tauri/bin/
+frontend/src-tauri/target/
+frontend/src-tauri/*.sig
