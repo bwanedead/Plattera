@@ -251,7 +251,7 @@ if __name__ == "__main__":
     
     # Configure uvicorn settings
     uvicorn.run(
-        "main:app",
+        app,
         host="127.0.0.1",
         port=8000,
         reload=False,  # ← This will fix it
