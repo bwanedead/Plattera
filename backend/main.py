@@ -28,6 +28,7 @@ from api.router import api_router
 from services.logging_service import init_logging
 from utils.health_monitor import get_health_monitor
 from pipelines.mapping.georeference.georeference_service import GeoreferenceService
+from services.registry import get_registry
 
 # NEW: static files for images
 from fastapi.staticfiles import StaticFiles
@@ -162,6 +163,14 @@ async def startup_event():
     # Initialize health monitor
     health_monitor = get_health_monitor()
     logger.info("🏥 Health monitoring initialized")
+
+    # Log service registry status so we can debug model availability in EXE builds
+    try:
+        registry = get_registry()
+        info = registry.get_service_info()
+        logger.info(f"SERVICE_REGISTRY ► {info}")
+    except Exception as e:
+        logger.error(f"SERVICE_REGISTRY ► failed to inspect services: {e}")
     
     # Perform initial health check (cheap)
     health_status = health_monitor.check_system_health()
@@ -256,5 +265,5 @@ if __name__ == "__main__":
         port=8000,
         reload=False,  # ← This will fix it
         log_level="info",
-        access_log=True
-    ) 
+        access_log=False,  # Disable per-request access log spam
+    )

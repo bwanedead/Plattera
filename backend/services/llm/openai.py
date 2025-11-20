@@ -106,12 +106,26 @@ except ImportError:
 # class PlatteraParcel(BaseModel): # DELETE THESE
 
 def _get_openai_api_key():
-    """Retrieve OpenAI API key from OS keyring, falling back to env."""
+    """Retrieve OpenAI API key from OS keyring, falling back to env, with diagnostics.
+
+    This is intentionally verbose so that frozen EXE runs make it obvious whether
+    OpenAI failed due to missing keyring/env vs missing package.
+    """
     try:
         key = keyring.get_password("plattera", "openai_api_key")
-    except Exception:
-        key = None
-    return key or os.getenv("OPENAI_API_KEY")
+        if key:
+            logger.info("OPENAI_KEY ► resolved from keyring")
+            return key
+    except Exception as e:
+        logger.warning(f"OPENAI_KEY ► keyring error: {e}")
+
+    env_key = os.getenv("OPENAI_API_KEY")
+    if env_key:
+        logger.info("OPENAI_KEY ► resolved from environment")
+        return env_key
+
+    logger.warning("OPENAI_KEY ► not found in keyring or environment")
+    return None
 
 class OpenAIService(LLMService):
     """OpenAI LLM service provider"""
