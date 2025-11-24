@@ -117,7 +117,11 @@ app = FastAPI(
 
 # Add CORS middleware – restrict to Tauri desktop and localhost dev by default
 # This works without any .env and is agnostic to the frontend port.
-SAFE_LOCAL_REGEX = r"^(tauri://localhost|https?://(localhost|127\.0\.0\.1)(:\d+)?)$"
+# Allow:
+# - tauri://localhost        (older Tauri origin)
+# - http(s)://tauri.localhost  (Tauri v2 WebView origin on Windows)
+# - http(s)://localhost / 127.0.0.1 : any port
+SAFE_LOCAL_REGEX = r"^(tauri://localhost|https?://tauri\.localhost|https?://(localhost|127\.0\.0\.1)(:\d+)?)$"
 
 app.add_middleware(
     CORSMiddleware,

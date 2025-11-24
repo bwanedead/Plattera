@@ -5,6 +5,7 @@ Drop providers in llm/ or ocr/ folders and they'll be automatically loaded
 import os
 import importlib
 import glob
+import sys
 from typing import Dict, Any, List, Union
 import logging
 from services.llm.base import LLMService
@@ -31,8 +32,48 @@ class ServiceRegistry:
         
         logger.info(f"✅ Loaded {len(self.llm_services)} LLM services, {len(self.ocr_services)} OCR services")
     
+    def _register_service_from_module(self, module_name: str, service_type: str):
+        """Helper to inspect a module and register its service."""
+        logger = logging.getLogger(__name__)
+        try:
+            package = f"services.{service_type}"
+            full_module_name = f"{package}.{module_name}"
+            module = importlib.import_module(full_module_name)
+
+            base_class = LLMService if service_type == "llm" else OCRService
+            target_dict = self.llm_services if service_type == "llm" else self.ocr_services
+
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                if (
+                    isinstance(attr, type)
+                    and issubclass(attr, base_class)
+                    and attr is not base_class
+                ):
+                    try:
+                        service = attr()
+                        if service.is_available():
+                            target_dict[service.name] = service
+                            logger.info(f"✅ {service_type.upper()}: {service.name}")
+                        else:
+                            logger.warning(f"⚠️  {service_type.upper()}: {service.name} (not configured)")
+                    except Exception as e:
+                        logger.error(f"❌ {service_type.upper()}: {module_name} failed to load: {e}")
+        except Exception as e:
+            logger.error(f"❌ Failed to import {service_type.upper()} module {module_name}: {e}")
+    
     def _discover_llm_services(self):
         """Discover all LLM providers in services/llm/"""
+        # In frozen (PyInstaller) mode, .py files are not reliably visible on disk,
+        # so we manually register known providers instead of globbing.
+        if getattr(sys, "frozen", False):
+            logging.getLogger(__name__).info("❄️ Running in frozen mode - manually registering LLM services")
+            known_services = ["openai"]  # keep in sync with PyInstaller hidden-imports
+            for module in known_services:
+                self._register_service_from_module(module, "llm")
+            return
+
+        # DEV MODE: Use glob to find .py files
         llm_dir = os.path.join(os.path.dirname(__file__), "llm")
         provider_files = glob.glob(os.path.join(llm_dir, "*.py"))
         
@@ -44,35 +85,17 @@ class ServiceRegistry:
                 continue
             
             module_name = filename[:-3]  # Remove .py extension
-            
-            try:
-                # Import the module
-                module = importlib.import_module(f"services.llm.{module_name}")
-                
-                # Look for classes that inherit from LLMService
-                for attr_name in dir(module):
-                    attr = getattr(module, attr_name)
-                    
-                    if (isinstance(attr, type) and 
-                        issubclass(attr, LLMService) and 
-                        attr != LLMService):
-                        
-                        # Try to instantiate and check availability
-                        try:
-                            service = attr()
-                            if service.is_available():
-                                self.llm_services[service.name] = service
-                                logging.getLogger(__name__).info(f"✅ LLM: {service.name}")
-                            else:
-                                logging.getLogger(__name__).warning(f"⚠️  LLM: {service.name} (not configured)")
-                        except Exception as e:
-                            logging.getLogger(__name__).error(f"❌ LLM: {module_name} failed to load: {e}")
-                        
-            except Exception as e:
-                logging.getLogger(__name__).error(f"❌ Failed to import LLM module {module_name}: {e}")
+            self._register_service_from_module(module_name, "llm")
     
     def _discover_ocr_services(self):
         """Discover all OCR providers in services/ocr/"""
+        if getattr(sys, "frozen", False):
+            logging.getLogger(__name__).info("❄️ Running in frozen mode - manually registering OCR services")
+            known_services: List[str] = []  # add OCR providers here as needed
+            for module in known_services:
+                self._register_service_from_module(module, "ocr")
+            return
+
         ocr_dir = os.path.join(os.path.dirname(__file__), "ocr")
         provider_files = glob.glob(os.path.join(ocr_dir, "*.py"))
         
@@ -84,32 +107,7 @@ class ServiceRegistry:
                 continue
                 
             module_name = filename[:-3]  # Remove .py extension
-            
-            try:
-                # Import the module
-                module = importlib.import_module(f"services.ocr.{module_name}")
-                
-                # Look for classes that inherit from OCRService
-                for attr_name in dir(module):
-                    attr = getattr(module, attr_name)
-                    
-                    if (isinstance(attr, type) and 
-                        issubclass(attr, OCRService) and 
-                        attr != OCRService):
-                        
-                        # Try to instantiate and check availability
-                        try:
-                            service = attr()
-                            if service.is_available():
-                                self.ocr_services[service.name] = service
-                                logging.getLogger(__name__).info(f"✅ OCR: {service.name}")
-                            else:
-                                logging.getLogger(__name__).warning(f"⚠️  OCR: {service.name} (not available)")
-                        except Exception as e:
-                            logging.getLogger(__name__).error(f"❌ OCR: {module_name} failed to load: {e}")
-                        
-            except Exception as e:
-                logging.getLogger(__name__).error(f"❌ Failed to import OCR module {module_name}: {e}")
+            self._register_service_from_module(module_name, "ocr")
     
     def get_all_models(self) -> Dict[str, Dict[str, Any]]:
         """Get all models from all available services"""
