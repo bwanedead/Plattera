@@ -3,7 +3,6 @@ import Link from 'next/link'
 import { ApiKeyModal } from '../src/components/ApiKeyModal'
 import TextBatchProcessor from '../src/components/TextBatchProcessor'
 import ImageBatchProcessor from '../src/components/ImageBatchProcessor'
-import ResultsViewer from '../src/components/ResultsViewer'
 import { ImageProcessingWorkspace } from '../src/components/image-processing/ImageProcessingWorkspace';
 import { TextToSchemaWorkspace } from '../src/components/TextToSchemaWorkspace'
 import { useWorkspaceNavigation } from '../src/hooks/useWorkspaceState'
@@ -60,7 +59,7 @@ const App: React.FC = () => {
 
   const handleNavigateToTextProcessing = () => {
     setMode('text-processing')
-    setActiveWorkspace('text-processing')
+    setActiveWorkspace('text-to-schema')
   }
 
   const handleExitToHome = () => {
@@ -140,7 +139,15 @@ const App: React.FC = () => {
                       alert('You are up to date.')
                     }
                   } catch (e: any) {
-                    alert('Updater not available in this build or failed to initialize.')
+                    // Surface the underlying updater error so we can diagnose configuration issues.
+                    // NOTE: In plain browser dev (npm run dev), this will always fail because Tauri APIs are unavailable.
+                    // We care primarily about Tauri dev and installed builds here.
+                    // eslint-disable-next-line no-console
+                    console.error('Updater error', e)
+                    const message =
+                      (e && (e.message || (typeof e.toString === 'function' && e.toString()))) ||
+                      'Unknown updater error (see devtools console for details)'
+                    alert(`Updater check failed:\n${message}`)
                   }
                 }}
                 style={{

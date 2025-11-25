@@ -45,7 +45,7 @@
       "active": true,
       "dialog": true,
       "endpoints": [
-        "https://github.com/bwanedead/Plattera/releases/latest/download/latest.json"
+        "https://raw.githubusercontent.com/bwanedead/Plattera/main/releases/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg4MEJCNzEzNkQ1NjhEREQKUldUZGpWWnRFN2NMaU04eXJ5UUpBanlCWmpvenZPMGd1TC8yNWY5OEdFVEc2TTlaZ3lLdUdMS1QK"
     }

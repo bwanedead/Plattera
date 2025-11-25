@@ -133,13 +133,12 @@ pub fn run() {
     tauri::Builder::default()
         .manage(BackendProcess(Mutex::new(None)))
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // Always register log plugin (dev + release)
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
             // Register shell plugin for sidecar
             app.handle().plugin(tauri_plugin_shell::init())?;
             // Updater plugin (GitHub Releases)
@@ -155,8 +154,8 @@ pub fn run() {
                 let runtime = tokio::runtime::Runtime::new().unwrap();
                 runtime.block_on(async {
                     match start_backend(app_handle).await {
-                        Ok(msg) => println!("✅ {}", msg),
-                        Err(e) => println!("❌ Failed to start backend: {}", e),
+                        Ok(msg) => log::info!("✅ {}", msg),
+                        Err(e) => log::error!("❌ Failed to start backend: {}", e),
                     }
                 });
                 // Backend prewarm (after launch): wait for readiness, then warm dossier list

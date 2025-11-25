@@ -5,14 +5,14 @@ System Management Endpoints
 Endpoints for system health monitoring, cleanup, and maintenance.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Dict, Any, List
 import logging
 
 import time
 from utils.health_monitor import check_health as hm_check
-
+import os
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -83,9 +83,10 @@ async def check_system_health():
 
 
 @router.post("/cleanup", response_model=CleanupResponse)
-async def perform_system_cleanup():
+async def perform_system_cleanup(background_tasks: BackgroundTasks):
     """
     Perform system cleanup including memory cleanup, garbage collection, and file system cleanup.
+    Also schedules a delayed process exit when running as a sidecar.
     """
     try:
         logger.info("🧹 SYSTEM CLEANUP REQUEST")
@@ -107,6 +108,15 @@ async def perform_system_cleanup():
         )
         
         logger.info(f"✅ CLEANUP COMPLETE ► Status: {response.status}, Memory freed: {response.memory_freed_mb}MB")
+
+        # Schedule a delayed hard exit so HTTP response can complete cleanly
+        def delayed_exit():
+            logger.info("🛑 Delayed exit requested via /api/cleanup – terminating process")
+            time.sleep(0.5)
+            os._exit(0)
+
+        background_tasks.add_task(delayed_exit)
+
         return response
         
     except Exception as e:
