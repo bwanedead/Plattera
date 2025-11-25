@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 from shapely.geometry import box, mapping, Point
 import json
+from config.paths import plss_root
 
 logger = logging.getLogger(__name__)
 
@@ -325,7 +326,8 @@ class PLSSOverlayEngine:
     """BULLETPROOF PLSS Overlay Engine with comprehensive validation"""
     
     def __init__(self):
-        self.data_dir = Path(__file__).parent.parent.parent.parent / "plss"
+        # Centralized PLSS root (dev: repo/plss, frozen: app data)
+        self.data_dir = plss_root()
         self.validator = ContainerBoundsValidator()
         self.layer_engine = LayerSpecificEngine(self.data_dir)
         self.feature_validator = FeatureValidator()

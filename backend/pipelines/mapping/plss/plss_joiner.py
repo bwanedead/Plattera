@@ -13,6 +13,7 @@ import geopandas as gpd
 from shapely.geometry import Point
 from shapely import wkb
 import fiona
+from config.paths import plss_root
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,8 @@ class PLSSJoiner:
     """
     def __init__(self, plss_data_path: Optional[str] = None):
         if plss_data_path is None:
-            # Navigate to project root and find plss data
-            self.plss_data_path = Path(__file__).parent.parent.parent.parent.parent / "plss" / "wyoming"
+            # Use centralized PLSS root and default to Wyoming subtree
+            self.plss_data_path = plss_root() / "wyoming"
         else:
             self.plss_data_path = Path(plss_data_path)
         

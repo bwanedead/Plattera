@@ -8,6 +8,7 @@ import pandas as pd
 from typing import Dict, Any, Optional, Tuple
 from shapely.geometry import box
 import os
+from config.paths import plss_root
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,8 @@ class ContainerSubdivisionsEngine:
     """Dedicated engine for container subdivision overlays using spatial filtering"""
     
     def __init__(self, data_dir: str = "../plss"):
-        self.data_dir = data_dir
+        # Use caller-provided dir if overridden, otherwise centralized PLSS root
+        self.data_dir = data_dir if data_dir != "../plss" else str(plss_root())
         
     def get_subdivisions_features(self, container_bounds: Dict[str, float], plss_info: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("🔲 CONTAINER SUBDIVISIONS ENGINE: Starting subdivisions feature retrieval")

@@ -21,6 +21,7 @@ import io
 from datetime import datetime
 import time
 import traceback
+from config.paths import plss_root
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +32,11 @@ class PLSSDataManager:
     """
     
     def __init__(self, data_directory: Optional[str] = None):
-        # Fix the data directory path - restore original logic to use project root
+        # Centralize PLSS root to respect dev vs frozen modes
         if data_directory:
             self.data_dir = Path(data_directory)
         else:
-            # Use project directory instead of backend directory
-            # Navigate up from backend/pipelines/mapping/plss/ to project root
-            project_root = Path(__file__).parent.parent.parent.parent.parent
-            self.data_dir = project_root / "plss"
+            self.data_dir = plss_root()
         
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_file = self.data_dir / "metadata.json"

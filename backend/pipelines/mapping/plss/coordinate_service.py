@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 import pandas as pd
+from config.paths import plss_root
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +20,9 @@ class PLSSCoordinateService:
         if data_dir:
             self.data_dir = Path(data_dir)
         else:
-            # Navigate from backend/pipelines/mapping/plss/ to project root
-            project_root = Path(__file__).parent.parent.parent.parent.parent
-            self.data_dir = project_root / "plss"
-        
+            # Use centralized PLSS root (dev: repo/plss, frozen: app data)
+            self.data_dir = plss_root()
+
         # Verify the data directory exists
         if not self.data_dir.exists():
             logger.warning(f"PLSS data directory does not exist: {self.data_dir}")

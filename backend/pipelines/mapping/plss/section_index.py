@@ -20,6 +20,7 @@ import pandas as pd
 from shapely.geometry import Polygon
 import fiona
 import shutil
+from config.paths import plss_root
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +34,12 @@ class SectionIndex:
     _state_to_index_df: Dict[str, pd.DataFrame] = {}
 
     def __init__(self, data_root: Optional[str] = None) -> None:
-        # Discover project root -> plss dir if not provided
+        # Discover PLSS base dir if not provided
         if data_root:
             self.base_dir = Path(data_root)
         else:
-            # backend/pipelines/mapping/plss/ -> project root / plss
-            self.base_dir = Path(__file__).parent.parent.parent.parent.parent / "plss"
+            # Use centralized PLSS root (dev: repo/plss, frozen: app data)
+            self.base_dir = plss_root()
 
     def _index_path(self, state: str) -> Path:
         return (self.base_dir / state.lower() / "index" / "sections_index.parquet").resolve()

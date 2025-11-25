@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, List, Tuple
 import pandas as pd
 import numpy as np
 from math import radians, sin, cos, sqrt, atan2
+from config.paths import plss_root
 
 logger = logging.getLogger(__name__)
 
@@ -22,28 +23,9 @@ class PLSSNearestSnapEngine:
         if data_dir:
             self.data_dir = Path(data_dir)
         else:
-            # Navigate from backend/pipelines/mapping/plss/ to project root
-            current_file = Path(__file__)
-            logger.info(f"Current file path: {current_file}")
-            project_root = current_file.parent.parent.parent.parent.parent
-            logger.info(f"Calculated project root: {project_root}")
-            self.data_dir = project_root / "plss"
-            logger.info(f"Calculated PLSS data directory: {self.data_dir}")
-
-        # Verify the data directory exists
-        if not self.data_dir.exists():
-            logger.warning(f"PLSS data directory does not exist: {self.data_dir}")
-            logger.warning(f"Absolute path: {self.data_dir.absolute()}")
-            logger.warning(f"Project root exists: {project_root.exists()}")
-            logger.warning(f"Project root contents: {list(project_root.iterdir()) if project_root.exists() else 'N/A'}")
-        else:
-            logger.info(f"PLSS data directory found: {self.data_dir}")
-            wyoming_dir = self.data_dir / "wyoming"
-            parquet_dir = wyoming_dir / "parquet"
-            logger.info(f"Wyoming directory exists: {wyoming_dir.exists()}")
-            logger.info(f"Parquet directory exists: {parquet_dir.exists()}")
-            if parquet_dir.exists():
-                logger.info(f"Parquet files: {list(parquet_dir.glob('*.parquet'))}")
+            # Use centralized PLSS root (dev: repo/plss, frozen: app data)
+            self.data_dir = plss_root()
+            logger.info(f"Using PLSS data directory: {self.data_dir}")
 
         # Search radii in degrees (convert from miles)
         self.search_radii = {
