@@ -9,6 +9,12 @@ import logging
 from pathlib import Path
 import json
 
+from config.paths import (
+    dossiers_state_root,
+    dossiers_schemas_artifacts_root,
+    dossiers_georefs_artifacts_root,
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -174,8 +180,7 @@ async def list_schemas(dossier_id: str):
     List schema summaries for a dossier (from schemas_index.json)
     """
     try:
-        backend_dir = Path(__file__).resolve().parents[2]
-        index_path = backend_dir / "dossiers_data" / "state" / "schemas_index.json"
+        index_path = dossiers_state_root() / "schemas_index.json"
         if not index_path.exists():
             return {"status": "success", "schemas": []}
         with open(index_path, "r", encoding="utf-8") as f:
@@ -193,8 +198,7 @@ async def get_schema(dossier_id: str, schema_id: str):
     Get a saved schema artifact by dossier_id and schema_id
     """
     try:
-        backend_dir = Path(__file__).resolve().parents[2]
-        artifact_path = backend_dir / "dossiers_data" / "artifacts" / "schemas" / str(dossier_id) / f"{schema_id}.json"
+        artifact_path = dossiers_schemas_artifacts_root(str(dossier_id)) / f"{schema_id}.json"
         if not artifact_path.exists():
             raise HTTPException(status_code=404, detail="Schema artifact not found")
         with open(artifact_path, "r", encoding="utf-8") as f:
@@ -259,8 +263,7 @@ async def bulk_delete_schemas(body: BulkSchemaDeleteRequest):
 @router.get("/list-all")
 async def list_all_schemas():
     try:
-        backend_dir = Path(__file__).resolve().parents[2]
-        index_path = backend_dir / "dossiers_data" / "state" / "schemas_index.json"
+        index_path = dossiers_state_root() / "schemas_index.json"
         if not index_path.exists():
             return {"status": "success", "schemas": []}
         with open(index_path, "r", encoding="utf-8") as f:
@@ -286,9 +289,9 @@ async def purge_schema(body: PurgeSchemaBody):
         from services.text_to_schema.schema_persistence_service import SchemaPersistenceService
         svc = SchemaPersistenceService()
 
-        backend_dir = Path(__file__).resolve().parents[2]
-        georef_index = backend_dir / "dossiers_data" / "state" / "georefs_index.json"
-        schemas_dir = backend_dir / "dossiers_data" / "artifacts" / "schemas" / str(body.dossier_id)
+        state_root = dossiers_state_root()
+        georef_index = state_root / "georefs_index.json"
+        schemas_dir = dossiers_schemas_artifacts_root(str(body.dossier_id))
 
         # Resolve root id so we can purge both v1 and v2
         root_id = str(body.schema_id)
@@ -319,7 +322,10 @@ async def purge_schema(body: PurgeSchemaBody):
                     if (entry or {}).get("dossier_id") == str(body.dossier_id):
                         georef_id = (entry or {}).get("georef_id")
                         if georef_id:
-                            georef_art = backend_dir / "dossiers_data" / "artifacts" / "georefs" / str(body.dossier_id) / f"{georef_id}.json"
+                            georef_art = (
+                                dossiers_georefs_artifacts_root(str(body.dossier_id))
+                                / f"{georef_id}.json"
+                            )
                             if georef_art.exists():
                                 try:
                                     with open(georef_art, "r", encoding="utf-8") as gf:
@@ -361,7 +367,7 @@ async def purge_schema(body: PurgeSchemaBody):
 
         # Explicitly delete root georef <root_id>_georef if present
         try:
-            georefs_dir = backend_dir / "dossiers_data" / "artifacts" / "georefs" / str(body.dossier_id)
+            georefs_dir = dossiers_georefs_artifacts_root(str(body.dossier_id))
             root_georef = georefs_dir / f"{root_id}_georef.json"
             if root_georef.exists():
                 try:
@@ -395,7 +401,7 @@ async def purge_schema(body: PurgeSchemaBody):
 
         # Clear georefs latest pointer if it points to a purged georef
         try:
-            georefs_dir = backend_dir / "dossiers_data" / "artifacts" / "georefs" / str(body.dossier_id)
+            georefs_dir = dossiers_georefs_artifacts_root(str(body.dossier_id))
             latest_georef = georefs_dir / "latest.json"
             if dependents and latest_georef.exists():
                 with open(latest_georef, "r", encoding="utf-8") as f:
@@ -425,7 +431,7 @@ async def purge_schema(body: PurgeSchemaBody):
             pass
         try:
             # Georefs directory cleanup
-            georefs_dir = backend_dir / "dossiers_data" / "artifacts" / "georefs" / str(body.dossier_id)
+            georefs_dir = dossiers_georefs_artifacts_root(str(body.dossier_id))
             remaining_georef_files = [p for p in georefs_dir.glob("*.json") if p.name != "latest.json"]
             if not remaining_georef_files:
                 latest_geo = georefs_dir / "latest.json"

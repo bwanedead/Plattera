@@ -11,6 +11,7 @@ import logging
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
+from config.paths import dossiers_associations_root
 from .models import TranscriptionEntry
 
 logger = logging.getLogger(__name__)
@@ -25,8 +26,7 @@ class TranscriptionAssociationService:
     """
 
     def __init__(self):
-        BACKEND_DIR = Path(__file__).resolve().parents[2]
-        self.storage_dir = BACKEND_DIR / "dossiers_data/associations"
+        self.storage_dir = dossiers_associations_root()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         # Reduce log noise: initialization can happen frequently during refreshes
         logger.debug("TranscriptionAssociationService initialized")

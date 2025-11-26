@@ -19,6 +19,7 @@ from services.dossier.view_service import DossierViewService
 from services.dossier.edit_persistence_service import EditPersistenceService
 from services.dossier.final_registry_service import FinalRegistryService
 from services.dossier.finalization_service import FinalizationService
+from config.paths import dossiers_views_root
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -63,8 +64,12 @@ async def finalize_dossier(request: FinalizeRequest):
     try:
         svc = FinalizationService()
         snap = svc.finalize_dossier(dossier_id)
-        backend_dir = Path(__file__).resolve().parents[3]
-        final_path = backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / "final" / "dossier_final.json"
+        final_path = (
+            dossiers_views_root()
+            / str(dossier_id)
+            / "final"
+            / "dossier_final.json"
+        )
         return FinalizeResponse(
             success=True,
             dossier_id=dossier_id,
@@ -109,8 +114,7 @@ async def get_finalized_dossier(dossier_id: str):
 		The finalized snapshot or 404
 	"""
 	try:
-		backend_dir = Path(__file__).resolve().parents[3]
-		final_dir = backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / "final"
+		final_dir = dossiers_views_root() / str(dossier_id) / "final"
 		pointer_path = final_dir / "dossier_final.json"
 
 		target_path = pointer_path
@@ -142,8 +146,7 @@ async def delete_finalized_dossier(dossier_id: str):
 	Does not delete historical snapshots. Frontend can refresh badges from index.
 	"""
 	try:
-		backend_dir = Path(__file__).resolve().parents[3]
-		final_dir = backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / "final"
+		final_dir = dossiers_views_root() / str(dossier_id) / "final"
 		pointer_path = final_dir / "dossier_final.json"
 		if pointer_path.exists():
 			pointer_path.unlink()

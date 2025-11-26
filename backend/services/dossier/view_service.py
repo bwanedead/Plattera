@@ -11,6 +11,7 @@ import logging
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
+from config.paths import dossiers_root, dossiers_views_root, dossier_runs_root
 from .models import DossierStructure
 from .navigation_service import DossierNavigationService
 from .provenance_schema import ProvenanceEnhancement
@@ -300,35 +301,38 @@ class DossierViewService:
 
     def _load_transcription_content(self, transcription_id: str) -> Optional[Dict[str, Any]]:
         """
-        Load transcription content from saved_drafts directory.
-
-        Args:
-            transcription_id: The transcription ID (e.g., "draft_1")
-
-        Returns:
-            Dictionary with transcription content or None if not found
+        Load transcription content from canonical dossiers views directory,
+        with fallbacks for legacy flat layouts and saved_drafts.
         """
-        BACKEND_DIR = Path(__file__).resolve().parents[2]
         # New canonical layout: dossiers_data/views/transcriptions/<dossier_id>/<transcription_id>/{raw|consensus}/<file>.json
         # Because we don't always have dossier_id here, search recursively by filename
-        from pathlib import Path as _Path
-        transcriptions_root = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
-        candidates = []
+        transcriptions_root = dossiers_views_root()
+        candidates: List[Path] = []
 
         # Support special consensus draft IDs
         try:
-            if transcription_id.endswith('_consensus_llm'):
-                base_id = transcription_id[:-len('_consensus_llm')]
-                candidates = list(transcriptions_root.rglob(f"**/{base_id}/consensus/llm_{base_id}.json"))
-            elif transcription_id.endswith('_consensus_alignment'):
-                base_id = transcription_id[:-len('_consensus_alignment')]
-                candidates = list(transcriptions_root.rglob(f"**/{base_id}/consensus/alignment_{base_id}.json"))
+            if transcription_id.endswith("_consensus_llm"):
+                base_id = transcription_id[:-len("_consensus_llm")]
+                candidates = list(
+                    transcriptions_root.rglob(
+                        f"**/{base_id}/consensus/llm_{base_id}.json"
+                    )
+                )
+            elif transcription_id.endswith("_consensus_alignment"):
+                base_id = transcription_id[:-len("_consensus_alignment")]
+                candidates = list(
+                    transcriptions_root.rglob(
+                        f"**/{base_id}/consensus/alignment_{base_id}.json"
+                    )
+                )
         except Exception:
             candidates = []
 
         # Standard raw/base file lookup
         if not candidates:
-            candidates = list(transcriptions_root.rglob(f"**/raw/{transcription_id}.json"))
+            candidates = list(
+                transcriptions_root.rglob(f"**/raw/{transcription_id}.json")
+            )
         if not candidates and ("_v" in transcription_id):
             base_id = transcription_id.rsplit("_v", 1)[0]
             candidates = list(transcriptions_root.rglob(f"**/raw/{base_id}.json"))
@@ -341,11 +345,14 @@ class DossierViewService:
             if flat_primary.exists():
                 transcription_file = flat_primary
         if not transcription_file:
-            flat_alt = BACKEND_DIR / "dossiers_data" / "views" / f"{transcription_id}.json"
+            # Legacy flat layout under backend/dossiers_data/views
+            flat_alt = dossiers_root() / "views" / f"{transcription_id}.json"
             if flat_alt.exists():
                 transcription_file = flat_alt
         if not transcription_file:
-            legacy_path = BACKEND_DIR / "saved_drafts" / f"{transcription_id}.json"
+            # Very old saved_drafts compatibility
+            backend_dir = Path(__file__).resolve().parents[2]
+            legacy_path = backend_dir / "saved_drafts" / f"{transcription_id}.json"
             if legacy_path.exists():
                 transcription_file = legacy_path
 
@@ -354,9 +361,11 @@ class DossierViewService:
             return None
 
         try:
-            with open(transcription_file, 'r', encoding='utf-8') as f:
+            with open(transcription_file, "r", encoding="utf-8") as f:
                 content = json.load(f)
-            logger.info(f"📄 Loaded transcription (global): id={transcription_id} path={transcription_file}")
+            logger.info(
+                f"📄 Loaded transcription (global): id={transcription_id} path={transcription_file}"
+            )
             return content
         except Exception as e:
             logger.error(f"❌ Error loading transcription {transcription_id}: {e}")
@@ -372,8 +381,7 @@ class DossierViewService:
             return self._load_transcription_content(transcription_id)
 
         try:
-            BACKEND_DIR = Path(__file__).resolve().parents[2]
-            root = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier_id)
+            root = dossier_runs_root(str(dossier_id))
 
             # Consensus (LLM) explicit versions
             if transcription_id.endswith('_consensus_llm_v1') or transcription_id.endswith('_consensus_llm_v2'):

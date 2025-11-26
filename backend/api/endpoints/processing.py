@@ -81,6 +81,8 @@ from utils.file_handler import save_uploaded_file, cleanup_temp_file, is_valid_i
 from typing import Optional, Dict, Any
 import logging
 
+from config.paths import dossiers_views_root
+
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -364,8 +366,8 @@ async def _process_image_to_text(
                     try:
                         from pathlib import Path
                         import json
-                        BACKEND_DIR = Path(__file__).resolve().parents[2]
-                        base_root = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
+
+                        base_root = dossiers_views_root()
                         if dossier_id:
                             run_root = base_root / str(dossier_id) / str(transcription_id)
                         else:
@@ -373,14 +375,15 @@ async def _process_image_to_text(
                         drafts_dir = run_root / "raw"
                         drafts_dir.mkdir(parents=True, exist_ok=True)
                         out_file = drafts_dir / f"{transcription_id}.json"
-                        with open(out_file, 'w', encoding='utf-8') as f:
+                        with open(out_file, "w", encoding="utf-8") as f:
                             # If result.extracted_text contains JSON string, prefer structured dict if present
                             raw = result
                             # Ensure sections are present if possible; if extracted_text is JSON string, try parse
                             try:
                                 import json as _json
-                                txt = result.get('extracted_text')
-                                if isinstance(txt, str) and txt.strip().startswith('{'):
+
+                                txt = result.get("extracted_text")
+                                if isinstance(txt, str) and txt.strip().startswith("{"):
                                     parsed = _json.loads(txt)
                                     if isinstance(parsed, dict):
                                         raw = parsed

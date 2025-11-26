@@ -16,6 +16,11 @@ from datetime import datetime
 from .models import Dossier, DossierSummary
 from .purge_service import DossierPurgeService
 from .event_bus import event_bus
+from config.paths import (
+    dossiers_management_root,
+    dossiers_views_root,
+    dossier_run_root,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +34,8 @@ class DossierManagementService:
     """
 
     def __init__(self):
-        BACKEND_DIR = Path(__file__).resolve().parents[2]
-        # New canonical storage under dossiers_data
-        self.storage_dir = BACKEND_DIR / "dossiers_data/management"
+        # New canonical storage under dossiers_data (centralized root)
+        self.storage_dir = dossiers_management_root()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         logger.info("📁 Dossier Management Service initialized")
 
@@ -205,16 +209,17 @@ class DossierManagementService:
             # Determine longest draft by reading persisted versioned drafts and set is_best accordingly
             try:
                 from pathlib import Path as _Path
-                _BACKEND_DIR = _Path(__file__).resolve().parents[2]
+
                 # Use structured path: dossiers_data/views/transcriptions/{dossier_id}/{transcription_id}/{raw,alignment,consensus}
-                _struct_raw = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier.id) / str(transcription.transcription_id) / "raw"
-                _struct_align = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier.id) / str(transcription.transcription_id) / "alignment"
-                _struct_cons = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier.id) / str(transcription.transcription_id) / "consensus"
-                _head_path = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier.id) / str(transcription.transcription_id) / "head.json"
+                run_root = dossier_run_root(str(dossier.id), str(transcription.transcription_id))
+                _struct_raw = run_root / "raw"
+                _struct_align = run_root / "alignment"
+                _struct_cons = run_root / "consensus"
+                _head_path = run_root / "head.json"
                 head_map = {}
                 try:
                     if _head_path.exists():
-                        with open(_head_path, 'r', encoding='utf-8') as hf:
+                        with open(_head_path, "r", encoding="utf-8") as hf:
                             head_map = json.load(hf) or {}
                 except Exception:
                     head_map = {}
@@ -229,17 +234,21 @@ class DossierManagementService:
                     align_v1_path = _struct_align / f"draft_{i+1}_v1.json"
                     align_v2_path = _struct_align / f"draft_{i+1}_v2.json"
                     # Heads
-                    raw_heads = (head_map.get('raw_heads') or {}) if isinstance(head_map, dict) else {}
-                    alignment_heads = (head_map.get('alignment_heads') or {}) if isinstance(head_map, dict) else {}
-                    raw_head_val = raw_heads.get(f"{transcription.transcription_id}_v{i+1}") or 'v1'
+                    raw_heads = (head_map.get("raw_heads") or {}) if isinstance(head_map, dict) else {}
+                    alignment_heads = (head_map.get("alignment_heads") or {}) if isinstance(head_map, dict) else {}
+                    raw_head_val = raw_heads.get(f"{transcription.transcription_id}_v{i+1}") or "v1"
                     align_head_val = alignment_heads.get(f"{transcription.transcription_id}_draft_{i+1}")
-                    
+
                     # Final selection for stitching and UI
-                    final_selected_id = (head_map.get('final') or {}).get('selected_id') if isinstance(head_map, dict) else None
+                    final_selected_id = (
+                        (head_map.get("final") or {}).get("selected_id")
+                        if isinstance(head_map, dict)
+                        else None
+                    )
 
                     length = 0
                     if fpath.exists():
-                        with open(fpath, 'r', encoding='utf-8') as fp:
+                        with open(fpath, "r", encoding="utf-8") as fp:
                             content = json.load(fp)
 
                         # Determine if this is a real (non-placeholder) draft with usable content
@@ -247,35 +256,39 @@ class DossierManagementService:
                         text = ""
                         if isinstance(content, dict):
                             # If placeholder flag is explicitly set, do not treat as real
-                            if content.get('_placeholder') is True:
+                            if content.get("_placeholder") is True:
                                 is_real = False
                             # Respect explicit completion status if present
-                            if content.get('_status') == 'completed':
+                            if content.get("_status") == "completed":
                                 is_real = True
-                            sections = content.get('sections')
+                            sections = content.get("sections")
                             if isinstance(sections, list):
                                 text = " ".join(
-                                    str(s.get('body', '')) for s in sections if isinstance(s, dict)
+                                    str(s.get("body", "")) for s in sections if isinstance(s, dict)
                                 )
-                                if any((s.get('body') or '').strip() for s in sections if isinstance(s, dict)):
+                                if any(
+                                    (s.get("body") or "").strip()
+                                    for s in sections
+                                    if isinstance(s, dict)
+                                ):
                                     is_real = True
-                            elif 'extracted_text' in content:
-                                text = str(content.get('extracted_text', ''))
+                            elif "extracted_text" in content:
+                                text = str(content.get("extracted_text", ""))
                                 is_real = bool(text and text.strip())
-                            elif 'text' in content:
-                                text = str(content.get('text', ''))
+                            elif "text" in content:
+                                text = str(content.get("text", ""))
                                 is_real = bool(text and text.strip())
                             # Support generic schema mainText
-                            if not is_real and isinstance(content.get('mainText'), str):
-                                mt = content.get('mainText') or ''
+                            if not is_real and isinstance(content.get("mainText"), str):
+                                mt = content.get("mainText") or ""
                                 text = mt if len(mt) > len(text) else text
                                 is_real = bool(mt.strip())
 
-                        length = len((text or '').strip())
+                        length = len((text or "").strip())
 
                         if is_real:
                             try:
-                                d.metadata['status'] = 'completed'
+                                d.metadata["status"] = "completed"
                             except Exception:
                                 pass
                             realized_drafts += 1
@@ -288,64 +301,96 @@ class DossierManagementService:
                     try:
                         d.metadata = d.metadata or {}
                         versions = {
-                            'raw': {
-                                'v1': True,
+                            "raw": {
+                                "v1": True,
                                 # Consider head map indicating v2 to avoid transient misses
-                                'v2': (raw_v2_path.exists() or (raw_head_val == 'v2')),
-                                'head': raw_head_val
+                                "v2": (raw_v2_path.exists() or (raw_head_val == "v2")),
+                                "head": raw_head_val,
                             },
-                            'alignment': {
-                                'v1': align_v1_path.exists(),
-                                'v2': align_v2_path.exists(),
-                                'head': align_head_val
+                            "alignment": {
+                                "v1": align_v1_path.exists(),
+                                "v2": align_v2_path.exists(),
+                                "head": align_head_val,
                             },
-                            'consensus': {
-                                'llm': {
-                                    'v1': (_struct_cons / f"llm_{transcription.transcription_id}_v1.json").exists(),
-                                    'v2': (_struct_cons / f"llm_{transcription.transcription_id}_v2.json").exists(),
-                                    'head': (head_map.get('consensus') or {}).get('llm', {}).get('head') if isinstance(head_map, dict) else None
+                            "consensus": {
+                                "llm": {
+                                    "v1": (
+                                        _struct_cons
+                                        / f"llm_{transcription.transcription_id}_v1.json"
+                                    ).exists(),
+                                    "v2": (
+                                        _struct_cons
+                                        / f"llm_{transcription.transcription_id}_v2.json"
+                                    ).exists(),
+                                    "head": (
+                                        (head_map.get("consensus") or {})
+                                        .get("llm", {})
+                                        .get("head")
+                                        if isinstance(head_map, dict)
+                                        else None
+                                    ),
                                 },
-                                'alignment': {
-                                    'v1': (_struct_cons / f"alignment_{transcription.transcription_id}_v1.json").exists(),
-                                    'v2': (_struct_cons / f"alignment_{transcription.transcription_id}_v2.json").exists(),
-                                    'head': (head_map.get('consensus') or {}).get('alignment', {}).get('head') if isinstance(head_map, dict) else None
-                                }
-                            }
+                                "alignment": {
+                                    "v1": (
+                                        _struct_cons
+                                        / f"alignment_{transcription.transcription_id}_v1.json"
+                                    ).exists(),
+                                    "v2": (
+                                        _struct_cons
+                                        / f"alignment_{transcription.transcription_id}_v2.json"
+                                    ).exists(),
+                                    "head": (
+                                        (head_map.get("consensus") or {})
+                                        .get("alignment", {})
+                                        .get("head")
+                                        if isinstance(head_map, dict)
+                                        else None
+                                    ),
+                                },
+                            },
                         }
-                        d.metadata['versions'] = versions
+                        d.metadata["versions"] = versions
                     except Exception:
                         pass
 
                 if longest_idx is not None:
                     for i, d in enumerate(run.drafts):
-                        d.is_best = (i == longest_idx)
-                
+                        d.is_best = i == longest_idx
+
                 # Expose final selection at run-level metadata for FE and stitching
                 try:
                     from services.dossier.final_registry_service import FinalRegistryService
+
                     fr = FinalRegistryService()
                     # Prefer registry value if present
-                    seg_id = getattr(segment, 'id', None)
-                    reg_val = fr.get_segment_final(str(dossier.id), str(seg_id)) if (getattr(dossier, 'id', None) and seg_id) else None
+                    seg_id = getattr(segment, "id", None)
+                    reg_val = (
+                        fr.get_segment_final(str(dossier.id), str(seg_id))
+                        if (getattr(dossier, "id", None) and seg_id)
+                        else None
+                    )
                     chosen_final = None
                     if isinstance(reg_val, dict):
-                        chosen_final = reg_val.get('draft_id')
+                        chosen_final = reg_val.get("draft_id")
                     if not chosen_final:
                         # Read-only fallback to head.json legacy field computed above
                         chosen_final = final_selected_id
-                    run.metadata = (run.metadata or {})
-                    run.metadata['final_selected_id'] = chosen_final
+                    run.metadata = run.metadata or {}
+                    run.metadata["final_selected_id"] = chosen_final
                 except Exception:
                     pass
             except Exception as _e:
-                logger.warning(f"⚠️ Failed to determine best draft by length for {transcription.transcription_id}: {_e}")
+                logger.warning(
+                    f"⚠️ Failed to determine best draft by length for {transcription.transcription_id}: {_e}"
+                )
 
             # Append LLM consensus draft if enabled or present; show failure/processing states
             if getattr(run, 'has_llm_consensus', False) or run.processing_params.get('auto_llm_consensus'):
                 try:
                     from pathlib import Path as _Path2
-                    _BACKEND_DIR2 = _Path2(__file__).resolve().parents[2]
-                    _root = _BACKEND_DIR2 / "dossiers_data" / "views" / "transcriptions"
+                    from config.paths import dossiers_views_root as _dossiers_views_root
+
+                    _root = _dossiers_views_root()
 
                     structured_llm = _root / str(dossier.id) / str(transcription.transcription_id) / "consensus" / f"llm_{transcription.transcription_id}.json"
                     flat_llm = _root / f"{transcription.transcription_id}_consensus_llm.json"
@@ -412,8 +457,9 @@ class DossierManagementService:
             # Append alignment consensus draft if file exists OR run metadata indicates it's expected
             try:
                 from pathlib import Path as _Path3
-                _BACKEND_DIR3 = _Path3(__file__).resolve().parents[2]
-                _root = _BACKEND_DIR3 / "dossiers_data" / "views" / "transcriptions"
+                from config.paths import dossiers_views_root as _dossiers_views_root
+
+                _root = _dossiers_views_root()
                 structured_align = _root / str(dossier.id) / str(transcription.transcription_id) / "consensus" / f"alignment_{transcription.transcription_id}.json"
                 flat_align = _root / f"{transcription.transcription_id}_consensus_alignment.json"
                 _align_path = structured_align if structured_align.exists() else (flat_align if flat_align.exists() else None)
@@ -913,8 +959,7 @@ class DossierManagementService:
 
     def _get_run_dir(self, dossier_id: str, transcription_id: str) -> Path:
         """Get the run directory path"""
-        backend_dir = Path(__file__).resolve().parents[2]
-        return backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / str(transcription_id)
+        return dossier_run_root(str(dossier_id), str(transcription_id))
 
     def _save_dossier(self, dossier: Dossier) -> None:
         """Internal method to save dossier to disk"""

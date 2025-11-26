@@ -16,6 +16,7 @@ from pathlib import Path
 
 # Import the consensus generator
 from alignment.consensus_draft_generator import ConsensusDraftGenerator
+from config.paths import dossiers_views_root
 
 logger = logging.getLogger(__name__)
 
@@ -129,8 +130,7 @@ async def save_consensus_draft(
             raise HTTPException(status_code=400, detail=f"Invalid consensus data JSON: {e}")
 
         # Find the transcription directory
-        backend_dir = Path(__file__).resolve().parents[2]
-        transcriptions_dir = backend_dir / "dossiers_data" / "views" / "transcriptions"
+        transcriptions_dir = dossiers_views_root()
 
         # Find the transcription directory that contains our transcription_id
         transcription_dir = None

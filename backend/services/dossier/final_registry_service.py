@@ -30,6 +30,7 @@ import json
 from datetime import datetime
 import os
 import tempfile
+from config.paths import dossiers_state_root
 
 
 class FinalRegistryService:
@@ -38,7 +39,7 @@ class FinalRegistryService:
 
     # ---------------- Internal helpers ----------------
     def _registry_path(self, dossier_id: str) -> Path:
-        state_dir = self._backend_root / "dossiers_data" / "state" / str(dossier_id)
+        state_dir = dossiers_state_root() / str(dossier_id)
         state_dir.mkdir(parents=True, exist_ok=True)
         return state_dir / "final_registry.json"
 

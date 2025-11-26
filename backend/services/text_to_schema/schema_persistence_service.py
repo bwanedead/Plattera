@@ -10,6 +10,13 @@ from pathlib import Path
 from typing import Any, Dict, Optional, List
 
 from utils.id_hash import content_hash
+from config.paths import (
+    dossiers_processing_jobs_root,
+    dossiers_schemas_artifacts_root,
+    dossiers_state_root,
+    dossiers_management_root,
+    dossiers_georefs_artifacts_root,
+)
 
 
 class SchemaPersistenceService:
@@ -19,16 +26,16 @@ class SchemaPersistenceService:
 
     def __init__(self) -> None:
         backend_dir = Path(__file__).resolve().parents[2]
-        self._jobs_root = backend_dir / "dossiers_data" / "processing_jobs" / "text_to_schema"
+        self._jobs_root = dossiers_processing_jobs_root("text_to_schema")
         # New artifact store (schemas)
-        self._artifacts_root = backend_dir / "dossiers_data" / "artifacts" / "schemas"
+        self._artifacts_root = dossiers_schemas_artifacts_root()
         # Indices
-        self._state_dir = backend_dir / "dossiers_data" / "state"
+        self._state_dir = dossiers_state_root()
         self._schemas_index_path = self._state_dir / "schemas_index.json"
         self._legacy_index_path = self._state_dir / "text_to_schema_index.json"
         self._state_dir.mkdir(parents=True, exist_ok=True)
         # Management dir (for dossier title lookups)
-        self._management_dir = backend_dir / "dossiers_data" / "management"
+        self._management_dir = dossiers_management_root()
 
     def _atomic_write(self, path: Path, data: Dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -243,10 +250,9 @@ class SchemaPersistenceService:
         Delete a schema artifact. If force is False, refuse deletion when any georeference
         still references this schema (via lineage.schema_id) in the same dossier.
         """
-        backend_dir = Path(__file__).resolve().parents[2]
         artifact_path = self._artifacts_root / str(dossier_id) / f"{schema_id}.json"
         latest_pointer = self._artifacts_root / str(dossier_id) / "latest.json"
-        georef_index = backend_dir / "dossiers_data" / "state" / "georefs_index.json"
+        georef_index = self._state_dir / "georefs_index.json"
 
         # Check references unless forcing
         dependents: List[str] = []
@@ -258,12 +264,17 @@ class SchemaPersistenceService:
                     if (entry or {}).get("dossier_id") == str(dossier_id):
                         georef_id = (entry or {}).get("georef_id")
                         if georef_id:
-                            georef_art = backend_dir / "dossiers_data" / "artifacts" / "georefs" / str(dossier_id) / f"{georef_id}.json"
+                            georef_art = (
+                                dossiers_georefs_artifacts_root(str(dossier_id))
+                                / f"{georef_id}.json"
+                            )
                             if georef_art.exists():
                                 try:
                                     with open(georef_art, "r", encoding="utf-8") as gf:
                                         g = json.load(gf) or {}
-                                    sid = g.get("schema_id") or ((g.get("lineage") or {}).get("schema_id"))
+                                    sid = g.get("schema_id") or (
+                                        (g.get("lineage") or {}).get("schema_id")
+                                    )
                                     if sid == schema_id:
                                         dependents.append(georef_id)
                                 except Exception:

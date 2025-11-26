@@ -11,13 +11,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from services.dossier.management_service import DossierManagementService
 from services.dossier.view_service import DossierViewService
 from services.dossier.final_registry_service import FinalRegistryService
+from config.paths import dossiers_views_root, dossiers_state_root
 
 
 class FinalizationService:
     def __init__(self) -> None:
         self._backend_dir = Path(__file__).resolve().parents[2]
-        self._trans_root = self._backend_dir / "dossiers_data" / "views" / "transcriptions"
-        self._state_dir = self._backend_dir / "dossiers_data" / "state"
+        self._trans_root = dossiers_views_root()
+        self._state_dir = dossiers_state_root()
         self._state_dir.mkdir(parents=True, exist_ok=True)
         self._index_path = self._state_dir / "finalized_index.json"
 

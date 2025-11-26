@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional, Tuple
 import json
 from datetime import datetime
 import shutil
+from config.paths import dossiers_views_root
 
 
 class EditPersistenceService:
@@ -22,7 +23,7 @@ class EditPersistenceService:
 
 	def __init__(self):
 		self.backend_dir = Path(__file__).resolve().parents[2]
-		self.transcriptions_root = self.backend_dir / "dossiers_data" / "views" / "transcriptions"
+		self.transcriptions_root = dossiers_views_root()
 
 	# --------------- helpers ---------------
 	def _run_dir(self, dossier_id: str, transcription_id: str) -> Path:

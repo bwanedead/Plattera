@@ -33,6 +33,7 @@ from services.registry import get_registry
 # NEW: static files for images
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from config.paths import dossiers_images_root, dossiers_original_images_root, dossiers_processed_images_root
 
 # Custom colored formatter for better log readability
 class ColoredFormatter(logging.Formatter):
@@ -134,19 +135,16 @@ app.add_middleware(
 
 # Mount static images (originals and processed)
 try:
-    backend_root = Path(__file__).resolve().parents[0]
-    images_root = backend_root / "dossiers_data" / "images"
-    images_root.mkdir(parents=True, exist_ok=True)
-    (images_root / "original").mkdir(parents=True, exist_ok=True)
-    (images_root / "processed").mkdir(parents=True, exist_ok=True)
+    images_root = dossiers_images_root()
+    original_root = dossiers_original_images_root()
+    processed_root = dossiers_processed_images_root()
+    original_root.mkdir(parents=True, exist_ok=True)
+    processed_root.mkdir(parents=True, exist_ok=True)
     # Diagnostics for path issues
     logging.getLogger(__name__).info(f"BOOT: __file__={Path(__file__).resolve()}")
     logging.getLogger(__name__).info(f"BOOT: images_root={images_root.resolve()} exists={images_root.exists()}")
-    logging.getLogger(__name__).info(f"BOOT: original={(images_root / 'original').resolve()} exists={(images_root / 'original').exists()}")
-    logging.getLogger(__name__).info(f"BOOT: processed={(images_root / 'processed').resolve()} exists={(images_root / 'processed').exists()}")
-    stray = backend_root / "dossiers_data" / "immages"
-    if stray.exists():
-        logging.getLogger(__name__).warning(f"BOOT: stray folder detected (typo): {stray.resolve()}")
+    logging.getLogger(__name__).info(f"BOOT: original={original_root.resolve()} exists={original_root.exists()}")
+    logging.getLogger(__name__).info(f"BOOT: processed={processed_root.resolve()} exists={processed_root.exists()}")
     app.mount("/static/images", StaticFiles(directory=str(images_root), html=False), name="static-images")
     logging.getLogger(__name__).info(f"🖼️ Static images mounted at /static/images -> {images_root.resolve()}")
 except Exception as e:

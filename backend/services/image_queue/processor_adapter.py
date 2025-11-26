@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Dict, Any
 
+from config.paths import dossiers_views_root
+
 
 class ImageToTextProcessorAdapter:
     """
@@ -80,8 +82,13 @@ class ImageToTextProcessorAdapter:
                     from pathlib import Path as _Path2
                     import json as _json
                     from datetime import datetime as _dt
-                    _BACKEND_DIR = _Path2(__file__).resolve().parents[2]
-                    raw_dir = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / str(transcription_id) / "raw"
+
+                    raw_dir = (
+                        dossiers_views_root()
+                        / str(dossier_id)
+                        / str(transcription_id)
+                        / "raw"
+                    )
                     raw_dir.mkdir(parents=True, exist_ok=True)
                     total = max(1, redundancy_count)
                     for i in range(1, total + 1):

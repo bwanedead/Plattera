@@ -4,6 +4,12 @@ import json
 from pathlib import Path
 from typing import Dict, Any
 
+from config.paths import (
+    dossiers_schemas_artifacts_root,
+    dossiers_georefs_artifacts_root,
+    dossiers_state_root,
+)
+
 
 class TitlePropagationService:
     """
@@ -19,7 +25,7 @@ class TitlePropagationService:
         dossier_id = str(dossier_id)
 
         # Update schema artifacts
-        sch_dir = self.backend / "dossiers_data" / "artifacts" / "schemas" / dossier_id
+        sch_dir = dossiers_schemas_artifacts_root(dossier_id)
         if sch_dir.exists():
             for p in sch_dir.glob("*.json"):
                 try:
@@ -34,7 +40,7 @@ class TitlePropagationService:
                     pass
 
         # Update georef artifacts
-        gr_dir = self.backend / "dossiers_data" / "artifacts" / "georefs" / dossier_id
+        gr_dir = dossiers_georefs_artifacts_root(dossier_id)
         if gr_dir.exists():
             for p in gr_dir.glob("*.json"):
                 try:
@@ -49,9 +55,10 @@ class TitlePropagationService:
                     pass
 
         # Update indices
+        state_root = dossiers_state_root()
         idx_paths = [
-            self.backend / "dossiers_data" / "state" / "schemas_index.json",
-            self.backend / "dossiers_data" / "state" / "georefs_index.json",
+            state_root / "schemas_index.json",
+            state_root / "georefs_index.json",
         ]
         for idx in idx_paths:
             try:

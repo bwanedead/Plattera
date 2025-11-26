@@ -36,6 +36,8 @@ from utils.file_handler import save_uploaded_file, cleanup_temp_file, is_valid_i
 from typing import Optional, Dict, Any
 import logging
 
+from config.paths import dossiers_views_root, dossier_run_root
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -263,8 +265,7 @@ async def process_with_dossier_association(
             import json as _json
             from datetime import datetime as _dt
 
-            _BACKEND_DIR = _Path2(__file__).resolve().parents[3]
-            run_root = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / str(transcription_id)
+            run_root = dossier_run_root(str(dossier_id), str(transcription_id))
             raw_dir = run_root / "raw"
             raw_dir.mkdir(parents=True, exist_ok=True)
 
@@ -333,8 +334,8 @@ async def process_with_dossier_association(
             if auto_llm_consensus_flag and isinstance(consensus_text, str) and consensus_text.strip():
                 from pathlib import Path as _PathSave
                 from services.dossier.management_service import DossierManagementService as _DMS3
-                _BACKEND_DIR = _PathSave(__file__).resolve().parents[3]
-                base_root = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
+
+                base_root = dossiers_views_root()
                 consensus_dir = base_root / str(dossier_id) / str(transcription_id) / "consensus"
                 consensus_dir.mkdir(parents=True, exist_ok=True)
                 consensus_file = consensus_dir / f"llm_{transcription_id}.json"

@@ -16,6 +16,7 @@ from alignment.section_normalizer import SectionNormalizer
 from alignment.biopython_engine import BioPythonAlignmentEngine
 from alignment.alignment_utils import check_dependencies
 from services.dossier.event_bus import event_bus
+from config.paths import dossiers_views_root
 
 logger = logging.getLogger(__name__)
 
@@ -141,17 +142,16 @@ class AlignmentService:
             try:
                 consensus_text_for_save = consensus_text
                 if save_context and consensus_text_for_save:
-                    from pathlib import Path as _Path
                     from datetime import datetime as _dt
                     import json as _json
 
-                    # Ensure we save under backend/dossiers_data/... (not project root)
-                    backend_dir = _Path(__file__).resolve().parents[1]  # backend/
-                    base_root = backend_dir / "dossiers_data" / "views" / "transcriptions"
+                    base_root = dossiers_views_root()
 
                     dossier_id = (save_context or {}).get("dossier_id")
                     transcription_id = (save_context or {}).get("transcription_id")
-                    consensus_id = (save_context or {}).get("consensus_draft_id") or (f"{transcription_id}_consensus_alignment" if transcription_id else None)
+                    consensus_id = (save_context or {}).get("consensus_draft_id") or (
+                        f"{transcription_id}_consensus_alignment" if transcription_id else None
+                    )
 
                     if transcription_id and consensus_id:
                         # Structured preferred path
@@ -175,18 +175,21 @@ class AlignmentService:
                             "tokens_used": 0,
                             "created_at": _dt.now().isoformat(),
                             "metadata": {
-                                "alignment_summary": alignment_results.get('summary', {}),
-                                "processing_time": alignment_results.get('processing_time', 0)
-                            }
+                                "alignment_summary": alignment_results.get("summary", {}),
+                                "processing_time": alignment_results.get("processing_time", 0),
+                            },
                         }
                         try:
-                            with open(consensus_file, 'w', encoding='utf-8') as cf:
+                            with open(consensus_file, "w", encoding="utf-8") as cf:
                                 _json.dump(payload, cf, indent=2, ensure_ascii=False)
                             logger.info(f"💾 Persisted alignment consensus JSON: {consensus_file}")
 
                             # Update run metadata with alignment consensus and emit refresh event
                             try:
-                                from services.dossier.management_service import DossierManagementService as _DMS
+                                from services.dossier.management_service import (
+                                    DossierManagementService as _DMS,
+                                )
+
                                 _ms = _DMS()
                                 _ms.update_run_metadata(
                                     dossier_id=str(dossier_id),
@@ -194,23 +197,30 @@ class AlignmentService:
                                     updates={
                                         "has_alignment_consensus": True,
                                         "status": "completed",
-                                        "timestamps": {"finished_at": _dt.now().isoformat()}
-                                    }
+                                        "timestamps": {"finished_at": _dt.now().isoformat()},
+                                    },
                                 )
-                                logger.info(f"📝 Updated run metadata for alignment consensus")
+                                logger.info("📝 Updated run metadata for alignment consensus")
                                 # Emit event for UI auto-refresh (non-blocking)
                                 try:
                                     import asyncio
-                                    asyncio.create_task(event_bus.publish({
-                                        "type": "dossier:update",
-                                        "dossier_id": str(dossier_id),
-                                        "transcription_id": str(transcription_id),
-                                        "event": "alignment_consensus_saved"
-                                    }))
+
+                                    asyncio.create_task(
+                                        event_bus.publish(
+                                            {
+                                                "type": "dossier:update",
+                                                "dossier_id": str(dossier_id),
+                                                "transcription_id": str(transcription_id),
+                                                "event": "alignment_consensus_saved",
+                                            }
+                                        )
+                                    )
                                 except Exception:
                                     pass
                             except Exception as meta_err:
-                                logger.warning(f"⚠️ Failed to update run metadata for alignment consensus: {meta_err}")
+                                logger.warning(
+                                    f"⚠️ Failed to update run metadata for alignment consensus: {meta_err}"
+                                )
                         except Exception as se:
                             logger.warning(f"⚠️ Failed to persist alignment consensus JSON: {se}")
             except Exception as persist_err:

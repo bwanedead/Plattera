@@ -5,6 +5,7 @@ import queue
 from datetime import datetime
 from typing import Optional, Callable, Dict, Any, List
 
+from config.paths import dossiers_views_root
 from .job_store import ImageToTextJobStore
 from .job_models import JobStatus
 from .processor_adapter import ImageToTextProcessorAdapter
@@ -75,10 +76,14 @@ class ImageToTextQueueService:
             result = self.processor.process(job)
             # Persist any dynamically created dossier/transcription ids back to store for later steps
             try:
-                dyn_dossier = result.get('metadata', {}).get('dossier_id') if isinstance(result, dict) else None
-                dyn_transcription = result.get('metadata', {}).get('transcription_id') if isinstance(result, dict) else None
+                dyn_dossier = result.get("metadata", {}).get("dossier_id") if isinstance(result, dict) else None
+                dyn_transcription = result.get("metadata", {}).get("transcription_id") if isinstance(result, dict) else None
                 if dyn_dossier or dyn_transcription:
-                    self.store.update_fields(job_id, dossier_id=dyn_dossier or job.get('dossier_id'), transcription_id=dyn_transcription or job.get('transcription_id'))
+                    self.store.update_fields(
+                        job_id,
+                        dossier_id=dyn_dossier or job.get("dossier_id"),
+                        transcription_id=dyn_transcription or job.get("transcription_id"),
+                    )
             except Exception:
                 pass
             if not isinstance(result, dict) or not result.get("success", False):
@@ -104,9 +109,13 @@ class ImageToTextQueueService:
                     from pathlib import Path as _Path
                     import json as _json
                     from datetime import datetime as _dt
-                    # Build drafts directory
-                    _BACKEND_DIR = _Path(__file__).resolve().parents[2]
-                    drafts_dir = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / str(transcription_id) / "raw"
+                    # Build drafts directory under centralized dossiers views root
+                    drafts_dir = (
+                        dossiers_views_root()
+                        / str(dossier_id)
+                        / str(transcription_id)
+                        / "raw"
+                    )
                     drafts_dir.mkdir(parents=True, exist_ok=True)
 
                     # Compose content from result

@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from typing import Dict, Optional, List
 
+from config.paths import dossiers_processing_jobs_root
 from .job_models import ImageToTextJob, JobStatus
 
 
@@ -15,8 +16,7 @@ class ImageToTextJobStore:
     """
 
     def __init__(self) -> None:
-        backend_root = Path(__file__).resolve().parents[2]
-        self.store_dir = backend_root / "dossiers_data" / "processing_jobs" / "image_to_text"
+        self.store_dir = dossiers_processing_jobs_root("image_to_text")
         self.store_dir.mkdir(parents=True, exist_ok=True)
         self.index_file = self.store_dir / "jobs_index.json"
         self.jobs_dir = self.store_dir / "jobs"

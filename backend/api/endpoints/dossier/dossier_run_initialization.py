@@ -37,6 +37,7 @@ from datetime import datetime
 
 from services.dossier.management_service import DossierManagementService
 from services.dossier.association_service import TranscriptionAssociationService
+from config.paths import dossier_run_root, dossier_runs_root
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -133,9 +134,7 @@ async def init_run(request: InitRunRequest):
             import json
             from pathlib import Path as _Path
 
-            backend_dir = _Path(__file__).resolve().parents[3]  # backend/
-            base_root = backend_dir / "dossiers_data" / "views" / "transcriptions"
-            run_root = base_root / str(dossier_id) / str(transcription_id)
+            run_root = dossier_run_root(str(dossier_id), str(transcription_id))
             raw_dir = run_root / "raw"
             raw_dir.mkdir(parents=True, exist_ok=True)
 
@@ -220,9 +219,7 @@ async def reconcile_dossier_runs(dossier_id: str):
     - Log concise per-run status transitions.
     """
     try:
-        from pathlib import Path as _Path
-        backend_dir = _Path(__file__).resolve().parents[3]
-        runs_root = backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id)
+        runs_root = dossier_runs_root(str(dossier_id))
 
         if not runs_root.exists():
             return {"success": True, "dossier_id": dossier_id, "reconciled": 0}

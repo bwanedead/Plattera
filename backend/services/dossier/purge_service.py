@@ -3,6 +3,13 @@ import json
 import shutil
 from pathlib import Path
 from typing import List, Dict, Any
+from config.paths import (
+    dossiers_associations_root,
+    dossiers_views_root,
+    dossiers_state_root,
+    dossiers_navigation_root,
+    dossiers_management_root,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +22,7 @@ class DossierPurgeService:
         ids: List[str] = []
 
         # Preferred: associations file
-        assoc_file = self.backend_dir / "dossiers_data" / "associations" / f"assoc_{dossier_id}.json"
+        assoc_file = dossiers_associations_root() / f"assoc_{dossier_id}.json"
         try:
             if assoc_file.exists():
                 with assoc_file.open("r", encoding="utf-8") as f:
@@ -52,7 +59,7 @@ class DossierPurgeService:
         # Last resort: scan structured views folders
         if not ids:
             try:
-                dossier_root = self.backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id)
+                dossier_root = dossiers_views_root() / str(dossier_id)
                 if dossier_root.exists():
                     for child in dossier_root.iterdir():
                         if child.is_dir():
@@ -107,12 +114,12 @@ class DossierPurgeService:
 
         transcription_ids = self._collect_transcription_ids(dossier_id)
 
-        mgmt_file = self.backend_dir / "dossiers_data" / "management" / f"dossier_{dossier_id}.json"
-        assoc_file = self.backend_dir / "dossiers_data" / "associations" / f"assoc_{dossier_id}.json"
-        views_dossier_dir = self.backend_dir / "dossiers_data" / "views" / "transcriptions" / str(dossier_id)
-        state_dir = self.backend_dir / "dossiers_data" / "state" / str(dossier_id)
-        navigation_dir = self.backend_dir / "dossiers_data" / "navigation" / str(dossier_id)
-        views_root = self.backend_dir / "dossiers_data" / "views" / "transcriptions"
+        mgmt_file = dossiers_management_root() / f"dossier_{dossier_id}.json"
+        assoc_file = dossiers_associations_root() / f"assoc_{dossier_id}.json"
+        views_dossier_dir = dossiers_views_root() / str(dossier_id)
+        state_dir = dossiers_state_root() / str(dossier_id)
+        navigation_dir = dossiers_navigation_root() / str(dossier_id)
+        views_root = dossiers_views_root()
 
         # Remove structured folders/files
         self._remove_if_exists(views_dossier_dir, removed_files, removed_dirs)

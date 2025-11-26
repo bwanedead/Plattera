@@ -22,6 +22,7 @@ from alignment.biopython_engine import BioPythonAlignmentEngine
 from alignment.alignment_utils import check_dependencies
 from services.alignment_service_singleton import get_alignment
 from services.dossier.view_service import DossierViewService
+from config.paths import dossiers_views_root
 
 logger = logging.getLogger(__name__)
 
@@ -125,12 +126,16 @@ async def align_legal_drafts(request: AlignmentRequest):
         
         # Persist alignment consensus draft if requested and available (structured path only)
         try:
-            transcription_id = getattr(request, 'transcription_id', None)
-            dossier_id = getattr(request, 'dossier_id', None)
-            consensus_text = results.get('consensus_text')
-            if transcription_id and isinstance(transcription_id, str) and transcription_id.strip() and consensus_text:
-                backend_dir = Path(__file__).resolve().parents[2]
-                transcriptions_root = backend_dir / "dossiers_data" / "views" / "transcriptions"
+            transcription_id = getattr(request, "transcription_id", None)
+            dossier_id = getattr(request, "dossier_id", None)
+            consensus_text = results.get("consensus_text")
+            if (
+                transcription_id
+                and isinstance(transcription_id, str)
+                and transcription_id.strip()
+                and consensus_text
+            ):
+                transcriptions_root = dossiers_views_root()
 
                 if dossier_id:
                     run_dir = transcriptions_root / str(dossier_id) / str(transcription_id)
@@ -151,12 +156,12 @@ async def align_legal_drafts(request: AlignmentRequest):
                     "tokens_used": 0,
                     "created_at": datetime.now().isoformat(),
                     "metadata": {
-                        "alignment_summary": results.get('summary', {}),
-                        "processing_time": results.get('processing_time', 0)
-                    }
+                        "alignment_summary": results.get("summary", {}),
+                        "processing_time": results.get("processing_time", 0),
+                    },
                 }
                 try:
-                    with open(consensus_file, 'w', encoding='utf-8') as cf:
+                    with open(consensus_file, "w", encoding="utf-8") as cf:
                         json.dump(payload, cf, indent=2, ensure_ascii=False)
                     logger.info(f"💾 Persisted alignment consensus JSON: {consensus_file}")
                 except Exception as se:

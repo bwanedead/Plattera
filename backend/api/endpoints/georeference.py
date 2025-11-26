@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from pathlib import Path
 import json
 
+from config.paths import dossiers_state_root, dossiers_georefs_artifacts_root
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/georeference")
 
@@ -282,8 +284,7 @@ async def save_georeference(body: SaveGeorefRequest) -> Dict[str, Any]:
 @router.get("/list")
 async def list_georeferences(dossier_id: str) -> Dict[str, Any]:
     try:
-        backend_dir = Path(__file__).resolve().parents[2]
-        index_path = backend_dir / "dossiers_data" / "state" / "georefs_index.json"
+        index_path = dossiers_state_root() / "georefs_index.json"
         if not index_path.exists():
             return {"status": "success", "georefs": []}
         with open(index_path, "r", encoding="utf-8") as f:
@@ -298,8 +299,9 @@ async def list_georeferences(dossier_id: str) -> Dict[str, Any]:
 @router.get("/get")
 async def get_georeference(dossier_id: str, georef_id: str) -> Dict[str, Any]:
     try:
-        backend_dir = Path(__file__).resolve().parents[2]
-        artifact_path = backend_dir / "dossiers_data" / "artifacts" / "georefs" / str(dossier_id) / f"{georef_id}.json"
+        artifact_path = (
+            dossiers_georefs_artifacts_root(str(dossier_id)) / f"{georef_id}.json"
+        )
         if not artifact_path.exists():
             raise HTTPException(status_code=404, detail="Georeference artifact not found")
         with open(artifact_path, "r", encoding="utf-8") as f:
@@ -356,8 +358,7 @@ async def bulk_delete_georeferences(body: BulkDeleteRequest) -> Dict[str, Any]:
 @router.get("/list-all")
 async def list_all_georeferences() -> Dict[str, Any]:
     try:
-        backend_dir = Path(__file__).resolve().parents[2]
-        index_path = backend_dir / "dossiers_data" / "state" / "georefs_index.json"
+        index_path = dossiers_state_root() / "georefs_index.json"
         if not index_path.exists():
             return {"status": "success", "georefs": []}
         with open(index_path, "r", encoding="utf-8") as f:

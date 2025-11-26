@@ -12,6 +12,7 @@ from typing import Optional, Dict, Any
 from services.dossier.provenance_schema import ProvenanceSchema, ProvenanceEnhancement
 import os
 from services.dossier.image_storage_service import ImageStorageService
+from config.paths import dossiers_views_root
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def extract_transcription_id_from_result(result: dict) -> Optional[str]:
 
         # Fallback: Look in dossiers_data/views/transcriptions for most recent draft
         BACKEND_DIR = Path(__file__).resolve().parents[3]
-        primary_dir = BACKEND_DIR / "dossiers_data" / "views" / "transcriptions"
+        primary_dir = dossiers_views_root()
         legacy_dir = BACKEND_DIR / "saved_drafts"
         for probe in [primary_dir, legacy_dir]:
             logger.info(f"🔍 Checking drafts directory: {probe}")

@@ -19,6 +19,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
 
+from config.paths import dossiers_views_root
 from .management_service import DossierManagementService
 from .association_service import TranscriptionAssociationService
 
@@ -28,8 +29,7 @@ logger = logging.getLogger(__name__)
 
 class TitleLockService:
     def __init__(self) -> None:
-        self.backend_dir = Path(__file__).resolve().parents[2]
-        self.transcriptions_root = self.backend_dir / "dossiers_data" / "views" / "transcriptions"
+        self.transcriptions_root = dossiers_views_root()
         self.mgmt = DossierManagementService()
         self.assoc = TranscriptionAssociationService()
 

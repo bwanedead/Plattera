@@ -30,6 +30,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
+from config.paths import dossiers_root
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ class ProgressiveDraftSaver:
         """Initialize the progressive draft saver"""
         # Get backend directory path
         self.backend_dir = Path(__file__).resolve().parents[2]
-        self.dossiers_data_dir = self.backend_dir / "dossiers_data"
+        self.dossiers_data_dir = dossiers_root()
         logger.info("📝 ProgressiveDraftSaver initialized")
 
     def save_draft_result(self, dossier_id: str, transcription_id: str,

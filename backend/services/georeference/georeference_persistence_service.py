@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any, Dict, Optional, List
 
 from utils.id_hash import content_hash
+from config.paths import (
+    dossiers_georefs_artifacts_root,
+    dossiers_state_root,
+    dossiers_management_root,
+)
 
 
 class GeoreferencePersistenceService:
@@ -22,11 +27,11 @@ class GeoreferencePersistenceService:
 
     def __init__(self) -> None:
         backend_dir = Path(__file__).resolve().parents[2]
-        self._artifacts_root = backend_dir / "dossiers_data" / "artifacts" / "georefs"
-        self._state_dir = backend_dir / "dossiers_data" / "state"
+        self._artifacts_root = dossiers_georefs_artifacts_root()
+        self._state_dir = dossiers_state_root()
         self._index_path = self._state_dir / "georefs_index.json"
         self._state_dir.mkdir(parents=True, exist_ok=True)
-        self._management_dir = backend_dir / "dossiers_data" / "management"
+        self._management_dir = dossiers_management_root()
 
     def _atomic_write(self, path: Path, data: Dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
