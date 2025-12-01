@@ -162,8 +162,9 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
     return null;
   }
 
-  const successfulResults = redundancyAnalysis.individual_results.filter(r => r.success);
-  const totalDrafts = successfulResults.length;
+  // Show all drafts so "processing" states are visible; mark non-successful as pending.
+  const allResults = redundancyAnalysis.individual_results || [];
+  const totalDrafts = allResults.length;
   const bestDraftIndex = redundancyAnalysis.best_result_index;
 
   // Check for consensus availability from alignment results (only if alignmentResult exists)
@@ -255,22 +256,26 @@ export const DraftSelector: React.FC<DraftSelectorProps> = ({
       
       {isDropdownOpen && (
         <div className="draft-dropdown">
-          {/* UPDATED: Only show individual drafts */}
-          {successfulResults.map((result, index) => {
+          {/* Show all individual drafts; indicate and disable ones still processing */}
+          {allResults.map((result, index) => {
+            const isProcessing = !result.success;
             return (
               <div
                 key={index}
-                className={`draft-item ${selectedDraft === index ? 'active' : ''}`}
-                onClick={() => handleDraftSelect(index)}  // ← CRITICAL: Triggers heatmap individual draft view
+                className={`draft-item ${selectedDraft === index ? 'active' : ''} ${isProcessing ? 'processing' : ''}`}
+                onClick={() => !isProcessing && handleDraftSelect(index)}  // ← CRITICAL: Triggers heatmap individual draft view
+                style={{ opacity: isProcessing ? 0.6 : 1, cursor: isProcessing ? 'default' : 'pointer' }}
               >
                 <span className="draft-name">
-                  Draft {index + 1}
+                  Draft {index + 1} {isProcessing ? '(Processing...)' : ''}
                 </span>
-                <span className="draft-desc">{result.tokens} tokens</span>  {/* ← INFO: Heatmap may display this */}
+                <span className="draft-desc">
+                  {isProcessing ? 'Pending' : `${result.tokens || 0} tokens`}
+                </span>  {/* ← INFO: Heatmap may display this */}
               </div>
             );
           })}
-          
+
           {/* Consensus option - show if available from alignment or redundancy */}
           {(hasAlignmentConsensus || redundancyAnalysis.consensus_text) && (
             <div 

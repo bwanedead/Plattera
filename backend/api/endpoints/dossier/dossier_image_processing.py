@@ -573,14 +573,18 @@ async def _handle_dossier_association(
             }
         )
 
-        # If redundancy_count == 1, persist the final result as the v1 draft so UI loads real content
+        # If redundancy_count == 1, persist the final result as the v1 draft so UI loads real content.
+        # NOTE: This must use the centralized path helpers so dev + frozen (PyInstaller) builds
+        # read and write from the same physical location.
         try:
             if isinstance(result, dict) and int(redundancy_count) == 1:
-                from pathlib import Path as _PSAVE
                 import json as _json
-                _BACKEND_DIR = _PSAVE(__file__).resolve().parents[3]
-                drafts_dir = _BACKEND_DIR / "dossiers_data" / "views" / "transcriptions" / str(dossier_id) / str(transcription_id) / "raw"
+
+                # Use dossier_run_root so this matches the views/drafts path that the viewer reads.
+                run_root = dossier_run_root(str(dossier_id), str(transcription_id))
+                drafts_dir = run_root / "raw"
                 drafts_dir.mkdir(parents=True, exist_ok=True)
+
                 v1_path = drafts_dir / f"{transcription_id}_v1.json"
                 base_path = drafts_dir / f"{transcription_id}.json"
 

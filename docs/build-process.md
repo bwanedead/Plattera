@@ -1,4 +1,4 @@
-## Plattera Desktop Build Process (Windows, v0.9.0+)
+c## Plattera Desktop Build Process (Windows, v0.9.0+)
 
 This document describes the **end‑to‑end build flow** for the Plattera desktop app on Windows, including the **PyInstaller sidecar** and the **Tauri bundles**. It is meant as a repeatable template so future releases don’t have to rediscover the steps or flags.
 
@@ -53,13 +53,11 @@ Tauri expects platform‑specific sidecar filenames under `frontend\src-tauri\bi
 - `plattera-backend-x86_64-pc-windows-msvc.exe` (required for Tauri to bundle and spawn).
 - Optionally: `plattera-backend.exe` for manual debugging.
 
-From the project root, run:
+From the **backend directory** (same shell as the PyInstaller step, no extra `cd` needed), run:
 
 ```powershell
-cd C:\projects\Plattera
-
-Copy-Item "backend\dist\plattera-backend.exe" "frontend\src-tauri\bin\plattera-backend-x86_64-pc-windows-msvc.exe" -Force
-Copy-Item "backend\dist\plattera-backend.exe" "frontend\src-tauri\bin\plattera-backend.exe" -Force
+Copy-Item ".\dist\plattera-backend.exe" "..\frontend\src-tauri\bin\plattera-backend-x86_64-pc-windows-msvc.exe" -Force
+Copy-Item ".\dist\plattera-backend.exe" "..\frontend\src-tauri\bin\plattera-backend.exe" -Force
 ```
 
 - **Important**:
@@ -124,96 +122,103 @@ You can also use a more secure pattern (like `Read-Host -AsSecureString`) if you
 
 #### 5.2 Create (or confirm) the ZIP bundle
 
-Tauri already produces a ZIP at:
-
-- `frontend\src-tauri\target\release\bundle\Plattera_<version>_windows_x86_64.zip`
-
-For v0.9.0 this is:
-
-- `frontend\src-tauri\target\release\bundle\Plattera_0.9.0_windows_x86_64.zip`
-
-If you ever need to recreate it manually (for example from the NSIS/other artifacts), you can use:
+For v0.9.0 we explicitly create the Windows update ZIP from the built binaries in `src-tauri\target\release`:
 
 ```powershell
-cd C:\projects\Plattera\frontend\src-tauri\target\release\bundle
-Compress-Archive -Path "nsis\Plattera_0.9.0_x64-setup.exe" -DestinationPath "Plattera_0.9.0_windows_x86_64.zip" -Force
+cd C:\projects\Plattera\frontend
+
+$rel = ".\src-tauri\target\release"
+Compress-Archive `
+  -Path "$rel\app.exe","$rel\resources\*","$rel\plattera-backend.exe.exe" `
+  -DestinationPath "$rel\bundle\Plattera_0.9.0_windows_x86_64.zip" `
+  -Force
 ```
 
-Most of the time the ZIP from `npm run tauri:build` is sufficient and does not need to be re-created.
+- Adjust the paths if the executable names or layout change in future versions (e.g. if `plattera-backend.exe.exe` becomes just `plattera-backend.exe`).
 
 #### 5.3 Generate the updater `.sig` for the ZIP
 
-Use the Tauri signer to generate the **updater signature** for the ZIP. The exact private key location/flags may vary; the important pattern is:
+Use the Tauri signer to generate the **updater signature** for the ZIP, using your local private key and `$pw` (set in step 5.1). Run this as a **single line** to avoid PowerShell backtick quirks:
 
 ```powershell
-cd C:\projects\Plattera\frontend\src-tauri\target\release\bundle
+cd C:\projects\Plattera\frontend
 
-# Template – adapt <...> placeholders to your local key setup
-npx tauri signer sign "Plattera_0.9.0_windows_x86_64.zip" `
-  --private-key "<path-or-env-for-your-tauri-private-key>" `
-  --password $pw `
-  --output "Plattera_0.9.0_windows_x86_64.zip.sig"
+npx tauri signer sign --private-key-path C:\keys\plattera-updater.key --password $pw .\src-tauri\target\release\bundle\Plattera_0.9.0_windows_x86_64.zip
 ```
 
-- This produces `Plattera_0.9.0_windows_x86_64.zip.sig` containing the base64 signature string.
-- The same signature string is also what goes into `latest.json` as the `signature` field.
+- This produces `Plattera_0.9.0_windows_x86_64.zip.sig` next to the ZIP and prints the **public signature** to the console.
+- That signature string is what goes into `latest.json` as the `signature` field (see below).
 
-#### 5.4 Update `releases\latest.json`
+#### 5.4 Generate `latest.json` from the `.sig`
 
-The updater endpoint in `frontend\src-tauri\tauri.conf.json` points to:
+We generate a `latest.json` manifest into the **bundle** directory using PowerShell, then sync it to the repo’s `releases\latest.json`.
 
-- `https://raw.githubusercontent.com/bwanedead/Plattera/main/releases/latest.json`
+From `frontend`:
 
-So the repo’s `releases\latest.json` file is the **single source of truth** for updates. Its structure (for v0.9.0) looks like:
+```powershell
+cd C:\projects\Plattera\frontend
 
-```json
+$bundle    = ".\src-tauri\target\release\bundle"
+$signature = Get-Content "$bundle\Plattera_0.9.0_windows_x86_64.zip.sig" -Raw
+$pub       = (Get-Date -Format s) + "Z"
+
+@"
 {
   "version": "0.9.0",
   "notes": "",
-  "pub_date": "2025-11-25T00:00:00Z",
+  "pub_date": "$pub",
   "platforms": {
     "windows-x86_64": {
-      "signature": "BASE64_SIGNATURE_FROM_.SIG",
+      "signature": "$signature",
       "url": "https://github.com/bwanedead/Plattera/releases/download/v0.9.0/Plattera_0.9.0_windows_x86_64.zip"
     }
   }
 }
+"@ | Set-Content -Encoding UTF8 "$bundle\latest.json"
 ```
+
+Then copy or apply those same contents into the repo‑tracked `releases\latest.json`, which is what the updater actually reads via:
+
+- `https://raw.githubusercontent.com/bwanedead/Plattera/main/releases/latest.json`
+
+From the **frontend directory**, you can do this directly with:
+
+```powershell
+cd C:\projects\Plattera\frontend
+
+Copy-Item ".\src-tauri\target\release\bundle\latest.json" "..\releases\latest.json" -Force
+```
+
+Structure notes:
 
 - **`version`**: must match the app version you just built (e.g. `0.9.0`).
 - **`pub_date`**: ISO‑8601 timestamp of the release.
-- **`signature`**: paste the base64 string from `Plattera_0.9.0_windows_x86_64.zip.sig`.
+- **`signature`**: the full base64 string from `Plattera_0.9.0_windows_x86_64.zip.sig`.
 - **`url`**: direct GitHub Releases asset URL for the ZIP you will upload.
-
-Workflow:
-
-1. Open `releases\latest.json`.
-2. Bump `version`, `pub_date`, and the `url` (to the new versioned ZIP).
-3. Generate the `.sig` file for that ZIP and paste its base64 contents into `signature`.
-4. Commit and push `releases\latest.json` so `raw.githubusercontent.com` serves the new metadata.
 
 #### 5.5 Sanity check (local artifacts are present)
 
-Before touching GitHub, confirm **all required files exist on disk** for this version.
+Before touching GitHub, confirm **all required files exist on disk** for this version by listing everything Tauri produced.
 
-From the repo root:
+From `frontend`:
 
 ```powershell
-cd C:\projects\Plattera
+cd C:\projects\Plattera\frontend
 
-$paths = @(
-  "frontend\src-tauri\target\release\bundle\nsis\Plattera_0.9.0_x64-setup.exe",
-  "frontend\src-tauri\target\release\bundle\Plattera_0.9.0_windows_x86_64.zip",
-  "frontend\src-tauri\target\release\bundle\Plattera_0.9.0_windows_x86_64.zip.sig",
-  "releases\latest.json"
-)
-
-$paths | ForEach-Object {
-  "{0} : {1}" -f $_, (Test-Path $_)
-}
+Get-ChildItem -Recurse .\src-tauri\target\release\bundle `
+  -Include *.msi,*.exe,latest.json,*.zip,*.sig -File |
+  Format-List FullName,Length
 ```
 
-You should see `True` for **all** of the above. If any are `False`, fix that step (rebuild, re‑zip, re‑sign, or update `releases\latest.json`) before continuing.
+Visually confirm you see (for example, for v0.9.0):
+
+- `msi\Plattera_0.9.0_x64_en-US.msi`
+- `nsis\Plattera_0.9.0_x64-setup.exe`
+- `Plattera_0.9.0_windows_x86_64.zip`
+- `Plattera_0.9.0_windows_x86_64.zip.sig`
+- `latest.json`
+
+If anything is missing, fix that step (rebuild, re‑zip, re‑sign) before continuing.
 
 #### 5.6 Sanity check: verify `latest.json` and updater payload
 

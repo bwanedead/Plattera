@@ -8,6 +8,7 @@ Entry point for the Plattera backend API server.
 import uvicorn
 import logging
 import sys
+import asyncio
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -166,14 +167,23 @@ async def startup_event():
     health_monitor = get_health_monitor()
     logger.info("🏥 Health monitoring initialized")
 
-    # Log service registry status so we can debug model availability in EXE builds
+    # Log service registry status in the background so it doesn't block startup.
+    # This avoids paying the LLM/registry import cost on the critical path.
     try:
-        registry = get_registry()
-        info = registry.get_service_info()
-        logger.info(f"SERVICE_REGISTRY ► {info}")
+        async def log_registry_info() -> None:
+            try:
+                # Small delay so the server can start accepting requests first.
+                await asyncio.sleep(2.0)
+                registry = get_registry()
+                info = registry.get_service_info()
+                logger.info(f"SERVICE_REGISTRY ► {info}")
+            except Exception as e:
+                logger.error(f"SERVICE_REGISTRY ► failed to inspect services: {e}")
+
+        asyncio.create_task(log_registry_info())
     except Exception as e:
-        logger.error(f"SERVICE_REGISTRY ► failed to inspect services: {e}")
-    
+        logger.debug(f"Skipping async registry warmup: {e}")
+
     # Perform initial health check (cheap)
     health_status = health_monitor.check_system_health()
     logger.info(f"🏥 Initial health check: {health_status['overall_status']}")

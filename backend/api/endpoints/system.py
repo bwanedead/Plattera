@@ -88,43 +88,56 @@ async def perform_system_cleanup(background_tasks: BackgroundTasks):
     Perform system cleanup including memory cleanup, garbage collection, and file system cleanup.
     Also schedules a delayed process exit when running as a sidecar.
     """
+    logger.info("🧹 SYSTEM CLEANUP REQUEST")
+
+    # 1) Define and schedule the exit task FIRST, so shutdown is guaranteed.
+    def delayed_exit():
+        logger.info("🛑 Delayed exit requested via /api/cleanup – terminating process")
+        time.sleep(0.5)
+        os._exit(0)
+
+    background_tasks.add_task(delayed_exit)
+
+    # 2) Baseline cleanup result (so we always have something sane to return)
+    cleanup_results: Dict[str, Any] = {
+        "status": "success",
+        "actions_performed": [],
+        "memory_before_mb": 0.0,
+        "memory_after_mb": 0.0,
+        "errors": [],
+    }
+
+    # 3) Best-effort cleanup – never prevent shutdown
     try:
-        logger.info("🧹 SYSTEM CLEANUP REQUEST")
-        
         # Lazy import to avoid heavy init for unrelated routes
         from services.alignment_service import AlignmentService  # type: ignore
-        cleanup_results = AlignmentService().force_cleanup()
-        
-        # Calculate memory freed
-        memory_freed = cleanup_results.get('memory_before_mb', 0) - cleanup_results.get('memory_after_mb', 0)
-        
-        response = CleanupResponse(
-            status=cleanup_results.get('status', 'unknown'),
-            actions_performed=cleanup_results.get('actions_performed', []),
-            memory_before_mb=cleanup_results.get('memory_before_mb', 0),
-            memory_after_mb=cleanup_results.get('memory_after_mb', 0),
-            memory_freed_mb=round(memory_freed, 1),
-            errors=cleanup_results.get('errors', [])
-        )
-        
-        logger.info(f"✅ CLEANUP COMPLETE ► Status: {response.status}, Memory freed: {response.memory_freed_mb}MB")
 
-        # Schedule a delayed hard exit so HTTP response can complete cleanly
-        def delayed_exit():
-            logger.info("🛑 Delayed exit requested via /api/cleanup – terminating process")
-            time.sleep(0.5)
-            os._exit(0)
+        svc = AlignmentService()
+        result = svc.force_cleanup() or {}
 
-        background_tasks.add_task(delayed_exit)
-
-        return response
-        
+        # Merge any known keys from the service result into our baseline
+        for key in ("status", "actions_performed", "memory_before_mb", "memory_after_mb", "errors"):
+            if key in result:
+                cleanup_results[key] = result[key]
     except Exception as e:
-        logger.error(f"❌ Cleanup failed: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Cleanup failed: {str(e)}"
-        )
+        logger.error(f"Cleanup logic failed, but shutdown is still scheduled: {e}")
+        cleanup_results["status"] = "error"
+        cleanup_results.setdefault("errors", []).append(str(e))
+
+    # 4) Compute memory freed and return a normal response
+    memory_freed = cleanup_results.get("memory_before_mb", 0.0) - cleanup_results.get("memory_after_mb", 0.0)
+
+    response = CleanupResponse(
+        status=str(cleanup_results.get("status", "unknown")),
+        actions_performed=list(cleanup_results.get("actions_performed", [])),
+        memory_before_mb=float(cleanup_results.get("memory_before_mb", 0.0)),
+        memory_after_mb=float(cleanup_results.get("memory_after_mb", 0.0)),
+        memory_freed_mb=round(memory_freed, 1),
+        errors=list(cleanup_results.get("errors", [])),
+    )
+
+    logger.info(f"✅ CLEANUP COMPLETE ► Status: {response.status}, Memory freed: {response.memory_freed_mb}MB")
+    return response
 
 
 @router.get("/services")

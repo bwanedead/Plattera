@@ -192,7 +192,8 @@ pub fn run() {
                 let app_handle = app.handle().clone();
                 let _ = ctrlc::set_handler(move || {
                     println!("Received Ctrl+C - cleaning up backend process...");
-                    cleanup_via_http(600);
+                    // Give the backend a bit more time to receive and act on the cleanup signal.
+                    cleanup_via_http(1500);
                     let backend_process = app_handle.state::<BackendProcess>();
                     if let Some(mut child) = backend_process.0.lock().unwrap().take() {
                         let _ = child.kill();
@@ -207,8 +208,8 @@ pub fn run() {
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { .. } => {
                 println!("Cleaning up backend process...");
-                // Best-effort HTTP cleanup
-                cleanup_via_http(600);
+                // Best-effort HTTP cleanup with a slightly longer timeout for EXE builds
+                cleanup_via_http(1500);
                 // Give backend a brief moment to flush logs
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 // Kill child if we own it

@@ -36,6 +36,42 @@ class AlignmentService:
         self.alignment_engine = BioPythonAlignmentEngine()
         logger.info("🔧 Alignment Service initialized")
     
+    def force_cleanup(self) -> Dict[str, Any]:
+        """
+        Best-effort cleanup of alignment-related resources.
+        
+        This is intentionally lightweight so it is safe in both dev and frozen
+        (PyInstaller) modes and does not introduce new dependencies. It is
+        primarily used by the /api/cleanup endpoint to free memory and allow
+        the process to exit cleanly when running as a sidecar.
+        """
+        try:
+            # Clear any engine-level caches if an explicit hook is available.
+            if hasattr(self.alignment_engine, "cleanup"):
+                try:
+                    self.alignment_engine.cleanup()
+                except Exception as e:
+                    logger.debug(f"Alignment engine cleanup hook failed (non-critical): {e}")
+
+            # Force a garbage collection pass to encourage memory release.
+            gc.collect()
+
+            return {
+                "status": "success",
+                "actions_performed": ["gc_collect", "engine_cleanup"],
+                "memory_before_mb": 0,  # intentionally omitted to avoid psutil
+                "memory_after_mb": 0,
+                "errors": [],
+            }
+        except Exception as e:
+            logger.error(f"Force cleanup failed: {e}")
+            return {
+                "status": "error",
+                "errors": [str(e)],
+                "memory_before_mb": 0,
+                "memory_after_mb": 0,
+            }
+    
     def process_alignment_request(self, draft_jsons: List[Dict[str, Any]], 
                                 generate_visualization: bool = True,
                                 consensus_strategy: str = "highest_confidence",

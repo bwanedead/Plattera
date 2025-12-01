@@ -1,6 +1,6 @@
 ================================================================================
 COMPLETE RAW ALIGNMENT TABLE - ALL BLOCKS
-Generated: 2025-11-06 16:26:31
+Generated: 2025-11-30 15:36:03
 Total Blocks: 2
 ================================================================================
 
@@ -9,473 +9,81 @@ BLOCK: section_1
 ================================================================================
 
 📊 BLOCK SUMMARY:
-   Alignment Length: 18
+   Alignment Length: 47
    Number of Drafts: 3
    Draft IDs: Draft_1, Draft_2, Draft_3
 
 Position  Draft_1                  Draft_2                  Draft_3                  
 -------------------------------------------------------------------------------------
-  0       also                     district                 and                      
-  1       the                      reservoirs               the                      
-  2       following                canals                   entire                   
-  3       described                ditches                  irrigation               
-  4       property                 and                      works                    
-  5       situated                 laterals                 property                 
-  6       in                       and                      and                      
-  7       albany                   in                       system                   
-  8       county                   general                  in                       
-  9       wyoming                  the                      albany                   
- 10       and                      entire                   county                   
- 11       more                     irrigation               wyoming                  
- 12       particularly             works                    commonly                 
- 13       described                project                  known                    
- 14       as                       and                      as                       
- 15       follows                  system                   the                      
- 16       to                       in                       lake                     
- 17       wit                      albany                   hattie                   
+  0       a                        a                        canals                   
+  1       strip                    set                      reservoirs               
+  2       of                       of                       coulees                  
+  3       land                     land                     ditches                  
+  4       200                      200                      and                      
+  5       feet                     feet                     laterals                 
+  6       in                       in                       and                      
+  7       width                    width                    water                    
+  8       being                    being                    rights                   
+  9       100                      100                      of                       
+ 10       feet                     feet                     and                      
+ 11       on                       easterly                 appurtenant              
+ 12       each                     and                      to                       
+ 13       side                     westerly                 and                      
+ 14       of                       of                       used                     
+ 15       the                      the                      in                       
+ 16       middle                   middle                   connection               
+ 17       line                     line                     with                     
+ 18       of                       of                       the                      
+ 19       the                      the                      entire                   
+ 20       enlarged                 enlarged                 irrigation               
+ 21       princeton                princes                  works                    
+ 22       canal                    canal                    project                  
+ 23       and                      across                   and                      
+ 24       the                      the                      enterprises              
+ 25       lands                    lands                    in                       
+ 26       in                       in                       albany                   
+ 27       sections                 section                  county                   
+ 28       36                       36                       wyoming                  
+ 29       township                 township                 commonly                 
+ 30       14                       14                       known                    
+ 31       north                    north                    as                       
+ 32       range                    of                       the                      
+ 33       77                       range                    lake                     
+ 34       west                     77                       hattie                   
+ 35       the                      west                     irrigation               
+ 36       said                     as                       system                   
+ 37       middle                   more                     also                     
+ 38       line                     particularly             the                      
+ 39       being                    described                following                
+ 40       more                     as                       described                
+ 41       particularly             follows                  property                 
+ 42       described                to                       situated                 
+ 43       as                       wit                      in                       
+ 44       follows                  -                        albany                   
+ 45       to                       -                        county                   
+ 46       wit                      -                        wyoming                  
 
 ============================================================
 🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_1
 ============================================================
 
 Draft_1:
-  Original token count: 18
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+  Original token count: 47
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]
 
 Draft_2:
-  Original token count: 18
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+  Original token count: 44
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43]
 
 Draft_3:
-  Original token count: 18
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+  Original token count: 47
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]
 
 ============================================================
 🔤 TOKEN DETAILS - section_1
 ============================================================
 
-Draft_1 (18 tokens):
-  [ 0] also
-  [ 1] the
-  [ 2] following
-  [ 3] described
-  [ 4] property
-  [ 5] situated
-  [ 6] in
-  [ 7] albany
-  [ 8] county
-  [ 9] wyoming
-  [10] and
-  [11] more
-  [12] particularly
-  [13] described
-  [14] as
-  [15] follows
-  [16] to
-  [17] wit
-
-Draft_2 (18 tokens):
-  [ 0] district
-  [ 1] reservoirs
-  [ 2] canals
-  [ 3] ditches
-  [ 4] and
-  [ 5] laterals
-  [ 6] and
-  [ 7] in
-  [ 8] general
-  [ 9] the
-  [10] entire
-  [11] irrigation
-  [12] works
-  [13] project
-  [14] and
-  [15] system
-  [16] in
-  [17] albany
-
-Draft_3 (18 tokens):
-  [ 0] and
-  [ 1] the
-  [ 2] entire
-  [ 3] irrigation
-  [ 4] works
-  [ 5] property
-  [ 6] and
-  [ 7] system
-  [ 8] in
-  [ 9] albany
-  [10] county
-  [11] wyoming
-  [12] commonly
-  [13] known
-  [14] as
-  [15] the
-  [16] lake
-  [17] hattie
-
-============================================================
-📊 ANALYSIS - section_1
-============================================================
-
-DIFF at pos 0: ['and', 'district', 'also']
-DIFF at pos 1: ['the', 'reservoirs']
-DIFF at pos 2: ['canals', 'entire', 'following']
-DIFF at pos 3: ['described', 'ditches', 'irrigation']
-DIFF at pos 4: ['and', 'works', 'property']
-DIFF at pos 5: ['laterals', 'property', 'situated']
-DIFF at pos 6: ['and', 'in']
-DIFF at pos 7: ['in', 'albany', 'system']
-DIFF at pos 8: ['in', 'general', 'county']
-DIFF at pos 9: ['the', 'albany', 'wyoming']
-DIFF at pos 10: ['and', 'entire', 'county']
-DIFF at pos 11: ['more', 'wyoming', 'irrigation']
-DIFF at pos 12: ['works', 'particularly', 'commonly']
-DIFF at pos 13: ['project', 'described', 'known']
-DIFF at pos 14: ['and', 'as']
-DIFF at pos 15: ['the', 'follows', 'system']
-DIFF at pos 16: ['lake', 'in', 'to']
-DIFF at pos 17: ['wit', 'albany', 'hattie']
-
-BLOCK SUMMARY:
-  Total positions: 18
-  Positions with differences: 18
-  Positions with gaps: 0
-  Alignment similarity: 0.0%
-
-================================================================================
-BLOCK: section_2
-================================================================================
-
-📊 BLOCK SUMMARY:
-   Alignment Length: 149
-   Number of Drafts: 3
-   Draft IDs: Draft_1, Draft_2, Draft_3
-
-Position  Draft_1                  Draft_2                  Draft_3                  
--------------------------------------------------------------------------------------
-  0       a                        a                        a                        
-  1       strip                    strip                    strip                    
-  2       of                       of                       of                       
-  3       land                     land                     land                     
-  4       200                      200                      200                      
-  5       feet                     feet                     feet                     
-  6       in                       in                       in                       
-  7       width                    width                    width                    
-  8       being                    being                    being                    
-  9       100                      100                      100                      
- 10       feet                     feet                     feet                     
- 11       on                       on                       on                       
- 12       each                     each                     each                     
- 13       side                     side                     side                     
- 14       of                       of                       of                       
- 15       the                      the                      the                      
- 16       middle                   middle                   middle                   
- 17       line                     line                     line                     
- 18       of                       of                       of                       
- 19       the                      the                      the                      
- 20       enlarged                 enlarged                 enlarged                 
- 21       prineville               princeton                pierce                   
- 22       canal                    canal                    canal                    
- 23       across                   across                   across                   
- 24       the                      the                      the                      
- 25       lands                    lands                    lands                    
- 26       in                       in                       in                       
- 27       section                  section                  section                  
- 28       36                       36                       36                       
- 29       township                 township                 township                 
- 30       14                       14                       14                       
- 31       north                    north                    north                    
- 32       of                       range                    of                       
- 33       range                    77                       range                    
- 34       77                       west                     77                       
- 35       west                     the                      west                     
- 36       the                      said                     the                      
- 37       said                     middle                   said                     
- 38       middle                   line                     middle                   
- 39       line                     being                    line                     
- 40       being                    more                     being                    
- 41       more                     particularly             more                     
- 42       particularly             described                particularly             
- 43       described                as                       described                
- 44       as                       follows                  as                       
- 45       follows                  to                       follows                  
- 46       to                       wit                      to                       
- 47       wit                      beginning                wit                      
- 48       beginning                at                       beginning                
- 49       at                       delta                    at                       
- 50       station                  station                  station                  
- 51       143                      14138                    1438                     
- 52       238                      of                       238                      
- 53       of                       said                     of                       
- 54       said                     princeton                said                     
- 55       prineville               canal                    pierce                   
- 56       canal                    enlargement              canal                    
- 57       enlargement              at                       enlargement              
- 58       at                       the                      at                       
- 59       the                      intersection             the                      
- 60       intersection             of                       intersection             
- 61       of                       the                      of                       
- 62       the                      east                     the                      
- 63       east                     line                     east                     
- 64       line                     of                       line                     
- 65       of                       said                     of                       
- 66       said                     section                  said                     
- 67       section                  36                       section                  
- 68       36                       thence                   36                       
- 69       whence                   the                      whence                   
- 70       the                      north                    the                      
- 71       northwest                west                     northeast                
- 72       corner                   corner                   corner                   
- 73       of                       of                       of                       
- 74       said                     said                     said                     
- 75       section                  section                  section                  
- 76       downstream               thence                   bears                    
- 77       on                       with                     north                    
- 78       a                        said                     n                        
- 79       30                       east                     0                        
- 80       curve                    line                     45                       
- 81       to                       30                       23                       
- 82       the                      chains                   east                     
- 83       right                    to                       a                        
- 84       208                      the                      distance                 
- 85       feet                     point                    of                       
- 86       thence                   208                      26323                    
- 87       south                    feet                     feet                     
- 88       82                       thence                   and                      
- 89       37                       south                    running                  
- 90       west                     82                       thence                   
- 91       75231                    37                       westerly                 
- 92       feet                     west                     on                       
- 93       thence                   752                      a                        
- 94       on                       feet                     30                       
- 95       a                        thence                   curve                    
- 96       24                       on                       to                       
- 97       curve                    a                        the                      
- 98       to                       24                       right                    
- 99       the                      curve                    208                      
-100       left                     to                       feet                     
-101       2146                     the                      thence                   
-102       feet                     left                     south                    
-103       to                       2146                     82                       
-104       station                  feet                     37                       
-105       153                      to                       west                     
-106       119                      station                  7521                     
-107       thence                   1537                     feet                     
-108       south                    119                      thence                   
-109       31                       thence                   on                       
-110       07                       south                    a                        
-111       west                     31                       24                       
-112       2153                     07                       curve                    
-113       feet                     west                     to                       
-114       thence                   2153                     the                      
-115       on                       feet                     left                     
-116       a                        thence                   2146                     
-117       12                       on                       feet                     
-118       curve                    a                        to                       
-119       to                       12                       station                  
-120       the                      curve                    1534                     
-121       right                    to                       119                      
-122       1667                     the                      thence                   
-123       feet                     right                    south                    
-124       thence                   1667                     31                       
-125       south                    feet                     07                       
-126       51                       thence                   west                     
-127       07                       south                    2153                     
-128       west                     51                       feet                     
-129       1689                     07                       thence                   
-130       feet                     west                     on                       
-131       thence                   1689                     a                        
-132       on                       feet                     12                       
-133       a                        thence                   curve                    
-134       24                       on                       to                       
-135       curve                    a                        the                      
-136       to                       24                       right                    
-137       the                      curve                    1667                     
-138       left                     to                       feet                     
-139       1583                     the                      thence                   
-140       feet                     left                     south                    
-141       thence                   1583                     51                       
-142       south                    feet                     07                       
-143       13                       thence                   west                     
-144       07                       south                    1689                     
-145       west                     13                       feet                     
-146       1449                     07                       thence                   
-147       feet                     west                     on                       
-148       to                       1449                     a                        
-
-============================================================
-🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_2
-============================================================
-
-Draft_1:
-  Original token count: 149
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148]
-
-Draft_2:
-  Original token count: 149
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148]
-
-Draft_3:
-  Original token count: 149
-  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148]
-
-============================================================
-🔤 TOKEN DETAILS - section_2
-============================================================
-
-Draft_1 (149 tokens):
-  [ 0] a
-  [ 1] strip
-  [ 2] of
-  [ 3] land
-  [ 4] 200
-  [ 5] feet
-  [ 6] in
-  [ 7] width
-  [ 8] being
-  [ 9] 100
-  [10] feet
-  [11] on
-  [12] each
-  [13] side
-  [14] of
-  [15] the
-  [16] middle
-  [17] line
-  [18] of
-  [19] the
-  [20] enlarged
-  [21] prineville
-  [22] canal
-  [23] across
-  [24] the
-  [25] lands
-  [26] in
-  [27] section
-  [28] 36
-  [29] township
-  [30] 14
-  [31] north
-  [32] of
-  [33] range
-  [34] 77
-  [35] west
-  [36] the
-  [37] said
-  [38] middle
-  [39] line
-  [40] being
-  [41] more
-  [42] particularly
-  [43] described
-  [44] as
-  [45] follows
-  [46] to
-  [47] wit
-  [48] beginning
-  [49] at
-  [50] station
-  [51] 143
-  [52] 238
-  [53] of
-  [54] said
-  [55] prineville
-  [56] canal
-  [57] enlargement
-  [58] at
-  [59] the
-  [60] intersection
-  [61] of
-  [62] the
-  [63] east
-  [64] line
-  [65] of
-  [66] said
-  [67] section
-  [68] 36
-  [69] whence
-  [70] the
-  [71] northwest
-  [72] corner
-  [73] of
-  [74] said
-  [75] section
-  [76] downstream
-  [77] on
-  [78] a
-  [79] 30
-  [80] curve
-  [81] to
-  [82] the
-  [83] right
-  [84] 208
-  [85] feet
-  [86] thence
-  [87] south
-  [88] 82
-  [89] 37
-  [90] west
-  [91] 75231
-  [92] feet
-  [93] thence
-  [94] on
-  [95] a
-  [96] 24
-  [97] curve
-  [98] to
-  [99] the
-  [100] left
-  [101] 2146
-  [102] feet
-  [103] to
-  [104] station
-  [105] 153
-  [106] 119
-  [107] thence
-  [108] south
-  [109] 31
-  [110] 07
-  [111] west
-  [112] 2153
-  [113] feet
-  [114] thence
-  [115] on
-  [116] a
-  [117] 12
-  [118] curve
-  [119] to
-  [120] the
-  [121] right
-  [122] 1667
-  [123] feet
-  [124] thence
-  [125] south
-  [126] 51
-  [127] 07
-  [128] west
-  [129] 1689
-  [130] feet
-  [131] thence
-  [132] on
-  [133] a
-  [134] 24
-  [135] curve
-  [136] to
-  [137] the
-  [138] left
-  [139] 1583
-  [140] feet
-  [141] thence
-  [142] south
-  [143] 13
-  [144] 07
-  [145] west
-  [146] 1449
-  [147] feet
-  [148] to
-
-Draft_2 (149 tokens):
+Draft_1 (47 tokens):
   [ 0] a
   [ 1] strip
   [ 2] of
@@ -499,11 +107,11 @@ Draft_2 (149 tokens):
   [20] enlarged
   [21] princeton
   [22] canal
-  [23] across
+  [23] and
   [24] the
   [25] lands
   [26] in
-  [27] section
+  [27] sections
   [28] 36
   [29] township
   [30] 14
@@ -523,112 +131,10 @@ Draft_2 (149 tokens):
   [44] follows
   [45] to
   [46] wit
-  [47] beginning
-  [48] at
-  [49] delta
-  [50] station
-  [51] 14138
-  [52] of
-  [53] said
-  [54] princeton
-  [55] canal
-  [56] enlargement
-  [57] at
-  [58] the
-  [59] intersection
-  [60] of
-  [61] the
-  [62] east
-  [63] line
-  [64] of
-  [65] said
-  [66] section
-  [67] 36
-  [68] thence
-  [69] the
-  [70] north
-  [71] west
-  [72] corner
-  [73] of
-  [74] said
-  [75] section
-  [76] thence
-  [77] with
-  [78] said
-  [79] east
-  [80] line
-  [81] 30
-  [82] chains
-  [83] to
-  [84] the
-  [85] point
-  [86] 208
-  [87] feet
-  [88] thence
-  [89] south
-  [90] 82
-  [91] 37
-  [92] west
-  [93] 752
-  [94] feet
-  [95] thence
-  [96] on
-  [97] a
-  [98] 24
-  [99] curve
-  [100] to
-  [101] the
-  [102] left
-  [103] 2146
-  [104] feet
-  [105] to
-  [106] station
-  [107] 1537
-  [108] 119
-  [109] thence
-  [110] south
-  [111] 31
-  [112] 07
-  [113] west
-  [114] 2153
-  [115] feet
-  [116] thence
-  [117] on
-  [118] a
-  [119] 12
-  [120] curve
-  [121] to
-  [122] the
-  [123] right
-  [124] 1667
-  [125] feet
-  [126] thence
-  [127] south
-  [128] 51
-  [129] 07
-  [130] west
-  [131] 1689
-  [132] feet
-  [133] thence
-  [134] on
-  [135] a
-  [136] 24
-  [137] curve
-  [138] to
-  [139] the
-  [140] left
-  [141] 1583
-  [142] feet
-  [143] thence
-  [144] south
-  [145] 13
-  [146] 07
-  [147] west
-  [148] 1449
 
-Draft_3 (149 tokens):
+Draft_2 (47 tokens):
   [ 0] a
-  [ 1] strip
+  [ 1] set
   [ 2] of
   [ 3] land
   [ 4] 200
@@ -638,9 +144,9 @@ Draft_3 (149 tokens):
   [ 8] being
   [ 9] 100
   [10] feet
-  [11] on
-  [12] each
-  [13] side
+  [11] easterly
+  [12] and
+  [13] westerly
   [14] of
   [15] the
   [16] middle
@@ -648,7 +154,7 @@ Draft_3 (149 tokens):
   [18] of
   [19] the
   [20] enlarged
-  [21] pierce
+  [21] princes
   [22] canal
   [23] across
   [24] the
@@ -663,250 +169,695 @@ Draft_3 (149 tokens):
   [33] range
   [34] 77
   [35] west
-  [36] the
-  [37] said
-  [38] middle
-  [39] line
-  [40] being
-  [41] more
-  [42] particularly
-  [43] described
-  [44] as
-  [45] follows
-  [46] to
-  [47] wit
-  [48] beginning
-  [49] at
-  [50] station
-  [51] 1438
-  [52] 238
-  [53] of
-  [54] said
-  [55] pierce
-  [56] canal
-  [57] enlargement
-  [58] at
-  [59] the
-  [60] intersection
-  [61] of
-  [62] the
-  [63] east
-  [64] line
-  [65] of
-  [66] said
-  [67] section
-  [68] 36
-  [69] whence
-  [70] the
-  [71] northeast
-  [72] corner
-  [73] of
-  [74] said
-  [75] section
-  [76] bears
-  [77] north
-  [78] n
-  [79] 0
-  [80] 45
-  [81] 23
-  [82] east
-  [83] a
-  [84] distance
-  [85] of
-  [86] 26323
-  [87] feet
-  [88] and
-  [89] running
+  [36] as
+  [37] more
+  [38] particularly
+  [39] described
+  [40] as
+  [41] follows
+  [42] to
+  [43] wit
+  [44] - (GAP)
+  [45] - (GAP)
+  [46] - (GAP)
+
+Draft_3 (47 tokens):
+  [ 0] canals
+  [ 1] reservoirs
+  [ 2] coulees
+  [ 3] ditches
+  [ 4] and
+  [ 5] laterals
+  [ 6] and
+  [ 7] water
+  [ 8] rights
+  [ 9] of
+  [10] and
+  [11] appurtenant
+  [12] to
+  [13] and
+  [14] used
+  [15] in
+  [16] connection
+  [17] with
+  [18] the
+  [19] entire
+  [20] irrigation
+  [21] works
+  [22] project
+  [23] and
+  [24] enterprises
+  [25] in
+  [26] albany
+  [27] county
+  [28] wyoming
+  [29] commonly
+  [30] known
+  [31] as
+  [32] the
+  [33] lake
+  [34] hattie
+  [35] irrigation
+  [36] system
+  [37] also
+  [38] the
+  [39] following
+  [40] described
+  [41] property
+  [42] situated
+  [43] in
+  [44] albany
+  [45] county
+  [46] wyoming
+
+============================================================
+📊 ANALYSIS - section_1
+============================================================
+
+DIFF at pos 0: ['a', 'canals']
+DIFF at pos 1: ['strip', 'reservoirs', 'set']
+DIFF at pos 2: ['coulees', 'of']
+DIFF at pos 3: ['land', 'ditches']
+DIFF at pos 4: ['and', '200']
+DIFF at pos 5: ['feet', 'laterals']
+DIFF at pos 6: ['and', 'in']
+DIFF at pos 7: ['water', 'width']
+DIFF at pos 8: ['rights', 'being']
+DIFF at pos 9: ['of', '100']
+DIFF at pos 10: ['and', 'feet']
+DIFF at pos 11: ['appurtenant', 'easterly', 'on']
+DIFF at pos 12: ['and', 'each', 'to']
+DIFF at pos 13: ['and', 'westerly', 'side']
+DIFF at pos 14: ['of', 'used']
+DIFF at pos 15: ['the', 'in']
+DIFF at pos 16: ['middle', 'connection']
+DIFF at pos 17: ['with', 'line']
+DIFF at pos 18: ['of', 'the']
+DIFF at pos 19: ['entire', 'the']
+DIFF at pos 20: ['enlarged', 'irrigation']
+DIFF at pos 21: ['princeton', 'works', 'princes']
+DIFF at pos 22: ['canal', 'project']
+DIFF at pos 23: ['and', 'across']
+DIFF at pos 24: ['the', 'enterprises']
+DIFF at pos 25: ['in', 'lands']
+DIFF at pos 26: ['in', 'albany']
+DIFF at pos 27: ['county', 'section', 'sections']
+DIFF at pos 28: ['36', 'wyoming']
+DIFF at pos 29: ['township', 'commonly']
+DIFF at pos 30: ['known', '14']
+DIFF at pos 31: ['north', 'as']
+DIFF at pos 32: ['of', 'the', 'range']
+DIFF at pos 33: ['77', 'lake', 'range']
+DIFF at pos 34: ['hattie', '77', 'west']
+DIFF at pos 35: ['the', 'irrigation', 'west']
+DIFF at pos 36: ['as', 'system', 'said']
+DIFF at pos 37: ['also', 'middle', 'more']
+DIFF at pos 38: ['particularly', 'the', 'line']
+DIFF at pos 39: ['following', 'described', 'being']
+DIFF at pos 40: ['described', 'more', 'as']
+DIFF at pos 41: ['follows', 'particularly', 'property']
+DIFF at pos 42: ['described', 'situated', 'to']
+DIFF at pos 43: ['in', 'wit', 'as']
+DIFF at pos 44: ['follows', 'albany']
+DIFF at pos 45: ['county', 'to']
+DIFF at pos 46: ['wit', 'wyoming']
+
+BLOCK SUMMARY:
+  Total positions: 47
+  Positions with differences: 47
+  Positions with gaps: 3
+  Alignment similarity: 0.0%
+
+================================================================================
+BLOCK: section_2
+================================================================================
+
+📊 BLOCK SUMMARY:
+   Alignment Length: 108
+   Number of Drafts: 3
+   Draft IDs: Draft_1, Draft_2, Draft_3
+
+Position  Draft_1                  Draft_2                  Draft_3                  
+-------------------------------------------------------------------------------------
+  0       beginning                beginning                beginning                
+  1       at                       at                       at                       
+  2       station                  station                  station                  
+  3       1431                     1161                     148                      
+  4       238                      238                      238                      
+  5       of                       of                       of                       
+  6       said                     said                     said                     
+  7       princeton                princes                  princeton                
+  8       canal                    canal                    canal                    
+  9       enlargement              enlargement              enlargement              
+ 10       at                       at                       at                       
+ 11       the                      the                      the                      
+ 12       intersection             intersection             intersection             
+ 13       of                       of                       of                       
+ 14       the                      the                      the                      
+ 15       east                     east                     east                     
+ 16       line                     line                     line                     
+ 17       of                       of                       of                       
+ 18       said                     said                     said                     
+ 19       section                  section                  section                  
+ 20       36                       36                       36                       
+ 21       whence                   whence                   thence                   
+ 22       the                      the                      the                      
+ 23       northeast                northeast                northeast                
+ 24       corner                   corner                   corner                   
+ 25       of                       of                       of                       
+ 26       said                     said                     said                     
+ 27       section                  section                  section                  
+ 28       bears                    bears                    to                       
+ 29       with                     south                    a                        
+ 30       project                  01                       point                    
+ 31       ditto                    37                       10000                    
+ 32       and                      west                     feet                     
+ 33       running                  1929                     distant                  
+ 34       thence                   feet                     and                      
+ 35       westerly                 distant                  running                  
+ 36       on                       and                      thence                   
+ 37       a                        running                  westerly                 
+ 38       30                       thence                   on                       
+ 39       curve                    westerly                 a                        
+ 40       to                       on                       30                       
+ 41       the                      a                        curve                    
+ 42       right                    30                       to                       
+ 43       208                      curve                    the                      
+ 44       feet                     to                       right                    
+ 45       thence                   the                      208                      
+ 46       south                    right                    feet                     
+ 47       83                       208                      thence                   
+ 48       37                       feet                     south                    
+ 49       west                     thence                   83                       
+ 50       7237                     south                    37                       
+ 51       feet                     82                       west                     
+ 52       thence                   37                       7237                     
+ 53       on                       west                     feet                     
+ 54       a                        7521                     thence                   
+ 55       24                       feet                     on                       
+ 56       curve                    thence                   a                        
+ 57       to                       on                       24                       
+ 58       the                      a                        curve                    
+ 59       left                     24                       to                       
+ 60       2146                     curve                    the                      
+ 61       feet                     to                       left                     
+ 62       to                       the                      2146                     
+ 63       station                  left                     feet                     
+ 64       1537                     2146                     to                       
+ 65       119                      feet                     station                  
+ 66       thence                   to                       153                      
+ 67       south                    station                  119                      
+ 68       31                       153                      thence                   
+ 69       07                       119                      south                    
+ 70       west                     thence                   31                       
+ 71       2153                     south                    07                       
+ 72       feet                     31                       west                     
+ 73       thence                   07                       2153                     
+ 74       on                       west                     feet                     
+ 75       a                        2153                     thence                   
+ 76       12                       feet                     on                       
+ 77       curve                    thence                   a                        
+ 78       to                       on                       12                       
+ 79       the                      a                        curve                    
+ 80       right                    12                       to                       
+ 81       1667                     curve                    the                      
+ 82       feet                     to                       right                    
+ 83       thence                   the                      1667                     
+ 84       south                    right                    feet                     
+ 85       51                       1667                     thence                   
+ 86       07                       feet                     south                    
+ 87       west                     thence                   51                       
+ 88       1689                     south                    07                       
+ 89       feet                     51                       west                     
+ 90       thence                   01                       1689                     
+ 91       on                       west                     feet                     
+ 92       a                        1689                     thence                   
+ 93       24                       feet                     on                       
+ 94       curve                    thence                   a                        
+ 95       to                       on                       24                       
+ 96       the                      a                        curve                    
+ 97       left                     24                       to                       
+ 98       1583                     curve                    the                      
+ 99       feet                     to                       left                     
+100       thence                   the                      1583                     
+101       south                    left                     feet                     
+102       13                       1583                     thence                   
+103       07                       feet                     south                    
+104       west                     thence                   13                       
+105       1449                     south                    07                       
+106       feet                     13                       west                     
+107       to                       07                       1449                     
+
+============================================================
+🗺️ ORIGINAL TO ALIGNMENT MAPPINGS - section_2
+============================================================
+
+Draft_1:
+  Original token count: 108
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107]
+
+Draft_2:
+  Original token count: 108
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107]
+
+Draft_3:
+  Original token count: 108
+  Mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107]
+
+============================================================
+🔤 TOKEN DETAILS - section_2
+============================================================
+
+Draft_1 (108 tokens):
+  [ 0] beginning
+  [ 1] at
+  [ 2] station
+  [ 3] 1431
+  [ 4] 238
+  [ 5] of
+  [ 6] said
+  [ 7] princeton
+  [ 8] canal
+  [ 9] enlargement
+  [10] at
+  [11] the
+  [12] intersection
+  [13] of
+  [14] the
+  [15] east
+  [16] line
+  [17] of
+  [18] said
+  [19] section
+  [20] 36
+  [21] whence
+  [22] the
+  [23] northeast
+  [24] corner
+  [25] of
+  [26] said
+  [27] section
+  [28] bears
+  [29] with
+  [30] project
+  [31] ditto
+  [32] and
+  [33] running
+  [34] thence
+  [35] westerly
+  [36] on
+  [37] a
+  [38] 30
+  [39] curve
+  [40] to
+  [41] the
+  [42] right
+  [43] 208
+  [44] feet
+  [45] thence
+  [46] south
+  [47] 83
+  [48] 37
+  [49] west
+  [50] 7237
+  [51] feet
+  [52] thence
+  [53] on
+  [54] a
+  [55] 24
+  [56] curve
+  [57] to
+  [58] the
+  [59] left
+  [60] 2146
+  [61] feet
+  [62] to
+  [63] station
+  [64] 1537
+  [65] 119
+  [66] thence
+  [67] south
+  [68] 31
+  [69] 07
+  [70] west
+  [71] 2153
+  [72] feet
+  [73] thence
+  [74] on
+  [75] a
+  [76] 12
+  [77] curve
+  [78] to
+  [79] the
+  [80] right
+  [81] 1667
+  [82] feet
+  [83] thence
+  [84] south
+  [85] 51
+  [86] 07
+  [87] west
+  [88] 1689
+  [89] feet
   [90] thence
-  [91] westerly
-  [92] on
-  [93] a
-  [94] 30
-  [95] curve
-  [96] to
-  [97] the
-  [98] right
-  [99] 208
-  [100] feet
-  [101] thence
-  [102] south
-  [103] 82
-  [104] 37
-  [105] west
-  [106] 7521
-  [107] feet
-  [108] thence
-  [109] on
-  [110] a
-  [111] 24
-  [112] curve
-  [113] to
-  [114] the
-  [115] left
-  [116] 2146
-  [117] feet
-  [118] to
-  [119] station
-  [120] 1534
-  [121] 119
-  [122] thence
-  [123] south
-  [124] 31
-  [125] 07
-  [126] west
-  [127] 2153
-  [128] feet
-  [129] thence
-  [130] on
-  [131] a
-  [132] 12
-  [133] curve
-  [134] to
-  [135] the
-  [136] right
-  [137] 1667
-  [138] feet
-  [139] thence
-  [140] south
-  [141] 51
-  [142] 07
-  [143] west
-  [144] 1689
-  [145] feet
-  [146] thence
-  [147] on
-  [148] a
+  [91] on
+  [92] a
+  [93] 24
+  [94] curve
+  [95] to
+  [96] the
+  [97] left
+  [98] 1583
+  [99] feet
+  [100] thence
+  [101] south
+  [102] 13
+  [103] 07
+  [104] west
+  [105] 1449
+  [106] feet
+  [107] to
+
+Draft_2 (108 tokens):
+  [ 0] beginning
+  [ 1] at
+  [ 2] station
+  [ 3] 1161
+  [ 4] 238
+  [ 5] of
+  [ 6] said
+  [ 7] princes
+  [ 8] canal
+  [ 9] enlargement
+  [10] at
+  [11] the
+  [12] intersection
+  [13] of
+  [14] the
+  [15] east
+  [16] line
+  [17] of
+  [18] said
+  [19] section
+  [20] 36
+  [21] whence
+  [22] the
+  [23] northeast
+  [24] corner
+  [25] of
+  [26] said
+  [27] section
+  [28] bears
+  [29] south
+  [30] 01
+  [31] 37
+  [32] west
+  [33] 1929
+  [34] feet
+  [35] distant
+  [36] and
+  [37] running
+  [38] thence
+  [39] westerly
+  [40] on
+  [41] a
+  [42] 30
+  [43] curve
+  [44] to
+  [45] the
+  [46] right
+  [47] 208
+  [48] feet
+  [49] thence
+  [50] south
+  [51] 82
+  [52] 37
+  [53] west
+  [54] 7521
+  [55] feet
+  [56] thence
+  [57] on
+  [58] a
+  [59] 24
+  [60] curve
+  [61] to
+  [62] the
+  [63] left
+  [64] 2146
+  [65] feet
+  [66] to
+  [67] station
+  [68] 153
+  [69] 119
+  [70] thence
+  [71] south
+  [72] 31
+  [73] 07
+  [74] west
+  [75] 2153
+  [76] feet
+  [77] thence
+  [78] on
+  [79] a
+  [80] 12
+  [81] curve
+  [82] to
+  [83] the
+  [84] right
+  [85] 1667
+  [86] feet
+  [87] thence
+  [88] south
+  [89] 51
+  [90] 01
+  [91] west
+  [92] 1689
+  [93] feet
+  [94] thence
+  [95] on
+  [96] a
+  [97] 24
+  [98] curve
+  [99] to
+  [100] the
+  [101] left
+  [102] 1583
+  [103] feet
+  [104] thence
+  [105] south
+  [106] 13
+  [107] 07
+
+Draft_3 (108 tokens):
+  [ 0] beginning
+  [ 1] at
+  [ 2] station
+  [ 3] 148
+  [ 4] 238
+  [ 5] of
+  [ 6] said
+  [ 7] princeton
+  [ 8] canal
+  [ 9] enlargement
+  [10] at
+  [11] the
+  [12] intersection
+  [13] of
+  [14] the
+  [15] east
+  [16] line
+  [17] of
+  [18] said
+  [19] section
+  [20] 36
+  [21] thence
+  [22] the
+  [23] northeast
+  [24] corner
+  [25] of
+  [26] said
+  [27] section
+  [28] to
+  [29] a
+  [30] point
+  [31] 10000
+  [32] feet
+  [33] distant
+  [34] and
+  [35] running
+  [36] thence
+  [37] westerly
+  [38] on
+  [39] a
+  [40] 30
+  [41] curve
+  [42] to
+  [43] the
+  [44] right
+  [45] 208
+  [46] feet
+  [47] thence
+  [48] south
+  [49] 83
+  [50] 37
+  [51] west
+  [52] 7237
+  [53] feet
+  [54] thence
+  [55] on
+  [56] a
+  [57] 24
+  [58] curve
+  [59] to
+  [60] the
+  [61] left
+  [62] 2146
+  [63] feet
+  [64] to
+  [65] station
+  [66] 153
+  [67] 119
+  [68] thence
+  [69] south
+  [70] 31
+  [71] 07
+  [72] west
+  [73] 2153
+  [74] feet
+  [75] thence
+  [76] on
+  [77] a
+  [78] 12
+  [79] curve
+  [80] to
+  [81] the
+  [82] right
+  [83] 1667
+  [84] feet
+  [85] thence
+  [86] south
+  [87] 51
+  [88] 07
+  [89] west
+  [90] 1689
+  [91] feet
+  [92] thence
+  [93] on
+  [94] a
+  [95] 24
+  [96] curve
+  [97] to
+  [98] the
+  [99] left
+  [100] 1583
+  [101] feet
+  [102] thence
+  [103] south
+  [104] 13
+  [105] 07
+  [106] west
+  [107] 1449
 
 ============================================================
 📊 ANALYSIS - section_2
 ============================================================
 
-DIFF at pos 21: ['princeton', 'pierce', 'prineville']
-DIFF at pos 32: ['of', 'range']
-DIFF at pos 33: ['range', '77']
-DIFF at pos 34: ['77', 'west']
-DIFF at pos 35: ['the', 'west']
-DIFF at pos 36: ['the', 'said']
-DIFF at pos 37: ['said', 'middle']
-DIFF at pos 38: ['line', 'middle']
-DIFF at pos 39: ['line', 'being']
-DIFF at pos 40: ['more', 'being']
-DIFF at pos 41: ['more', 'particularly']
-DIFF at pos 42: ['described', 'particularly']
-DIFF at pos 43: ['described', 'as']
-DIFF at pos 44: ['as', 'follows']
-DIFF at pos 45: ['to', 'follows']
-DIFF at pos 46: ['wit', 'to']
-DIFF at pos 47: ['wit', 'beginning']
-DIFF at pos 48: ['at', 'beginning']
-DIFF at pos 49: ['at', 'delta']
-DIFF at pos 51: ['14138', '1438', '143']
-DIFF at pos 52: ['of', '238']
-DIFF at pos 53: ['of', 'said']
-DIFF at pos 54: ['princeton', 'said']
-DIFF at pos 55: ['pierce', 'prineville', 'canal']
-DIFF at pos 56: ['enlargement', 'canal']
-DIFF at pos 57: ['at', 'enlargement']
-DIFF at pos 58: ['at', 'the']
-DIFF at pos 59: ['the', 'intersection']
-DIFF at pos 60: ['of', 'intersection']
-DIFF at pos 61: ['of', 'the']
-DIFF at pos 62: ['the', 'east']
-DIFF at pos 63: ['line', 'east']
-DIFF at pos 64: ['line', 'of']
-DIFF at pos 65: ['of', 'said']
-DIFF at pos 66: ['said', 'section']
-DIFF at pos 67: ['36', 'section']
-DIFF at pos 68: ['36', 'thence']
-DIFF at pos 69: ['whence', 'the']
-DIFF at pos 70: ['the', 'north']
-DIFF at pos 71: ['northwest', 'west', 'northeast']
-DIFF at pos 76: ['downstream', 'bears', 'thence']
-DIFF at pos 77: ['on', 'with', 'north']
-DIFF at pos 78: ['said', 'n', 'a']
-DIFF at pos 79: ['east', '0', '30']
-DIFF at pos 80: ['line', '45', 'curve']
-DIFF at pos 81: ['23', 'to', '30']
-DIFF at pos 82: ['the', 'east', 'chains']
-DIFF at pos 83: ['right', 'to', 'a']
-DIFF at pos 84: ['the', 'distance', '208']
-DIFF at pos 85: ['of', 'point', 'feet']
-DIFF at pos 86: ['208', '26323', 'thence']
-DIFF at pos 87: ['south', 'feet']
-DIFF at pos 88: ['and', '82', 'thence']
-DIFF at pos 89: ['south', 'running', '37']
-DIFF at pos 90: ['west', '82', 'thence']
-DIFF at pos 91: ['75231', '37', 'westerly']
-DIFF at pos 92: ['west', 'on', 'feet']
-DIFF at pos 93: ['752', 'a', 'thence']
-DIFF at pos 94: ['on', 'feet', '30']
-DIFF at pos 95: ['curve', 'thence', 'a']
-DIFF at pos 96: ['on', 'to', '24']
-DIFF at pos 97: ['the', 'a', 'curve']
-DIFF at pos 98: ['right', 'to', '24']
-DIFF at pos 99: ['the', '208', 'curve']
-DIFF at pos 100: ['to', 'feet', 'left']
-DIFF at pos 101: ['the', '2146', 'thence']
-DIFF at pos 102: ['south', 'feet', 'left']
-DIFF at pos 103: ['2146', 'to', '82']
-DIFF at pos 104: ['37', 'station', 'feet']
-DIFF at pos 105: ['west', '153', 'to']
-DIFF at pos 106: ['7521', 'station', '119']
-DIFF at pos 107: ['feet', '1537', 'thence']
-DIFF at pos 108: ['south', 'thence', '119']
-DIFF at pos 109: ['on', '31', 'thence']
-DIFF at pos 110: ['south', '07', 'a']
-DIFF at pos 111: ['west', '31', '24']
-DIFF at pos 112: ['curve', '07', '2153']
-DIFF at pos 113: ['west', 'feet', 'to']
-DIFF at pos 114: ['2153', 'the', 'thence']
-DIFF at pos 115: ['on', 'feet', 'left']
-DIFF at pos 116: ['2146', 'thence', 'a']
-DIFF at pos 117: ['on', 'feet', '12']
-DIFF at pos 118: ['to', 'a', 'curve']
-DIFF at pos 119: ['station', 'to', '12']
-DIFF at pos 120: ['the', '1534', 'curve']
-DIFF at pos 121: ['right', 'to', '119']
-DIFF at pos 122: ['the', '1667', 'thence']
-DIFF at pos 123: ['south', 'right', 'feet']
-DIFF at pos 124: ['1667', '31', 'thence']
-DIFF at pos 125: ['south', 'feet', '07']
-DIFF at pos 126: ['west', '51', 'thence']
-DIFF at pos 127: ['south', '07', '2153']
-DIFF at pos 128: ['feet', 'west', '51']
-DIFF at pos 129: ['07', '1689', 'thence']
-DIFF at pos 130: ['west', 'on', 'feet']
-DIFF at pos 131: ['a', '1689', 'thence']
-DIFF at pos 132: ['on', 'feet', '12']
-DIFF at pos 133: ['curve', 'thence', 'a']
-DIFF at pos 134: ['on', 'to', '24']
-DIFF at pos 135: ['the', 'a', 'curve']
-DIFF at pos 136: ['right', 'to', '24']
-DIFF at pos 137: ['the', '1667', 'curve']
-DIFF at pos 138: ['to', 'feet', 'left']
-DIFF at pos 139: ['the', 'thence', '1583']
-DIFF at pos 140: ['south', 'feet', 'left']
-DIFF at pos 141: ['1583', '51', 'thence']
-DIFF at pos 142: ['south', 'feet', '07']
-DIFF at pos 143: ['west', 'thence', '13']
-DIFF at pos 144: ['south', '07', '1689']
-DIFF at pos 145: ['west', 'feet', '13']
-DIFF at pos 146: ['1449', '07', 'thence']
-DIFF at pos 147: ['west', 'on', 'feet']
-DIFF at pos 148: ['1449', 'to', 'a']
+DIFF at pos 3: ['148', '1161', '1431']
+DIFF at pos 7: ['princeton', 'princes']
+DIFF at pos 21: ['whence', 'thence']
+DIFF at pos 28: ['bears', 'to']
+DIFF at pos 29: ['with', 'a', 'south']
+DIFF at pos 30: ['point', '01', 'project']
+DIFF at pos 31: ['10000', '37', 'ditto']
+DIFF at pos 32: ['and', 'feet', 'west']
+DIFF at pos 33: ['running', '1929', 'distant']
+DIFF at pos 34: ['and', 'feet', 'thence']
+DIFF at pos 35: ['running', 'westerly', 'distant']
+DIFF at pos 36: ['and', 'on', 'thence']
+DIFF at pos 37: ['running', 'a', 'westerly']
+DIFF at pos 38: ['on', 'thence', '30']
+DIFF at pos 39: ['a', 'curve', 'westerly']
+DIFF at pos 40: ['on', '30', 'to']
+DIFF at pos 41: ['the', 'a', 'curve']
+DIFF at pos 42: ['right', '30', 'to']
+DIFF at pos 43: ['208', 'the', 'curve']
+DIFF at pos 44: ['feet', 'right', 'to']
+DIFF at pos 45: ['208', 'the', 'thence']
+DIFF at pos 46: ['feet', 'right', 'south']
+DIFF at pos 47: ['83', 'thence', '208']
+DIFF at pos 48: ['feet', '37', 'south']
+DIFF at pos 49: ['83', 'thence', 'west']
+DIFF at pos 50: ['7237', '37', 'south']
+DIFF at pos 51: ['feet', '82', 'west']
+DIFF at pos 52: ['7237', 'thence', '37']
+DIFF at pos 53: ['feet', 'on', 'west']
+DIFF at pos 54: ['7521', 'a', 'thence']
+DIFF at pos 55: ['24', 'feet', 'on']
+DIFF at pos 56: ['a', 'curve', 'thence']
+DIFF at pos 57: ['24', 'on', 'to']
+DIFF at pos 58: ['the', 'a', 'curve']
+DIFF at pos 59: ['24', 'left', 'to']
+DIFF at pos 60: ['the', 'curve', '2146']
+DIFF at pos 61: ['feet', 'left', 'to']
+DIFF at pos 62: ['the', '2146', 'to']
+DIFF at pos 63: ['feet', 'left', 'station']
+DIFF at pos 64: ['1537', '2146', 'to']
+DIFF at pos 65: ['feet', 'station', '119']
+DIFF at pos 66: ['153', 'thence', 'to']
+DIFF at pos 67: ['station', '119', 'south']
+DIFF at pos 68: ['153', '31', 'thence']
+DIFF at pos 69: ['07', '119', 'south']
+DIFF at pos 70: ['31', 'thence', 'west']
+DIFF at pos 71: ['07', '2153', 'south']
+DIFF at pos 72: ['feet', '31', 'west']
+DIFF at pos 73: ['07', 'thence', '2153']
+DIFF at pos 74: ['feet', 'on', 'west']
+DIFF at pos 75: ['a', '2153', 'thence']
+DIFF at pos 76: ['12', 'feet', 'on']
+DIFF at pos 77: ['a', 'curve', 'thence']
+DIFF at pos 78: ['12', 'on', 'to']
+DIFF at pos 79: ['the', 'a', 'curve']
+DIFF at pos 80: ['12', 'right', 'to']
+DIFF at pos 81: ['1667', 'the', 'curve']
+DIFF at pos 82: ['feet', 'right', 'to']
+DIFF at pos 83: ['1667', 'the', 'thence']
+DIFF at pos 84: ['feet', 'right', 'south']
+DIFF at pos 85: ['1667', '51', 'thence']
+DIFF at pos 86: ['feet', '07', 'south']
+DIFF at pos 87: ['51', 'thence', 'west']
+DIFF at pos 88: ['1689', '07', 'south']
+DIFF at pos 89: ['feet', '51', 'west']
+DIFF at pos 90: ['1689', '01', 'thence']
+DIFF at pos 91: ['feet', 'on', 'west']
+DIFF at pos 92: ['1689', 'a', 'thence']
+DIFF at pos 93: ['24', 'feet', 'on']
+DIFF at pos 94: ['a', 'curve', 'thence']
+DIFF at pos 95: ['24', 'on', 'to']
+DIFF at pos 96: ['the', 'a', 'curve']
+DIFF at pos 97: ['24', 'left', 'to']
+DIFF at pos 98: ['the', '1583', 'curve']
+DIFF at pos 99: ['feet', 'left', 'to']
+DIFF at pos 100: ['the', '1583', 'thence']
+DIFF at pos 101: ['feet', 'left', 'south']
+DIFF at pos 102: ['1583', 'thence', '13']
+DIFF at pos 103: ['feet', '07', 'south']
+DIFF at pos 104: ['thence', 'west', '13']
+DIFF at pos 105: ['1449', '07', 'south']
+DIFF at pos 106: ['feet', 'west', '13']
+DIFF at pos 107: ['1449', '07', 'to']
 
 BLOCK SUMMARY:
-  Total positions: 149
-  Positions with differences: 113
+  Total positions: 108
+  Positions with differences: 83
   Positions with gaps: 0
-  Alignment similarity: 24.2%
+  Alignment similarity: 23.1%
 
 ================================================================================
 📊 OVERALL SUMMARY
 ================================================================================
 
 Total blocks processed: 2
-Total alignment positions: 167
-Total differences found: 131
-Total gap positions: 0
-Overall similarity: 21.6%
+Total alignment positions: 155
+Total differences found: 130
+Total gap positions: 3
+Overall similarity: 16.1%
