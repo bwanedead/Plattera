@@ -90,6 +90,7 @@ import logging
 import random
 from pathlib import Path
 import keyring
+from config.paths import backend_root
 
 logger = logging.getLogger(__name__)
 
@@ -758,11 +759,11 @@ class OpenAIService(LLMService):
             }
     
     def _load_parcel_schema(self) -> dict:
-        """Load the parcel schema as fallback (matches pipeline schema)"""
+        """Load the parcel schema as fallback (matches pipeline schema)."""
         try:
-            # Updated to match pipeline schema file
-            schema_path = Path(__file__).parent.parent.parent / "schema" / "plss_m_and_b.json"
-            with open(schema_path, 'r') as f:
+            # Use centralized backend_root so this works in both dev and frozen bundles.
+            schema_path = backend_root() / "schema" / "plss_m_and_b.json"
+            with open(schema_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except FileNotFoundError:
             logger.error(f"Parcel schema file not found at {schema_path}")
@@ -778,13 +779,18 @@ class OpenAIService(LLMService):
             
             messages = [{"role": "user", "content": full_prompt}]
             
-            # Use the passed-in schema parameter (dynamic) instead of hardcoded
+            # Use the passed-in schema parameter (dynamic) instead of hardcoded.
+            # Wrap according to OpenAI's json_schema strict format.
             completion_params = {
                 "model": api_model_name,
                 "messages": messages,
                 "response_format": {
                     "type": "json_schema",
-                    "json_schema": schema  # ✅ Use passed-in schema
+                    "json_schema": {
+                        "name": "plattera_parcel",
+                        "schema": schema,
+                        "strict": True,
+                    },
                 },
             }
             if ("o4-mini" in api_model_name) or ("gpt-5-mini" in api_model_name) or ("gpt-5" in api_model_name) or ("gpt-5-nano" in api_model_name):

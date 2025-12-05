@@ -56,10 +56,10 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
   - Likely a **serde / schema mismatch or plugin bug** inside `tauri-plugin-updater` v2, not a network or JSON-format problem.
 
 - **Planned work**
-  - [ ] Add Rust-side logging around updater HTTP call to:
-    - Log HTTP status, headers, and raw body used by the plugin.
-    - Log the full decode error from the plugin (or from our own `serde_json::from_str`) instead of just “error decoding response body”.
-  - [ ] Once we see the real error, either:
+  - [x] Implement Rust-side logging helper and debug command:
+    - `debug_updater_endpoint` Tauri command logs HTTP status, headers and raw body for the configured endpoint.
+    - Sidecar/stdout/stderr now flow through `tauri_plugin_log` with elevated log levels for `tauri_plugin_updater`.
+  - [ ] Once we see the real error from the plugin in EXE logs, either:
     - [ ] Adjust `latest.json` schema to match plugin expectations, or
     - [ ] Wrap the plugin with a small custom deserializer that matches Tauri’s latest manifest format.
   - [ ] Re-test `check()` in dev and EXE until it cleanly reports “up to date” or a valid `update.available === true`.
@@ -77,10 +77,10 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
   - The Dossier Manager selection and/or previous auto-created dossiers end up populating this internal id, so “Auto-create” in the control panel does **not** guarantee that no dossier id is sent to the backend.
 
 - **Planned work**
-  - [ ] Refactor `useImageProcessing` so that when `selectedDossierId` is provided from `ImageProcessingWorkspace`, it is treated as **source of truth**, and “Auto-create” (`null`) means `dossierIdToSend === undefined`.
-  - [ ] Ensure Dossier Manager highlighting does not implicitly change the dossier used for processing; it should only respond to the control panel selection.
-  - [ ] When `initRun` auto-creates a dossier, propagate that id back into the workspace so the picker shows the newly created dossier explicitly for subsequent runs.
-  - [ ] Regression matrix:
+  - [x] Refactor `useImageProcessing` so that when `selectedDossierId` is provided from `ImageProcessingWorkspace`, it is treated as **source of truth**, and “Auto-create” (`null`) means `dossierIdToSend === undefined`.
+  - [x] Ensure Dossier Manager highlighting does not implicitly change the dossier used for processing; Control Panel is now authoritative.
+  - [x] When `initRun` auto-creates a dossier, propagate that id back into the workspace (`onAutoCreatedDossierId`) so the picker shows the newly created dossier explicitly for subsequent runs.
+  - [ ] Regression matrix (pending EXE/dev verification):
     - [ ] Auto-create with no prior selection → new dossier.
     - [ ] Explicit existing dossier + “Add as new segment” → new segment in that dossier.
     - [ ] Switch back to auto-create → *another* new dossier, not a segment of the last one.
@@ -95,11 +95,11 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
   - `redundancy_analysis` is present in the **immediate POST response** metadata, but is not persisted into the stored JSON (draft / run metadata) that the viewer loads later.
 
 - **Planned work**
-  - [ ] Extend draft saving logic to persist `metadata.redundancy_analysis` alongside the main draft JSON and run metadata.
-  - [ ] On load (`ResultsViewer`), rehydrate `redundancyAnalysis` into `selectedResult.result.metadata` from the persisted JSON.
+  - [x] Extend draft saving logic in the generic image-to-text processing endpoint to persist `metadata.redundancy_analysis` into the main transcription JSON on disk.
+  - [ ] Confirm `ResultsViewer` continues to read redundancy metadata from `selectedResult.result.metadata` when loading from persisted JSON (pending end-to-end test).
   - [ ] Verify that:
     - [ ] Draft selector appears and works immediately after a run.
-    - [ ] Draft selector still appears and works after refresh/reopen.
+    - [ ] Draft selector still appears and works after refresh/reopen (EXE and dev).
 
 ### 4. Text → Schema pipeline – schema file + OpenAI structured output
 
@@ -124,6 +124,13 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
     - [ ] Direct text input path.
     - [ ] Finalized dossier path.
 
+- **Status notes (code implemented, awaiting EXE/dev verification)**
+  - [x] Centralize schema path resolution via `backend_root()` for both `TextToSchemaPipeline` and OpenAI service, so the same `backend/schema/plss_m_and_b.json` path works in dev and frozen bundles (with PyInstaller `--add-data "schema\\plss_m_and_b.json;backend/schema"`).
+  - [x] Ensure strict JSON schema is sent to OpenAI:
+    - For fallback JSON-schema path, `call_structured` now wraps the schema in the `{ type: 'json_schema', json_schema: { name, schema, strict: true } }` structure.
+    - `TextToSchemaPipeline` passes a strictified schema into `call_structured_pydantic` using `_convert_to_strict_schema`.
+  - [ ] Logging / error surfacing still needs to be validated against a new EXE build and real OpenAI responses.
+
 ### 5. Sidecar runtime stability – intermittent crashes
 
 - **Symptoms**
@@ -131,9 +138,8 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
   - [ ] No definitive traceback captured yet for that event.
 
 - **Planned work**
-  - [ ] Add clearer startup / crash logging in `backend/main.py` and in the Tauri sidecar launcher (Rust) to record:
-    - Process exit codes.
-    - Any unhandled exceptions leading to shutdown.
+  - [x] Route sidecar and Python-backend stdout/stderr through `tauri_plugin_log` with explicit log targets and levels, so EXE logs capture child process output.
+  - [ ] Add clearer startup / crash logging in `backend/main.py` and, if needed, additional Rust hooks to capture process exit codes and unhandled exceptions (pending further crashes).
   - [ ] Once a crash is captured, fix the underlying cause (e.g., resource exhaustion, missing config, etc.).
 
 ---
@@ -151,10 +157,10 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
   - [x] This means the uninstaller is currently **not honoring the user’s “delete app data” choice**.
 
 - **Planned work**
-  - [ ] Update the NSIS/Tauri uninstall configuration so that, when “delete app data” is selected, it recursively deletes `%LOCALAPPDATA%\Plattera\` for the current user.
-  - [ ] Consider adding an in-app “Factory reset (delete all local data)” action that performs the same purge without uninstalling.
+  - [x] Add an in-app “Factory reset (delete all local data)” Tauri command (`factory_reset_data`) that recursively deletes `%LOCALAPPDATA%\Plattera\` for the current user and restarts the app.
+  - [ ] Decide whether we also want NSIS uninstall to call the same logic or directly remove `%LOCALAPPDATA%\Plattera\` when “delete data” is checked.
   - [ ] Re-test:
     - [ ] Install EXE, create test dossiers/runs, verify files under `%LOCALAPPDATA%\Plattera\Data\...`.
-    - [ ] Uninstall with “delete data” checked and confirm `%LOCALAPPDATA%\Plattera\` is removed or empty.
+    - [ ] Trigger Factory Reset from the UI (once wired) and confirm `%LOCALAPPDATA%\Plattera\` is removed or empty.
 
 

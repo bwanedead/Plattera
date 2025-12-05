@@ -5,10 +5,20 @@ import { fetchModelsAPI, processFilesAPI } from '../services/imageProcessingApi'
 interface UseImageProcessingOptions {
   onProcessingComplete?: () => void;
   selectedDossierId?: string | null;
+  /**
+   * Optional callback fired when the backend auto-creates a dossier
+   * (i.e. when no dossier id was supplied and initRun returns a new id).
+   * This lets the caller keep its own dossier selection in sync.
+   */
+  onAutoCreatedDossierId?: (dossierId: string) => void;
 }
 
 export const useImageProcessing = (options?: UseImageProcessingOptions) => {
-  const { onProcessingComplete: externalOnProcessingComplete, selectedDossierId } = options || {};
+  const {
+    onProcessingComplete: externalOnProcessingComplete,
+    selectedDossierId,
+    onAutoCreatedDossierId
+  } = options || {};
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const [sessionResults, setSessionResults] = useState<ProcessingResult[]>([]);
   const [selectedResult, setSelectedResult] = useState<ProcessingResult | null>(null);
@@ -88,8 +98,19 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
     try {
       // Reduce noisy logs
 
-      // Prefer internal state; fall back to prop
-      let dossierIdToSend: string | undefined = (internalSelectedDossierId || selectedDossierId) || undefined;
+      // Determine which dossier (if any) this run should attach to.
+      // Precedence:
+      // 1. Explicit null from caller => auto-create (no dossier id).
+      // 2. Explicit string from caller => attach to that dossier.
+      // 3. Undefined from caller => fall back to internal state (other contexts).
+      let dossierIdToSend: string | undefined;
+      if (selectedDossierId === null) {
+        dossierIdToSend = undefined;
+      } else if (typeof selectedDossierId === 'string' && selectedDossierId.length > 0) {
+        dossierIdToSend = selectedDossierId;
+      } else {
+        dossierIdToSend = internalSelectedDossierId || undefined;
+      }
       // If batch with auto-create (no dossier selected), DO NOT pre-create a dossier.
       const isAutoCreateBatch = processingMode === 'batch' && !dossierIdToSend;
 
@@ -123,6 +144,11 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
           if (initResult.success) {
             if (!dossierIdToSend && initResult.dossier_id) {
               setSelectedDossierId(initResult.dossier_id);
+              try {
+                onAutoCreatedDossierId?.(initResult.dossier_id);
+              } catch {
+                // Swallow to avoid breaking processing on UI callback issues.
+              }
             }
             initTranscriptionId = initResult.transcription_id;
             initDossierId = initResult.dossier_id;
@@ -148,7 +174,9 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
         redundancySettings,
         consensusSettings,
         dossierIdToSend,
-        selectedSegmentId || undefined,
+        // Only attach to a specific segment when we are explicitly targeting
+        // an existing dossier. In auto-create mode this must be undefined.
+        dossierIdToSend ? (selectedSegmentId || undefined) : undefined,
         initTranscriptionId,
         userInstruction
       );

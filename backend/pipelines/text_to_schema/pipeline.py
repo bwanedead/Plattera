@@ -9,6 +9,7 @@ import logging
 from typing import Dict, Any, Optional
 from pathlib import Path
 import re
+from config.paths import backend_root
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,9 @@ class TextToSchemaPipeline:
                     input_text=text,
                     model=model,
                     parcel_id=parcel_id,
-                    schema=current_schema  # Pass schema to service
+                    # Pass a strict schema so OpenAI's json_schema validator
+                    # is satisfied when using strict mode.
+                    schema=self._convert_to_strict_schema(current_schema)
                 )
             elif hasattr(service, 'call_structured'):
                 # Fallback to JSON schema structured output
@@ -100,10 +103,8 @@ class TextToSchemaPipeline:
     def _load_parcel_schema(self) -> dict:
         """Load the parcel schema from plss_m_and_b.json (dynamic schema loading)"""
         try:
-            # Use more robust path resolution
-            current_file = Path(__file__)
-            backend_dir = current_file.parent.parent.parent  # Go up to backend/
-            schema_path = backend_dir / "schema" / "plss_m_and_b.json"
+            # Use centralized backend_root so this works in both dev and frozen bundles.
+            schema_path = backend_root() / "schema" / "plss_m_and_b.json"
             
             # Ensure the path is absolute and resolved
             schema_path = schema_path.resolve()

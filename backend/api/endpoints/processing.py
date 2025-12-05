@@ -392,6 +392,33 @@ async def _process_image_to_text(
                             json.dump(raw, f, indent=2, ensure_ascii=False)
                         logger.info(f"💾 Persisted transcription JSON: {out_file}")
 
+                        # Persist redundancy analysis into the main transcription JSON so that
+                        # draft selection and consensus metadata survive reloads.
+                        try:
+                            ra = (result or {}).get("metadata", {}).get("redundancy_analysis", {}) or {}
+                            if ra:
+                                try:
+                                    with open(out_file, "r", encoding="utf-8") as f:
+                                        base_content = json.load(f)
+
+                                    if isinstance(base_content, dict):
+                                        meta = base_content.get("metadata") or {}
+                                        if not isinstance(meta, dict):
+                                            meta = {}
+                                        meta["redundancy_analysis"] = ra
+                                        base_content["metadata"] = meta
+
+                                        with open(out_file, "w", encoding="utf-8") as f:
+                                            json.dump(base_content, f, indent=2, ensure_ascii=False)
+                                        logger.info(f"💾 Persisted redundancy analysis to {out_file}")
+                                except Exception as merge_err:
+                                    logger.warning(
+                                        f"⚠️ Failed to merge redundancy analysis into saved draft: {merge_err}"
+                                    )
+                        except Exception:
+                            # Non-critical; redundancy analysis is helpful but not required for base viewing.
+                            pass
+
                         # Additionally persist each redundancy draft as its own versioned file
                         try:
                             ra = (result or {}).get('metadata', {}).get('redundancy_analysis', {})

@@ -55,6 +55,55 @@ fn port_in_use(port: u16) -> bool {
 
 struct BackendProcess(Mutex<Option<CommandChild>>);
 
+/// Debug helper for updater investigations.
+///
+/// This does **not** drive the built-in updater workflow – it simply
+/// fetches an arbitrary URL (typically the configured latest.json endpoint),
+/// logs what it sees, and returns a terse status to the frontend.
+#[tauri::command]
+async fn debug_updater_endpoint(url: String) -> Result<String, String> {
+    use ureq::AgentBuilder;
+
+    let agent = AgentBuilder::new()
+        .timeout_connect(Duration::from_millis(2_000))
+        .timeout(Duration::from_millis(5_000))
+        .build();
+
+    let res = agent
+        .get(&url)
+        .call()
+        .map_err(|e| format!("request error: {e}"))?;
+
+    let status = res.status();
+    let content_type = res
+        .header("content-type")
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "<none>".to_string());
+
+    let body = res
+        .into_string()
+        .unwrap_or_else(|_| "<body read error>".to_string());
+
+    log::info!(
+        "UPDATER_DEBUG ► status={} content_type={}; body_start\n{}\nbody_end",
+        status,
+        content_type,
+        body
+    );
+
+    // Best-effort JSON decode so we see structured errors when schema drifts.
+    match serde_json::from_str::<serde_json::Value>(&body) {
+        Ok(_) => Ok(format!(
+            "ok status={} content_type={} (JSON parse succeeded)",
+            status, content_type
+        )),
+        Err(e) => {
+            log::error!("UPDATER_DEBUG ► json_decode_error={}", e);
+            Err(format!("json decode error: {e}"))
+        }
+    }
+}
+
 #[tauri::command]
 async fn start_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
     let backend_process = app_handle.state::<BackendProcess>();
@@ -79,8 +128,12 @@ async fn start_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
             tauri::async_runtime::spawn(async move {
                 while let Some(event) = rx.recv().await {
                     match event {
-                        CommandEvent::Stdout(line) => print!("{}", String::from_utf8_lossy(&line)),
-                        CommandEvent::Stderr(line) => eprint!("{}", String::from_utf8_lossy(&line)),
+                        CommandEvent::Stdout(line) => {
+                            log::info!("[SIDECAR stdout] {}", String::from_utf8_lossy(&line))
+                        }
+                        CommandEvent::Stderr(line) => {
+                            log::error!("[SIDECAR stderr] {}", String::from_utf8_lossy(&line))
+                        }
                         _ => {}
                     }
                 }
@@ -107,8 +160,12 @@ async fn start_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
                 tauri::async_runtime::spawn(async move {
                     while let Some(event) = rx.recv().await {
                         match event {
-                            CommandEvent::Stdout(line) => print!("{}", String::from_utf8_lossy(&line)),
-                            CommandEvent::Stderr(line) => eprint!("{}", String::from_utf8_lossy(&line)),
+                            CommandEvent::Stdout(line) => {
+                                log::info!("[BACKEND stdout] {}", String::from_utf8_lossy(&line))
+                            }
+                            CommandEvent::Stderr(line) => {
+                                log::error!("[BACKEND stderr] {}", String::from_utf8_lossy(&line))
+                            }
                             _ => {}
                         }
                     }
@@ -128,6 +185,31 @@ async fn check_backend_health() -> Result<String, String> {
     Ok("Backend is healthy".to_string())
 }
 
+/// Delete all user-local data under %LOCALAPPDATA%\Plattera and restart the app.
+///
+/// This gives users an explicit \"Factory reset\" path without relying solely
+/// on the uninstaller's optional data deletion checkbox.
+#[tauri::command]
+async fn factory_reset_data(app_handle: tauri::AppHandle) -> Result<(), String> {
+    use tauri::path::BaseDirectory;
+
+    let app_data_dir = app_handle
+        .path()
+        .resolve("", BaseDirectory::AppLocalData)
+        .map_err(|e| e.to_string())?;
+
+    log::warn!("☢️ FACTORY RESET REQUESTED. Deleting: {:?}", app_data_dir);
+
+    if app_data_dir.exists() {
+        std::fs::remove_dir_all(&app_data_dir)
+            .map_err(|e| format!("Failed to delete data at {:?}: {}", app_data_dir, e))?;
+    }
+
+    // Ask Tauri to restart the app so it can recreate its folders cleanly.
+    app_handle.restart();
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -137,6 +219,9 @@ pub fn run() {
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
                     .level(log::LevelFilter::Info)
+                    // Make updater and sidecar chatter as verbose as needed in logs.
+                    .level_for("tauri_plugin_updater", log::LevelFilter::Trace)
+                    .level_for("app_lib", log::LevelFilter::Debug)
                     .build(),
             )?;
             // Register shell plugin for sidecar
@@ -191,7 +276,7 @@ pub fn run() {
             {
                 let app_handle = app.handle().clone();
                 let _ = ctrlc::set_handler(move || {
-                    println!("Received Ctrl+C - cleaning up backend process...");
+                    log::info!("Received Ctrl+C - cleaning up backend process...");
                     // Give the backend a bit more time to receive and act on the cleanup signal.
                     cleanup_via_http(1500);
                     let backend_process = app_handle.state::<BackendProcess>();
@@ -204,10 +289,15 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![start_backend, check_backend_health])
+        .invoke_handler(tauri::generate_handler![
+            start_backend,
+            check_backend_health,
+            debug_updater_endpoint,
+            factory_reset_data
+        ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { .. } => {
-                println!("Cleaning up backend process...");
+                log::info!("Cleaning up backend process...");
                 // Best-effort HTTP cleanup with a slightly longer timeout for EXE builds
                 cleanup_via_http(1500);
                 // Give backend a brief moment to flush logs
@@ -217,7 +307,7 @@ pub fn run() {
                 if let Some(mut child) = backend_process.0.lock().unwrap().take() {
                     let _ = child.kill();
                 }
-                println!("✅ Backend process terminated");
+                log::info!("✅ Backend process terminated");
             }
             _ => {}
         })

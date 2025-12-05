@@ -56,7 +56,12 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   // Custom hooks for state management
   const imageProcessing = useImageProcessing({
     onProcessingComplete: handleProcessingComplete,
-    selectedDossierId: selectedDossierId
+    selectedDossierId: selectedDossierId,
+    onAutoCreatedDossierId: (id: string) => {
+      // When the backend auto-creates a dossier, keep the control panel
+      // selection in sync so subsequent runs clearly target that dossier.
+      setSelectedDossierId(id);
+    }
   });
   const alignmentState = useAlignmentState();
   const dossierState = useDossierManager();
