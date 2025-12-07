@@ -3,7 +3,7 @@ import { Allotment } from 'allotment';
 import "allotment/dist/style.css";
 import { ParcelTracerLoader } from './ParcelTracerLoader';
 import { CopyButton } from '../CopyButton';
-import { DraftSelector } from './DraftSelector';
+// import { DraftSelector } from './DraftSelector'; // temporarily disabled; use Dossier Manager for draft navigation
 import { AlignmentButton } from './AlignmentButton';
 import { ConfidenceHeatmapViewer } from './ConfidenceHeatmapViewer';
 import { formatJsonPretty } from '../../utils/jsonFormatter';
@@ -816,7 +816,8 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   )}
                 </ToolTray>
 
-                {/* Controls toolbar: absolute, pinned under tabs; always above text viewer */}
+                {/* DraftSelector temporarily disabled – rely on Dossier Manager for draft navigation */}
+                {/*
                 <div className="results-controls-toolbar" style={{
                   position: 'absolute',
                   top: -35,
@@ -835,6 +836,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                     alignmentResult={alignmentResult}
                   />
                 </div>
+                */}
 
                 {/* Remove top edit controls clutter; position small spacer just above tabs to prevent overlap */}
                 {isEditing && (

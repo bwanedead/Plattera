@@ -22,10 +22,17 @@ def is_frozen() -> bool:
 def backend_root() -> Path:
     """
     Backend source root (the 'backend' directory in the repo).
-    In frozen mode this still resolves under the extraction dir, so it should
+    In frozen mode this resolves under the PyInstaller extraction dir, so it should
     NOT be used for user data.
     """
-    # backend/config/paths.py -> backend/config -> backend
+    if is_frozen():
+        # When running from a PyInstaller one-file EXE, Python modules and bundled
+        # resources are unpacked under sys._MEIPASS. Our build command places the
+        # backend folder (including schema/) under that root as "backend/...".
+        base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+        return base / "backend"
+
+    # Dev / non-frozen: backend/config/paths.py -> backend/config -> backend
     return Path(__file__).resolve().parents[1]
 
 

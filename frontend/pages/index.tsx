@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { invoke } from '@tauri-apps/api/core'
 import { ApiKeyModal } from '../src/components/ApiKeyModal'
 import TextBatchProcessor from '../src/components/TextBatchProcessor'
 import ImageBatchProcessor from '../src/components/ImageBatchProcessor'
@@ -26,6 +27,11 @@ const App: React.FC = () => {
   const [results, setResults] = useState<ProcessingResult[]>([])
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null)
   const [showKeyModal, setShowKeyModal] = useState(false)
+  const [updaterDialog, setUpdaterDialog] = useState<{
+    open: boolean
+    title: string
+    message: string
+  }>({ open: false, title: '', message: '' })
   
   // Navigation state management
   const { lastActiveWorkspace, setActiveWorkspace } = useWorkspaceNavigation()
@@ -134,9 +140,17 @@ const App: React.FC = () => {
                     const update = await check()
                     if (update?.available) {
                       await update.downloadAndInstall()
-                      alert('Update downloaded. Please restart the app to finish installing.')
+                      setUpdaterDialog({
+                        open: true,
+                        title: 'Update downloaded',
+                        message: 'Update downloaded. Please restart the app to finish installing.'
+                      })
                     } else {
-                      alert('You are up to date.')
+                      setUpdaterDialog({
+                        open: true,
+                        title: 'No updates available',
+                        message: 'You are up to date.'
+                      })
                     }
                   } catch (e: any) {
                     // Surface the underlying updater error so we can diagnose configuration issues.
@@ -147,7 +161,11 @@ const App: React.FC = () => {
                     const message =
                       (e && (e.message || (typeof e.toString === 'function' && e.toString()))) ||
                       'Unknown updater error (see devtools console for details)'
-                    alert(`Updater check failed:\n${message}`)
+                    setUpdaterDialog({
+                      open: true,
+                      title: 'Updater check failed',
+                      message: `Updater check failed:\n${message}`
+                    })
                   }
                 }}
                 style={{
@@ -165,6 +183,47 @@ const App: React.FC = () => {
               >
                 Check for Updates
               </button>
+              <button
+                onClick={async () => {
+                  try {
+                    // Call Tauri-side debug helper so we can see the raw updater
+                    // manifest body and headers in the log file for EXE builds.
+                    const result = await invoke<string>('debug_updater_endpoint', {
+                      url: 'https://raw.githubusercontent.com/bwanedead/Plattera/main/releases/latest.json'
+                    })
+                    setUpdaterDialog({
+                      open: true,
+                      title: 'Updater debug result',
+                      message: result
+                    })
+                  } catch (e: any) {
+                    // eslint-disable-next-line no-console
+                    console.error('Updater debug error', e)
+                    const message =
+                      (e && (e.message || (typeof e.toString === 'function' && e.toString()))) ||
+                      'Unknown updater debug error (see devtools console for details)'
+                    setUpdaterDialog({
+                      open: true,
+                      title: 'Updater debug failed',
+                      message: message
+                    })
+                  }
+                }}
+                style={{
+                  display: 'inline-block',
+                  marginLeft: 12,
+                  padding: '12px 24px',
+                  backgroundColor: 'transparent',
+                  color: 'var(--accent-primary)',
+                  border: '1px dashed var(--accent-primary)',
+                  borderRadius: '4px',
+                  textDecoration: 'none',
+                  fontWeight: 600,
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                Debug updater endpoint
+              </button>
             </div>
           </div>
         )
@@ -175,6 +234,70 @@ const App: React.FC = () => {
     <div className="app-workspace">
       {renderContent()}
       <ApiKeyModal open={showKeyModal} onClose={() => setShowKeyModal(false)} onSaved={() => location.reload()} />
+      {updaterDialog.open && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100
+          }}
+        >
+          <div
+            style={{
+              background: '#1e1e1e',
+              color: '#fff',
+              padding: 24,
+              borderRadius: 8,
+              width: 520,
+              maxHeight: '70vh',
+              boxShadow: '0 10px 20px rgba(0,0,0,0.4)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12
+            }}
+          >
+            <h3 style={{ margin: 0 }}>{updaterDialog.title}</h3>
+            <textarea
+              readOnly
+              value={updaterDialog.message}
+              style={{
+                width: '100%',
+                flex: 1,
+                minHeight: 140,
+                resize: 'vertical',
+                padding: 10,
+                borderRadius: 4,
+                border: '1px solid #333',
+                background: '#111',
+                color: '#fff',
+                fontFamily: 'monospace',
+                fontSize: 13,
+                whiteSpace: 'pre-wrap'
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(updaterDialog.message).catch(() => {})
+                }}
+                style={{ padding: '8px 14px' }}
+              >
+                Copy text
+              </button>
+              <button
+                onClick={() => setUpdaterDialog({ open: false, title: '', message: '' })}
+                style={{ padding: '8px 14px' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <AppVersionBadge />
     </div>
   )

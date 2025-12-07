@@ -59,10 +59,18 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
   - [x] Implement Rust-side logging helper and debug command:
     - `debug_updater_endpoint` Tauri command logs HTTP status, headers and raw body for the configured endpoint.
     - Sidecar/stdout/stderr now flow through `tauri_plugin_log` with elevated log levels for `tauri_plugin_updater`.
-  - [ ] Once we see the real error from the plugin in EXE logs, either:
+  - [ ] Once we see the real error from the plugin in EXE/dev logs, either:
     - [ ] Adjust `latest.json` schema to match plugin expectations, or
     - [ ] Wrap the plugin with a small custom deserializer that matches Tauri’s latest manifest format.
   - [ ] Re-test `check()` in dev and EXE until it cleanly reports “up to date” or a valid `update.available === true`.
+
+- **Status notes (2025‑12‑06 EXE test round)**
+  - [x] Built new EXE, updated `releases/latest.json` signature, and copied it into `bundle/latest.json`.
+  - [x] In EXE and Tauri dev, `check()` still reports `error decoding response body`; Tauri log only shows repeated `checking for updates ...latest.json` debug lines with no serde error detail.
+  - [ ] `debug_updater_endpoint` is not yet wired into any UI path, so we still **do not** have the raw manifest body/headers from inside the app.
+  - **Status notes (2025‑12‑07 EXE test round)**
+    - [x] Re-verified that installed EXE still shows `Updater check failed: error decoding response body` with no additional serde details in Tauri logs.
+    - [ ] Next step remains to add a small, temporary UI hook that calls `debug_updater_endpoint` so we can capture `UPDATER_DEBUG` lines (status, content-type, full body) in the Tauri log.
 
 ### 2. Dossier association – “Auto-create” vs existing segment
 
@@ -85,6 +93,11 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
     - [ ] Explicit existing dossier + “Add as new segment” → new segment in that dossier.
     - [ ] Switch back to auto-create → *another* new dossier, not a segment of the last one.
 
+- **Status notes (2025‑12‑06 EXE test round)**
+  - [x] In the current EXE, when the Control Panel is set to **Auto-create**, new runs create new dossiers as expected.
+  - [x] When the Control Panel targets a specific dossier, runs attach as new segments to that dossier; Dossier Manager highlight no longer drives association implicitly.
+  - [ ] UX follow-up: after an auto-create run, the Control Panel currently auto-switches to the newly created dossier; desired behavior is for the picker to **stay on the user’s last explicit choice** instead of changing itself.
+
 ### 3. Redundancy draft selector – persistence after refresh
 
 - **Symptoms**
@@ -101,6 +114,13 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
     - [ ] Draft selector appears and works immediately after a run.
     - [ ] Draft selector still appears and works after refresh/reopen (EXE and dev).
 
+- **Status notes (2025‑12‑06 EXE test round)**
+  - [x] EXE run with redundancy `count = 3` + LLM consensus shows `metadata.redundancy_analysis` present in the saved JSON on disk, and this data is still present after app relaunch.
+  - [ ] Viewer-level draft selector behavior after restart is still only partially verified; additional focused testing is needed to confirm that the selector uses the persisted metadata correctly.
+  - **Status notes (2025‑12‑07 decision)**
+    - [x] Floating `DraftSelector` in `ResultsViewer` has been **temporarily disabled**; Dossier Manager is now the canonical way to navigate between drafts for a run.
+    - [ ] Future work (if re-enabled): rewire DraftSelector to use the same dossier-backed draft source (via resolver/text API) instead of relying solely on `redundancy_analysis`.
+
 ### 4. Text → Schema pipeline – schema file + OpenAI structured output
 
 - **Symptoms**
@@ -111,14 +131,12 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
       `Invalid schema for response_format 'plattera_parcel': 'additionalProperties' is required to be supplied and to be false.`
 
 - **Root causes**
-  - [ ] PyInstaller EXE is not bundling `schema\plss_m_and_b.json` into the `_MEI...\schema\` folder where the pipeline expects it.
-  - [ ] The parcel JSON schema we send as `response_format` to OpenAI no longer satisfies the newer structured-output validator (missing `"additionalProperties": false` and possibly other constraints).
+  - [x] In the frozen EXE, the runtime loader looks for the schema at `_MEI...\schema\plss_m_and_b.json` while PyInstaller currently bundles it at `_MEI...\backend\schema\plss_m_and_b.json` via `--add-data "schema\plss_m_and_b.json;backend/schema"`, so `_load_parcel_schema()` returns `{}`.
+  - [x] When the schema is missing/empty, we still send a strict `response_format` to OpenAI with `schema: {}`, which triggers 400 errors like: `"additionalProperties' is required to be supplied and to be false"`.
 
 - **Planned work**
-  - [ ] Fix PyInstaller command and/or runtime path resolution so `plss_m_and_b.json` is present at `.../_MEIxxxx/schema/plss_m_and_b.json` in EXE builds.
-  - [ ] Update the parcel JSON schema in the backend to:
-    - Explicitly include `"additionalProperties": false` at the required levels.
-    - Conform to OpenAI’s current JSON schema requirements for `response_format`.
+  - [ ] Fix runtime path resolution in frozen mode so `backend_root() / "schema" / "plss_m_and_b.json"` resolves to the **bundled** `_MEI...\backend\schema\plss_m_and_b.json` location (or adjust the PyInstaller target accordingly).
+  - [ ] Once the file can be loaded, re-validate the parcel JSON schema against OpenAI’s current JSON-schema requirements for `response_format` under `strict: true` (ensuring top-level `type: "object"` and `additionalProperties: false` where required).
   - [ ] Add defensive logging so if the schema file is missing or OpenAI rejects the schema, the API returns a clear, frontend-friendly error.
   - [ ] Re-test Text→Schema:
     - [ ] Direct text input path.
@@ -131,6 +149,11 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
     - `TextToSchemaPipeline` passes a strictified schema into `call_structured_pydantic` using `_convert_to_strict_schema`.
   - [ ] Logging / error surfacing still needs to be validated against a new EXE build and real OpenAI responses.
 
+- **Status notes (2025‑12‑06 EXE test round)**
+  - **Status notes (2025‑12‑07 EXE test round)**
+    - [x] Re-ran Text→Schema in the EXE and confirmed logs show `_MEI...\schema\plss_m_and_b.json` as the lookup path, while the bundled file lives under `_MEI...\backend\schema\plss_m_and_b.json`, causing `_load_parcel_schema()` to return `{}`.
+    - [x] Confirmed that the resulting empty strict schema is what drives the OpenAI 400 `"Invalid schema for response_format 'plattera_parcel': 'additionalProperties' is required to be supplied and to be false."`
+
 ### 5. Sidecar runtime stability – intermittent crashes
 
 - **Symptoms**
@@ -141,6 +164,10 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
   - [x] Route sidecar and Python-backend stdout/stderr through `tauri_plugin_log` with explicit log targets and levels, so EXE logs capture child process output.
   - [ ] Add clearer startup / crash logging in `backend/main.py` and, if needed, additional Rust hooks to capture process exit codes and unhandled exceptions (pending further crashes).
   - [ ] Once a crash is captured, fix the underlying cause (e.g., resource exhaustion, missing config, etc.).
+
+- **Status notes (2025‑12‑06 EXE test round)**
+  - [x] Current EXE shows `[SIDECAR stdout]` and `[SIDECAR stderr]` entries in the Tauri log, including backend startup and third‑party warnings, confirming logging plumbing is working.
+  - [ ] In this round the sidecar stayed healthy during normal use; no new intermittent crash was reproduced, so we still lack a concrete traceback to diagnose the original instability.
 
 ---
 
