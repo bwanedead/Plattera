@@ -31,7 +31,13 @@ const App: React.FC = () => {
     open: boolean
     title: string
     message: string
-  }>({ open: false, title: '', message: '' })
+    mode?: 'info' | 'update-available' | 'debug'
+  }>({ open: false, title: '', message: '', mode: 'info' })
+  // Track a pending update object and whether the user has an update available
+  // so we can offer explicit "Update now / Later" control instead of
+  // auto-downloading on check.
+  const [pendingUpdate, setPendingUpdate] = useState<any | null>(null)
+  const [hasUpdateAvailable, setHasUpdateAvailable] = useState(false)
   
   // Navigation state management
   const { lastActiveWorkspace, setActiveWorkspace } = useWorkspaceNavigation()
@@ -139,17 +145,33 @@ const App: React.FC = () => {
                     const { check } = await import('@tauri-apps/plugin-updater')
                     const update = await check()
                     if (update?.available) {
-                      await update.downloadAndInstall()
+                      // Remember that an update is available and show a confirmation dialog
+                      setPendingUpdate(update)
+                      setHasUpdateAvailable(true)
+
+                      const version = update.version || 'unknown'
+                      const body = (update.body as string | undefined) || ''
+                      const messageLines = [
+                        `A new version is available.`,
+                        ``,
+                        `Latest version: ${version}`,
+                        body ? `\nRelease notes:\n${body}` : ''
+                      ].join('\n')
+
                       setUpdaterDialog({
                         open: true,
-                        title: 'Update downloaded',
-                        message: 'Update downloaded. Please restart the app to finish installing.'
+                        title: 'Update available',
+                        message: messageLines,
+                        mode: 'update-available'
                       })
                     } else {
+                      setPendingUpdate(null)
+                      setHasUpdateAvailable(false)
                       setUpdaterDialog({
                         open: true,
                         title: 'No updates available',
-                        message: 'You are up to date.'
+                        message: 'You are up to date.',
+                        mode: 'info'
                       })
                     }
                   } catch (e: any) {
@@ -164,7 +186,8 @@ const App: React.FC = () => {
                     setUpdaterDialog({
                       open: true,
                       title: 'Updater check failed',
-                      message: `Updater check failed:\n${message}`
+                      message: `Updater check failed:\n${message}`,
+                      mode: 'info'
                     })
                   }
                 }}
@@ -181,7 +204,7 @@ const App: React.FC = () => {
                   transition: 'all 0.2s ease'
                 }}
               >
-                Check for Updates
+                {hasUpdateAvailable ? 'Check for Updates (update available)' : 'Check for Updates'}
               </button>
               <button
                 onClick={async () => {
@@ -194,7 +217,8 @@ const App: React.FC = () => {
                     setUpdaterDialog({
                       open: true,
                       title: 'Updater debug result',
-                      message: result
+                       message: result,
+                       mode: 'debug'
                     })
                   } catch (e: any) {
                     // eslint-disable-next-line no-console
@@ -205,7 +229,8 @@ const App: React.FC = () => {
                     setUpdaterDialog({
                       open: true,
                       title: 'Updater debug failed',
-                      message: message
+                      message: message,
+                      mode: 'debug'
                     })
                   }
                 }}
@@ -280,20 +305,69 @@ const App: React.FC = () => {
               }}
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button
-                onClick={() => {
-                  navigator.clipboard?.writeText(updaterDialog.message).catch(() => {})
-                }}
-                style={{ padding: '8px 14px' }}
-              >
-                Copy text
-              </button>
-              <button
-                onClick={() => setUpdaterDialog({ open: false, title: '', message: '' })}
-                style={{ padding: '8px 14px' }}
-              >
-                Close
-              </button>
+              {updaterDialog.mode === 'debug' && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard?.writeText(updaterDialog.message).catch(() => {})
+                  }}
+                  style={{ padding: '8px 14px' }}
+                >
+                  Copy text
+                </button>
+              )}
+
+              {updaterDialog.mode === 'update-available' && pendingUpdate && (
+                <>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await pendingUpdate.downloadAndInstall()
+                        setUpdaterDialog({
+                          open: true,
+                          title: 'Update downloaded',
+                          message: 'Update downloaded. Please restart the app to finish installing.',
+                          mode: 'info'
+                        })
+                        setPendingUpdate(null)
+                        setHasUpdateAvailable(false)
+                      } catch (e: any) {
+                        // eslint-disable-next-line no-console
+                        console.error('Download/install failed', e)
+                        const msg =
+                          (e && (e.message || (typeof e.toString === 'function' && e.toString()))) ||
+                          'Unknown updater install error'
+                        setUpdaterDialog({
+                          open: true,
+                          title: 'Update failed',
+                          message: msg,
+                          mode: 'info'
+                        })
+                      }
+                    }}
+                    style={{ padding: '8px 14px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 4 }}
+                  >
+                    Update now
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Leave hasUpdateAvailable = true so the main button keeps its badge.
+                      setUpdaterDialog({ open: false, title: '', message: '', mode: 'info' })
+                    }}
+                    style={{ padding: '8px 14px' }}
+                  >
+                    Later
+                  </button>
+                </>
+              )}
+
+              {updaterDialog.mode !== 'update-available' && (
+                <button
+                  onClick={() => setUpdaterDialog({ open: false, title: '', message: '', mode: 'info' })}
+                  style={{ padding: '8px 14px' }}
+                >
+                  Close
+                </button>
+              )}
             </div>
           </div>
         </div>
