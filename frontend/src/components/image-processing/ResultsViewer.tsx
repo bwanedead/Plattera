@@ -956,6 +956,10 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                   )}
                   {activeTab === 'json' && isCurrentResultJson() && (
                     <div className="json-display">
+                      {/* Dev-only "Save Draft" button removed from user-facing UI.
+                          Wiring is kept in place so this can be re-enabled in the future
+                          if we decide to bring back local draft storage. */}
+                      {/*
                       <div className="json-actions">
                         <button
                           className="save-draft-button"
@@ -965,6 +969,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                           💾 Save Draft
                         </button>
                       </div>
+                      */}
                       <pre className="json-content">
                         {formatJsonPretty(getOriginalJsonText())}
                       </pre>
