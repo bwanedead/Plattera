@@ -46,6 +46,9 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
 
 ### 1. Updater – `error decoding response body`
 
+- **Update (2025‑12‑09)**  
+  Resolved via UTF‑8 BOM removal and updated in-app updater dialog; kept here for historical context.
+
 - **Symptoms**
   - [ ] In dev and installed EXE, clicking “Check for Updates” shows:  
         `Updater check failed: error decoding response body`.
@@ -123,6 +126,9 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
 
 ### 4. Text → Schema pipeline – schema file + OpenAI structured output
 
+- **Update (2025‑12‑09)**  
+  Core schema loading and OpenAI structured output are now working in EXE; remaining Text→Schema issues (bearing normalization, Schema Manager wiring, direct-text persistence) are tracked in sections 6–10 below.
+
 - **Symptoms**
   - [x] Both direct text input and “from finalized dossier” entry points into Text→Schema fail quickly with:
     - `Schema file does not exist: C:\Users\...\Temp\_MEIxxxxx\schema\plss_m_and_b.json`
@@ -147,7 +153,7 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
   - [x] Ensure strict JSON schema is sent to OpenAI:
     - For fallback JSON-schema path, `call_structured` now wraps the schema in the `{ type: 'json_schema', json_schema: { name, schema, strict: true } }` structure.
     - `TextToSchemaPipeline` passes a strictified schema into `call_structured_pydantic` using `_convert_to_strict_schema`.
-  - [ ] Logging / error surfacing still needs to be validated against a new EXE build and real OpenAI responses.
+  - [ ] Logging / error surfacing still needs to be validated against a new EXE build and real OpenAI responses for non‑happy paths.
 
 - **Status notes (2025‑12‑06 EXE test round)**
   - **Status notes (2025‑12‑07 EXE test round)**
@@ -190,4 +196,127 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
     - [ ] Install EXE, create test dossiers/runs, verify files under `%LOCALAPPDATA%\Plattera\Data\...`.
     - [ ] Trigger Factory Reset from the UI (once wired) and confirm `%LOCALAPPDATA%\Plattera\` is removed or empty.
 
+### 6. Text → Schema & Schema Manager – persistence, versions, and direct-text runs
 
+- **Symptoms (2025‑12‑09 EXE test round)**
+  - [ ] After app relaunch, selecting a saved schema in Schema Manager often shows JSON / Field view, but the **“Original Text” tab is empty**, making it hard to see what text the schema came from.
+  - [ ] Editing a schema to produce a `_v2` variant (e.g., fixing `bearing_raw`) does not reliably drive the **“Draw Schema”** and mapping actions; logs show the backend still receiving the original v1 bearing string in some cases.
+  - [ ] Version pills (`v1` / `v2`) in Schema Manager do not clearly indicate which version is currently active, and clicking them does not update any visible header in the Text→Schema results panel.
+  - [ ] Schemas produced from **Direct Text Input** runs are not appearing in Schema Manager at all, even after refresh, suggesting they are not being persisted as first-class schema artifacts (or are missing `dossier_id` / index entries).
+
+- **Likely root causes**
+  - Original text is either not persisted with the schema artifact, or not re‑hydrated into `finalText` / original-text state when loading from Schema Manager.
+  - “Draw Schema” and mapping currently operate on the in‑memory `schemaResults` from the last Text→Schema run, not necessarily the edited artifact / selected version from Schema Manager.
+  - Direct text runs follow a lighter‑weight path that never saves a schema artifact to disk (or saves it outside the scope of `schemaApi.listAllSchemas()`).
+
+- **Planned work**
+  - [ ] Ensure every saved schema artifact includes:
+    - [ ] The original legal text.
+    - [ ] A stable `schema_id` root and explicit `version_label` (`v1`, `v2`, etc.).
+  - [ ] When a schema is selected in Schema Manager:
+    - [ ] Hydrate `finalText` / Original Text tab in the Text→Schema workspace from the artifact.
+    - [ ] Set a visible version label in the results header (e.g., “Schema v2”) that stays in sync with the selected pill.
+  - [ ] Wire the **Draw Schema** / “Map” actions to always use the currently selected schema artifact (including edits and version choice), not stale in‑memory copies.
+  - [ ] Persist schemas generated from **Direct Text Input** into the same artifact store with:
+    - [ ] A synthetic or “scratch” dossier id when no dossier is associated.
+    - [ ] Inclusion in `schemaApi.listAllSchemas()` so they appear in Schema Manager with a clear source label.
+
+- **Status notes (2025‑12‑09 code pass)**
+  - [x] When a schema is selected in `SchemaManager`, `TextToSchemaWorkspace` now hydrates `finalDraftText` from the loaded artifact so the **Original Text** tab is populated after relaunch.
+  - [ ] Direct-text schemas are still not persisted or listed in Schema Manager; selection and Draw Schema wiring still need end-to-end alignment with the artifact model.
+
+### 7. Polygon drawing – bearing format robustness (Unicode minutes, spacing)
+
+- **Symptoms**
+  - [x] Initial EXE runs failed Text→Schema → polygon with:
+    - `Failed to parse bearing: Could not parse bearing format: 'N. 4°00′W.' (original: 'N. 4° 00′ W.')`
+    - Subsequent attempts showed `N. N. 4°00'W.` when manual edits duplicated the `N.` prefix.
+  - [x] Even after origin parsing was fixed, polygon generation sometimes reported:
+    - `Polygon generation failed - Insufficient valid courses for polygon: 0 courses processed`
+    - Indicating that **all leg bearings** were rejected and no courses were drawn.
+  - [ ] These failures only appear with more “typographic” output from Text→Schema (Unicode prime `′` and variable spacing), so dev runs against older JSON often worked.
+
+- **Root cause**
+  - `BearingParser._normalize_bearing` currently:
+    - Assumes ASCII `'` for minutes.
+    - Normalizes spacing and periods into patterns like `"N. 4°00'W."`.
+  - The regex patterns only accept:
+    - `([NS])\.\s*(\d+)°(\d+)'([EW])\.` and simpler variants, so any occurrence of `′` (`\u2032`) or extra letters like `N. N.` causes parsing to fail.
+
+- **Planned work**
+  - [x] Harden `BearingParser` normalization to:
+    - [x] Replace `\u2032` (`′`) and `\u2019` (`’`) with `'` before regex matching.
+    - [x] Strip stray duplicated direction letters (`"N. N." → "N."`) and redundant periods at the start of the string.
+    - [x] Be tolerant of optional spaces around degrees/minutes and direction letters.
+  - [ ] Add targeted unit tests for representative deed strings:
+    - [ ] `N. 4° 00′ W.`, `N. 68° 30′ E.`, `S. 87° 35′ W.`, `S. 4° 00′ E.` and their normalized forms.
+  - [ ] Improve logging to clearly show both the original and fully normalized bearing string used for parsing.
+
+- **Status notes (2025‑12‑09 code pass)**
+  - [x] Implemented Unicode prime normalization and leading `N. N.`/`S. S.` stutter cleanup in `_normalize_bearing`, plus stricter but more tolerant spacing rules; polygon generation for the test deed now succeeds once the correct schema version is applied.
+
+### 8. Workspace layout instability – Allotment panes (Text→Schema & Image→Text)
+
+- **Symptoms**
+  - [ ] Occasionally, after switching rapidly between Image→Text, Map, and Text→Schema, the Text→Schema workspace “explodes” visually:
+    - Controls and panels appear scattered or mis-sized.
+    - The Dossier Manager / history toggle arrow disappears.
+  - [ ] Frontend logs show repeated warnings and errors:
+    - `Expected 2 children based on defaultSizes but found 1`
+    - `ResizeObserver loop completed with undelivered notifications.`
+
+- **Likely root cause**
+  - `react-allotment` expects the length of `defaultSizes` to match the number of `Allotment.Pane` children.
+  - In some layouts:
+    - `ResultsViewer` always passes `[300, 700]` even when the history pane is hidden (1 child).
+    - `ImageProcessingWorkspace` changes between 2–4 panes (Control / Alignment / Table / Results) while only computing sizes for 2–3, causing Allotment’s internal layout state to become inconsistent.
+
+- **Planned work**
+  - [ ] Audit all `Allotment` usages in:
+    - [x] `ImageProcessingWorkspace.tsx`
+    - [ ] `ResultsViewer.tsx`
+    - [ ] `TextToSchemaWorkspace.tsx`
+  - [ ] Ensure `defaultSizes.length` always matches the number of rendered panes for each state:
+    - [ ] 2 panes: `[control, results]`
+    - [ ] 3 panes: `[control, middlePanel, results]`
+    - [ ] 4 panes: `[control, alignment, table, results]`
+  - [ ] Add minimal guards / memoization so rapidly toggling panels cannot leave Allotment in an inconsistent state.
+
+- **Status notes (2025‑12‑09 code pass)**
+  - [x] Updated `ImageProcessingWorkspace` to compute `defaultSizes` dynamically based on visible panes (control, alignment panel, alignment table, results), eliminating the “Expected 2/3 children based on defaultSizes but found 3/4” warnings there.
+  - [ ] `ResultsViewer` and `TextToSchemaWorkspace` Allotment usage still need the same treatment before we consider this fully resolved.
+
+### 9. PLSS data download modal – Cancel / dismiss behavior
+
+- **Symptoms**
+  - [ ] When attempting to georeference a parcel without Wyoming PLSS data installed, the app shows the PLSS download modal.
+  - [ ] Clicking **Cancel** does not reliably dismiss the modal or keep it suppressed; users can feel “trapped” in the download prompt if they do not want to download ~250MB immediately.
+
+- **Current behavior**
+  - `MapBackground` computes `shouldShowModal = status === 'missing' && !modalDismissed`.
+  - `PLSSDownloadModal` calls `onCancel`, which is wired to `dismissModal()` in the PLSS state hook, but subsequent status checks appear to re-surface the “missing” state without remembering the dismissal.
+
+- **Planned work**
+  - [x] Ensure `dismissModal()` sets and persists `modalDismissed` for the current session (and possibly per‑state), so Cancel truly backs the user out.
+  - [ ] Confirm that:
+    - [ ] After Cancel, the map shows a stable “PLSS data required” placeholder instead of the modal.
+    - [ ] Re‑triggering a mapping action explicitly can re‑open the modal when the user is ready.
+
+- **Status notes (2025‑12‑09 code pass)**
+  - [x] `usePLSSData` no longer blindly resets `modalDismissed` during initialization; it only resets when the underlying PLSS state code changes, so Cancel now persists for the current state within a session.
+
+### 10. In-app Logs viewer – default scroll position
+
+- **Symptoms**
+  - [ ] Opening the in-app Logs panel (Frontend / Backend tabs) positions the scroll at the **top** of the log, forcing manual scrolling to see the latest entries.
+
+- **Planned work**
+  - [x] In `LogsPanel.tsx`, keep a `ref` to the scroll container and:
+    - [x] Automatically set `scrollTop = scrollHeight` after logs are loaded or refreshed for the active tab.
+    - [x] Ensure this behavior applies when:
+      - [x] Opening the panel.
+      - [x] Switching between Frontend and Backend tabs.
+      - [x] Hitting “Refresh” on either tab.
+
+- **Status notes (2025‑12‑09 code pass)**
+  - [x] Logs panel now auto-scrolls to the bottom whenever frontend/backend logs or the active tab change, so the most recent entries are visible by default.

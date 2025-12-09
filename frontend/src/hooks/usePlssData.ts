@@ -114,7 +114,9 @@ export function usePLSSData(schemaData: any) {
     const initializeData = async () => {
       if (!schemaData) return;
 
-      setState(prev => ({ ...prev, status: 'checking', modalDismissed: false }));
+      // Begin a new check cycle, but do NOT blindly reset modalDismissed here.
+      // The dismissal should persist for the current state unless the state changes.
+      setState(prev => ({ ...prev, status: 'checking' }));
 
       // Extract state from schema
       const plssState = await plssDataService.extractStateFromSchema(schemaData);
@@ -127,7 +129,13 @@ export function usePLSSData(schemaData: any) {
         return;
       }
 
-      setState(prev => ({ ...prev, state: plssState }));
+      // If the state has changed (e.g., new schema in a different state),
+      // reset modalDismissed so the user is prompted again for the new state.
+      setState(prev => ({
+        ...prev,
+        state: plssState,
+        modalDismissed: prev.state !== plssState ? false : prev.modalDismissed,
+      }));
 
       // FIXED: Check for active download and start polling if found
       const downloadStatus = await plssDataService.checkDownloadActive(plssState);

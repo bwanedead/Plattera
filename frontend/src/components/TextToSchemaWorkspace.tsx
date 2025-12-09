@@ -611,9 +611,18 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                           schema_id: art?.schema_id || sel.schema_id,
                           metadata: { ...(sd?.metadata || {}), dossierId: String(sel.dossier_id) }
                         };
+
+                        // Prefer explicit original_text on the artifact; fall back to any
+                        // metadata snapshot if present. This hydrates the "Original Text" tab.
+                        const originalText =
+                          (art as any)?.original_text ||
+                          (sd as any)?.metadata?.original_text ||
+                          '';
+
                         updateState({ 
                           schemaResults: { success: true, structured_data: merged } as any,
-                          finalDraftMetadata: { ...(state.finalDraftMetadata || {}), dossierId: String(sel.dossier_id) } as any
+                          finalDraftMetadata: { ...(state.finalDraftMetadata || {}), dossierId: String(sel.dossier_id) } as any,
+                          finalDraftText: originalText || state.finalDraftText
                         });
                       }
                     } catch (e) {

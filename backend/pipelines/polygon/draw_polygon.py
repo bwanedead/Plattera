@@ -342,24 +342,45 @@ class BearingParser:
         Returns:
             str: Normalized bearing like "N. 4°00'W."
         """
-        # Remove extra spaces and standardize format
-        normalized = bearing_text
-        
-        # Remove multiple spaces
+        # Start from original text
+        normalized = bearing_text or ""
+
+        # 1) Normalize Unicode primes / smart apostrophes to ASCII
+        #    This handles LLM output that prefers typographic characters.
+        normalized = re.sub(r'[\u2019\u2032]', "'", normalized)
+        normalized = re.sub(r'[\u201C\u201D\u2033]', '"', normalized)
+
+        # 2) Collapse excessive whitespace
         normalized = re.sub(r'\s+', ' ', normalized)
-        
-        # Remove space after degree symbol
+
+        # 3) Fix common stutter at the start like "N. N. 4°..." or "S S 4°..."
+        #    We only touch the very start of the string to avoid altering
+        #    legitimate interior patterns.
+        normalized = re.sub(
+            r'^\s*([NS])\.\s*\1\.\s*',
+            r'\1. ',
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        normalized = re.sub(
+            r'^\s*([NS])\s+\1\s+',
+            r'\1 ',
+            normalized,
+            flags=re.IGNORECASE,
+        )
+
+        # 4) Remove space after degree symbol (e.g. "4° 00'" -> "4°00'")
         normalized = re.sub(r'°\s+', '°', normalized)
-        
-        # Remove space before prime symbol
-        normalized = re.sub(r'\s+\'', '\'', normalized)
-        
-        # Remove space before direction
-        normalized = re.sub(r'\s+([EW])\.', r'\1.', normalized)
-        
-        # Ensure proper spacing around direction letters
-        normalized = re.sub(r'([NS])\.\s*', r'\1. ', normalized)
-        
+
+        # 5) Remove space before prime symbol (e.g. "00 '" -> "00'")
+        normalized = re.sub(r'\s+\'', "'", normalized)
+
+        # 6) Remove space before direction letter + period ("W ." -> "W.")
+        normalized = re.sub(r'\s+([EW])\.', r'\1.', normalized, flags=re.IGNORECASE)
+
+        # 7) Ensure proper spacing after N./S. (e.g. "N.4°" -> "N. 4°")
+        normalized = re.sub(r'([NS])\.\s*', r'\1. ', normalized, flags=re.IGNORECASE)
+
         return normalized.strip()
 
 class CoordinateCalculator:

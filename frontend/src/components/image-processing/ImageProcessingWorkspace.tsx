@@ -521,12 +521,29 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   // NEW: State for final draft
 
 
-  // Calculate Allotment sizes based on alignment panel visibility
+  // Calculate Allotment sizes so length always matches the visible panes.
+  // Order: ControlPanel, (optional AlignmentPanel), (optional AlignmentTableViewer), ResultsViewer.
   const getAllotmentSizes = () => {
+    const sizes: number[] = [];
+
+    // Control panel is always present
+    sizes.push(300);
+
+    // Optional alignment panel
     if (alignmentState.alignmentState.showAlignmentPanel) {
-      return [300, 250, 450]; // ControlPanel, AlignmentPanel, ResultsViewer
+      sizes.push(250);
     }
-    return [300, 700]; // ControlPanel, ResultsViewer
+
+    // Optional alignment table
+    if (alignmentState.showAlignmentTable && alignmentState.alignmentState.alignmentResult) {
+      sizes.push(260);
+    }
+
+    // Results viewer takes the remaining width
+    // Keep it reasonably large by default
+    sizes.push(500);
+
+    return sizes;
   };
 
   return (
