@@ -306,6 +306,24 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
 
     // Determine dossier context: real dossier when selected, otherwise virtual
     const effectiveDossierId = selectedFinalizedId || DIRECT_TEXT_DOSSIER_ID;
+    const isVirtualDossier = !selectedFinalizedId;
+
+    // Optimistic pending row for direct-text (virtual dossier) runs
+    let pendingId: string | null = null;
+    if (isVirtualDossier) {
+      pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      try {
+        document.dispatchEvent(
+          new CustomEvent('schemas:pending-add', {
+            detail: {
+              tempId: pendingId,
+              dossier_id: effectiveDossierId,
+              label: 'Direct Text (processing…)',
+            },
+          })
+        );
+      } catch {}
+    }
 
     updateState({ isProcessing: true, schemaResults: null });
 
@@ -360,7 +378,11 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                 ...(artifact?.structured_data || result.structured_data),
                 schema_id: artifact?.schema_id || saveRes.schema_id,
                 metadata: {
-                  ...((artifact && artifact.metadata) || (result.structured_data?.metadata) || {}),
+                  ...(
+                    (artifact && (artifact as any).metadata) ||
+                    ((result.structured_data as any)?.metadata) ||
+                    {}
+                  ),
                   dossierId: String(effectiveDossierId)
                 }
               };
@@ -373,7 +395,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                   structured_data: {
                     ...result.structured_data,
                     metadata: {
-                      ...(result.structured_data?.metadata || {}),
+                      ...(((result.structured_data as any)?.metadata) || {}),
                       dossierId: String(effectiveDossierId)
                     }
                   }
@@ -391,14 +413,23 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     } catch (error) {
       const errorResult: TextToSchemaResult = {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
       };
-      
+
       updateState({
         schemaResults: errorResult,
-        isProcessing: false
+        isProcessing: false,
       });
       console.error('❌ Schema processing failed:', error);
+    } finally {
+      // Remove pending row once this run finishes (success or error)
+      if (pendingId) {
+        try {
+          document.dispatchEvent(
+            new CustomEvent('schemas:pending-remove', { detail: { tempId: pendingId } })
+          );
+        } catch {}
+      }
     }
   }, [state.finalDraftText, state.selectedModel, updateState, selectedFinalizedId, state]);
 
@@ -432,7 +463,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
         isFinalizedSnapshotStale: false,
         selectedFinalizedSections: sectionsArr,
         selectedFinalizedSectionRefs: sectionRefs
-      });
+      } as any);
       setSelectedTab('original');
       setFinalEditMode(false);
       setFinalEdits(sectionsArr);

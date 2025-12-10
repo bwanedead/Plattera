@@ -14,12 +14,53 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
   const { state, metaById } = mgr;
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ schemaId: string; dossierId: string; title: string } | null>(null);
+
+  // Track optimistic/pending schemas created on the frontend (e.g., direct-text runs)
+  const [pending, setPending] = useState<
+    Array<{ tempId: string; label: string; dossier_id: string; created_at: string }>
+  >([]);
+
   // Auto-refresh on global schema events
   React.useEffect(() => {
     const handler = () => mgr.refresh();
     document.addEventListener('schemas:refresh', handler as any);
     return () => document.removeEventListener('schemas:refresh', handler as any);
   }, [mgr]);
+
+  // Listen for pending schema add/remove events
+  React.useEffect(() => {
+    const onAdd = (ev: Event) => {
+      try {
+        const detail: any = (ev as CustomEvent)?.detail || {};
+        if (!detail?.tempId) return;
+        const tempId = String(detail.tempId);
+        const label = String(detail.label || 'New schema (processing…)');
+        const dossier_id = String(detail.dossier_id || '');
+        const created_at = String(detail.created_at || new Date().toISOString());
+        setPending((prev) => {
+          // Avoid duplicates for same tempId
+          if (prev.some((p) => p.tempId === tempId)) return prev;
+          return [...prev, { tempId, label, dossier_id, created_at }];
+        });
+      } catch {}
+    };
+
+    const onRemove = (ev: Event) => {
+      try {
+        const detail: any = (ev as CustomEvent)?.detail || {};
+        const tempId = String(detail?.tempId || '');
+        if (!tempId) return;
+        setPending((prev) => prev.filter((p) => p.tempId !== tempId));
+      } catch {}
+    };
+
+    document.addEventListener('schemas:pending-add', onAdd as any);
+    document.addEventListener('schemas:pending-remove', onRemove as any);
+    return () => {
+      document.removeEventListener('schemas:pending-add', onAdd as any);
+      document.removeEventListener('schemas:pending-remove', onRemove as any);
+    };
+  }, []);
   // Precompute version groups so pills show consistently for both v1 and v2 rows
   const versionGroups = useMemo(() => {
     const groups = new Map<string, { v1?: any; v2?: any }>();
@@ -65,9 +106,37 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
 
       <div className="schema-list" style={{ flex: 1, overflow: 'auto', border: '1px solid #333', borderRadius: 4 }}>
         {state.loading && <div style={{ padding: 8 }}>Loading...</div>}
-        {!state.loading && mgr.filteredSchemas.length === 0 && (
+        {!state.loading && mgr.filteredSchemas.length === 0 && pending.length === 0 && (
           <div style={{ padding: 8, opacity: 0.7 }}>No schemas found.</div>
         )}
+
+        {/* Pending / in-flight schemas (e.g., direct-text) */}
+        {pending.map((p) => (
+          <div
+            key={p.tempId}
+            className="schema-list-item pending"
+            style={{
+              padding: '8px 10px',
+              borderBottom: '1px solid #2d2d2d',
+              background: '#111827',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+            }}
+            title={p.label}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {p.label}
+              </div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>
+                {p.dossier_id || 'Direct text'} • In progress…
+              </div>
+            </div>
+          </div>
+        ))}
+
     {(() => {
       // Build display groups from filtered list (dedupe per root)
       const seen = new Set<string>();
