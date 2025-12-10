@@ -320,17 +320,22 @@ backend:
 pyinstaller command:
 
 
-.venv) PS C:\projects\Plattera\backend> pyinstaller --noconfirm --onefile --name plattera-backend --hidden-import openai --hidden-import services.llm.openai --add-data "schema\plss_m_and_b.json;backend/schema" main.py
+.venv) PS C:\projects\Plattera\backend> 
+
+pyinstaller --noconfirm --onefile --name plattera-backend --hidden-import openai --hidden-import services.llm.openai --add-data "schema\plss_m_and_b.json;backend/schema" main.py
 
 2.
 
 copy comands:
 
-(.venv) PS C:\projects\Plattera\backend> Copy-Item ".\dist\plattera-backend.exe" "..\frontend\src-tauri\bin\plattera-backend-x86_64-pc-windows-msvc.exe" -Force
->> Copy-Item ".\dist\plattera-backend.exe" "..\frontend\src-tauri\bin\plattera-backend.exe" -Force
+(.venv) PS C:\projects\Plattera\backend>
+
+Copy-Item ".\dist\plattera-backend.exe" "..\frontend\src-tauri\bin\plattera-backend-x86_64-pc-windows-msvc.exe" -Force
+Copy-Item ".\dist\plattera-backend.exe" "..\frontend\src-tauri\bin\plattera-backend.exe" -Force
 
 3.
-frontend:
+
+\frontend:
 
 tauri build:
 
@@ -348,15 +353,18 @@ $pw = "add pw"
 
 zip command:
 
-(.venv) PS C:\projects\Plattera\frontend> $rel = ".\src-tauri\target\release"                                       >> Compress-Archive `                                     >>   -Path "$rel\app.exe","$rel\resources\*","$rel\plattera-backend.exe" `                                          >>   -DestinationPath "$rel\bundle\Plattera_0.9.0_windows_x86_64.zip" `
->>   -Force
+(.venv) PS C:\projects\Plattera\frontend>
+
+$rel = ".\src-tauri\target\release"; Compress-Archive -Path "$rel\app.exe","$rel\resources\*","$rel\plattera-backend.exe" -DestinationPath "$rel\bundle\Plattera_0.9.0_windows_x86_64.zip" -Force
 
 
 6. 
 
 sig command:
 
-(.venv) PS C:\projects\Plattera\frontend> npx tauri signer sign --private-key-path C:\keys\plattera-updater.key --password $pw .\src-tauri\target\release\bundle\Plattera_0.9.0_windows_x86_64.zip
+(.venv) PS C:\projects\Plattera\frontend> 
+
+npx tauri signer sign --private-key-path C:\keys\plattera-updater.key --password $pw .\src-tauri\target\release\bundle\Plattera_0.9.0_windows_x86_64.zip
 
 7. 
 
