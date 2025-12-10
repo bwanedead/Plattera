@@ -88,7 +88,10 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
       const item = group.representative;
       const v1 = group.v1 || null;
       const v2 = group.v2 || null;
-      const isSelected = state.selectedSchemaId && (state.selectedSchemaId === (v1 && v1.schema_id) || state.selectedSchemaId === (v2 && v2.schema_id));
+      const isSelected =
+        !!state.selectedSchemaId &&
+        (state.selectedSchemaId === (v1 && v1.schema_id) ||
+          state.selectedSchemaId === (v2 && v2.schema_id));
       return (
         <div
           key={group.rootId}
@@ -114,19 +117,59 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
               {v2 ? (
                 <>
                   {v1 && (
-                  <button
+                    <button
                       className="dossier-action-btn"
-                      style={{ fontSize: 11, padding: '2px 6px', borderRadius: 10 }}
-                      onClick={(e) => { e.stopPropagation(); handleSelect(v1.schema_id); onSelectionChange?.({ schema_id: v1.schema_id, dossier_id: v1.dossier_id }); }}
+                      style={{
+                        fontSize: 11,
+                        padding: '2px 6px',
+                        borderRadius: 10,
+                        backgroundColor:
+                          state.selectedSchemaId === v1.schema_id ? '#3b82f6' : undefined,
+                        color:
+                          state.selectedSchemaId === v1.schema_id ? '#fff' : undefined,
+                        border:
+                          state.selectedSchemaId === v1.schema_id
+                            ? '1px solid #2563eb'
+                            : undefined,
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelect(v1.schema_id);
+                        onSelectionChange?.({
+                          schema_id: v1.schema_id,
+                          dossier_id: v1.dossier_id,
+                        });
+                      }}
                       title="View v1"
                     >
                       v1
                     </button>
                   )}
-                <button
+                  <button
                     className="dossier-action-btn"
-                    style={{ fontSize: 11, padding: '2px 6px', borderRadius: 10 }}
-                    onClick={(e) => { e.stopPropagation(); if (v2) { handleSelect(v2.schema_id); onSelectionChange?.({ schema_id: v2.schema_id, dossier_id: v2.dossier_id }); } }}
+                    style={{
+                      fontSize: 11,
+                      padding: '2px 6px',
+                      borderRadius: 10,
+                      backgroundColor:
+                        state.selectedSchemaId === v2.schema_id ? '#3b82f6' : undefined,
+                      color:
+                        state.selectedSchemaId === v2.schema_id ? '#fff' : undefined,
+                      border:
+                        state.selectedSchemaId === v2.schema_id
+                          ? '1px solid #2563eb'
+                          : undefined,
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (v2) {
+                        handleSelect(v2.schema_id);
+                        onSelectionChange?.({
+                          schema_id: v2.schema_id,
+                          dossier_id: v2.dossier_id,
+                        });
+                      }
+                    }}
                     title="View v2"
                   >
                     v2
@@ -139,8 +182,18 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
                 className="dossier-action-btn"
                 onClick={async (e) => {
                   e.stopPropagation();
-                  const target = v2?.schema_id || v1?.schema_id || item.schema_id;
-                  onSelectionChange?.({ schema_id: target, dossier_id: item.dossier_id });
+                  // Prefer the active selection for this group if it matches;
+                  // otherwise default to v2 or v1.
+                  const current = state.selectedSchemaId;
+                  const target =
+                    current === (v1 && v1.schema_id) || current === (v2 && v2.schema_id)
+                      ? current
+                      : v2?.schema_id || v1?.schema_id || item.schema_id;
+
+                  if (target) {
+                    await handleSelect(target);
+                    onSelectionChange?.({ schema_id: target, dossier_id: item.dossier_id });
+                  }
                 }}
                 title="View schema"
               >

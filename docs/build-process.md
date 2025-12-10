@@ -313,4 +313,59 @@ Keep this document updated whenever:
 - The updater endpoint format changes.
 - The sidecar naming or Tauri configuration changes.
 
+backend:
 
+1.
+
+pyinstaller command:
+
+
+.venv) PS C:\projects\Plattera\backend> pyinstaller --noconfirm --onefile --name plattera-backend --hidden-import openai --hidden-import services.llm.openai --add-data "schema\plss_m_and_b.json;backend/schema" main.py
+
+2.
+
+copy comands:
+
+(.venv) PS C:\projects\Plattera\backend> Copy-Item ".\dist\plattera-backend.exe" "..\frontend\src-tauri\bin\plattera-backend-x86_64-pc-windows-msvc.exe" -Force
+>> Copy-Item ".\dist\plattera-backend.exe" "..\frontend\src-tauri\bin\plattera-backend.exe" -Force
+
+3.
+frontend:
+
+tauri build:
+
+npm run tauri:build
+
+
+4.
+
+add pw.
+
+$pw = "add pw"
+
+
+5. 
+
+zip command:
+
+(.venv) PS C:\projects\Plattera\frontend> $rel = ".\src-tauri\target\release"                                       >> Compress-Archive `                                     >>   -Path "$rel\app.exe","$rel\resources\*","$rel\plattera-backend.exe" `                                          >>   -DestinationPath "$rel\bundle\Plattera_0.9.0_windows_x86_64.zip" `
+>>   -Force
+
+
+6. 
+
+sig command:
+
+(.venv) PS C:\projects\Plattera\frontend> npx tauri signer sign --private-key-path C:\keys\plattera-updater.key --password $pw .\src-tauri\target\release\bundle\Plattera_0.9.0_windows_x86_64.zip
+
+7. 
+
+copy public key to latest. json
+
+C:\projects\Plattera\releases\latest.json
+
+8.
+
+copy latest.json to bundle:
+
+Copy-Item "..\releases\latest.json" ".\src-tauri\target\release\bundle\latest.json" -Force

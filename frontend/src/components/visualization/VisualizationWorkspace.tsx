@@ -138,6 +138,9 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
                     polygonData={polygon}
                     onPolygonUpdate={setGeoPolygonData}
                     dossierId={dossierId || schemaData?.metadata?.dossierId || schemaData?.metadata?.dossier_id}
+                    // If user cancels PLSS download, snap back to grid view
+                    // so they are not left on a non-functional map screen.
+                    onCancel={() => setViewMode('grid')}
                   />
                 )}
                 
@@ -147,6 +150,7 @@ export const VisualizationWorkspace: React.FC<VisualizationWorkspaceProps> = ({
                     polygonData={polygon}
                     onPolygonUpdate={setGeoPolygonData}
                     dossierId={dossierId || schemaData?.metadata?.dossierId || schemaData?.metadata?.dossier_id}
+                    onCancel={() => setViewMode('grid')}
                   />
                 )}
               </div>

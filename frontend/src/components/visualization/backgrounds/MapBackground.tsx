@@ -201,7 +201,9 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({
   };
 
   const handleCancel = () => {
-    dismissModal(); // Properly dismiss the modal
+    // Persist dismissal for this state so we don't immediately re-prompt,
+    // and let the parent workspace decide how to "back out" of the map view.
+    dismissModal();
   };
 
   // Load PLSS overlay + validation when ready and mapping is explicitly enabled

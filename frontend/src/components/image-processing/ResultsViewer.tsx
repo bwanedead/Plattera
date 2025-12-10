@@ -379,7 +379,12 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
 
   return (
     <div className="results-area" style={{ width: '100%', height: '100%' }}>
-      <Allotment defaultSizes={[300, 700]} vertical={false}>
+      {/* Use sizes that match the number of visible panes and force remount when layout changes */}
+      <Allotment
+        key={isHistoryVisible ? 'with-history' : 'no-history'}
+        defaultSizes={isHistoryVisible ? [300, 700] : [1000]}
+        vertical={false}
+      >
         {isHistoryVisible && (
           <Allotment.Pane minSize={200} maxSize={500}>
             <div className="results-history-panel visible">

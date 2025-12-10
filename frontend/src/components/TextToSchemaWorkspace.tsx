@@ -286,6 +286,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
 
   // Handle text-to-schema processing
   const handleStartTextToSchema = useCallback(async (directText?: string) => {
+    const DIRECT_TEXT_DOSSIER_ID = '__direct_text__';
+
     // Use direct text if provided, otherwise use final draft text
     const textToProcess = directText || (typeof state.finalDraftText === 'string' 
       ? state.finalDraftText 
@@ -302,6 +304,9 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       return;
     }
 
+    // Determine dossier context: real dossier when selected, otherwise virtual
+    const effectiveDossierId = selectedFinalizedId || DIRECT_TEXT_DOSSIER_ID;
+
     updateState({ isProcessing: true, schemaResults: null });
 
     try {
@@ -309,8 +314,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
         text: textToProcess,
         model: state.selectedModel,
         parcel_id: `parcel-${Date.now()}`,
-        // pass dossier id for metadata if a finalized dossier is selected
-        dossier_id: selectedFinalizedId || undefined as any
+        // Always pass a dossier id for metadata tagging
+        dossier_id: effectiveDossierId
       } as any);
 
       const result: TextToSchemaResult = {
@@ -329,34 +334,34 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       updateState({ schemaResults: result, isProcessing: false, ...(firstTime ? { schemaResultsOriginal: result } : {}) });
       console.log('✅ Schema processing completed:', result);
 
-      // Persist schema to dossier if a finalized dossier is selected
-      if (selectedFinalizedId && result.success && result.structured_data) {
+      // Persist schema for both finalized-dossier and direct-text runs
+      if (result.success && result.structured_data) {
         try {
           const saveRes = await saveSchemaForDossier({
-            dossier_id: selectedFinalizedId,
+            dossier_id: effectiveDossierId,
             model_used: result.model_used,
             structured_data: result.structured_data,
             original_text: textToProcess,
             metadata: {
               ...(state.finalDraftMetadata || {}),
-              selection_source: 'finalized_dossier'
+              selection_source: selectedFinalizedId ? 'finalized_dossier' : 'direct_text'
             }
           });
-          console.log('💾 Schema saved for dossier', selectedFinalizedId, saveRes);
+          console.log('💾 Schema saved for dossier', effectiveDossierId, saveRes);
           // Notify schema manager to refresh listing
           try { document.dispatchEvent(new Event('schemas:refresh')); } catch {}
 
-          // Enrich schemaData with persisted artifact (schema_id + metadata.dossierId) for mapping flow
+          // Enrich schemaData with persisted artifact (schema_id + metadata.dossierId/version_label) for mapping flow
           if (saveRes?.schema_id) {
             try {
-              const artRes = await getSchema(selectedFinalizedId, saveRes.schema_id);
+              const artRes = await getSchema(effectiveDossierId, saveRes.schema_id);
               const artifact = artRes?.artifact || artRes;
               const enriched = {
                 ...(artifact?.structured_data || result.structured_data),
                 schema_id: artifact?.schema_id || saveRes.schema_id,
                 metadata: {
                   ...((artifact && artifact.metadata) || (result.structured_data?.metadata) || {}),
-                  dossierId: String(selectedFinalizedId)
+                  dossierId: String(effectiveDossierId)
                 }
               };
               updateState({ schemaResults: { ...result, structured_data: enriched } });
@@ -369,7 +374,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                     ...result.structured_data,
                     metadata: {
                       ...(result.structured_data?.metadata || {}),
-                      dossierId: String(selectedFinalizedId)
+                      dossierId: String(effectiveDossierId)
                     }
                   }
                 }
