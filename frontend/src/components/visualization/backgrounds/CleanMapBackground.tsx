@@ -10,6 +10,7 @@ interface CleanMapBackgroundProps {
   onPolygonUpdate?: (data: any) => void;
   dossierId?: string; // optional pass-through
   extraParcels?: any[]; // optional extra saved plots to display concurrently
+  onCancel?: () => void; // optional cancel handler so parent can leave map view
 }
 
 export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
@@ -17,7 +18,8 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
   polygonData,
   onPolygonUpdate,
   dossierId,
-  extraParcels
+  extraParcels,
+  onCancel,
 }) => {
   // Get PLSS state from schema data
   const state = schemaData?.descriptions?.[0]?.plss?.state;
@@ -32,17 +34,37 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
     dismissModal,
     parquetPhase,
     estimatedTime,
-    parquetStatus
+    parquetStatus,
+    modalDismissed,
   } = usePLSSData(schemaData);
 
-  // Show PLSS download modal if needed - FIXED: Now shows for missing data too
-  if (plssStatus === 'downloading' || plssStatus === 'error' || plssStatus === 'missing') {
+  // Handle Cancel: mark modal dismissed and let parent leave map/hybrid view
+  const handleCancel = () => {
+    try {
+      dismissModal();
+    } catch (e) {
+      console.error('Error dismissing PLSS modal', e);
+    }
+    try {
+      onCancel?.();
+    } catch (e) {
+      console.error('Error in CleanMapBackground onCancel', e);
+    }
+  };
+
+  const shouldShowModal =
+    plssStatus === 'downloading' ||
+    plssStatus === 'error' ||
+    (plssStatus === 'missing' && !modalDismissed);
+
+  // Show PLSS download modal if needed, respecting dismissal for "missing" state
+  if (shouldShowModal) {
     return (
       <PLSSDownloadModal
         isOpen={true}
         state={state || 'Unknown'}
         onDownload={downloadData}
-        onCancel={cancelDownload}
+        onCancel={handleCancel}
         isDownloading={plssStatus === 'downloading'}
         progressText={progress}
         onHardCancel={cancelDownload}

@@ -14,6 +14,9 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
   const { state, metaById } = mgr;
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ schemaId: string; dossierId: string; title: string } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{ schemaId: string; dossierId: string; title: string } | null>(null);
+  const [renameValue, setRenameValue] = useState<string>('');
+  const [renameBusy, setRenameBusy] = useState(false);
 
   // Track optimistic/pending schemas created on the frontend (e.g., direct-text runs)
   const [pending, setPending] = useState<
@@ -180,13 +183,13 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {item.dossier_title_snapshot || item.dossier_id}
+                {((item as any).schema_label || item.dossier_title_snapshot || item.dossier_id)}
               </div>
               {/* version pills (only show when a v2 exists; show both v1 and v2) */}
               {v2 ? (
                 <>
                   {v1 && (
-                    <button
+                  <button
                       className="dossier-action-btn"
                       style={{
                         fontSize: 11,
@@ -214,7 +217,7 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
                       v1
                     </button>
                   )}
-                  <button
+                <button
                     className="dossier-action-btn"
                     style={{
                       fontSize: 11,
@@ -261,12 +264,31 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
 
                   if (target) {
                     await handleSelect(target);
-                    onSelectionChange?.({ schema_id: target, dossier_id: item.dossier_id });
+                  onSelectionChange?.({ schema_id: target, dossier_id: item.dossier_id });
                   }
                 }}
                 title="View schema"
               >
                 View
+              </button>
+              <button
+                className="dossier-action-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const baseLabel =
+                    (item as any).schema_label ||
+                    item.dossier_title_snapshot ||
+                    group.rootId;
+                  setRenameTarget({
+                    schemaId: group.rootId,
+                    dossierId: item.dossier_id,
+                    title: baseLabel,
+                  });
+                  setRenameValue(baseLabel);
+                }}
+                title="Rename schema"
+              >
+                Rename
               </button>
               <button
                 className="dossier-action-btn danger"
@@ -306,9 +328,86 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
           showProgressBar={false}
         />
       )}
+
+      {renameTarget && (
+        <div
+          className="schema-rename-modal-backdrop"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            className="schema-rename-modal"
+            style={{
+              background: '#111827',
+              padding: 16,
+              borderRadius: 8,
+              minWidth: 320,
+              border: '1px solid #374151',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+            }}
+          >
+            <h4 style={{ marginTop: 0, marginBottom: 8 }}>Rename schema</h4>
+            <p style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>
+              Dossier: {renameTarget.dossierId}
+            </p>
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              style={{ width: '100%', marginBottom: 12 }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                className="dossier-action-btn"
+                onClick={() => {
+                  if (renameBusy) return;
+                  setRenameTarget(null);
+                  setRenameValue('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="dossier-action-btn"
+                disabled={renameBusy || !renameValue.trim()}
+                onClick={async () => {
+                  if (!renameTarget || !renameValue.trim()) return;
+                  setRenameBusy(true);
+                  try {
+                    await schemaApi.renameSchema(
+                      renameTarget.dossierId,
+                      renameTarget.schemaId,
+                      renameValue.trim(),
+                    );
+                    setRenameBusy(false);
+                    setRenameTarget(null);
+                    setRenameValue('');
+                    mgr.refresh();
+                    try {
+                      document.dispatchEvent(new Event('schemas:refresh'));
+                    } catch {}
+                  } catch (e) {
+                    console.error('Failed to rename schema', e);
+                    setRenameBusy(false);
+                  }
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );
 };
-
 

@@ -41,6 +41,14 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   const [jsonEditToken, setJsonEditToken] = useState<number>(0);
   const [showSchemaManagerPanel, setShowSchemaManagerPanel] = useState<boolean>(false);
 
+  // Layout helpers for main Allotment - keep sizes aligned with visible panes
+  const getLayoutSizes = useCallback(
+    () => (showSchemaManagerPanel ? [300, 280, 420] : [300, 700]),
+    [showSchemaManagerPanel],
+  );
+
+  const layoutKey = showSchemaManagerPanel ? 'with-schema-manager' : 'no-schema-manager';
+
   // Finalized dossier selection state
   const [finalizedList, setFinalizedList] = useState<Array<{ dossier_id: string; title?: string; latest_generated_at?: string }>>([]);
   const [finalizedLoading, setFinalizedLoading] = useState(false);
@@ -308,22 +316,23 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     const effectiveDossierId = selectedFinalizedId || DIRECT_TEXT_DOSSIER_ID;
     const isVirtualDossier = !selectedFinalizedId;
 
-    // Optimistic pending row for direct-text (virtual dossier) runs
-    let pendingId: string | null = null;
-    if (isVirtualDossier) {
-      pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      try {
-        document.dispatchEvent(
-          new CustomEvent('schemas:pending-add', {
-            detail: {
-              tempId: pendingId,
-              dossier_id: effectiveDossierId,
-              label: 'Direct Text (processing…)',
-            },
-          })
-        );
-      } catch {}
-    }
+    // Optimistic pending row for all schema runs (direct-text or finalized-dossier)
+    const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const pendingLabel = isVirtualDossier
+      ? 'Direct Text (processing…)'
+      : `${((state.finalDraftMetadata as any)?.dossierTitle || 'Finalized dossier')} (processing…)`;
+
+    try {
+      document.dispatchEvent(
+        new CustomEvent('schemas:pending-add', {
+          detail: {
+            tempId: pendingId,
+            dossier_id: effectiveDossierId,
+            label: pendingLabel,
+          },
+        })
+      );
+    } catch {}
 
     updateState({ isProcessing: true, schemaResults: null });
 
@@ -415,7 +424,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
       };
-
+      
       updateState({
         schemaResults: errorResult,
         isProcessing: false,
@@ -423,13 +432,11 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       console.error('❌ Schema processing failed:', error);
     } finally {
       // Remove pending row once this run finishes (success or error)
-      if (pendingId) {
-        try {
-          document.dispatchEvent(
-            new CustomEvent('schemas:pending-remove', { detail: { tempId: pendingId } })
-          );
-        } catch {}
-      }
+      try {
+        document.dispatchEvent(
+          new CustomEvent('schemas:pending-remove', { detail: { tempId: pendingId } })
+        );
+      } catch {}
     }
   }, [state.finalDraftText, state.selectedModel, updateState, selectedFinalizedId, state]);
 
@@ -573,6 +580,11 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     ? state.finalDraftText 
     : String(state.finalDraftText || '');
 
+  // Version badge label (v1/v2) for the current schema results, from metadata or lineage
+  const versionLabel: string | undefined =
+    ((state.schemaResults?.structured_data as any)?.metadata?.version_label as string | undefined) ||
+    ((state.schemaResults?.structured_data as any)?.lineage?.version_label as string | undefined);
+
   return (
     <div className="text-to-schema-workspace">
       {/* Navigation Header */}
@@ -606,7 +618,11 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       </div>
 
       {/* Main Content Area */}
-      <Allotment defaultSizes={showSchemaManagerPanel ? [300, 280, 420] : [300, 700]} vertical={false}>
+      <Allotment
+        key={layoutKey}
+        defaultSizes={getLayoutSizes()}
+        vertical={false}
+      >
         {/* Control Panel (Left) */}
         <Allotment.Pane minSize={250} maxSize={400}>
           <TextToSchemaControlPanel
@@ -642,18 +658,46 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                       const art = await schemaApi.getSchema(sel.dossier_id, sel.schema_id);
                       const sd = art?.structured_data || null;
                       if (sd) {
-                        const merged = { 
+                        const merged: any = { 
                           ...sd, 
                           schema_id: art?.schema_id || sel.schema_id,
-                          metadata: { ...(sd?.metadata || {}), dossierId: String(sel.dossier_id) }
+                          metadata: { ...((sd as any)?.metadata || {}), dossierId: String(sel.dossier_id) }
                         };
 
-                        // Prefer explicit original_text on the artifact; fall back to any
-                        // metadata snapshot if present. This hydrates the "Original Text" tab.
-                        const originalText =
+                        // Resolve original text, falling back to lineage root (v1) if needed.
+                        let originalText: string =
                           (art as any)?.original_text ||
-                          (sd as any)?.metadata?.original_text ||
+                          ((sd as any)?.metadata?.original_text as string) ||
                           '';
+
+                        if (!originalText) {
+                          try {
+                            const lineage: any =
+                              (art as any)?.lineage ||
+                              ((sd as any)?.metadata?.lineage as any) ||
+                              {};
+                            const currentId = String(art?.schema_id || sel.schema_id || '');
+                            let rootId: string | null =
+                              (lineage?.root_schema_id as string) ||
+                              (lineage?.parent_schema_id as string) ||
+                              null;
+
+                            // Fallback: if this looks like a v2 id, derive root from suffix
+                            if (!rootId && currentId.endsWith('_v2')) {
+                              rootId = currentId.slice(0, -3);
+                            }
+
+                            if (rootId && rootId !== currentId) {
+                              const rootArt = await schemaApi.getSchema(sel.dossier_id, rootId);
+                              originalText =
+                                (rootArt as any)?.original_text ||
+                                ((((rootArt as any)?.structured_data as any)?.metadata?.original_text) as string) ||
+                                originalText;
+                            }
+                          } catch (lineageErr) {
+                            console.warn('Failed to resolve original_text from lineage', lineageErr);
+                          }
+                        }
 
                         updateState({ 
                           schemaResults: { success: true, structured_data: merged } as any,
@@ -712,7 +756,24 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             {(finalText || state.schemaResults) && (
             <div className="schema-results-viewer">
                 <div className="viewer-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h3>Processing Results</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <h3>Processing Results</h3>
+                    {versionLabel && (
+                      <span
+                        className="version-tag"
+                        style={{
+                          fontSize: '0.75rem',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          background: '#374151',
+                          color: '#e5e7eb',
+                          border: '1px solid #4b5563'
+                        }}
+                      >
+                        {String(versionLabel).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     {state.schemaResults && (state as any)?.schemaResultsOriginal && (
                       <button onClick={() => updateState({ schemaResults: (state as any).schemaResultsOriginal } as any)}>Revert Schema</button>

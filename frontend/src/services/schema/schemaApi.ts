@@ -7,6 +7,7 @@ export interface SchemaListItem {
   latest_path?: string;
   saved_at?: string;
   dossier_title_snapshot?: string;
+  schema_label?: string;
 }
 
 export interface SchemaArtifact {
@@ -63,6 +64,18 @@ class SchemaApiClient {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.detail || 'Failed to purge schema');
     return data;
+  }
+
+  async renameSchema(dossierId: string, schemaId: string, newLabel: string): Promise<SchemaArtifact> {
+    const url = `${API_BASE_URL}/rename`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dossier_id: dossierId, schema_id: schemaId, new_label: newLabel }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.detail || 'Failed to rename schema');
+    return (data?.artifact || data);
   }
 }
 

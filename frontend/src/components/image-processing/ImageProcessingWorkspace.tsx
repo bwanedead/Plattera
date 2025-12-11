@@ -546,6 +546,23 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     return sizes;
   };
 
+  // Derive a layout key so Allotment remounts cleanly when pane configuration changes
+  const layoutKey = useMemo(() => {
+    const showAlign = alignmentState.alignmentState.showAlignmentPanel;
+    const showTable =
+      alignmentState.showAlignmentTable &&
+      !!alignmentState.alignmentState.alignmentResult;
+
+    if (showAlign && showTable) return 'control+align+table+results';
+    if (showAlign) return 'control+align+results';
+    if (showTable) return 'control+table+results';
+    return 'control+results';
+  }, [
+    alignmentState.alignmentState.showAlignmentPanel,
+    alignmentState.showAlignmentTable,
+    alignmentState.alignmentState.alignmentResult,
+  ]);
+
   return (
     <div className="image-processing-workspace">
       <div className="workspace-nav">
@@ -577,7 +594,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         </AnimatedBorder>
       </div>
       
-      <Allotment defaultSizes={getAllotmentSizes()} vertical={false}>
+      <Allotment key={layoutKey} defaultSizes={getAllotmentSizes()} vertical={false}>
         <Allotment.Pane minSize={250} maxSize={400}>
             <ControlPanel
             stagedFiles={imageProcessing.stagedFiles}

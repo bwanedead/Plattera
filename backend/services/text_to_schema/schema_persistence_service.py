@@ -318,4 +318,57 @@ class SchemaPersistenceService:
 
         return {"success": bool(removed)}
 
+    # --------------
+    # Rename helper
+    # --------------
+    def rename_schema(self, dossier_id: str, schema_id: str, new_label: str) -> Dict[str, Any]:
+        """
+        Rename a schema by updating its human-friendly label in metadata and the schemas index.
+
+        This does not change the schema_id or lineage; it only updates:
+          - artifact.metadata.schema_label
+          - artifact.structured_data.metadata.schema_label
+          - schemas_index.json entry for this (dossier_id, schema_id)
+        """
+        if not dossier_id or not schema_id:
+            raise ValueError("dossier_id and schema_id are required for rename")
+
+        artifacts_dir = self._artifacts_root / str(dossier_id)
+        artifact_path = artifacts_dir / f"{schema_id}.json"
+        if not artifact_path.exists():
+            raise FileNotFoundError(f"Schema artifact not found for dossier_id={dossier_id}, schema_id={schema_id}")
+
+        obj = self._read_json_file(artifact_path)
+        if not isinstance(obj, dict):
+            raise ValueError("Schema artifact is corrupt or not a JSON object")
+
+        # Update top-level metadata
+        meta = obj.get("metadata") or {}
+        meta["schema_label"] = new_label
+        obj["metadata"] = meta
+
+        # Also update structured_data.metadata so UI consumers have a stable place to read from
+        sd = obj.get("structured_data")
+        if isinstance(sd, dict):
+            sd_meta = sd.get("metadata") or {}
+            sd_meta["schema_label"] = new_label
+            sd["metadata"] = sd_meta
+            obj["structured_data"] = sd
+
+        # Persist updated artifact
+        self._atomic_write(artifact_path, obj)
+
+        # Best-effort index update to surface the new label in list endpoints
+        try:
+            idx = self._read_json_file(self._schemas_index_path) or {"schemas": []}
+            for entry in idx.get("schemas", []):
+                if (entry or {}).get("dossier_id") == str(dossier_id) and (entry or {}).get("schema_id") == schema_id:
+                    entry["schema_label"] = new_label
+            self._atomic_write(self._schemas_index_path, idx)
+        except Exception:
+            # Index update failures should not block rename; artifact is the source of truth
+            pass
+
+        return obj
+
 

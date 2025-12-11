@@ -451,3 +451,31 @@ async def purge_schema(body: PurgeSchemaBody):
     except Exception as e:
         logger.error(f"💥 Failed to purge schema: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class RenameSchemaBody(BaseModel):
+    dossier_id: str
+    schema_id: str
+    new_label: str
+
+
+@router.post("/rename")
+async def rename_schema(body: RenameSchemaBody):
+    """
+    Rename a schema without changing its identity or lineage.
+
+    Updates schema_label in both the artifact metadata and the schemas index so UI
+    clients can present a stable human-friendly name.
+    """
+    try:
+      from services.text_to_schema.schema_persistence_service import SchemaPersistenceService
+      svc = SchemaPersistenceService()
+      artifact = svc.rename_schema(
+          dossier_id=str(body.dossier_id),
+          schema_id=str(body.schema_id),
+          new_label=str(body.new_label),
+      )
+      return {"status": "success", "artifact": artifact}
+    except Exception as e:
+      logger.error(f"💥 Failed to rename schema: {str(e)}")
+      raise HTTPException(status_code=500, detail=str(e))
