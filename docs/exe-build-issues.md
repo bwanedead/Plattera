@@ -199,10 +199,10 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
 ### 6. Text → Schema & Schema Manager – persistence, versions, and direct-text runs
 
 - **Symptoms (2025‑12‑09 EXE test round)**
-  - [ ] After app relaunch, selecting a saved schema in Schema Manager often shows JSON / Field view, but the **“Original Text” tab is empty**, making it hard to see what text the schema came from.
-  - [ ] Editing a schema to produce a `_v2` variant (e.g., fixing `bearing_raw`) does not reliably drive the **“Draw Schema”** and mapping actions; logs show the backend still receiving the original v1 bearing string in some cases.
-  - [ ] Version pills (`v1` / `v2`) in Schema Manager do not clearly indicate which version is currently active, and clicking them does not update any visible header in the Text→Schema results panel.
-  - [ ] Schemas produced from **Direct Text Input** runs are not appearing in Schema Manager at all, even after refresh, suggesting they are not being persisted as first-class schema artifacts (or are missing `dossier_id` / index entries).
+  - [ ] After app relaunch, selecting a saved schema in Schema Manager often shows JSON / Field view, but the **“Original Text” tab is empty**, making it hard to see what text the schema came from. *(Addressed in code: see status notes.)*
+  - [ ] Editing a schema to produce a `_v2` variant (e.g., fixing `bearing_raw`) does not reliably drive the **“Draw Schema”** and mapping actions; logs show the backend still receiving the original v1 bearing string in some cases. *(Partially addressed by wiring schema selection through persisted artifacts; needs more end-to-end verification.)*
+  - [ ] Version pills (`v1` / `v2`) in Schema Manager do not clearly indicate which version is currently active, and clicking them does not update any visible header in the Text→Schema results panel. *(Addressed in code: version-aware pills + header badge.)*
+  - [ ] Schemas produced from **Direct Text Input** runs are not appearing in Schema Manager at all, even after refresh, suggesting they are not being persisted as first-class schema artifacts (or are missing `dossier_id` / index entries). *(Addressed in code: virtual dossier + index + pending rows.)*
 
 - **Likely root causes**
   - Original text is either not persisted with the schema artifact, or not re‑hydrated into `finalText` / original-text state when loading from Schema Manager.
@@ -210,20 +210,23 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
   - Direct text runs follow a lighter‑weight path that never saves a schema artifact to disk (or saves it outside the scope of `schemaApi.listAllSchemas()`).
 
 - **Planned work**
-  - [ ] Ensure every saved schema artifact includes:
-    - [ ] The original legal text.
-    - [ ] A stable `schema_id` root and explicit `version_label` (`v1`, `v2`, etc.).
-  - [ ] When a schema is selected in Schema Manager:
-    - [ ] Hydrate `finalText` / Original Text tab in the Text→Schema workspace from the artifact.
-    - [ ] Set a visible version label in the results header (e.g., “Schema v2”) that stays in sync with the selected pill.
-  - [ ] Wire the **Draw Schema** / “Map” actions to always use the currently selected schema artifact (including edits and version choice), not stale in‑memory copies.
-  - [ ] Persist schemas generated from **Direct Text Input** into the same artifact store with:
-    - [ ] A synthetic or “scratch” dossier id when no dossier is associated.
-    - [ ] Inclusion in `schemaApi.listAllSchemas()` so they appear in Schema Manager with a clear source label.
+  - [x] Ensure every saved schema artifact includes:
+  - [x] The original legal text.
+  - [x] A stable `schema_id` root and explicit `version_label` (`v1`, `v2`, etc.).
+  - [x] When a schema is selected in Schema Manager:
+  - [x] Hydrate `finalText` / Original Text tab in the Text→Schema workspace from the artifact (including resolving from v2 back to v1 via lineage when needed).
+  - [x] Set a visible version label in the results header (e.g., “Schema v2”) that stays in sync with the selected pill.
+  - [ ] Wire the **Draw Schema** / “Map” actions to always use the currently selected schema artifact (including edits and version choice), not stale in‑memory copies. *(Partially accomplished by enriching `schemaResults` from the saved artifact; still needs focused mapping regression tests.)*
+  - [x] Persist schemas generated from **Direct Text Input** into the same artifact store with:
+  - [x] A synthetic or “scratch” dossier id when no dossier is associated (currently `__direct_text__`).
+  - [x] Inclusion in `schemaApi.listAllSchemas()` so they appear in Schema Manager with a clear source label.
+  - [x] Add optimistic “pending schema” rows for both direct-text and finalized-dossier runs so Schema Manager shows immediate feedback while processing.
 
 - **Status notes (2025‑12‑09 code pass)**
-  - [x] When a schema is selected in `SchemaManager`, `TextToSchemaWorkspace` now hydrates `finalDraftText` from the loaded artifact so the **Original Text** tab is populated after relaunch.
-  - [ ] Direct-text schemas are still not persisted or listed in Schema Manager; selection and Draw Schema wiring still need end-to-end alignment with the artifact model.
+  - [x] When a schema is selected in `SchemaManager`, `TextToSchemaWorkspace` now hydrates `finalDraftText` from the loaded artifact so the **Original Text** tab is populated after relaunch, and will resolve `original_text` from the v1/root artifact when only a v2 is selected.
+  - [x] Version pills in `SchemaManager` now highlight the active version (v1/v2), and the Text→Schema viewer shows a matching version badge in the header for the currently loaded schema.
+  - [x] Direct-text schemas are now persisted using a virtual dossier id (`__direct_text__`), indexed into `schemas_index.json`, and surfaced in Schema Manager; both direct-text and finalized-dossier runs emit optimistic “processing…” rows that are removed once processing completes.
+  - [x] A dedicated **Rename Schema** endpoint and UI affordance have been added: schemas expose a `schema_label` in metadata/index, and Schema Manager now allows inline renaming that persists across sessions.
 
 ### 7. Polygon drawing – bearing format robustness (Unicode minutes, spacing)
 
@@ -272,19 +275,19 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
     - `ImageProcessingWorkspace` changes between 2–4 panes (Control / Alignment / Table / Results) while only computing sizes for 2–3, causing Allotment’s internal layout state to become inconsistent.
 
 - **Planned work**
-  - [ ] Audit all `Allotment` usages in:
+  - [x] Audit all `Allotment` usages in:
     - [x] `ImageProcessingWorkspace.tsx`
-    - [ ] `ResultsViewer.tsx`
-    - [ ] `TextToSchemaWorkspace.tsx`
-  - [ ] Ensure `defaultSizes.length` always matches the number of rendered panes for each state:
-    - [ ] 2 panes: `[control, results]`
-    - [ ] 3 panes: `[control, middlePanel, results]`
-    - [ ] 4 panes: `[control, alignment, table, results]`
-  - [ ] Add minimal guards / memoization so rapidly toggling panels cannot leave Allotment in an inconsistent state.
+    - [x] `ResultsViewer.tsx`
+    - [x] `TextToSchemaWorkspace.tsx`
+  - [x] Ensure `defaultSizes.length` always matches the number of rendered panes for each state:
+    - [x] 2 panes: `[control, results]`
+    - [x] 3 panes: `[control, middlePanel, results]`
+    - [x] 4 panes: `[control, alignment, table, results]`
+  - [x] Add minimal guards / memoization so rapidly toggling panels cannot leave Allotment in an inconsistent state (via dynamic size helpers and `layoutKey`–based remounting).
 
 - **Status notes (2025‑12‑09 code pass)**
-  - [x] Updated `ImageProcessingWorkspace` to compute `defaultSizes` dynamically based on visible panes (control, alignment panel, alignment table, results), eliminating the “Expected 2/3 children based on defaultSizes but found 3/4” warnings there.
-  - [ ] `ResultsViewer` and `TextToSchemaWorkspace` Allotment usage still need the same treatment before we consider this fully resolved.
+  - [x] Updated `ImageProcessingWorkspace` to compute `defaultSizes` dynamically based on visible panes (control, alignment panel, alignment table, results) and to use a `layoutKey` so Allotment remounts cleanly when the pane set changes.
+  - [x] `ResultsViewer` and `TextToSchemaWorkspace` now also compute sizes based on visible panes and key their `Allotment` instances by layout shape, addressing the “Expected N children based on defaultSizes but found M” and `ResizeObserver` loop warnings seen after visiting the map page; this is code-complete and awaiting EXE verification.
 
 ### 9. PLSS data download modal – Cancel / dismiss behavior
 
@@ -298,12 +301,14 @@ Use this as the working checklist for future EXE rounds. When we close an item, 
 
 - **Planned work**
   - [x] Ensure `dismissModal()` sets and persists `modalDismissed` for the current session (and possibly per‑state), so Cancel truly backs the user out.
-  - [ ] Confirm that:
-    - [ ] After Cancel, the map shows a stable “PLSS data required” placeholder instead of the modal.
-    - [ ] Re‑triggering a mapping action explicitly can re‑open the modal when the user is ready.
+  - [x] Confirm that:
+    - [x] After Cancel, the user is not trapped on the map view: the modal dismisses and the workspace snaps back to a safe, non‑map state (currently the Grid view).
+    - [x] Re‑triggering a mapping action with a schema in a **different** PLSS state can re‑open the modal when the user is ready, while the dismissal for the current state persists for the rest of the session.
 
 - **Status notes (2025‑12‑09 code pass)**
   - [x] `usePLSSData` no longer blindly resets `modalDismissed` during initialization; it only resets when the underlying PLSS state code changes, so Cancel now persists for the current state within a session.
+  - [x] `CleanMapBackground` now wires the modal’s Cancel button to both `dismissModal()` and an `onCancel` callback from `VisualizationWorkspace`, which sets `viewMode` back to `'grid'`, eliminating the prior “hostage” behavior where the user could not escape the download prompt on the map screen.
+  - [ ] Next EXE rounds should explicitly verify that Cancel reliably returns to Grid and that subsequent visits to the map page during the same session do not re‑prompt for the same PLSS state unless a new schema/state is loaded.
 
 ### 10. In-app Logs viewer – default scroll position
 
