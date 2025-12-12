@@ -108,6 +108,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [showFinalConfirm, setShowFinalConfirm] = useState<null | { nextDraftId: string }>(null);
   const latestViewReqRef = React.useRef<string | null>(null);
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
 
   const setFinalForCurrentView = async (nextDraftId?: string) => {
     const dossierId = currentDisplayPath?.dossierId || selectedResult?.result?.metadata?.dossier_id;
@@ -377,8 +378,70 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   const selectedText = selectedResult && !isPlaceholder ? getCurrentText() : '';
   const hasSelectedText = !!(selectedText && selectedText.trim().length);
 
+  // Debug: measure container + Allotment rects across a few frames on history layout changes
+  React.useEffect(() => {
+    if (!containerRef.current) return;
+
+    let frame = 0;
+    const maxFrames = 5;
+    let cancelled = false;
+
+    const logFrame = () => {
+      if (cancelled) return;
+      const container = containerRef.current;
+      const allotmentEl = container?.querySelector('.allotment') as HTMLElement | null;
+      if (container) {
+        const cr = container.getBoundingClientRect();
+        const ar = allotmentEl ? allotmentEl.getBoundingClientRect() : null;
+        console.log('📐 [ALLOTMENT MEASURE][results-viewer]', {
+          frame,
+          historyVisible: isHistoryVisible,
+          container: { x: cr.x, y: cr.y, width: cr.width, height: cr.height },
+          allotment: ar
+            ? { x: ar.x, y: ar.y, width: ar.width, height: ar.height }
+            : null,
+        });
+      }
+      frame += 1;
+      if (frame < maxFrames) {
+        requestAnimationFrame(logFrame);
+      }
+    };
+
+    requestAnimationFrame(logFrame);
+    return () => {
+      cancelled = true;
+    };
+  }, [isHistoryVisible]);
+
+  // Debug: ResizeObserver heartbeat on the results-area container
+  React.useEffect(() => {
+    if (!containerRef.current || typeof ResizeObserver === 'undefined') return;
+
+    let count = 0;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const cr = entry.contentRect;
+      count += 1;
+      console.log('📏 [ALLOTMENT RO][results-viewer]', {
+        count,
+        historyVisible: isHistoryVisible,
+        width: cr.width,
+        height: cr.height,
+      });
+    });
+
+    ro.observe(containerRef.current);
+    return () => {
+      try {
+        ro.disconnect();
+      } catch {}
+    };
+  }, [isHistoryVisible]);
+
   return (
-    <div className="results-area" style={{ width: '100%', height: '100%' }}>
+    <div className="results-area" style={{ width: '100%', height: '100%' }} ref={containerRef}>
       {/* Use sizes that match the number of visible panes and force remount when layout changes */}
       <Allotment
         key={isHistoryVisible ? 'with-history' : 'no-history'}

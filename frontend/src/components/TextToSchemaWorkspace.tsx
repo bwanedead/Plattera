@@ -41,6 +41,10 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   const [jsonEditToken, setJsonEditToken] = useState<number>(0);
   const [showSchemaManagerPanel, setShowSchemaManagerPanel] = useState<boolean>(false);
 
+  // Measurement/debug refs for Allotment container
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+
+
   // Layout helpers for main Allotment - keep sizes aligned with visible panes
   const getLayoutSizes = useCallback(
     () => (showSchemaManagerPanel ? [300, 280, 420] : [300, 700]),
@@ -65,6 +69,68 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       length: state.finalDraftText ? state.finalDraftText.length : 'null'
     });
   }, [state.finalDraftText]);
+
+  // Debug: measure container + Allotment rects across a few frames on layoutKey changes
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    let frame = 0;
+    const maxFrames = 5;
+    let cancelled = false;
+
+    const logFrame = () => {
+      if (cancelled) return;
+      const container = containerRef.current;
+      const allotmentEl = container?.querySelector('.allotment') as HTMLElement | null;
+      if (container) {
+        const cr = container.getBoundingClientRect();
+        const ar = allotmentEl ? allotmentEl.getBoundingClientRect() : null;
+        console.log('📐 [ALLOTMENT MEASURE][text-to-schema]', {
+          frame,
+          layoutKey,
+          container: { x: cr.x, y: cr.y, width: cr.width, height: cr.height },
+          allotment: ar
+            ? { x: ar.x, y: ar.y, width: ar.width, height: ar.height }
+            : null,
+        });
+      }
+      frame += 1;
+      if (frame < maxFrames) {
+        requestAnimationFrame(logFrame);
+      }
+    };
+
+    requestAnimationFrame(logFrame);
+    return () => {
+      cancelled = true;
+    };
+  }, [layoutKey]);
+
+  // Debug: ResizeObserver heartbeat on the workspace container
+  useEffect(() => {
+    if (!containerRef.current || typeof ResizeObserver === 'undefined') return;
+
+    let count = 0;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const cr = entry.contentRect;
+      count += 1;
+      console.log('📏 [ALLOTMENT RO][text-to-schema]', {
+        count,
+        layoutKey,
+        width: cr.width,
+        height: cr.height,
+      });
+    });
+
+    ro.observe(containerRef.current);
+    return () => {
+      try {
+        ro.disconnect();
+      } catch {}
+    };
+  }, [layoutKey]);
 
   // Set active workspace when component mounts
   useEffect(() => {
@@ -586,7 +652,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     ((state.schemaResults?.structured_data as any)?.lineage?.version_label as string | undefined);
 
   return (
-    <div className="text-to-schema-workspace">
+    <div className="text-to-schema-workspace" ref={containerRef}>
       {/* Navigation Header */}
       <div className="workspace-nav">
         <AnimatedBorder

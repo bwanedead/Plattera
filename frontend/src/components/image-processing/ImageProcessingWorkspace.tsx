@@ -44,6 +44,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [draftCount, setDraftCount] = useState(0);
   const [showEditedVersion, setShowEditedVersion] = useState(true);
 
+  // Measurement/debug refs for Allotment container
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+
   // Auto-refresh dossiers when processing completes
   const handleProcessingComplete = useCallback(() => {
     console.log('📡 Dispatching dossiers:refresh event after processing completion');
@@ -563,8 +566,70 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     alignmentState.alignmentState.alignmentResult,
   ]);
 
+  // Debug: measure container + Allotment rects across a few frames on layoutKey changes
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    let frame = 0;
+    const maxFrames = 5;
+    let cancelled = false;
+
+    const logFrame = () => {
+      if (cancelled) return;
+      const container = containerRef.current;
+      const allotmentEl = container?.querySelector('.allotment') as HTMLElement | null;
+      if (container) {
+        const cr = container.getBoundingClientRect();
+        const ar = allotmentEl ? allotmentEl.getBoundingClientRect() : null;
+        console.log('📐 [ALLOTMENT MEASURE][image-processing]', {
+          frame,
+          layoutKey,
+          container: { x: cr.x, y: cr.y, width: cr.width, height: cr.height },
+          allotment: ar
+            ? { x: ar.x, y: ar.y, width: ar.width, height: ar.height }
+            : null,
+        });
+      }
+      frame += 1;
+      if (frame < maxFrames) {
+        requestAnimationFrame(logFrame);
+      }
+    };
+
+    requestAnimationFrame(logFrame);
+    return () => {
+      cancelled = true;
+    };
+  }, [layoutKey]);
+
+  // Debug: ResizeObserver heartbeat on the workspace container
+  useEffect(() => {
+    if (!containerRef.current || typeof ResizeObserver === 'undefined') return;
+
+    let count = 0;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const cr = entry.contentRect;
+      count += 1;
+      console.log('📏 [ALLOTMENT RO][image-processing]', {
+        count,
+        layoutKey,
+        width: cr.width,
+        height: cr.height,
+      });
+    });
+
+    ro.observe(containerRef.current);
+    return () => {
+      try {
+        ro.disconnect();
+      } catch {}
+    };
+  }, [layoutKey]);
+
   return (
-    <div className="image-processing-workspace">
+    <div className="image-processing-workspace" ref={containerRef}>
       <div className="workspace-nav">
         <AnimatedBorder
           isHovered={homeHovered}
