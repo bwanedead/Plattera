@@ -15,6 +15,7 @@ import { FieldViewTab } from './text-to-schema/FieldViewTab';
 import { FinalTextEditor } from './text-to-schema/FinalTextEditor';
 import { SchemaTab, TextToSchemaResult } from '../types/textToSchema';
 import { SchemaManager } from './schema/SchemaManager';
+import { StableAllotmentContainer } from './layout/StableAllotmentContainer';
 import { schemaApi } from '../services/schema/schemaApi';
 
 interface TextToSchemaWorkspaceProps {
@@ -684,6 +685,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       </div>
 
       {/* Main Content Area */}
+      <StableAllotmentContainer debugLabel="text-to-schema">
+        {() => (
       <Allotment
         key={layoutKey}
         defaultSizes={getLayoutSizes()}
@@ -863,6 +866,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
           </div>
         </Allotment.Pane>
       </Allotment>
+        )}
+      </StableAllotmentContainer>
     </div>
   );
 };

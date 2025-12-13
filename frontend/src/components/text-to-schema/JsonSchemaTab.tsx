@@ -140,10 +140,49 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
     );
   }
 
+  // Derive schema identity for display
+  const effectiveSchemaId = (schemaData as any)?.schema_id as string | undefined;
+  const effectiveDossierId =
+    dossierId ||
+    (schemaData as any)?.metadata?.dossierId ||
+    (schemaData as any)?.metadata?.dossier_id;
+  const versionLabel: string | undefined =
+    ((schemaData as any)?.metadata?.version_label as string | undefined) ||
+    ((schemaData as any)?.lineage?.version_label as string | undefined);
+
   return (
     <div className="json-schema-tab">
       <div className="tab-header">
-        <h4>JSON Schema</h4>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <h4>JSON Schema</h4>
+          {versionLabel && (
+            <span
+              className="version-tag"
+              style={{
+                fontSize: '0.75rem',
+                padding: '2px 8px',
+                borderRadius: '12px',
+                background: '#111827',
+                color: '#e5e7eb',
+                border: '1px solid #374151',
+              }}
+              title={`Schema version: ${versionLabel}`}
+            >
+              {String(versionLabel).toUpperCase()}
+            </span>
+          )}
+          {effectiveSchemaId && (
+            <span
+              style={{
+                fontSize: '0.7rem',
+                opacity: 0.8,
+              }}
+            >
+              ID: {effectiveSchemaId}
+              {effectiveDossierId ? ` • Dossier ${effectiveDossierId}` : ''}
+            </span>
+          )}
+        </div>
         <div className="header-actions">
           <CopyButton
             onCopy={() => {

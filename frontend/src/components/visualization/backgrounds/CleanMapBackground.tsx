@@ -52,8 +52,9 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
     }
   };
 
+  const isDownloading = plssStatus === 'downloading';
   const shouldShowModal =
-    plssStatus === 'downloading' ||
+    isDownloading ||
     plssStatus === 'error' ||
     (plssStatus === 'missing' && !modalDismissed);
 
@@ -63,9 +64,9 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
       <PLSSDownloadModal
         isOpen={true}
         state={state || 'Unknown'}
-        onDownload={downloadData}
+        onDownload={isDownloading ? undefined : downloadData}
         onCancel={handleCancel}
-        isDownloading={plssStatus === 'downloading'}
+        isDownloading={isDownloading}
         progressText={progress}
         onHardCancel={cancelDownload}
         parquetPhase={parquetPhase}

@@ -55,6 +55,12 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
   const eventHandlers = useRef<Array<() => void>>([]);
   const renderCount = useRef<number>(0);
   const lastRenderTime = useRef<number>(0);
+  const onLabelsCreatedRef = useRef<typeof onLabelsCreated | undefined>(onLabelsCreated);
+
+  // Keep callback stable across renders to avoid effect thrash
+  React.useEffect(() => {
+    onLabelsCreatedRef.current = onLabelsCreated;
+  }, [onLabelsCreated]);
 
   // 🧹 CLEANUP FUNCTION
   const cleanupLabels = useCallback(() => {
@@ -703,6 +709,22 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
     return baseStyle + `font-size: ${fontSize}px;`;
   }, []);
 
+  // Build a stable features key so we don't re-run heavy work unnecessarily
+  const featuresKey = React.useMemo(() => {
+    if (!features || !features.length) return '0';
+    try {
+      const ids = features
+        .map((f: any) => String(f.id || f.properties?.id || ''))
+        .join('|');
+      // include showSectionLabels so toggling that flag properly refreshes labels
+      const sectionFlag = options?.showSectionLabels ? '1' : '0';
+      return `${sectionFlag}:${features.length}:${ids}`;
+    } catch {
+      const sectionFlag = options?.showSectionLabels ? '1' : '0';
+      return `${sectionFlag}:${features.length}`;
+    }
+  }, [features, options?.showSectionLabels]);
+
   // 🎯 PANEL OVERLAP DETECTION
   const isPanelOverlap = useCallback((point: { x: number; y: number }): boolean => {
     if (!(window as any)._cachedSidePanel) {
@@ -971,7 +993,7 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
     renderLabels(labelFeatures);
 
     // Notify parent
-    onLabelsCreated?.(labelFeatures);
+    onLabelsCreatedRef.current?.(labelFeatures);
 
     // Cleanup on unmount
     return () => {
@@ -1013,7 +1035,7 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
         console.warn('Error removing map layers:', error);
       }
     };
-  }, [map, features?.length, layerType, options.showSectionLabels, onLabelsCreated]);
+  }, [map, labelLayerId, layerType, featuresKey]);
 
   // Don't render anything - this is a logic-only component
   return null;

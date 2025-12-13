@@ -114,8 +114,6 @@ export function usePLSSData(schemaData: any) {
     const initializeData = async () => {
       if (!schemaData) return;
 
-      // Begin a new check cycle, but do NOT blindly reset modalDismissed here.
-      // The dismissal should persist for the current state unless the state changes.
       setState(prev => ({ ...prev, status: 'checking' }));
 
       // Extract state from schema
@@ -137,23 +135,43 @@ export function usePLSSData(schemaData: any) {
         modalDismissed: prev.state !== plssState ? false : prev.modalDismissed,
       }));
 
-      // FIXED: Check for active download and start polling if found
+      // 1) Check for active download; treat errors as "unknown", not "definitely idle".
       const downloadStatus = await plssDataService.checkDownloadActive(plssState);
       if (downloadStatus.active) {
         setState(prev => ({ 
           ...prev, 
           status: 'downloading',
           progress: `${downloadStatus.stage || 'processing'}...`,
-          mappingEnabled: false // Explicitly disable mapping
+          mappingEnabled: false
         }));
-        
-        // FIXED: Start polling for progress updates
-        console.log('🔄 Active download detected, starting progress polling...');
-        pollDownloadProgress(plssState);
+        console.log('🔄 Active PLSS download detected, resuming progress polling...', {
+          state: plssState,
+          stage: downloadStatus.stage,
+        });
+        await pollDownloadProgress(plssState);
         return;
       }
 
-      // Only check data availability if download is not active
+      // 2) Belt-and-suspenders: peek at progress once; if mid-flight, resume.
+      const p = await plssDataService.getDownloadProgress(plssState);
+      if (p.stage && !['idle', 'complete', 'canceled'].includes(p.stage)) {
+        const overall = p.overall || { percent: 0 };
+        setState(prev => ({
+          ...prev,
+          status: 'downloading',
+          progress: `${p.stage} ${overall.percent || 0}%`,
+          mappingEnabled: false,
+        }));
+        console.log('🔄 PLSS progress indicates in-flight download; resuming polling...', {
+          state: plssState,
+          stage: p.stage,
+          percent: overall.percent || 0,
+        });
+        await pollDownloadProgress(plssState);
+        return;
+      }
+
+      // 3) Only check data availability if download is not active
       const statusResult = await plssDataService.checkDataStatus(plssState);
       if (statusResult.error) {
         setState(prev => ({ 
@@ -178,6 +196,16 @@ export function usePLSSData(schemaData: any) {
   // Download function for when user clicks download
   const downloadData = async () => {
     if (!state.state) return;
+
+    // Prevent double-start while a download is already in progress
+    if (state.status === 'downloading') {
+      console.log('⬇️ PLSS download already in progress, ignoring duplicate request', {
+        state: state.state,
+        status: state.status,
+        progress: state.progress,
+      });
+      return;
+    }
 
     setState(prev => ({ ...prev, status: 'downloading', progress: 'Starting...' }));
 

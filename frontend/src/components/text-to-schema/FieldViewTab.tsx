@@ -285,13 +285,65 @@ export const FieldViewTab: React.FC<FieldViewTabProps> = ({
 
   return (
     <div className="field-view-tab">
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-        {isSuccess && schemaData && (
-          <button onClick={onEditInJson} className="final-draft-button" title="Edit in JSON">
-            Edit in JSON
-          </button>
-        )}
-      </div>
+      {/* Schema context strip: version + ids */}
+      {schemaData && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 8,
+            fontSize: '0.8rem',
+            color: '#9ca3af',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {(() => {
+              const vLabel: string | undefined =
+                ((schemaData as any)?.metadata?.version_label as string | undefined) ||
+                ((schemaData as any)?.lineage?.version_label as string | undefined);
+              const sId = (schemaData as any)?.schema_id as string | undefined;
+              const dId =
+                dossierId ||
+                (schemaData as any)?.metadata?.dossierId ||
+                (schemaData as any)?.metadata?.dossier_id;
+
+              return (
+                <>
+                  {vLabel && (
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        padding: '2px 8px',
+                        borderRadius: 12,
+                        background: '#111827',
+                        color: '#e5e7eb',
+                        border: '1px solid #374151',
+                      }}
+                      title={`Schema version: ${vLabel}`}
+                    >
+                      {String(vLabel).toUpperCase()}
+                    </span>
+                  )}
+                  {sId && (
+                    <span>
+                      ID: {sId}
+                      {dId ? ` • Dossier ${dId}` : ''}
+                    </span>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+          <div>
+            {isSuccess && schemaData && (
+              <button onClick={onEditInJson} className="final-draft-button" title="Edit in JSON">
+                Edit in JSON
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {/* QC Summary */}
       <div className={`qc-summary ${allAdvisories.length > 0 ? 'has-advisories' : ''}`}>
         <h4>

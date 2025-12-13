@@ -20,6 +20,7 @@ import { getCurrentText, getRawText, getOriginalJsonText, getNormalizedSectionsT
 import { FinalDraftSelector } from './FinalDraftSelector';
 import { useDossierManager } from '../../hooks/useDossierManager';
 import { saveDossierEditAPI } from '../../services/imageProcessingApi';
+import { StableAllotmentContainer } from '../layout/StableAllotmentContainer';
 
 
 interface ImageProcessingWorkspaceProps {
@@ -659,7 +660,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         </AnimatedBorder>
       </div>
       
-      <Allotment key={layoutKey} defaultSizes={getAllotmentSizes()} vertical={false}>
+      <StableAllotmentContainer debugLabel="image-processing">
+        {() => (
+          <Allotment key={layoutKey} defaultSizes={getAllotmentSizes()} vertical={false}>
         <Allotment.Pane minSize={250} maxSize={400}>
             <ControlPanel
             stagedFiles={imageProcessing.stagedFiles}
@@ -669,8 +672,6 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 onShowDraftLoader={() => setShowDraftLoader(true)}
             isProcessing={imageProcessing.isProcessing}
             onProcess={imageProcessing.handleProcess}
-              processingMode={imageProcessing.processingMode}
-              onProcessingModeChange={imageProcessing.setProcessingMode}
               processingQueue={imageProcessing.processingQueue}
             availableModels={imageProcessing.availableModels}
             selectedModel={imageProcessing.selectedModel}
@@ -818,6 +819,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             />
         </Allotment.Pane>
       </Allotment>
+        )}
+      </StableAllotmentContainer>
       
       {/* Image Enhancement Modal */}
       {showEnhancementModal && (
