@@ -393,7 +393,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
       if (container) {
         const cr = container.getBoundingClientRect();
         const ar = allotmentEl ? allotmentEl.getBoundingClientRect() : null;
-        console.log('📐 [ALLOTMENT MEASURE][results-viewer]', {
+        console.error('📐 [ALLOTMENT MEASURE][results-viewer]', {
           frame,
           historyVisible: isHistoryVisible,
           container: { x: cr.x, y: cr.y, width: cr.width, height: cr.height },
@@ -424,7 +424,7 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
       if (!entry) return;
       const cr = entry.contentRect;
       count += 1;
-      console.log('📏 [ALLOTMENT RO][results-viewer]', {
+      console.error('📏 [ALLOTMENT RO][results-viewer]', {
         count,
         historyVisible: isHistoryVisible,
         width: cr.width,

@@ -140,12 +140,11 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
     );
   }
 
-  // Derive schema identity for display
-  const effectiveSchemaId = (schemaData as any)?.schema_id as string | undefined;
-  const effectiveDossierId =
-    dossierId ||
-    (schemaData as any)?.metadata?.dossierId ||
-    (schemaData as any)?.metadata?.dossier_id;
+  // Derive schema identity for display (user-facing)
+  const schemaLabel =
+    (schemaData as any)?.metadata?.schema_label ||
+    (schemaData as any)?.metadata?.dossierTitle ||
+    'Schema';
   const versionLabel: string | undefined =
     ((schemaData as any)?.metadata?.version_label as string | undefined) ||
     ((schemaData as any)?.lineage?.version_label as string | undefined);
@@ -154,7 +153,7 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
     <div className="json-schema-tab">
       <div className="tab-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h4>JSON Schema</h4>
+          <h4>{schemaLabel}</h4>
           {versionLabel && (
             <span
               className="version-tag"
@@ -169,17 +168,6 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
               title={`Schema version: ${versionLabel}`}
             >
               {String(versionLabel).toUpperCase()}
-            </span>
-          )}
-          {effectiveSchemaId && (
-            <span
-              style={{
-                fontSize: '0.7rem',
-                opacity: 0.8,
-              }}
-            >
-              ID: {effectiveSchemaId}
-              {effectiveDossierId ? ` • Dossier ${effectiveDossierId}` : ''}
             </span>
           )}
         </div>

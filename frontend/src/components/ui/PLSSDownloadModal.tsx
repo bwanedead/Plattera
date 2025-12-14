@@ -34,8 +34,26 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  const handleCancelClick = () => {
+    // If a download is in progress, attempt a hard cancel first
+    if (isDownloading && onHardCancel) {
+      try {
+        onHardCancel();
+      } catch (e) {
+        console.error('Error during PLSS hard cancel', e);
+      }
+    }
+
+    // Always invoke onCancel to dismiss the modal / return to previous view
+    try {
+      onCancel();
+    } catch (e) {
+      console.error('Error in PLSS onCancel handler', e);
+    }
+  };
+
   return createPortal(
-    <div className="plss-modal-overlay" onClick={onCancel}>
+    <div className="plss-modal-overlay" onClick={handleCancelClick}>
       <div className="plss-modal-content" onClick={(e) => e.stopPropagation()}>
         {parquetPhase ? (
           <div className="plss-modal-message">
@@ -70,6 +88,15 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
               </div>
             </div>
           </div>
+        ) : isDownloading ? (
+          <div className="plss-modal-message">
+            <p>
+              Downloading PLSS data for <strong>{state}</strong>…
+            </p>
+            <p className="plss-modal-details">
+              This may take several minutes. You can cancel if needed; a future download will start from a clean state.
+            </p>
+          </div>
         ) : (
           <div className="plss-modal-message">
             <p>
@@ -85,8 +112,7 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
         <div className="plss-modal-actions">
           <button 
             className="plss-btn plss-btn-cancel" 
-            onClick={onCancel}
-            disabled={isDownloading}
+           onClick={handleCancelClick}
           >
             Cancel
           </button>

@@ -30,7 +30,7 @@ export const StableAllotmentContainer: React.FC<StableAllotmentContainerProps> =
         const size = { w: r.width, h: r.height };
 
         // Log a few frames for diagnosis; appears in the frontend logs panel.
-        console.log('📐 [STABLE-CONTAINER]', {
+        console.error('📐 [STABLE-CONTAINER]', {
           debugLabel,
           frame,
           width: size.w,

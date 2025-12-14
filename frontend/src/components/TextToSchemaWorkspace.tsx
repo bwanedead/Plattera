@@ -86,7 +86,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       if (container) {
         const cr = container.getBoundingClientRect();
         const ar = allotmentEl ? allotmentEl.getBoundingClientRect() : null;
-        console.log('📐 [ALLOTMENT MEASURE][text-to-schema]', {
+        console.error('📐 [ALLOTMENT MEASURE][text-to-schema]', {
           frame,
           layoutKey,
           container: { x: cr.x, y: cr.y, width: cr.width, height: cr.height },
@@ -117,7 +117,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       if (!entry) return;
       const cr = entry.contentRect;
       count += 1;
-      console.log('📏 [ALLOTMENT RO][text-to-schema]', {
+      console.error('📏 [ALLOTMENT RO][text-to-schema]', {
         count,
         layoutKey,
         width: cr.width,

@@ -285,7 +285,7 @@ export const FieldViewTab: React.FC<FieldViewTabProps> = ({
 
   return (
     <div className="field-view-tab">
-      {/* Schema context strip: version + ids */}
+      {/* Schema context strip: title + version */}
       {schemaData && (
         <div
           style={{
@@ -302,14 +302,14 @@ export const FieldViewTab: React.FC<FieldViewTabProps> = ({
               const vLabel: string | undefined =
                 ((schemaData as any)?.metadata?.version_label as string | undefined) ||
                 ((schemaData as any)?.lineage?.version_label as string | undefined);
-              const sId = (schemaData as any)?.schema_id as string | undefined;
-              const dId =
-                dossierId ||
-                (schemaData as any)?.metadata?.dossierId ||
-                (schemaData as any)?.metadata?.dossier_id;
+              const label =
+                (schemaData as any)?.metadata?.schema_label ||
+                (schemaData as any)?.metadata?.dossierTitle ||
+                'Schema';
 
               return (
                 <>
+                  <span>{label}</span>
                   {vLabel && (
                     <span
                       style={{
@@ -323,12 +323,6 @@ export const FieldViewTab: React.FC<FieldViewTabProps> = ({
                       title={`Schema version: ${vLabel}`}
                     >
                       {String(vLabel).toUpperCase()}
-                    </span>
-                  )}
-                  {sId && (
-                    <span>
-                      ID: {sId}
-                      {dId ? ` • Dossier ${dId}` : ''}
                     </span>
                   )}
                 </>

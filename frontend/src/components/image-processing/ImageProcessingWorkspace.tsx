@@ -582,7 +582,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       if (container) {
         const cr = container.getBoundingClientRect();
         const ar = allotmentEl ? allotmentEl.getBoundingClientRect() : null;
-        console.log('📐 [ALLOTMENT MEASURE][image-processing]', {
+        console.error('📐 [ALLOTMENT MEASURE][image-processing]', {
           frame,
           layoutKey,
           container: { x: cr.x, y: cr.y, width: cr.width, height: cr.height },
@@ -613,7 +613,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       if (!entry) return;
       const cr = entry.contentRect;
       count += 1;
-      console.log('📏 [ALLOTMENT RO][image-processing]', {
+      console.error('📏 [ALLOTMENT RO][image-processing]', {
         count,
         layoutKey,
         width: cr.width,
