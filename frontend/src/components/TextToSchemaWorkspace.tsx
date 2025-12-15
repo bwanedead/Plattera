@@ -583,6 +583,18 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
               sections={state.selectedFinalizedSections || undefined}
               onToggleEdit={() => setFinalEditMode(v => !v)}
               editMode={finalEditMode}
+              contextTitle={
+                (state.finalDraftMetadata as any)?.dossierTitle ||
+                (state.finalDraftMetadata as any)?.dossier_title ||
+                undefined
+              }
+              contextBadge={
+                (state.finalDraftMetadata as any)?.source === 'finalized-dossier'
+                  ? 'Finalized'
+                  : (state.finalDraftMetadata as any)?.source === 'direct_text'
+                  ? 'Direct Text Input'
+                  : undefined
+              }
             />
           )
         ) : (

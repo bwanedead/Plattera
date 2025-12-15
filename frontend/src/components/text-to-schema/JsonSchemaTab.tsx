@@ -1,6 +1,7 @@
 import React from 'react';
 import { CopyButton } from '../CopyButton';
 import { saveSchemaForDossier } from '../../services/textToSchemaApi';
+import { SchemaHeaderStrip } from './SchemaHeaderStrip';
 
 interface JsonSchemaTabProps {
   schemaData: any;
@@ -140,69 +141,52 @@ export const JsonSchemaTab: React.FC<JsonSchemaTabProps> = ({
     );
   }
 
-  // Derive schema identity for display (user-facing)
-  const schemaLabel =
-    (schemaData as any)?.metadata?.schema_label ||
-    (schemaData as any)?.metadata?.dossierTitle ||
-    'Schema';
-  const versionLabel: string | undefined =
-    ((schemaData as any)?.metadata?.version_label as string | undefined) ||
-    ((schemaData as any)?.lineage?.version_label as string | undefined);
-
   return (
     <div className="json-schema-tab">
-      <div className="tab-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h4>{schemaLabel}</h4>
-          {versionLabel && (
-            <span
-              className="version-tag"
-              style={{
-                fontSize: '0.75rem',
-                padding: '2px 8px',
-                borderRadius: '12px',
-                background: '#111827',
-                color: '#e5e7eb',
-                border: '1px solid #374151',
+      <SchemaHeaderStrip
+        schemaData={schemaData}
+        rightContent={
+          <>
+            <CopyButton
+              onCopy={() => {
+                const text = editMode ? buffer : (localPreview || JSON.stringify(schemaData, null, 2));
+                navigator.clipboard.writeText(text);
               }}
-              title={`Schema version: ${versionLabel}`}
-            >
-              {String(versionLabel).toUpperCase()}
-            </span>
-          )}
-        </div>
-        <div className="header-actions">
-          <CopyButton
-            onCopy={() => {
-              const text = editMode ? buffer : (localPreview || JSON.stringify(schemaData, null, 2));
-              navigator.clipboard.writeText(text);
-            }}
-            title="Copy schema JSON"
-          />
-          {!editMode ? (
-            <button
-              onClick={() => { 
-                lastScrollRef.current = contentRef.current?.scrollTop || 0;
-                setEditMode(true); 
-                setBuffer(JSON.stringify(schemaData, null, 2)); 
-              }}
-              className="final-draft-button compact"
-              title="Enable Edit Mode"
-            >
-              Edit
-            </button>
-          ) : (
-            <>
-              <button onClick={handleSave} className="final-draft-button compact" title="Save as v2">
-                Save (v2)
+              title="Copy schema JSON"
+            />
+            {!editMode ? (
+              <button
+                onClick={() => {
+                  lastScrollRef.current = contentRef.current?.scrollTop || 0;
+                  setEditMode(true);
+                  setBuffer(JSON.stringify(schemaData, null, 2));
+                }}
+                className="final-draft-button compact"
+                title="Enable Edit Mode"
+              >
+                Edit
               </button>
-              <button onClick={() => setEditMode(false)} className="final-draft-button compact" title="Cancel edits">
-                Cancel
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+            ) : (
+              <>
+                <button
+                  onClick={handleSave}
+                  className="final-draft-button compact"
+                  title="Save as v2"
+                >
+                  Save (v2)
+                </button>
+                <button
+                  onClick={() => setEditMode(false)}
+                  className="final-draft-button compact"
+                  title="Cancel edits"
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </>
+        }
+      />
 
       <div className="json-content" ref={contentRef}>
         {editMode ? (

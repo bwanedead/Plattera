@@ -7,17 +7,38 @@ interface OriginalTextTabProps {
   sections?: string[];
   onToggleEdit?: () => void;
   editMode?: boolean;
+  contextTitle?: string;
+  contextBadge?: string;
 }
 
-export const OriginalTextTab: React.FC<OriginalTextTabProps> = ({ text, showSectionMarkers = false, sections, onToggleEdit, editMode }) => {
+export const OriginalTextTab: React.FC<OriginalTextTabProps> = ({
+  text,
+  showSectionMarkers = false,
+  sections,
+  onToggleEdit,
+  editMode,
+  contextTitle,
+  contextBadge,
+}) => {
   // If dossier section blocks are provided, display them with explicit dividers.
   const blocks = Array.isArray(sections) && sections.length > 0
     ? sections
     : (showSectionMarkers ? text.split(/\n{2,}/g) : [text]);
   return (
     <div className="original-text-tab">
-      <div className="tab-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h4 style={{ margin: 0 }}>Original Text</h4>
+      <div
+        className="tab-header"
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <h4 style={{ margin: 0 }}>Original Text</h4>
+          {(contextTitle || contextBadge) && (
+            <div style={{ fontSize: '0.8rem', color: '#9ca3af' }}>
+              {contextTitle}
+              {contextBadge ? ` — ${contextBadge}` : ''}
+            </div>
+          )}
+        </div>
         <div className="header-actions">
           <CopyButton
             onCopy={() => navigator.clipboard.writeText(text)}

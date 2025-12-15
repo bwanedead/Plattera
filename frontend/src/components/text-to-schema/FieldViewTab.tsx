@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { PolygonDrawingControls } from '../polygon/PolygonDrawingControls';
+import { SchemaHeaderStrip } from './SchemaHeaderStrip';
 
 interface FieldViewTabProps {
   schemaData: any;
@@ -287,56 +288,21 @@ export const FieldViewTab: React.FC<FieldViewTabProps> = ({
     <div className="field-view-tab">
       {/* Schema context strip: title + version */}
       {schemaData && (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 8,
-            fontSize: '0.8rem',
-            color: '#9ca3af',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {(() => {
-              const vLabel: string | undefined =
-                ((schemaData as any)?.metadata?.version_label as string | undefined) ||
-                ((schemaData as any)?.lineage?.version_label as string | undefined);
-              const label =
-                (schemaData as any)?.metadata?.schema_label ||
-                (schemaData as any)?.metadata?.dossierTitle ||
-                'Schema';
-
-              return (
-                <>
-                  <span>{label}</span>
-                  {vLabel && (
-                    <span
-                      style={{
-                        fontSize: '0.75rem',
-                        padding: '2px 8px',
-                        borderRadius: 12,
-                        background: '#111827',
-                        color: '#e5e7eb',
-                        border: '1px solid #374151',
-                      }}
-                      title={`Schema version: ${vLabel}`}
-                    >
-                      {String(vLabel).toUpperCase()}
-                    </span>
-                  )}
-                </>
-              );
-            })()}
-          </div>
-          <div>
-            {isSuccess && schemaData && (
-              <button onClick={onEditInJson} className="final-draft-button" title="Edit in JSON">
+        <SchemaHeaderStrip
+          schemaData={schemaData}
+          size="compact"
+          rightContent={
+            isSuccess && schemaData ? (
+              <button
+                onClick={onEditInJson}
+                className="final-draft-button"
+                title="Edit in JSON"
+              >
                 Edit in JSON
               </button>
-            )}
-          </div>
-        </div>
+            ) : null
+          }
+        />
       )}
       {/* QC Summary */}
       <div className={`qc-summary ${allAdvisories.length > 0 ? 'has-advisories' : ''}`}>
