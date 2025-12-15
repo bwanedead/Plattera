@@ -420,7 +420,7 @@ After redundancy styling implementation, verify:
   background-color: var(--status-error);
 }
 
-.results-viewer-panel {
+.image-processing-workspace .results-viewer-panel {
   position: relative;
   padding: 2rem 2rem 2rem 5rem;
   display: flex;
@@ -429,7 +429,7 @@ After redundancy styling implementation, verify:
   overflow: visible;
 }
 
-.results-viewer-panel::before {
+.image-processing-workspace .results-viewer-panel::before {
   display: none;
 }
 
@@ -1408,7 +1408,7 @@ After redundancy styling implementation, verify:
 
 /* JSON Display Styles */
 
-.json-display {
+.image-processing-workspace .json-display {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -1417,7 +1417,7 @@ After redundancy styling implementation, verify:
   flex: 1;
 }
 
-.json-actions {
+.image-processing-workspace .json-actions {
   display: flex;
   justify-content: flex-end;
   padding: 0.75rem 1rem;
@@ -1444,7 +1444,7 @@ After redundancy styling implementation, verify:
   transform: translateY(-1px);
 }
 
-.json-content {
+.image-processing-workspace .json-content {
   flex: 1;
   overflow-y: auto;
   padding: 1.5rem;
@@ -1637,7 +1637,7 @@ After redundancy styling implementation, verify:
   border-bottom: 1px solid var(--color-border);
 }
 
-.json-content {
+.image-processing-workspace .json-content {
   flex-grow: 1;
   overflow-y: auto;
   padding: 1rem;
