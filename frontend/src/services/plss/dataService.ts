@@ -1,14 +1,24 @@
 /**
  * PLSS Data Service - Core Data Operations
- * 
+ *
  * Handles all PLSS data management without UI concerns.
  * Pure business logic for data fetching, validation, and state extraction.
- * 
+ *
  * Domain: PLSS (Public Land Survey System)
  * Responsibility: Data operations only - no UI state management
  */
 
-export type PLSSDataStatus = 'unknown' | 'checking' | 'missing' | 'downloading' | 'ready' | 'error';
+// Note: we explicitly track a "canceled" status in the frontend hook so that
+// UX and logs can distinguish "never downloaded" from "user canceled an
+// in-flight job". This is important for restart semantics and diagnosis.
+export type PLSSDataStatus =
+  | 'unknown'
+  | 'checking'
+  | 'missing'
+  | 'downloading'
+  | 'ready'
+  | 'error'
+  | 'canceled';
 
 export interface PLSSDataState {
   status: PLSSDataStatus;

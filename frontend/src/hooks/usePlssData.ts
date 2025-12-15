@@ -33,7 +33,11 @@ export function usePLSSData(schemaData: any) {
     while (true) {
       const p = await plssDataService.getDownloadProgress(plssState);
       if (p.error) {
-        setState(prev => ({ ...prev, status: 'error', error: p.error || null }));
+        console.error('🧭 [PLSS] progress poll error', {
+          state: plssState,
+          error: p.error,
+        });
+        setState(prev => ({ ...prev, status: 'error', error: p.error || null, progress: null }));
         return;
       }
       const stage = p.stage || 'working';
@@ -71,7 +75,16 @@ export function usePLSSData(schemaData: any) {
       }
       
       if (stage === 'canceled') {
-        setState(prev => ({ ...prev, status: 'missing', error: 'Download canceled', progress: null }));
+        console.error('🧭 [PLSS] download stage=canceled', { state: plssState });
+        setState(prev => ({
+          ...prev,
+          status: 'canceled',
+          error: 'Download was canceled',
+          progress: null,
+          parquetPhase: false,
+          parquetStatus: null,
+          estimatedTime: null,
+        }));
         return;
       }
       
@@ -171,7 +184,10 @@ export function usePLSSData(schemaData: any) {
         return;
       }
 
-      // 3) Only check data availability if download is not active
+      // 3) Only check data availability if download is not active. If we *think*
+      // a download is idle but the previous state was actively downloading, keep
+      // the downloading state and let the polling loop drive us to a terminal
+      // result instead of snapping back to "missing" or "prompt".
       const statusResult = await plssDataService.checkDataStatus(plssState);
       if (statusResult.error) {
         setState(prev => ({ 
@@ -182,12 +198,22 @@ export function usePLSSData(schemaData: any) {
         return;
       }
 
-      // Set status based on availability
-      setState(prev => ({ 
-        ...prev, 
-        status: statusResult.available ? 'ready' : 'missing',
-        mappingEnabled: statusResult.available ? true : false
-      }));
+      // Set status based on availability, but avoid downgrading an active
+      // download back to "missing" based on a single availability probe.
+      setState(prev => {
+        if (prev.status === 'downloading') {
+          console.error('🧭 [PLSS] ignoring availability check while downloading', {
+            state: plssState,
+            statusResult,
+          });
+          return prev;
+        }
+        return {
+          ...prev,
+          status: statusResult.available ? 'ready' : 'missing',
+          mappingEnabled: statusResult.available ? true : false,
+        };
+      });
     };
 
     initializeData();
@@ -219,6 +245,17 @@ export function usePLSSData(schemaData: any) {
   // Cancel current download
   const cancelDownload = async () => {
     if (!state.state) return;
+    // Optimistically mark as canceled so the UI and logs reflect user intent
+    // immediately; the polling loop will observe stage="canceled" shortly
+    // after the backend processes the request.
+    setState(prev => ({
+      ...prev,
+      status: 'canceled',
+      progress: null,
+      parquetPhase: false,
+      parquetStatus: null,
+      estimatedTime: null,
+    }));
     await plssDataService.cancelDownload(state.state);
   };
 

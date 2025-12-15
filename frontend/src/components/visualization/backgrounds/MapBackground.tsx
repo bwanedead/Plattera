@@ -189,15 +189,9 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({
   }, [isDragging, view]);
 
   const handleDownload = () => {
-    const plss = schemaData?.descriptions?.[0]?.plss || null;
-    const hint = plss ? {
-      township_number: plss.township_number,
-      township_direction: (plss.township_direction || '').toUpperCase(),
-      range_number: plss.range_number,
-      range_direction: (plss.range_direction || '').toUpperCase(),
-    } : undefined;
-    // @ts-ignore extended signature supports hint
-    downloadData(state || '', hint);
+    // The PLSS hook already knows which state we are targeting; we only need to
+    // signal that the user has confirmed they want to start the background job.
+    downloadData();
   };
 
   const handleCancel = () => {
@@ -230,8 +224,9 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({
     loadOverlay();
   }, [status, mappingEnabled, schemaData, polygonData]);
 
-  // Show modal when data is missing AND not dismissed
-  const shouldShowModal = status === 'missing' && !modalDismissed;
+  // Show modal when data is missing/canceled AND not dismissed
+  const shouldShowModal =
+    (status === 'missing' || status === 'canceled') && !modalDismissed;
 
   // Show loading during download
   if (status === 'downloading') {
@@ -323,8 +318,11 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({
     );
   }
 
-  // Error state or missing data that was dismissed
-  if (status === 'error' || (status === 'missing' && modalDismissed)) {
+  // Error state or missing/canceled data that was dismissed
+  if (
+    status === 'error' ||
+    ((status === 'missing' || status === 'canceled') && modalDismissed)
+  ) {
     return (
       <div className="map-placeholder">
         {status === 'error' ? (

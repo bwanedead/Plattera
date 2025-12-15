@@ -56,7 +56,7 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
   const shouldShowModal =
     isDownloading ||
     plssStatus === 'error' ||
-    (plssStatus === 'missing' && !modalDismissed);
+    ((plssStatus === 'missing' || plssStatus === 'canceled') && !modalDismissed);
 
   // Show PLSS download modal if needed, respecting dismissal for "missing" state
   if (shouldShowModal) {
