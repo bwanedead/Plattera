@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Allotment } from "allotment";
-import "allotment/dist/style.css";
 import { AnimatedBorder } from './AnimatedBorder';
 import { useTextToSchemaState, useWorkspaceNavigation } from '../hooks/useWorkspaceState';
 import { convertTextToSchema, getTextToSchemaModels, getSchema } from '../services/textToSchemaApi';
@@ -104,6 +103,39 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
 
         const ar = exactAllotment ? exactAllotment.getBoundingClientRect() : null;
 
+        let allotmentStyle: any = null;
+        if (anyAllotment) {
+          try {
+            const cs = window.getComputedStyle(anyAllotment);
+            allotmentStyle = {
+              display: cs.display,
+              flexDirection: cs.flexDirection,
+              position: cs.position,
+              width: cs.width,
+              height: cs.height,
+              overflow: `${cs.overflow} / ${cs.overflowX} / ${cs.overflowY}`,
+            };
+          } catch (e) {
+            allotmentStyle = { error: String(e) };
+          }
+        }
+
+        let allotmentStylesheetInfo: any = null;
+        if (frame === 0) {
+          try {
+            const sheets = Array.from(document.styleSheets || []);
+            const hrefs = sheets
+              .map((s) => (s as CSSStyleSheet).href || '')
+              .filter((href) => href && href.toLowerCase().includes('allotment'));
+            allotmentStylesheetInfo = {
+              foundHrefCount: hrefs.length,
+              hrefs,
+            };
+          } catch (e) {
+            allotmentStylesheetInfo = { error: String(e) };
+          }
+        }
+
         console.error('📐 [ALLOTMENT MEASURE][text-to-schema]', {
           frame,
           layoutKey,
@@ -127,6 +159,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                 className: (splitLike as HTMLElement).className || '',
               }
             : null,
+          allotmentStyle,
+          allotmentStylesheetInfo,
         });
       }
       frame += 1;

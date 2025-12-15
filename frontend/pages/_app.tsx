@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { startDossierPreload } from '@/services/dossier/dossierPreload'
 // import '../styles/globals.css'        // OLD (backup)
 import '../styles/main.css'             // NEW (modular) - testing now!
+import 'allotment/dist/style.css';      // Global split-pane styling (Allotment)
 import '../src/components/mapping/CleanMap.css'  // Map overlay/loading CSS (global)
 import '../src/components/visualization/backgrounds/CleanMapBackground.css' // Background placeholders
 import '../src/styles/components/loaders.css' // Any global loaders referenced by components

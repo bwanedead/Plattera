@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Allotment } from 'allotment';
-import "allotment/dist/style.css";
 import { ParcelTracerLoader } from './ParcelTracerLoader';
 import { CopyButton } from '../CopyButton';
 // import { DraftSelector } from './DraftSelector'; // temporarily disabled; use Dossier Manager for draft navigation

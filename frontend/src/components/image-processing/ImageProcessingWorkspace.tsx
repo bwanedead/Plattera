@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Allotment } from "allotment";
-import "allotment/dist/style.css";
 import { ImageEnhancementModal } from './ImageEnhancementModal';
 import { DraftLoader } from './DraftLoader';
 import { AlignmentPanel } from './AlignmentPanel';
