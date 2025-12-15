@@ -182,3 +182,15 @@ class PLSSDataService:
             return data_manager.request_cancel(state)
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def purge_state_data(self, state: str) -> Dict[str, Any]:
+        """
+        Purge all PLSS data for a state from disk.
+        This removes FGDBs, parquet/manifest files, progress, and metadata so
+        that subsequent downloads start from a completely clean slate.
+        """
+        try:
+            data_manager = self._get_data_manager()
+            return data_manager._purge_state_data(state)
+        except Exception as e:
+            return {"success": False, "error": str(e)}

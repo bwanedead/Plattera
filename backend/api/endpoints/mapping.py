@@ -544,6 +544,19 @@ async def cancel_download(state: str) -> Dict[str, Any]:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+@router.post("/download-plss/{state}/purge")
+async def purge_plss_state(state: str) -> Dict[str, Any]:
+    """
+    Manually purge all PLSS data for a state from disk. This is a factory-reset
+    style operation intended for diagnostics or emergency cleanup; normal user
+    flows rely on automatic purge-on-restart after a canceled download.
+    """
+    try:
+        plss_data_service = PLSSDataService()
+        return plss_data_service.purge_state_data(state)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 @router.get("/test-plss-debug")
 async def test_plss_debug() -> Dict[str, Any]:
     """Debug endpoint to isolate the List error"""

@@ -21,6 +21,7 @@ import io
 from datetime import datetime
 import time
 import traceback
+import shutil
 from config.paths import plss_root
 
 logger = logging.getLogger(__name__)
@@ -168,7 +169,18 @@ class PLSSDataManager:
                 self._log_stage(state, "DOWNLOAD_START", "Starting fresh download")
                 download_result = self._download_state_data_bulk_fgdb(state, state_abbr)
                 if not download_result["success"]:
-                    self._log_stage(state, "DOWNLOAD_FAILED", download_result.get("error", "Unknown error"))
+                    error_msg = download_result.get("error", "Unknown error")
+                    self._log_stage(state, "DOWNLOAD_FAILED", error_msg)
+
+                    # If the user explicitly canceled the job, immediately purge any
+                    # partial on-disk state for this PLSS state so that subsequent
+                    # downloads start from a completely clean slate. We still keep
+                    # an additional safeguard in start_bulk_install_background to
+                    # purge again if a canceled stage is detected before restart.
+                    if error_msg == "Canceled by user":
+                        self._log_stage(state, "PURGE_AFTER_CANCEL", "User canceled download; purging state data")
+                        self._purge_state_data(state)
+
                     return download_result
 
                 # Download method already processed the data, so no need to process again
@@ -208,6 +220,10 @@ class PLSSDataManager:
 
     def _cancel_flag_path(self, state: str) -> Path:
         return (self.data_dir / state.lower()) / "cancel.flag"
+
+    def _state_dir(self, state: str) -> Path:
+        """Convenience helper to locate the on-disk directory for a PLSS state."""
+        return self.data_dir / state.lower()
 
     def _clear_progress(self, state: str) -> None:
         """Clear any existing progress file to start fresh"""
@@ -263,6 +279,15 @@ class PLSSDataManager:
         try:
             if state not in self.state_abbrevs:
                 return {"success": False, "error": f"Unsupported state: {state}"}
+            # If the last recorded stage was "canceled", purge any partial data
+            # so that the next download starts from a completely clean slate.
+            try:
+                last_progress = self.get_progress(state)
+                if last_progress.get("stage") == "canceled":
+                    self._log_stage(state, "PURGE_ON_RESTART", "Previous job was canceled; purging state directory before restart")
+                    self._purge_state_data(state)
+            except Exception as e:
+                self._log_stage(state, "PURGE_CHECK_FAILED", f"Unable to check/purge canceled state: {e}")
             # Clear previous cancel flag
             flag = self._cancel_flag_path(state)
             if flag.exists():
@@ -275,6 +300,37 @@ class PLSSDataManager:
             t.start()
             return {"success": True, "started": True}
         except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _purge_state_data(self, state: str) -> dict:
+        """
+        Remove all on-disk data for a given state (FGDBs, parquet, manifests,
+        progress files, and metadata entry). This is used to guarantee that
+        a new download after an explicit cancel starts from a clean slate.
+        """
+        try:
+            state_dir = self._state_dir(state)
+            if state_dir.exists():
+                self._log_stage(state, "PURGE_START", f"Removing state directory {state_dir}")
+                shutil.rmtree(state_dir, ignore_errors=False)
+
+            # Remove state entry from metadata.json if present
+            if self.metadata_file.exists():
+                try:
+                    with open(self.metadata_file, "r") as f:
+                        metadata = json.load(f)
+                except Exception:
+                    metadata = {}
+
+                if metadata.get("states", {}).pop(state, None) is not None:
+                    with open(self.metadata_file, "w") as f:
+                        json.dump(metadata, f, indent=2)
+                    self._log_stage(state, "PURGE_METADATA", "Removed state from metadata.json")
+
+            self._log_stage(state, "PURGE_COMPLETE", "State data purged successfully")
+            return {"success": True}
+        except Exception as e:
+            self._log_stage(state, "PURGE_FAILED", f"{e}")
             return {"success": False, "error": str(e)}
     
     def _download_state_data_bulk_fgdb(self, state: str, state_abbr: str) -> dict:
