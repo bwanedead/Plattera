@@ -78,7 +78,7 @@ export const StableAllotmentContainer: React.FC<StableAllotmentContainerProps> =
     return () => {
       cancelled = true;
     };
-  }, [ready, debugLabel]);
+  }, [debugLabel]);
 
   return (
     <div

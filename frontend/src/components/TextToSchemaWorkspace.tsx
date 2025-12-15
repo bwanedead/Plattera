@@ -77,14 +77,12 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     });
   }, [state.finalDraftText]);
 
-  // Debug: measure container + Allotment rects across a few frames on layoutKey changes
+  // Debug: measure container + Allotment DOM across a few frames on layoutKey changes.
+  // This uses requestAnimationFrame only (no ResizeObserver) so it is safe in WebView2,
+  // and logs a rich snapshot into the frontend log feed so we can definitively see
+  // what DOM (if any) Allotment committed in both healthy and broken states.
   useEffect(() => {
     if (!containerRef.current) return;
-
-    // In production/EXE we avoid stacking our own Resize/RAF measurement
-    // on top of react-allotment's internals to reduce the chance of
-    // triggering "ResizeObserver loop" warnings in WebView2.
-    if (!ALLOTMENT_DEBUG) return;
 
     let frame = 0;
     const maxFrames = 5;
@@ -93,16 +91,41 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     const logFrame = () => {
       if (cancelled) return;
       const container = containerRef.current;
-      const allotmentEl = container?.querySelector('.allotment') as HTMLElement | null;
       if (container) {
         const cr = container.getBoundingClientRect();
-        const ar = allotmentEl ? allotmentEl.getBoundingClientRect() : null;
+        const exactAllotment = container.querySelector('.allotment') as HTMLElement | null;
+        const anyAllotment = container.querySelector('[class*="allotment"]') as HTMLElement | null;
+        const splitLike = container.querySelector('[class*="split"]') as HTMLElement | null;
+
+        const immediateChildren = Array.from(container.children).map((child) => ({
+          tag: child.tagName,
+          className: (child as HTMLElement).className || '',
+        }));
+
+        const ar = exactAllotment ? exactAllotment.getBoundingClientRect() : null;
+
         console.error('📐 [ALLOTMENT MEASURE][text-to-schema]', {
           frame,
           layoutKey,
           container: { x: cr.x, y: cr.y, width: cr.width, height: cr.height },
-          allotment: ar
+          immediateChildren: {
+            count: container.childElementCount,
+            children: immediateChildren,
+          },
+          allotmentExact: ar
             ? { x: ar.x, y: ar.y, width: ar.width, height: ar.height }
+            : null,
+          allotmentAny: anyAllotment
+            ? {
+                tag: anyAllotment.tagName,
+                className: (anyAllotment as HTMLElement).className || '',
+              }
+            : null,
+          splitLike: splitLike
+            ? {
+                tag: splitLike.tagName,
+                className: (splitLike as HTMLElement).className || '',
+              }
             : null,
         });
       }
@@ -115,34 +138,6 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     requestAnimationFrame(logFrame);
     return () => {
       cancelled = true;
-    };
-  }, [layoutKey]);
-
-  // Debug: ResizeObserver heartbeat on the workspace container
-  useEffect(() => {
-    if (!containerRef.current || typeof ResizeObserver === 'undefined') return;
-
-    if (!ALLOTMENT_DEBUG) return;
-
-    let count = 0;
-    const ro = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      const cr = entry.contentRect;
-      count += 1;
-      console.error('📏 [ALLOTMENT RO][text-to-schema]', {
-        count,
-        layoutKey,
-        width: cr.width,
-        height: cr.height,
-      });
-    });
-
-    ro.observe(containerRef.current);
-    return () => {
-      try {
-        ro.disconnect();
-      } catch {}
     };
   }, [layoutKey]);
 
