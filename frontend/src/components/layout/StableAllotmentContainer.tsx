@@ -20,6 +20,7 @@ export const StableAllotmentContainer: React.FC<StableAllotmentContainerProps> =
     let frame = 0;
     let lastSize: { w: number; h: number } | null = null;
     let stableCount = 0;
+    let sawNonZero = false;
     let cancelled = false;
 
     const measure = () => {
@@ -38,6 +39,7 @@ export const StableAllotmentContainer: React.FC<StableAllotmentContainerProps> =
         });
 
         if (size.w > 0 && size.h > 0) {
+          sawNonZero = true;
           if (lastSize && lastSize.w === size.w && lastSize.h === size.h) {
             stableCount += 1;
           } else {
@@ -49,6 +51,19 @@ export const StableAllotmentContainer: React.FC<StableAllotmentContainerProps> =
         }
 
         if (!ready && stableCount >= 2) {
+          setReady(true);
+        }
+
+        // Failsafe: if we've seen any non-zero size but never reached a
+        // "stable" reading within the first ~10 frames, still proceed to
+        // render children so Allotment can't be permanently gated off by
+        // tiny layout jitter in WebView2.
+        if (!ready && frame >= 9 && sawNonZero) {
+          console.error('📐 [STABLE-CONTAINER FALLBACK]', {
+            debugLabel,
+            frame,
+            lastSize,
+          });
           setReady(true);
         }
       }

@@ -27,6 +27,12 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   onExit, 
   onNavigateToImageText 
 }) => {
+  // Dedicated flag so we can keep EXE builds clean while still enabling
+  // intensive layout diagnostics in dev when needed.
+  const ALLOTMENT_DEBUG =
+    typeof process !== 'undefined' &&
+    (process as any).env &&
+    (process as any).env.NEXT_PUBLIC_ALLOTMENT_DEBUG === 'true';
   // State persistence hooks
   const { state, updateState } = useTextToSchemaState();
   const { setActiveWorkspace } = useWorkspaceNavigation();
@@ -75,6 +81,11 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // In production/EXE we avoid stacking our own Resize/RAF measurement
+    // on top of react-allotment's internals to reduce the chance of
+    // triggering "ResizeObserver loop" warnings in WebView2.
+    if (!ALLOTMENT_DEBUG) return;
+
     let frame = 0;
     const maxFrames = 5;
     let cancelled = false;
@@ -110,6 +121,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   // Debug: ResizeObserver heartbeat on the workspace container
   useEffect(() => {
     if (!containerRef.current || typeof ResizeObserver === 'undefined') return;
+
+    if (!ALLOTMENT_DEBUG) return;
 
     let count = 0;
     const ro = new ResizeObserver((entries) => {
@@ -686,7 +699,9 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
 
       {/* Main Content Area */}
       <StableAllotmentContainer debugLabel="text-to-schema">
-        {() => (
+        {() => {
+      console.error('📐 [ALLOTMENT JSX RENDER][text-to-schema]', { layoutKey });
+      return (
       <Allotment
         key={layoutKey}
         defaultSizes={getLayoutSizes()}
@@ -866,7 +881,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
           </div>
         </Allotment.Pane>
       </Allotment>
-        )}
+        );
+        }}
       </StableAllotmentContainer>
     </div>
   );

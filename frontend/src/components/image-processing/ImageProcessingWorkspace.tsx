@@ -33,6 +33,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   onNavigateToTextSchema 
 }) => {
   const VERBOSE_DEBUG = typeof process !== 'undefined' && (process as any).env && (process as any).env.NEXT_PUBLIC_VERBOSE_LOGS === 'true';
+  const ALLOTMENT_DEBUG =
+    typeof process !== 'undefined' &&
+    (process as any).env &&
+    (process as any).env.NEXT_PUBLIC_ALLOTMENT_DEBUG === 'true';
   // State persistence hooks
   const { state: workspaceState, updateState: updateWorkspaceState } = useImageProcessingState();
   const { setActiveWorkspace } = useWorkspaceNavigation();
@@ -571,6 +575,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   useEffect(() => {
     if (!containerRef.current) return;
 
+    if (!ALLOTMENT_DEBUG) return;
+
     let frame = 0;
     const maxFrames = 5;
     let cancelled = false;
@@ -606,6 +612,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   // Debug: ResizeObserver heartbeat on the workspace container
   useEffect(() => {
     if (!containerRef.current || typeof ResizeObserver === 'undefined') return;
+
+    if (!ALLOTMENT_DEBUG) return;
 
     let count = 0;
     const ro = new ResizeObserver((entries) => {
@@ -661,7 +669,9 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
       </div>
       
       <StableAllotmentContainer debugLabel="image-processing">
-        {() => (
+        {() => {
+          console.error('📐 [ALLOTMENT JSX RENDER][image-processing]', { layoutKey });
+          return (
           <Allotment key={layoutKey} defaultSizes={getAllotmentSizes()} vertical={false}>
         <Allotment.Pane minSize={250} maxSize={400}>
             <ControlPanel
@@ -819,7 +829,8 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
             />
         </Allotment.Pane>
       </Allotment>
-        )}
+        );
+        }}
       </StableAllotmentContainer>
       
       {/* Image Enhancement Modal */}

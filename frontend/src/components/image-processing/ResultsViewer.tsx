@@ -110,6 +110,11 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   const latestViewReqRef = React.useRef<string | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
 
+  const ALLOTMENT_DEBUG =
+    typeof process !== 'undefined' &&
+    (process as any).env &&
+    (process as any).env.NEXT_PUBLIC_ALLOTMENT_DEBUG === 'true';
+
   const setFinalForCurrentView = async (nextDraftId?: string) => {
     const dossierId = currentDisplayPath?.dossierId || selectedResult?.result?.metadata?.dossier_id;
     const transcriptionId = selectedResult?.result?.metadata?.transcription_id;
@@ -382,6 +387,8 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   React.useEffect(() => {
     if (!containerRef.current) return;
 
+    if (!ALLOTMENT_DEBUG) return;
+
     let frame = 0;
     const maxFrames = 5;
     let cancelled = false;
@@ -418,6 +425,8 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   React.useEffect(() => {
     if (!containerRef.current || typeof ResizeObserver === 'undefined') return;
 
+    if (!ALLOTMENT_DEBUG) return;
+
     let count = 0;
     const ro = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -443,6 +452,9 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   return (
     <div className="results-area" style={{ width: '100%', height: '100%' }} ref={containerRef}>
       {/* Use sizes that match the number of visible panes and force remount when layout changes */}
+      {console.error('📐 [ALLOTMENT JSX RENDER][results-viewer]', {
+        historyVisible: isHistoryVisible,
+      })}
       <Allotment
         key={isHistoryVisible ? 'with-history' : 'no-history'}
         defaultSizes={isHistoryVisible ? [300, 700] : [1000]}
