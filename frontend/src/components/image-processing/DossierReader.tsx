@@ -37,6 +37,13 @@ export const DossierReader: React.FC<DossierReaderProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!dossierId) {
+      setDossier(null);
+      setSegmentContents([]);
+      setError('No dossier selected.');
+      setIsLoading(false);
+      return;
+    }
     loadDossierData();
   }, [dossierId]);
 

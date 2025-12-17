@@ -233,6 +233,13 @@ export function usePLSSData(schemaData: any) {
       return;
     }
 
+    // Record last state for global monitors (best-effort only)
+    try {
+      localStorage.setItem('plss:lastState', state.state);
+    } catch {
+      // ignore storage errors – non-fatal
+    }
+
     setState(prev => ({ ...prev, status: 'downloading', progress: 'Starting...' }));
 
     // Start background download

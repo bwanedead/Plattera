@@ -159,6 +159,14 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
   const isDossierView = selectedResult?.result?.metadata?.service_type === 'dossier' &&
                        selectedResult?.result?.metadata?.is_dossier_level === true;
 
+  const dossierIdForReader =
+    currentDisplayPath?.dossierId ||
+    selectedResult?.result?.metadata?.dossier_id ||
+    null;
+
+  const stitchedContent =
+    isDossierView ? selectedResult?.result?.metadata?.stitched_content || null : null;
+
   // Clear currentDisplayPath when not showing dossier results
   React.useEffect(() => {
     if (selectedResult?.result?.metadata?.service_type !== 'dossier') {
@@ -977,10 +985,30 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
                       style={{ height: '100%' }}
                     >
                       {isDossierView ? (
-                        <DossierReader
-                          dossierId={currentDisplayPath?.dossierId || ''}
-                          dossierTitle={selectedResult.result?.metadata?.dossier_title || 'Dossier'}
-                        />
+                        stitchedContent ? (
+                          <div className="text-content-wrapper">
+                            <div
+                              className="text-content"
+                              style={{ whiteSpace: 'pre-wrap', height: '100%', overflowY: 'auto', padding: '1rem', fontFamily: 'monospace' }}
+                            >
+                              {stitchedContent}
+                            </div>
+                          </div>
+                        ) : dossierIdForReader ? (
+                          <DossierReader
+                            dossierId={dossierIdForReader}
+                            dossierTitle={selectedResult.result?.metadata?.dossier_title || 'Dossier'}
+                          />
+                        ) : (
+                          <div className="text-content-wrapper">
+                            <div
+                              className="text-content"
+                              style={{ whiteSpace: 'pre-wrap', height: '100%', overflowY: 'auto', padding: '1rem', fontFamily: 'monospace' }}
+                            >
+                              No dossier selected.
+                            </div>
+                          </div>
+                        )
                       ) : showHeatmap && alignmentResult ? (
                         <ConfidenceHeatmapViewer
                           alignmentResult={alignmentResult}

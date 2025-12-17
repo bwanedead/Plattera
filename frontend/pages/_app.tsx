@@ -7,6 +7,8 @@ import 'allotment/dist/style.css';      // Global split-pane styling (Allotment)
 import '../src/components/mapping/CleanMap.css'  // Map overlay/loading CSS (global)
 import '../src/components/visualization/backgrounds/CleanMapBackground.css' // Background placeholders
 import '../src/styles/components/loaders.css' // Any global loaders referenced by components
+import { BackendStatusBanner } from '../src/components/system/BackendStatusBanner'
+import { PLSSDownloadBanner } from '../src/components/plss/PLSSDownloadBanner'
 import { ToastProvider } from '../src/components/ui/ToastProvider'
 import { ApiKeyModal } from '../src/components/ApiKeyModal'
 import { LogsButton } from '../src/components/logs/LogsButton'
@@ -191,6 +193,8 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <ToastProvider>
       <div className="App">
+        <BackendStatusBanner />
+        <PLSSDownloadBanner />
         <main>
           <Component {...pageProps} />
           <ApiKeyModal open={showKeyModal} onClose={() => setShowKeyModal(false)} onSaved={() => location.reload()} />
