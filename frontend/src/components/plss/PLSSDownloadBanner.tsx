@@ -9,12 +9,12 @@ import { plssDataService } from '../../services/plss';
  * in progress, so users can keep working while being aware of the job.
  */
 export const PLSSDownloadBanner: React.FC = () => {
-  const { active, state, stage, percent, text } = usePlssDownloadMonitor();
+  const { active, state, ui } = usePlssDownloadMonitor();
 
-  if (!active || !state) return null;
+  if (!active || !state || !ui) return null;
 
-  const label = text || stage || 'Downloading PLSS data...';
-  const pct = typeof percent === 'number' ? `${percent}%` : '';
+  const label = ui.detail || 'Downloading PLSS data...';
+  const pct = ui.showPercent && typeof ui.percent === 'number' ? `${ui.percent}%` : '';
 
   const handleStop = async () => {
     try {
@@ -28,9 +28,11 @@ export const PLSSDownloadBanner: React.FC = () => {
     <div
       style={{
         position: 'fixed',
-        bottom: 8,
-        left: 8,
-        right: 8,
+        bottom: 16,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        maxWidth: 520,
+        width: 'calc(100vw - 32px)',
         zIndex: 5000,
         display: 'flex',
         alignItems: 'center',
@@ -43,7 +45,7 @@ export const PLSSDownloadBanner: React.FC = () => {
         pointerEvents: 'auto',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', flex: 1, minWidth: 0 }}>
         <span
           style={{
             width: 8,
@@ -52,13 +54,13 @@ export const PLSSDownloadBanner: React.FC = () => {
             background: '#38bdf8',
           }}
         />
-        <span>
-          Downloading PLSS for <strong>{state}</strong>
+        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {ui.headline || 'Downloading PLSS data…'} for <strong>{state}</strong>
           {pct && <> — {pct}</>}
+          {label && <> ({label})</>}
         </span>
-        {label && <span style={{ opacity: 0.8 }}>({label})</span>}
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
         <button
           className="plss-btn small"
           onClick={handleStop}

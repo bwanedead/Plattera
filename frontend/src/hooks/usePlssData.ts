@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from 'react';
 import { plssDataService, PLSSDataState } from '../services/plss';
+import { presentPlssProgress, PlssUiProgress } from '../services/plss/progressPresenter';
 
 // Extend the state to include modal dismissal
 interface ExtendedPLSSDataState extends PLSSDataState {
@@ -13,6 +14,7 @@ interface ExtendedPLSSDataState extends PLSSDataState {
   parquetPhase?: boolean;
   parquetStatus?: string | null;
   estimatedTime?: string | null;
+  uiProgress?: PlssUiProgress;
 }
 
 export function usePLSSData(schemaData: any) {
@@ -26,6 +28,7 @@ export function usePLSSData(schemaData: any) {
     parquetPhase: false,
     parquetStatus: null,
     estimatedTime: null,
+    uiProgress: undefined,
   });
 
   // Extract polling logic into a reusable function
@@ -42,35 +45,45 @@ export function usePLSSData(schemaData: any) {
       }
       const stage = p.stage || 'working';
       const overall = p.overall || { downloaded: 0, total: 0, percent: 0 };
+      const ui = presentPlssProgress({
+        stage: p.stage,
+        overall: p.overall,
+        status: (p as any).status,
+        estimated_time: (p as any).estimated_time,
+        final_phase: (p as any).final_phase,
+      });
       
       // Detect parquet building phase for better UI
       if (stage === 'building:parquet') {
         setState(prev => ({
           ...prev,
           status: 'downloading',
-          progress: `${stage} ${overall.percent || 0}%`,
+          progress: ui.headline,
           parquetPhase: true,
-          parquetStatus: (p as any).status || 'Building parquet files...',
+          parquetStatus: ui.detail || (p as any).status || 'Building parquet files...',
           estimatedTime: (p as any).estimated_time || '15-20 minutes',
+          uiProgress: ui,
         }));
       } else if (stage === 'building:index' || stage === 'writing:manifest') {
         // Final phase - no percentage, just completion message
         setState(prev => ({
           ...prev,
           status: 'downloading',
-          progress: 'Finishing up...',
+          progress: ui.headline || 'Finalizing PLSS data…',
           parquetPhase: true,
-          parquetStatus: (p as any).status || 'Finalizing installation...',
-          estimatedTime: 'Almost done',
+          parquetStatus: ui.detail || (p as any).status || 'Finalizing installation...',
+          estimatedTime: (p as any).estimated_time || 'Almost done',
+          uiProgress: ui,
         }));
       } else {
         setState(prev => ({
           ...prev,
           status: 'downloading',
-          progress: `${stage} ${overall.percent || 0}%`,
+          progress: ui.headline || `${stage} ${overall.percent || 0}%`,
           parquetPhase: false,
           parquetStatus: null,
           estimatedTime: null,
+          uiProgress: ui,
         }));
       }
       
@@ -84,6 +97,7 @@ export function usePLSSData(schemaData: any) {
           parquetPhase: false,
           parquetStatus: null,
           estimatedTime: null,
+          uiProgress: ui,
         }));
         return;
       }

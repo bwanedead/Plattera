@@ -13,6 +13,11 @@ interface PLSSDownloadModalProps {
   parquetPhase?: boolean;
   parquetStatus?: string | null;
   estimatedTime?: string | null;
+  // Structured progress (preferred over parsing progressText)
+  progressPercent?: number | null;
+  progressBar?: 'determinate' | 'indeterminate' | 'none';
+  progressHeadline?: string | null;
+  progressDetail?: string | null;
 }
 
 /**
@@ -30,7 +35,11 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
   onHardCancel,
   parquetPhase,
   parquetStatus,
-  estimatedTime
+  estimatedTime,
+  progressPercent,
+  progressBar,
+  progressHeadline,
+  progressDetail,
 }) => {
   if (!isOpen) return null;
 
@@ -79,11 +88,14 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
                   className="plss-progress-fill"
                   style={{
                     height: 6,
-                    width: `${(() => {
-                      const m = /([0-9]{1,3})%/.exec(progressText || '')?.[1];
-                      const p = m ? parseInt(m, 10) : 0;
-                      return Math.max(0, Math.min(p, 100));
-                    })()}%`,
+                    width: (() => {
+                      if (progressBar === 'determinate' && typeof progressPercent === 'number') {
+                        const clamped = Math.max(0, Math.min(progressPercent, 100));
+                        return `${clamped}%`;
+                      }
+                      // Indeterminate: show a subtle partial bar
+                      return progressBar === 'indeterminate' ? '40%' : '0%';
+                    })(),
                     background: 'linear-gradient(90deg, #6ee7ff, #7c3aed)',
                     borderRadius: 4,
                     transition: 'width 300ms ease'
@@ -91,7 +103,7 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
                 />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#aaa', marginTop: 6 }}>
-                <span>{parquetStatus || 'Building parquet files...'}</span>
+                <span>{progressDetail || parquetStatus || 'Building parquet files...'}</span>
                 <span>Est: {estimatedTime || '15-20 minutes'}</span>
               </div>
             </div>
@@ -132,7 +144,7 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
             {isDownloading ? (
               <>
                 <div className="plss-spinner"></div>
-                {progressText || 'Downloading...'}
+                {progressHeadline || progressText || 'Downloading...'}
               </>
             ) : (
               'Download'
@@ -147,11 +159,13 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
                 className="plss-progress-fill"
                 style={{
                   height: 6,
-                  width: `${(() => {
-                    const m = /([0-9]{1,3})%/.exec(progressText || '')?.[1];
-                    const p = m ? parseInt(m, 10) : 0;
-                    return Math.max(0, Math.min(p, 100));
-                  })()}%`,
+                  width: (() => {
+                    if (progressBar === 'determinate' && typeof progressPercent === 'number') {
+                      const clamped = Math.max(0, Math.min(progressPercent, 100));
+                      return `${clamped}%`;
+                    }
+                    return progressBar === 'indeterminate' ? '40%' : '0%';
+                  })(),
                   background: 'linear-gradient(90deg, #6ee7ff, #7c3aed)',
                   borderRadius: 4,
                   transition: 'width 300ms ease'
@@ -159,7 +173,7 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
               />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#aaa', marginTop: 6 }}>
-              <span>{progressText || 'Preparing...'}</span>
+              <span>{progressHeadline || progressText || 'Preparing...'}</span>
               {onHardCancel && (
                 <button
                   className="plss-btn small"

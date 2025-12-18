@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { plssDataService } from '../services/plss';
+import { presentPlssProgress, PlssUiProgress } from '../services/plss/progressPresenter';
 
 export interface PlssDownloadState {
   active: boolean;
@@ -7,6 +8,7 @@ export interface PlssDownloadState {
   stage: string | null;
   percent: number | null;
   text: string | null;
+  ui?: PlssUiProgress;
 }
 
 /**
@@ -23,6 +25,7 @@ export function usePlssDownloadMonitor(): PlssDownloadState {
     stage: null,
     percent: null,
     text: null,
+    ui: undefined,
   });
 
   useEffect(() => {
@@ -58,6 +61,13 @@ export function usePlssDownloadMonitor(): PlssDownloadState {
               const overall = progress.overall || { percent: 0 };
               const stage = progress.stage || status.stage || 'working';
               const text = (progress as any).status || stage || null;
+              const ui = presentPlssProgress({
+                stage: progress.stage,
+                overall: progress.overall,
+                status: (progress as any).status,
+                estimated_time: (progress as any).estimated_time,
+                final_phase: (progress as any).final_phase,
+              });
 
               if (!cancelled) {
                 setDownload({
@@ -66,6 +76,7 @@ export function usePlssDownloadMonitor(): PlssDownloadState {
                   stage,
                   percent: typeof overall.percent === 'number' ? overall.percent : null,
                   text,
+                  ui,
                 });
               }
             } else {
@@ -73,6 +84,13 @@ export function usePlssDownloadMonitor(): PlssDownloadState {
               const progress = await plssDataService.getDownloadProgress(lastState);
               const stage = progress.stage || 'idle';
               const overall = progress.overall || { percent: 0 };
+              const ui = presentPlssProgress({
+                stage: progress.stage,
+                overall: progress.overall,
+                status: (progress as any).status,
+                estimated_time: (progress as any).estimated_time,
+                final_phase: (progress as any).final_phase,
+              });
 
               const isTerminal =
                 stage === 'complete' ||
@@ -87,6 +105,7 @@ export function usePlssDownloadMonitor(): PlssDownloadState {
                   stage: stage,
                   percent: typeof overall.percent === 'number' ? overall.percent : null,
                   text: (progress as any).status || stage || null,
+                  ui,
                 }));
               }
 
