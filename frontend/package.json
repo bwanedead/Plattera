@@ -1,6 +1,6 @@
 {
   "name": "plattera-frontend",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "license": "MIT",
   "private": true,
   "dependencies": {
