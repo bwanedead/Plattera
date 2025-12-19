@@ -156,13 +156,25 @@ export const ContainerOverlayControls: React.FC<ContainerOverlayControlsProps> =
               size="small"
               type="overlay"
             />
-            <ToggleCheckbox
-              checked={overlayState.showSubdivisionLabels}
-              onChange={() => handleToggle('showSubdivisionLabels')}
-              id="subdivision-labels-toggle"
-              size="small"
-              type="label"
-            />
+            {/* Subdivision labels intentionally disabled – leave visible but inert */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                opacity: 0.4,
+                cursor: 'not-allowed',
+              }}
+              title="Disabled because it was useless"
+            >
+              <ToggleCheckbox
+                checked={false}
+                // No-op: labels for subdivisions are permanently disabled
+                onChange={() => {}}
+                id="subdivision-labels-toggle"
+                size="small"
+                type="label"
+              />
+            </div>
           </div>
         </div>
       </div>

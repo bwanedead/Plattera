@@ -41,6 +41,12 @@ export const useContainerOverlayState = () => {
   const toggleOverlay = useCallback((key: keyof ContainerOverlayState) => {
     setOverlayState(prev => {
       const newState = { ...prev };
+      // Subdivision labels are permanently disabled; never allow them to be true
+      if (key === 'showSubdivisionLabels') {
+        newState.showSubdivisionLabels = false;
+        return newState;
+      }
+
       newState[key] = !newState[key];
       
       // REMOVED: No automatic switching to grid when both township and range are on
@@ -53,6 +59,12 @@ export const useContainerOverlayState = () => {
   const setOverlay = useCallback((key: keyof ContainerOverlayState, value: boolean) => {
     setOverlayState(prev => {
       const newState = { ...prev };
+      // Subdivision labels are permanently disabled; ignore attempts to enable
+      if (key === 'showSubdivisionLabels') {
+        newState.showSubdivisionLabels = false;
+        return newState;
+      }
+
       newState[key] = value;
       
       // No automatic switching - let each overlay be set independently

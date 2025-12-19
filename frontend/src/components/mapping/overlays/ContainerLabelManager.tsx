@@ -716,14 +716,37 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
       const ids = features
         .map((f: any) => String(f.id || f.properties?.id || ''))
         .join('|');
-      // include showSectionLabels so toggling that flag properly refreshes labels
-      const sectionFlag = options?.showSectionLabels ? '1' : '0';
-      return `${sectionFlag}:${features.length}:${ids}`;
+      // Include all label toggles so any label visibility change
+      // properly refreshes labels.
+      const optionsKey = [
+        options?.showGridLabels ? '1' : '0',
+        options?.showTownshipLabels ? '1' : '0',
+        options?.showRangeLabels ? '1' : '0',
+        options?.showSectionLabels ? '1' : '0',
+        options?.showQuarterSectionLabels ? '1' : '0',
+        options?.showSubdivisionLabels ? '1' : '0',
+      ].join('');
+      return `${optionsKey}:${features.length}:${ids}`;
     } catch {
-      const sectionFlag = options?.showSectionLabels ? '1' : '0';
-      return `${sectionFlag}:${features.length}`;
+      const optionsKey = [
+        options?.showGridLabels ? '1' : '0',
+        options?.showTownshipLabels ? '1' : '0',
+        options?.showRangeLabels ? '1' : '0',
+        options?.showSectionLabels ? '1' : '0',
+        options?.showQuarterSectionLabels ? '1' : '0',
+        options?.showSubdivisionLabels ? '1' : '0',
+      ].join('');
+      return `${optionsKey}:${features.length}`;
     }
-  }, [features, options?.showSectionLabels]);
+  }, [
+    features,
+    options?.showGridLabels,
+    options?.showTownshipLabels,
+    options?.showRangeLabels,
+    options?.showSectionLabels,
+    options?.showQuarterSectionLabels,
+    options?.showSubdivisionLabels,
+  ]);
 
   // 🎯 PANEL OVERLAP DETECTION
   const isPanelOverlap = useCallback((point: { x: number; y: number }): boolean => {
@@ -794,9 +817,8 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
            break;
 
          case 'subdivisions':
-          if (options.showSubdivisionLabels) {
-            featureLabels = generateSubdivisionLabels(feature);
-          }
+          // Subdivision labels are intentionally disabled – we never
+          // generate them, even if stale state says otherwise.
           break;
         default:
           console.warn(`Unknown layer type: ${layerType}`);
@@ -985,7 +1007,9 @@ export const ContainerLabelManager: React.FC<ContainerLabelManagerProps> = ({
     const labelFeatures = generateLabels();
 
     if (labelFeatures.length === 0) {
-      console.log('No labels generated, skipping render');
+      console.log('No labels generated, performing cleanup and skipping render');
+      // Ensure any existing labels are removed when all toggles are off.
+      cleanupLabels();
       return;
     }
 
