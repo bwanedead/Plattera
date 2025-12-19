@@ -44,6 +44,7 @@ export function usePLSSData(schemaData: any) {
         return;
       }
       const stage = p.stage || 'working';
+      const stageNorm = String(stage).toLowerCase();
       const overall = p.overall || { downloaded: 0, total: 0, percent: 0 };
       const ui = presentPlssProgress({
         stage: p.stage,
@@ -53,8 +54,9 @@ export function usePLSSData(schemaData: any) {
         final_phase: (p as any).final_phase,
       });
       
-      // Detect parquet building phase for better UI
-      if (stage === 'building:parquet') {
+      // Detect parquet building phase for better UI; keep full stage
+      // resolution (e.g. "building:parquet:townships").
+      if (stageNorm.startsWith('building:parquet')) {
         setState(prev => ({
           ...prev,
           status: 'downloading',
@@ -64,7 +66,7 @@ export function usePLSSData(schemaData: any) {
           estimatedTime: (p as any).estimated_time || '15-20 minutes',
           uiProgress: ui,
         }));
-      } else if (stage === 'building:index' || stage === 'writing:manifest') {
+      } else if (stageNorm === 'building:index' || stageNorm === 'writing:manifest') {
         // Final phase - no percentage, just completion message
         setState(prev => ({
           ...prev,
@@ -87,7 +89,7 @@ export function usePLSSData(schemaData: any) {
         }));
       }
       
-      if (stage === 'canceled') {
+      if (stageNorm === 'canceled') {
         console.error('🧭 [PLSS] download stage=canceled', { state: plssState });
         setState(prev => ({
           ...prev,
@@ -102,7 +104,7 @@ export function usePLSSData(schemaData: any) {
         return;
       }
       
-      if (stage === 'complete') {
+      if (stageNorm === 'complete') {
         break;
       }
       

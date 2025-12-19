@@ -36,6 +36,7 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
     estimatedTime,
     parquetStatus,
     modalDismissed,
+    uiProgress,
   } = usePLSSData(schemaData);
 
   // Handle Cancel: mark modal dismissed and let parent leave map/hybrid view
@@ -72,6 +73,11 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
         parquetPhase={parquetPhase}
         estimatedTime={estimatedTime}
         parquetStatus={parquetStatus}
+        progressPercent={uiProgress?.percent ?? null}
+        progressBar={uiProgress?.progressBar ?? (isDownloading ? 'indeterminate' : 'none')}
+        progressHeadline={uiProgress?.headline ?? null}
+        progressDetail={uiProgress?.detail ?? null}
+        progressRawStage={uiProgress?.rawStage ?? null}
       />
     );
   }

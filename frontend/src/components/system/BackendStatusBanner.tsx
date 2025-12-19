@@ -14,6 +14,14 @@ export const BackendStatusBanner: React.FC = () => {
   const [dismissed, setDismissed] = useState(false);
   const [visible, setVisible] = useState(true);
 
+  // Optional diagnostics flag so we can still enable the heavier
+  // polygon tracer animation explicitly during UI investigations
+  // without shipping it by default in normal EXE builds.
+  const DIAGNOSTIC_ANIMATIONS =
+    typeof process !== 'undefined' &&
+    (process as any).env &&
+    (process as any).env.NEXT_PUBLIC_DIAGNOSTIC_ANIMATIONS === 'true';
+
   // Restore session-level dismissal
   useEffect(() => {
     try {
@@ -80,7 +88,7 @@ export const BackendStatusBanner: React.FC = () => {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {!ready && (
+        {!ready && DIAGNOSTIC_ANIMATIONS && (
           <div style={{ width: 20, height: 20, pointerEvents: 'none' }}>
             <ParcelTracerLoader />
           </div>

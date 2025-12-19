@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 interface PLSSDownloadModalProps {
   isOpen: boolean;
   state: string;
-  onDownload: () => void;
+  onDownload?: () => void;
   onCancel: () => void;
   isDownloading: boolean;
   progressText?: string | null;
@@ -18,11 +18,12 @@ interface PLSSDownloadModalProps {
   progressBar?: 'determinate' | 'indeterminate' | 'none';
   progressHeadline?: string | null;
   progressDetail?: string | null;
+  progressRawStage?: string | null;
 }
 
 /**
  * PLSS Download Confirmation Modal
- * 
+ *
  * Clean, minimal modal for PLSS data download confirmation.
  */
 export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
@@ -40,6 +41,7 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
   progressBar,
   progressHeadline,
   progressDetail,
+  progressRawStage,
 }) => {
   if (!isOpen) return null;
 
@@ -69,41 +71,66 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
     }
   };
 
+  const effectiveProgressBar: 'determinate' | 'indeterminate' | 'none' =
+    progressBar || (isDownloading ? 'indeterminate' : 'none');
+
+  const computeWidth = () => {
+    if (effectiveProgressBar === 'determinate' && typeof progressPercent === 'number') {
+      const clamped = Math.max(0, Math.min(progressPercent, 100));
+      return `${clamped}%`;
+    }
+    return effectiveProgressBar === 'indeterminate' ? '40%' : '0%';
+  };
+
+  const parquetDetail =
+    progressDetail ||
+    parquetStatus ||
+    progressRawStage ||
+    'Building high-performance parquet files for: Townships, Sections, Quarter Sections.';
+
   return createPortal(
     <div className="plss-modal-overlay" onClick={handleDismiss}>
       <div className="plss-modal-content" onClick={(e) => e.stopPropagation()}>
         {parquetPhase ? (
           <div className="plss-modal-message">
             <p>
-              🔧 Finalizing PLSS data for <strong>{state}</strong>.
+              {progressHeadline ? (
+                progressHeadline
+              ) : (
+                <>
+                  🔧 Finalizing PLSS data for <strong>{state}</strong>.
+                </>
+              )}
             </p>
-            <p className="plss-modal-details">
-              Building high-performance parquet files for: Townships, Sections, Quarter Sections.
-            </p>
-            
-            {/* Progress bar for parquet building */}
+            <p className="plss-modal-details">{parquetDetail}</p>
+
+            {/* Progress bar for parquet building / finalization */}
             <div className="plss-progress-bar" style={{ marginTop: 12 }}>
-              <div className="plss-progress-track" style={{ height: 6, background: '#222', borderRadius: 4 }}>
+              <div
+                className="plss-progress-track"
+                style={{ height: 6, background: '#222', borderRadius: 4 }}
+              >
                 <div
                   className="plss-progress-fill"
                   style={{
                     height: 6,
-                    width: (() => {
-                      if (progressBar === 'determinate' && typeof progressPercent === 'number') {
-                        const clamped = Math.max(0, Math.min(progressPercent, 100));
-                        return `${clamped}%`;
-                      }
-                      // Indeterminate: show a subtle partial bar
-                      return progressBar === 'indeterminate' ? '40%' : '0%';
-                    })(),
+                    width: computeWidth(),
                     background: 'linear-gradient(90deg, #6ee7ff, #7c3aed)',
                     borderRadius: 4,
-                    transition: 'width 300ms ease'
+                    transition: 'width 300ms ease',
                   }}
                 />
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#aaa', marginTop: 6 }}>
-                <span>{progressDetail || parquetStatus || 'Building parquet files...'}</span>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: 11,
+                  color: '#aaa',
+                  marginTop: 6,
+                }}
+              >
+                <span>{parquetDetail}</span>
                 <span>Est: {estimatedTime || '15-20 minutes'}</span>
               </div>
             </div>
@@ -111,10 +138,17 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
         ) : isDownloading ? (
           <div className="plss-modal-message">
             <p>
-              Downloading PLSS data for <strong>{state}</strong>…
+              {progressHeadline ? (
+                progressHeadline
+              ) : (
+                <>
+                  Downloading PLSS data for <strong>{state}</strong>…
+                </>
+              )}
             </p>
             <p className="plss-modal-details">
-              This may take several minutes. You can cancel if needed; a future download will start from a clean state.
+              This may take several minutes. You can cancel if needed; a future download will start
+              from a clean state.
             </p>
           </div>
         ) : (
@@ -123,23 +157,20 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
               Need to download PLSS data for <strong>{state}</strong> from BLM.
             </p>
             <p className="plss-modal-details">
-              This will download Wyoming PLSS bulk data (Townships, Sections, Subdivisions) for offline use.
-              Download size: ~252 MB; Installed size: ~484 MB on disk after install.
+              This will download Wyoming PLSS bulk data (Townships, Sections, Subdivisions) for
+              offline use. Download size: ~252 MB; Installed size: ~484 MB on disk after install.
             </p>
           </div>
         )}
-        
+
         <div className="plss-modal-actions">
-          <button 
-            className="plss-btn plss-btn-cancel" 
-            onClick={handleDismiss}
-          >
+          <button className="plss-btn plss-btn-cancel" onClick={handleDismiss}>
             Close
           </button>
-          <button 
-            className="plss-btn plss-btn-download" 
+          <button
+            className="plss-btn plss-btn-download"
             onClick={onDownload}
-            disabled={isDownloading}
+            disabled={isDownloading || !onDownload}
           >
             {isDownloading ? (
               <>
@@ -154,25 +185,30 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
 
         {isDownloading && !parquetPhase && (
           <div className="plss-progress-bar" style={{ marginTop: 12 }}>
-            <div className="plss-progress-track" style={{ height: 6, background: '#222', borderRadius: 4 }}>
+            <div
+              className="plss-progress-track"
+              style={{ height: 6, background: '#222', borderRadius: 4 }}
+            >
               <div
                 className="plss-progress-fill"
                 style={{
                   height: 6,
-                  width: (() => {
-                    if (progressBar === 'determinate' && typeof progressPercent === 'number') {
-                      const clamped = Math.max(0, Math.min(progressPercent, 100));
-                      return `${clamped}%`;
-                    }
-                    return progressBar === 'indeterminate' ? '40%' : '0%';
-                  })(),
+                  width: computeWidth(),
                   background: 'linear-gradient(90deg, #6ee7ff, #7c3aed)',
                   borderRadius: 4,
-                  transition: 'width 300ms ease'
+                  transition: 'width 300ms ease',
                 }}
               />
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#aaa', marginTop: 6 }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: 11,
+                color: '#aaa',
+                marginTop: 6,
+              }}
+            >
               <span>{progressHeadline || progressText || 'Preparing...'}</span>
               {onHardCancel && (
                 <button
@@ -188,6 +224,7 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
         )}
       </div>
     </div>,
-    document.body
+    document.body,
   );
 };
+

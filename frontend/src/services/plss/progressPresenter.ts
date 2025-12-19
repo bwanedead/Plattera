@@ -15,6 +15,11 @@ export interface PlssUiProgress {
   percent?: number | null;
   showPercent: boolean;
   progressBar: 'determinate' | 'indeterminate' | 'none';
+  /**
+   * Exact backend stage string, preserved for diagnostics and any
+   * high‑fidelity UI that wants to surface the raw value.
+   */
+  rawStage?: string | null;
 }
 
 interface RawProgress {
@@ -25,8 +30,14 @@ interface RawProgress {
   final_phase?: boolean;
 }
 
-export function presentPlssProgress(raw: RawProgress | null | undefined): PlssUiProgress {
-  const stage = (raw?.stage || '').toLowerCase();
+export function presentPlssProgress(
+  raw: RawProgress | null | undefined,
+): PlssUiProgress {
+  const rawStage = raw?.stage ?? null;
+  const stageNormalized = (rawStage || '').toLowerCase();
+  const stageParts = stageNormalized.split(':').filter(Boolean);
+  const [p1, p2, p3] = stageParts;
+
   const overallPercent =
     typeof raw?.overall?.percent === 'number' ? raw!.overall!.percent : null;
   const status = raw?.status ?? null;
@@ -41,36 +52,94 @@ export function presentPlssProgress(raw: RawProgress | null | undefined): PlssUi
     showPercent: typeof overallPercent === 'number',
     progressBar:
       typeof overallPercent === 'number' ? 'determinate' : 'indeterminate',
+    rawStage,
   };
 
-  // Normalize stage name families like "downloading:foo"
-  const baseStage = stage.split(':')[0] || '';
+  // Helper to prettify dataset labels from stage fragments.
+  const formatDatasetLabel = (rawPart?: string): string => {
+    switch (rawPart) {
+      case 'townships':
+        return 'townships';
+      case 'sections':
+        return 'sections';
+      case 'quarter_sections':
+      case 'quarter-sections':
+      case 'quartersections':
+        return 'quarter sections';
+      case 'subdivisions':
+        return 'subdivisions';
+      default:
+        return 'PLSS data';
+    }
+  };
 
-  switch (baseStage) {
+  // Fallback prettifier for unknown stages – keeps fidelity while
+  // avoiding raw colon/underscore noise in the primary headline.
+  const prettifyStageHeadline = (stageString: string): string => {
+    const cleaned = stageString
+      .replace(/:/g, ' › ')
+      .replace(/[_-]+/g, ' ')
+      .trim();
+    if (!cleaned) return 'Preparing PLSS data…';
+
+    return cleaned
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  };
+
+  // High‑fidelity stage handling. We preserve full stage identity
+  // (e.g., "downloading:sections", "building:parquet:subdivisions")
+  // and map to polished but specific headlines.
+  switch (p1) {
     case 'initializing':
-    case 'processing':
-    case 'downloading': {
+    case 'processing': {
       return {
         ...base,
         phase: 'downloading',
-        headline: 'Downloading PLSS data…',
+        headline: 'Preparing PLSS download…',
         progressBar:
           typeof overallPercent === 'number' ? 'determinate' : 'indeterminate',
       };
     }
+
+    case 'downloading': {
+      const dataset = formatDatasetLabel(p2);
+      return {
+        ...base,
+        phase: 'downloading',
+        headline: `Downloading ${dataset}…`,
+        progressBar:
+          typeof overallPercent === 'number' ? 'determinate' : 'indeterminate',
+      };
+    }
+
     case 'building': {
-      if (stage === 'building:parquet') {
+      if (p2 === 'parquet') {
+        const dataset = formatDatasetLabel(p3);
         return {
           ...base,
           phase: 'building_parquet',
-          headline: 'Building PLSS parquet data…',
+          headline: `Building ${dataset} parquet…`,
           progressBar:
             typeof overallPercent === 'number'
               ? 'determinate'
               : 'indeterminate',
         };
       }
-      // building:index → treat as finalizing
+
+      if (p2 === 'index') {
+        return {
+          ...base,
+          phase: 'finalizing',
+          headline: 'Building PLSS index…',
+          percent: null,
+          showPercent: false,
+          progressBar: 'indeterminate',
+        };
+      }
+
+      // Other building stages → generic finalizing
       return {
         ...base,
         phase: 'finalizing',
@@ -80,8 +149,19 @@ export function presentPlssProgress(raw: RawProgress | null | undefined): PlssUi
         progressBar: 'indeterminate',
       };
     }
+
     case 'writing': {
-      // writing:manifest → finalizing, no percent
+      if (p2 === 'manifest') {
+        return {
+          ...base,
+          phase: 'finalizing',
+          headline: 'Writing PLSS manifest…',
+          percent: null,
+          showPercent: false,
+          progressBar: 'indeterminate',
+        };
+      }
+
       return {
         ...base,
         phase: 'finalizing',
@@ -91,6 +171,7 @@ export function presentPlssProgress(raw: RawProgress | null | undefined): PlssUi
         progressBar: 'indeterminate',
       };
     }
+
     case 'complete': {
       return {
         ...base,
@@ -101,6 +182,7 @@ export function presentPlssProgress(raw: RawProgress | null | undefined): PlssUi
         progressBar: 'none',
       };
     }
+
     case 'canceled': {
       return {
         ...base,
@@ -110,6 +192,7 @@ export function presentPlssProgress(raw: RawProgress | null | undefined): PlssUi
         progressBar: 'none',
       };
     }
+
     case 'idle': {
       return {
         ...base,
@@ -119,6 +202,7 @@ export function presentPlssProgress(raw: RawProgress | null | undefined): PlssUi
         progressBar: 'none',
       };
     }
+
     default: {
       if (finalPhase) {
         return {
@@ -130,6 +214,14 @@ export function presentPlssProgress(raw: RawProgress | null | undefined): PlssUi
           progressBar: 'indeterminate',
         };
       }
+
+      if (rawStage) {
+        return {
+          ...base,
+          headline: prettifyStageHeadline(rawStage),
+        };
+      }
+
       return base;
     }
   }

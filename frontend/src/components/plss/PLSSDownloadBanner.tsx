@@ -13,7 +13,7 @@ export const PLSSDownloadBanner: React.FC = () => {
 
   if (!active || !state || !ui) return null;
 
-  const label = ui.detail || 'Downloading PLSS data...';
+  const label = ui.detail || ui.rawStage || 'Downloading PLSS data...';
   const pct = ui.showPercent && typeof ui.percent === 'number' ? `${ui.percent}%` : '';
 
   const handleStop = async () => {
@@ -45,7 +45,7 @@ export const PLSSDownloadBanner: React.FC = () => {
         pointerEvents: 'auto',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', flex: 1, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
         <span
           style={{
             width: 8,
@@ -54,11 +54,28 @@ export const PLSSDownloadBanner: React.FC = () => {
             background: '#38bdf8',
           }}
         />
-        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {ui.headline || 'Downloading PLSS data…'} for <strong>{state}</strong>
-          {pct && <> — {pct}</>}
-          {label && <> ({label})</>}
-        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          {/* Primary line: stage + percent, never ellipsized */}
+          <div style={{ whiteSpace: 'nowrap' }}>
+            {ui.headline || 'Downloading PLSS data…'} for <strong>{state}</strong>
+            {pct && <> — {pct}</>}
+          </div>
+          {/* Secondary line: detail/status, ellipsized if long */}
+          {label && (
+            <div
+              style={{
+                fontSize: 11,
+                color: '#9ca3af',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                marginTop: 2,
+              }}
+            >
+              {label}
+            </div>
+          )}
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
         <button

@@ -17,6 +17,9 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
   const [renameTarget, setRenameTarget] = useState<{ schemaId: string; dossierId: string; title: string } | null>(null);
   const [renameValue, setRenameValue] = useState<string>('');
   const [renameBusy, setRenameBusy] = useState(false);
+  // Distinguish between a "soft" selection (row focus) and the schema
+  // that is actually loaded into the Results Viewer via View/v1/v2.
+  const [activeSchemaId, setActiveSchemaId] = useState<string | null>(null);
 
   // Track optimistic/pending schemas created on the frontend (e.g., direct-text runs)
   const [pending, setPending] = useState<
@@ -83,12 +86,12 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
     return groups;
   }, [state.items, metaById]);
 
-  const handleSelect = useCallback(async (schemaId: string) => {
+  // Local selection helper: only updates the manager's selected id.
+  // All data-loading is driven explicitly via onSelectionChange so we
+  // don't accidentally emit conflicting dossier/schema pairs.
+  const handleSelect = useCallback((schemaId: string) => {
     mgr.selectSchema(schemaId);
-    if (dossierId && onSelectionChange) {
-      onSelectionChange({ schema_id: schemaId, dossier_id: dossierId });
-    }
-  }, [mgr, dossierId, onSelectionChange]);
+  }, [mgr]);
 
   return (
     <div className={`schema-manager ${className}`} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -160,20 +163,52 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
       const item = group.representative;
       const v1 = group.v1 || null;
       const v2 = group.v2 || null;
-      const isSelected =
+
+      // Soft selection follows the schema manager's internal selection
+      // (row focus when the user clicks a card).
+      const isSoftSelected =
         !!state.selectedSchemaId &&
         (state.selectedSchemaId === (v1 && v1.schema_id) ||
-          state.selectedSchemaId === (v2 && v2.schema_id));
+          state.selectedSchemaId === (v2 && v2.schema_id) ||
+          (!v1 && !v2 && state.selectedSchemaId === item.schema_id));
+
+      // Hard selection marks the schema whose contents are currently
+      // occupying the Results Viewer (driven by View / v1 / v2).
+      const isHardSelected =
+        !!activeSchemaId &&
+        (activeSchemaId === (v1 && v1.schema_id) ||
+          activeSchemaId === (v2 && v2.schema_id) ||
+          (!v1 && !v2 && activeSchemaId === item.schema_id));
+
+      // Visual styling:
+      // - Hard selected: revert to the previous, more subtle dark
+      //   background with a left blue accent.
+      // - Soft selected: keep background transparent but add a gentle
+      //   blue glow around the edges so focus is visible without
+      //   competing with the hard-selected state.
+      const rowBackground = isHardSelected ? '#1f2937' : 'transparent';
+      const rowBoxShadow =
+        !isHardSelected && isSoftSelected ? '0 0 0 1px rgba(59,130,246,0.4)' : 'none';
+
       return (
         <div
           key={group.rootId}
-          onClick={() => handleSelect(v1?.schema_id || item.schema_id)}
-          className={`schema-list-item ${isSelected ? 'selected' : ''}`}
+          onClick={() => {
+            // Row click = soft-select only. It updates which schema is
+            // "focused" in the list but does not change the Results
+            // Viewer until View/v1/v2 is used.
+            const targetSchemaId = v1?.schema_id || item.schema_id;
+            if (!targetSchemaId) return;
+            handleSelect(targetSchemaId);
+          }}
+          className="schema-list-item"
           style={{
             padding: '8px 10px',
             cursor: 'pointer',
-            background: isSelected ? '#1f2937' : 'transparent',
+            background: rowBackground,
+            borderLeft: isHardSelected ? '3px solid #3b82f6' : '3px solid transparent',
             borderBottom: '1px solid #2d2d2d',
+            boxShadow: rowBoxShadow,
             position: 'relative'
           }}
           title={group.rootId}
@@ -196,17 +231,18 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
                         padding: '2px 6px',
                         borderRadius: 10,
                         backgroundColor:
-                          state.selectedSchemaId === v1.schema_id ? '#3b82f6' : undefined,
+                          activeSchemaId === v1.schema_id ? '#3b82f6' : undefined,
                         color:
-                          state.selectedSchemaId === v1.schema_id ? '#fff' : undefined,
+                          activeSchemaId === v1.schema_id ? '#fff' : undefined,
                         border:
-                          state.selectedSchemaId === v1.schema_id
+                          activeSchemaId === v1.schema_id
                             ? '1px solid #2563eb'
                             : undefined,
                       }}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleSelect(v1.schema_id);
+                        setActiveSchemaId(v1.schema_id);
                         onSelectionChange?.({
                           schema_id: v1.schema_id,
                           dossier_id: v1.dossier_id,
@@ -224,11 +260,11 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
                       padding: '2px 6px',
                       borderRadius: 10,
                       backgroundColor:
-                        state.selectedSchemaId === v2.schema_id ? '#3b82f6' : undefined,
+                        activeSchemaId === v2.schema_id ? '#3b82f6' : undefined,
                       color:
-                        state.selectedSchemaId === v2.schema_id ? '#fff' : undefined,
+                        activeSchemaId === v2.schema_id ? '#fff' : undefined,
                       border:
-                        state.selectedSchemaId === v2.schema_id
+                        activeSchemaId === v2.schema_id
                           ? '1px solid #2563eb'
                           : undefined,
                     }}
@@ -236,6 +272,7 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
                       e.stopPropagation();
                       if (v2) {
                         handleSelect(v2.schema_id);
+                        setActiveSchemaId(v2.schema_id);
                         onSelectionChange?.({
                           schema_id: v2.schema_id,
                           dossier_id: v2.dossier_id,
@@ -257,14 +294,26 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
                   // Prefer the active selection for this group if it matches;
                   // otherwise default to v2 or v1.
                   const current = state.selectedSchemaId;
-                  const target =
+                  const targetSchemaId =
                     current === (v1 && v1.schema_id) || current === (v2 && v2.schema_id)
                       ? current
                       : v2?.schema_id || v1?.schema_id || item.schema_id;
 
-                  if (target) {
-                    await handleSelect(target);
-                  onSelectionChange?.({ schema_id: target, dossier_id: item.dossier_id });
+                  // Work out the correct dossier id for the chosen target
+                  // based on the same row (v1/v2/item) that provided it.
+                  let targetDossierId: string | undefined;
+                  if (targetSchemaId && v1 && targetSchemaId === v1.schema_id) {
+                    targetDossierId = v1.dossier_id;
+                  } else if (targetSchemaId && v2 && targetSchemaId === v2.schema_id) {
+                    targetDossierId = v2.dossier_id;
+                  } else if (targetSchemaId) {
+                    targetDossierId = item.dossier_id;
+                  }
+
+                  if (targetSchemaId && targetDossierId) {
+                    handleSelect(targetSchemaId);
+                    setActiveSchemaId(targetSchemaId);
+                    onSelectionChange?.({ schema_id: targetSchemaId, dossier_id: targetDossierId });
                   }
                 }}
                 title="View schema"

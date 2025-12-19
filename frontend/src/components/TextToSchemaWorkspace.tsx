@@ -47,6 +47,11 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   const [jsonEditToken, setJsonEditToken] = useState<number>(0);
   const [showSchemaManagerPanel, setShowSchemaManagerPanel] = useState<boolean>(false);
 
+  // Schema selection loading + error state so that Schema Manager
+  // "View" interactions surface clearly in the UI (not just devtools).
+  const [schemaLoadState, setSchemaLoadState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [schemaLoadError, setSchemaLoadError] = useState<string | null>(null);
+
   // Measurement/debug refs for Allotment container
   const containerRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -780,6 +785,9 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                   dossierId={selectedFinalizedId || (state.finalDraftMetadata as any)?.dossierId || null}
                   onSelectionChange={async (sel) => {
                     try {
+                      setSchemaLoadState('loading');
+                      setSchemaLoadError(null);
+
                       const art = await schemaApi.getSchema(sel.dossier_id, sel.schema_id);
                       const sd = art?.structured_data || null;
                       if (sd) {
@@ -829,9 +837,23 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                           finalDraftMetadata: { ...(state.finalDraftMetadata || {}), dossierId: String(sel.dossier_id) } as any,
                           finalDraftText: originalText || state.finalDraftText
                         });
+
+                        setSchemaLoadState('idle');
+                        setSchemaLoadError(null);
+                      } else {
+                        setSchemaLoadState('error');
+                        setSchemaLoadError('Schema artifact did not contain structured data.');
                       }
                     } catch (e) {
                       console.warn('Failed to load schema artifact', e);
+                      const msg =
+                        e instanceof Error
+                          ? e.message
+                          : typeof e === 'string'
+                          ? e
+                          : 'Unknown error while loading schema.';
+                      setSchemaLoadState('error');
+                      setSchemaLoadError(msg);
                     }
                   }}
                 />
@@ -905,6 +927,40 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                     )}
                   </div>
                 </div>
+
+                {/* Schema selection feedback (Schema Manager → Viewer) */}
+                {schemaLoadState === 'loading' && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      marginBottom: 4,
+                      padding: '6px 10px',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      background: 'rgba(59,130,246,0.1)',
+                      border: '1px solid rgba(59,130,246,0.6)',
+                      color: '#dbeafe',
+                    }}
+                  >
+                    Loading selected schema…
+                  </div>
+                )}
+                {schemaLoadState === 'error' && schemaLoadError && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      marginBottom: 4,
+                      padding: '6px 10px',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      background: 'rgba(239,68,68,0.1)',
+                      border: '1px solid rgba(239,68,68,0.6)',
+                      color: '#fecaca',
+                    }}
+                  >
+                    Failed to load selected schema. {schemaLoadError}
+                  </div>
+                )}
                 
                 {/* Tab Navigation */}
                 <SchemaResultsTabs
