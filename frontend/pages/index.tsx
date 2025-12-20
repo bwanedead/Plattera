@@ -38,6 +38,13 @@ const App: React.FC = () => {
   // auto-downloading on check.
   const [pendingUpdate, setPendingUpdate] = useState<any | null>(null)
   const [hasUpdateAvailable, setHasUpdateAvailable] = useState(false)
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
+  const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false)
+  const [updateProgress, setUpdateProgress] = useState<{
+    percent: number | null
+    downloaded: number
+    total: number | null
+  } | null>(null)
   
   // Navigation state management
   const { lastActiveWorkspace, setActiveWorkspace } = useWorkspaceNavigation()
@@ -141,7 +148,9 @@ const App: React.FC = () => {
               </button>
               <button
                 onClick={async () => {
+                  if (isCheckingUpdate || isDownloadingUpdate) return
                   try {
+                    setIsCheckingUpdate(true)
                     const { check } = await import('@tauri-apps/plugin-updater')
                     const update = await check()
                     if (update?.available) {
@@ -189,6 +198,8 @@ const App: React.FC = () => {
                       message: `Updater check failed:\n${message}`,
                       mode: 'info'
                     })
+                  } finally {
+                    setIsCheckingUpdate(false)
                   }
                 }}
                 style={{
@@ -203,8 +214,13 @@ const App: React.FC = () => {
                   fontWeight: 600,
                   transition: 'all 0.2s ease'
                 }}
+                disabled={isCheckingUpdate || isDownloadingUpdate}
               >
-                {hasUpdateAvailable ? 'Check for Updates (update available)' : 'Check for Updates'}
+                {hasUpdateAvailable
+                  ? 'Check for Updates (update available)'
+                  : isCheckingUpdate
+                  ? 'Checking for Updates…'
+                  : 'Check for Updates'}
               </button>
               <button
                 onClick={async () => {
@@ -321,7 +337,54 @@ const App: React.FC = () => {
                   <button
                     onClick={async () => {
                       try {
-                        await pendingUpdate.downloadAndInstall()
+                        if (isDownloadingUpdate) return
+                        setIsDownloadingUpdate(true)
+                        setUpdateProgress(null)
+                        // Kick off download/install and surface updater progress
+                        // events into a simple percent display so users can see
+                        // that the update is actively downloading.
+                        await pendingUpdate.downloadAndInstall((event: any) => {
+                          try {
+                            const kind = event?.event
+                            if (kind === 'Started') {
+                              const rawTotal = Number(event?.data?.contentLength ?? 0)
+                              const total = Number.isFinite(rawTotal) && rawTotal > 0 ? rawTotal : null
+                              setUpdateProgress({ percent: total ? 0 : null, downloaded: 0, total })
+                            } else if (kind === 'Progress') {
+                              const rawChunk = Number(event?.data?.chunkLength ?? 0)
+                              const chunk = Number.isFinite(rawChunk) && rawChunk > 0 ? rawChunk : 0
+                              setUpdateProgress(prev => {
+                                const prevDownloaded = prev?.downloaded ?? 0
+                                const downloaded = prevDownloaded + chunk
+                                let total = prev?.total ?? null
+
+                                // If we didn't have a valid total yet, try to pick it up
+                                // from this progress event (some implementations repeat
+                                // contentLength on Progress).
+                                if (!total) {
+                                  const rawTotal = Number(event?.data?.contentLength ?? 0)
+                                  if (Number.isFinite(rawTotal) && rawTotal > 0) {
+                                    total = rawTotal
+                                  }
+                                }
+
+                                let percent: number | null = null
+                                if (total && total > 0) {
+                                  percent = Math.min(100, Math.round((downloaded / total) * 100))
+                                }
+
+                                return { downloaded, total, percent }
+                              })
+                            } else if (kind === 'Finished') {
+                              setUpdateProgress(prev => {
+                                if (!prev) return { downloaded: 0, total: null, percent: 100 }
+                                return { ...prev, percent: 100 }
+                              })
+                            }
+                          } catch {
+                            // Swallow progress parsing issues; they are non-fatal.
+                          }
+                        })
                         setUpdaterDialog({
                           open: true,
                           title: 'Update downloaded',
@@ -342,18 +405,39 @@ const App: React.FC = () => {
                           message: msg,
                           mode: 'info'
                         })
+                      } finally {
+                        setIsDownloadingUpdate(false)
+                        setUpdateProgress(null)
                       }
                     }}
-                    style={{ padding: '8px 14px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 4 }}
+                    disabled={isDownloadingUpdate}
+                    style={{
+                      padding: '8px 14px',
+                      background: isDownloadingUpdate ? '#1f2937' : '#3b82f6',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 4,
+                      opacity: isDownloadingUpdate ? 0.8 : 1,
+                      cursor: isDownloadingUpdate ? 'default' : 'pointer'
+                    }}
                   >
-                    Update now
+                    {isDownloadingUpdate
+                      ? updateProgress && typeof updateProgress.percent === 'number'
+                        ? `Downloading… (${updateProgress.percent}%)`
+                        : 'Downloading…'
+                      : 'Update now'}
                   </button>
                   <button
                     onClick={() => {
                       // Leave hasUpdateAvailable = true so the main button keeps its badge.
                       setUpdaterDialog({ open: false, title: '', message: '', mode: 'info' })
                     }}
-                    style={{ padding: '8px 14px' }}
+                    disabled={isDownloadingUpdate}
+                    style={{
+                      padding: '8px 14px',
+                      opacity: isDownloadingUpdate ? 0.6 : 1,
+                      cursor: isDownloadingUpdate ? 'default' : 'pointer'
+                    }}
                   >
                     Later
                   </button>

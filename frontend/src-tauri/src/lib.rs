@@ -1,4 +1,5 @@
 use tauri::Manager;
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri_plugin_shell::{process::{CommandChild, CommandEvent}, ShellExt};
 use std::sync::Mutex;
 use std::thread;
@@ -210,11 +211,41 @@ async fn factory_reset_data(app_handle: tauri::AppHandle) -> Result<(), String> 
     Ok(())
 }
 
+/// Open devtools for the main window. Used by both the global menu
+/// accelerator (CmdOrCtrl+Shift+I) and any frontend "open devtools"
+/// actions (for example, right‑click context menus).
+#[tauri::command]
+async fn open_devtools(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        window.open_devtools();
+        Ok(())
+    } else {
+        Err("main window not found".into())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(BackendProcess(Mutex::new(None)))
         .setup(|app| {
+            // Application menu with a DevTools opener that also provides
+            // the Ctrl+Shift+I (CmdOrCtrl+Shift+I) accelerator in release
+            // builds.
+            let open_devtools_item = MenuItemBuilder::with_id("open_devtools", "Open DevTools")
+                .accelerator("CmdOrCtrl+Shift+I")
+                .build(app)?;
+
+            let tools_menu = SubmenuBuilder::new(app, "Tools")
+                .item(&open_devtools_item)
+                .build()?;
+
+            let menu = MenuBuilder::new(app)
+                .item(&tools_menu)
+                .build()?;
+
+            app.set_menu(menu)?;
+
             // Always register log plugin (dev + release)
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
@@ -224,6 +255,9 @@ pub fn run() {
                     .level_for("app_lib", log::LevelFilter::Debug)
                     .build(),
             )?;
+
+            // Native devtools integration (including context-menu inspector)
+            app.handle().plugin(tauri_plugin_devtools_app::init())?;
             // Register shell plugin for sidecar
             app.handle().plugin(tauri_plugin_shell::init())?;
             // Updater plugin (GitHub Releases)
@@ -289,11 +323,18 @@ pub fn run() {
 
             Ok(())
         })
+        .on_menu_event(|event| {
+            if event.menu_item_id() == "open_devtools" {
+                let window = event.window();
+                window.open_devtools();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             start_backend,
             check_backend_health,
             debug_updater_endpoint,
-            factory_reset_data
+            factory_reset_data,
+            open_devtools
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { .. } => {
