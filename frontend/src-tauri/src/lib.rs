@@ -1,5 +1,4 @@
 use tauri::Manager;
-use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri_plugin_shell::{process::{CommandChild, CommandEvent}, ShellExt};
 use std::sync::Mutex;
 use std::thread;
@@ -229,23 +228,6 @@ pub fn run() {
     tauri::Builder::default()
         .manage(BackendProcess(Mutex::new(None)))
         .setup(|app| {
-            // Application menu with a DevTools opener that also provides
-            // the Ctrl+Shift+I (CmdOrCtrl+Shift+I) accelerator in release
-            // builds.
-            let open_devtools_item = MenuItemBuilder::with_id("open_devtools", "Open DevTools")
-                .accelerator("CmdOrCtrl+Shift+I")
-                .build(app)?;
-
-            let tools_menu = SubmenuBuilder::new(app, "Tools")
-                .item(&open_devtools_item)
-                .build()?;
-
-            let menu = MenuBuilder::new(app)
-                .item(&tools_menu)
-                .build()?;
-
-            app.set_menu(menu)?;
-
             // Always register log plugin (dev + release)
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
@@ -324,12 +306,6 @@ pub fn run() {
             }
 
             Ok(())
-        })
-        .on_menu_event(|event| {
-            if event.menu_item_id() == "open_devtools" {
-                let window = event.window();
-                window.open_devtools();
-            }
         })
         .invoke_handler(tauri::generate_handler![
             start_backend,

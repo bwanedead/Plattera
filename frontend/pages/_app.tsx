@@ -72,8 +72,28 @@ export default function App({ Component, pageProps }: AppProps) {
       handleBeforeUnload();
     };
 
+    // Global devtools hotkey: Cmd/Ctrl+Shift+I opens Tauri devtools
+    const handleDevtoolsHotkey = (e: KeyboardEvent) => {
+      try {
+        if (!(window as any).__TAURI__) return
+        const isMod = e.ctrlKey || e.metaKey
+        const isShift = e.shiftKey
+        const key = (e.key || '').toLowerCase()
+        if (!isMod || !isShift || key !== 'i') return
+        e.preventDefault()
+        import('@tauri-apps/api/core')
+          .then(({ invoke }) => {
+            return invoke('open_devtools').catch(() => {})
+          })
+          .catch(() => {})
+      } catch {
+        // Swallow hotkey errors; devtools are a convenience, not critical path.
+      }
+    }
+
     // Add event listeners for different shutdown scenarios
     window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('keydown', handleDevtoolsHotkey as any);
 
     // Add global cache status function for debugging (available in console)
     (window as any).checkPLSSCache = () => {
@@ -101,6 +121,7 @@ export default function App({ Component, pageProps }: AppProps) {
     // Cleanup function - handles React unmount and manual cleanup
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('keydown', handleDevtoolsHotkey as any);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
       handleAppClose(); // Clear cache on component unmount
