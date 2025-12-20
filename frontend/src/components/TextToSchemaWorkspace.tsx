@@ -838,6 +838,11 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                           finalDraftText: originalText || state.finalDraftText
                         });
 
+                        // When a schema is viewed via Schema Manager, default the
+                        // Results Viewer to the structured Fields view so users
+                        // land directly on the most actionable representation.
+                        setSelectedTab('fields');
+
                         setSchemaLoadState('idle');
                         setSchemaLoadError(null);
                       } else {

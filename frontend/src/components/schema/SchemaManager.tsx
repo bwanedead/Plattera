@@ -291,30 +291,65 @@ export const SchemaManager: React.FC<SchemaManagerProps> = ({ dossierId, onSelec
                 className="dossier-action-btn"
                 onClick={async (e) => {
                   e.stopPropagation();
-                  // Prefer the active selection for this group if it matches;
-                  // otherwise default to v2 or v1.
+                  // Work out the best candidate to "View" in a way that never
+                  // emits a schema without a dossier id. Prefer:
+                  // 1) The currently selected schema in this group (if it has a dossier_id)
+                  // 2) v2
+                  // 3) v1
+                  // 4) Representative item
                   const current = state.selectedSchemaId;
-                  const targetSchemaId =
-                    current === (v1 && v1.schema_id) || current === (v2 && v2.schema_id)
-                      ? current
-                      : v2?.schema_id || v1?.schema_id || item.schema_id;
 
-                  // Work out the correct dossier id for the chosen target
-                  // based on the same row (v1/v2/item) that provided it.
-                  let targetDossierId: string | undefined;
-                  if (targetSchemaId && v1 && targetSchemaId === v1.schema_id) {
-                    targetDossierId = v1.dossier_id;
-                  } else if (targetSchemaId && v2 && targetSchemaId === v2.schema_id) {
-                    targetDossierId = v2.dossier_id;
-                  } else if (targetSchemaId) {
-                    targetDossierId = item.dossier_id;
+                  type Candidate = { schemaId: string; dossierId: string };
+                  const candidates: Candidate[] = [];
+                  const seen = new Set<string>();
+
+                  const pushCandidate = (schema: any | null | undefined) => {
+                    if (!schema) return;
+                    const sid = schema.schema_id as string | undefined;
+                    const did = schema.dossier_id as string | undefined;
+                    if (!sid || !did) return;
+                    const key = `${sid}::${did}`;
+                    if (seen.has(key)) return;
+                    seen.add(key);
+                    candidates.push({ schemaId: sid, dossierId: did });
+                  };
+
+                  // 1) Current selection within this group, if it maps cleanly
+                  if (current) {
+                    if (v2 && current === v2.schema_id) {
+                      pushCandidate(v2);
+                    } else if (v1 && current === v1.schema_id) {
+                      pushCandidate(v1);
+                    } else if (!v1 && !v2 && current === item.schema_id) {
+                      pushCandidate(item);
+                    }
                   }
 
-                  if (targetSchemaId && targetDossierId) {
-                    handleSelect(targetSchemaId);
-                    setActiveSchemaId(targetSchemaId);
-                    onSelectionChange?.({ schema_id: targetSchemaId, dossier_id: targetDossierId });
+                  // 2) v2, then v1, then representative
+                  pushCandidate(v2);
+                  pushCandidate(v1);
+                  pushCandidate(item);
+
+                  const target = candidates[0];
+                  if (!target) {
+                    // No viable target – avoid silent no-op; log for diagnosis.
+                    // Visible error is handled in the workspace when fetch fails.
+                    // eslint-disable-next-line no-console
+                    console.warn('SchemaManager View: no candidate with dossier_id for group', {
+                      rootId: group.rootId,
+                      item,
+                      v1,
+                      v2,
+                    });
+                    return;
                   }
+
+                  handleSelect(target.schemaId);
+                  setActiveSchemaId(target.schemaId);
+                  onSelectionChange?.({
+                    schema_id: target.schemaId,
+                    dossier_id: target.dossierId,
+                  });
                 }}
                 title="View schema"
               >

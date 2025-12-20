@@ -6,7 +6,6 @@
 // ============================================================================
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { Dossier, DossierPath } from '../../../types/dossier';
 import { SegmentItem } from './SegmentItem';
 
@@ -192,17 +191,6 @@ export const DossierItem: React.FC<DossierItemProps> = ({
     onAction('unfinalize_dossier', { targetId: dossier.id });
   };
 
-  const doOpenDevtools = async () => {
-    setMenuOpen(false);
-    try {
-      await invoke('open_devtools');
-    } catch (e) {
-      // In pure web / non-Tauri contexts this may fail; that's fine.
-      // eslint-disable-next-line no-console
-      console.warn('Open devtools failed', e);
-    }
-  };
-
   // ============================================================================
   // RENDER
   // ============================================================================
@@ -337,22 +325,6 @@ export const DossierItem: React.FC<DossierItemProps> = ({
             }}
           >
             Rename
-          </button>
-          <button
-            role="menuitem"
-            className="ctx-item"
-            onClick={doOpenDevtools}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '8px 14px',
-              background: 'transparent',
-              border: 'none',
-              color: '#b3e5ff',
-              cursor: 'pointer'
-            }}
-          >
-            Open DevTools
           </button>
           <button
             role="menuitem"
