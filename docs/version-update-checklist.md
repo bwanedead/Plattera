@@ -54,6 +54,14 @@ All subsequent steps must use this exact value:
   "version": "0.9.1",
   ```
 
+- **File** (optional but recommended): `frontend/package-lock.json`
+  - **Change**: keep the lockfile’s root version in sync with `package.json`.
+    In an npm v9 lockfile this appears in two places:
+    - Top‑level `"version"` field
+    - `packages[""].version` inside the `"packages"` map
+  - Easiest way to keep this aligned is to bump `package.json` and then run
+    `npm install` once so npm refreshes `package-lock.json` for you.
+
 > **Note**: The desktop app’s runtime version (used by the **in‑app updater** and the bottom‑left **version badge**) ultimately comes from the Tauri app config / Rust crate, not `latest.json`. Bumping `tauri.conf.json` and `Cargo.toml` is mandatory for each release.
 
 ---
