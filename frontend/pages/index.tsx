@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { invoke } from '@tauri-apps/api/core'
+import { relaunch } from '@tauri-apps/plugin-process'
 import { ApiKeyModal } from '../src/components/ApiKeyModal'
 import TextBatchProcessor from '../src/components/TextBatchProcessor'
 import ImageBatchProcessor from '../src/components/ImageBatchProcessor'
@@ -31,7 +32,7 @@ const App: React.FC = () => {
     open: boolean
     title: string
     message: string
-    mode?: 'info' | 'update-available' | 'debug'
+    mode?: 'info' | 'update-available' | 'update-ready' | 'debug'
   }>({ open: false, title: '', message: '', mode: 'info' })
   // Track a pending update object and whether the user has an update available
   // so we can offer explicit "Update now / Later" control instead of
@@ -40,11 +41,13 @@ const App: React.FC = () => {
   const [hasUpdateAvailable, setHasUpdateAvailable] = useState(false)
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false)
+  const [isUpdateReady, setIsUpdateReady] = useState(false)
   const [updateProgress, setUpdateProgress] = useState<{
     percent: number | null
     downloaded: number
     total: number | null
   } | null>(null)
+  const [isRelaunching, setIsRelaunching] = useState(false)
   
   // Navigation state management
   const { lastActiveWorkspace, setActiveWorkspace } = useWorkspaceNavigation()
@@ -148,6 +151,18 @@ const App: React.FC = () => {
               </button>
               <button
                 onClick={async () => {
+                  // If an update is already downloaded and waiting for restart,
+                  // treat this as a shortcut to reopen the "Update ready" dialog.
+                  if (isUpdateReady) {
+                    setUpdaterDialog({
+                      open: true,
+                      title: 'Update ready',
+                      message: 'Restart Plattera to finish applying the update.',
+                      mode: 'update-ready'
+                    })
+                    return
+                  }
+
                   if (isCheckingUpdate || isDownloadingUpdate) return
                   try {
                     setIsCheckingUpdate(true)
@@ -216,7 +231,9 @@ const App: React.FC = () => {
                 }}
                 disabled={isCheckingUpdate || isDownloadingUpdate}
               >
-                {hasUpdateAvailable
+                {isUpdateReady
+                  ? 'Restart to finish update'
+                  : hasUpdateAvailable
                   ? 'Check for Updates (update available)'
                   : isCheckingUpdate
                   ? 'Checking for Updates…'
@@ -387,10 +404,11 @@ const App: React.FC = () => {
                         })
                         setUpdaterDialog({
                           open: true,
-                          title: 'Update downloaded',
-                          message: 'Update downloaded. Please restart the app to finish installing.',
-                          mode: 'info'
+                          title: 'Update ready',
+                          message: 'Restart Plattera to finish applying the update.',
+                          mode: 'update-ready'
                         })
+                        setIsUpdateReady(true)
                         setPendingUpdate(null)
                         setHasUpdateAvailable(false)
                       } catch (e: any) {
@@ -444,7 +462,65 @@ const App: React.FC = () => {
                 </>
               )}
 
-              {updaterDialog.mode !== 'update-available' && (
+              {updaterDialog.mode === 'update-ready' && (
+                <>
+                  <button
+                    onClick={async () => {
+                      try {
+                        if (isRelaunching) return
+                        setIsRelaunching(true)
+                        setUpdaterDialog(prev => ({
+                          ...prev,
+                          title: 'Restarting…',
+                          message: 'Relaunching Plattera to finish applying the update.',
+                        }))
+                        await relaunch()
+                      } catch (e: any) {
+                        // eslint-disable-next-line no-console
+                        console.error('Relaunch failed', e)
+                        const msg =
+                          (e && (e.message || (typeof e.toString === 'function' && e.toString()))) ||
+                          'Unknown relaunch error'
+                        setUpdaterDialog({
+                          open: true,
+                          title: 'Update applied, restart failed',
+                          message:
+                            'The update was installed successfully, but automatic restart failed.\n' +
+                            'Please close Plattera and reopen it manually.\n\nDetails:\n' +
+                            msg,
+                          mode: 'info',
+                        })
+                        setIsRelaunching(false)
+                      }
+                    }}
+                    disabled={isRelaunching}
+                    style={{
+                      padding: '8px 14px',
+                      background: isRelaunching ? '#1f2937' : '#3b82f6',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 4,
+                      opacity: isRelaunching ? 0.8 : 1,
+                      cursor: isRelaunching ? 'default' : 'pointer',
+                    }}
+                  >
+                    {isRelaunching ? 'Restarting…' : 'Restart to finish update'}
+                  </button>
+                  <button
+                    onClick={() => setUpdaterDialog({ open: false, title: '', message: '', mode: 'info' })}
+                    disabled={isRelaunching}
+                    style={{
+                      padding: '8px 14px',
+                      opacity: isRelaunching ? 0.6 : 1,
+                      cursor: isRelaunching ? 'default' : 'pointer',
+                    }}
+                  >
+                    Later
+                  </button>
+                </>
+              )}
+
+              {updaterDialog.mode !== 'update-available' && updaterDialog.mode !== 'update-ready' && (
                 <button
                   onClick={() => setUpdaterDialog({ open: false, title: '', message: '', mode: 'info' })}
                   style={{ padding: '8px 14px' }}

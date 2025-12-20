@@ -262,9 +262,11 @@ pub fn run() {
             app.handle().plugin(tauri_plugin_shell::init())?;
             // Updater plugin (GitHub Releases)
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            // Process plugin (relaunch after update)
+            app.handle().plugin(tauri_plugin_process::init())?;
             
             // Auto-start backend when app launches
-            let app_handle = app.handle().clone();
+                let app_handle = app.handle().clone();
             thread::spawn(move || {
                 // Give a moment for the app to fully initialize
                 thread::sleep(Duration::from_millis(2000));
