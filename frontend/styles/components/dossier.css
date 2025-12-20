@@ -426,6 +426,27 @@
   margin-left: auto;
 }
 
+/* ============================================================================
+   DOSSIER CONTEXT MENU
+   ============================================================================ */
+
+.dossier-context-menu {
+  /* Let width be driven by content; keep dark theme */
+  background-color: #0f172a;
+  border-radius: 4px;
+}
+
+.dossier-context-menu .ctx-item {
+  font-size: 0.8rem;
+  background-color: transparent;
+  color: #e5e7eb;
+}
+
+.dossier-context-menu .ctx-item:hover {
+  background-color: #0b1120;
+  box-shadow: inset 0 0 0 1px #38bdf8; /* soft blue box highlight */
+}
+
 .dossier-action-small {
   background: none;
   border: none;

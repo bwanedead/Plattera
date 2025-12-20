@@ -300,13 +300,15 @@ export const DossierItem: React.FC<DossierItemProps> = ({
             top: menuPos.y,
             left: menuPos.x,
             zIndex: 10000,
-            minWidth: 160,
+            display: 'inline-block',
             background: '#1f1f1f',
             border: '1px solid #333',
-            boxShadow: '0 6px 24px rgba(0,0,0,0.3)',
-            borderRadius: 6,
-            padding: '6px 0',
-            color: '#eee'
+            boxShadow: '0 4px 18px rgba(0,0,0,0.35)',
+            borderRadius: 4,
+            padding: '4px 0',
+            color: '#eee',
+            fontSize: 12,
+            lineHeight: 1.3,
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -317,11 +319,10 @@ export const DossierItem: React.FC<DossierItemProps> = ({
             style={{
               width: '100%',
               textAlign: 'left',
-              padding: '8px 14px',
-              background: 'transparent',
+              padding: '6px 12px',
               border: 'none',
               color: 'inherit',
-              cursor: 'pointer'
+              cursor: 'pointer',
             }}
           >
             Rename
@@ -333,11 +334,10 @@ export const DossierItem: React.FC<DossierItemProps> = ({
             style={{
               width: '100%',
               textAlign: 'left',
-              padding: '8px 14px',
-              background: 'transparent',
+              padding: '6px 12px',
               border: 'none',
               color: '#ffb3b3',
-              cursor: 'pointer'
+              cursor: 'pointer',
             }}
           >
             Delete
@@ -350,11 +350,10 @@ export const DossierItem: React.FC<DossierItemProps> = ({
             style={{
               width: '100%',
               textAlign: 'left',
-              padding: '8px 14px',
-              background: 'transparent',
+              padding: '6px 12px',
               border: 'none',
               color: '#b3e5ff',
-              cursor: 'pointer'
+              cursor: 'pointer',
             }}
           >
             Finalize
@@ -369,11 +368,10 @@ export const DossierItem: React.FC<DossierItemProps> = ({
             style={{
               width: '100%',
               textAlign: 'left',
-              padding: '8px 14px',
-              background: 'transparent',
+              padding: '6px 12px',
               border: 'none',
               color: '#ffd6a5',
-              cursor: 'pointer'
+              cursor: 'pointer',
             }}
           >
             Unfinalize
