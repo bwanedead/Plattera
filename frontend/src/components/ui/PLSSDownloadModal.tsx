@@ -79,7 +79,8 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
       const clamped = Math.max(0, Math.min(progressPercent, 100));
       return `${clamped}%`;
     }
-    return effectiveProgressBar === 'indeterminate' ? '40%' : '0%';
+    // For indeterminate/none we rely on the animated spinner instead of a fake bar.
+    return '0%';
   };
 
   const parquetDetail =
@@ -104,36 +105,79 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
             </p>
             <p className="plss-modal-details">{parquetDetail}</p>
 
-            {/* Progress bar for parquet building / finalization */}
-            <div className="plss-progress-bar" style={{ marginTop: 12 }}>
-              <div
-                className="plss-progress-track"
-                style={{ height: 6, background: '#222', borderRadius: 4 }}
-              >
+            {/* Progress for parquet / finalization */}
+            {effectiveProgressBar === 'determinate' ? (
+              <div className="plss-progress-bar" style={{ marginTop: 12 }}>
                 <div
-                  className="plss-progress-fill"
+                  className="plss-progress-track"
+                  style={{ height: 6, background: '#222', borderRadius: 4 }}
+                >
+                  <div
+                    className="plss-progress-fill"
+                    style={{
+                      height: 6,
+                      width: computeWidth(),
+                      background: 'linear-gradient(90deg, #6ee7ff, #7c3aed)',
+                      borderRadius: 4,
+                      transition: 'width 300ms ease',
+                    }}
+                  />
+                </div>
+                <div
                   style={{
-                    height: 6,
-                    width: computeWidth(),
-                    background: 'linear-gradient(90deg, #6ee7ff, #7c3aed)',
-                    borderRadius: 4,
-                    transition: 'width 300ms ease',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: 11,
+                    color: '#aaa',
+                    marginTop: 6,
                   }}
-                />
+                >
+                  <span>{parquetDetail}</span>
+                  <span>Est: {estimatedTime || '15-20 minutes'}</span>
+                </div>
               </div>
+            ) : (
               <div
                 style={{
+                  marginTop: 12,
                   display: 'flex',
                   justifyContent: 'space-between',
+                  alignItems: 'center',
                   fontSize: 11,
                   color: '#aaa',
-                  marginTop: 6,
                 }}
               >
-                <span>{parquetDetail}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div
+                    className="plss-spinner"
+                    style={{
+                      border: '2px solid rgba(148, 163, 184, 0.4)',
+                      borderTopColor: '#e5e7eb',
+                    }}
+                  />
+                  {parquetDetail}
+                </span>
                 <span>Est: {estimatedTime || '15-20 minutes'}</span>
               </div>
-            </div>
+            )}
+            {onHardCancel && (
+              <div
+                style={{
+                  marginTop: 10,
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  fontSize: 11,
+                }}
+              >
+                <button
+                  className="plss-btn small"
+                  onClick={handleHardCancel}
+                  style={{ background: 'transparent', color: '#bbb' }}
+                >
+                  Stop
+                </button>
+              </div>
+            )}
           </div>
         ) : isDownloading ? (
           <div className="plss-modal-message">
@@ -183,7 +227,7 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
           </button>
         </div>
 
-        {isDownloading && !parquetPhase && (
+        {isDownloading && !parquetPhase && effectiveProgressBar === 'determinate' && (
           <div className="plss-progress-bar" style={{ marginTop: 12 }}>
             <div
               className="plss-progress-track"
@@ -220,6 +264,38 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
                 </button>
               )}
             </div>
+          </div>
+        )}
+        {isDownloading && !parquetPhase && effectiveProgressBar !== 'determinate' && (
+          <div
+            style={{
+              marginTop: 12,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: 11,
+              color: '#aaa',
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div
+                className="plss-spinner"
+                style={{
+                  border: '2px solid rgba(148, 163, 184, 0.4)',
+                  borderTopColor: '#e5e7eb',
+                }}
+              />
+              {progressHeadline || progressText || 'Preparing...'}
+            </span>
+            {onHardCancel && (
+              <button
+                className="plss-btn small"
+                onClick={handleHardCancel}
+                style={{ background: 'transparent', color: '#bbb' }}
+              >
+                Stop
+              </button>
+            )}
           </div>
         )}
       </div>

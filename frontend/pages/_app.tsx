@@ -9,6 +9,7 @@ import '../src/components/visualization/backgrounds/CleanMapBackground.css' // B
 import '../src/styles/components/loaders.css' // Any global loaders referenced by components
 import { BackendStatusBanner } from '../src/components/system/BackendStatusBanner'
 import { PLSSDownloadBanner } from '../src/components/plss/PLSSDownloadBanner'
+import { PLSSDownloadOverlay } from '../src/components/plss/PLSSDownloadOverlay'
 import { ToastProvider } from '../src/components/ui/ToastProvider'
 import { ApiKeyModal } from '../src/components/ApiKeyModal'
 import { LogsButton } from '../src/components/logs/LogsButton'
@@ -216,6 +217,7 @@ export default function App({ Component, pageProps }: AppProps) {
       <div className="App">
         <BackendStatusBanner />
         <PLSSDownloadBanner />
+        <PLSSDownloadOverlay />
         <main>
           <Component {...pageProps} />
           <ApiKeyModal open={showKeyModal} onClose={() => setShowKeyModal(false)} onSaved={() => location.reload()} />

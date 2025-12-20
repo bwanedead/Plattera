@@ -129,13 +129,14 @@ export function presentPlssProgress(
       }
 
       if (p2 === 'index') {
+        const hasPercent = typeof overallPercent === 'number';
         return {
           ...base,
           phase: 'finalizing',
           headline: 'Building PLSS index…',
-          percent: null,
-          showPercent: false,
-          progressBar: 'indeterminate',
+          percent: overallPercent,
+          showPercent: hasPercent,
+          progressBar: hasPercent ? 'determinate' : 'indeterminate',
         };
       }
 

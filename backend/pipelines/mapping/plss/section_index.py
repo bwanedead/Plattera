@@ -317,6 +317,7 @@ class SectionIndex:
 
                         if progress_callback:
                             progress_callback({
+                                "stage": "building:parquet:quarter_sections",
                                 "status": f"Processing quarter sections: {start:,}-{end-1:,} of {total_features:,}",
                                 "overall": {
                                     "downloaded": start,
@@ -372,7 +373,16 @@ class SectionIndex:
                     subdivisions_parquet_path = parts_dir
                     logger.info(f"✅ Built quarter sections parquet parts: {written:,} features in {part_index} files")
                     if progress_callback:
-                        progress_callback("Quarter sections parquet complete")
+                        progress_callback({
+                            "stage": "building:parquet:quarter_sections",
+                            "status": "Quarter sections parquet complete",
+                            "overall": {
+                                "downloaded": written,
+                                "total": total_features,
+                                "percent": 100
+                            },
+                            "estimated_time": "12-15 minutes"
+                        })
                     
                 except Exception as e:
                     logger.warning(f"Quarter sections parquet build skipped: {e}")
@@ -381,7 +391,23 @@ class SectionIndex:
 
             # 3) Build compact index
             records = []
-            for _, row in sec_gdf.iterrows():
+            total_sections = len(sec_gdf)
+            if progress_callback:
+                try:
+                    progress_callback({
+                        "stage": "building:index",
+                        "status": f"Building index: 0/{total_sections} sections…",
+                        "overall": {
+                            "downloaded": 0,
+                            "total": total_sections,
+                            "percent": 0,
+                        },
+                        "estimated_time": "5-10 minutes",
+                    })
+                except Exception:
+                    pass
+
+            for i, (_, row) in enumerate(sec_gdf.iterrows(), start=1):
                 try:
                     geom = row.geometry
                     if geom is None:
@@ -436,6 +462,26 @@ class SectionIndex:
                         "sw_lat": float(sw_lat), "sw_lon": float(sw_lon),
                     }
                     records.append(rec)
+
+                    # Emit periodic heartbeats so the frontend can surface index
+                    # building as an explicit phase instead of appearing "stuck"
+                    # on the last parquet message.
+                    if progress_callback and (i % 1000 == 0 or i == total_sections):
+                        try:
+                            percent = int((i / max(total_sections, 1)) * 100)
+                            progress_callback({
+                                "stage": "building:index",
+                                "status": f"Building index: {i}/{total_sections} sections…",
+                                "overall": {
+                                    "downloaded": i,
+                                    "total": total_sections,
+                                    "percent": percent,
+                                },
+                                "estimated_time": "5-10 minutes",
+                            })
+                        except Exception:
+                            # Progress is best‑effort only
+                            pass
                 except Exception as e:
                     logger.debug(f"Index build skipped a feature: {e}")
                     continue

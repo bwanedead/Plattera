@@ -774,15 +774,22 @@ class PLSSDataManager:
 
                 def progress_callback(message):
                     if isinstance(message, dict):
-                        # Structured progress data
-                        self._log_stage(state, "PARQUET_PROGRESS", message.get("status", "Processing"))
+                        # Structured progress data – allow the caller to specify a
+                        # precise stage (e.g. "building:parquet:quarter_sections",
+                        # "building:index") while defaulting to parquet for older
+                        # call sites.
+                        stage = message.get("stage", "building:parquet")
+                        status = message.get("status", "Processing")
+                        self._log_stage(state, "PARQUET_PROGRESS", status)
                         progress_data = {
-                            "stage": "building:parquet",
-                            "status": message.get("status", "Processing"),
+                            "stage": stage,
+                            "status": status,
                             "estimated_time": message.get("estimated_time", "15-20 minutes total")
                         }
                         if "overall" in message:
                             progress_data["overall"] = message["overall"]
+                        if "final_phase" in message:
+                            progress_data["final_phase"] = message["final_phase"]
                         self._write_progress(state, progress_data)
                     else:
                         # Legacy string message

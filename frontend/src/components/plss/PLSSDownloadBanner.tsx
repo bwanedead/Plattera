@@ -24,6 +24,15 @@ export const PLSSDownloadBanner: React.FC = () => {
     }
   };
 
+  const handleView = () => {
+    try {
+      document.dispatchEvent(new Event('plss:open-modal'));
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to dispatch plss:open-modal event', e);
+    }
+  };
+
   return (
     <div
       style={{
@@ -78,6 +87,21 @@ export const PLSSDownloadBanner: React.FC = () => {
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
+        <button
+          className="plss-btn small"
+          onClick={handleView}
+          style={{
+            background: 'transparent',
+            border: '1px solid #38bdf8',
+            color: '#e0f2fe',
+            padding: '2px 8px',
+            borderRadius: 4,
+            cursor: 'pointer',
+          }}
+          title="View detailed PLSS download progress"
+        >
+          View
+        </button>
         <button
           className="plss-btn small"
           onClick={handleStop}
