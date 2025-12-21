@@ -172,7 +172,14 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
                 <button
                   className="plss-btn small"
                   onClick={handleHardCancel}
-                  style={{ background: 'transparent', color: '#bbb' }}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #f97373',
+                    color: '#fecaca',
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                  }}
                 >
                   Stop
                 </button>
@@ -258,7 +265,14 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
                 <button
                   className="plss-btn small"
                   onClick={handleHardCancel}
-                  style={{ background: 'transparent', color: '#bbb' }}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #f97373',
+                    color: '#fecaca',
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                  }}
                 >
                   Stop
                 </button>
@@ -291,7 +305,14 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
               <button
                 className="plss-btn small"
                 onClick={handleHardCancel}
-                style={{ background: 'transparent', color: '#bbb' }}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #f97373',
+                  color: '#fecaca',
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                }}
               >
                 Stop
               </button>

@@ -54,30 +54,29 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
   };
 
   const isDownloading = plssStatus === 'downloading';
-  const shouldShowModal =
-    isDownloading ||
-    plssStatus === 'error' ||
-    ((plssStatus === 'missing' || plssStatus === 'canceled') && !modalDismissed);
+  const shouldShowPromptModal =
+    (plssStatus === 'missing' || plssStatus === 'canceled') && !modalDismissed;
 
-  // Show PLSS download modal if needed, respecting dismissal for "missing" state
-  if (shouldShowModal) {
+  // Show PLSS download prompt when data is missing / canceled. Active download
+  // progress is owned by the global overlay + banner, not this map component.
+  if (shouldShowPromptModal) {
     return (
       <PLSSDownloadModal
         isOpen={true}
         state={state || 'Unknown'}
-        onDownload={isDownloading ? undefined : downloadData}
+        onDownload={downloadData}
         onCancel={handleCancel}
-        isDownloading={isDownloading}
-        progressText={progress}
-        onHardCancel={cancelDownload}
-        parquetPhase={parquetPhase}
-        estimatedTime={estimatedTime}
-        parquetStatus={parquetStatus}
-        progressPercent={uiProgress?.percent ?? null}
-        progressBar={uiProgress?.progressBar ?? (isDownloading ? 'indeterminate' : 'none')}
-        progressHeadline={uiProgress?.headline ?? null}
-        progressDetail={uiProgress?.detail ?? null}
-        progressRawStage={uiProgress?.rawStage ?? null}
+        isDownloading={false}
+        progressText={null}
+        onHardCancel={undefined}
+        parquetPhase={false}
+        estimatedTime={null}
+        parquetStatus={null}
+        progressPercent={null}
+        progressBar="none"
+        progressHeadline={null}
+        progressDetail={null}
+        progressRawStage={null}
       />
     );
   }

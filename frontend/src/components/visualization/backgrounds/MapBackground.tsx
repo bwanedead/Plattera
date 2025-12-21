@@ -224,28 +224,18 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({
     loadOverlay();
   }, [status, mappingEnabled, schemaData, polygonData]);
 
-  // Show modal when data is missing/canceled AND not dismissed
+  // Show modal when data is missing/canceled AND not dismissed. Active
+  // download/build progress is handled by the global overlay + banner.
   const shouldShowModal =
     (status === 'missing' || status === 'canceled') && !modalDismissed;
 
   // Show loading during download
   if (status === 'downloading') {
     return (
-      <>
-        <div className="map-loading">
-          <div className="spinner"></div>
-          <p>Downloading {state} PLSS data...</p>
-        </div>
-        <PLSSDownloadModal
-          isOpen={true}
-          state={state || 'Unknown'}
-          onDownload={handleDownload}
-          onCancel={handleCancel}
-          isDownloading={true}
-          progressText={progress}
-          onHardCancel={cancelDownload}
-        />
-      </>
+      <div className="map-loading">
+        <div className="spinner"></div>
+        <p>Downloading {state} PLSS data...</p>
+      </div>
     );
   }
 

@@ -351,11 +351,11 @@ $pw = "add pw"
 
 5. 
 
-zip command:
+(vestigial) zip command:
 
 (.venv) PS C:\projects\Plattera\frontend>
 
-$rel = ".\src-tauri\target\release"; Compress-Archive -Path "$rel\app.exe","$rel\resources\*","$rel\plattera-backend.exe" -DestinationPath "$rel\bundle\Plattera_0.9.0_windows_x86_64.zip" -Force
+$rel = ".\src-tauri\target\release"; Compress-Archive -Path "$rel\app.exe","$rel\resources\*","$rel\plattera-backend.exe" -DestinationPath "$rel\bundle\Plattera_0.9.2_windows_x86_64.zip" -Force
 
 
 6. 
@@ -364,7 +364,12 @@ sig command:
 
 (.venv) PS C:\projects\Plattera\frontend> 
 
-npx tauri signer sign --private-key-path C:\keys\plattera-updater.key --password $pw .\src-tauri\target\release\bundle\Plattera_0.9.0_windows_x86_64.zip
+new (nsis direct):
+
+npx tauri signer sign --private-key-path "C:\keys\plattera-updater.key" --password $pw ".\src-tauri\target\release\bundle\nsis\Plattera_0.9.2_x64-setup.exe"
+
+old (for zip now abandoned method):
+npx tauri signer sign --private-key-path C:\keys\plattera-updater.key --password $pw .\src-tauri\target\release\bundle\Plattera_0.9.2_windows_x86_64.zip
 
 7. 
 

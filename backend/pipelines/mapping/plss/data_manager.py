@@ -354,10 +354,15 @@ class PLSSDataManager:
             self._write_progress(state, progress)
 
             downloads = [
+                # Order is significant – it defines a stable, semantic
+                # dataset key used in progress reporting. The frontend
+                # should never have to infer meaning from filenames.
                 (self.wy_fgdb_townships_url, raw_dir / "wy_townships_fgdb.zip"),
                 (self.wy_fgdb_sections_url, raw_dir / "wy_sections_fgdb.zip"),
                 (self.wy_fgdb_subdivisions_url, raw_dir / "wy_subdivisions_fgdb.zip"),
             ]
+
+            dataset_keys = ["townships", "sections", "subdivisions"]
 
             # Pre-fetch content-lengths (may be inaccurate or zero; we'll correct dynamically on stream begin)
             sizes = []
@@ -370,6 +375,9 @@ class PLSSDataManager:
             downloaded_cumulative = 0
             for (idx, (url, out_zip)) in enumerate(downloads):
                 file_label = out_zip.name
+                # Map each file to a stable semantic dataset key that
+                # the frontend can use for stage-aware messaging.
+                dataset_key = dataset_keys[idx] if idx < len(dataset_keys) else file_label
                 file_total = sizes[idx]
                 # Cancellation check
                 if self._cancel_flag_path(state).exists():
@@ -381,7 +389,7 @@ class PLSSDataManager:
                         except Exception:
                             pass
                     return {"success": False, "error": "Canceled by user"}
-                progress.update({"stage": f"downloading:{file_label}"})
+                progress.update({"stage": f"downloading:{dataset_key}"})
                 self._write_progress(state, progress)
 
                 def on_prog(written_bytes: int):
@@ -394,15 +402,24 @@ class PLSSDataManager:
                     pct = int(overall_downloaded * 100 / est_total)
                     if pct >= 100:
                         pct = 99
-                    self._write_progress(state, {
-                        "stage": f"downloading:{file_label}",
-                        "files": [{
-                            "file": file_label,
-                            "downloaded": int(per_file_downloaded),
-                            "total": int(file_total)
-                        }],
-                        "overall": {"downloaded": int(overall_downloaded), "total": int(total_bytes), "percent": pct}
-                    })
+                    self._write_progress(
+                        state,
+                        {
+                            "stage": f"downloading:{dataset_key}",
+                            "files": [
+                                {
+                                    "file": file_label,
+                                    "downloaded": int(per_file_downloaded),
+                                    "total": int(file_total),
+                                }
+                            ],
+                            "overall": {
+                                "downloaded": int(overall_downloaded),
+                                "total": int(total_bytes),
+                                "percent": pct,
+                            },
+                        },
+                    )
 
                 # Allow dynamic correction of file size once streaming begins
                 def on_begin(total_for_file: int, resume_bytes: int):
@@ -411,11 +428,33 @@ class PLSSDataManager:
                         delta = total_for_file - file_total
                         file_total = total_for_file
                         total_bytes += delta
-                        self._write_progress(state, {
-                            "stage": f"downloading:{file_label}",
-                            "files": [{"file": file_label, "downloaded": int(resume_bytes), "total": int(file_total)}],
-                            "overall": {"downloaded": int(downloaded_cumulative + resume_bytes), "total": int(total_bytes), "percent": min(99, int((downloaded_cumulative + resume_bytes) * 100 / (total_bytes or 1)))}
-                        })
+                        self._write_progress(
+                            state,
+                            {
+                                "stage": f"downloading:{dataset_key}",
+                                "files": [
+                                    {
+                                        "file": file_label,
+                                        "downloaded": int(resume_bytes),
+                                        "total": int(file_total),
+                                    }
+                                ],
+                                "overall": {
+                                    "downloaded": int(
+                                        downloaded_cumulative + resume_bytes
+                                    ),
+                                    "total": int(total_bytes),
+                                    "percent": min(
+                                        99,
+                                        int(
+                                            (downloaded_cumulative + resume_bytes)
+                                            * 100
+                                            / (total_bytes or 1)
+                                        ),
+                                    ),
+                                },
+                            },
+                        )
 
                 ok = self._download_with_resume(
                     url,
@@ -430,11 +469,31 @@ class PLSSDataManager:
                     return {"success": False, "error": f"Failed to download {url}"}
                 downloaded_cumulative += file_total or out_zip.stat().st_size
                 # Post-file progress write
-                self._write_progress(state, {
-                    "stage": f"downloaded:{file_label}",
-                    "files": [{"file": file_label, "downloaded": int(file_total or out_zip.stat().st_size), "total": int(file_total)}],
-                    "overall": {"downloaded": int(downloaded_cumulative), "total": int(total_bytes), "percent": min(99, int(downloaded_cumulative * 100 / total_bytes) if total_bytes else 99)}
-                })
+                self._write_progress(
+                    state,
+                    {
+                        "stage": f"downloaded:{dataset_key}",
+                        "files": [
+                            {
+                                "file": file_label,
+                                "downloaded": int(
+                                    file_total or out_zip.stat().st_size
+                                ),
+                                "total": int(file_total),
+                            }
+                        ],
+                        "overall": {
+                            "downloaded": int(downloaded_cumulative),
+                            "total": int(total_bytes),
+                            "percent": min(
+                                99,
+                                int(downloaded_cumulative * 100 / total_bytes)
+                                if total_bytes
+                                else 99,
+                            ),
+                        },
+                    },
+                )
                 # Cancellation check before unzip
                 if self._cancel_flag_path(state).exists():
                     self._write_progress(state, {"stage": "canceled"})

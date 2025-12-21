@@ -121,10 +121,6 @@ export function presentPlssProgress(
           ...base,
           phase: 'building_parquet',
           headline: `Building ${dataset} parquet…`,
-          progressBar:
-            typeof overallPercent === 'number'
-              ? 'determinate'
-              : 'indeterminate',
         };
       }
 
@@ -140,14 +136,12 @@ export function presentPlssProgress(
         };
       }
 
-      // Other building stages → generic finalizing
+      // Other building stages → generic finalizing, but preserve any
+      // provided percent so the determinism policy stays data‑driven.
       return {
         ...base,
         phase: 'finalizing',
         headline: 'Finalizing PLSS installation…',
-        percent: null,
-        showPercent: false,
-        progressBar: 'indeterminate',
       };
     }
 
@@ -157,9 +151,6 @@ export function presentPlssProgress(
           ...base,
           phase: 'finalizing',
           headline: 'Writing PLSS manifest…',
-          percent: null,
-          showPercent: false,
-          progressBar: 'indeterminate',
         };
       }
 
@@ -167,9 +158,6 @@ export function presentPlssProgress(
         ...base,
         phase: 'finalizing',
         headline: 'Finalizing PLSS installation…',
-        percent: null,
-        showPercent: false,
-        progressBar: 'indeterminate',
       };
     }
 
@@ -210,9 +198,6 @@ export function presentPlssProgress(
           ...base,
           phase: 'finalizing',
           headline: 'Finalizing PLSS installation…',
-          percent: null,
-          showPercent: false,
-          progressBar: 'indeterminate',
         };
       }
 
