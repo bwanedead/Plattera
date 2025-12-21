@@ -205,11 +205,21 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
         ) : (
           <div className="plss-modal-message">
             <p>
-              Need to download PLSS data for <strong>{state}</strong> from BLM.
+              {progressHeadline ? (
+                progressHeadline
+              ) : (
+                <>
+                  Need to download PLSS data for <strong>{state}</strong> from BLM.
+                </>
+              )}
             </p>
             <p className="plss-modal-details">
-              This will download Wyoming PLSS bulk data (Townships, Sections, Subdivisions) for
-              offline use. Download size: ~252 MB; Installed size: ~484 MB on disk after install.
+              {progressDetail || (
+                <>
+                  This will download Wyoming PLSS bulk data (Townships, Sections, Subdivisions) for
+                  offline use. Download size: ~252 MB; Installed size: ~484 MB on disk after install.
+                </>
+              )}
             </p>
           </div>
         )}

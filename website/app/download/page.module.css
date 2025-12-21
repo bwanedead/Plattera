@@ -2,19 +2,19 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 32px;
-  gap: 80px;
+  padding: 16px 24px 24px;
+  gap: 60px;
 }
 
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 18px 24px;
   border-radius: 12px;
   border: 1px solid var(--line);
   background: var(--surface-1);
   box-shadow: var(--shadow-soft);
+  gap: 16px;
 }
 
 .brand {
@@ -37,6 +37,23 @@
 
 .dot {
   color: var(--accent);
+}
+
+.nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin-left: 8px;
+}
+
+.nav a {
+  transition: color 0.2s ease;
+}
+
+.nav a:hover {
+  color: var(--ink-strong);
 }
 
 .hero {

@@ -94,6 +94,15 @@ export function presentPlssProgress(
   switch (p1) {
     case 'initializing':
     case 'processing': {
+      // Distinguish the "prepare" finalization phase from initial processing.
+      if (p2 === 'prepare') {
+        return {
+          ...base,
+          phase: 'finalizing',
+          headline: 'Preparing PLSS installation…',
+        };
+      }
+
       return {
         ...base,
         phase: 'downloading',
@@ -111,6 +120,15 @@ export function presentPlssProgress(
         headline: `Downloading ${dataset}…`,
         progressBar:
           typeof overallPercent === 'number' ? 'determinate' : 'indeterminate',
+      };
+    }
+
+    case 'downloaded': {
+      const dataset = formatDatasetLabel(p2);
+      return {
+        ...base,
+        phase: 'downloading',
+        headline: `Downloaded ${dataset}…`,
       };
     }
 
@@ -158,6 +176,14 @@ export function presentPlssProgress(
         ...base,
         phase: 'finalizing',
         headline: 'Finalizing PLSS installation…',
+      };
+    }
+
+    case 'validating': {
+      return {
+        ...base,
+        phase: 'finalizing',
+        headline: 'Validating PLSS data…',
       };
     }
 

@@ -53,9 +53,32 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
     }
   };
 
-  const isDownloading = plssStatus === 'downloading';
+  const isError = plssStatus === 'error';
   const shouldShowPromptModal =
     (plssStatus === 'missing' || plssStatus === 'canceled') && !modalDismissed;
+
+  // Show explicit error prompt with retry when a download fails.
+  if (isError && !modalDismissed) {
+    return (
+      <PLSSDownloadModal
+        isOpen={true}
+        state={state || 'Unknown'}
+        onDownload={downloadData}
+        onCancel={handleCancel}
+        isDownloading={false}
+        progressText={null}
+        onHardCancel={undefined}
+        parquetPhase={false}
+        estimatedTime={null}
+        parquetStatus={null}
+        progressPercent={null}
+        progressBar="none"
+        progressHeadline={`PLSS download failed for ${state || 'this state'}.`}
+        progressDetail={plssError || 'An unknown error occurred while downloading PLSS data. You can retry.'}
+        progressRawStage={null}
+      />
+    );
+  }
 
   // Show PLSS download prompt when data is missing / canceled. Active download
   // progress is owned by the global overlay + banner, not this map component.
@@ -78,6 +101,19 @@ export const CleanMapBackground: React.FC<CleanMapBackgroundProps> = ({
         progressDetail={null}
         progressRawStage={null}
       />
+    );
+  }
+
+  // During active download, show a lightweight loading placeholder; the
+  // detailed progress UI is handled globally by the overlay + banner.
+  if (plssStatus === 'downloading') {
+    return (
+      <div className="flex items-center justify-center h-full bg-gray-100">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Downloading PLSS data for {state}...</p>
+        </div>
+      </div>
     );
   }
 

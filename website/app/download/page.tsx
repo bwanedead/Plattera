@@ -17,9 +17,10 @@ export default function DownloadPage() {
             Plattera<span className={styles.dot}>.</span>
           </span>
         </div>
-        <a className={styles.secondaryButton} href="/">
-          Back to Home
-        </a>
+        <nav className={styles.nav}>
+          <a href="/download">Download</a>
+          <a href="/resources">Resources</a>
+        </nav>
       </header>
 
       <main className={styles.hero}>

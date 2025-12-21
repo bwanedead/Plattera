@@ -229,6 +229,31 @@ export const MapBackground: React.FC<MapBackgroundProps> = ({
   const shouldShowModal =
     (status === 'missing' || status === 'canceled') && !modalDismissed;
 
+  const shouldShowErrorModal = status === 'error' && !modalDismissed;
+
+  // Error prompt with retry
+  if (shouldShowErrorModal) {
+    return (
+      <PLSSDownloadModal
+        isOpen={true}
+        state={state || 'Unknown'}
+        onDownload={handleDownload}
+        onCancel={handleCancel}
+        isDownloading={false}
+        progressText={null}
+        onHardCancel={undefined}
+        parquetPhase={false}
+        estimatedTime={null}
+        parquetStatus={null}
+        progressPercent={null}
+        progressBar="none"
+        progressHeadline={`PLSS download failed for ${state || 'this state'}.`}
+        progressDetail={error || 'An unknown error occurred while downloading PLSS data. You can retry.'}
+        progressRawStage={null}
+      />
+    );
+  }
+
   // Show loading during download
   if (status === 'downloading') {
     return (

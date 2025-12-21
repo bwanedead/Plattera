@@ -1,6 +1,6 @@
 import styles from "./page.module.css";
 
-export default function Home() {
+export default function ResourcesPage() {
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -21,12 +21,8 @@ export default function Home() {
       </header>
 
       <main className={styles.hero}>
-        <h1>
-          Plattera<span className={styles.dot}>.</span>
-        </h1>
-        <a className={styles.primaryButton} href="/download">
-          Get Plattera
-        </a>
+        <h1>Resources</h1>
+        <p>Coming soon.</p>
       </main>
     </div>
   );
