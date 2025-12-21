@@ -3,23 +3,20 @@ import styles from "./page.module.css";
 export default function Home() {
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <div className={styles.brand}>
+      <main className={styles.hero}>
+        <div className={styles.brandRow}>
           <img
             className={styles.logo}
-            src="/assets/images/logo.png"
+            src="/assets/images/app_logo.png"
             alt="Plattera logo"
           />
-          <span className={styles.brandName}>Plattera</span>
+          <h1>
+            Plattera<span className={styles.dot}>.</span>
+          </h1>
         </div>
         <a className={styles.primaryButton} href="/download">
           Get Plattera
         </a>
-      </header>
-
-      <main className={styles.hero}>
-        <h1>Plattera</h1>
-        <p>Land intelligence, aligned and ready for action.</p>
       </main>
     </div>
   );

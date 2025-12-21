@@ -10,10 +10,12 @@ export default function DownloadPage() {
         <div className={styles.brand}>
           <img
             className={styles.logo}
-            src="/assets/images/logo.png"
+            src="/assets/images/app_logo.png"
             alt="Plattera logo"
           />
-          <span className={styles.brandName}>Plattera</span>
+          <span className={styles.brandName}>
+            Plattera<span className={styles.dot}>.</span>
+          </span>
         </div>
         <a className={styles.secondaryButton} href="/">
           Back to Home

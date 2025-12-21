@@ -1,19 +1,15 @@
 :root {
   color-scheme: dark;
-  --surface-0: #0b1220;
-  --surface-1: #111827;
-  --surface-2: #1f2937;
-  --surface-3: #0f172a;
-  --ink-strong: #f8fafc;
-  --ink: #e2e8f0;
-  --ink-muted: #94a3b8;
-  --line: #1e293b;
-  --accent: #3b82f6;
-  --accent-strong: #2563eb;
-  --accent-soft: #60a5fa;
-  --success: #10b981;
-  --shadow-soft: 0 20px 40px rgba(15, 23, 42, 0.35);
-  --shadow-hard: 0 30px 60px rgba(15, 23, 42, 0.55);
+  --surface-0: #0d0d0d;
+  --surface-1: #1c1c1c;
+  --surface-2: #2a2a2a;
+  --line: #383838;
+  --ink-strong: #eaeaea;
+  --ink: #eaeaea;
+  --ink-muted: #888888;
+  --accent: #00a9ff;
+  --accent-strong: #00a9ff;
+  --shadow-soft: 0 12px 24px rgba(0, 0, 0, 0.35);
 }
 
 * {
@@ -31,8 +27,8 @@ body {
 
 body {
   color: var(--ink);
-  background: radial-gradient(circle at top, #0f1b33 0%, #0b1220 45%, #0a0f1c 100%);
-  font-family: var(--font-body), "Segoe UI", sans-serif;
+  background: var(--surface-0);
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -47,19 +43,10 @@ img {
   height: auto;
 }
 
-code {
-  font-family: var(--font-body), "Segoe UI", sans-serif;
-  font-size: 0.9em;
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  padding: 2px 6px;
-  border-radius: 6px;
-}
-
 button {
   font-family: inherit;
 }
 
 ::selection {
-  background: rgba(59, 130, 246, 0.35);
+  background: rgba(0, 169, 255, 0.35);
 }
