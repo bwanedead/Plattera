@@ -61,8 +61,51 @@
   color: var(--ink-strong);
 }
 
-.hero p {
+.accordion {
+  width: min(720px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-1);
+  padding: 0;
+  overflow: hidden;
+}
+
+.summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 16px;
+  font-weight: 600;
+  color: var(--ink-strong);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary::after {
+  content: "+";
   color: var(--ink-muted);
+  font-weight: 400;
+}
+
+.panel[open] .summary::after {
+  content: "–";
+}
+
+.panelBody {
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-muted);
+  text-align: left;
 }
 
 @media (max-width: 640px) {

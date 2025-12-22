@@ -17,7 +17,32 @@ export default function ResourcesPage() {
 
       <main className={styles.hero}>
         <h1>Resources</h1>
-        <p>Coming soon.</p>
+        <div className={styles.accordion}>
+          <details className={styles.panel} open>
+            <summary className={styles.summary}>Download &amp; Install</summary>
+            <div className={styles.panelBody}>
+              <p>Instructions will go here.</p>
+            </div>
+          </details>
+          <details className={styles.panel}>
+            <summary className={styles.summary}>API Key Setup</summary>
+            <div className={styles.panelBody}>
+              <p>Instructions will go here.</p>
+            </div>
+          </details>
+          <details className={styles.panel}>
+            <summary className={styles.summary}>Application Walkthrough</summary>
+            <div className={styles.panelBody}>
+              <p>Steps and usage details will go here.</p>
+            </div>
+          </details>
+          <details className={styles.panel}>
+            <summary className={styles.summary}>Full Tutorial Video</summary>
+            <div className={styles.panelBody}>
+              <p>Video embed placeholder.</p>
+            </div>
+          </details>
+        </div>
       </main>
     </div>
   );
