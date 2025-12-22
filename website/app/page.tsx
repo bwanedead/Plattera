@@ -5,11 +5,6 @@ export default function Home() {
     <div className={styles.page}>
       <header className={styles.header}>
         <a className={styles.brand} href="/">
-          <img
-            className={styles.logo}
-            src="/assets/images/app_logo.png"
-            alt="Plattera logo"
-          />
           <span className={styles.brandName}>
             Plattera<span className={styles.dot}>.</span>
           </span>
@@ -21,12 +16,14 @@ export default function Home() {
       </header>
 
       <main className={styles.hero}>
-        <h1>
-          Plattera<span className={styles.dot}>.</span>
-        </h1>
-        <a className={styles.primaryButton} href="/download">
-          Get Plattera
-        </a>
+        <div className={styles.heroTitle}>
+          <h1>
+            Plattera<span className={styles.dot}>.</span>
+          </h1>
+          <a className={styles.primaryButton} href="/download">
+            Get Plattera
+          </a>
+        </div>
       </main>
     </div>
   );

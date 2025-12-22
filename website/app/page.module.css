@@ -2,40 +2,36 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 16px 24px 24px;
+  padding: 12px 24px 24px;
 }
 
 .header {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 16px;
+  flex-wrap: nowrap;
 }
 
 .brand {
   display: inline-flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.logo {
-  width: 44px;
-  height: 44px;
-  object-fit: contain;
+  align-items: flex-end;
 }
 
 .brandName {
   font-size: 20px;
   font-weight: 700;
   color: var(--ink-strong);
+  line-height: 1.1;
 }
 
 .nav {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 18px;
   font-size: 13px;
   color: var(--ink-muted);
-  margin-left: 8px;
+  margin-left: 24px;
+  white-space: nowrap;
 }
 
 .nav a {
@@ -59,6 +55,8 @@
   border: 1px solid rgba(0, 169, 255, 0.55);
   box-shadow: 0 8px 16px rgba(0, 169, 255, 0.2);
   transition: transform 0.2s ease;
+  min-width: 160px;
+  width: 140%;
 }
 
 .primaryButton:hover {
@@ -74,6 +72,14 @@
   margin: auto 0;
 }
 
+.heroTitle {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  width: fit-content;
+  gap: 18px;
+}
+
 .hero h1 {
   font-size: 2.5rem;
   font-weight: 700;
@@ -87,19 +93,5 @@
 @media (max-width: 640px) {
   .page {
     padding: 20px;
-  }
-
-  .header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  .nav {
-    flex-wrap: wrap;
-  }
-
-  .primaryButton {
-    width: 100%;
   }
 }

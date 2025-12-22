@@ -8,6 +8,11 @@ use std::fs;
 use sysinfo::{Pid, System};
 use std::net::TcpStream;
 
+mod windows_job;
+mod backend_lifecycle;
+
+use backend_lifecycle::shutdown_backend_for_update;
+
 // Blocking HTTP for quick cleanup ping
 fn cleanup_via_http(timeout_ms: u64) {
     let agent = ureq::AgentBuilder::new()
@@ -54,6 +59,8 @@ fn port_in_use(port: u16) -> bool {
 }
 
 struct BackendProcess(Mutex<Option<CommandChild>>);
+
+struct BackendJob(Mutex<Option<windows_job::JobHandle>>);
 
 /// Debug helper for updater investigations.
 ///
@@ -143,6 +150,26 @@ async fn start_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
 
         match try_sidecar {
             Ok(child) => {
+                // Assign the sidecar process to the Windows Job Object when available.
+                if let Ok(job_state) = app_handle.try_state::<BackendJob>() {
+                    if let Ok(guard) = job_state.0.lock() {
+                        if let Some(ref job) = *guard {
+                            if let Some(pid) = child.pid() {
+                                if windows_job::assign_pid_to_job(job, pid) {
+                                    log::info!(
+                                        "JOB_OBJECT ► assigned backend sidecar pid {} to job",
+                                        pid
+                                    );
+                                } else {
+                                    log::debug!(
+                                        "JOB_OBJECT ► failed to assign backend sidecar pid {} to job",
+                                        pid
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
                 *process_guard = Some(child);
                 Ok("Backend sidecar started".to_string())
             }
@@ -227,6 +254,7 @@ async fn open_devtools(app_handle: tauri::AppHandle) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(BackendProcess(Mutex::new(None)))
+        .manage(BackendJob(Mutex::new(windows_job::create_kill_on_close_job())))
         .setup(|app| {
             // Always register log plugin (dev + release)
             app.handle().plugin(
@@ -242,8 +270,16 @@ pub fn run() {
             app.handle().plugin(tauri_plugin_devtools_app::init())?;
             // Register shell plugin for sidecar
             app.handle().plugin(tauri_plugin_shell::init())?;
-            // Updater plugin (GitHub Releases)
-            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            // Updater plugin (GitHub Releases) with explicit pre-exit backend
+            // shutdown to avoid file-lock issues during install.
+            let updater_handle = app.handle().clone();
+            app.handle().plugin(
+                tauri_plugin_updater::Builder::new()
+                    .on_before_exit(move || {
+                        shutdown_backend_for_update(&updater_handle);
+                    })
+                    .build(),
+            )?;
             // Process plugin (relaunch after update)
             app.handle().plugin(tauri_plugin_process::init())?;
             
@@ -295,12 +331,7 @@ pub fn run() {
                 let app_handle = app.handle().clone();
                 let _ = ctrlc::set_handler(move || {
                     log::info!("Received Ctrl+C - cleaning up backend process...");
-                    // Give the backend a bit more time to receive and act on the cleanup signal.
-                    cleanup_via_http(1500);
-                    let backend_process = app_handle.state::<BackendProcess>();
-                    if let Some(mut child) = backend_process.0.lock().unwrap().take() {
-                        let _ = child.kill();
-                    }
+                    shutdown_backend_for_update(&app_handle);
                     std::process::exit(0);
                 });
             }
@@ -316,17 +347,8 @@ pub fn run() {
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { .. } => {
-                log::info!("Cleaning up backend process...");
-                // Best-effort HTTP cleanup with a slightly longer timeout for EXE builds
-                cleanup_via_http(1500);
-                // Give backend a brief moment to flush logs
-                std::thread::sleep(std::time::Duration::from_millis(250));
-                // Kill child if we own it
-                let backend_process = window.app_handle().state::<BackendProcess>();
-                if let Some(mut child) = backend_process.0.lock().unwrap().take() {
-                    let _ = child.kill();
-                }
-                log::info!("✅ Backend process terminated");
+                log::info!("Window close requested - running backend shutdown routine");
+                shutdown_backend_for_update(&window.app_handle());
             }
             _ => {}
         })

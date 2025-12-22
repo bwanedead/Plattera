@@ -5,11 +5,6 @@ export default function ResourcesPage() {
     <div className={styles.page}>
       <header className={styles.header}>
         <a className={styles.brand} href="/">
-          <img
-            className={styles.logo}
-            src="/assets/images/app_logo.png"
-            alt="Plattera logo"
-          />
           <span className={styles.brandName}>
             Plattera<span className={styles.dot}>.</span>
           </span>
