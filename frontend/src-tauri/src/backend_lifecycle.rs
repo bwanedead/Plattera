@@ -1,17 +1,28 @@
-use crate::{
-    cleanup_via_http, kill_by_pid, pid_alive, port_in_use, read_pid, remove_pid_file,
-    BackendProcess,
-};
-use std::fs::OpenOptions;
+use crate::{cleanup_via_http, port_in_use, BackendProcess};
+use std::fs;
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::path::BaseDirectory;
+use tauri::Manager;
 
-/// Best-effort shutdown routine used by both the updater and normal window
-/// closes. The goal is to release the backend's port and file lock before the
-/// NSIS installer runs so updates don't fail with "file in use" errors.
+/// Best-effort shutdown routine for the updater path. The goal is to release
+/// the backend's port and file lock before the NSIS installer runs so updates
+/// don't fail with "file in use" errors.
 pub fn shutdown_backend_for_update(app_handle: &tauri::AppHandle) {
-    log::info!("UPDATER_SHUTDOWN ► requested backend shutdown");
+    log::info!("UPDATER_SHUTDOWN ► requested backend shutdown (update install)");
+    shutdown_backend_inner(app_handle, true);
+}
+
+/// Best-effort shutdown routine for normal exits (window close, Ctrl+C). This
+/// shares the same cleanup path as the updater but *does not* perform the
+/// rename-based lock probe to avoid any chance of leaving the installed
+/// backend exe in an unexpected name if a second rename were to fail.
+pub fn shutdown_backend_for_exit(app_handle: &tauri::AppHandle) {
+    log::info!("UPDATER_SHUTDOWN ► requested backend shutdown (normal exit)");
+    shutdown_backend_inner(app_handle, false);
+}
+
+fn shutdown_backend_inner(app_handle: &tauri::AppHandle, check_file_lock: bool) {
 
     // 1) Ask the backend to perform its own cleanup (flush, close DBs, etc.).
     cleanup_via_http(1_500);
@@ -19,22 +30,14 @@ pub fn shutdown_backend_for_update(app_handle: &tauri::AppHandle) {
     // 2) Kill the child process we spawned, if any.
     {
         let backend = app_handle.state::<BackendProcess>();
-        if let Some(mut child) = backend.0.lock().unwrap().take() {
+        let mut guard = backend.0.lock().unwrap();
+        if let Some(child) = guard.take() {
             log::info!("UPDATER_SHUTDOWN ► killing tracked backend child");
             let _ = child.kill();
         }
     }
 
-    // 3) Extra belt-and-suspenders: if the backend wrote a PID file, try to
-    //    ensure that process is gone as well.
-    if let Some(pid) = read_pid() {
-        if pid_alive(pid) {
-            log::info!("UPDATER_SHUTDOWN ► killing backend pid from pidfile: {}", pid);
-            kill_by_pid(pid);
-        }
-    }
-
-    // 4) Wait for invariants: port must be free and (on Windows) the backend
+    // 3) Wait for invariants: port must be free and (on Windows, update path)
     //    binary should be unlocked for overwrite.
     const TIMEOUT_MS: u64 = 10_000;
     const POLL_MS: u64 = 250;
@@ -57,14 +60,15 @@ pub fn shutdown_backend_for_update(app_handle: &tauri::AppHandle) {
             log::debug!("UPDATER_SHUTDOWN ► port 8000 still in use; waiting…");
         }
 
-        if !backend_exe_unlocked(app_handle) {
+        if check_file_lock && !backend_exe_unlocked(app_handle) {
             all_clear = false;
         }
 
         if all_clear {
             log::info!(
-                "UPDATER_SHUTDOWN ► backend shutdown verified in {:?}",
-                elapsed
+                "UPDATER_SHUTDOWN ► backend shutdown verified in {:?} (check_file_lock={})",
+                elapsed,
+                check_file_lock
             );
             break;
         }
@@ -72,14 +76,13 @@ pub fn shutdown_backend_for_update(app_handle: &tauri::AppHandle) {
         thread::sleep(Duration::from_millis(POLL_MS));
     }
 
-    // 5) Clean up pidfile; not strictly required but avoids stale diagnostics.
-    remove_pid_file();
+    // 4) Best-effort cleanup of any legacy artifacts can be added here if needed.
 }
 
 #[cfg(windows)]
 fn backend_exe_unlocked(app_handle: &tauri::AppHandle) -> bool {
-    // Try to open the backend binary in the AppLocalData directory for write.
-    // If this succeeds, NSIS should be able to overwrite it.
+    // Probe by attempting a rename‑and‑restore of the backend executable.
+    // If either rename fails, we treat the file as still locked.
     let path = match app_handle
         .path()
         .resolve("plattera-backend.exe", BaseDirectory::AppLocalData)
@@ -94,17 +97,34 @@ fn backend_exe_unlocked(app_handle: &tauri::AppHandle) -> bool {
         }
     };
 
-    match OpenOptions::new().write(true).open(&path) {
+    let probe_path = path.with_extension("exe.__lockprobe__");
+
+    // If the file doesn't exist yet, there's nothing to lock.
+    if !path.exists() {
+        return true;
+    }
+
+    match fs::rename(&path, &probe_path) {
         Ok(_) => {
-            log::debug!(
-                "UPDATER_SHUTDOWN ► backend exe appears unlocked at {:?}",
-                path
-            );
+            // Try to move it back; if this fails we still know the original
+            // rename succeeded (i.e. the file wasn't locked).
+            if let Err(err) = fs::rename(&probe_path, &path) {
+                log::warn!(
+                    "UPDATER_SHUTDOWN ► rename back from probe failed at {:?}: {}",
+                    probe_path,
+                    err
+                );
+            } else {
+                log::debug!(
+                    "UPDATER_SHUTDOWN ► backend exe appears rename‑unlocked at {:?}",
+                    path
+                );
+            }
             true
         }
         Err(err) => {
             log::debug!(
-                "UPDATER_SHUTDOWN ► backend exe still locked at {:?}: {}",
+                "UPDATER_SHUTDOWN ► backend exe still locked at {:?} (rename failed): {}",
                 path,
                 err
             );

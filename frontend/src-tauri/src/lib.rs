@@ -3,15 +3,12 @@ use tauri_plugin_shell::{process::{CommandChild, CommandEvent}, ShellExt};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
-use std::path::{Path, PathBuf};
-use std::fs;
-use sysinfo::{Pid, System};
 use std::net::TcpStream;
 
 mod windows_job;
 mod backend_lifecycle;
 
-use backend_lifecycle::shutdown_backend_for_update;
+use backend_lifecycle::{shutdown_backend_for_update, shutdown_backend_for_exit};
 
 // Blocking HTTP for quick cleanup ping
 fn cleanup_via_http(timeout_ms: u64) {
@@ -19,39 +16,6 @@ fn cleanup_via_http(timeout_ms: u64) {
         .timeout_connect(Duration::from_millis(timeout_ms))
         .build();
     let _ = agent.post("http://127.0.0.1:8000/api/cleanup").call();
-}
-
-fn pid_file_path() -> PathBuf {
-    Path::new("../../backend/.server.pid").to_path_buf()
-}
-
-fn write_pid(pid: u32) {
-    let _ = fs::write(pid_file_path(), pid.to_string());
-}
-
-fn read_pid() -> Option<u32> {
-    let p = pid_file_path();
-    if !p.exists() { return None; }
-    fs::read_to_string(p).ok().and_then(|s| s.trim().parse::<u32>().ok())
-}
-
-fn remove_pid_file() {
-    let _ = fs::remove_file(pid_file_path());
-}
-
-fn pid_alive(pid: u32) -> bool {
-    let mut sys = System::new_all();
-    sys.refresh_processes();
-    sys.process(Pid::from_u32(pid)).is_some()
-}
-
-fn kill_by_pid(pid: u32) {
-    let mut sys = System::new_all();
-    sys.refresh_processes();
-    if let Some(pr) = sys.process(Pid::from_u32(pid)) {
-        // Try graceful terminate, then kill
-        let _ = pr.kill();
-    }
 }
 
 fn port_in_use(port: u16) -> bool {
@@ -151,21 +115,20 @@ async fn start_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
         match try_sidecar {
             Ok(child) => {
                 // Assign the sidecar process to the Windows Job Object when available.
-                if let Ok(job_state) = app_handle.try_state::<BackendJob>() {
+                if let Some(job_state) = app_handle.try_state::<BackendJob>() {
                     if let Ok(guard) = job_state.0.lock() {
                         if let Some(ref job) = *guard {
-                            if let Some(pid) = child.pid() {
-                                if windows_job::assign_pid_to_job(job, pid) {
-                                    log::info!(
-                                        "JOB_OBJECT ► assigned backend sidecar pid {} to job",
-                                        pid
-                                    );
-                                } else {
-                                    log::debug!(
-                                        "JOB_OBJECT ► failed to assign backend sidecar pid {} to job",
-                                        pid
-                                    );
-                                }
+                            let pid = child.pid();
+                            if windows_job::assign_pid_to_job(job, pid) {
+                                log::info!(
+                                    "JOB_OBJECT ► assigned backend sidecar pid {} to job",
+                                    pid
+                                );
+                            } else {
+                                log::debug!(
+                                    "JOB_OBJECT ► failed to assign backend sidecar pid {} to job",
+                                    pid
+                                );
                             }
                         }
                     }
@@ -270,16 +233,9 @@ pub fn run() {
             app.handle().plugin(tauri_plugin_devtools_app::init())?;
             // Register shell plugin for sidecar
             app.handle().plugin(tauri_plugin_shell::init())?;
-            // Updater plugin (GitHub Releases) with explicit pre-exit backend
-            // shutdown to avoid file-lock issues during install.
-            let updater_handle = app.handle().clone();
-            app.handle().plugin(
-                tauri_plugin_updater::Builder::new()
-                    .on_before_exit(move || {
-                        shutdown_backend_for_update(&updater_handle);
-                    })
-                    .build(),
-            )?;
+            // Updater plugin (GitHub Releases).
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
             // Process plugin (relaunch after update)
             app.handle().plugin(tauri_plugin_process::init())?;
             
@@ -331,7 +287,7 @@ pub fn run() {
                 let app_handle = app.handle().clone();
                 let _ = ctrlc::set_handler(move || {
                     log::info!("Received Ctrl+C - cleaning up backend process...");
-                    shutdown_backend_for_update(&app_handle);
+                    shutdown_backend_for_exit(&app_handle);
                     std::process::exit(0);
                 });
             }
@@ -348,7 +304,7 @@ pub fn run() {
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { .. } => {
                 log::info!("Window close requested - running backend shutdown routine");
-                shutdown_backend_for_update(&window.app_handle());
+                shutdown_backend_for_exit(&window.app_handle());
             }
             _ => {}
         })
