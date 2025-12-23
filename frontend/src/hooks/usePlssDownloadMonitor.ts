@@ -58,26 +58,55 @@ export function usePlssDownloadMonitor(): PlssDownloadState {
             const status = await plssDataService.checkDownloadActive(lastState);
             if (status.active) {
               const progress = await plssDataService.getDownloadProgress(lastState);
-              const overall = progress.overall || { percent: 0 };
-              const stage = progress.stage || status.stage || 'working';
-              const text = (progress as any).status || stage || null;
-              const ui = presentPlssProgress({
-                stage: progress.stage,
-                overall: progress.overall,
-                status: (progress as any).status,
-                estimated_time: (progress as any).estimated_time,
-                final_phase: (progress as any).final_phase,
-              });
 
-              if (!cancelled) {
-                setDownload({
-                  active: true,
-                  state: lastState,
-                  stage,
-                  percent: typeof overall.percent === 'number' ? overall.percent : null,
-                  text,
-                  ui,
+              // If the backend indicates an error for this state, treat it as
+              // a terminal condition for the overlay/banner so we don't stack
+              // an "active progress" overlay on top of an error prompt.
+              if (progress.success === false || (progress as any).error) {
+                const ui = presentPlssProgress({
+                  stage: progress.stage ?? 'error',
+                  overall: progress.overall,
+                  status: (progress as any).error || (progress as any).status,
+                  estimated_time: (progress as any).estimated_time,
+                  final_phase: (progress as any).final_phase,
                 });
+
+                if (!cancelled) {
+                  setDownload(prev => ({
+                    ...prev,
+                    active: false,
+                    state: null,
+                    stage: progress.stage ?? 'error',
+                    percent: null,
+                    text:
+                      (progress as any).error ||
+                      (progress as any).status ||
+                      'Error during PLSS download',
+                    ui,
+                  }));
+                }
+              } else {
+                const overall = progress.overall || { percent: 0 };
+                const stage = progress.stage || status.stage || 'working';
+                const text = (progress as any).status || stage || null;
+                const ui = presentPlssProgress({
+                  stage: progress.stage,
+                  overall: progress.overall,
+                  status: (progress as any).status,
+                  estimated_time: (progress as any).estimated_time,
+                  final_phase: (progress as any).final_phase,
+                });
+
+                if (!cancelled) {
+                  setDownload({
+                    active: true,
+                    state: lastState,
+                    stage,
+                    percent: typeof overall.percent === 'number' ? overall.percent : null,
+                    text,
+                    ui,
+                  });
+                }
               }
             } else {
               // Not reported active; peek once at progress to see if we just finished
@@ -95,7 +124,8 @@ export function usePlssDownloadMonitor(): PlssDownloadState {
               const isTerminal =
                 stage === 'complete' ||
                 stage === 'idle' ||
-                stage === 'canceled';
+                stage === 'canceled' ||
+                stage === 'error';
 
               if (!cancelled) {
                 setDownload(prev => ({

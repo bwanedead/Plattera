@@ -17,10 +17,16 @@ export const PLSSDownloadOverlay: React.FC = () => {
   const { active, state, ui } = usePlssDownloadMonitor();
   const [isOpen, setIsOpen] = useState(false);
 
+  const isProgressPhase =
+    !!ui &&
+    (ui.phase === 'downloading' ||
+      ui.phase === 'building_parquet' ||
+      ui.phase === 'finalizing');
+
   // Track per‑state dismissal in localStorage so we don't re‑open the overlay
   // every time the user navigates while a long download is running.
   useEffect(() => {
-    if (!active || !state) {
+    if (!active || !state || !ui || !isProgressPhase) {
       setIsOpen(false);
       return;
     }
@@ -34,7 +40,7 @@ export const PLSSDownloadOverlay: React.FC = () => {
     } catch {
       setIsOpen(true);
     }
-  }, [active, state]);
+  }, [active, state, ui, isProgressPhase]);
 
   // Allow other components (e.g. the banner) to explicitly open the overlay.
   useEffect(() => {
@@ -76,7 +82,7 @@ export const PLSSDownloadOverlay: React.FC = () => {
     }
   };
 
-  if (!active || !state || !ui) return null;
+  if (!active || !state || !ui || !isProgressPhase) return null;
 
   const parquetPhase =
     ui.phase === 'building_parquet' || ui.phase === 'finalizing';

@@ -149,12 +149,29 @@
 
 /* Loading Spinner */
 .plss-spinner {
+  display: inline-block;
+  flex: 0 0 16px;
+  flex-shrink: 0;
   width: 16px;
   height: 16px;
+  box-sizing: border-box;
   border: 2px solid rgba(244, 241, 234, 0.3);
   border-top: 2px solid #f4f1ea;
   border-radius: 50%;
   animation: spin 1s linear infinite;
+}
+
+/* Stop Button - high contrast destructive */
+.plss-btn-stop {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.plss-btn-stop:hover:not(:disabled) {
+  background: #fecaca;
+  border-color: #fca5a5;
+  transform: translateY(-1px);
 }
 
 @keyframes spin {

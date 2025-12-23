@@ -169,18 +169,7 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
                   fontSize: 11,
                 }}
               >
-                <button
-                  className="plss-btn small"
-                  onClick={handleHardCancel}
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid #f97373',
-                    color: '#fecaca',
-                    padding: '2px 8px',
-                    borderRadius: 4,
-                    cursor: 'pointer',
-                  }}
-                >
+                <button className="plss-btn plss-btn-stop small" onClick={handleHardCancel}>
                   Stop
                 </button>
               </div>
@@ -198,7 +187,7 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
               )}
             </p>
             <p className="plss-modal-details">
-              This may take several minutes. You can cancel if needed; a future download will start
+              This may take several minutes. You can stop if needed; a future download will start
               from a clean state.
             </p>
           </div>
@@ -273,16 +262,8 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
               <span>{progressHeadline || progressText || 'Preparing...'}</span>
               {onHardCancel && (
                 <button
-                  className="plss-btn small"
+                  className="plss-btn plss-btn-stop small"
                   onClick={handleHardCancel}
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid #f97373',
-                    color: '#fecaca',
-                    padding: '2px 8px',
-                    borderRadius: 4,
-                    cursor: 'pointer',
-                  }}
                 >
                   Stop
                 </button>
@@ -313,16 +294,8 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
             </span>
             {onHardCancel && (
               <button
-                className="plss-btn small"
+                className="plss-btn plss-btn-stop small"
                 onClick={handleHardCancel}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #f97373',
-                  color: '#fecaca',
-                  padding: '2px 8px',
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                }}
               >
                 Stop
               </button>

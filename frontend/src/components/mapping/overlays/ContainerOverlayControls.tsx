@@ -166,14 +166,14 @@ export const ContainerOverlayControls: React.FC<ContainerOverlayControlsProps> =
               }}
               title="Disabled because it was useless"
             >
-              <ToggleCheckbox
+            <ToggleCheckbox
                 checked={false}
                 // No-op: labels for subdivisions are permanently disabled
                 onChange={() => {}}
-                id="subdivision-labels-toggle"
-                size="small"
-                type="label"
-              />
+              id="subdivision-labels-toggle"
+              size="small"
+              type="label"
+            />
             </div>
           </div>
         </div>

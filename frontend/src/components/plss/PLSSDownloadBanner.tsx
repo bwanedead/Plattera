@@ -46,26 +46,37 @@ export const PLSSDownloadBanner: React.FC = () => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '6px 10px',
-        borderRadius: 6,
-        background: 'rgba(15, 23, 42, 0.9)',
-        color: '#e5e7eb',
-        fontSize: 12,
+        padding: '8px 14px',
+        borderRadius: 12,
+        background: '#f4f1ea',
+        border: '1px solid rgba(0, 0, 0, 0.08)',
+        boxShadow: '0 20px 40px rgba(0, 0, 0, 0.3)',
+        color: '#3a3a3a',
+        fontSize: 13,
         pointerEvents: 'auto',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: '#38bdf8',
-          }}
-        />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: '#22c55e',
+            }}
+          />
+          <div
+            className="plss-spinner"
+            style={{
+              border: '2px solid rgba(148, 163, 184, 0.4)',
+              borderTopColor: '#22c55e',
+            }}
+          />
+        </span>
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           {/* Primary line: stage + percent, never ellipsized */}
-          <div style={{ whiteSpace: 'nowrap' }}>
+          <div style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
             {ui.headline || 'Downloading PLSS data…'} for <strong>{state}</strong>
             {pct && <> — {pct}</>}
           </div>
@@ -74,7 +85,7 @@ export const PLSSDownloadBanner: React.FC = () => {
             <div
               style={{
                 fontSize: 11,
-                color: '#9ca3af',
+                color: '#6b7280',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -91,9 +102,9 @@ export const PLSSDownloadBanner: React.FC = () => {
           className="plss-btn small"
           onClick={handleView}
           style={{
-            background: 'transparent',
-            border: '1px solid #38bdf8',
-            color: '#e0f2fe',
+            background: '#e8e5de',
+            border: '1px solid #d0cdc6',
+            color: '#374151',
             padding: '2px 8px',
             borderRadius: 4,
             cursor: 'pointer',
@@ -106,9 +117,9 @@ export const PLSSDownloadBanner: React.FC = () => {
           className="plss-btn small"
           onClick={handleStop}
           style={{
-            background: 'transparent',
-            border: '1px solid #f97373',
-            color: '#fecaca',
+            background: '#fee2e2',
+            border: '1px solid #fecaca',
+            color: '#b91c1c',
             padding: '2px 8px',
             borderRadius: 4,
             cursor: 'pointer',
