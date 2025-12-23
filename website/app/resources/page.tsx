@@ -105,7 +105,148 @@ export default function ResourcesPage() {
           <details className={styles.panel}>
             <summary className={styles.summary}>API Key Setup</summary>
             <div className={styles.panelBody}>
-              <p>Instructions will go here.</p>
+              <div className={styles.stepGroup}>
+                <h3>Open the OpenAI API page</h3>
+                <ol className={styles.steps}>
+                  <li>
+                    Go to{" "}
+                    <a href="https://openai.com/api/" target="_blank" rel="noreferrer">
+                      https://openai.com/api/
+                    </a>
+                    .
+                  </li>
+                  <li>Click Log in (top-right).</li>
+                  <li>If prompted, choose API Platform.</li>
+                </ol>
+                <div className={styles.stepImages}>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/api_key/open_ai_api_landing_page_click_login_first.png"
+                      alt="OpenAI API landing page with Log in highlighted"
+                    />
+                    <figcaption>Open the API page and click Log in.</figcaption>
+                  </figure>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/api_key/click_api_platform_second.png"
+                      alt="API Platform selector highlighted"
+                    />
+                    <figcaption>Select API Platform if prompted.</figcaption>
+                  </figure>
+                </div>
+              </div>
+
+              <div className={styles.stepGroup}>
+                <h3>Sign in or create an account</h3>
+                <ol className={styles.steps} start={4}>
+                  <li>Enter your email and click Continue, or choose Sign up.</li>
+                  <li>Finish login with your provider (Google, Apple, Microsoft, etc.).</li>
+                </ol>
+                <div className={styles.stepImages}>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/api_key/sign_up_or_login_third.png"
+                      alt="OpenAI sign in or sign up screen"
+                    />
+                    <figcaption>Complete the sign-in or sign-up flow.</figcaption>
+                  </figure>
+                </div>
+              </div>
+
+              <div className={styles.stepGroup}>
+                <h3>Optional: Create a Plattera project</h3>
+                <ol className={styles.steps} start={6}>
+                  <li>In the API Platform, open Settings.</li>
+                  <li>Under Organization, open Projects.</li>
+                  <li>Click Create project and name it Plattera.</li>
+                </ol>
+                <p className={styles.note}>
+                  If you skip this, you can still create a key without a project.
+                </p>
+              </div>
+
+              <div className={styles.stepGroup}>
+                <h3>Set up billing</h3>
+                <ol className={styles.steps} start={9}>
+                  <li>In Settings, open Billing.</li>
+                  <li>Add a payment method or prepaid credits.</li>
+                </ol>
+                <p className={styles.note}>
+                  If billing is not set up, API requests can fail until funding is active.
+                </p>
+                <div className={styles.stepImages}>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/api_key/click_billing_fourth.png"
+                      alt="OpenAI billing section highlighted"
+                    />
+                    <figcaption>Open Billing to add a payment method.</figcaption>
+                  </figure>
+                </div>
+              </div>
+
+              <div className={styles.stepGroup}>
+                <h3>Create the API key</h3>
+                <ol className={styles.steps} start={11}>
+                  <li>In Settings, open API keys.</li>
+                  <li>Click Create new secret key.</li>
+                  <li>
+                    Name it (example: My Plattera key), select the Plattera project if
+                    created, and keep permissions as All.
+                  </li>
+                  <li>Create the key, then copy and save it immediately.</li>
+                </ol>
+                <div className={styles.stepImages}>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/api_key/click_api_keys_fifth.png"
+                      alt="API keys menu highlighted"
+                    />
+                    <figcaption>Open the API keys page.</figcaption>
+                  </figure>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/api_key/create_new_secret_key_sixth.png"
+                      alt="Create new secret key button highlighted"
+                    />
+                    <figcaption>Create a new secret key.</figcaption>
+                  </figure>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/api_key/name_and_create_secret_key_seventh.png"
+                      alt="Name and create secret key dialog"
+                    />
+                    <figcaption>Name the key and create it.</figcaption>
+                  </figure>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/api_key/copy_api_key_eighth%20.png"
+                      alt="Copy API key dialog"
+                    />
+                    <figcaption>Copy and save the key immediately.</figcaption>
+                  </figure>
+                </div>
+              </div>
+
+              <div className={styles.stepGroup}>
+                <h3>Use the key in Plattera</h3>
+                <ol className={styles.steps} start={15}>
+                  <li>Open Plattera and find the OpenAI API Key field.</li>
+                  <li>Paste the key and save/apply.</li>
+                </ol>
+              </div>
+
+              <div className={styles.stepGroup}>
+                <h3>Safety notes</h3>
+                <ul className={styles.steps}>
+                  <li>Do not share your API key publicly.</li>
+                  <li>Do not commit the key to GitHub.</li>
+                  <li>
+                    If Plattera reports quota or billing errors, return to Settings &gt;
+                    Billing and confirm funding is active.
+                  </li>
+                </ul>
+              </div>
             </div>
           </details>
           <details className={styles.panel}>

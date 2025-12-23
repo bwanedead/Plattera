@@ -1,11 +1,11 @@
 {
-  "version": "0.9.2",
+  "version": "0.9.3",
   "notes": "",
   "pub_date": "2025-11-30T17:02:15Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUZGpWWnRFN2NMaVAyY3RCR3hJUFhXMi8zd2lPYnVsT2lhd3RXZ2hMNDh5M3JLanlSZWtHZnVGS1ZrcHFaTlBBWS9MRUIyTWFLWnFrdE9DTkcwdkJLbFlZQ0IrSmRQV3c0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY2NDQ1ODIyCWZpbGU6UGxhdHRlcmFfMC45LjJfd2luZG93c194ODZfNjQuemlwCmVIbzQ3QUtWSWNJL3JkWTI5Z0IyazRyOTlpeWFJUXpycE14YW91d0d1bjk1Wnc4N09mTzQrYXRmZ1RPQXlBTlp0aFM3TFlDQzkrYjlNR0xydmRUN0NRPT0K",
-      "url": "https://github.com/bwanedead/Plattera/releases/download/v0.9.2/Plattera_0.9.2_x64-setup.exe"
+      "signature": "REPLACE_WITH_0.9.3_SIGNATURE_BEFORE_RELEASE",
+      "url": "https://github.com/bwanedead/Plattera/releases/download/v0.9.3/Plattera_0.9.3_x64-setup.exe"
     }
   }
 }
