@@ -4,7 +4,7 @@
   "pub_date": "2025-11-30T17:02:15Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "REPLACE_WITH_0.9.4_SIGNATURE_BEFORE_RELEASE",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUZGpWWnRFN2NMaUxEVlE0eEV1VGJLTkZlNW9hcEVoN0J1a05vd25CVU82NzRxRXU3V3VmaWxBV2VSNzBkR3hyaW55OEpzYkEyNVdZb0FpYWVKU1g0RjFsMTlaWitJSFFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY2NTc5NTQ4CWZpbGU6UGxhdHRlcmFfMC45LjRfeDY0LXNldHVwLmV4ZQpFZU13enVVdnZwVkN5R0NVaHNIOFhtOVdFNHQzcG5YbXJkdU1zaFh1N0JGY3J6NVBFSFRwWmNoNVFYWStQZndOOS94S0ZxbXQydERWeFZGQ3dqalFEdz09Cg==",
       "url": "https://github.com/bwanedead/Plattera/releases/download/v0.9.4/Plattera_0.9.4_x64-setup.exe"
     }
   }
