@@ -5,8 +5,8 @@ export const metadata: Metadata = {
   title: "Plattera",
   description: "Plattera helps teams align land data with speed and clarity.",
   icons: {
-    icon: "/icon.ico",
-    shortcut: "/icon.ico",
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
   },
 };
 
