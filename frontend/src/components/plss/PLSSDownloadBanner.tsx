@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { usePlssDownloadMonitor } from '../../hooks/usePlssDownloadMonitor';
 import { plssDataService } from '../../services/plss';
 
@@ -9,9 +9,27 @@ import { plssDataService } from '../../services/plss';
  * in progress, so users can keep working while being aware of the job.
  */
 export const PLSSDownloadBanner: React.FC = () => {
+  const [overlayOpen, setOverlayOpen] = useState(false);
   const { active, state, ui } = usePlssDownloadMonitor();
 
-  if (!active || !state || !ui) return null;
+  // Listen for overlay visibility events so the banner can hide whenever the
+  // detailed progress modal is open. This keeps the experience "either/or"
+  // instead of stacking the banner behind the modal.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<{ open?: boolean }>;
+      if (custom.detail && typeof custom.detail.open === 'boolean') {
+        setOverlayOpen(custom.detail.open);
+      }
+    };
+
+    document.addEventListener('plss:overlay-visibility', handler);
+    return () => {
+      document.removeEventListener('plss:overlay-visibility', handler);
+    };
+  }, []);
+
+  if (!active || !state || !ui || overlayOpen) return null;
 
   const label = ui.detail || ui.rawStage || 'Downloading PLSS data...';
   const pct = ui.showPercent && typeof ui.percent === 'number' ? `${ui.percent}%` : '';
@@ -76,7 +94,14 @@ export const PLSSDownloadBanner: React.FC = () => {
         </span>
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           {/* Primary line: stage + percent, never ellipsized */}
-          <div style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
+          <div
+            style={{
+              whiteSpace: 'nowrap',
+              fontWeight: 600,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
             {ui.headline || 'Downloading PLSS data…'} for <strong>{state}</strong>
             {pct && <> — {pct}</>}
           </div>
@@ -117,8 +142,8 @@ export const PLSSDownloadBanner: React.FC = () => {
           className="plss-btn small"
           onClick={handleStop}
           style={{
-            background: '#fee2e2',
-            border: '1px solid #fecaca',
+            background: 'transparent',
+            border: '1px solid #fca5a5',
             color: '#b91c1c',
             padding: '2px 8px',
             borderRadius: 4,

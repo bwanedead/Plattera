@@ -42,6 +42,20 @@ export const PLSSDownloadOverlay: React.FC = () => {
     }
   }, [active, state, ui, isProgressPhase]);
 
+  // Broadcast overlay visibility so other UI elements (like the banner) can
+  // hide while the modal is open. This keeps ownership of "progress UI"
+  // single and avoids stacking the banner behind the overlay.
+  useEffect(() => {
+    try {
+      const event = new CustomEvent('plss:overlay-visibility', {
+        detail: { open: isOpen },
+      });
+      document.dispatchEvent(event);
+    } catch {
+      // Ignore environments without CustomEvent (unlikely in Tauri/WebView).
+    }
+  }, [isOpen]);
+
   // Allow other components (e.g. the banner) to explicitly open the overlay.
   useEffect(() => {
     const handler = () => {

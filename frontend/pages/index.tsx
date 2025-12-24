@@ -239,22 +239,21 @@ const App: React.FC = () => {
                   ? 'Checking for Updates…'
                   : 'Check for Updates'}
               </button>
+              {/* Debug updater endpoint button removed for normal UX.
+                  The handler is left here commented-out for future diagnostics if needed.
               <button
                 onClick={async () => {
                   try {
-                    // Call Tauri-side debug helper so we can see the raw updater
-                    // manifest body and headers in the log file for EXE builds.
                     const result = await invoke<string>('debug_updater_endpoint', {
                       url: 'https://raw.githubusercontent.com/bwanedead/Plattera/main/releases/latest.json'
                     })
                     setUpdaterDialog({
                       open: true,
                       title: 'Updater debug result',
-                       message: result,
-                       mode: 'debug'
+                      message: result,
+                      mode: 'debug'
                     })
                   } catch (e: any) {
-                    // eslint-disable-next-line no-console
                     console.error('Updater debug error', e)
                     const message =
                       (e && (e.message || (typeof e.toString === 'function' && e.toString()))) ||
@@ -282,6 +281,7 @@ const App: React.FC = () => {
               >
                 Debug updater endpoint
               </button>
+              */}
             </div>
           </div>
         )

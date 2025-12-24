@@ -127,13 +127,24 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
+                    alignItems: 'center',
                     fontSize: 11,
                     color: '#aaa',
                     marginTop: 6,
                   }}
                 >
                   <span>{parquetDetail}</span>
-                  <span>Est: {estimatedTime || '15-20 minutes'}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>Est: {estimatedTime || '15-20 minutes'}</span>
+                    {onHardCancel && (
+                      <button
+                        className="plss-btn plss-btn-stop small"
+                        onClick={handleHardCancel}
+                      >
+                        Stop
+                      </button>
+                    )}
+                  </span>
                 </div>
               </div>
             ) : (
@@ -157,21 +168,17 @@ export const PLSSDownloadModal: React.FC<PLSSDownloadModalProps> = ({
                   />
                   {parquetDetail}
                 </span>
-                <span>Est: {estimatedTime || '15-20 minutes'}</span>
-              </div>
-            )}
-            {onHardCancel && (
-              <div
-                style={{
-                  marginTop: 10,
-                  display: 'flex',
-                  justifyContent: 'flex-end',
-                  fontSize: 11,
-                }}
-              >
-                <button className="plss-btn plss-btn-stop small" onClick={handleHardCancel}>
-                  Stop
-                </button>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>Est: {estimatedTime || '15-20 minutes'}</span>
+                  {onHardCancel && (
+                    <button
+                      className="plss-btn plss-btn-stop small"
+                      onClick={handleHardCancel}
+                    >
+                      Stop
+                    </button>
+                  )}
+                </span>
               </div>
             )}
           </div>
