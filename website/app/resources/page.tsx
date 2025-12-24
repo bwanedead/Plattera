@@ -18,7 +18,7 @@ export default function ResourcesPage() {
       <main className={styles.hero}>
         <h1>Resources</h1>
         <div className={styles.accordion}>
-          <details className={styles.panel} open>
+          <details className={styles.panel}>
             <summary className={styles.summary}>Download &amp; Install</summary>
             <div className={styles.panelBody}>
               <p className={styles.lead}>
@@ -37,7 +37,7 @@ export default function ResourcesPage() {
                   Click <strong>More info</strong>, then select{" "}
                   <strong>Run anyway</strong> to continue the installer.
                 </p>
-                <div className={styles.stepImages}>
+                <div className={styles.downloadImages}>
                   <figure>
                     <img
                       src="/assets/images/screenshots/installation/install_windows_protected_machine_screen_more_info_arrow_first.png"
@@ -61,7 +61,7 @@ export default function ResourcesPage() {
                   Follow the standard installer steps. Screenshots are included
                   for reference.
                 </p>
-                <div className={styles.stepImages}>
+                <div className={styles.downloadImages}>
                   <figure>
                     <img
                       src="/assets/images/screenshots/installation/welcome_plattera_setup_arrow_third.png"
@@ -177,6 +177,7 @@ export default function ResourcesPage() {
                 <div className={styles.stepImages}>
                   <figure>
                     <img
+                      className={styles.tallImage}
                       src="/assets/images/screenshots/api_key/click_billing_fourth.png"
                       alt="OpenAI billing section highlighted"
                     />
@@ -250,9 +251,27 @@ export default function ResourcesPage() {
             </div>
           </details>
           <details className={styles.panel}>
-            <summary className={styles.summary}>Application Walkthrough</summary>
+            <summary className={styles.summary}>Image to Text Workspace</summary>
             <div className={styles.panelBody}>
-              <p>Steps and usage details will go here.</p>
+              <p>Content will go here.</p>
+            </div>
+          </details>
+          <details className={styles.panel}>
+            <summary className={styles.summary}>Text to Schema Workspace</summary>
+            <div className={styles.panelBody}>
+              <p>Content will go here.</p>
+            </div>
+          </details>
+          <details className={styles.panel}>
+            <summary className={styles.summary}>Map Workspace</summary>
+            <div className={styles.panelBody}>
+              <p>Content will go here.</p>
+            </div>
+          </details>
+          <details className={styles.panel}>
+            <summary className={styles.summary}>PLSS Data Download</summary>
+            <div className={styles.panelBody}>
+              <p>Content will go here.</p>
             </div>
           </details>
           <details className={styles.panel}>
