@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Plattera",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "identifier": "com.plattera.app",
   "build": {
     "frontendDist": "../out",
@@ -19,6 +19,7 @@
         "minHeight": 700,
         "resizable": true,
         "fullscreen": false,
+        "maximized": true,
         "center": true
       }
     ],
