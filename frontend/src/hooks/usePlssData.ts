@@ -249,11 +249,24 @@ export function usePLSSData(schemaData: any) {
       return;
     }
 
-    // Record last state for global monitors (best-effort only)
+    // Record last state for global monitors (best-effort only) and reset any
+    // previous overlay dismissal so each new download session can surface the
+    // progress overlay as the primary UI again.
     try {
       localStorage.setItem('plss:lastState', state.state);
+      localStorage.removeItem(`plss:overlayDismissed:${state.state}`);
     } catch {
       // ignore storage errors – non-fatal
+    }
+
+    // Proactively signal that detailed progress can be shown. The overlay will
+    // only render once the monitor observes an active download for this state,
+    // but this keeps the contract explicit: a user‑initiated download is a
+    // "reset moment" for overlay visibility.
+    try {
+      document.dispatchEvent(new Event('plss:open-modal'));
+    } catch {
+      // ignore environments where document is not available
     }
 
     setState(prev => ({ ...prev, status: 'downloading', progress: 'Starting...' }));
