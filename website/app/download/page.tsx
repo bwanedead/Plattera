@@ -1,9 +1,32 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import styles from "./page.module.css";
 
 const releaseUrl = "https://github.com/ORG/REPO/releases";
-const latestDownloadUrl = "https://github.com/ORG/REPO/releases/latest";
+const latestFallbackUrl = "https://github.com/ORG/REPO/releases/latest";
 
-export default function DownloadPage() {
+type LatestRelease = {
+  platforms?: {
+    "windows-x86_64"?: {
+      url?: string;
+    };
+  };
+};
+
+async function getLatestDownloadUrl() {
+  try {
+    const latestPath = path.resolve(process.cwd(), "..", "releases", "latest.json");
+    const file = await fs.readFile(latestPath, "utf-8");
+    const data = JSON.parse(file) as LatestRelease;
+    return data.platforms?.["windows-x86_64"]?.url ?? latestFallbackUrl;
+  } catch {
+    return latestFallbackUrl;
+  }
+}
+
+export default async function DownloadPage() {
+  const latestDownloadUrl = await getLatestDownloadUrl();
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
