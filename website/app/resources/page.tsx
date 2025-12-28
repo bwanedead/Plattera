@@ -583,37 +583,6 @@ export default function ResourcesPage() {
                     />
                     <figcaption>Edit in JSON when you need structured edits.</figcaption>
                   </figure>
-                  <figure>
-                    <img
-                      src="/assets/images/screenshots/text_to_schema/results_viewer_field_view_tab_draw_button.png"
-                      alt="Field view draw button"
-                    />
-                    <figcaption>Open the draw tools from Field View.</figcaption>
-                  </figure>
-                </div>
-              </div>
-
-              <div className={styles.stepGroup}>
-                <h3>Draw viewer</h3>
-                <p>
-                  The draw viewer lets you map parcels and verify geometry against
-                  the schema output.
-                </p>
-                <div className={styles.downloadImages}>
-                  <figure>
-                    <img
-                      src="/assets/images/screenshots/text_to_schema/draw_viewer_map_button_circled.png"
-                      alt="Draw viewer map button highlighted"
-                    />
-                    <figcaption>Launch the draw viewer.</figcaption>
-                  </figure>
-                  <figure>
-                    <img
-                      src="/assets/images/screenshots/text_to_schema/draw_viewer_window.png"
-                      alt="Draw viewer window"
-                    />
-                    <figcaption>Review geometry in the draw viewer.</figcaption>
-                  </figure>
                 </div>
               </div>
 
@@ -639,27 +608,157 @@ export default function ResourcesPage() {
                   </figure>
                 </div>
               </div>
+
+              <div className={styles.stepGroup}>
+                <h3>Draw viewer</h3>
+                <p>
+                  The draw viewer lets you map parcels and verify geometry against
+                  the schema output.
+                </p>
+                <div className={styles.downloadImages}>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/text_to_schema/results_viewer_field_view_tab_draw_button.png"
+                      alt="Field view draw button"
+                    />
+                    <figcaption>Open the draw tools from Field View.</figcaption>
+                  </figure>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/text_to_schema/draw_viewer_map_button_circled.png"
+                      alt="Draw viewer map button highlighted"
+                    />
+                    <figcaption>Launch the draw viewer.</figcaption>
+                  </figure>
+                </div>
+              </div>
+
+              <div className={styles.stepGroup}>
+                <h3>PLSS download prompt</h3>
+                <p>
+                  If PLSS data is required, Plattera will prompt you to download
+                  it before mapping.
+                </p>
+                <div className={styles.stepImages}>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/text_to_schema/map_screen_plss_download_prompt.png"
+                      alt="PLSS download prompt in Text to Schema map screen"
+                    />
+                    <figcaption>Download PLSS data when prompted.</figcaption>
+                  </figure>
+                </div>
+              </div>
+
+              <div className={styles.stepGroup}>
+                <h3>Mapped polygon preview</h3>
+                <p>
+                  Review the mapped polygon in the map view and confirm it matches
+                  the deed description.
+                </p>
+                <div className={styles.stepImages}>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/text_to_schema/mapped_polygon.png"
+                      alt="Mapped polygon preview in Text to Schema"
+                    />
+                    <figcaption>
+                      The mapped polygon displays automatically after PLSS data downloads.
+                    </figcaption>
+                  </figure>
+                </div>
+              </div>
             </div>
           </details>
           <details className={styles.panel}>
             <summary className={styles.summary}>Map Workspace</summary>
             <div className={styles.panelBody}>
               <p className={styles.lead}>
-                The map workspace handles spatial overlays, measurements, and parcel context.
+                The Map workspace is where you review mapped parcels, manage overlays,
+                and validate results against PLSS context.
               </p>
+
               <div className={styles.stepGroup}>
-                <h3>Entry point</h3>
-                <div className={styles.stepImages}>
+                <h3>Entry points</h3>
+                <p>
+                  There are two ways to access the map workspace: the home screen card
+                  or the Draw &rarr; Map flow from Text to Schema.
+                </p>
+                <div className={styles.downloadImages}>
                   <figure>
                     <img
                       src="/assets/images/screenshots/mapping/home_page_mapping_card_first.png"
                       alt="Home page Map workspace card"
                     />
-                    <figcaption>Open the map workspace from home.</figcaption>
+                    <figcaption>Use the Map workspace card.</figcaption>
+                  </figure>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/mapping/text_to_schema_entrypoint_viewer.png"
+                      alt="Text to Schema entry point into map viewer"
+                    />
+                    <figcaption>Open the map viewer from Text to Schema.</figcaption>
                   </figure>
                 </div>
               </div>
-              <p className={styles.note}>More detailed guidance coming soon.</p>
+
+              <div className={styles.stepGroup}>
+                <h3>Map workspace layout</h3>
+                <p>
+                  Use the main map view to inspect the plotted parcel and related
+                  overlays.
+                </p>
+                <div className={styles.stepImages}>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/mapping/home_screen_map_card_entry_point_viewer.png"
+                      alt="Map workspace viewer layout"
+                    />
+                    <figcaption>Main map viewer and toolbar.</figcaption>
+                  </figure>
+                </div>
+              </div>
+
+              <div className={styles.stepGroup}>
+                <h3>Saved plots</h3>
+                <p>
+                  Switch between saved plots to compare outputs or revisit previous
+                  parcels.
+                </p>
+                <div className={styles.stepImages}>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/mapping/saved_plots_menu_toggle_and_selection_circled.png"
+                      alt="Saved plots menu toggle and selection"
+                    />
+                    <figcaption>Select a saved plot to load it.</figcaption>
+                  </figure>
+                </div>
+              </div>
+
+              <div className={styles.stepGroup}>
+                <h3>PLSS overlays</h3>
+                <p>
+                  Enable PLSS overlays to validate township, range, and section
+                  context for the parcel.
+                </p>
+                <div className={styles.downloadImages}>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/mapping/plss_overlay_menu_circled.png"
+                      alt="PLSS overlay menu circled"
+                    />
+                    <figcaption>Open the PLSS overlay menu.</figcaption>
+                  </figure>
+                  <figure>
+                    <img
+                      src="/assets/images/screenshots/mapping/plss_overlay_active_preview.png"
+                      alt="PLSS overlay active on the map"
+                    />
+                    <figcaption>PLSS grid overlay active.</figcaption>
+                  </figure>
+                </div>
+              </div>
             </div>
           </details>
           <details className={styles.panel}>
@@ -678,7 +777,17 @@ export default function ResourcesPage() {
                 </figure>
               </div>
               <p className={styles.note}>
-                More detailed guidance coming soon.
+                Click Download to begin. You can close the modal (or click outside it)
+                without interrupting the download.
+              </p>
+              <p className={styles.note}>
+                Use Stop only if you want to cancel; restarting later will begin from
+                the start.
+              </p>
+              <p className={styles.note}>
+                Progress continues in the bottom download banner, so you can keep
+                working elsewhere in Plattera. Click View in the banner to reopen the
+                modal at any time.
               </p>
             </div>
           </details>
