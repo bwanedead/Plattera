@@ -33,9 +33,6 @@ export default function ContactPage() {
 
       <main className={styles.hero}>
         <h1>Contact</h1>
-        <p className={styles.note}>
-          Reach us directly for product questions, support, or partnerships.
-        </p>
         <div className={styles.card}>
           <p className={styles.label}>Primary contact</p>
           <div className={styles.emailRow}>
