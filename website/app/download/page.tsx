@@ -38,6 +38,7 @@ export default async function DownloadPage() {
         <nav className={styles.nav}>
           <a href="/download">Download</a>
           <a href="/resources">Resources</a>
+          <a href="/contact">Contact</a>
         </nav>
       </header>
 
