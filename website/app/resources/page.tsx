@@ -1,6 +1,6 @@
 import styles from "./page.module.css";
 
-const VIDEO_ID = "zx0_0QPiYjo";
+const VIDEO_ID = "DKc16QUA7BM";
 
 const buildEmbedUrl = (startSeconds: number) =>
   `https://www.youtube.com/embed/${VIDEO_ID}?start=${startSeconds}&rel=0`;
