@@ -151,13 +151,6 @@ export default function Home() {
         </div>
 
         <section className={styles.preview}>
-          <div className={styles.previewHeader}>
-            <h2>Product preview</h2>
-            <p>
-              Import handwritten deeds, refine transcripts, and map descriptions
-              with PLSS context.
-            </p>
-          </div>
           <div className={styles.previewFrame}>
             <svg
               className={styles.previewSvg}

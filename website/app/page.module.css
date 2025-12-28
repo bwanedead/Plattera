@@ -70,7 +70,7 @@
   text-align: center;
   gap: 18px;
   margin: 0;
-  padding: 140px 0 40px;
+  padding: 180px 0 60px;
 }
 
 .heroTitle {
@@ -96,7 +96,7 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  margin-top: 28px;
+  margin-top: 48px;
 }
 
 .previewHeader h2 {
