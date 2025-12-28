@@ -69,7 +69,8 @@
   align-items: center;
   text-align: center;
   gap: 18px;
-  margin: auto 0;
+  margin: 0;
+  padding: 140px 0 40px;
 }
 
 .heroTitle {
@@ -90,8 +91,113 @@
   color: var(--accent);
 }
 
+.preview {
+  width: min(960px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.previewHeader h2 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--ink-strong);
+}
+
+.previewHeader p {
+  margin-top: 6px;
+  font-size: 0.95rem;
+  color: var(--ink-muted);
+}
+
+.previewFrame {
+  position: relative;
+  width: min(860px, 100%);
+  padding: 0;
+  background: transparent;
+  margin: 0 auto;
+}
+
+.previewSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.previewTrace {
+  color: rgba(0, 169, 255, 0.85);
+  filter: drop-shadow(0 0 3px rgba(0, 169, 255, 0.35));
+}
+
+.previewViewport {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.previewTrack {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.8s ease;
+}
+
+.previewSlide {
+  flex: 0 0 100%;
+  position: relative;
+}
+
+.previewSlide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scale(1.06);
+  transform-origin: center;
+}
+
+.previewControls {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.previewDots {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.previewDot,
+.previewDotActive {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 169, 255, 0.35);
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.previewDotActive {
+  background: rgba(0, 169, 255, 0.9);
+  transform: scale(1.15);
+}
+
 @media (max-width: 640px) {
   .page {
     padding: 20px;
+  }
+
+  .preview {
+    margin-top: 20px;
+  }
+
+  .previewFrame {
+    padding: 12px;
+  }
+
+  .previewRail {
+    gap: 16px;
   }
 }

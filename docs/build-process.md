@@ -366,9 +366,10 @@ sig command:
 
 new (nsis direct):
 
-npx tauri signer sign --private-key-path "C:\keys\plattera-updater.key" --password $pw ".\src-tauri\target\release\bundle\nsis\Plattera_0.9.2_x64-setup.exe"
+npx tauri signer sign --private-key-path "C:\keys\plattera-updater.key" --password $pw ".\src-tauri\target\release\bundle\nsis\Plattera_0.9.5_x64-setup.exe"
 
 old (for zip now abandoned method):
+
 npx tauri signer sign --private-key-path C:\keys\plattera-updater.key --password $pw .\src-tauri\target\release\bundle\Plattera_0.9.2_windows_x86_64.zip
 
 7. 
