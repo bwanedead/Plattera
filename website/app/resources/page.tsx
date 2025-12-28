@@ -1,5 +1,52 @@
 import styles from "./page.module.css";
 
+const VIDEO_ID = "zx0_0QPiYjo";
+
+const buildEmbedUrl = (startSeconds: number) =>
+  `https://www.youtube.com/embed/${VIDEO_ID}?start=${startSeconds}&rel=0`;
+
+const buildWatchUrl = (startSeconds: number) =>
+  `https://youtu.be/${VIDEO_ID}?t=${startSeconds}`;
+
+const formatTimestamp = (totalSeconds: number) => {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const paddedSeconds = seconds.toString().padStart(2, "0");
+  const paddedMinutes = minutes.toString().padStart(2, "0");
+
+  return hours > 0
+    ? `${hours}:${paddedMinutes}:${paddedSeconds}`
+    : `${minutes}:${paddedSeconds}`;
+};
+
+type VideoCardProps = {
+  title: string;
+  startSeconds: number;
+};
+
+function VideoCard({ title, startSeconds }: VideoCardProps) {
+  return (
+    <div className={styles.videoCard}>
+      <div className={styles.videoHeader}>
+        <p className={styles.videoTitle}>{title} walkthrough</p>
+        <a href={buildWatchUrl(startSeconds)} target="_blank" rel="noreferrer">
+          Watch on YouTube
+        </a>
+      </div>
+      <iframe
+        className={styles.videoFrame}
+        src={buildEmbedUrl(startSeconds)}
+        title={`${title} walkthrough video`}
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowFullScreen
+        loading="lazy"
+      />
+      <p className={styles.videoTimestamp}>Starts at {formatTimestamp(startSeconds)}</p>
+    </div>
+  );
+}
+
 export default function ResourcesPage() {
   return (
     <div className={styles.page}>
@@ -22,6 +69,7 @@ export default function ResourcesPage() {
           <details className={styles.panel}>
             <summary className={styles.summary}>Download &amp; Install</summary>
             <div className={styles.panelBody}>
+              <VideoCard title="Download & Install" startSeconds={42} />
               <p className={styles.lead}>
                 Download <a href="/download">here</a>. Click the
                 <strong> Download for Windows </strong>
@@ -106,6 +154,7 @@ export default function ResourcesPage() {
           <details className={styles.panel}>
             <summary className={styles.summary}>API Key Setup</summary>
             <div className={styles.panelBody}>
+              <VideoCard title="API Key Setup" startSeconds={295} />
               <div className={styles.stepGroup}>
                 <h3>Open the OpenAI API page</h3>
                 <ol className={styles.steps}>
@@ -270,6 +319,7 @@ export default function ResourcesPage() {
           <details className={styles.panel}>
             <summary className={styles.summary}>Image to Text Workspace</summary>
             <div className={styles.panelBody}>
+              <VideoCard title="Image to Text Workspace" startSeconds={584} />
               <p className={styles.lead}>
                 The Image to Text workspace turns uploaded imagery into editable
                 draft text and ties each run to dossiers for review.
@@ -472,6 +522,7 @@ export default function ResourcesPage() {
           <details className={styles.panel}>
             <summary className={styles.summary}>Text to Schema Workspace</summary>
             <div className={styles.panelBody}>
+              <VideoCard title="Text to Schema Workspace" startSeconds={1790} />
               <p className={styles.lead}>
                 This workspace converts finalized text into structured schema output and
                 gives you tools to validate, edit, and map the result.
@@ -674,6 +725,7 @@ export default function ResourcesPage() {
           <details className={styles.panel}>
             <summary className={styles.summary}>Map Workspace</summary>
             <div className={styles.panelBody}>
+              <VideoCard title="Map Workspace" startSeconds={2352} />
               <p className={styles.lead}>
                 The Map workspace is where you review mapped parcels, manage overlays,
                 and validate results against PLSS context.
@@ -765,6 +817,7 @@ export default function ResourcesPage() {
           <details className={styles.panel}>
             <summary className={styles.summary}>PLSS Data Download</summary>
             <div className={styles.panelBody}>
+              <VideoCard title="PLSS Data Download" startSeconds={2166} />
               <p className={styles.lead}>
                 Plattera will prompt you to download PLSS data when it is required.
               </p>
@@ -793,9 +846,27 @@ export default function ResourcesPage() {
             </div>
           </details>
           <details className={styles.panel}>
+            <summary className={styles.summary}>Alignment Engine</summary>
+            <div className={styles.panelBody}>
+              <VideoCard title="Alignment Engine" startSeconds={2832} />
+              <p className={styles.lead}>
+                Watch the alignment workflow and review how to reconcile drafts.
+              </p>
+            </div>
+          </details>
+          <details className={styles.panel}>
+            <summary className={styles.summary}>How to Update the Application</summary>
+            <div className={styles.panelBody}>
+              <VideoCard title="How to Update the Application" startSeconds={3418} />
+              <p className={styles.lead}>
+                Follow the update workflow to stay current.
+              </p>
+            </div>
+          </details>
+          <details className={styles.panel}>
             <summary className={styles.summary}>Full Tutorial Video</summary>
             <div className={styles.panelBody}>
-              <p>Video embed placeholder.</p>
+              <VideoCard title="Full Tutorial" startSeconds={0} />
             </div>
           </details>
         </div>

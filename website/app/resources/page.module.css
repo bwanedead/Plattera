@@ -108,6 +108,53 @@
   text-align: left;
 }
 
+.videoCard {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.videoHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.videoTitle {
+  font-weight: 600;
+  color: var(--ink-strong);
+  margin: 0;
+}
+
+.videoHeader a {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.videoHeader a:hover {
+  text-decoration: underline;
+}
+
+.videoFrame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 8px;
+  background: #000;
+  display: block;
+}
+
+.videoTimestamp {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
 .lead {
   color: var(--ink);
   margin-bottom: 12px;
