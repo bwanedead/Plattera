@@ -68,6 +68,11 @@
   gap: 12px;
 }
 
+.topVideo {
+  width: min(720px, 100%);
+  margin-bottom: 6px;
+}
+
 .panel {
   border: 1px solid var(--line);
   border-radius: 8px;

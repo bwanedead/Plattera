@@ -65,6 +65,9 @@ export default function ResourcesPage() {
 
       <main className={styles.hero}>
         <h1>Resources</h1>
+        <div className={styles.topVideo}>
+          <VideoCard title="Full Tutorial" startSeconds={0} />
+        </div>
         <div className={styles.accordion}>
           <details className={styles.panel}>
             <summary className={styles.summary}>Download &amp; Install</summary>
@@ -861,12 +864,6 @@ export default function ResourcesPage() {
               <p className={styles.lead}>
                 Follow the update workflow to stay current.
               </p>
-            </div>
-          </details>
-          <details className={styles.panel}>
-            <summary className={styles.summary}>Full Tutorial Video</summary>
-            <div className={styles.panelBody}>
-              <VideoCard title="Full Tutorial" startSeconds={0} />
             </div>
           </details>
         </div>
