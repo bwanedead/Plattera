@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type TouchEvent } from "react";
 import styles from "./page.module.css";
 
 const previewImages = [
@@ -34,10 +34,19 @@ const previewImages = [
   },
 ];
 
+const RAIL_PATH_D = "M0 0 L900 0 L1000 45 L1000 560 L80 560 L0 505 Z";
+
+const buildRailMaskDataUrl = (pathD: string) => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 560"><path fill="white" d="${pathD}"/></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+};
+
 export default function Home() {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
   const traceRef = useRef<SVGPathElement | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const railMaskUrl = buildRailMaskDataUrl(RAIL_PATH_D);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -126,6 +135,42 @@ export default function Home() {
     return () => window.cancelAnimationFrame(rafId);
   }, [reduceMotion]);
 
+  const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    if (!touch) {
+      return;
+    }
+
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+
+    if (!start) {
+      return;
+    }
+
+    const touch = event.changedTouches[0];
+    if (!touch) {
+      return;
+    }
+
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    const threshold = 40;
+
+    if (Math.abs(deltaX) < threshold || Math.abs(deltaX) < Math.abs(deltaY)) {
+      return;
+    }
+
+    setActiveImageIndex((prev) => {
+      const nextIndex = deltaX > 0 ? prev - 1 : prev + 1;
+      return (nextIndex + previewImages.length) % previewImages.length;
+    });
+  };
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -153,42 +198,44 @@ export default function Home() {
 
         <section className={styles.preview}>
           <div className={styles.previewFrame}>
+            <div
+              className={styles.previewViewport}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+              onTouchCancel={handleTouchEnd}
+              style={{
+                maskImage: `url("${railMaskUrl}")`,
+                WebkitMaskImage: `url("${railMaskUrl}")`,
+                maskRepeat: "no-repeat",
+                WebkitMaskRepeat: "no-repeat",
+                maskSize: "100% 100%",
+                WebkitMaskSize: "100% 100%",
+                maskPosition: "center",
+                WebkitMaskPosition: "center",
+              }}
+            >
+              <div
+                className={styles.previewTrack}
+                style={{
+                  transform: `translateX(-${activeImageIndex * 100}%)`,
+                }}
+              >
+                {previewImages.map((image) => (
+                  <div className={styles.previewSlide} key={image.src}>
+                    <img src={image.src} alt={image.alt} />
+                  </div>
+                ))}
+              </div>
+            </div>
             <svg
               className={styles.previewSvg}
               viewBox="0 0 1000 560"
-              preserveAspectRatio="xMidYMid slice"
+              preserveAspectRatio="none"
               aria-hidden="true"
             >
-              <defs>
-                <clipPath id="frameClip" clipPathUnits="userSpaceOnUse">
-                  <path d="M0 0 L900 0 L1000 45 L1000 560 L80 560 L0 505 Z" />
-                </clipPath>
-              </defs>
-              <foreignObject
-                x="0"
-                y="0"
-                width="1000"
-                height="560"
-                clipPath="url(#frameClip)"
-              >
-                <div className={styles.previewViewport}>
-                  <div
-                    className={styles.previewTrack}
-                    style={{
-                      transform: `translateX(-${activeImageIndex * 100}%)`,
-                    }}
-                  >
-                    {previewImages.map((image) => (
-                      <div className={styles.previewSlide} key={image.src}>
-                        <img src={image.src} alt={image.alt} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </foreignObject>
               <path
                 className={styles.previewTrace}
-                d="M0 0 L900 0 L1000 45 L1000 560 L80 560 L0 505 Z"
+                d={RAIL_PATH_D}
                 ref={traceRef}
                 fill="none"
                 stroke="currentColor"
