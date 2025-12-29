@@ -47,6 +47,19 @@ export default function Home() {
   const traceRef = useRef<SVGPathElement | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const railMaskUrl = buildRailMaskDataUrl(RAIL_PATH_D);
+  const autoPlayPausedRef = useRef(false);
+  const autoPlayTimeoutRef = useRef<number | null>(null);
+
+  const pauseAutoPlay = (durationMs = 60000) => {
+    autoPlayPausedRef.current = true;
+    if (autoPlayTimeoutRef.current !== null) {
+      window.clearTimeout(autoPlayTimeoutRef.current);
+    }
+    autoPlayTimeoutRef.current = window.setTimeout(() => {
+      autoPlayPausedRef.current = false;
+      autoPlayTimeoutRef.current = null;
+    }, durationMs);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -64,10 +77,18 @@ export default function Home() {
     }
 
     const intervalId = window.setInterval(() => {
+      if (autoPlayPausedRef.current) {
+        return;
+      }
       setActiveImageIndex((prev) => (prev + 1) % previewImages.length);
     }, 5200);
 
-    return () => window.clearInterval(intervalId);
+    return () => {
+      window.clearInterval(intervalId);
+      if (autoPlayTimeoutRef.current !== null) {
+        window.clearTimeout(autoPlayTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -169,6 +190,7 @@ export default function Home() {
       const nextIndex = deltaX > 0 ? prev - 1 : prev + 1;
       return (nextIndex + previewImages.length) % previewImages.length;
     });
+    pauseAutoPlay();
   };
 
   return (
@@ -258,7 +280,10 @@ export default function Home() {
                     }
                     aria-label={`Show preview ${index + 1}`}
                     aria-selected={index === activeImageIndex}
-                    onClick={() => setActiveImageIndex(index)}
+                    onClick={() => {
+                      setActiveImageIndex(index);
+                      pauseAutoPlay();
+                    }}
                   />
                 ))}
               </div>
