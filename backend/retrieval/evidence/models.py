@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from corpus.models import CorpusChunkRef, CorpusDocRef
+from corpus.types import CorpusChunkRef, CorpusEntryRef
 
 
 @dataclass(frozen=True)
@@ -12,7 +12,7 @@ class EvidenceSpan:
     A citeable span of evidence.
     """
 
-    doc: CorpusDocRef
+    entry: CorpusEntryRef
     text: str
     chunk: Optional[CorpusChunkRef] = None
     start: Optional[int] = None

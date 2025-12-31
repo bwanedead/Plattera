@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
-from corpus.models import CorpusView
+from corpus.types import CorpusView
 
 
 @dataclass

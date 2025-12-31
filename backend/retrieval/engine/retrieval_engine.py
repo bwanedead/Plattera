@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from corpus.models import CorpusView
+from corpus.types import CorpusView
 
 from ..evidence.models import RetrievalResult
 from ..filters.models import RetrievalFilters

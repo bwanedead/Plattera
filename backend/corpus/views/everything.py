@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-from ..models import CorpusDocRef, CorpusView
+from ..types import CorpusEntryKind, CorpusEntryRef, CorpusView
 
 
 @dataclass
@@ -17,9 +17,21 @@ class EverythingCorpusView:
     - job outputs/history (optional)
     """
 
-    def iter_docs(self, dossier_id: Optional[str] = None) -> Iterable[CorpusDocRef]:
-        # v0 placeholder
+    def iter_entries(self, dossier_id: Optional[str] = None) -> Iterable[CorpusEntryRef]:
+        """
+        Enumerate "everything" entries for a dossier.
+
+        v0: placeholder that yields a single reference standing in for the
+        dossier-wide text surface. Later, this should expose individual
+        transcripts, drafts, and other text-bearing items.
+        """
+
         if dossier_id:
-            yield CorpusDocRef(view=CorpusView.EVERYTHING, doc_id=f"dossier:{dossier_id}", dossier_id=dossier_id)
+            yield CorpusEntryRef(
+                view=CorpusView.EVERYTHING,
+                entry_id=f"dossier:{dossier_id}",
+                kind=CorpusEntryKind.TRANSCRIPT,
+                dossier_id=dossier_id,
+            )
 
 

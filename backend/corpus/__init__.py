@@ -8,13 +8,20 @@ file-backed dossier storage and artifacts.
 This package is intentionally lightweight and import-safe (no heavy deps).
 """
 
-from .models import CorpusDocRef, CorpusChunkRef, CorpusView, CorpusDoc
+from .types import (
+    CorpusChunkRef,
+    CorpusEntry,
+    CorpusEntryKind,
+    CorpusEntryRef,
+    CorpusView,
+)
 
 __all__ = [
-    "CorpusDocRef",
+    "CorpusEntryRef",
     "CorpusChunkRef",
     "CorpusView",
-    "CorpusDoc",
+    "CorpusEntry",
+    "CorpusEntryKind",
 ]
 
 

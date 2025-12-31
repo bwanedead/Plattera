@@ -1,5 +1,8 @@
 ## RAG + Agent Pipeline for Text → Schema → Mapping
 
+
+## note slightly stale but an inital planning draft that can guide development where relevant but more just a reminder of the orinigal vision before we started diving in. so should be understood as the stale first thinking type draft on the rag agent stuff.
+
 This document outlines a RAG- and agent-driven redesign of Plattera’s **text → schema → mapping** pipeline. The goal is to make schema extraction and georeferencing:
 
 - **Universal**: handle complex, multi-deed, multi-station descriptions.

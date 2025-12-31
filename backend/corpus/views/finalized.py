@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-from ..models import CorpusDocRef, CorpusView
+from ..types import CorpusEntryKind, CorpusEntryRef, CorpusView
 
 
 @dataclass
@@ -17,10 +17,21 @@ class FinalizedCorpusView:
     - latest schema/georef artifacts (optional, via artifacts view)
     """
 
-    def iter_docs(self, dossier_id: Optional[str] = None) -> Iterable[CorpusDocRef]:
-        # v0 placeholder: actual enumeration will be implemented via adapters over dossiers_data.
-        # The returned refs must be resolvable by `corpus/hydrate.py`.
+    def iter_entries(self, dossier_id: Optional[str] = None) -> Iterable[CorpusEntryRef]:
+        """
+        Enumerate finalized, high-signal entries.
+
+        v0: requires an explicit dossier_id and yields a single reference to the
+        finalized stitched dossier text. Later this can expand to enumerate all
+        dossiers and additional artifact kinds.
+        """
+
         if dossier_id:
-            yield CorpusDocRef(view=CorpusView.FINALIZED, doc_id=f"final:{dossier_id}", dossier_id=dossier_id)
+            yield CorpusEntryRef(
+                view=CorpusView.FINALIZED,
+                entry_id=f"final:{dossier_id}",
+                kind=CorpusEntryKind.FINALIZED_DOSSIER_TEXT,
+                dossier_id=dossier_id,
+            )
 
 
