@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
+from ..adapters.dossiers_fs import DossiersFSAdapter
 from ..types import CorpusEntryKind, CorpusEntryRef, CorpusView
 
 
@@ -17,21 +18,27 @@ class FinalizedCorpusView:
     - latest schema/georef artifacts (optional, via artifacts view)
     """
 
+    adapter: DossiersFSAdapter = DossiersFSAdapter()
+
     def iter_entries(self, dossier_id: Optional[str] = None) -> Iterable[CorpusEntryRef]:
         """
         Enumerate finalized, high-signal entries.
 
-        v0: requires an explicit dossier_id and yields a single reference to the
-        finalized stitched dossier text. Later this can expand to enumerate all
-        dossiers and additional artifact kinds.
+        Uses finalized_index.json when present, falling back to a scan of the
+        views/transcriptions tree.
         """
 
         if dossier_id:
+            ids = [dossier_id]
+        else:
+            ids = list(self.adapter.iter_finalized_dossier_ids())
+
+        for did in ids:
             yield CorpusEntryRef(
                 view=CorpusView.FINALIZED,
-                entry_id=f"final:{dossier_id}",
+                entry_id=f"final:{did}",
                 kind=CorpusEntryKind.FINALIZED_DOSSIER_TEXT,
-                dossier_id=dossier_id,
+                dossier_id=did,
             )
 
 

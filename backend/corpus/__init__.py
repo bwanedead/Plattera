@@ -15,6 +15,7 @@ from .types import (
     CorpusEntryRef,
     CorpusView,
 )
+from .virtual_provider import VirtualCorpusProvider
 
 __all__ = [
     "CorpusEntryRef",
@@ -22,6 +23,7 @@ __all__ = [
     "CorpusView",
     "CorpusEntry",
     "CorpusEntryKind",
+    "VirtualCorpusProvider",
 ]
 
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Iterable, Optional, Protocol
+from typing import Iterable, Optional, Protocol, Set
 
-from .types import CorpusEntry, CorpusEntryRef, CorpusView
+from .types import CorpusEntry, CorpusEntryKind, CorpusEntryRef, CorpusView
 
 
 class CorpusProvider(Protocol):
@@ -19,6 +19,7 @@ class CorpusProvider(Protocol):
         view: CorpusView,
         *,
         dossier_id: Optional[str] = None,
+        kinds: Optional[Set[CorpusEntryKind]] = None,
     ) -> Iterable[CorpusEntryRef]:
         ...
 
