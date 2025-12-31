@@ -46,3 +46,6 @@ seaborn==0.12.2
 
 # other dependencies
 packaging==24.2
+
+# Testing
+pytest==9.0.2

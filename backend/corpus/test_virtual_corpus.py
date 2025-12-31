@@ -5,7 +5,7 @@ Lightweight sanity checks for the virtual corpus layer.
 
 These are intentionally simple "micro-tests" that can be run ad-hoc:
 
-    (.venv) python test_corpus_virtual.py
+    (.venv) python -m backend.corpus.test_virtual_corpus
 
 They avoid pytest dependencies and exercise only the public corpus surface.
 """
@@ -15,15 +15,15 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict
 
-from backend.corpus import (
+from . import (
     CorpusEntryKind,
     CorpusEntryRef,
     CorpusView,
     VirtualCorpusProvider,
 )
-from backend.corpus.hydrate import CorpusHydrator
-from backend.corpus.types import CorpusEntry
-from backend.config import paths as paths_mod
+from .hydrate import CorpusHydrator
+from .types import CorpusEntry
+from ..config import paths as paths_mod
 
 
 def _write_json(path: Path, obj: Dict[str, Any]) -> None:
@@ -115,6 +115,6 @@ if __name__ == "__main__":
     test_enumerate_finalized_empty_ok()
     test_hydrate_finalized_minimal_snapshot()
     test_hydrate_finalized_missing_safe()
-    print("test_corpus_virtual.py: all checks passed.")
+    print("backend.corpus.test_virtual_corpus: all checks passed.")
 
 
