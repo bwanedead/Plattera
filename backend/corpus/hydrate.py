@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -21,8 +21,8 @@ class CorpusHydrator:
     / artifact hydration; expands over time.
     """
 
-    dossiers: DossiersFSAdapter = DossiersFSAdapter()
-    artifacts: ArtifactsFSAdapter = ArtifactsFSAdapter()
+    dossiers: DossiersFSAdapter = field(default_factory=DossiersFSAdapter)
+    artifacts: ArtifactsFSAdapter = field(default_factory=ArtifactsFSAdapter)
 
     def _read_text_file(self, p: Path) -> str:
         return p.read_text(encoding="utf-8")

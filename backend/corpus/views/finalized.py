@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
 from ..adapters.dossiers_fs import DossiersFSAdapter
@@ -18,7 +18,7 @@ class FinalizedCorpusView:
     - latest schema/georef artifacts (optional, via artifacts view)
     """
 
-    adapter: DossiersFSAdapter = DossiersFSAdapter()
+    adapter: DossiersFSAdapter = field(default_factory=DossiersFSAdapter)
 
     def iter_entries(self, dossier_id: Optional[str] = None) -> Iterable[CorpusEntryRef]:
         """

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, Optional, Set, Tuple
 
 from ..adapters.artifacts_fs import ArtifactsFSAdapter
@@ -15,7 +15,7 @@ class ArtifactsCorpusView:
     Intended to expose schema/georef artifacts as retrievable documents.
     """
 
-    adapter: ArtifactsFSAdapter = ArtifactsFSAdapter()
+    adapter: ArtifactsFSAdapter = field(default_factory=ArtifactsFSAdapter)
 
     def iter_entries(self, dossier_id: Optional[str] = None) -> Iterable[CorpusEntryRef]:
         """

@@ -23,7 +23,7 @@ from . import (
 )
 from .hydrate import CorpusHydrator
 from .types import CorpusEntry
-from ..config import paths as paths_mod
+import config.paths as paths_mod
 
 
 def _write_json(path: Path, obj: Dict[str, Any]) -> None:
