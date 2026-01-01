@@ -1,5 +1,5 @@
 """
-Retrieval lanes: lexical, semantic, rerank.
+Retrieval lanes: lexical, semantic, rerank, provenance.
 """
 
 
