@@ -12,7 +12,23 @@ from ..evidence.models import RetrievalResult
 class LexicalSearchTool:
     engine: RetrievalEngine
 
-    def __call__(self, query: str, *, filters: Optional[RetrievalFilters] = None, limit: int = 10) -> RetrievalResult:
-        return self.engine.search(query, filters=filters, limit=limit, lanes=["lexical"])
+    def __call__(
+        self,
+        query: str,
+        *,
+        filters: Optional[RetrievalFilters] = None,
+        mode: str = "raw",
+        limit: int = 10,
+    ) -> RetrievalResult:
+        mode_key = mode.strip().lower()
+        if mode_key == "raw":
+            lanes = ["lexical.raw"]
+        elif mode_key == "normalized":
+            lanes = ["lexical.normalized"]
+        elif mode_key == "both":
+            lanes = ["lexical.raw", "lexical.normalized"]
+        else:
+            raise ValueError(f"Unknown lexical mode: {mode!r}")
+        return self.engine.search(query, filters=filters, limit=limit, lanes=lanes)
 
 

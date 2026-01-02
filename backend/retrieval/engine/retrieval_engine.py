@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from ..evidence.models import RetrievalResult
 from ..filters.models import RetrievalFilters
+from ..lanes.lexical.grep_backend import GrepBackendLexicalLane
 from ..lanes.lexical.lane import LexicalLane, NoopLexicalLane
 from ..lanes.provenance.lane import ProvenanceLane
 from ..lanes.semantic.lane import SemanticLane, NoopSemanticLane
@@ -20,6 +21,8 @@ class RetrievalEngine:
     """
 
     lexical_lane: LexicalLane = field(default_factory=NoopLexicalLane)
+    lexical_raw_lane: LexicalLane = field(default_factory=lambda: GrepBackendLexicalLane(mode="raw"))
+    lexical_normalized_lane: LexicalLane = field(default_factory=lambda: GrepBackendLexicalLane(mode="normalized"))
     semantic_lane: SemanticLane = field(default_factory=NoopSemanticLane)
     provenance_lane: ProvenanceLane = field(default_factory=ProvenanceLane)
 
@@ -45,7 +48,17 @@ class RetrievalEngine:
         cards = []
         for lane_name in requested_lanes:
             if lane_name == "lexical":
-                result = self.lexical_lane.search(query, filters=filters, limit=limit)
+                raw_result = self.lexical_raw_lane.search(query, filters=filters, limit=limit)
+                norm_result = self.lexical_normalized_lane.search(query, filters=filters, limit=limit)
+                dbg["lane_debug"]["lexical.raw"] = raw_result.debug
+                dbg["lane_debug"]["lexical.normalized"] = norm_result.debug
+                cards.extend(raw_result.cards)
+                cards.extend(norm_result.cards)
+                continue
+            if lane_name == "lexical.raw":
+                result = self.lexical_raw_lane.search(query, filters=filters, limit=limit)
+            elif lane_name == "lexical.normalized":
+                result = self.lexical_normalized_lane.search(query, filters=filters, limit=limit)
             elif lane_name == "semantic":
                 result = self.semantic_lane.search(query, filters=filters, limit=limit)
             elif lane_name == "provenance":
