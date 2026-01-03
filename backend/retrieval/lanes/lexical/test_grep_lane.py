@@ -12,6 +12,7 @@ from corpus.types import (
 
 from ...filters.models import RetrievalFilters
 from .grep_backend import GrepBackendLexicalLane
+from .normalize import NORMALIZER_VERSION
 
 
 class FakeCorpusProvider(CorpusProvider):
@@ -54,7 +55,7 @@ def _entry(
         kind=kind,
         dossier_id=dossier_id,
     )
-    return CorpusEntry(ref=ref, text=text, title=entry_id)
+    return CorpusEntry(ref=ref, text=text, title=entry_id, content_hash=f"hash:{entry_id}")
 
 
 def test_raw_grep_finds_exact_match() -> None:
@@ -68,6 +69,9 @@ def test_raw_grep_finds_exact_match() -> None:
     card = result.cards[0]
     assert card.spans[0].start == 6
     assert card.spans[0].end == 10
+    assert card.spans[0].content_hash == "hash:final:D1"
+    assert card.spans[0].trace is None
+    assert card.spans[0].preview
     assert card.provenance["lane_mode"] == "raw"
 
 
@@ -82,6 +86,11 @@ def test_normalized_grep_finds_unicode_variant() -> None:
     assert len(result.cards) == 1
     card = result.cards[0]
     assert card.spans[0].text.endswith("can\u2019t stop")
+    assert card.spans[0].content_hash == "hash:final:D2"
+    assert card.spans[0].trace is not None
+    assert card.spans[0].trace.space == "normalized"
+    assert card.spans[0].trace.mapping_kind == "normalized_to_raw"
+    assert card.spans[0].trace.normalizer_version == NORMALIZER_VERSION
     assert card.provenance["lane_mode"] == "normalized"
     assert card.provenance["normalization_version"] == "v1"
     assert card.provenance["matched_original_snippet"] == "can\u2019t"

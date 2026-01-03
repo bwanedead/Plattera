@@ -7,9 +7,9 @@ from corpus.interfaces import CorpusProvider
 from corpus.types import CorpusEntry, CorpusEntryKind, CorpusEntryRef, CorpusView
 from corpus.virtual_provider import VirtualCorpusProvider
 
-from ...evidence.models import EvidenceCard, EvidenceSpan, RetrievalResult
+from ...evidence.models import EvidenceCard, EvidenceSpan, MatchTrace, RetrievalResult
 from ...filters.models import RetrievalFilters
-from .normalize import NormalizationResult, normalize_text_v1, normalize_text_with_mapping_v1
+from .normalize import NORMALIZER_VERSION, NormalizationResult, normalize_text_v1, normalize_text_with_mapping_v1
 
 
 @dataclass
@@ -136,7 +136,25 @@ class GrepBackendLexicalLane:
                 continue
 
             span_text = _excerpt(entry.text, orig_start, orig_end)
-            span = EvidenceSpan(entry=entry.ref, text=span_text, start=orig_start, end=orig_end)
+            trace = None
+            if norm_result is not None:
+                trace = MatchTrace(
+                    space="normalized",
+                    normalized_start=norm_start,
+                    normalized_end=norm_end,
+                    normalized_preview=norm_result.normalized[norm_start:norm_end],
+                    mapping_kind="normalized_to_raw",
+                    normalizer_version=NORMALIZER_VERSION,
+                )
+            span = EvidenceSpan(
+                entry=entry.ref,
+                text=span_text,
+                start=orig_start,
+                end=orig_end,
+                content_hash=entry.content_hash,
+                preview=span_text,
+                trace=trace,
+            )
             card = EvidenceCard(
                 id=f"lex:{self.mode}:{entry.ref.entry_id}:{orig_start}:{orig_end}",
                 spans=[span],

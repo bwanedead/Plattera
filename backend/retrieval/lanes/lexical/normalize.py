@@ -10,6 +10,8 @@ class NormalizationResult:
     map_norm_to_orig: list[int]
 
 
+NORMALIZER_VERSION = "v0"
+
 _REPLACEMENTS: dict[str, str] = {
     "\u2018": "'",
     "\u2019": "'",
