@@ -12,7 +12,16 @@ from ..evidence.models import RetrievalResult
 class SemanticSearchTool:
     engine: RetrievalEngine
 
+    # Defaults:
+    # - semantic lane (noop until implemented)
     def __call__(self, query: str, *, filters: Optional[RetrievalFilters] = None, limit: int = 10) -> RetrievalResult:
-        return self.engine.search(query, filters=filters, limit=limit, lanes=["semantic"])
+        result = self.engine.search(query, filters=filters, limit=limit, lanes=["semantic"])
+        result.debug.update(
+            {
+                "tool": "SemanticSearchTool",
+                "tool_lanes": ["semantic"],
+            }
+        )
+        return result
 
 

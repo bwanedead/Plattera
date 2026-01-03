@@ -8,7 +8,7 @@ from ..filters.models import RetrievalFilters
 from ..lanes.lexical.grep_backend import GrepBackendLexicalLane
 from ..lanes.lexical.lane import LexicalLane
 from ..lanes.provenance.lane import ProvenanceLane
-from ..lanes.provenance.recipes import ProvenanceRecipe
+from ..lanes.provenance.recipes import ProvenanceRecipe, parse_provenance_recipe
 from ..lanes.semantic.lane import SemanticLane, NoopSemanticLane
 from .merge import dedupe_by_id, sort_by_score
 
@@ -121,7 +121,8 @@ class RetrievalEngine:
                 if not anchor:
                     dbg["lane_debug"]["provenance"] = {"error": "provenance_requires_dossier_id"}
                     continue
-                result = self.provenance_lane.search(anchor, filters=filters)
+                recipe = self._resolve_provenance_recipe(filters)
+                result = self.provenance_lane.search(anchor, recipe=recipe, filters=filters)
             else:
                 continue
             dbg["lane_debug"][lane_name] = result.debug
@@ -132,6 +133,14 @@ class RetrievalEngine:
             cards = cards[:limit]
 
         return RetrievalResult(query=query, cards=cards, debug=dbg)
+
+    def _resolve_provenance_recipe(self, filters: Optional[RetrievalFilters]) -> ProvenanceRecipe:
+        if not filters or not filters.extra:
+            return self.hybrid_config.provenance_recipe
+        raw = (filters.extra or {}).get("provenance_recipe")
+        if not raw:
+            return self.hybrid_config.provenance_recipe
+        return parse_provenance_recipe(raw)
 
 
 def _with_dossier_id(filters: Optional[RetrievalFilters], dossier_id: str) -> RetrievalFilters:
