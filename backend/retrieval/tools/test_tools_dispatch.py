@@ -103,8 +103,10 @@ def test_lexical_tool_mode_mapping(mode: str, expected_lanes: list[str]) -> None
     assert engine.last_lanes == expected_lanes
     assert engine.last_filters is not None
     assert engine.last_filters.view == CorpusView.FINALIZED
-    assert result.debug["tool"] == "LexicalSearchTool"
-    assert result.debug["tool_lanes"] == expected_lanes
+    assert result.debug["tool"] == "lexical_search"
+    assert result.debug["lanes"] == expected_lanes
+    assert result.debug["defaults"]["view"] == CorpusView.FINALIZED.value
+    assert result.debug["gating_errors"] == []
 
 
 def test_provenance_tool_requires_dossier_id() -> None:
@@ -114,7 +116,7 @@ def test_provenance_tool_requires_dossier_id() -> None:
     result = tool(None)
 
     assert engine.called is False
-    assert result.debug["error"] == "provenance_requires_dossier_id"
+    assert result.debug["gating_errors"] == ["provenance_requires_dossier_id"]
 
 
 def test_provenance_tool_calls_engine_with_recipe() -> None:
@@ -128,7 +130,7 @@ def test_provenance_tool_calls_engine_with_recipe() -> None:
     assert engine.last_filters is not None
     assert engine.last_filters.dossier_id == "D1"
     assert engine.last_filters.extra.get("provenance_recipe") == "FINAL_ONLY"
-    assert result.debug["tool_recipe"] == "FINAL_ONLY"
+    assert result.debug["overrides"]["recipe"] == "FINAL_ONLY"
 
 
 def test_hybrid_tool_calls_hybrid_lane() -> None:
@@ -138,8 +140,9 @@ def test_hybrid_tool_calls_hybrid_lane() -> None:
     result = tool("query")
 
     assert engine.last_lanes == ["hybrid"]
-    assert result.debug["tool"] == "HybridSearchTool"
-    assert result.debug["tool_lanes"] == ["hybrid"]
+    assert result.debug["tool"] == "hybrid_search"
+    assert result.debug["lanes"] == ["hybrid"]
+    assert result.debug["gating_errors"] == []
 
 
 def test_hybrid_tool_returns_provenance_cards() -> None:
@@ -158,3 +161,18 @@ def test_hybrid_tool_returns_provenance_cards() -> None:
     prov_ids = [card.id for card in result.cards if card.lane == "provenance"]
     assert prov_ids == ["prov:A", "prov:B"]
     assert result.debug["lane_debug"]["hybrid"]["anchors_used"] == ["A", "B"]
+
+
+def test_provenance_recipe_typo_fallback_notes() -> None:
+    provenance = FakeProvenanceLane()
+    engine = RetrievalEngine(
+        lexical_raw_lane=FakeLexicalLane([]),
+        lexical_normalized_lane=FakeLexicalLane([]),
+        provenance_lane=provenance,
+    )
+    tool = ProvenanceSearchTool(engine=engine)
+
+    result = tool("D9", recipe="CANONCIAL_STACK")
+
+    assert provenance.calls == ["D9"]
+    assert any("unknown_provenance_recipe_fallback:" in note for note in result.debug["notes"])

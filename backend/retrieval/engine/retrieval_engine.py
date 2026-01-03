@@ -121,8 +121,14 @@ class RetrievalEngine:
                 if not anchor:
                     dbg["lane_debug"]["provenance"] = {"error": "provenance_requires_dossier_id"}
                     continue
-                recipe = self._resolve_provenance_recipe(filters)
+                recipe, recipe_note = self._resolve_provenance_recipe(filters)
                 result = self.provenance_lane.search(anchor, recipe=recipe, filters=filters)
+                if recipe_note:
+                    lane_debug = result.debug or {}
+                    notes = list(lane_debug.get("notes", []) or [])
+                    notes.append(recipe_note)
+                    lane_debug["notes"] = notes
+                    result.debug = lane_debug
             else:
                 continue
             dbg["lane_debug"][lane_name] = result.debug
@@ -134,13 +140,19 @@ class RetrievalEngine:
 
         return RetrievalResult(query=query, cards=cards, debug=dbg)
 
-    def _resolve_provenance_recipe(self, filters: Optional[RetrievalFilters]) -> ProvenanceRecipe:
+    def _resolve_provenance_recipe(self, filters: Optional[RetrievalFilters]) -> tuple[ProvenanceRecipe, str | None]:
         if not filters or not filters.extra:
-            return self.hybrid_config.provenance_recipe
+            return (self.hybrid_config.provenance_recipe, None)
         raw = (filters.extra or {}).get("provenance_recipe")
         if not raw:
-            return self.hybrid_config.provenance_recipe
-        return parse_provenance_recipe(raw)
+            return (self.hybrid_config.provenance_recipe, None)
+        try:
+            return (parse_provenance_recipe(raw), None)
+        except ValueError:
+            return (
+                self.hybrid_config.provenance_recipe,
+                f"unknown_provenance_recipe_fallback:{raw}",
+            )
 
 
 def _with_dossier_id(filters: Optional[RetrievalFilters], dossier_id: str) -> RetrievalFilters:

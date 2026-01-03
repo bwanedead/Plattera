@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+"""
+Lexical retrieval tool wrapper.
+
+Defaults:
+- mode: "both" (raw + normalized)
+- view: FINALIZED unless provided in filters
+- limit: 10
+
+Debug schema keys:
+tool, lanes, defaults, overrides, gating_errors, notes
+"""
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -14,9 +26,6 @@ from ..evidence.models import RetrievalResult
 class LexicalSearchTool:
     engine: RetrievalEngine
 
-    # Defaults:
-    # - mode: "both" (raw + normalized)
-    # - view: FINALIZED unless explicitly set in filters
     def __call__(
         self,
         query: str,
@@ -36,12 +45,26 @@ class LexicalSearchTool:
             raise ValueError(f"Unknown lexical mode: {mode!r}")
         resolved_filters = _with_default_view(filters, CorpusView.FINALIZED)
         result = self.engine.search(query, filters=resolved_filters, limit=limit, lanes=lanes)
+
+        defaults = {"mode": "both", "view": CorpusView.FINALIZED.value, "limit": 10}
+        overrides = {}
+        if mode_key != "both":
+            overrides["mode"] = mode_key
+        if filters and filters.view is not None:
+            overrides["view"] = filters.view.value
+        if limit != 10:
+            overrides["limit"] = limit
+        if filters is not None:
+            overrides["filters"] = True
+
         result.debug.update(
             {
-                "tool": "LexicalSearchTool",
-                "tool_mode": mode_key,
-                "tool_lanes": lanes,
-                "tool_view": resolved_filters.view.value if resolved_filters and resolved_filters.view else None,
+                "tool": "lexical_search",
+                "lanes": lanes,
+                "defaults": defaults,
+                "overrides": overrides,
+                "gating_errors": [],
+                "notes": [],
             }
         )
         return result
