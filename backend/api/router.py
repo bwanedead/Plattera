@@ -4,6 +4,7 @@ Combines all API endpoints into a single router for main.py
 """
 from fastapi import APIRouter
 from api.endpoints import models, processing, system, alignment, consensus, final_draft, text_to_schema, polygon, mapping, plss_overlays, georeference, plss_endpoints, coordinates_endpoints, llm_consensus
+from api.endpoints import assets as assets_endpoints
 from api.endpoints import config as config_endpoints
 from api.endpoints import image_to_text_jobs
 from api import logs as logs_router
@@ -34,6 +35,7 @@ api_router.include_router(georeference.router, prefix="/api/mapping", tags=["geo
 api_router.include_router(plss_overlays.router, prefix="/api/plss", tags=["plss-overlays"])
 api_router.include_router(container_router, prefix="/api/plss", tags=["plss-container"])
 api_router.include_router(plss_endpoints.router, prefix="/api/plss", tags=["plss-nearest"])
+api_router.include_router(assets_endpoints.router, prefix="/api", tags=["assets"])
 
 # Dossier system endpoints - independent modular services
 api_router.include_router(management_router, prefix="/api/dossier-management", tags=["dossier-management"])

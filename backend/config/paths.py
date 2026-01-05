@@ -143,6 +143,33 @@ def dossiers_georefs_artifacts_root(dossier_id: str | None = None) -> Path:
     return base if dossier_id is None else base / str(dossier_id)
 
 
+# ----- Assets (models, external data) -----
+
+def assets_root() -> Path:
+    """
+    Root for app-managed assets (dev + frozen safe).
+    - Dev: <project_root>/assets
+    - Frozen: LOCALAPPDATA\\Plattera\\Data\\assets
+    """
+    if is_frozen():
+        root = app_data_root() / "assets"
+    else:
+        root = project_root() / "assets"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def assets_state_root() -> Path:
+    root = assets_root() / "state"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def embeddings_root() -> Path:
+    root = assets_root() / "embeddings"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
 def dossiers_processing_jobs_root(job_type: str) -> Path:
     """
     Root for processing jobs under dossiers_data/processing_jobs/<job_type>.
