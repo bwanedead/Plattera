@@ -83,10 +83,39 @@ async fn start_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
     if process_guard.is_none() {
         // If port 8000 is already in use (external server), don't spawn another
         if port_in_use(8000) {
+            log::info!("BACKEND  already running on port 8000");
             return Ok("Backend already running (detected on port 8000)".to_string());
         }
 
-        // Try sidecar first; if that fails, fall back to Python (dev)
+        if cfg!(debug_assertions) {
+            log::info!("DEV_BACKEND  python");
+            let (mut rx, child) = app_handle
+                .shell()
+                .command("../../.venv/Scripts/python.exe")
+                .args(["-X", "utf8", "main.py"])
+                .current_dir("../../backend")
+                .env("PYTHONIOENCODING", "utf-8")
+                .env("PYTHONUTF8", "1")
+                .spawn()
+                .map_err(|err| format!("python spawn error: {}", err))?;
+            tauri::async_runtime::spawn(async move {
+                while let Some(event) = rx.recv().await {
+                    match event {
+                        CommandEvent::Stdout(line) => {
+                            log::info!("[BACKEND stdout] {}", String::from_utf8_lossy(&line))
+                        }
+                        CommandEvent::Stderr(line) => {
+                            log::error!("[BACKEND stderr] {}", String::from_utf8_lossy(&line))
+                        }
+                        _ => {}
+                    }
+                }
+            });
+            *process_guard = Some(child);
+            return Ok("Backend started via Python (dev mode)".to_string());
+        }
+
+        // Release: try sidecar first; if that fails, fall back to Python
         let try_sidecar = (|| -> Result<CommandChild, String> {
             let sidecar = app_handle
                 .shell()
@@ -114,6 +143,7 @@ async fn start_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
 
         match try_sidecar {
             Ok(child) => {
+                log::info!("PROD_BACKEND  sidecar");
                 // Assign the sidecar process to the Windows Job Object when available.
                 if let Some(job_state) = app_handle.try_state::<BackendJob>() {
                     if let Ok(guard) = job_state.0.lock() {
@@ -137,7 +167,6 @@ async fn start_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
                 Ok("Backend sidecar started".to_string())
             }
             Err(_e) => {
-                // DEV FALLBACK: run Python backend directly from venv
                 let (mut rx, child) = app_handle
                     .shell()
                     .command("../../.venv/Scripts/python.exe")

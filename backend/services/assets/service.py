@@ -12,7 +12,14 @@ from services.plss.plss_data_service import PLSSDataService
 
 from .embedding_installer import EmbeddingInstaller
 from .models import AssetDefinition, AssetManifest, AssetProgress, AssetStatus
-from .progress_store import cancel_requested, clear_cancel, read_progress, request_cancel, write_progress
+from .progress_store import (
+    cancel_requested,
+    clear_cancel,
+    clear_progress,
+    read_progress,
+    request_cancel,
+    write_progress,
+)
 from .registry import ASSET_DEFINITIONS, EMBEDDING_MODEL_ASSET_ID
 
 
@@ -64,7 +71,11 @@ class AssetsService:
         request_cancel(asset_id)
         write_progress(
             asset_id,
-            AssetProgress(status=AssetStatus.CANCELED, stage="canceled", message="Cancel requested"),
+            AssetProgress(
+                status=AssetStatus.CANCELED,
+                stage="canceled",
+                message="Cancel requested; will stop after current download step completes",
+            ),
         )
         return {"success": True, "status": "canceled"}
 
@@ -80,6 +91,8 @@ class AssetsService:
         target_dir = embeddings_root() / asset_id
         if target_dir.exists():
             shutil.rmtree(target_dir, ignore_errors=True)
+        clear_progress(asset_id)
+        clear_cancel(asset_id)
         return {"success": True}
 
     def _install_embedding(self, asset: AssetDefinition) -> None:

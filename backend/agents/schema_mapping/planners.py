@@ -16,3 +16,4 @@ class SchemaMappingPlanner:
         return [g.get("message", "") for g in gaps if isinstance(g, dict) and g.get("message")]
 
 
+

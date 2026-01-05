@@ -62,9 +62,7 @@ export const AssetInstallBanner: React.FC<AssetInstallBannerProps> = ({ assetId,
           } catch {
             // ignore
           }
-          document.dispatchEvent(
-            new CustomEvent(`asset:overlay-visibility:${assetId}`, { detail: { open: true } }),
-          );
+          document.dispatchEvent(new Event(`asset:open-modal:${assetId}`));
         }}
         style={{
           background: '#e8e5de',

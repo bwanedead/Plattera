@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { invoke } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { ApiKeyModal } from '../src/components/ApiKeyModal'
 import TextBatchProcessor from '../src/components/TextBatchProcessor'
@@ -9,9 +8,6 @@ import { ImageProcessingWorkspace } from '../src/components/image-processing/Ima
 import { TextToSchemaWorkspace } from '../src/components/TextToSchemaWorkspace'
 import { useWorkspaceNavigation } from '../src/hooks/useWorkspaceState'
 import { AppVersionBadge } from '../src/components/AppVersionBadge'
-import { AssetsTray } from '../src/components/assets/AssetsTray'
-import { AssetInstallOverlay } from '../src/components/assets/AssetInstallOverlay'
-import { AssetInstallBanner } from '../src/components/assets/AssetInstallBanner'
 
 type ProcessingMode = 'text' | 'image' | null
 
@@ -31,7 +27,6 @@ const App: React.FC = () => {
   const [results, setResults] = useState<ProcessingResult[]>([])
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null)
   const [showKeyModal, setShowKeyModal] = useState(false)
-  const [showAssetsTray, setShowAssetsTray] = useState(false)
   const [updaterDialog, setUpdaterDialog] = useState<{
     open: boolean
     title: string
@@ -152,23 +147,6 @@ const App: React.FC = () => {
                 }}
               >
                 Set / Update API Key
-              </button>
-              <button
-                onClick={() => setShowAssetsTray(true)}
-                style={{
-                  display: 'inline-block',
-                  marginLeft: 12,
-                  padding: '12px 24px',
-                  backgroundColor: '#111827',
-                  color: '#e2e8f0',
-                  border: '1px solid rgba(148, 163, 184, 0.4)',
-                  borderRadius: '4px',
-                  textDecoration: 'none',
-                  fontWeight: 600,
-                  transition: 'all 0.2s ease'
-                }}
-              >
-                Assets
               </button>
               <button
                 onClick={async () => {
@@ -313,9 +291,6 @@ const App: React.FC = () => {
     <div className="app-workspace">
       {renderContent()}
       <ApiKeyModal open={showKeyModal} onClose={() => setShowKeyModal(false)} onSaved={() => location.reload()} />
-      <AssetsTray open={showAssetsTray} onClose={() => setShowAssetsTray(false)} />
-      <AssetInstallOverlay assetId="embedding_model_bge_small_en_v1_5" assetName="Embedding model" />
-      <AssetInstallBanner assetId="embedding_model_bge_small_en_v1_5" assetName="Embedding model" />
       {updaterDialog.open && (
         <div
           style={{

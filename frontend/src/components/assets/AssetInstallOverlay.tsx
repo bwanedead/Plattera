@@ -21,6 +21,22 @@ export const AssetInstallOverlay: React.FC<AssetInstallOverlayProps> = ({ assetI
   }, [assetId]);
 
   useEffect(() => {
+    const eventName = `asset:open-modal:${assetId}`;
+    const handler = () => {
+      try {
+        localStorage.removeItem(`asset:overlayDismissed:${assetId}`);
+      } catch {
+        // ignore storage errors
+      }
+      setDismissed(false);
+    };
+    document.addEventListener(eventName, handler);
+    return () => {
+      document.removeEventListener(eventName, handler);
+    };
+  }, [assetId]);
+
+  useEffect(() => {
     const event = new CustomEvent(`asset:overlay-visibility:${assetId}`, {
       detail: { open: active && !dismissed },
     });

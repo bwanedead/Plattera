@@ -1,5 +1,36 @@
 # Repository Guidelines
 
+## Non-negotiables
+
+### Repo safety
+- **Do not restructure the repository** (no moving/renaming files, folders, modules) unless the task explicitly asks for it.
+- Prefer **minimal diffs** that solve the stated problem cleanly.
+- Do not introduce “catch-all” modules or dump logic into large files.
+
+### Git rules (read-only allowed)
+Allowed (read-only introspection only):
+- `git status`
+- `git diff`
+- `git log`
+- `git show`
+
+Forbidden (anything that changes repo state or history):
+- `git init`, `git add`, `git commit`, `git push`, `git pull`, `git fetch`
+- `git checkout`, `git switch`, `git merge`, `git rebase`, `git cherry-pick`
+- `git reset`, `git clean`, `git stash`
+- any other git command that alters working tree, index, branches, remotes, or history
+
+If git actions are needed, **describe exact commands for a human to run**. Do not execute them.
+
+### Virtual environment (venv) is mandatory for Python work
+- The repo venv is at: `\Plattera\.venv`
+- **Before any Python-related terminal command**, the venv must be active.
+- Activate with PowerShell:
+  - `.venv\scripts\activate.ps1`
+- Never create a new venv or change interpreter paths.
+- Never install/upgrade dependencies unless the venv is active.
+
+
 ## Project Structure & Module Organization
 `backend/` holds the FastAPI service. Key submodules: `api/` routers, `services/` for dossier, LLM, and georeference helpers, `pipelines/` for alignment and projection, plus `config/` and `prompts/` for runtime defaults. Reference tables live in `dossiers_data/` and `raw_alignment_tables/`; keep replacements lightweight. The Next.js client lives in `frontend/`, with `src/components/`, `src/services/`, `src/hooks/`, and route files under `src/pages/`. Static assets belong in `frontend/public/`. Legacy diagnostics stay as top-level `test_*.py`; migrate long-lived code back into the owning package.
 

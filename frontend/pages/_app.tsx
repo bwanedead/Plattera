@@ -10,9 +10,12 @@ import '../src/styles/components/loaders.css' // Any global loaders referenced b
 import { BackendStatusBanner } from '../src/components/system/BackendStatusBanner'
 import { PLSSDownloadBanner } from '../src/components/plss/PLSSDownloadBanner'
 import { PLSSDownloadOverlay } from '../src/components/plss/PLSSDownloadOverlay'
+import { AssetInstallBanner } from '../src/components/assets/AssetInstallBanner'
+import { AssetInstallOverlay } from '../src/components/assets/AssetInstallOverlay'
 import { ToastProvider } from '../src/components/ui/ToastProvider'
 import { ApiKeyModal } from '../src/components/ApiKeyModal'
 import { LogsButton } from '../src/components/logs/LogsButton'
+import { MenuTray } from '../src/components/menu/MenuTray'
 import { installGlobalLogCapture } from '../src/services/logging/logStore'
 
 export default function App({ Component, pageProps }: AppProps) {
@@ -218,6 +221,9 @@ export default function App({ Component, pageProps }: AppProps) {
         <BackendStatusBanner />
         <PLSSDownloadBanner />
         <PLSSDownloadOverlay />
+        <MenuTray />
+        <AssetInstallOverlay assetId="embedding_model_bge_small_en_v1_5" assetName="Embedding model" />
+        <AssetInstallBanner assetId="embedding_model_bge_small_en_v1_5" assetName="Embedding model" />
         <main>
           <Component {...pageProps} />
           <ApiKeyModal open={showKeyModal} onClose={() => setShowKeyModal(false)} onSaved={() => location.reload()} />

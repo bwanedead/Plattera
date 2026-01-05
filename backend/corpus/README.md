@@ -15,3 +15,4 @@ It is **not** a vector database. It is the layer that standardizes:
 - **Stable IDs**: downstream systems should depend on `CorpusDocRef` and `CorpusChunkRef`, not raw file paths.
 
 
+

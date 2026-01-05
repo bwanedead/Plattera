@@ -54,5 +54,11 @@ def clear_cancel(asset_id: str) -> None:
         path.unlink()
 
 
+def clear_progress(asset_id: str) -> None:
+    path = _progress_path(asset_id)
+    if path.exists():
+        path.unlink()
+
+
 def cancel_requested(asset_id: str) -> bool:
     return _cancel_path(asset_id).exists()
