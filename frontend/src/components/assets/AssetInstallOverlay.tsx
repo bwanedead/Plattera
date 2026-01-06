@@ -243,6 +243,11 @@ export const AssetInstallOverlay: React.FC<AssetInstallOverlayProps> = ({ assetI
                 setStopDone(false);
                 await assetsApi.stop(assetId);
                 setStopDone(true);
+                setForceOpen(true);
+                setTimeout(() => {
+                  setForceOpen(false);
+                  setStopDone(false);
+                }, 2500);
               } catch (e) {
                 console.error('Stop failed', e);
               } finally {

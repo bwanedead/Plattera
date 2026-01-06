@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import threading
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,7 +12,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from config.paths import embeddings_root
 from .models import AssetManifest, AssetFileEntry, AssetProgress, AssetStatus
-from .progress_store import cancel_requested, clear_cancel, read_progress, request_cancel, write_progress
+from .progress_store import cancel_requested, clear_cancel, read_progress, write_progress
 
 DownloaderFn = Callable[[str, str, Path], str]
 
@@ -84,16 +86,16 @@ def _format_bytes(value: int) -> str:
     return f"{size:.1f}TB"
 
 
-def _fetch_repo_stats(repo_id: str, revision: str) -> Tuple[Optional[int], Optional[List[str]]]:
+def _resolve_repo_info(repo_id: str, revision: str) -> Tuple[Optional[str], Optional[int], Optional[List[str]]]:
     try:
         from huggingface_hub import HfApi
     except Exception:
-        return None, None
+        return None, None, None
 
     try:
         info = HfApi().model_info(repo_id=repo_id, revision=revision)
     except Exception:
-        return None, None
+        return None, None, None
 
     total = 0
     siblings = getattr(info, "siblings", None) or []
@@ -105,7 +107,8 @@ def _fetch_repo_stats(repo_id: str, revision: str) -> Tuple[Optional[int], Optio
         size = getattr(sibling, "size", None)
         if isinstance(size, int):
             total += size
-    return (total or None), (filenames or None)
+    resolved = getattr(info, "sha", None) or revision
+    return resolved, (total or None), (filenames or None)
 
 
 def _scan_download_progress(target_dir: Path) -> tuple[int, Optional[str]]:
@@ -148,6 +151,29 @@ def _scan_cache_progress(cache_dir: Path, repo_id: str) -> int:
         except OSError:
             continue
     return total
+
+
+def _staging_dir(asset_id: str) -> Path:
+    nonce = uuid.uuid4().hex[:8]
+    return embeddings_root() / f"{asset_id}.staging.{nonce}"
+
+
+def _commit_staging(staging_dir: Path, final_dir: Path) -> None:
+    backup_dir = None
+    if final_dir.exists():
+        backup_dir = final_dir.parent / f"{final_dir.name}.bak.{uuid.uuid4().hex[:6]}"
+        shutil.move(str(final_dir), str(backup_dir))
+    try:
+        shutil.move(str(staging_dir), str(final_dir))
+    except Exception:
+        if backup_dir and backup_dir.exists():
+            try:
+                shutil.move(str(backup_dir), str(final_dir))
+            except Exception:
+                pass
+        raise
+    if backup_dir and backup_dir.exists():
+        shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 def _download_heartbeat(
@@ -208,6 +234,7 @@ def _download_heartbeat(
             ),
         )
 
+
 @dataclass
 class EmbeddingInstaller:
     downloader: DownloaderFn = _default_downloader
@@ -231,11 +258,14 @@ class EmbeddingInstaller:
             ),
         )
 
-        target_dir = embeddings_root() / asset_id
-        resolved_revision = revision
-        bytes_total, _expected_files = _fetch_repo_stats(repo_id, revision)
+        final_dir = embeddings_root() / asset_id
+        staging_dir = _staging_dir(asset_id)
+        resolved_revision, bytes_total, _expected_files = _resolve_repo_info(repo_id, revision)
+        resolved_revision = resolved_revision or revision
         stop_event = threading.Event()
         heartbeat: Optional[threading.Thread] = None
+        committed = False
+        final_written = False
 
         write_progress(
             asset_id,
@@ -252,106 +282,117 @@ class EmbeddingInstaller:
             ),
         )
 
-        heartbeat = threading.Thread(
-            target=_download_heartbeat,
-            kwargs={
-                "asset_id": asset_id,
-                "target_dir": target_dir,
-                "bytes_total": bytes_total,
-                "repo_id": repo_id,
-                "cache_dir": target_dir.parent / "hf_cache",
-                "stop_event": stop_event,
-            },
-            daemon=True,
-        )
-        heartbeat.start()
         try:
-            resolved_revision = self.downloader(repo_id, revision, target_dir)
-        finally:
-            stop_event.set()
-            if heartbeat:
-                heartbeat.join(timeout=2.0)
+            heartbeat = threading.Thread(
+                target=_download_heartbeat,
+                kwargs={
+                    "asset_id": asset_id,
+                    "target_dir": staging_dir,
+                    "bytes_total": bytes_total,
+                    "repo_id": repo_id,
+                    "cache_dir": staging_dir.parent / "hf_cache",
+                    "stop_event": stop_event,
+                },
+                daemon=True,
+            )
+            heartbeat.start()
+            try:
+                resolved_revision = self.downloader(repo_id, resolved_revision, staging_dir)
+            finally:
+                stop_event.set()
+                if heartbeat:
+                    heartbeat.join(timeout=2.0)
 
-        if cancel_requested(asset_id):
+            if cancel_requested(asset_id):
+                write_progress(
+                    asset_id,
+                    AssetProgress(
+                        status=AssetStatus.CANCELED,
+                        stage="canceled",
+                        headline="Install canceled",
+                        detail="Canceled after download step completed",
+                        message="Install canceled",
+                        progress_bar="none",
+                        phase="canceled",
+                        updated_at=_now_iso(),
+                    ),
+                )
+                raise RuntimeError("install_canceled")
+
             write_progress(
                 asset_id,
                 AssetProgress(
-                    status=AssetStatus.CANCELED,
-                    stage="canceled",
-                    headline="Install canceled",
-                    detail="Canceled after download step completed",
-                    message="Install canceled",
-                    progress_bar="none",
-                    phase="canceled",
+                    status=AssetStatus.INSTALLING,
+                    stage="verifying",
+                    headline="Verifying download",
+                    detail="Hashing critical files",
+                    message="Hashing critical files",
+                    progress_bar="indeterminate",
+                    phase="verifying",
                     updated_at=_now_iso(),
                 ),
             )
-            raise RuntimeError("install_canceled")
 
-        write_progress(
-            asset_id,
-            AssetProgress(
-                status=AssetStatus.INSTALLING,
-                stage="verifying",
-                headline="Verifying download",
-                detail="Hashing critical files",
-                message="Hashing critical files",
-                progress_bar="indeterminate",
-                phase="verifying",
-                updated_at=_now_iso(),
-            ),
-        )
+            files: List[AssetFileEntry] = []
+            total_bytes = 0
+            for path in _list_files(staging_dir):
+                rel = path.relative_to(staging_dir).as_posix()
+                size = path.stat().st_size
+                total_bytes += size
+                sha = _hash_file(path) if path.name in CRITICAL_FILENAMES else None
+                files.append(AssetFileEntry(path=rel, bytes=size, sha256=sha))
 
-        files: List[AssetFileEntry] = []
-        total_bytes = 0
-        for path in _list_files(target_dir):
-            rel = path.relative_to(target_dir).as_posix()
-            size = path.stat().st_size
-            total_bytes += size
-            sha = _hash_file(path) if path.name in CRITICAL_FILENAMES else None
-            files.append(AssetFileEntry(path=rel, bytes=size, sha256=sha))
+            smoke_result = _smoke_test(staging_dir)
 
-        smoke_result = _smoke_test(target_dir)
+            write_progress(
+                asset_id,
+                AssetProgress(
+                    status=AssetStatus.INSTALLING,
+                    stage="writing_manifest",
+                    headline="Finalizing install",
+                    detail="Writing manifest",
+                    message="Writing manifest",
+                    progress_bar="indeterminate",
+                    phase="finalizing",
+                    updated_at=_now_iso(),
+                ),
+            )
 
-        write_progress(
-            asset_id,
-            AssetProgress(
-                status=AssetStatus.INSTALLING,
-                stage="writing_manifest",
-                headline="Finalizing install",
-                detail="Writing manifest",
-                message="Writing manifest",
-                progress_bar="indeterminate",
-                phase="finalizing",
-                updated_at=_now_iso(),
-            ),
-        )
+            _commit_staging(staging_dir, final_dir)
 
-        manifest = AssetManifest(
-            asset_id=asset_id,
-            source=f"hf:{repo_id}",
-            revision=resolved_revision,
-            installed_at=datetime.now(timezone.utc).isoformat(),
-            files=files,
-            total_bytes=total_bytes,
-            smoke_test=smoke_result,
-        )
+            manifest = AssetManifest(
+                asset_id=asset_id,
+                source=f"hf:{repo_id}",
+                requested_revision=revision,
+                resolved_revision=resolved_revision,
+                installed_at=datetime.now(timezone.utc).isoformat(),
+                files=files,
+                total_bytes=total_bytes,
+                smoke_test=smoke_result,
+            )
 
-        manifest_path = target_dir / "manifest.json"
-        manifest_path.write_text(json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            manifest_path = final_dir / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            final_written = True
+            committed = True
 
-        write_progress(
-            asset_id,
-            AssetProgress(
-                status=AssetStatus.INSTALLED,
-                stage="complete",
-                headline="Install complete",
-                detail="Embedding model is ready",
-                message="Install complete",
-                progress_bar="none",
-                phase="complete",
-                updated_at=_now_iso(),
-            ),
-        )
+            write_progress(
+                asset_id,
+                AssetProgress(
+                    status=AssetStatus.INSTALLED,
+                    stage="complete",
+                    headline="Install complete",
+                    detail="Embedding model is ready",
+                    message="Install complete",
+                    progress_bar="none",
+                    phase="complete",
+                    updated_at=_now_iso(),
+                ),
+            )
 
-        return manifest
+            return manifest
+        finally:
+            if not committed and staging_dir.exists():
+                shutil.rmtree(staging_dir, ignore_errors=True)
+            if not final_written and final_dir.exists():
+                shutil.rmtree(final_dir, ignore_errors=True)

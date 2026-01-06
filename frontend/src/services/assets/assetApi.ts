@@ -42,6 +42,12 @@ export class AssetsApi {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   }
+
+  async clearCache(assetId: string): Promise<{ success: boolean; error?: string }> {
+    const res = await fetch(`${apiBase}/assets/${assetId}/clear-cache`, { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  }
 }
 
 export const assetsApi = new AssetsApi();

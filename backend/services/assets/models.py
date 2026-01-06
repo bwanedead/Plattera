@@ -11,6 +11,8 @@ class AssetStatus(str, Enum):
     INSTALLED = "installed"
     FAILED = "failed"
     CANCELED = "canceled"
+    STOPPED = "stopped"
+    STALLED = "stalled"
 
 
 @dataclass(frozen=True)
@@ -70,7 +72,8 @@ class AssetFileEntry:
 class AssetManifest:
     asset_id: str
     source: str
-    revision: str
+    requested_revision: str
+    resolved_revision: str
     installed_at: str
     files: List[AssetFileEntry]
     total_bytes: int
@@ -80,7 +83,8 @@ class AssetManifest:
         return {
             "asset_id": self.asset_id,
             "source": self.source,
-            "revision": self.revision,
+            "requested_revision": self.requested_revision,
+            "resolved_revision": self.resolved_revision,
             "installed_at": self.installed_at,
             "files": [f.to_dict() for f in self.files],
             "total_bytes": self.total_bytes,

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import re
 import shutil
@@ -13,22 +12,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from config.paths import backend_root, embeddings_root
+from config.paths import backend_root, embeddings_root, is_frozen
 from services.plss.plss_data_service import PLSSDataService
 
 from .models import AssetDefinition, AssetManifest, AssetProgress, AssetStatus
-from .embedding_installer import _format_bytes
-from .progress_store import (
-    cancel_requested,
-    clear_cancel,
-    clear_progress,
-    read_progress,
-    request_cancel,
-    write_progress,
-)
+from .embedding_installer import CRITICAL_FILENAMES, _format_bytes, _hash_file
+from .progress_store import clear_cancel, clear_progress, read_progress, write_progress
 from .registry import ASSET_DEFINITIONS, EMBEDDING_MODEL_ASSET_ID
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -53,6 +43,10 @@ class AssetsService:
         if asset.asset_id == "plss":
             return {"success": False, "error": "plss_managed_externally"}
 
+        integrity = self._verify_manifest(asset_id)
+        if integrity["status"] == AssetStatus.INSTALLED:
+            return {"success": True, "status": "installed"}
+
         with self._lock:
             existing = self._processes.get(asset_id)
             if existing and existing.poll() is None:
@@ -73,31 +67,24 @@ class AssetsService:
             clear_cancel(asset_id)
             progress = None
         if progress:
+            if progress.status == AssetStatus.INSTALLING and self._stall_timeout_exceeded(progress.updated_at):
+                return {
+                    "success": True,
+                    "status": AssetStatus.STALLED.value,
+                    "stage": progress.stage,
+                    "message": "worker_unresponsive",
+                    "headline": "Download stalled",
+                    "detail": "No progress updates detected",
+                    "progress_bar": "none",
+                    "phase": "stalled",
+                    "updated_at": progress.updated_at,
+                }
             return {"success": True, **progress.to_dict()}
         status = self._current_status(asset_id)
         return {"success": True, "status": status.value}
 
     def cancel_install(self, asset_id: str) -> Dict[str, object]:
-        asset = ASSET_DEFINITIONS.get(asset_id)
-        if not asset:
-            return {"success": False, "error": "unknown_asset"}
-        if asset.asset_id == "plss":
-            return {"success": False, "error": "plss_managed_externally"}
-        request_cancel(asset_id)
-        write_progress(
-            asset_id,
-            AssetProgress(
-                status=AssetStatus.CANCELED,
-                stage="canceled",
-                headline="Cancel requested",
-                detail="Will stop after current download step completes",
-                message="Cancel requested; will stop after current download step completes",
-                progress_bar="none",
-                phase="canceled",
-                updated_at=datetime.now(timezone.utc).isoformat(),
-            ),
-        )
-        return {"success": True, "status": "canceled"}
+        return self.stop_install(asset_id)
 
     def stop_install(self, asset_id: str) -> Dict[str, object]:
         asset = ASSET_DEFINITIONS.get(asset_id)
@@ -118,7 +105,20 @@ class AssetsService:
                 except Exception:
                     pass
 
-        self.purge_asset(asset_id)
+        write_progress(
+            asset_id,
+            AssetProgress(
+                status=AssetStatus.STOPPED,
+                stage="stopped",
+                headline="Download stopped",
+                detail="Download stopped and cleaned",
+                message="Stopped",
+                progress_bar="none",
+                phase="stopped",
+                updated_at=datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        self.purge_asset(asset_id, keep_progress=True)
         with self._lock:
             self._processes.pop(asset_id, None)
         return {"success": True, "status": "stopped"}
@@ -126,7 +126,7 @@ class AssetsService:
     def get_asset_status(self, asset_id: str) -> AssetStatus:
         return self._current_status(asset_id)
 
-    def purge_asset(self, asset_id: str) -> Dict[str, object]:
+    def purge_asset(self, asset_id: str, *, keep_progress: bool = False) -> Dict[str, object]:
         asset = ASSET_DEFINITIONS.get(asset_id)
         if not asset:
             return {"success": False, "error": "unknown_asset"}
@@ -135,8 +135,27 @@ class AssetsService:
         target_dir = embeddings_root() / asset_id
         if target_dir.exists():
             shutil.rmtree(target_dir, ignore_errors=True)
-        clear_progress(asset_id)
-        clear_cancel(asset_id)
+        for path in embeddings_root().glob(f"{asset_id}.staging.*"):
+            shutil.rmtree(path, ignore_errors=True)
+        for path in embeddings_root().glob(f"{asset_id}.bak.*"):
+            shutil.rmtree(path, ignore_errors=True)
+        if not keep_progress:
+            clear_progress(asset_id)
+            clear_cancel(asset_id)
+        return {"success": True}
+
+    def clear_cache(self, asset_id: str) -> Dict[str, object]:
+        asset = ASSET_DEFINITIONS.get(asset_id)
+        if not asset:
+            return {"success": False, "error": "unknown_asset"}
+        if asset.asset_id == "plss":
+            return {"success": False, "error": "plss_managed_externally"}
+        repo_id = asset.meta.get("repo_id") or ""
+        repo_key = repo_id.replace("/", "--")
+        cache_root = embeddings_root() / "hf_cache"
+        target = cache_root / f"models--{repo_key}"
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
         return {"success": True}
 
     def _spawn_worker(self, asset: AssetDefinition) -> subprocess.Popen:
@@ -255,6 +274,14 @@ class AssetsService:
         status = self._current_status(asset.asset_id)
         manifest = self._manifest_summary(asset.asset_id)
         progress = read_progress(asset.asset_id)
+        detail = progress.detail if progress else None
+        message = progress.message if progress else None
+        if status == AssetStatus.FAILED:
+            integrity = self._verify_manifest(asset.asset_id)
+            if integrity.get("reason"):
+                message = integrity["reason"]
+        if status == AssetStatus.STALLED:
+            message = "worker_unresponsive"
         return {
             "asset_id": asset.asset_id,
             "display_name": asset.display_name,
@@ -262,9 +289,9 @@ class AssetsService:
             "source": asset.source,
             "status": status.value,
             "stage": progress.stage if progress else None,
-            "message": progress.message if progress else None,
+            "message": message,
             "headline": progress.headline if progress else None,
-            "detail": progress.detail if progress else None,
+            "detail": detail,
             "progress_bar": progress.progress_bar if progress else None,
             "percent": progress.percent if progress else None,
             "bytes_downloaded": progress.bytes_downloaded if progress else None,
@@ -308,11 +335,13 @@ class AssetsService:
             clear_cancel(asset_id)
             progress = None
         if progress:
+            if progress.status == AssetStatus.INSTALLING:
+                stalled = self._stall_timeout_exceeded(progress.updated_at)
+                if stalled:
+                    return AssetStatus.STALLED
             return progress.status
-        manifest = self._manifest_summary(asset_id)
-        if manifest:
-            return AssetStatus.INSTALLED
-        return AssetStatus.MISSING
+        integrity = self._verify_manifest(asset_id)
+        return integrity["status"]
 
     def _manifest_summary(self, asset_id: str) -> Optional[Dict[str, object]]:
         manifest_path = (embeddings_root() / asset_id / "manifest.json")
@@ -323,7 +352,8 @@ class AssetsService:
         except Exception:
             return None
         return {
-            "revision": data.get("revision"),
+            "requested_revision": data.get("requested_revision") or data.get("revision"),
+            "resolved_revision": data.get("resolved_revision") or data.get("revision"),
             "installed_at": data.get("installed_at"),
             "total_bytes": data.get("total_bytes"),
             "smoke_test": data.get("smoke_test"),
@@ -336,8 +366,78 @@ class AssetsService:
         return (embeddings_root() / asset_id).exists()
 
     def _should_clear_progress(self, asset_id: str, status: AssetStatus) -> bool:
-        if not self._asset_dir_exists(asset_id):
+        if not self._asset_dir_exists(asset_id) and status == AssetStatus.INSTALLED:
             return True
         if status == AssetStatus.INSTALLED and not self._manifest_exists(asset_id):
             return True
         return False
+
+    def _stall_timeout_exceeded(self, updated_at: Optional[str]) -> bool:
+        if not updated_at:
+            return False
+        try:
+            last = datetime.fromisoformat(updated_at)
+        except Exception:
+            return False
+        threshold = 120 if is_frozen() else 30
+        return (datetime.now(timezone.utc) - last).total_seconds() > threshold
+
+    def _verify_manifest(self, asset_id: str) -> Dict[str, object]:
+        manifest_path = (embeddings_root() / asset_id / "manifest.json")
+        if not manifest_path.exists():
+            return {"status": AssetStatus.MISSING}
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {"status": AssetStatus.FAILED, "reason": "manifest_corrupt"}
+
+        files = data.get("files") or []
+        file_map = {entry.get("path"): entry for entry in files if isinstance(entry, dict)}
+        missing = []
+        hash_mismatch = []
+        required_core = {
+            "config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+        }
+        weight_candidates = {"model.safetensors", "pytorch_model.bin"}
+
+        core_missing = []
+        for filename in required_core:
+            entry = file_map.get(filename)
+            target = embeddings_root() / asset_id / filename
+            if not entry or not target.exists():
+                core_missing.append(filename)
+                continue
+            sha = entry.get("sha256")
+            if sha:
+                try:
+                    actual = _hash_file(target)
+                except Exception:
+                    hash_mismatch.append(filename)
+                    continue
+                if actual != sha:
+                    hash_mismatch.append(filename)
+
+        has_weight = False
+        for filename in weight_candidates:
+            entry = file_map.get(filename)
+            target = embeddings_root() / asset_id / filename
+            if entry and target.exists():
+                has_weight = True
+                sha = entry.get("sha256")
+                if sha:
+                    try:
+                        actual = _hash_file(target)
+                    except Exception:
+                        hash_mismatch.append(filename)
+                        continue
+                    if actual != sha:
+                        hash_mismatch.append(filename)
+
+        if core_missing or not has_weight:
+            return {"status": AssetStatus.FAILED, "reason": "integrity_missing_files"}
+        if hash_mismatch:
+            return {"status": AssetStatus.FAILED, "reason": "integrity_hash_mismatch"}
+        return {"status": AssetStatus.INSTALLED}

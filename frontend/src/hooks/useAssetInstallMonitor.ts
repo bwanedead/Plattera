@@ -48,7 +48,8 @@ export function useAssetInstallMonitor(assetId: string, pollMs: number = 1000): 
           const progress: AssetProgress = await assetsApi.getProgress(assetId);
           const status = progress.status || null;
           const active = status === 'installing';
-          const terminal = status === 'installed' || status === 'failed' || status === 'canceled';
+          const terminal =
+            status === 'installed' || status === 'failed' || status === 'canceled' || status === 'stopped' || status === 'stalled';
 
           if (!cancelled) {
             if (active && !installStartMs) {

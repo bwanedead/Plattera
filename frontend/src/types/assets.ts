@@ -1,7 +1,15 @@
-export type AssetStatus = 'missing' | 'installing' | 'installed' | 'failed' | 'canceled';
+export type AssetStatus =
+  | 'missing'
+  | 'installing'
+  | 'installed'
+  | 'failed'
+  | 'canceled'
+  | 'stopped'
+  | 'stalled';
 
 export interface AssetManifestSummary {
-  revision?: string;
+  requested_revision?: string;
+  resolved_revision?: string;
   installed_at?: string;
   total_bytes?: number;
   smoke_test?: string;

@@ -39,3 +39,8 @@ def stop_asset(asset_id: str) -> dict:
 @router.post("/assets/{asset_id}/purge")
 def purge_asset(asset_id: str) -> dict:
     return assets_service.purge_asset(asset_id)
+
+
+@router.post("/assets/{asset_id}/clear-cache")
+def clear_cache(asset_id: str) -> dict:
+    return assets_service.clear_cache(asset_id)

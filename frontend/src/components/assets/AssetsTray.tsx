@@ -45,6 +45,11 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
   const [purgeDone, setPurgeDone] = useState(false);
   const [purgeError, setPurgeError] = useState<string | null>(null);
   const [stopInProgress, setStopInProgress] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [cacheModalOpen, setCacheModalOpen] = useState(false);
+  const [cacheInProgress, setCacheInProgress] = useState(false);
+  const [cacheDone, setCacheDone] = useState(false);
+  const [cacheError, setCacheError] = useState<string | null>(null);
   const initialFetchDoneRef = useRef(false);
   const lastSnapshotRef = useRef<string | null>(null);
 
@@ -104,13 +109,18 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
   const embeddingInstalled = embedding?.status === 'installed';
   const embeddingInstalling = embedding?.status === 'installing';
   const embeddingMissing =
-    embedding?.status === 'missing' || embedding?.status === 'failed' || embedding?.status === 'canceled';
+    embedding?.status === 'missing' ||
+    embedding?.status === 'failed' ||
+    embedding?.status === 'canceled' ||
+    embedding?.status === 'stopped' ||
+    embedding?.status === 'stalled';
 
-  const badgeStyles = (tone: 'good' | 'warn' | 'info') => {
+  const badgeStyles = (tone: 'good' | 'warn' | 'info' | 'danger') => {
     const palettes = {
       good: { bg: '#14532d', border: '#22c55e', text: '#dcfce7' },
       warn: { bg: '#78350f', border: '#f59e0b', text: '#fef3c7' },
       info: { bg: '#1e3a8a', border: '#60a5fa', text: '#dbeafe' },
+      danger: { bg: '#7f1d1d', border: '#f87171', text: '#fee2e2' },
     };
     const palette = palettes[tone];
     return {
@@ -195,6 +205,21 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
     }
   };
 
+  const handleClearCache = async () => {
+    if (!embedding) return;
+    try {
+      setCacheInProgress(true);
+      setCacheError(null);
+      await assetsApi.clearCache(embedding.asset_id);
+      setCacheDone(true);
+    } catch (e) {
+      setCacheError('Failed to clear cache.');
+      console.error('Clear cache failed', e);
+    } finally {
+      setCacheInProgress(false);
+    }
+  };
+
   const handlePurgeEmbedding = async () => {
     if (!embedding) return;
     try {
@@ -264,6 +289,12 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
               <span style={badgeStyles('info')}>Installing</span>
             ) : embeddingInstalled ? (
               <span style={badgeStyles('good')}>Installed</span>
+            ) : embedding?.status === 'failed' ? (
+              <span style={badgeStyles('danger')}>Failed</span>
+            ) : embedding?.status === 'stalled' ? (
+              <span style={badgeStyles('danger')}>Stalled</span>
+            ) : embedding?.status === 'stopped' ? (
+              <span style={badgeStyles('warn')}>Stopped</span>
             ) : (
               <span style={badgeStyles('warn')}>Not installed</span>
             )}
@@ -300,34 +331,73 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
                 {stopInProgress ? 'Stopping...' : 'Stop'}
               </button>
             )}
-            {embeddingInstalled && (
-              <button
-                onClick={() => {
-                  setPurgeModalOpen(true);
-                  setPurgeDone(false);
-                  setPurgeError(null);
-                }}
-                style={{
-                  background: 'transparent',
-                  color: '#f59e0b',
-                  border: '1px solid #f59e0b',
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                }}
-              >
-                Purge
-              </button>
-            )}
-          </div>
-          {embeddingInstalling && (
-            <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8' }}>
-              <div>{embeddingDetail}</div>
-              {embeddingUpdateLabel && <div>Updated {embeddingUpdateLabel}</div>}
-              <div>Stop ends the download and purges any partial files.</div>
-            </div>
+          {embeddingInstalled && (
+            <button
+              onClick={() => {
+                setPurgeModalOpen(true);
+                setPurgeDone(false);
+                setPurgeError(null);
+              }}
+              style={{
+                background: 'transparent',
+                color: '#f59e0b',
+                border: '1px solid #f59e0b',
+                padding: '6px 12px',
+                borderRadius: 6,
+                cursor: 'pointer',
+              }}
+            >
+              Purge
+            </button>
           )}
         </div>
+        {embeddingInstalling && (
+          <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8' }}>
+            <div>{embeddingDetail}</div>
+            {embeddingUpdateLabel && <div>Updated {embeddingUpdateLabel}</div>}
+            <div>Stop ends the download and purges any partial files.</div>
+          </div>
+        )}
+        {!embeddingInstalling && (
+          <div style={{ marginTop: 10 }}>
+            <button
+              onClick={() => setAdvancedOpen(prev => !prev)}
+              style={{
+                background: 'transparent',
+                border: '1px solid rgba(148, 163, 184, 0.4)',
+                color: '#cbd5f5',
+                padding: '4px 10px',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 12,
+              }}
+            >
+              {advancedOpen ? 'Hide advanced' : 'Advanced'}
+            </button>
+            {advancedOpen && (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  onClick={() => {
+                    setCacheModalOpen(true);
+                    setCacheDone(false);
+                    setCacheError(null);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    color: '#fca5a5',
+                    border: '1px solid #fca5a5',
+                    padding: '6px 12px',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Clear cache
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       </div>
 
       <AssetInstallModal
@@ -465,6 +535,152 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
                 </button>
               )}
               {purgeInProgress && (
+                <button
+                  disabled
+                  style={{
+                    padding: '8px 14px',
+                    background: '#1f2937',
+                    color: '#94a3b8',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'default',
+                  }}
+                >
+                  Working...
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cacheModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2, 6, 23, 0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2400,
+          }}
+          onClick={() => {
+            if (!cacheInProgress) setCacheModalOpen(false);
+          }}
+        >
+          <div
+            style={{
+              background: '#0f172a',
+              color: '#f8fafc',
+              padding: 22,
+              borderRadius: 12,
+              width: 430,
+              border: '1px solid rgba(148, 163, 184, 0.2)',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <style>{`
+              @keyframes cache-spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            `}</style>
+            <h3 style={{ marginTop: 0, marginBottom: 8 }}>Clear embedding cache</h3>
+            {!cacheInProgress && !cacheDone && (
+              <p style={{ marginTop: 0, color: '#cbd5f5' }}>
+                This removes the local HF cache and forces a full redownload next install.
+              </p>
+            )}
+            {cacheInProgress && (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#cbd5f5' }}>
+                <div
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: '50%',
+                    border: '2px solid rgba(226,232,240,0.4)',
+                    borderTopColor: '#38bdf8',
+                    animation: 'cache-spin 1s linear infinite',
+                  }}
+                />
+                <span>Clearing cache...</span>
+              </div>
+            )}
+            {cacheDone && !cacheInProgress && (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#bbf7d0' }}>
+                <div
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: 4,
+                    background: '#16a34a',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 12,
+                    color: '#052e16',
+                    fontWeight: 700,
+                  }}
+                >
+                  ✓
+                </div>
+                <span>Cache cleared.</span>
+              </div>
+            )}
+            {cacheError && (
+              <div style={{ marginTop: 10, color: '#fca5a5', fontSize: 12 }}>{cacheError}</div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+              {!cacheInProgress && !cacheDone && (
+                <>
+                  <button
+                    onClick={() => setCacheModalOpen(false)}
+                    style={{
+                      padding: '8px 14px',
+                      background: 'transparent',
+                      color: '#e2e8f0',
+                      border: '1px solid rgba(148, 163, 184, 0.4)',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleClearCache}
+                    style={{
+                      padding: '8px 14px',
+                      background: '#b91c1c',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Clear cache
+                  </button>
+                </>
+              )}
+              {cacheDone && !cacheInProgress && (
+                <button
+                  onClick={() => setCacheModalOpen(false)}
+                  style={{
+                    padding: '8px 14px',
+                    background: '#16a34a',
+                    color: '#052e16',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                  }}
+                >
+                  Done
+                </button>
+              )}
+              {cacheInProgress && (
                 <button
                   disabled
                   style={{
