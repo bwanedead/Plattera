@@ -50,7 +50,6 @@ def _default_downloader(repo_id: str, revision: str, target_dir: Path) -> str:
         repo_id=repo_id,
         revision=revision,
         local_dir=str(target_dir),
-        local_dir_use_symlinks=False,
         cache_dir=str(target_dir.parent / "hf_cache"),
         resume_download=True,
     )
@@ -242,7 +241,7 @@ class EmbeddingInstaller:
     def install(self, *, asset_id: str, repo_id: str, revision: str) -> AssetManifest:
         if cancel_requested(asset_id):
             clear_cancel(asset_id)
-            raise RuntimeError("cancel_requested_before_start")
+            raise RuntimeError("stopped_before_start")
 
         write_progress(
             asset_id,
@@ -262,6 +261,23 @@ class EmbeddingInstaller:
         staging_dir = _staging_dir(asset_id)
         resolved_revision, bytes_total, _expected_files = _resolve_repo_info(repo_id, revision)
         resolved_revision = resolved_revision or revision
+        if bytes_total:
+            total_free = shutil.disk_usage(str(embeddings_root())).free
+            if total_free < bytes_total:
+                write_progress(
+                    asset_id,
+                    AssetProgress(
+                        status=AssetStatus.FAILED,
+                        stage="error",
+                        headline="Install failed",
+                        detail="insufficient_disk_space",
+                        message=f"Need {_format_bytes(bytes_total)} free, have {_format_bytes(total_free)}",
+                        progress_bar="none",
+                        phase="failed",
+                        updated_at=_now_iso(),
+                    ),
+                )
+                raise RuntimeError("insufficient_disk_space")
         stop_event = threading.Event()
         heartbeat: Optional[threading.Thread] = None
         committed = False
@@ -307,17 +323,17 @@ class EmbeddingInstaller:
                 write_progress(
                     asset_id,
                     AssetProgress(
-                        status=AssetStatus.CANCELED,
-                        stage="canceled",
-                        headline="Install canceled",
-                        detail="Canceled after download step completed",
-                        message="Install canceled",
+                        status=AssetStatus.STOPPED,
+                        stage="stopped",
+                        headline="Download stopped",
+                        detail="Download stopped after download step",
+                        message="Stopped",
                         progress_bar="none",
-                        phase="canceled",
+                        phase="stopped",
                         updated_at=_now_iso(),
                     ),
                 )
-                raise RuntimeError("install_canceled")
+                raise RuntimeError("stopped")
 
             write_progress(
                 asset_id,
@@ -372,7 +388,9 @@ class EmbeddingInstaller:
             )
 
             manifest_path = final_dir / "manifest.json"
-            manifest_path.write_text(json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp_path = final_dir / "manifest.json.tmp"
+            tmp_path.write_text(json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp_path.replace(manifest_path)
             final_written = True
             committed = True
 

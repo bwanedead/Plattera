@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -96,14 +97,25 @@ class AssetsService:
         with self._lock:
             proc = self._processes.get(asset_id)
         if proc and proc.poll() is None:
-            try:
-                proc.terminate()
-                proc.wait(timeout=5)
-            except Exception:
+            if os.name == "nt":
                 try:
-                    proc.kill()
+                    subprocess.run(
+                        ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
                 except Exception:
                     pass
+            else:
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                    proc.wait(timeout=5)
+                except Exception:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except Exception:
+                        pass
 
         write_progress(
             asset_id,
@@ -182,6 +194,13 @@ class AssetsService:
         backend_path = str(backend_root())
         env["PYTHONPATH"] = f"{backend_path}{os.pathsep}{py_path}" if py_path else backend_path
 
+        creationflags = 0
+        preexec_fn = None
+        if os.name == "nt":
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            preexec_fn = os.setsid
+
         return subprocess.Popen(
             [
                 sys.executable,
@@ -200,6 +219,8 @@ class AssetsService:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            creationflags=creationflags,
+            preexec_fn=preexec_fn,
         )
 
     def _watch_process(self, asset_id: str, process: subprocess.Popen) -> None:

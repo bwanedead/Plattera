@@ -38,6 +38,7 @@ def _patch_assets_roots(monkeypatch, root: Path) -> None:
 
 def test_embedding_installer_writes_manifest_and_hashes(tmp_path, monkeypatch) -> None:
     _patch_assets_roots(monkeypatch, tmp_path)
+    monkeypatch.setattr("services.assets.embedding_installer._resolve_repo_info", lambda *_: ("rev123", None, None))
     installer = EmbeddingInstaller(downloader=_stub_downloader)
 
     manifest = installer.install(
@@ -49,7 +50,8 @@ def test_embedding_installer_writes_manifest_and_hashes(tmp_path, monkeypatch) -
     manifest_path = tmp_path / "embeddings" / "embedding_model_bge_small_en_v1_5" / "manifest.json"
     assert manifest_path.exists()
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert data["revision"] == "rev123"
+    assert data["requested_revision"] == "main"
+    assert data["resolved_revision"] == "rev123"
     files = {f["path"]: f for f in data["files"]}
     assert files["config.json"]["sha256"]
     assert files["tokenizer.json"]["sha256"]
@@ -59,6 +61,7 @@ def test_embedding_installer_writes_manifest_and_hashes(tmp_path, monkeypatch) -
 
 def test_embedding_installer_cancel_before_start(tmp_path, monkeypatch) -> None:
     _patch_assets_roots(monkeypatch, tmp_path)
+    monkeypatch.setattr("services.assets.embedding_installer._resolve_repo_info", lambda *_: ("rev123", None, None))
     request_cancel("embedding_model_bge_small_en_v1_5")
     installer = EmbeddingInstaller(downloader=_stub_downloader)
 
@@ -73,3 +76,29 @@ def test_embedding_installer_cancel_before_start(tmp_path, monkeypatch) -> None:
         raised = True
 
     assert raised is True
+
+
+def test_embedding_installer_staging_cleanup_on_failure(tmp_path, monkeypatch) -> None:
+    _patch_assets_roots(monkeypatch, tmp_path)
+    monkeypatch.setattr("services.assets.embedding_installer._resolve_repo_info", lambda *_: ("rev123", None, None))
+
+    def _failing_downloader(repo_id: str, revision: str, target_dir: Path) -> str:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "config.json").write_text("{}", encoding="utf-8")
+        raise RuntimeError("download_failed")
+
+    installer = EmbeddingInstaller(downloader=_failing_downloader)
+
+    raised = False
+    try:
+        installer.install(
+            asset_id="embedding_model_bge_small_en_v1_5",
+            repo_id="BAAI/bge-small-en-v1.5",
+            revision="main",
+        )
+    except RuntimeError:
+        raised = True
+
+    assert raised is True
+    final_dir = tmp_path / "embeddings" / "embedding_model_bge_small_en_v1_5"
+    assert not final_dir.exists()

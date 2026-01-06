@@ -25,17 +25,17 @@ def main() -> int:
         installer.install(asset_id=args.asset_id, repo_id=args.repo_id, revision=args.revision)
         return 0
     except RuntimeError as exc:
-        if "canceled" in str(exc):
+        if "stopped" in str(exc) or "canceled" in str(exc):
             write_progress(
                 args.asset_id,
                 AssetProgress(
-                    status=AssetStatus.CANCELED,
-                    stage="canceled",
-                    headline="Install canceled",
-                    detail="Canceled after download step completed",
-                    message="Install canceled",
+                    status=AssetStatus.STOPPED,
+                    stage="stopped",
+                    headline="Download stopped",
+                    detail="Download stopped",
+                    message="Stopped",
                     progress_bar="none",
-                    phase="canceled",
+                    phase="stopped",
                     updated_at=_now_iso(),
                 ),
             )
