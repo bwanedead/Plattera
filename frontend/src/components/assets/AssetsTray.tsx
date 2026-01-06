@@ -40,6 +40,11 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
   const [plssState, setPlssState] = useState<string>('Wyoming');
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [purgeModalOpen, setPurgeModalOpen] = useState(false);
+  const [purgeInProgress, setPurgeInProgress] = useState(false);
+  const [purgeDone, setPurgeDone] = useState(false);
+  const [purgeError, setPurgeError] = useState<string | null>(null);
+  const [stopInProgress, setStopInProgress] = useState(false);
   const initialFetchDoneRef = useRef(false);
   const lastSnapshotRef = useRef<string | null>(null);
 
@@ -131,11 +136,22 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
     setInstalling(true);
     try {
       await assetsApi.installAsset(embedding.asset_id);
+      const list = await assetsApi.listAssets(plssState);
+      const snapshot = buildSnapshot(list);
+      if (snapshot !== lastSnapshotRef.current) {
+        setAssets(list);
+        lastSnapshotRef.current = snapshot;
+      }
       try {
         localStorage.setItem(`asset:last:${embedding.asset_id}`, 'true');
         localStorage.removeItem(`asset:overlayDismissed:${embedding.asset_id}`);
       } catch {
         // ignore
+      }
+      try {
+        document.dispatchEvent(new Event(`asset:open-modal:${embedding.asset_id}`));
+      } catch (e) {
+        console.error('Failed to dispatch asset:open-modal', e);
       }
     } catch (e) {
       console.error('Embedding install failed', e);
@@ -161,21 +177,42 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
     await plssDataService.startBackgroundDownload(plssState);
   };
 
-  const handleCancelEmbedding = async () => {
+  const handleStopEmbedding = async () => {
     if (!embedding) return;
     try {
-      await assetsApi.cancel(embedding.asset_id);
+      setStopInProgress(true);
+      await assetsApi.stop(embedding.asset_id);
+      const list = await assetsApi.listAssets(plssState);
+      const snapshot = buildSnapshot(list);
+      if (snapshot !== lastSnapshotRef.current) {
+        setAssets(list);
+        lastSnapshotRef.current = snapshot;
+      }
     } catch (e) {
-      console.error('Cancel failed', e);
+      console.error('Stop failed', e);
+    } finally {
+      setStopInProgress(false);
     }
   };
 
   const handlePurgeEmbedding = async () => {
     if (!embedding) return;
     try {
+      setPurgeInProgress(true);
+      setPurgeError(null);
       await assetsApi.purge(embedding.asset_id);
+      const list = await assetsApi.listAssets(plssState);
+      const snapshot = buildSnapshot(list);
+      if (snapshot !== lastSnapshotRef.current) {
+        setAssets(list);
+        lastSnapshotRef.current = snapshot;
+      }
+      setPurgeDone(true);
     } catch (e) {
+      setPurgeError('Failed to purge embedding model.');
       console.error('Purge failed', e);
+    } finally {
+      setPurgeInProgress(false);
     }
   };
 
@@ -249,22 +286,27 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
             )}
             {embeddingInstalling && (
               <button
-                onClick={handleCancelEmbedding}
+                onClick={handleStopEmbedding}
+                disabled={stopInProgress}
                 style={{
-                  background: 'transparent',
+                  background: stopInProgress ? '#1f2937' : 'transparent',
                   color: '#f87171',
                   border: '1px solid #f87171',
                   padding: '6px 12px',
                   borderRadius: 6,
-                  cursor: 'pointer',
+                  cursor: stopInProgress ? 'default' : 'pointer',
                 }}
               >
-                Cancel
+                {stopInProgress ? 'Stopping...' : 'Stop'}
               </button>
             )}
             {embeddingInstalled && (
               <button
-                onClick={handlePurgeEmbedding}
+                onClick={() => {
+                  setPurgeModalOpen(true);
+                  setPurgeDone(false);
+                  setPurgeError(null);
+                }}
                 style={{
                   background: 'transparent',
                   color: '#f59e0b',
@@ -282,7 +324,7 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
             <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8' }}>
               <div>{embeddingDetail}</div>
               {embeddingUpdateLabel && <div>Updated {embeddingUpdateLabel}</div>}
-              <div>Cancel stops after the current download step completes.</div>
+              <div>Stop ends the download and purges any partial files.</div>
             </div>
           )}
         </div>
@@ -295,6 +337,152 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
         onClose={() => setInstallModalOpen(false)}
         isInstalling={installing}
       />
+
+      {purgeModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2, 6, 23, 0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2400,
+          }}
+          onClick={() => {
+            if (!purgeInProgress) setPurgeModalOpen(false);
+          }}
+        >
+          <div
+            style={{
+              background: '#0f172a',
+              color: '#f8fafc',
+              padding: 22,
+              borderRadius: 12,
+              width: 420,
+              border: '1px solid rgba(148, 163, 184, 0.2)',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <style>{`
+              @keyframes purge-spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            `}</style>
+            <h3 style={{ marginTop: 0, marginBottom: 8 }}>Purge embedding model</h3>
+            {!purgeInProgress && !purgeDone && (
+              <p style={{ marginTop: 0, color: '#cbd5f5' }}>
+                This removes the downloaded model files from disk. You can reinstall later.
+              </p>
+            )}
+            {purgeInProgress && (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#cbd5f5' }}>
+                <div
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: '50%',
+                    border: '2px solid rgba(226,232,240,0.4)',
+                    borderTopColor: '#38bdf8',
+                    animation: 'purge-spin 1s linear infinite',
+                  }}
+                />
+                <span>Purging embedding model...</span>
+              </div>
+            )}
+            {purgeDone && !purgeInProgress && (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', color: '#bbf7d0' }}>
+                <div
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: 4,
+                    background: '#16a34a',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 12,
+                    color: '#052e16',
+                    fontWeight: 700,
+                  }}
+                >
+                  ✓
+                </div>
+                <span>Purge complete.</span>
+              </div>
+            )}
+            {purgeError && (
+              <div style={{ marginTop: 10, color: '#fca5a5', fontSize: 12 }}>{purgeError}</div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+              {!purgeInProgress && !purgeDone && (
+                <>
+                  <button
+                    onClick={() => setPurgeModalOpen(false)}
+                    style={{
+                      padding: '8px 14px',
+                      background: 'transparent',
+                      color: '#e2e8f0',
+                      border: '1px solid rgba(148, 163, 184, 0.4)',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handlePurgeEmbedding}
+                    style={{
+                      padding: '8px 14px',
+                      background: '#b45309',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Purge
+                  </button>
+                </>
+              )}
+              {purgeDone && !purgeInProgress && (
+                <button
+                  onClick={() => setPurgeModalOpen(false)}
+                  style={{
+                    padding: '8px 14px',
+                    background: '#16a34a',
+                    color: '#052e16',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                  }}
+                >
+                  Done
+                </button>
+              )}
+              {purgeInProgress && (
+                <button
+                  disabled
+                  style={{
+                    padding: '8px 14px',
+                    background: '#1f2937',
+                    color: '#94a3b8',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'default',
+                  }}
+                >
+                  Working...
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

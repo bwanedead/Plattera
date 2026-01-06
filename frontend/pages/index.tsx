@@ -8,6 +8,7 @@ import { ImageProcessingWorkspace } from '../src/components/image-processing/Ima
 import { TextToSchemaWorkspace } from '../src/components/TextToSchemaWorkspace'
 import { useWorkspaceNavigation } from '../src/hooks/useWorkspaceState'
 import { AppVersionBadge } from '../src/components/AppVersionBadge'
+import { MenuTray } from '../src/components/menu/MenuTray'
 
 type ProcessingMode = 'text' | 'image' | null
 
@@ -290,6 +291,7 @@ const App: React.FC = () => {
   return (
     <div className="app-workspace">
       {renderContent()}
+      {mode === 'home' && <MenuTray />}
       <ApiKeyModal open={showKeyModal} onClose={() => setShowKeyModal(false)} onSaved={() => location.reload()} />
       {updaterDialog.open && (
         <div

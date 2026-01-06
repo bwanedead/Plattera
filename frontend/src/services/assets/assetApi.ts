@@ -31,6 +31,12 @@ export class AssetsApi {
     return await res.json();
   }
 
+  async stop(assetId: string): Promise<{ success: boolean; status?: string; error?: string }> {
+    const res = await fetch(`${apiBase}/assets/${assetId}/stop`, { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  }
+
   async purge(assetId: string): Promise<{ success: boolean; error?: string }> {
     const res = await fetch(`${apiBase}/assets/${assetId}/purge`, { method: 'POST' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

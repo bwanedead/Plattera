@@ -6,11 +6,11 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from config.paths import embeddings_root
 from .models import AssetManifest, AssetFileEntry, AssetProgress, AssetStatus
-from .progress_store import cancel_requested, clear_cancel, request_cancel, write_progress
+from .progress_store import cancel_requested, clear_cancel, read_progress, request_cancel, write_progress
 
 DownloaderFn = Callable[[str, str, Path], str]
 
@@ -84,24 +84,28 @@ def _format_bytes(value: int) -> str:
     return f"{size:.1f}TB"
 
 
-def _estimate_total_bytes(repo_id: str, revision: str) -> Optional[int]:
+def _fetch_repo_stats(repo_id: str, revision: str) -> Tuple[Optional[int], Optional[List[str]]]:
     try:
         from huggingface_hub import HfApi
     except Exception:
-        return None
+        return None, None
 
     try:
         info = HfApi().model_info(repo_id=repo_id, revision=revision)
     except Exception:
-        return None
+        return None, None
 
     total = 0
     siblings = getattr(info, "siblings", None) or []
+    filenames: List[str] = []
     for sibling in siblings:
+        filename = getattr(sibling, "rfilename", None)
+        if isinstance(filename, str):
+            filenames.append(filename)
         size = getattr(sibling, "size", None)
         if isinstance(size, int):
             total += size
-    return total or None
+    return (total or None), (filenames or None)
 
 
 def _scan_download_progress(target_dir: Path) -> tuple[int, Optional[str]]:
@@ -125,17 +129,46 @@ def _scan_download_progress(target_dir: Path) -> tuple[int, Optional[str]]:
     return bytes_downloaded, current_file
 
 
+def _cache_repo_root(cache_dir: Path, repo_id: str) -> Path:
+    repo_key = repo_id.replace("/", "--")
+    return cache_dir / f"models--{repo_key}"
+
+
+def _scan_cache_progress(cache_dir: Path, repo_id: str) -> int:
+    repo_root = _cache_repo_root(cache_dir, repo_id)
+    blobs_dir = repo_root / "blobs"
+    if not blobs_dir.exists():
+        return 0
+    total = 0
+    for path in blobs_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            total += path.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
 def _download_heartbeat(
     *,
     asset_id: str,
     target_dir: Path,
     bytes_total: Optional[int],
+    repo_id: str,
+    cache_dir: Path,
     stop_event: threading.Event,
 ) -> None:
     while not stop_event.wait(1.0):
         if cancel_requested(asset_id):
             return
-        bytes_downloaded, current_file = _scan_download_progress(target_dir)
+        existing = read_progress(asset_id)
+        if existing and existing.progress_bar == "determinate":
+            return
+        bytes_downloaded = _scan_cache_progress(cache_dir, repo_id)
+        current_file = None
+        if bytes_downloaded == 0:
+            bytes_downloaded, current_file = _scan_download_progress(target_dir)
         progress_bar = "indeterminate"
         percent = None
         if bytes_total and bytes_total > 0:
@@ -154,6 +187,8 @@ def _download_heartbeat(
                 message = f"{downloaded_label} of {total_label}"
             else:
                 message = f"{downloaded_label} downloaded"
+        if percent is not None and bytes_total:
+            message = f"{percent}% of { _format_bytes(bytes_total) }"
 
         write_progress(
             asset_id,
@@ -198,7 +233,7 @@ class EmbeddingInstaller:
 
         target_dir = embeddings_root() / asset_id
         resolved_revision = revision
-        bytes_total = _estimate_total_bytes(repo_id, revision)
+        bytes_total, _expected_files = _fetch_repo_stats(repo_id, revision)
         stop_event = threading.Event()
         heartbeat: Optional[threading.Thread] = None
 
@@ -223,6 +258,8 @@ class EmbeddingInstaller:
                 "asset_id": asset_id,
                 "target_dir": target_dir,
                 "bytes_total": bytes_total,
+                "repo_id": repo_id,
+                "cache_dir": target_dir.parent / "hf_cache",
                 "stop_event": stop_event,
             },
             daemon=True,

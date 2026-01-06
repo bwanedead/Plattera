@@ -15,7 +15,6 @@ import { AssetInstallOverlay } from '../src/components/assets/AssetInstallOverla
 import { ToastProvider } from '../src/components/ui/ToastProvider'
 import { ApiKeyModal } from '../src/components/ApiKeyModal'
 import { LogsButton } from '../src/components/logs/LogsButton'
-import { MenuTray } from '../src/components/menu/MenuTray'
 import { installGlobalLogCapture } from '../src/services/logging/logStore'
 
 export default function App({ Component, pageProps }: AppProps) {
@@ -221,7 +220,6 @@ export default function App({ Component, pageProps }: AppProps) {
         <BackendStatusBanner />
         <PLSSDownloadBanner />
         <PLSSDownloadOverlay />
-        <MenuTray />
         <AssetInstallOverlay assetId="embedding_model_bge_small_en_v1_5" assetName="Embedding model" />
         <AssetInstallBanner assetId="embedding_model_bge_small_en_v1_5" assetName="Embedding model" />
         <main>

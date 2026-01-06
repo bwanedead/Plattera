@@ -254,6 +254,7 @@ pub fn run() {
                     .level(log::LevelFilter::Info)
                     // Make updater and sidecar chatter as verbose as needed in logs.
                     .level_for("tauri_plugin_updater", log::LevelFilter::Trace)
+                    .level_for("tauri::manager", log::LevelFilter::Warn)
                     .level_for("app_lib", log::LevelFilter::Debug)
                     .build(),
             )?;

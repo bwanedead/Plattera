@@ -3,9 +3,15 @@ import { AssetsTray } from '../assets/AssetsTray';
 
 type MenuTab = 'assets';
 
-export const MenuTray: React.FC = () => {
+interface MenuTrayProps {
+  visible?: boolean;
+}
+
+export const MenuTray: React.FC<MenuTrayProps> = ({ visible = true }) => {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<MenuTab>('assets');
+
+  if (!visible) return null;
 
   return (
     <>

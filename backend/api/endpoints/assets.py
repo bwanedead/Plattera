@@ -31,6 +31,11 @@ def cancel_asset(asset_id: str) -> dict:
     return assets_service.cancel_install(asset_id)
 
 
+@router.post("/assets/{asset_id}/stop")
+def stop_asset(asset_id: str) -> dict:
+    return assets_service.stop_install(asset_id)
+
+
 @router.post("/assets/{asset_id}/purge")
 def purge_asset(asset_id: str) -> dict:
     return assets_service.purge_asset(asset_id)
