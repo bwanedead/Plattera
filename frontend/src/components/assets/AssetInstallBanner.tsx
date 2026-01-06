@@ -7,7 +7,7 @@ interface AssetInstallBannerProps {
 }
 
 export const AssetInstallBanner: React.FC<AssetInstallBannerProps> = ({ assetId, assetName }) => {
-  const { active, stage, message, percent } = useAssetInstallMonitor(assetId);
+  const { active, stage, message, headline, percent } = useAssetInstallMonitor(assetId);
   const [overlayOpen, setOverlayOpen] = useState(false);
 
   useEffect(() => {
@@ -26,6 +26,7 @@ export const AssetInstallBanner: React.FC<AssetInstallBannerProps> = ({ assetId,
   if (!active || overlayOpen) return null;
 
   const pct = typeof percent === 'number' ? `${percent}%` : '';
+  const line = headline || message || stage || 'Working...';
 
   return (
     <div
@@ -52,7 +53,7 @@ export const AssetInstallBanner: React.FC<AssetInstallBannerProps> = ({ assetId,
       <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <strong>Installing {assetName}</strong>
         <span style={{ fontSize: 11, color: '#6b7280' }}>
-          {(message || stage || 'Working…') + (pct ? ` — ${pct}` : '')}
+          {line + (pct ? ` — ${pct}` : '')}
         </span>
       </div>
       <button

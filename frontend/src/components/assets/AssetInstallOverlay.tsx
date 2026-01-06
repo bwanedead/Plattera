@@ -7,7 +7,19 @@ interface AssetInstallOverlayProps {
 }
 
 export const AssetInstallOverlay: React.FC<AssetInstallOverlayProps> = ({ assetId, assetName }) => {
-  const { active, stage, message, percent } = useAssetInstallMonitor(assetId);
+  const {
+    active,
+    stage,
+    message,
+    headline,
+    detail,
+    progressBar,
+    percent,
+    bytesDownloaded,
+    bytesTotal,
+    updatedAt,
+    elapsedSeconds,
+  } = useAssetInstallMonitor(assetId);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
@@ -46,6 +58,16 @@ export const AssetInstallOverlay: React.FC<AssetInstallOverlayProps> = ({ assetI
   if (!active || dismissed) return null;
 
   const pct = typeof percent === 'number' ? `${percent}%` : '';
+  const headlineText = headline || `Installing ${assetName}`;
+  const detailText = detail || message || stage || 'Working...';
+  const stageText = stage ? `Stage: ${stage}` : null;
+  const updatedLabel = updatedAt ? new Date(updatedAt).toLocaleTimeString() : null;
+  const elapsedLabel = typeof elapsedSeconds === 'number'
+    ? `${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, '0')}`
+    : null;
+  const showDeterminate =
+    (progressBar === 'determinate' && typeof percent === 'number') ||
+    (!progressBar && typeof percent === 'number');
 
   return (
     <div
@@ -56,7 +78,7 @@ export const AssetInstallOverlay: React.FC<AssetInstallOverlayProps> = ({ assetI
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 1050,
+        zIndex: 2400,
       }}
     >
       <div
@@ -69,11 +91,79 @@ export const AssetInstallOverlay: React.FC<AssetInstallOverlayProps> = ({ assetI
           boxShadow: '0 30px 60px rgba(0,0,0,0.5)',
         }}
       >
-        <h3 style={{ margin: 0 }}>Installing {assetName}</h3>
-        <p style={{ color: '#cbd5f5', marginTop: 8 }}>
-          {message || stage || 'Working…'} {pct}
-        </p>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+        <style>{`
+          @keyframes asset-indeterminate {
+            0% { transform: translateX(-60%); }
+            100% { transform: translateX(160%); }
+          }
+        `}</style>
+        <h3 style={{ margin: 0 }}>{headlineText}</h3>
+        <p style={{ color: '#cbd5f5', marginTop: 8, marginBottom: 6 }}>{detailText}</p>
+        {stageText && <div style={{ color: '#94a3b8', fontSize: 12 }}>{stageText}</div>}
+
+        <div style={{ marginTop: 14 }}>
+          {showDeterminate ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div
+                style={{
+                  height: 8,
+                  borderRadius: 999,
+                  background: '#1e293b',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    width: `${Math.min(100, Math.max(0, percent || 0))}%`,
+                    height: '100%',
+                    background: 'linear-gradient(90deg, #38bdf8, #60a5fa)',
+                    transition: 'width 0.4s ease',
+                  }}
+                />
+              </div>
+              <div style={{ fontSize: 12, color: '#cbd5f5' }}>
+                {pct}
+                {bytesDownloaded && bytesTotal ? ` · ${bytesDownloaded.toLocaleString()} / ${bytesTotal.toLocaleString()} bytes` : ''}
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div
+                style={{
+                  height: 8,
+                  borderRadius: 999,
+                  background: '#1e293b',
+                  overflow: 'hidden',
+                  position: 'relative',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    height: '100%',
+                    width: '40%',
+                    background: 'linear-gradient(90deg, rgba(56,189,248,0.0), rgba(56,189,248,0.9), rgba(56,189,248,0.0))',
+                    animation: 'asset-indeterminate 1.4s ease-in-out infinite',
+                  }}
+                />
+              </div>
+              <div style={{ fontSize: 12, color: '#cbd5f5' }}>
+                Downloading...
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14, fontSize: 11, color: '#94a3b8' }}>
+          <span>{elapsedLabel ? `Elapsed ${elapsedLabel}` : ''}</span>
+          <span>{updatedLabel ? `Updated ${updatedLabel}` : ''}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+            Cancel stops after the current download step completes.
+          </span>
           <button
             onClick={() => {
               try {

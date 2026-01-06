@@ -4,6 +4,7 @@ import json
 import shutil
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -74,7 +75,12 @@ class AssetsService:
             AssetProgress(
                 status=AssetStatus.CANCELED,
                 stage="canceled",
+                headline="Cancel requested",
+                detail="Will stop after current download step completes",
                 message="Cancel requested; will stop after current download step completes",
+                progress_bar="none",
+                phase="canceled",
+                updated_at=datetime.now(timezone.utc).isoformat(),
             ),
         )
         return {"success": True, "status": "canceled"}
@@ -102,7 +108,16 @@ class AssetsService:
         if not repo_id:
             write_progress(
                 asset.asset_id,
-                AssetProgress(status=AssetStatus.FAILED, stage="error", message="Missing repo_id"),
+                AssetProgress(
+                    status=AssetStatus.FAILED,
+                    stage="error",
+                    headline="Install failed",
+                    detail="Missing repo_id",
+                    message="Missing repo_id",
+                    progress_bar="none",
+                    phase="failed",
+                    updated_at=datetime.now(timezone.utc).isoformat(),
+                ),
             )
             return
         try:
@@ -111,17 +126,44 @@ class AssetsService:
             if "canceled" in str(exc):
                 write_progress(
                     asset.asset_id,
-                    AssetProgress(status=AssetStatus.CANCELED, stage="canceled", message="Install canceled"),
+                    AssetProgress(
+                        status=AssetStatus.CANCELED,
+                        stage="canceled",
+                        headline="Install canceled",
+                        detail="Canceled after download step completed",
+                        message="Install canceled",
+                        progress_bar="none",
+                        phase="canceled",
+                        updated_at=datetime.now(timezone.utc).isoformat(),
+                    ),
                 )
                 return
             write_progress(
                 asset.asset_id,
-                AssetProgress(status=AssetStatus.FAILED, stage="error", message=str(exc)),
+                AssetProgress(
+                    status=AssetStatus.FAILED,
+                    stage="error",
+                    headline="Install failed",
+                    detail=str(exc),
+                    message=str(exc),
+                    progress_bar="none",
+                    phase="failed",
+                    updated_at=datetime.now(timezone.utc).isoformat(),
+                ),
             )
         except Exception as exc:
             write_progress(
                 asset.asset_id,
-                AssetProgress(status=AssetStatus.FAILED, stage="error", message=str(exc)),
+                AssetProgress(
+                    status=AssetStatus.FAILED,
+                    stage="error",
+                    headline="Install failed",
+                    detail=str(exc),
+                    message=str(exc),
+                    progress_bar="none",
+                    phase="failed",
+                    updated_at=datetime.now(timezone.utc).isoformat(),
+                ),
             )
 
     def _embedding_asset_row(self, asset: AssetDefinition) -> Dict[str, object]:
@@ -136,7 +178,15 @@ class AssetsService:
             "status": status.value,
             "stage": progress.stage if progress else None,
             "message": progress.message if progress else None,
+            "headline": progress.headline if progress else None,
+            "detail": progress.detail if progress else None,
+            "progress_bar": progress.progress_bar if progress else None,
             "percent": progress.percent if progress else None,
+            "bytes_downloaded": progress.bytes_downloaded if progress else None,
+            "bytes_total": progress.bytes_total if progress else None,
+            "current_file": progress.current_file if progress else None,
+            "phase": progress.phase if progress else None,
+            "updated_at": progress.updated_at if progress else None,
             "manifest": manifest,
         }
 

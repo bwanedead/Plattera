@@ -27,7 +27,15 @@ class AssetProgress:
     status: AssetStatus
     stage: Optional[str] = None
     message: Optional[str] = None
+    headline: Optional[str] = None
+    detail: Optional[str] = None
+    progress_bar: Optional[str] = None
     percent: Optional[float] = None
+    bytes_downloaded: Optional[int] = None
+    bytes_total: Optional[int] = None
+    current_file: Optional[str] = None
+    phase: Optional[str] = None
+    updated_at: Optional[str] = None
     error: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -35,7 +43,15 @@ class AssetProgress:
             "status": self.status.value,
             "stage": self.stage,
             "message": self.message,
+            "headline": self.headline,
+            "detail": self.detail,
+            "progress_bar": self.progress_bar,
             "percent": self.percent,
+            "bytes_downloaded": self.bytes_downloaded,
+            "bytes_total": self.bytes_total,
+            "current_file": self.current_file,
+            "phase": self.phase,
+            "updated_at": self.updated_at,
             "error": self.error,
         }
 

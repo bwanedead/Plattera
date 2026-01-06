@@ -15,7 +15,15 @@ export interface AssetRow {
   status: AssetStatus;
   stage?: string | null;
   message?: string | null;
+  headline?: string | null;
+  detail?: string | null;
+  progress_bar?: 'determinate' | 'indeterminate' | 'none' | null;
   percent?: number | null;
+  bytes_downloaded?: number | null;
+  bytes_total?: number | null;
+  current_file?: string | null;
+  phase?: string | null;
+  updated_at?: string | null;
   manifest?: AssetManifestSummary | null;
   plss_state?: string | null;
 }
@@ -24,6 +32,14 @@ export interface AssetProgress {
   status: AssetStatus;
   stage?: string | null;
   message?: string | null;
+  headline?: string | null;
+  detail?: string | null;
+  progress_bar?: 'determinate' | 'indeterminate' | 'none' | null;
   percent?: number | null;
+  bytes_downloaded?: number | null;
+  bytes_total?: number | null;
+  current_file?: string | null;
+  phase?: string | null;
+  updated_at?: string | null;
   error?: string | null;
 }

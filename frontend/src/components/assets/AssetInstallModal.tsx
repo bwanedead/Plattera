@@ -27,7 +27,7 @@ export const AssetInstallModal: React.FC<AssetInstallModalProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 1200,
+        zIndex: 2300,
       }}
       onClick={onClose}
     >

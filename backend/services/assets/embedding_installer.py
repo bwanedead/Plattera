@@ -70,6 +70,109 @@ def _smoke_test(model_dir: Path) -> str:
         return "failed"
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _format_bytes(value: int) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+    size = float(value)
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            return f"{size:.1f}{unit}"
+        size /= 1024
+    return f"{size:.1f}TB"
+
+
+def _estimate_total_bytes(repo_id: str, revision: str) -> Optional[int]:
+    try:
+        from huggingface_hub import HfApi
+    except Exception:
+        return None
+
+    try:
+        info = HfApi().model_info(repo_id=repo_id, revision=revision)
+    except Exception:
+        return None
+
+    total = 0
+    siblings = getattr(info, "siblings", None) or []
+    for sibling in siblings:
+        size = getattr(sibling, "size", None)
+        if isinstance(size, int):
+            total += size
+    return total or None
+
+
+def _scan_download_progress(target_dir: Path) -> tuple[int, Optional[str]]:
+    bytes_downloaded = 0
+    latest_path: Optional[Path] = None
+    latest_mtime = 0.0
+    if not target_dir.exists():
+        return 0, None
+    for path in target_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        bytes_downloaded += stat.st_size
+        if stat.st_mtime > latest_mtime:
+            latest_mtime = stat.st_mtime
+            latest_path = path
+    current_file = latest_path.relative_to(target_dir).as_posix() if latest_path else None
+    return bytes_downloaded, current_file
+
+
+def _download_heartbeat(
+    *,
+    asset_id: str,
+    target_dir: Path,
+    bytes_total: Optional[int],
+    stop_event: threading.Event,
+) -> None:
+    while not stop_event.wait(1.0):
+        if cancel_requested(asset_id):
+            return
+        bytes_downloaded, current_file = _scan_download_progress(target_dir)
+        progress_bar = "indeterminate"
+        percent = None
+        if bytes_total and bytes_total > 0:
+            percent = min(99.0, round((bytes_downloaded / bytes_total) * 100, 1))
+            progress_bar = "determinate"
+
+        detail = "Downloading model files"
+        if current_file:
+            detail = f"Downloading {current_file}"
+
+        message = detail
+        if bytes_downloaded > 0:
+            downloaded_label = _format_bytes(bytes_downloaded)
+            total_label = _format_bytes(bytes_total) if bytes_total else None
+            if total_label:
+                message = f"{downloaded_label} of {total_label}"
+            else:
+                message = f"{downloaded_label} downloaded"
+
+        write_progress(
+            asset_id,
+            AssetProgress(
+                status=AssetStatus.INSTALLING,
+                stage="downloading",
+                headline="Downloading embedding model",
+                detail=detail,
+                message=message,
+                progress_bar=progress_bar,
+                percent=percent,
+                bytes_downloaded=bytes_downloaded or None,
+                bytes_total=bytes_total,
+                current_file=current_file,
+                phase="downloading",
+                updated_at=_now_iso(),
+            ),
+        )
+
 @dataclass
 class EmbeddingInstaller:
     downloader: DownloaderFn = _default_downloader
@@ -81,29 +184,85 @@ class EmbeddingInstaller:
 
         write_progress(
             asset_id,
-            AssetProgress(status=AssetStatus.INSTALLING, stage="initializing", message="Preparing install"),
+            AssetProgress(
+                status=AssetStatus.INSTALLING,
+                stage="initializing",
+                headline="Preparing download",
+                detail="Initializing embedding installer",
+                message="Preparing install",
+                progress_bar="indeterminate",
+                phase="initializing",
+                updated_at=_now_iso(),
+            ),
         )
 
         target_dir = embeddings_root() / asset_id
         resolved_revision = revision
+        bytes_total = _estimate_total_bytes(repo_id, revision)
+        stop_event = threading.Event()
+        heartbeat: Optional[threading.Thread] = None
 
         write_progress(
             asset_id,
-            AssetProgress(status=AssetStatus.INSTALLING, stage="downloading", message="Downloading model files"),
+            AssetProgress(
+                status=AssetStatus.INSTALLING,
+                stage="downloading",
+                headline="Downloading embedding model",
+                detail="Downloading model files",
+                message="Downloading model files",
+                progress_bar="indeterminate",
+                bytes_total=bytes_total,
+                phase="downloading",
+                updated_at=_now_iso(),
+            ),
         )
 
-        resolved_revision = self.downloader(repo_id, revision, target_dir)
+        heartbeat = threading.Thread(
+            target=_download_heartbeat,
+            kwargs={
+                "asset_id": asset_id,
+                "target_dir": target_dir,
+                "bytes_total": bytes_total,
+                "stop_event": stop_event,
+            },
+            daemon=True,
+        )
+        heartbeat.start()
+        try:
+            resolved_revision = self.downloader(repo_id, revision, target_dir)
+        finally:
+            stop_event.set()
+            if heartbeat:
+                heartbeat.join(timeout=2.0)
 
         if cancel_requested(asset_id):
             write_progress(
                 asset_id,
-                AssetProgress(status=AssetStatus.CANCELED, stage="canceled", message="Install canceled"),
+                AssetProgress(
+                    status=AssetStatus.CANCELED,
+                    stage="canceled",
+                    headline="Install canceled",
+                    detail="Canceled after download step completed",
+                    message="Install canceled",
+                    progress_bar="none",
+                    phase="canceled",
+                    updated_at=_now_iso(),
+                ),
             )
             raise RuntimeError("install_canceled")
 
         write_progress(
             asset_id,
-            AssetProgress(status=AssetStatus.INSTALLING, stage="verifying", message="Hashing critical files"),
+            AssetProgress(
+                status=AssetStatus.INSTALLING,
+                stage="verifying",
+                headline="Verifying download",
+                detail="Hashing critical files",
+                message="Hashing critical files",
+                progress_bar="indeterminate",
+                phase="verifying",
+                updated_at=_now_iso(),
+            ),
         )
 
         files: List[AssetFileEntry] = []
@@ -119,7 +278,16 @@ class EmbeddingInstaller:
 
         write_progress(
             asset_id,
-            AssetProgress(status=AssetStatus.INSTALLING, stage="writing_manifest", message="Writing manifest"),
+            AssetProgress(
+                status=AssetStatus.INSTALLING,
+                stage="writing_manifest",
+                headline="Finalizing install",
+                detail="Writing manifest",
+                message="Writing manifest",
+                progress_bar="indeterminate",
+                phase="finalizing",
+                updated_at=_now_iso(),
+            ),
         )
 
         manifest = AssetManifest(
@@ -137,7 +305,16 @@ class EmbeddingInstaller:
 
         write_progress(
             asset_id,
-            AssetProgress(status=AssetStatus.INSTALLED, stage="complete", message="Install complete"),
+            AssetProgress(
+                status=AssetStatus.INSTALLED,
+                stage="complete",
+                headline="Install complete",
+                detail="Embedding model is ready",
+                message="Install complete",
+                progress_bar="none",
+                phase="complete",
+                updated_at=_now_iso(),
+            ),
         )
 
         return manifest

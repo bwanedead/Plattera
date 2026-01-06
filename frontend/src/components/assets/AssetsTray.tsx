@@ -18,7 +18,15 @@ const buildSnapshot = (rows: AssetRow[]) =>
       status: row.status,
       stage: row.stage ?? null,
       message: row.message ?? null,
+      headline: row.headline ?? null,
+      detail: row.detail ?? null,
+      progress_bar: row.progress_bar ?? null,
       percent: typeof row.percent === 'number' ? row.percent : null,
+      bytes_downloaded: typeof row.bytes_downloaded === 'number' ? row.bytes_downloaded : null,
+      bytes_total: typeof row.bytes_total === 'number' ? row.bytes_total : null,
+      current_file: row.current_file ?? null,
+      phase: row.phase ?? null,
+      updated_at: row.updated_at ?? null,
       manifest_revision: row.manifest?.revision ?? null,
       manifest_total_bytes: row.manifest?.total_bytes ?? null,
       plss_state: row.plss_state ?? null,
@@ -113,6 +121,10 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
       fontSize: 12,
     } as const;
   };
+  const embeddingUpdateLabel = embedding?.updated_at
+    ? new Date(embedding.updated_at).toLocaleTimeString()
+    : null;
+  const embeddingDetail = embedding?.detail || embedding?.message || embedding?.stage || null;
 
   const handleEmbeddingInstall = async () => {
     if (!embedding) return;
@@ -268,7 +280,9 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
           </div>
           {embeddingInstalling && (
             <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8' }}>
-              Cancel stops after the current download step completes.
+              <div>{embeddingDetail}</div>
+              {embeddingUpdateLabel && <div>Updated {embeddingUpdateLabel}</div>}
+              <div>Cancel stops after the current download step completes.</div>
             </div>
           )}
         </div>

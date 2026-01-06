@@ -37,7 +37,15 @@ def read_progress(asset_id: str) -> Optional[AssetProgress]:
         status=AssetStatus(status),
         stage=data.get("stage"),
         message=data.get("message"),
+        headline=data.get("headline"),
+        detail=data.get("detail"),
+        progress_bar=data.get("progress_bar"),
         percent=data.get("percent"),
+        bytes_downloaded=data.get("bytes_downloaded"),
+        bytes_total=data.get("bytes_total"),
+        current_file=data.get("current_file"),
+        phase=data.get("phase"),
+        updated_at=data.get("updated_at"),
         error=data.get("error"),
     )
 

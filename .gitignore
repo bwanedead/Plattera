@@ -244,6 +244,11 @@ tiles/
 # This prevents committing large binary geospatial files to the repo
 
 # ========================
+# Assets (embeddings, models, state)
+# ========================
+/assets/
+
+# ========================
 # Dossier Data (do not commit)
 # ========================
 backend/dossiers_data/
