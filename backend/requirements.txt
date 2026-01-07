@@ -5,7 +5,7 @@ python-multipart==0.0.6
 
 # HTTP requests for API calls
 requests==2.31.0
-huggingface-hub==1.2.4
+huggingface-hub==0.35.3
 
 # Geometry and GIS
 shapely==2.0.2
