@@ -13,6 +13,7 @@ class CorpusView(str, Enum):
     FINALIZED = "finalized"
     EVERYTHING = "everything"
     ARTIFACTS = "artifacts"
+    FINAL_SEGMENTS = "final_segments"
 
 
 class CorpusEntryKind(str, Enum):
@@ -28,6 +29,7 @@ class CorpusEntryKind(str, Enum):
     SCHEMA_JSON = "schema_json"
     GEOREF_JSON = "georef_json"
     IMAGE_OCR_TEXT = "image_ocr_text"
+    SEGMENT_FINAL_TEXT = "segment_final_text"
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,8 @@ class CorpusEntryRef:
     kind: CorpusEntryKind
     dossier_id: Optional[str] = None
     transcription_id: Optional[str] = None
+    segment_id: Optional[str] = None
+    draft_id: Optional[str] = None
     artifact_type: Optional[str] = None  # e.g., "schema", "georef"
     artifact_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)

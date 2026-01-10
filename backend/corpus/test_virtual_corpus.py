@@ -110,11 +110,181 @@ def test_hydrate_finalized_missing_safe() -> None:
     assert "error" in (entry.provenance or {})
 
 
+# ----- FINAL_SEGMENTS view tests -----
+
+
+def test_enumerate_final_segments_with_registry() -> None:
+    """
+    Enumerating FINAL_SEGMENTS view with a valid final_registry.json yields
+    refs with segment_id and draft_id populated.
+    """
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+
+        # Patch paths to point at our temp tree
+        original_dossiers_root = paths_mod.dossiers_root
+        original_dossiers_state_root = paths_mod.dossiers_state_root
+        original_dossiers_management_root = paths_mod.dossiers_management_root
+
+        def _patched_dossiers_root() -> Path:
+            return root / "dossiers_data"
+
+        def _patched_dossiers_state_root() -> Path:
+            return root / "dossiers_data" / "state"
+
+        def _patched_dossiers_management_root() -> Path:
+            return root / "dossiers_data" / "management"
+
+        paths_mod.dossiers_root = _patched_dossiers_root  # type: ignore[assignment]
+        paths_mod.dossiers_state_root = _patched_dossiers_state_root  # type: ignore[assignment]
+        paths_mod.dossiers_management_root = _patched_dossiers_management_root  # type: ignore[assignment]
+
+        try:
+            dossier_id = "D_FINAL_SEG"
+
+            # Create management file so dossier is enumerable
+            mgmt_dir = _patched_dossiers_management_root()
+            _write_json(mgmt_dir / f"dossier_{dossier_id}.json", {"id": dossier_id})
+
+            # Create final_registry.json with one segment mapping
+            state_dir = _patched_dossiers_state_root() / dossier_id
+            registry = {
+                "segments": {
+                    "seg_001": {
+                        "transcription_id": "T1",
+                        "draft_id": "T1_v1",
+                        "set_at": "2024-01-01T00:00:00Z",
+                        "set_by": "test_user",
+                    }
+                },
+                "_version": 1,
+            }
+            _write_json(state_dir / "final_registry.json", registry)
+
+            provider = VirtualCorpusProvider()
+            refs = list(provider.list_entry_refs(CorpusView.FINAL_SEGMENTS))
+
+            assert len(refs) >= 1, "Expected at least 1 ref from FINAL_SEGMENTS view"
+            ref = refs[0]
+            assert ref.view == CorpusView.FINAL_SEGMENTS
+            assert ref.kind == CorpusEntryKind.SEGMENT_FINAL_TEXT
+            assert ref.segment_id == "seg_001"
+            assert ref.draft_id == "T1_v1"
+            assert ref.dossier_id == dossier_id
+            assert ref.transcription_id == "T1"
+
+        finally:
+            paths_mod.dossiers_root = original_dossiers_root  # type: ignore[assignment]
+            paths_mod.dossiers_state_root = original_dossiers_state_root  # type: ignore[assignment]
+            paths_mod.dossiers_management_root = original_dossiers_management_root  # type: ignore[assignment]
+
+
+def test_hydrate_segment_final_entry() -> None:
+    """
+    Hydrating a SEGMENT_FINAL_TEXT entry yields non-empty text and content_hash.
+    """
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+
+        # Patch paths
+        original_dossiers_root = paths_mod.dossiers_root
+        original_dossiers_views_root = paths_mod.dossiers_views_root
+
+        def _patched_dossiers_root() -> Path:
+            return root / "dossiers_data"
+
+        def _patched_dossiers_views_root() -> Path:
+            return root / "dossiers_data" / "views" / "transcriptions"
+
+        paths_mod.dossiers_root = _patched_dossiers_root  # type: ignore[assignment]
+        paths_mod.dossiers_views_root = _patched_dossiers_views_root  # type: ignore[assignment]
+
+        try:
+            dossier_id = "D_HYDRATE_SEG"
+            draft_id = "T1"
+
+            # Create the draft JSON file at the expected path
+            # Non-versioned: <views_root>/<dossier_id>/<draft_id>/raw/<draft_id>.json
+            draft_path = (
+                _patched_dossiers_views_root()
+                / dossier_id
+                / draft_id
+                / "raw"
+                / f"{draft_id}.json"
+            )
+            draft_payload = {
+                "sections": [
+                    {"header": "Section 1", "body": "First section body."},
+                    {"header": "Section 2", "body": "Second section body."},
+                ],
+                "title": "Test Draft",
+                "saved_at": "2024-01-02T00:00:00Z",
+            }
+            _write_json(draft_path, draft_payload)
+
+            ref = CorpusEntryRef(
+                view=CorpusView.FINAL_SEGMENTS,
+                entry_id=f"segment_final:{dossier_id}:seg_001:{draft_id}",
+                kind=CorpusEntryKind.SEGMENT_FINAL_TEXT,
+                dossier_id=dossier_id,
+                transcription_id=draft_id,
+                segment_id="seg_001",
+                draft_id=draft_id,
+                metadata={"set_at": "2024-01-01T00:00:00Z"},
+            )
+
+            hydrator = CorpusHydrator()
+            entry: CorpusEntry = hydrator.hydrate(ref)
+
+            # Assertions
+            assert entry.text != "", "Expected non-empty text"
+            assert "First section body" in entry.text
+            assert "Second section body" in entry.text
+            assert entry.content_hash is not None and entry.content_hash != ""
+            assert entry.ref.segment_id == "seg_001"
+            assert entry.provenance.get("draft_id") == draft_id
+            assert entry.provenance.get("source") == "segment_final_registry"
+            assert entry.title == "Test Draft"
+
+        finally:
+            paths_mod.dossiers_root = original_dossiers_root  # type: ignore[assignment]
+            paths_mod.dossiers_views_root = original_dossiers_views_root  # type: ignore[assignment]
+
+
+def test_hydrate_segment_final_missing_draft_safe() -> None:
+    """
+    Hydrating a SEGMENT_FINAL_TEXT entry where the draft file doesn't exist
+    should return empty text with an error marker, not raise.
+    """
+
+    hydrator = CorpusHydrator()
+    ref = CorpusEntryRef(
+        view=CorpusView.FINAL_SEGMENTS,
+        entry_id="segment_final:NONEXISTENT:seg_001:MISSING_DRAFT",
+        kind=CorpusEntryKind.SEGMENT_FINAL_TEXT,
+        dossier_id="NONEXISTENT",
+        transcription_id="MISSING_TRANS",
+        segment_id="seg_001",
+        draft_id="MISSING_DRAFT",
+    )
+
+    entry: CorpusEntry = hydrator.hydrate(ref)
+
+    assert entry.text == ""
+    assert "error" in (entry.provenance or {})
+    assert "not_found" in entry.provenance.get("error", "")
+
+
 if __name__ == "__main__":
     # Run micro-tests when executed directly.
     test_enumerate_finalized_empty_ok()
     test_hydrate_finalized_minimal_snapshot()
     test_hydrate_finalized_missing_safe()
+    test_enumerate_final_segments_with_registry()
+    test_hydrate_segment_final_entry()
+    test_hydrate_segment_final_missing_draft_safe()
     print("backend.corpus.test_virtual_corpus: all checks passed.")
 
 

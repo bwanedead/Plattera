@@ -64,6 +64,14 @@ class CorpusHydrator:
             if ref.kind == CorpusEntryKind.GEOREF_JSON and ref.dossier_id:
                 return self._hydrate_georef(ref)
 
+            if (
+                ref.kind == CorpusEntryKind.SEGMENT_FINAL_TEXT
+                and ref.dossier_id
+                and ref.segment_id
+                and ref.draft_id
+            ):
+                return self._hydrate_segment_final(ref)
+
             # v0 fallback: empty entry, but keep reference/provenance for debugging
             return CorpusEntry(
                 ref=ref,
@@ -256,6 +264,97 @@ class CorpusHydrator:
                 "source": "georef_latest",
                 "path": str(p),
                 "dossier_id": ref.dossier_id,
+            },
+        )
+
+    def _hydrate_segment_final(self, ref: CorpusEntryRef) -> CorpusEntry:
+        """
+        Hydrate a segment-final entry from final_registry selection.
+
+        Uses the ref's (dossier_id, draft_id) to load the draft content and
+        extract text deterministically.
+        """
+        assert ref.dossier_id is not None
+        assert ref.segment_id is not None
+        assert ref.draft_id is not None
+
+        # Resolve the draft file path
+        p = self.dossiers.resolve_draft_path(ref.dossier_id, ref.draft_id)
+        if not p:
+            return self._empty_with_error(
+                ref,
+                error="segment_final_draft_not_found",
+            )
+
+        try:
+            payload = self._read_json(p)
+        except Exception:
+            return self._empty_with_error(ref, error="segment_final_draft_corrupt", path=p)
+
+        # Extract text deterministically:
+        # 1. If dict has sections[] → join bodies
+        # 2. Else if text → use it
+        # 3. Else if mainText → use it
+        # 4. Else empty
+        text = ""
+        if isinstance(payload, dict):
+            if "sections" in payload:
+                sections = payload.get("sections") or []
+                parts = []
+                for s in sections:
+                    if isinstance(s, dict):
+                        body = s.get("body")
+                        if isinstance(body, str):
+                            parts.append(body)
+                text = "\n\n".join(parts).strip()
+            elif "text" in payload:
+                text = str(payload.get("text") or "").strip()
+            elif "mainText" in payload:
+                text = str(payload.get("mainText") or "").strip()
+
+        # Compute content_hash
+        content_hash = None
+        if isinstance(payload, dict):
+            content_hash = (
+                payload.get("original_text_sha256")
+                or payload.get("sha256")
+            )
+        if not content_hash:
+            content_hash = self._compute_content_hash(text)
+
+        # Extract created_at
+        created_at = None
+        if isinstance(payload, dict):
+            created_at = (
+                payload.get("saved_at")
+                or payload.get("created_at")
+                or payload.get("createdAt")
+            )
+        if not created_at:
+            created_at = self._mtime_iso(p)
+
+        # Extract title
+        title = None
+        if isinstance(payload, dict):
+            title = payload.get("title")
+
+        return CorpusEntry(
+            ref=ref,
+            text=text,
+            mime_type="application/json",
+            title=title,
+            created_at=created_at,
+            content_hash=content_hash,
+            structured_json=payload if isinstance(payload, dict) else None,
+            provenance={
+                "source": "segment_final_registry",
+                "path": str(p),
+                "dossier_id": ref.dossier_id,
+                "segment_id": ref.segment_id,
+                "transcription_id": ref.transcription_id,
+                "draft_id": ref.draft_id,
+                "set_at": ref.metadata.get("set_at") if ref.metadata else None,
+                "set_by": ref.metadata.get("set_by") if ref.metadata else None,
             },
         )
 

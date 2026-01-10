@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 
 from config.paths import (
+    dossier_runs_root,
     dossiers_management_root,
     dossiers_root,
     dossiers_state_root,
@@ -20,6 +22,11 @@ class DossiersFSAdapter:
     This remains intentionally light; it exists so corpus + retrieval code never
     hardcodes storage paths.
     """
+
+    # In-process cache for draft path resolution (keyed by (dossier_id, draft_id))
+    _draft_path_cache: Dict[Tuple[str, str], Optional[Path]] = field(
+        default_factory=dict, repr=False
+    )
 
     def dossiers_root(self) -> Path:
         return dossiers_root()
@@ -151,4 +158,161 @@ class DossiersFSAdapter:
                 raw = run_dir / "raw" / f"{tid}.json"
                 if raw.exists():
                     yield (did, tid, raw)
+
+    # ----- Draft resolution (for segment-final hydration) -----
+
+    def resolve_draft_path(
+        self,
+        dossier_id: str,
+        draft_id: str,
+        *,
+        use_rglob_fallback: bool = False,
+    ) -> Optional[Path]:
+        """
+        Resolve a draft_id to a filesystem path within a dossier.
+
+        Handles various draft ID formats:
+        - Simple transcription_id (e.g., "abc123")
+        - Per-draft versioned IDs (e.g., "abc123_v3", "abc123_v3_v1")
+        - Consensus drafts (e.g., "abc123_consensus_llm")
+        - Alignment drafts (e.g., "abc123_draft_1")
+
+        Args:
+            dossier_id: The dossier containing the draft
+            draft_id: The draft identifier to resolve
+            use_rglob_fallback: If True, allows expensive rglob fallback search.
+                Defaults to False for performance. Only enable when exhaustive
+                search is acceptable (e.g., one-time migrations or debugging).
+
+        Returns None if the draft cannot be resolved (caller should handle gracefully).
+        """
+        # Check cache first
+        cache_key = (dossier_id, draft_id)
+        if cache_key in self._draft_path_cache:
+            return self._draft_path_cache[cache_key]
+
+        result = self._resolve_draft_path_uncached(dossier_id, draft_id, use_rglob_fallback)
+        self._draft_path_cache[cache_key] = result
+        return result
+
+    def _resolve_draft_path_uncached(
+        self,
+        dossier_id: str,
+        draft_id: str,
+        use_rglob_fallback: bool,
+    ) -> Optional[Path]:
+        """Internal uncached implementation of draft path resolution."""
+        root = dossier_runs_root(str(dossier_id))
+
+        # --- Consensus (LLM) ---
+        if "_consensus_llm" in draft_id:
+            # e.g., abc123_consensus_llm or abc123_consensus_llm_v1
+            if draft_id.endswith("_consensus_llm_v1") or draft_id.endswith("_consensus_llm_v2"):
+                base_id = draft_id.split("_consensus_llm_")[0]
+                ver = "v1" if draft_id.endswith("_v1") else "v2"
+                p = root / base_id / "consensus" / f"llm_{base_id}_{ver}.json"
+                if p.exists():
+                    return p
+                return None  # Explicit version requested, no fallback
+            else:
+                base_id = draft_id.removesuffix("_consensus_llm")
+                p = root / base_id / "consensus" / f"llm_{base_id}.json"
+                if p.exists():
+                    return p
+
+        # --- Consensus (alignment) ---
+        if "_consensus_alignment" in draft_id:
+            if draft_id.endswith("_consensus_alignment_v1") or draft_id.endswith("_consensus_alignment_v2"):
+                base_id = draft_id.split("_consensus_alignment_")[0]
+                ver = "v1" if draft_id.endswith("_v1") else "v2"
+                p = root / base_id / "consensus" / f"alignment_{base_id}_{ver}.json"
+                if p.exists():
+                    return p
+                return None
+            else:
+                base_id = draft_id.removesuffix("_consensus_alignment")
+                p = root / base_id / "consensus" / f"alignment_{base_id}.json"
+                if p.exists():
+                    return p
+
+        # --- Alignment per-draft IDs (e.g., abc123_draft_1, abc123_draft_1_v1) ---
+        if "_draft_" in draft_id:
+            base_id, _, tail = draft_id.partition("_draft_")
+            if tail.endswith("_v1") or tail.endswith("_v2"):
+                ver = tail.split("_")[-1]
+                n = tail.split("_")[0]
+                p = root / base_id / "alignment" / f"draft_{n}_{ver}.json"
+                if p.exists():
+                    return p
+            else:
+                n = tail
+                p = root / base_id / "alignment" / f"draft_{n}.json"
+                if p.exists():
+                    return p
+
+        # --- Raw versioned files (e.g., abc123_v3, abc123_v3_v1) ---
+        if "_v" in draft_id:
+            # Folder is the transcription root (before first _v<number>)
+            folder_tid = re.split(r"_v\d+", draft_id)[0] or draft_id
+            # Per-draft base (e.g., abc123_v3) = up to first _v<number>
+            m = re.match(r"(.+?_v\d+)", draft_id)
+            base_draft = m.group(1) if m else draft_id
+
+            ver = None
+            if draft_id.endswith("_v1"):
+                ver = "v1"
+            elif draft_id.endswith("_v2"):
+                ver = "v2"
+
+            raw_dir = root / folder_tid / "raw"
+
+            if ver:
+                # Explicit version requested — try multiple naming conventions
+                # 1) dot-suffix (e.g., base.v1.json)
+                dot_path = raw_dir / f"{base_draft}.{ver}.json"
+                if dot_path.exists():
+                    return dot_path
+                # 2) underscore full id (e.g., base_v1.json)
+                underscore_full = raw_dir / f"{base_draft}_{ver}.json"
+                if underscore_full.exists():
+                    return underscore_full
+                # 3) plain base for v1 (common saver output): base.json
+                if ver == "v1":
+                    plain_v1 = raw_dir / f"{base_draft}.json"
+                    if plain_v1.exists():
+                        return plain_v1
+                # Explicit version requested but not found — no fallback
+                return None
+
+            # No explicit version — try HEAD variants
+            raw_versioned = raw_dir / f"{draft_id}.json"
+            if raw_versioned.exists():
+                return raw_versioned
+
+            head_path = raw_dir / f"{base_draft}.json"
+            if head_path.exists():
+                return head_path
+
+            # Last resort: base aggregated file
+            raw_base = raw_dir / f"{folder_tid}.json"
+            if raw_base.exists():
+                return raw_base
+
+        # --- Non-versioned raw file ---
+        raw_exact = root / draft_id / "raw" / f"{draft_id}.json"
+        if raw_exact.exists():
+            return raw_exact
+
+        # --- Fallback: global rglob search (expensive, opt-in only) ---
+        if use_rglob_fallback:
+            transcriptions_root = self.transcriptions_root()
+            candidates = list(transcriptions_root.rglob(f"**/raw/{draft_id}.json"))
+            if candidates:
+                return candidates[0]
+
+        return None
+
+    def clear_draft_path_cache(self) -> None:
+        """Clear the in-process draft path cache."""
+        self._draft_path_cache.clear()
 

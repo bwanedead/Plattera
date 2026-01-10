@@ -8,6 +8,7 @@ from .interfaces import CorpusProvider
 from .types import CorpusEntry, CorpusEntryKind, CorpusEntryRef, CorpusView
 from .views.artifacts import ArtifactsCorpusView
 from .views.everything import EverythingCorpusView
+from .views.final_segments import FinalSegmentsCorpusView
 from .views.finalized import FinalizedCorpusView
 
 
@@ -22,6 +23,7 @@ class VirtualCorpusProvider(CorpusProvider):
     finalized_view: FinalizedCorpusView = field(default_factory=FinalizedCorpusView)
     everything_view: EverythingCorpusView = field(default_factory=EverythingCorpusView)
     artifacts_view: ArtifactsCorpusView = field(default_factory=ArtifactsCorpusView)
+    final_segments_view: FinalSegmentsCorpusView = field(default_factory=FinalSegmentsCorpusView)
     hydrator: CorpusHydrator = field(default_factory=CorpusHydrator)
 
     def list_entry_refs(
@@ -37,6 +39,8 @@ class VirtualCorpusProvider(CorpusProvider):
             it = self.everything_view.iter_entries(dossier_id=dossier_id)
         elif view == CorpusView.ARTIFACTS:
             it = self.artifacts_view.iter_entries(dossier_id=dossier_id)
+        elif view == CorpusView.FINAL_SEGMENTS:
+            it = self.final_segments_view.iter_entries(dossier_id=dossier_id)
         else:
             it = []
 

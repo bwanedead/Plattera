@@ -11,7 +11,8 @@ import logging
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
-from config.paths import dossiers_root, dossiers_views_root, dossier_runs_root
+from config.paths import dossiers_root, dossiers_views_root
+from corpus.adapters.dossiers_fs import DossiersFSAdapter
 from .models import DossierStructure
 from .navigation_service import DossierNavigationService
 from .provenance_schema import ProvenanceEnhancement
@@ -29,6 +30,7 @@ class DossierViewService:
 
     def __init__(self):
         self.navigation_service = DossierNavigationService()
+        self._dossiers_adapter = DossiersFSAdapter()
         logger.info("👁️ Dossier View Service initialized")
 
     def get_stitched_view(self, dossier_id: str) -> Optional[Dict[str, Any]]:
@@ -376,149 +378,34 @@ class DossierViewService:
         Load transcription content, preferring paths within the provided dossier_id.
 
         This avoids cross-dossier collisions when identical transcription IDs exist across dossiers.
+
+        Delegates path resolution to DossiersFSAdapter.resolve_draft_path() for DRY
+        consistency with corpus hydration layer.
         """
         if not dossier_id:
             return self._load_transcription_content(transcription_id)
 
         try:
-            root = dossier_runs_root(str(dossier_id))
+            # Use the shared adapter for draft path resolution (DRY with corpus layer)
+            resolved_path = self._dossiers_adapter.resolve_draft_path(
+                dossier_id,
+                transcription_id,
+                use_rglob_fallback=False,  # Avoid expensive fallback in hot path
+            )
 
-            # Consensus (LLM) explicit versions
-            if transcription_id.endswith('_consensus_llm_v1') or transcription_id.endswith('_consensus_llm_v2'):
-                base_id = transcription_id.split('_consensus_llm_')[0]
-                ver = 'v1' if transcription_id.endswith('_v1') else 'v2'
-                scoped = root / base_id / 'consensus' / f"llm_{base_id}_{ver}.json"
-                if scoped.exists():
-                    with open(scoped, 'r', encoding='utf-8') as f:
-                        logger.info(f"📄 Loaded transcription (scoped LLM consensus {ver}): dossier={dossier_id} id={transcription_id} path={scoped}")
-                        return json.load(f)
-                logger.warning(f"❌ Explicit LLM consensus {ver} not found for {transcription_id} in dossier {dossier_id}. No fallback when version explicitly requested.")
-                return None
-            if transcription_id.endswith('_consensus_llm'):
-                base_id = transcription_id[:-len('_consensus_llm')]
-                scoped = root / base_id / 'consensus' / f"llm_{base_id}.json"
-                if scoped.exists():
-                    with open(scoped, 'r', encoding='utf-8') as f:
-                        logger.info(f"📄 Loaded transcription (scoped LLM consensus): dossier={dossier_id} id={transcription_id} path={scoped}")
-                        return json.load(f)
+            if resolved_path and resolved_path.exists():
+                with open(resolved_path, 'r', encoding='utf-8') as f:
+                    content = json.load(f)
+                logger.info(
+                    f"📄 Loaded transcription (scoped via adapter): "
+                    f"dossier={dossier_id} id={transcription_id} path={resolved_path}"
+                )
+                return content
 
-            # Consensus (alignment) explicit versions
-            if transcription_id.endswith('_consensus_alignment_v1') or transcription_id.endswith('_consensus_alignment_v2'):
-                base_id = transcription_id.split('_consensus_alignment_')[0]
-                ver = 'v1' if transcription_id.endswith('_v1') else 'v2'
-                scoped = root / base_id / 'consensus' / f"alignment_{base_id}_{ver}.json"
-                if scoped.exists():
-                    with open(scoped, 'r', encoding='utf-8') as f:
-                        logger.info(f"📄 Loaded transcription (scoped alignment consensus {ver}): dossier={dossier_id} id={transcription_id} path={scoped}")
-                        return json.load(f)
-                logger.warning(f"❌ Explicit alignment consensus {ver} not found for {transcription_id} in dossier {dossier_id}. No fallback when version explicitly requested.")
-                return None
-            if transcription_id.endswith('_consensus_alignment'):
-                base_id = transcription_id[:-len('_consensus_alignment')]
-                scoped = root / base_id / 'consensus' / f"alignment_{base_id}.json"
-                if scoped.exists():
-                    with open(scoped, 'r', encoding='utf-8') as f:
-                        logger.info(f"📄 Loaded transcription (scoped alignment consensus): dossier={dossier_id} id={transcription_id} path={scoped}")
-                        return json.load(f)
-
-            # Alignment per-draft IDs
-            # - {tid}_draft_{n}           (HEAD)
-            # - {tid}_draft_{n}_v1.json   (specific)
-            # - {tid}_draft_{n}_v2.json   (specific)
-            if '_draft_' in transcription_id:
-                base_id, _, tail = transcription_id.partition('_draft_')
-                # Specific version
-                if tail.endswith('_v1') or tail.endswith('_v2'):
-                    ver = tail.split('_')[-1]
-                    n = tail.split('_')[0]
-                    scoped = root / base_id / 'alignment' / f"draft_{n}_{ver}.json"
-                    if scoped.exists():
-                        with open(scoped, 'r', encoding='utf-8') as f:
-                            logger.info(f"📄 Loaded alignment draft (scoped specific): dossier={dossier_id} id={transcription_id} path={scoped}")
-                            return json.load(f)
-                else:
-                    # HEAD
-                    n = tail
-                    scoped = root / base_id / 'alignment' / f"draft_{n}.json"
-                    if scoped.exists():
-                        with open(scoped, 'r', encoding='utf-8') as f:
-                            logger.info(f"📄 Loaded alignment draft (scoped HEAD): dossier={dossier_id} id={transcription_id} path={scoped}")
-                            return json.load(f)
-
-            # Raw versioned files (per-draft v1/v2 and HEAD)
-            #   underscore: <root>/<folder_tid>/raw/<transcription_id>.json            e.g. tid_v3_v1.json
-            #   dot:        <root>/<folder_tid>/raw/<base_draft>.v1.json or .v2.json  e.g. tid_v3.v1.json
-            if "_v" in transcription_id:
-                import re
-                # Folder is always the transcription root (before first _v<number>)
-                folder_tid = re.split(r"_v\d+", transcription_id)[0] or transcription_id
-                # Per-draft base (e.g., tid_v3) = up to first _v<number>
-                m = re.match(r"(.+?_v\d+)", transcription_id)
-                base_draft = m.group(1) if m else transcription_id
-
-                ver = None
-                if transcription_id.endswith('_v1'):
-                    ver = 'v1'
-                elif transcription_id.endswith('_v2'):
-                    ver = 'v2'
-
-                raw_dir = root / folder_tid / 'raw'
-
-                # Prefer explicit v1/v2 dot-suffix if requested (what the saver writes)
-                if ver:
-                    # 1) dot-suffix (e.g., base.v1.json)
-                    dot_path = raw_dir / f"{base_draft}.{ver}.json"
-                    if dot_path.exists():
-                        with open(dot_path, 'r', encoding='utf-8') as f:
-                            logger.info(f"📄 Loaded raw (scoped {ver} dot): dossier={dossier_id} id={transcription_id} folder={folder_tid} base={base_draft} path={dot_path}")
-                            return json.load(f)
-                    # 2) underscore full id (e.g., base_v1.json)
-                    underscore_full = raw_dir / f"{base_draft}_{ver}.json"
-                    if underscore_full.exists():
-                        with open(underscore_full, 'r', encoding='utf-8') as f:
-                            logger.info(f"📄 Loaded raw (scoped {ver} underscore_full): dossier={dossier_id} id={transcription_id} folder={folder_tid} base={base_draft} path={underscore_full}")
-                            return json.load(f)
-                    # 3) plain base for v1 (common saver output): base.json
-                    if ver == 'v1':
-                        plain_v1 = raw_dir / f"{base_draft}.json"
-                        if plain_v1.exists():
-                            with open(plain_v1, 'r', encoding='utf-8') as f:
-                                logger.info(f"📄 Loaded raw (scoped v1 plain): dossier={dossier_id} id={transcription_id} path={plain_v1}")
-                                return json.load(f)
-                    # STRICT: explicit version requested and none of the forms found
-                    logger.warning(f"❌ Explicit raw {ver} not found for {transcription_id} in dossier {dossier_id}. No fallback when version explicitly requested.")
-                    return None
-
-                # Try underscore-suffixed file (legacy HEAD naming for versioned id)
-                raw_versioned = raw_dir / f"{transcription_id}.json"
-                if raw_versioned.exists():
-                    with open(raw_versioned, 'r', encoding='utf-8') as f:
-                        logger.info(f"📄 Loaded raw (scoped underscore): dossier={dossier_id} id={transcription_id} folder={folder_tid} base={base_draft} path={raw_versioned}")
-                        return json.load(f)
-
-                # Fallback to per-draft HEAD (base_draft.json) only when no explicit _v1/_v2 requested
-                head_path = raw_dir / f"{base_draft}.json"
-                if head_path.exists():
-                    with open(head_path, 'r', encoding='utf-8') as f:
-                        logger.info(f"📄 Loaded raw (scoped HEAD): dossier={dossier_id} id={transcription_id} folder={folder_tid} base={base_draft} path={head_path}")
-                        return json.load(f)
-
-                # Last resort: base aggregated file if nothing else
-                raw_base = raw_dir / f"{folder_tid}.json"
-                if raw_base.exists():
-                    with open(raw_base, 'r', encoding='utf-8') as f:
-                        logger.info(f"📄 Loaded raw (scoped base fallback): dossier={dossier_id} id={transcription_id} folder={folder_tid} path={raw_base}")
-                        return json.load(f)
-
-            else:
-                # Non-versioned raw file: <root>/<id>/raw/<id>.json
-                raw_exact = root / transcription_id / 'raw' / f"{transcription_id}.json"
-                if raw_exact.exists():
-                    with open(raw_exact, 'r', encoding='utf-8') as f:
-                        logger.info(f"📄 Loaded transcription (scoped raw exact): dossier={dossier_id} id={transcription_id} path={raw_exact}")
-                        return json.load(f)
-
-            logger.info(f"ℹ️ Scoped lookup missed, falling back to global search: dossier={dossier_id} id={transcription_id}")
+            logger.info(
+                f"ℹ️ Scoped lookup missed, falling back to global search: "
+                f"dossier={dossier_id} id={transcription_id}"
+            )
 
         except Exception as e:
             logger.error(f"❌ Scoped load failed for {transcription_id} in dossier {dossier_id}: {e}")

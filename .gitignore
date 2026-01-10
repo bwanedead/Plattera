@@ -266,3 +266,5 @@ frontend/out/
 frontend/src-tauri/bin/
 frontend/src-tauri/target/
 frontend/src-tauri/*.sig
+
+.claude/settings.local.json
