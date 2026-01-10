@@ -9,7 +9,7 @@ from ..lanes.lexical.grep_backend import GrepBackendLexicalLane
 from ..lanes.lexical.lane import LexicalLane
 from ..lanes.provenance.lane import ProvenanceLane
 from ..lanes.provenance.recipes import ProvenanceRecipe, parse_provenance_recipe
-from ..lanes.semantic.lane import SemanticLane, NoopSemanticLane
+from ..lanes.semantic.lane import SemanticLane, LocalSemanticLane
 from .merge import dedupe_by_id, sort_by_score
 
 
@@ -47,7 +47,7 @@ class RetrievalEngine:
 
     lexical_raw_lane: LexicalLane = field(default_factory=lambda: GrepBackendLexicalLane(mode="raw"))
     lexical_normalized_lane: LexicalLane = field(default_factory=lambda: GrepBackendLexicalLane(mode="normalized"))
-    semantic_lane: SemanticLane = field(default_factory=NoopSemanticLane)
+    semantic_lane: SemanticLane = field(default_factory=LocalSemanticLane)
     provenance_lane: ProvenanceLane = field(default_factory=ProvenanceLane)
     hybrid_config: HybridConfig = field(default_factory=HybridConfig)
 

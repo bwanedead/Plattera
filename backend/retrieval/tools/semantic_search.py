@@ -25,14 +25,17 @@ class SemanticSearchTool:
 
     def __call__(self, query: str, *, filters: Optional[RetrievalFilters] = None, limit: int = 10) -> RetrievalResult:
         result = self.engine.search(query, filters=filters, limit=limit, lanes=["semantic"])
+        debug = result.debug or {}
+        gating_errors = list(debug.get("gating_errors", []) or [])
+        notes = list(debug.get("notes", []) or [])
         result.debug.update(
             {
                 "tool": "semantic_search",
                 "lanes": ["semantic"],
                 "defaults": {"limit": 10},
                 "overrides": {"limit": limit} if limit != 10 else {},
-                "gating_errors": [],
-                "notes": [],
+                "gating_errors": gating_errors,
+                "notes": notes,
             }
         )
         return result
