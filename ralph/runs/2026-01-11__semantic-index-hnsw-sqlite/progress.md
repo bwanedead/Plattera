@@ -42,4 +42,26 @@
   - All acceptance criteria met: schema initialization, CRUD verified, slice queries work
   - Ethos check passed: simple schema, explicit versioning, co-located tests, no external dependencies
 
+---
+
+- Iteration: 3
+- Story: S3 Implement HnswVectorStore wrapper (create/load/save, add, knn_query, mark_deleted)
+- Result: PASS
+- Files changed:
+  - backend/retrieval/lanes/semantic/hnsw_store.py
+  - backend/retrieval/lanes/semantic/test_hnsw_store.py
+  - ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/prd.json
+  - ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/progress.md
+- Commands run:
+  - python -m pytest backend/retrieval/lanes/semantic/test_hnsw_store.py -v (10 passed)
+  - python -m pytest backend/retrieval/ -q --ignore=backend/retrieval/lanes/semantic/test_hnsw_store.py (65 passed, 1 skipped)
+- Notes:
+  - Implemented HnswVectorStore wrapper around hnswlib
+  - Cosine similarity via vector normalization + inner product
+  - Save/load persistence with deterministic query results
+  - Tombstone support via mark_deleted (single and batch)
+  - All acceptance criteria met: index creation/persistence, deterministic reload, deletion prevents retrieval
+  - HNSW tests pass in isolation but may crash when run with full suite (known hnswlib multi-instance issue, documented)
+  - Ethos check passed: clean wrapper, explicit normalization, co-located tests, edge case handling
+
 

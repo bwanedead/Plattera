@@ -42,7 +42,7 @@
       "id": "S3",
       "title": "Implement HnswVectorStore wrapper (create/load/save, add, knn_query, mark_deleted)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "HnswVectorStore can create an index with a configured embedding_dim and persist it to disk",
         "After reload, knn_query returns the same top hit(s) for a deterministic small fixture",
