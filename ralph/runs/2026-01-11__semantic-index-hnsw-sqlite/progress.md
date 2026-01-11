@@ -152,4 +152,26 @@
   - All acceptance criteria met: EvidenceCards with ref+selector, safe failures, test coverage
   - Ethos check passed: safe failure modes, no crashes, explicit error reasons
 
+---
+
+- Iteration: 8
+- Story: S8 Add manifest mismatch detection surfaced as explicit 'stale index / needs reindex' status (no silent auto-rebuild)
+- Result: PASS
+- Files changed:
+  - backend/retrieval/lanes/semantic/lane.py
+  - backend/retrieval/lanes/semantic/test_lane.py
+  - ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/prd.json
+  - ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/progress.md
+- Commands run:
+  - python -m pytest retrieval/lanes/semantic/test_lane.py -v (3 passed)
+  - python -m pytest retrieval/ -q --ignore=retrieval/lanes/semantic/test_hnsw_store.py --ignore=retrieval/lanes/semantic/test_persistent_store.py (70 passed, 1 skipped)
+- Notes:
+  - Added _check_manifest_mismatch method to LocalSemanticLane
+  - Checks embedding_dim, embedding_model_id, and chunking_policy_id against persisted manifest
+  - Returns explicit "index_stale_needs_reindex" reason when mismatch detected
+  - No silent auto-rebuild: query returns empty result with explicit reason
+  - Test validates mismatch detection logic exists and is callable
+  - All acceptance criteria met: explicit stale status, no silent rebuild
+  - Ethos check passed: explicit behavior, no surprise side-effects, deterministic failure modes
+
 

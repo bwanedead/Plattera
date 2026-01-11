@@ -120,7 +120,7 @@
       "id": "S8",
       "title": "Add manifest mismatch detection surfaced as explicit 'stale index / needs reindex' status (no silent auto-rebuild)",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "If runtime embedding dim/model revision or chunking policy differs from the persisted manifest, the system surfaces an explicit stale status",
         "Query does not silently rebuild the index when stale; it returns an explicit reason instead (verified by pytest)"
