@@ -13,7 +13,8 @@ from services.assets.service import AssetsService
 
 from .chunking import ChunkSelector
 from .embeddings import EmbeddingAssetMissingError, build_embedding_provider, SentenceTransformersEmbeddingProvider
-from .manifest import SemanticIndexManifest, hnsw_index_path, metadata_db_path
+from .chunking import FINAL_SEGMENTS_POLICY
+from .manifest import SemanticIndexManifest, hnsw_index_path, metadata_db_path, read_manifest
 from .persistent_store import PersistentVectorStore, load_persistent_store
 
 
@@ -97,6 +98,20 @@ class LocalSemanticLane:
 
         query_vector = embeddings[0]
         embedding_dim = len(query_vector)
+
+        # Check for manifest mismatch (stale index)
+        stale_reason = self._check_manifest_mismatch(embedding_dim, provider)
+        if stale_reason is not None:
+            return RetrievalResult(
+                query=query,
+                cards=[],
+                debug={
+                    "lane": self.lane_name,
+                    "reason": "index_stale_needs_reindex",
+                    "stale_reason": stale_reason,
+                    "pool_identifier": self.pool_identifier,
+                },
+            )
 
         # Try to load vector store
         vector_store = self._get_or_load_vector_store(embedding_dim)
@@ -183,6 +198,51 @@ class LocalSemanticLane:
                 "cards_count": len(cards),
             },
         )
+
+    def _check_manifest_mismatch(
+        self,
+        runtime_embedding_dim: int,
+        embedding_provider,
+    ) -> Optional[str]:
+        """
+        Check if runtime config mismatches persisted manifest.
+
+        Returns:
+            None if no mismatch or manifest missing
+            String reason if mismatch detected
+        """
+        # Try to read manifest
+        try:
+            manifest = read_manifest(pool_identifier=self.pool_identifier)
+        except Exception:
+            # Manifest missing or corrupt - not a mismatch, just uninited
+            return None
+
+        if manifest is None:
+            # No manifest = not initialized yet
+            return None
+
+        # Check embedding dimension
+        if manifest.embedding_dim != runtime_embedding_dim:
+            return f"embedding_dim_mismatch: manifest={manifest.embedding_dim}, runtime={runtime_embedding_dim}"
+
+        # Check embedding model ID
+        runtime_model_id = "unknown"
+        if isinstance(embedding_provider, SentenceTransformersEmbeddingProvider):
+            model_info = embedding_provider.model_info
+            manifest_data = model_info.manifest or {}
+            runtime_model_id = manifest_data.get("resolved_revision") or manifest_data.get("revision") or "unknown"
+
+        if manifest.embedding_model_id != runtime_model_id:
+            return f"embedding_model_mismatch: manifest={manifest.embedding_model_id}, runtime={runtime_model_id}"
+
+        # Check chunking policy
+        runtime_policy_id = FINAL_SEGMENTS_POLICY.policy_id
+        if manifest.chunking_policy_id != runtime_policy_id:
+            return f"chunking_policy_mismatch: manifest={manifest.chunking_policy_id}, runtime={runtime_policy_id}"
+
+        # No mismatch
+        return None
 
     def _get_or_load_vector_store(self, embedding_dim: int) -> Optional[PersistentVectorStore]:
         """
