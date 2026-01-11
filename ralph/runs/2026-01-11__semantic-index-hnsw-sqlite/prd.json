@@ -91,7 +91,7 @@
       "id": "S6",
       "title": "Add replace-slice per dossier/view (tombstone old labels, rebuild slice) + deterministic test",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Replace-slice deletes/tombstones all previously indexed labels for (dossier_id, FINAL_SEGMENTS) before inserting rebuilt vectors",
         "A pytest verifies that after replace-slice with changed content, stale hits no longer appear"

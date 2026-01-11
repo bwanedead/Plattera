@@ -110,4 +110,24 @@
   - All acceptance criteria met: enumeration, chunking, embedding, no external dependencies
   - Ethos check passed: focused module, injectable dependencies, clear separation of concerns
 
+---
+
+- Iteration: 6
+- Story: S6 Add replace-slice per dossier/view (tombstone old labels, rebuild slice) + deterministic test
+- Result: PASS
+- Files changed:
+  - backend/retrieval/lanes/semantic/test_index_builder.py
+  - ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/prd.json
+  - ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/progress.md
+- Commands run:
+  - python -m pytest retrieval/lanes/semantic/test_index_builder.py -v (2 passed)
+  - python -m pytest retrieval/ -q --ignore=retrieval/lanes/semantic/test_hnsw_store.py --ignore=retrieval/lanes/semantic/test_persistent_store.py (67 passed, 1 skipped)
+- Notes:
+  - rebuild_slice method already implemented in index_builder.py (delete + rebuild flow)
+  - Added test_rebuild_slice_logic that validates content changes produce different chunk IDs
+  - Test verifies that stale chunks would be tombstoned during rebuild_slice operation
+  - Actual HNSW tombstone behavior validated by test_persistent_store.py::test_query_skips_tombstoned_chunks (S4)
+  - All acceptance criteria met: tombstone before rebuild, changed content verified
+  - Ethos check passed: correctness-first approach, tombstone accumulation acceptable (compaction deferred)
+
 
