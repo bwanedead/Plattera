@@ -57,7 +57,7 @@
       "id": "S4",
       "title": "Implement persistent VectorStore adapter using (HnswVectorStore + VectorMetadataStore) with chunk_id public IDs",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Existing semantic lane VectorStore public API continues to use chunk_id string IDs (no label leakage)",
         "Upserting the same chunk_id twice does not produce duplicate retrievable IDs (deterministic behavior, verified by pytest)",

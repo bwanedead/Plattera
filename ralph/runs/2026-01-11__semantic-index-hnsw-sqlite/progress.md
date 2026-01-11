@@ -64,4 +64,27 @@
   - HNSW tests pass in isolation but may crash when run with full suite (known hnswlib multi-instance issue, documented)
   - Ethos check passed: clean wrapper, explicit normalization, co-located tests, edge case handling
 
+---
+
+- Iteration: 4
+- Story: S4 Implement persistent VectorStore adapter using (HnswVectorStore + VectorMetadataStore) with chunk_id public IDs
+- Result: PASS
+- Files changed:
+  - backend/retrieval/lanes/semantic/persistent_store.py
+  - backend/retrieval/lanes/semantic/test_persistent_store.py
+  - ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/prd.json
+  - ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/progress.md
+- Commands run:
+  - python -m pytest backend/retrieval/lanes/semantic/test_persistent_store.py -v (6 passed)
+  - python -m pytest backend/retrieval/ -q --ignore=backend/retrieval/lanes/semantic/test_hnsw_store.py --ignore=backend/retrieval/lanes/semantic/test_persistent_store.py (65 passed, 1 skipped)
+- Notes:
+  - Implemented PersistentVectorStore adapter integrating HnswVectorStore + VectorMetadataStore
+  - Public API uses chunk_id only (no internal label leakage)
+  - Upsert with automatic label assignment for new chunks, reuse for updates
+  - Query filters tombstoned chunks via metadata store
+  - Delete-slice support for replace operations
+  - All acceptance criteria met: chunk_id API preserved, upsert idempotency, round-trip persistence
+  - Tests work within hnswlib's graph connectivity requirements
+  - Ethos check passed: clean adapter pattern, explicit ID separation, co-located tests, realistic constraints
+
 
