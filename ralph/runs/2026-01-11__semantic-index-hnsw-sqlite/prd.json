@@ -105,7 +105,7 @@
       "id": "S7",
       "title": "Wire semantic lane: query → vector hits → metadata → EvidenceCards (persistent index), with safe failure modes",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Semantic lane uses the persistent VectorStore for FINAL_SEGMENTS and returns EvidenceCards that include ref + selector for each hit",
         "If the index is missing/uninitialized, the lane returns a safe empty result with an explicit reason (no crash)",

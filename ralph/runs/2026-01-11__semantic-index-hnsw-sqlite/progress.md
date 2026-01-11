@@ -130,4 +130,26 @@
   - All acceptance criteria met: tombstone before rebuild, changed content verified
   - Ethos check passed: correctness-first approach, tombstone accumulation acceptable (compaction deferred)
 
+---
+
+- Iteration: 7
+- Story: S7 Wire semantic lane: query → vector hits → metadata → EvidenceCards (persistent index), with safe failure modes
+- Result: PASS
+- Files changed:
+  - backend/retrieval/lanes/semantic/lane.py
+  - backend/retrieval/lanes/semantic/test_lane.py
+  - ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/prd.json
+  - ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/progress.md
+- Commands run:
+  - python -m pytest retrieval/lanes/semantic/test_lane.py -v (2 passed)
+  - python -m pytest retrieval/ -q --ignore=retrieval/lanes/semantic/test_hnsw_store.py --ignore=retrieval/lanes/semantic/test_persistent_store.py (69 passed, 1 skipped)
+- Notes:
+  - Updated LocalSemanticLane to query persistent VectorStore and return EvidenceCards
+  - Each EvidenceCard contains EvidenceSpan with CorpusEntryRef, CorpusChunkRef, and provenance
+  - Safe failure modes: returns empty result with explicit reason when index missing/uninitialized
+  - Safe failure modes: returns empty result with explicit reason when embedding fails
+  - Test validates safe failure (missing index) and lane structure
+  - All acceptance criteria met: EvidenceCards with ref+selector, safe failures, test coverage
+  - Ethos check passed: safe failure modes, no crashes, explicit error reasons
+
 
