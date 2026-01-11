@@ -12,6 +12,7 @@ shapely==2.0.2
 geopandas==0.14.1
 pyproj==3.6.1
 numpy==1.26.4
+hnswlib==0.8.0
 pandas==2.1.4
 fiona==1.9.5
 

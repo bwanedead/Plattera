@@ -30,6 +30,7 @@ For the selected story:
      - `docs/ethos/structure-ethos.md`
      - `docs/ethos/testing-ethos.md`
      - `docs/ethos/agents-md-ethos.md`
+     - any other ethos at `docs/ethos/` or if any submodule ethos files are relevant to edits made.
    - Confirm scope stayed within this story (no “and also”).
    - Confirm you preserved stated constraints/invariants (PRD, agents.md, existing contracts).
    - Confirm the change is structurally sound: clear module boundaries, no dumping grounds, no tight coupling.
