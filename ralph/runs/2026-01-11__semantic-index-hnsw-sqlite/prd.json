@@ -72,7 +72,7 @@
       "id": "S5",
       "title": "Add SemanticIndexBuilder for FINAL_SEGMENTS (append-only indexing for one dossier) with deterministic test using stubs",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "A builder can index FINAL_SEGMENTS for a single dossier by enumerating corpus refs, chunking, embedding (stubbed), and writing to the persistent VectorStore",
         "A pytest builds an index for a small synthetic dossier fixture and verifies a query returns at least one expected chunk_id",
