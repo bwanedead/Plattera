@@ -1,0 +1,136 @@
+{
+  "run_id": "2026-01-11__semantic-index-hnsw-sqlite",
+  "title": "Semantic Index Backbone — HNSW + SQLite (FINAL_SEGMENTS)",
+  "repo_context": "Implement persistent local semantic indexing for CorpusView.FINAL_SEGMENTS using hnswlib + SQLite metadata mapping, and wire semantic lane retrieval to return EvidenceCards.",
+  "global_verification": ["python -m pytest -q"],
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Add semantic index artifact manifest + path helpers (pool-scoped, deterministic)",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "A manifest file can be written and read back deterministically (round-trip) for the semantic index pool",
+        "Manifest includes (at minimum): pool/view identifier, embedding_dim, embedding model revision identifier, chunking policy identifier, and a schema version",
+        "A co-located pytest verifies manifest round-trip and that paths resolve under the existing assets root (no new global root)"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": [],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/*",
+        "backend/retrieval/test_*.py",
+        "backend/retrieval/**/test_*.py"
+      ],
+      "notes": "Keep this mechanical and explicit. Avoid auto-reindex behavior here; just represent and validate state."
+    },
+    {
+      "id": "S2",
+      "title": "Implement SQLite VectorMetadataStore (chunk_id ↔ label, slice queries by dossier/view)",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "VectorMetadataStore can initialize its schema in a new sqlite file",
+        "Store supports: upsert chunk metadata, lookup by chunk_id, lookup by label, and list labels for (dossier_id, view/pool) to support replace-slice",
+        "A deterministic pytest uses a temp directory + temp sqlite file and verifies CRUD + slice label listing"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S1"],
+      "files_expected": ["backend/retrieval/lanes/semantic/*", "backend/retrieval/**/test_*.py"],
+      "notes": "Use chunk_id as the primary identity; labels are internal. Prefer simple schema + explicit versioning."
+    },
+    {
+      "id": "S3",
+      "title": "Implement HnswVectorStore wrapper (create/load/save, add, knn_query, mark_deleted)",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "HnswVectorStore can create an index with a configured embedding_dim and persist it to disk",
+        "After reload, knn_query returns the same top hit(s) for a deterministic small fixture",
+        "mark_deleted prevents deleted labels from returning as hits (verified by pytest)"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S1"],
+      "files_expected": ["backend/retrieval/lanes/semantic/*", "backend/retrieval/**/test_*.py"],
+      "notes": "Use cosine-equivalent behavior (normalize vectors + inner product) unless repo contract requires otherwise."
+    },
+    {
+      "id": "S4",
+      "title": "Implement persistent VectorStore adapter using (HnswVectorStore + VectorMetadataStore) with chunk_id public IDs",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Existing semantic lane VectorStore public API continues to use chunk_id string IDs (no label leakage)",
+        "Upserting the same chunk_id twice does not produce duplicate retrievable IDs (deterministic behavior, verified by pytest)",
+        "Index build → save → load → query returns chunk_id hits (pytest)"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S2", "S3"],
+      "files_expected": ["backend/retrieval/lanes/semantic/*", "backend/retrieval/**/test_*.py"],
+      "notes": "Keep the contract compatible with existing retrieval code. If deletions require tombstones, document clearly in code."
+    },
+    {
+      "id": "S5",
+      "title": "Add SemanticIndexBuilder for FINAL_SEGMENTS (append-only indexing for one dossier) with deterministic test using stubs",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "A builder can index FINAL_SEGMENTS for a single dossier by enumerating corpus refs, chunking, embedding (stubbed), and writing to the persistent VectorStore",
+        "A pytest builds an index for a small synthetic dossier fixture and verifies a query returns at least one expected chunk_id",
+        "The test does not require a running server process or external network calls"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S4"],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/*",
+        "backend/corpus/*",
+        "backend/retrieval/**/test_*.py"
+      ],
+      "notes": "Inject dependencies so tests can use a stub embedding provider and a minimal corpus fixture."
+    },
+    {
+      "id": "S6",
+      "title": "Add replace-slice per dossier/view (tombstone old labels, rebuild slice) + deterministic test",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Replace-slice deletes/tombstones all previously indexed labels for (dossier_id, FINAL_SEGMENTS) before inserting rebuilt vectors",
+        "A pytest verifies that after replace-slice with changed content, stale hits no longer appear"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S5"],
+      "files_expected": ["backend/retrieval/lanes/semantic/*", "backend/retrieval/**/test_*.py"],
+      "notes": "Correctness-first: it is acceptable to accumulate tombstones; compaction is deferred."
+    },
+    {
+      "id": "S7",
+      "title": "Wire semantic lane: query → vector hits → metadata → EvidenceCards (persistent index), with safe failure modes",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Semantic lane uses the persistent VectorStore for FINAL_SEGMENTS and returns EvidenceCards that include ref + selector for each hit",
+        "If the index is missing/uninitialized, the lane returns a safe empty result with an explicit reason (no crash)",
+        "A pytest exercises the lane against the synthetic indexed fixture and asserts evidence shape + provenance"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S6"],
+      "files_expected": ["backend/retrieval/lanes/semantic/*", "backend/retrieval/**/test_*.py"],
+      "notes": "Keep IDs as chunk_id externally. Missing metadata rows must be handled safely."
+    },
+    {
+      "id": "S8",
+      "title": "Add manifest mismatch detection surfaced as explicit 'stale index / needs reindex' status (no silent auto-rebuild)",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "If runtime embedding dim/model revision or chunking policy differs from the persisted manifest, the system surfaces an explicit stale status",
+        "Query does not silently rebuild the index when stale; it returns an explicit reason instead (verified by pytest)"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S7"],
+      "files_expected": ["backend/retrieval/lanes/semantic/*", "backend/retrieval/**/test_*.py"],
+      "notes": "This is an ethos alignment story: avoid surprise reindex side-effects from query paths."
+    }
+  ]
+}
+
+
