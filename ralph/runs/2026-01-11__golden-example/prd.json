@@ -1,0 +1,51 @@
+{
+  "run_id": "2026-01-11__golden-example",
+  "title": "Golden Example — Add /health endpoint",
+  "repo_context": "Toy run used to validate the Ralph run folder format and plugin-compatible PROMPT.md.",
+  "global_verification": ["python -m pytest -q"],
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Add GET /health endpoint returning {status: ok}",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "GET /health returns HTTP 200",
+        "Response JSON includes {\"status\": \"ok\"}"
+      ],
+      "verification_commands": [],
+      "depends_on": [],
+      "files_expected": ["backend/api/*", "backend/main.py"],
+      "notes": "Keep it minimal; prefer a small new router or a small addition to an existing router."
+    },
+    {
+      "id": "S2",
+      "title": "Add a deterministic test for /health (no external server dependency)",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "A co-located test exists under the owning backend package directory",
+        "`python -m pytest -q` passes"
+      ],
+      "verification_commands": ["python -m pytest -q"],
+      "depends_on": ["S1"],
+      "files_expected": ["backend/**/test_*.py"],
+      "notes": "Prefer FastAPI TestClient against the app object."
+    },
+    {
+      "id": "S3",
+      "title": "Document /health usage briefly (where devs will find it)",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "Docs mention /health path and expected JSON shape"
+      ],
+      "verification_commands": [],
+      "depends_on": ["S1"],
+      "files_expected": ["README.md", "backend/README.md"],
+      "notes": "Keep the doc update short."
+    }
+  ]
+}
+
+
