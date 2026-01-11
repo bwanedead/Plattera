@@ -8,7 +8,7 @@
       "id": "S1",
       "title": "Add semantic index artifact manifest + path helpers (pool-scoped, deterministic)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "A manifest file can be written and read back deterministically (round-trip) for the semantic index pool",
         "Manifest includes (at minimum): pool/view identifier, embedding_dim, embedding model revision identifier, chunking policy identifier, and a schema version",
