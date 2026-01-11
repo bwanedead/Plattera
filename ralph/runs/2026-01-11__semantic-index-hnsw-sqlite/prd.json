@@ -27,7 +27,7 @@
       "id": "S2",
       "title": "Implement SQLite VectorMetadataStore (chunk_id ↔ label, slice queries by dossier/view)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "VectorMetadataStore can initialize its schema in a new sqlite file",
         "Store supports: upsert chunk metadata, lookup by chunk_id, lookup by label, and list labels for (dossier_id, view/pool) to support replace-slice",
