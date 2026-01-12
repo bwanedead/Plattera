@@ -8,6 +8,7 @@ A Ralph run is fully captured in `ralph/runs/<run-id>/`:
 - prd.json (atomic stories + acceptance criteria)
 - PROMPT.md (run instructions for the coding agent)
 - progress log(s) (iteration notes)
+- SUMMARY.md (human-readable debrief, one entry per story; recommended)
 
 ## Why we do per-run directories
 - Durable history of intent -> implementation
@@ -21,6 +22,7 @@ A Ralph run is fully captured in `ralph/runs/<run-id>/`:
 4) Create PROMPT.md using `templates/PROMPT_TEMPLATE.md`
 5) Execute Ralph loop using the prompt in PROMPT.md
 6) Append progress notes per iteration into `progress.md` (and/or the tool’s output)
+7) Append a human-readable per-story debrief into `SUMMARY.md` (recommended)
 
 ## Run naming convention
 Use a stable run-id:

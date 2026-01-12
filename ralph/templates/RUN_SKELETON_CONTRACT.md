@@ -9,6 +9,10 @@ It MUST contain:
 - `PROMPT.md`
 - `progress.md`
 
+Recommended:
+- `SUMMARY.md` (human-readable debrief, one entry per story)
+- `notes.md` (brainstorm dump)
+
 Everything in these files must be compatible with:
 - `ralph/templates/HOW_RALPH_WORKS.md`
 - the repo safety rules in `CLAUDE.md`

@@ -8,6 +8,7 @@ Read and understand:
 - `ralph/templates/HOW_RALPH_WORKS.md`
 - `ralph/templates/STORY_GUIDELINES.md`
 - `ralph/templates/PROMPT_TEMPLATE.md`
+- `ralph/templates/SUMMARY_TEMPLATE.md`
 - `ralph/templates/PRD_TEMPLATE.md`
 - `ralph/templates/PRD_JSON_SCHEMA.md`
 - `ralph/templates/PRD_JSON_TEMPLATE.json`
@@ -24,6 +25,7 @@ Read and understand:
 - [ ] `prd.json` created (from PRD_JSON_TEMPLATE.json)
 - [ ] `PROMPT.md` created (from PROMPT_TEMPLATE.md)
 - [ ] `progress.md` created (empty header ok)
+- [ ] `SUMMARY.md` created (recommended; from SUMMARY_TEMPLATE.md)
 
 ## Quality gates before running
 - [ ] Stories are XS/S and each is one-iteration doable

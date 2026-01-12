@@ -18,6 +18,7 @@ Before writing any run artifacts, read:
 6) `ralph/templates/PRD_TEMPLATE.md` (PRD format)
 7) `ralph/templates/PRD_JSON_SCHEMA.md` + `ralph/templates/PRD_JSON_TEMPLATE.json` (story list format)
 8) `ralph/templates/PROMPT_TEMPLATE.md` (what the loop will repeatedly receive)
+9) `ralph/templates/SUMMARY_TEMPLATE.md` (human-readable per-story run debrief)
 
 ---
 
@@ -36,6 +37,7 @@ A valid run folder MUST contain:
 - `progress.md` (short-term memory log; starts empty)
 
 Optional (only if useful):
+- `SUMMARY.md` (human-readable debrief, one entry per story)
 - `notes.md` (raw brainstorm dump)
 - `artifacts/` (screenshots/log snippets)
 
@@ -79,6 +81,7 @@ Order stories by dependency (foundation first).
   - implement + test + commit
   - set passes=true only when criteria met
   - append progress
+  - append SUMMARY.md
   - emit `<promise>TASK COMPLETE</promise>` only when done
 
 ---
@@ -95,9 +98,19 @@ Start with:
 
 ---
 
-## Step 7 — Final validation (before handing to Ralph)
+## Step 7 — Create SUMMARY.md (recommended)
+Create:
+`ralph/runs/<run_id>/SUMMARY.md`
+
+Start from:
+`ralph/templates/SUMMARY_TEMPLATE.md`
+
+---
+
+## Step 8 — Final validation (before handing to Ralph)
 Confirm:
 - Run folder contains required files (PRD.md, prd.json, PROMPT.md, progress.md)
+- `SUMMARY.md` exists (recommended) so the loop can append per-story debrief entries
 - All stories in prd.json start with `"passes": false`
 - Acceptance criteria are objective and testable
 - Stories are XS/S and ordered
