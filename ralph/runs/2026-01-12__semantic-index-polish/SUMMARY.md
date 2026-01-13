@@ -247,3 +247,63 @@ Notes:
 - No permanent ignores: developers choose scope based on what they're working on
 - Future CI can run non-HNSW tests on every commit, HNSW tests in separate job/process
 
+
+## Story S8: Standardize 'why this matched' trace in semantic evidence (FINAL STORY ✅)
+
+Status: ✅ Complete (Iteration 1)
+
+What was built:
+- Modified lane.py to read manifest and populate EvidenceSpan.metadata with provenance fields
+- Each semantic hit now includes: pool_identifier, distance, similarity_score, embedding_model_id, chunking_policy_id, embedding_dim
+- Provenance metadata is deterministic and stable for the same chunk/query pair
+- Added comprehensive test verifying provenance fields are present and correct
+
+Corruption fix from S7:
+- Fixed test_lane.py which had accidentally committed XML thinking blocks and bash fragments (lines 493-530)
+- Removed non-Python text pollution from S7 commit while preserving all valid tests and pytest markers
+
+Files changed:
+- backend/retrieval/lanes/semantic/lane.py - Read manifest in search(), populate span.metadata with provenance
+- backend/retrieval/lanes/semantic/test_lane.py - Added test_semantic_evidence_includes_provenance_metadata(), removed corruption
+
+Key decisions:
+- Store provenance in EvidenceSpan.metadata dict (already existed in schema)
+- Read manifest once per search() call for efficiency
+- Include both distance and similarity_score (1.0 - distance) for convenience
+- Gracefully handle missing manifest (provenance fields omitted if manifest not found)
+- Minimal trace: only essential fields for tuning and audit
+
+Tests added:
+- test_semantic_evidence_includes_provenance_metadata(): Builds index with manifest, verifies:
+  - Manifest written with correct pool_identifier, embedding_model_id, chunking_policy_id, embedding_dim
+  - Distance values are floats in reasonable range (0.0-2.0 for normalized vectors)
+  - Provenance fields are deterministic for same chunk
+
+Notes:
+- Provenance metadata enables downstream agents/UI to understand why a chunk matched
+- Useful for debugging retrieval quality and tuning semantic parameters
+- Fields are stable across runs (deterministic chunking + content hashing)
+- Manifest provides truth source for model identity and chunking policy
+- S7 corruption was accidental commit of AI thinking blocks - now fixed
+
+## Run Complete Summary
+
+All 8 stories completed successfully:
+- S1: Deterministic preview excerpts in semantic hits ✅
+- S2: FINAL_SEGMENTS metadata with full CorpusEntryRef fidelity ✅
+- S3: Explicit read-mode service for evidence expansion ✅
+- S4: Manifest truth (builder writes, lane validates) ✅
+- S5: Operational index failure modes explicit (NOT_INITIALIZED, UNAVAILABLE, STALE) ✅
+- S6: Safe update semantics (never reuse deleted labels) ✅
+- S7: Persistence tests reliable (pytest markers, no permanent ignores) ✅
+- S8: Standardized provenance trace in semantic evidence ✅
+
+The semantic index is now production-ready with:
+- Readable hits (preview + provenance)
+- Deterministic read expansion
+- Truthful state tracking (manifest)
+- Explicit failure modes
+- Safe update semantics
+- Reliable test isolation
+- Comprehensive audit trail
+

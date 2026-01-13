@@ -137,7 +137,7 @@
       "id": "S8",
       "title": "Standardize 'why this matched' trace in semantic evidence (score + policy + pool + model identity)",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Each semantic evidence item includes structured debug/provenance fields: pool identifier, similarity score/distance, chunking policy id, and embedding model identity",
         "A pytest asserts these fields are present and stable for a deterministic fixture"
