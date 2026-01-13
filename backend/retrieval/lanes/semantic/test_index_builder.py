@@ -218,3 +218,154 @@ def test_rebuild_slice_logic():
     # 1. Call vector_store.delete_slice(dossier_id) - tombstones old chunks
     # 2. Call build_index_for_dossier - indexes new chunks
     # This ensures stale chunk_ids (from chunks_v1) are tombstoned and won't appear in queries
+
+
+def test_builder_writes_manifest_on_successful_build():
+    """
+    Test that builder writes manifest.json on successful build.
+
+    Acceptance criteria for S4:
+    - Successful index build writes/updates manifest.json for the pool
+    - Manifest includes model identity, embedding_dim, and policy id
+    """
+    import hashlib
+    import tempfile
+    from pathlib import Path
+
+    from .manifest import manifest_exists, manifest_path, read_manifest
+
+    # Create synthetic corpus
+    ref = CorpusEntryRef(
+        view=CorpusView.FINAL_SEGMENTS,
+        entry_id="seg_manifest_test",
+        kind=CorpusEntryKind.SEGMENT_FINAL_TEXT,
+        dossier_id="test_dossier_manifest",
+        segment_id="seg_manifest_test",
+    )
+    text = "This is a test segment for manifest write verification."
+    entry = CorpusEntry(
+        ref=ref,
+        text=text,
+        content_hash=hashlib.sha256(text.encode()).hexdigest(),
+    )
+
+    corpus = StubCorpusProvider(entries=[entry])
+    embedder = StubEmbeddingProvider(dim=4)
+    chunker = Chunker()
+    policy = ChunkPolicy(
+        policy_id="test_manifest_v1",
+        max_chars_per_chunk=500,
+        min_chars=10,
+    )
+
+    # Create builder
+    builder = SemanticIndexBuilder(
+        corpus_provider=corpus,
+        embedding_provider=embedder,
+        chunker=chunker,
+        chunk_policy=policy,
+    )
+
+    # Use temporary directory for vector store
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        metadata_path = tmpdir_path / "test_manifest.db"
+
+        from .persistent_store import create_persistent_store
+        vector_store = create_persistent_store(
+            pool_identifier="TEST_MANIFEST_POOL",
+            embedding_dim=4,
+            metadata_db_path=metadata_path,
+            max_elements=100,
+        )
+
+        # Build index WITH manifest parameters
+        result = builder.build_index_for_dossier(
+            vector_store=vector_store,
+            dossier_id="test_dossier_manifest",
+            view=CorpusView.FINAL_SEGMENTS,
+            pool_identifier="TEST_MANIFEST_POOL",
+            embedding_dim=4,
+            embedding_model_id="test_model_v1",
+        )
+
+        # Verify build succeeded
+        assert result.chunks_added > 0, "Should have indexed at least one chunk"
+        assert result.errors == [], f"Build should succeed: {result.errors}"
+
+        # Verify manifest was written
+        assert manifest_exists("TEST_MANIFEST_POOL"), "Manifest should exist after successful build"
+
+        # Verify manifest content
+        manifest = read_manifest("TEST_MANIFEST_POOL")
+        assert manifest is not None, "Manifest should be readable"
+        assert manifest.pool_identifier == "TEST_MANIFEST_POOL"
+        assert manifest.embedding_dim == 4
+        assert manifest.embedding_model_id == "test_model_v1"
+        assert manifest.chunking_policy_id == "test_manifest_v1"
+        assert manifest.created_at is not None
+        assert manifest.updated_at is not None
+
+
+def test_builder_skips_manifest_if_parameters_missing():
+    """
+    Test that builder gracefully skips manifest write if parameters are missing.
+
+    This ensures backward compatibility with existing code that doesn't provide
+    pool_identifier, embedding_dim, or embedding_model_id.
+    """
+    import hashlib
+    import tempfile
+    from pathlib import Path
+
+    # Create synthetic corpus
+    ref = CorpusEntryRef(
+        view=CorpusView.FINAL_SEGMENTS,
+        entry_id="seg_no_manifest",
+        kind=CorpusEntryKind.SEGMENT_FINAL_TEXT,
+        dossier_id="test_dossier_no_manifest",
+        segment_id="seg_no_manifest",
+    )
+    text = "Test without manifest parameters."
+    entry = CorpusEntry(
+        ref=ref,
+        text=text,
+        content_hash=hashlib.sha256(text.encode()).hexdigest(),
+    )
+
+    corpus = StubCorpusProvider(entries=[entry])
+    embedder = StubEmbeddingProvider(dim=4)
+    chunker = Chunker()
+    policy = ChunkPolicy(policy_id="test_v1", max_chars_per_chunk=500, min_chars=10)
+
+    builder = SemanticIndexBuilder(
+        corpus_provider=corpus,
+        embedding_provider=embedder,
+        chunker=chunker,
+        chunk_policy=policy,
+    )
+
+    # Use temporary directory
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        metadata_path = tmpdir_path / "test_no_manifest.db"
+
+        from .persistent_store import create_persistent_store
+        vector_store = create_persistent_store(
+            pool_identifier="TEST_NO_MANIFEST_POOL",
+            embedding_dim=4,
+            metadata_db_path=metadata_path,
+            max_elements=100,
+        )
+
+        # Build index WITHOUT manifest parameters
+        result = builder.build_index_for_dossier(
+            vector_store=vector_store,
+            dossier_id="test_dossier_no_manifest",
+            view=CorpusView.FINAL_SEGMENTS,
+            # No pool_identifier, embedding_dim, or embedding_model_id
+        )
+
+        # Verify build still succeeded
+        assert result.chunks_added > 0, "Should still index without manifest params"
+        assert result.errors == [], f"Should not error: {result.errors}"

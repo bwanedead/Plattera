@@ -28,7 +28,7 @@ from corpus.types import CorpusEntry, CorpusEntryRef, CorpusView
 
 from .chunking import FINAL_SEGMENTS_POLICY, ChunkPolicy, Chunker, CorpusChunk
 from .embeddings import EmbeddingProvider
-from .manifest import SemanticIndexManifest
+from .manifest import MANIFEST_SCHEMA_VERSION, SemanticIndexManifest, write_manifest
 from .persistent_store import PersistentVectorStore
 
 
@@ -75,16 +75,23 @@ class SemanticIndexBuilder:
         vector_store: PersistentVectorStore,
         dossier_id: str,
         view: CorpusView = CorpusView.FINAL_SEGMENTS,
+        pool_identifier: Optional[str] = None,
+        embedding_dim: Optional[int] = None,
+        embedding_model_id: Optional[str] = None,
     ) -> IndexBuildResult:
         """
         Build index for all entries in a single dossier.
 
         This is an append-only operation; existing chunks are preserved.
+        On successful build, writes/updates manifest.json for the pool.
 
         Args:
             vector_store: Target persistent vector store
             dossier_id: Dossier to index
             view: Corpus view to enumerate (default: FINAL_SEGMENTS)
+            pool_identifier: Pool identifier for manifest (required for manifest write)
+            embedding_dim: Embedding dimensionality (required for manifest write)
+            embedding_model_id: Model identifier (required for manifest write)
 
         Returns:
             IndexBuildResult with statistics
@@ -163,6 +170,24 @@ class SemanticIndexBuilder:
             except Exception as e:
                 result.errors.append(f"Failed to process entry {ref.entry_id}: {e}")
                 continue
+
+        # Write manifest on successful build (if parameters provided)
+        if pool_identifier and embedding_dim and embedding_model_id and result.chunks_added > 0 and not result.errors:
+            try:
+                from datetime import datetime
+                now = datetime.utcnow().isoformat() + "Z"
+                manifest = SemanticIndexManifest(
+                    schema_version=MANIFEST_SCHEMA_VERSION,
+                    pool_identifier=pool_identifier,
+                    embedding_dim=embedding_dim,
+                    embedding_model_id=embedding_model_id,
+                    chunking_policy_id=self.chunk_policy.policy_id,
+                    created_at=now,
+                    updated_at=now,
+                )
+                write_manifest(pool_identifier, manifest)
+            except Exception as e:
+                result.errors.append(f"Failed to write manifest: {e}")
 
         return result
 
