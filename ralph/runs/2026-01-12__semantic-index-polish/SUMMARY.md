@@ -207,3 +207,43 @@ Notes:
 - Update semantics are now provably safe and testable (label reuse would break monotonicity assertion)
 - Old labels remain in HNSW marked deleted but consume minimal space (just graph edges)
 
+
+## Story S7: Make persistence tests reliable (pytest markers, no permanent ignores)
+
+Status: ✅ Complete (Iteration 1)
+
+What was built:
+- Created conftest.py to register @pytest.mark.hnsw custom marker
+- Marked all HNSW integration tests with @pytest.mark.hnsw
+- Created agents.md documenting test isolation strategy and commands
+- Removed old guidance suggesting permanent --ignore flags (NOTE in test_hnsw_store.py)
+- All tests remain runnable and discoverable through pytest markers
+
+Files changed:
+- backend/retrieval/lanes/semantic/conftest.py - New file, registers hnsw marker
+- backend/retrieval/lanes/semantic/test_hnsw_store.py - Added pytestmark = pytest.mark.hnsw, removed old NOTE
+- backend/retrieval/lanes/semantic/test_persistent_store.py - Added pytestmark = pytest.mark.hnsw
+- backend/retrieval/lanes/semantic/test_index_builder.py - Marked 2 tests with @pytest.mark.hnsw
+- backend/retrieval/lanes/semantic/test_lane.py - Marked 2 tests with @pytest.mark.hnsw
+- backend/retrieval/lanes/semantic/agents.md - New file, comprehensive test strategy documentation
+
+Key decisions:
+- Use pytest markers instead of --ignore flags (explicit > hidden)
+- Module-level pytestmark for files that are entirely HNSW integration tests
+- Individual @pytest.mark.hnsw decorators for mixed test files
+- agents.md local to semantic/ directory (not root docs/) for developer proximity
+- Three test execution modes documented: all tests, HNSW only, non-HNSW only
+
+Tests affected:
+- Entire modules marked: test_hnsw_store.py (10 tests), test_persistent_store.py (7 tests)
+- Individual tests marked: test_index_builder.py (2 tests), test_lane.py (2 tests)
+- Non-HNSW tests runnable with: pytest -m "not hnsw" (fast feedback during development)
+- HNSW tests runnable with: pytest -m hnsw (integration verification)
+
+Notes:
+- Problem: hnswlib can crash when creating/destroying multiple indexes rapidly in same process
+- Solution: Explicit markers allow choice of test scope without hiding tests permanently
+- agents.md provides clear commands for all three execution modes (all, hnsw, not hnsw)
+- No permanent ignores: developers choose scope based on what they're working on
+- Future CI can run non-HNSW tests on every commit, HNSW tests in separate job/process
+

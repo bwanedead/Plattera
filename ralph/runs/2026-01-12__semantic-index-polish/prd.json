@@ -118,7 +118,7 @@
       "id": "S7",
       "title": "Make persistence tests reliable: isolate HNSW integration tests if needed (no permanent ignores)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "No guidance in-repo suggests permanently ignoring persistence tests to avoid crashes",
         "If isolation is needed, HNSW integration tests are explicitly marked and runnable in a separate pytest invocation",
