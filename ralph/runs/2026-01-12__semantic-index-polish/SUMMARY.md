@@ -104,3 +104,36 @@ Notes:
 - API is minimal and explicit as per PRD guidance
 - Selector-based windows deferred as noted in PRD (can be follow-up story)
 
+
+Story S4: Make manifest truth real (builder writes/updates manifest on successful build)
+Status: PASS
+Iteration: 4
+
+What was built:
+- Updated SemanticIndexBuilder.build_index_for_dossier() to accept pool_identifier, embedding_dim, and embedding_model_id parameters
+- Builder now writes manifest.json on successful build with all required identity fields
+- Manifest includes: schema_version, pool_identifier, embedding_dim, embedding_model_id, chunking_policy_id, timestamps
+- Added tests verifying manifest write on successful build and graceful skip when parameters missing
+
+Files changed:
+- backend/retrieval/lanes/semantic/index_builder.py - Added manifest writing logic at end of successful build
+- backend/retrieval/lanes/semantic/test_index_builder.py - Added test_builder_writes_manifest_on_successful_build and test_builder_skips_manifest_if_parameters_missing
+
+Key decisions:
+- Manifest write is conditional on having all required parameters (pool_identifier, embedding_dim, embedding_model_id)
+- Manifest write only happens on successful build (chunks_added > 0 and no errors)
+- Backward compatible: builder still works if manifest parameters not provided (for existing code)
+- Manifest includes ISO timestamps for created_at and updated_at
+- Uses existing manifest.py infrastructure (write_manifest, SemanticIndexManifest)
+
+Tests added:
+- test_builder_writes_manifest_on_successful_build: Verifies manifest.json is written with correct content on successful build
+- test_builder_skips_manifest_if_parameters_missing: Verifies backward compatibility when params not provided
+- All existing tests continue to pass (37 semantic tests)
+
+Notes:
+- Lane manifest mismatch detection already exists (test_manifest_mismatch_detection validates the method)
+- Manifest provides "truth" for index state: model identity, embedding dim, chunking policy
+- No silent rebuilds in query paths (detection only, as per PRD guidance)
+- Immutable model identity tracked via embedding_model_id (e.g., "all-MiniLM-L6-v2")
+
