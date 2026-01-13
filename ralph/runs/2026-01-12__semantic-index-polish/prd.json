@@ -45,7 +45,7 @@
       "id": "S3",
       "title": "Add explicit read-mode service: Evidence → full hydrated entry (locate→read bridge)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "A new read-mode helper/service exists that takes a semantic hit/evidence reference and returns the full hydrated parent CorpusEntry",
         "Read-mode is separate from the semantic lane (lane stays locator; read does heavy hydration)",

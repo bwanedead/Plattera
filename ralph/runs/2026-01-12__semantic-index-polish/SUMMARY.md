@@ -71,3 +71,36 @@ Notes:
 - CorpusEntryRef reconstruction is faithful to original entry ref used during indexing
 - No changes to other corpus views or entry kinds (remains backward compatible)
 
+
+Story S3: Add explicit read-mode service (Evidence → full hydrated entry)
+Status: PASS
+Iteration: 3
+
+What was built:
+- Created new read_service.py module providing locate→read bridge
+- Implemented expand_evidence_to_entry() for EvidenceCard/EvidenceSpan → CorpusEntry expansion
+- Added convenience wrapper expand_span_to_entry() for span-specific expansion
+- Comprehensive test suite demonstrating deterministic evidence expansion
+
+Files changed:
+- backend/retrieval/read_service.py - New module with evidence expansion functions
+- backend/retrieval/test_read_service.py - Complete test suite (5 tests)
+
+Key decisions:
+- Kept read service architecturally separate from lanes (lanes = lightweight locators, read service = heavy hydration)
+- Consumer controls when to pay hydration cost (opt-in expansion)
+- Safe failure modes: returns None for missing/invalid entries rather than crashing
+- Simple, focused API: takes evidence + corpus provider, returns entry
+
+Tests added:
+- test_expand_evidence_card_to_full_entry: Card → full CorpusEntry
+- test_expand_evidence_span_to_full_entry: Span → full CorpusEntry
+- test_expand_evidence_missing_entry_returns_none: Safe failure for missing entries
+- test_expand_evidence_empty_card_returns_none: Edge case handling
+- test_read_service_is_separate_from_lanes: Validates architectural separation
+
+Notes:
+- Clean separation of concerns: lanes stay fast (locators only), read service does hydration on demand
+- API is minimal and explicit as per PRD guidance
+- Selector-based windows deferred as noted in PRD (can be follow-up story)
+

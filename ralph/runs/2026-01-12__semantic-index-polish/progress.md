@@ -43,3 +43,19 @@ Notes:
   - Added comprehensive test (test_final_segments_metadata_has_full_corpus_entry_ref_fidelity) that builds fixture, queries, and verifies hydration works
   - All tests pass (30 tests)
 
+
+Iteration: 3
+Story: S3 Add explicit read-mode service (Evidence → full hydrated entry)
+Result: PASS
+Files changed:
+  - backend/retrieval/read_service.py (new)
+  - backend/retrieval/test_read_service.py (new)
+Commands run:
+  - /root/.local/bin/pytest -q backend/retrieval/test_read_service.py -v
+Notes:
+  - Created new read_service.py module with expand_evidence_to_entry() function
+  - Service takes EvidenceCard or EvidenceSpan and returns full hydrated CorpusEntry
+  - Maintains architectural separation: lanes are lightweight locators, read service does heavy hydration
+  - Added comprehensive tests (5 tests) covering normal flow, edge cases, and architectural separation
+  - All tests pass
+
