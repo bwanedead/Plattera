@@ -171,3 +171,39 @@ Notes:
 - STALE detection already existed (manifest mismatch), now consistent with other modes
 - UNAVAILABLE catches corrupt/incompatible index files without crashing
 
+
+## Story S6: Make update semantics provably safe (never reuse deleted labels; idempotent upsert)
+
+Status: ✅ Complete (Iteration 1)
+
+What was built:
+- Modified persistent_store.py upsert() to allocate NEW label on each update instead of reusing old label
+- Old labels are tombstoned in HNSW and never touched again (safe-by-design semantics)
+- Each update allocates a fresh label from get_next_label() (monotonically increasing)
+- Old label becomes orphaned in metadata (metadata row updates to point chunk_id to new label)
+- Deleted labels are filtered by hnswlib during queries (automatic tombstone filtering)
+
+Files changed:
+- backend/retrieval/lanes/semantic/persistent_store.py - Changed upsert() update path to allocate new label instead of reusing old label
+- backend/retrieval/lanes/semantic/test_persistent_store.py - Added test_update_never_reuses_deleted_labels()
+
+Key decisions:
+- Never reuse deleted labels: each update gets a fresh label, old label is tombstoned permanently
+- Eliminates reliance on questionable HNSW "mark_deleted then add_vector with same label" in-place replacement behavior
+- Labels are monotonically increasing (get_next_label returns MAX(label) + 1)
+- Orphaned labels (no metadata row) are safe: hnswlib filters deleted labels during queries, and query() has None check
+- Trade-off: HNSW index grows with each update (old vectors stay marked deleted), but gain safety and clarity
+
+Tests added:
+- test_update_never_reuses_deleted_labels(): Updates same chunk_id 10 times, verifies:
+  - All allocated labels are unique and monotonically increasing
+  - Chunk remains retrievable after each update (appears exactly once in results)
+  - No crashes during repeated update/query cycles
+  - Stats show correct counts (active chunks vs total vectors including tombstoned)
+
+Notes:
+- Safe-by-design: never rely on implicit HNSW label replacement behavior
+- Idempotent at public API: chunk_id appears at most once in query results regardless of update count
+- Update semantics are now provably safe and testable (label reuse would break monotonicity assertion)
+- Old labels remain in HNSW marked deleted but consume minimal space (just graph edges)
+

@@ -100,7 +100,7 @@
       "id": "S6",
       "title": "Make update semantics provably safe: never reuse deleted labels; idempotent upsert behavior",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Updating/reindexing the same chunk_id does not reuse deleted labels in the ANN index (new label allocated; old label tombstoned)",
         "Upserting the same chunk_id repeatedly is idempotent at the public API level (no duplicate public IDs in query results)",
