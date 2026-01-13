@@ -82,7 +82,7 @@
       "id": "S5",
       "title": "Make operational index failure modes explicit: missing vs unavailable/corrupt vs stale",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Lane distinguishes: index_not_initialized (files absent), index_unavailable (present but failed to load), and index_stale_needs_reindex (manifest mismatch)",
         "Each failure mode includes actionable debug/provenance fields (pool identifier and an error/category string)",

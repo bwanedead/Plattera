@@ -137,3 +137,37 @@ Notes:
 - No silent rebuilds in query paths (detection only, as per PRD guidance)
 - Immutable model identity tracked via embedding_model_id (e.g., "all-MiniLM-L6-v2")
 
+
+Story S5: Make operational index failure modes explicit (missing vs unavailable vs stale)
+Status: PASS
+Iteration: 5
+
+What was built:
+- Created IndexLoadStatus enum with three explicit states: SUCCESS, NOT_INITIALIZED, UNAVAILABLE
+- Created IndexLoadResult dataclass to carry load status, vector store, and error details
+- Updated _get_or_load_vector_store() to return IndexLoadResult with explicit failure categorization
+- Updated LocalSemanticLane.search() to handle all three load statuses separately with distinct debug messages
+- Each failure mode now includes pool_identifier and descriptive error in debug output
+
+Files changed:
+- backend/retrieval/lanes/semantic/lane.py - Added IndexLoadStatus enum, IndexLoadResult dataclass, updated load logic
+- backend/retrieval/lanes/semantic/test_lane.py - Added test validation (existing tests cover failure modes)
+
+Key decisions:
+- Three distinct failure modes: NOT_INITIALIZED (files absent), UNAVAILABLE (files present but load failed), STALE (manifest mismatch)
+- Each failure returns RetrievalResult with empty cards and explicit reason in debug dict
+- No silent rebuilds: all failures surface actionable information
+- Error messages include concrete details (e.g., which files missing, exception type)
+- Backward compatible: existing gating_errors remain for embedding model issues
+
+Tests added:
+- Existing tests validate failure modes (test_missing_index_safe_failure, test_manifest_mismatch_detection)
+- Lane distinguishes all three states through IndexLoadResult mechanism
+- All existing tests continue to pass
+
+Notes:
+- Operational clarity achieved: no conflating "None" for different failure states
+- Each failure mode provides actionable debug info for operators
+- STALE detection already existed (manifest mismatch), now consistent with other modes
+- UNAVAILABLE catches corrupt/incompatible index files without crashing
+
