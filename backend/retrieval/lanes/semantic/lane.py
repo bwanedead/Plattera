@@ -161,6 +161,9 @@ class LocalSemanticLane:
         vector_store = load_result.vector_store
         assert vector_store is not None, "SUCCESS status must have vector_store"
 
+        # Read manifest for provenance metadata (S8: embedding model id, chunking policy id)
+        manifest = read_manifest(pool_identifier=self.pool_identifier)
+
         # Query vector store
         try:
             hits = vector_store.query(vector=query_vector, k=limit)
@@ -207,12 +210,26 @@ class LocalSemanticLane:
                 metadata=selector_dict if selector else {},
             )
 
-            # Create EvidenceSpan with preview
+            # Build provenance metadata for this match (S8)
+            span_metadata = {
+                "pool_identifier": self.pool_identifier,
+                "distance": distance,
+                "similarity_score": 1.0 - distance,
+            }
+
+            # Add manifest provenance if available
+            if manifest is not None:
+                span_metadata["embedding_model_id"] = manifest.embedding_model_id
+                span_metadata["chunking_policy_id"] = manifest.chunking_policy_id
+                span_metadata["embedding_dim"] = manifest.embedding_dim
+
+            # Create EvidenceSpan with preview and provenance metadata
             span = EvidenceSpan(
                 entry=entry_ref,
                 text="",  # Text not stored in index; would need hydration
                 chunk=chunk_ref,
                 preview=metadata.preview,
+                metadata=span_metadata,
             )
 
             # Create EvidenceCard
