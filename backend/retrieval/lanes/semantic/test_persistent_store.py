@@ -1,0 +1,265 @@
+"""
+Tests for persistent vector store adapter.
+
+Validates:
+- Public API uses chunk_id (not labels)
+- Upsert idempotency (same chunk_id doesn't create duplicates)
+- Build → save → load → query round-trip
+- Tombstone/deletion integration
+"""
+
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from .persistent_store import create_persistent_store, load_persistent_store
+
+
+def test_create_and_upsert():
+    """Persistent store can be created and chunks can be upserted."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_db = Path(tmpdir) / "metadata.db"
+
+        store = create_persistent_store(
+            pool_identifier="FINAL_SEGMENTS",
+            embedding_dim=4,
+            metadata_db_path=metadata_db,
+        )
+
+        # Upsert a chunk
+        store.upsert(
+            chunk_id="chunk_abc123",
+            vector=[1.0, 0.0, 0.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_xyz",
+            selector_json='{"kind":"section","section_index":0}',
+        )
+
+        stats = store.get_stats()
+        assert stats["total_vectors"] == 1
+        assert stats["active_chunks"] == 1
+
+
+def test_query_returns_chunk_ids():
+    """Query returns chunk_id (not internal labels)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_db = Path(tmpdir) / "metadata.db"
+
+        store = create_persistent_store(
+            pool_identifier="FINAL_SEGMENTS",
+            embedding_dim=4,
+            metadata_db_path=metadata_db,
+        )
+
+        # Add chunks
+        store.upsert(
+            chunk_id="chunk_aaa",
+            vector=[1.0, 0.0, 0.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_1",
+            selector_json='{"kind":"section","section_index":0}',
+        )
+        store.upsert(
+            chunk_id="chunk_bbb",
+            vector=[0.0, 1.0, 0.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_2",
+            selector_json='{"kind":"section","section_index":1}',
+        )
+
+        # Query
+        results = store.query(vector=[1.0, 0.0, 0.0, 0.0], k=2)
+
+        # Should return chunk_ids (not labels)
+        assert len(results) == 2
+        chunk_ids = [chunk_id for chunk_id, _ in results]
+        assert "chunk_aaa" in chunk_ids
+        assert "chunk_bbb" in chunk_ids
+
+        # Top result should be chunk_aaa (closest to query)
+        assert results[0][0] == "chunk_aaa"
+
+
+def test_upsert_idempotent():
+    """Upserting same chunk_id twice doesn't create duplicate retrievable IDs."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_db = Path(tmpdir) / "metadata.db"
+
+        store = create_persistent_store(
+            pool_identifier="FINAL_SEGMENTS",
+            embedding_dim=4,
+            metadata_db_path=metadata_db,
+        )
+
+        # Add several chunks to ensure graph connectivity
+        for i in range(10):
+            vec = [0.0] * 4
+            vec[0] = 0.5 + (i * 0.05)
+            store.upsert(
+                chunk_id=f"chunk_filler_{i}",
+                vector=vec,
+                dossier_id="dossier_1",
+                entry_id=f"entry_{i}",
+                selector_json='{"kind":"section","section_index":0}',
+            )
+
+        # First upsert of target chunk
+        store.upsert(
+            chunk_id="chunk_stable",
+            vector=[1.0, 0.0, 0.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_1",
+            selector_json='{"kind":"section","section_index":0}',
+        )
+
+        # Second upsert with same chunk_id but different vector
+        store.upsert(
+            chunk_id="chunk_stable",
+            vector=[0.0, 1.0, 0.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_1",
+            selector_json='{"kind":"section","section_index":0}',
+        )
+
+        # Query in y direction (should match updated vector)
+        results_y = store.query(vector=[0.0, 1.0, 0.0, 0.0], k=10)
+        y_chunk_ids = [cid for cid, _ in results_y]
+
+        # chunk_stable should appear exactly once
+        assert y_chunk_ids.count("chunk_stable") == 1
+
+
+def test_save_load_round_trip():
+    """Index build → save → load → query returns chunk_id hits."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        metadata_db = tmpdir_path / "metadata.db"
+        hnsw_file = tmpdir_path / "hnsw.bin"
+
+        # Build index
+        store1 = create_persistent_store(
+            pool_identifier="FINAL_SEGMENTS",
+            embedding_dim=3,
+            metadata_db_path=metadata_db,
+        )
+
+        store1.upsert(
+            chunk_id="chunk_red",
+            vector=[1.0, 0.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_1",
+            selector_json='{"kind":"section","section_index":0}',
+        )
+        store1.upsert(
+            chunk_id="chunk_green",
+            vector=[0.0, 1.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_2",
+            selector_json='{"kind":"section","section_index":1}',
+        )
+
+        # Query before save
+        results1 = store1.query(vector=[1.0, 0.0, 0.0], k=2)
+        assert results1[0][0] == "chunk_red"
+
+        # Save
+        store1.save(hnsw_path=hnsw_file, metadata_path=metadata_db)
+
+        # Load into new store
+        store2 = load_persistent_store(
+            pool_identifier="FINAL_SEGMENTS",
+            embedding_dim=3,
+            hnsw_path=hnsw_file,
+            metadata_db_path=metadata_db,
+        )
+
+        # Query after load
+        results2 = store2.query(vector=[1.0, 0.0, 0.0], k=2)
+
+        # Should return same chunk_ids
+        assert results2[0][0] == "chunk_red"
+        assert len(results2) == 2
+
+
+def test_delete_slice():
+    """delete_slice tombstones all chunks for a dossier/pool."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_db = Path(tmpdir) / "metadata.db"
+
+        store = create_persistent_store(
+            pool_identifier="FINAL_SEGMENTS",
+            embedding_dim=3,
+            metadata_db_path=metadata_db,
+        )
+
+        # Add chunks for dossier_1
+        for i in range(5):
+            store.upsert(
+                chunk_id=f"chunk_d1_{i}",
+                vector=[1.0, 0.0, 0.0],
+                dossier_id="dossier_1",
+                entry_id=f"entry_{i}",
+                selector_json='{"kind":"section","section_index":0}',
+            )
+
+        # Delete dossier_1 slice
+        deleted_count = store.delete_slice(dossier_id="dossier_1")
+
+        # Verify delete_slice returned correct count
+        assert deleted_count == 5
+
+        # Verify metadata store has them marked as deleted
+        stats = store.get_stats()
+        assert stats["active_chunks"] == 0  # All marked deleted
+
+
+def test_query_skips_tombstoned_chunks():
+    """Query automatically filters out tombstoned/deleted chunks."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_db = Path(tmpdir) / "metadata.db"
+
+        store = create_persistent_store(
+            pool_identifier="FINAL_SEGMENTS",
+            embedding_dim=3,
+            metadata_db_path=metadata_db,
+            max_elements=100,
+        )
+
+        # Add chunks to dossier_1
+        for i in range(10):
+            vec = [0.0] * 3
+            vec[0] = 1.0 - (i * 0.05)
+            vec[1] = i * 0.05
+            store.upsert(
+                chunk_id=f"chunk_d1_{i}",
+                vector=vec,
+                dossier_id="dossier_1",
+                entry_id=f"entry_{i}",
+                selector_json='{"kind":"section","section_index":0}',
+            )
+
+        # Add many chunks to dossier_2 (won't be deleted - ensures graph connectivity)
+        for i in range(30):
+            vec = [0.0] * 3
+            vec[1] = 1.0 - (i * 0.02)
+            vec[2] = i * 0.02
+            store.upsert(
+                chunk_id=f"chunk_d2_{i}",
+                vector=vec,
+                dossier_id="dossier_2",
+                entry_id=f"entry_{i}",
+                selector_json='{"kind":"section","section_index":0}',
+            )
+
+        # Delete dossier_1 chunks (only 10 out of 40 total)
+        deleted = store.delete_slice(dossier_id="dossier_1")
+        assert deleted == 10
+
+        # Query should not return dossier_1 chunks (tombstoned)
+        results = store.query(vector=[1.0, 0.0, 0.0], k=20)
+        chunk_ids = [cid for cid, _ in results]
+
+        # No dossier_1 chunks should appear (they're tombstoned)
+        d1_chunks = [cid for cid in chunk_ids if cid.startswith("chunk_d1_")]
+        assert len(d1_chunks) == 0

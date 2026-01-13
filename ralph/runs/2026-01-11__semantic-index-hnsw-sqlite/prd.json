@@ -8,7 +8,7 @@
       "id": "S1",
       "title": "Add semantic index artifact manifest + path helpers (pool-scoped, deterministic)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "A manifest file can be written and read back deterministically (round-trip) for the semantic index pool",
         "Manifest includes (at minimum): pool/view identifier, embedding_dim, embedding model revision identifier, chunking policy identifier, and a schema version",
@@ -27,7 +27,7 @@
       "id": "S2",
       "title": "Implement SQLite VectorMetadataStore (chunk_id ↔ label, slice queries by dossier/view)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "VectorMetadataStore can initialize its schema in a new sqlite file",
         "Store supports: upsert chunk metadata, lookup by chunk_id, lookup by label, and list labels for (dossier_id, view/pool) to support replace-slice",
@@ -42,7 +42,7 @@
       "id": "S3",
       "title": "Implement HnswVectorStore wrapper (create/load/save, add, knn_query, mark_deleted)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "HnswVectorStore can create an index with a configured embedding_dim and persist it to disk",
         "After reload, knn_query returns the same top hit(s) for a deterministic small fixture",
@@ -57,7 +57,7 @@
       "id": "S4",
       "title": "Implement persistent VectorStore adapter using (HnswVectorStore + VectorMetadataStore) with chunk_id public IDs",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Existing semantic lane VectorStore public API continues to use chunk_id string IDs (no label leakage)",
         "Upserting the same chunk_id twice does not produce duplicate retrievable IDs (deterministic behavior, verified by pytest)",
@@ -72,7 +72,7 @@
       "id": "S5",
       "title": "Add SemanticIndexBuilder for FINAL_SEGMENTS (append-only indexing for one dossier) with deterministic test using stubs",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "A builder can index FINAL_SEGMENTS for a single dossier by enumerating corpus refs, chunking, embedding (stubbed), and writing to the persistent VectorStore",
         "A pytest builds an index for a small synthetic dossier fixture and verifies a query returns at least one expected chunk_id",
@@ -91,7 +91,7 @@
       "id": "S6",
       "title": "Add replace-slice per dossier/view (tombstone old labels, rebuild slice) + deterministic test",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Replace-slice deletes/tombstones all previously indexed labels for (dossier_id, FINAL_SEGMENTS) before inserting rebuilt vectors",
         "A pytest verifies that after replace-slice with changed content, stale hits no longer appear"
@@ -105,7 +105,7 @@
       "id": "S7",
       "title": "Wire semantic lane: query → vector hits → metadata → EvidenceCards (persistent index), with safe failure modes",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Semantic lane uses the persistent VectorStore for FINAL_SEGMENTS and returns EvidenceCards that include ref + selector for each hit",
         "If the index is missing/uninitialized, the lane returns a safe empty result with an explicit reason (no crash)",
@@ -120,7 +120,7 @@
       "id": "S8",
       "title": "Add manifest mismatch detection surfaced as explicit 'stale index / needs reindex' status (no silent auto-rebuild)",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "If runtime embedding dim/model revision or chunking policy differs from the persisted manifest, the system surfaces an explicit stale status",
         "Query does not silently rebuild the index when stale; it returns an explicit reason instead (verified by pytest)"

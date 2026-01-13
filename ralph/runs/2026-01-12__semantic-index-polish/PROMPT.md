@@ -1,4 +1,4 @@
-# PROMPT.md — Ralph Run: <run_id>
+# PROMPT.md — Ralph Run: 2026-01-12__semantic-index-polish
 
 You are an autonomous coding agent working in this repository under a Ralph Wiggum loop.
 
@@ -8,8 +8,8 @@ IMPORTANT: This exact prompt will be re-run repeatedly each iteration. You must 
 1) Read `CLAUDE.md` and obey it.
 2) Read the repo ethos/vision docs relevant to this change scope (even if referenced elsewhere). If unsure, start with `docs/ethos/*` and any vision/spec docs linked from there.
 3) Read `ralph/templates/HOW_RALPH_WORKS.md` (understand the loop mechanics).
-4) Read `ralph/runs/<run_id>/PRD.md`
-5) Read `ralph/runs/<run_id>/prd.json`
+4) Read `ralph/runs/2026-01-12__semantic-index-polish/PRD.md`
+5) Read `ralph/runs/2026-01-12__semantic-index-polish/prd.json`
 6) Read any `agents.md` files in directories you touch.
 
 ## Mission (loop behavior)
@@ -38,11 +38,11 @@ For the selected story:
 3) Add/update tests and/or verification commands so acceptance criteria are objectively verifiable.
 4) Run relevant checks when feasible:
    - Backend: `pytest` (or `python -m pytest`) for Python code.
-5) Commit with: `Ralph <run_id>: <story id> <story title>`
-6) Update `ralph/runs/<run_id>/prd.json`:
+5) Commit with: `Ralph 2026-01-12__semantic-index-polish: <story id> <story title>`
+6) Update `ralph/runs/2026-01-12__semantic-index-polish/prd.json`:
    - set that story `"passes": true` ONLY if acceptance criteria are satisfied
-7) Append to `ralph/runs/<run_id>/progress.md` (format below)
-8) Append to `ralph/runs/<run_id>/SUMMARY.md` (format below)
+7) Append to `ralph/runs/2026-01-12__semantic-index-polish/progress.md` (format below)
+8) Append to `ralph/runs/2026-01-12__semantic-index-polish/SUMMARY.md` (format below)
 9) (Optional) Consider local `agents.md` enrichment:
    - For each directory you edited, check if a local `agents.md` exists
    - If you discovered a gotcha, invariant, required workflow, or sharp edge that would help future agents working in that area, create/update the folder-level `agents.md` using the repo’s standard template (see root `AGENTS.md` section 4)
@@ -94,5 +94,6 @@ When ALL stories in `prd.json` are `"passes": true`, output exactly:
 <promise>TASK COMPLETE</promise>
 
 Do not output the promise unless the run is genuinely complete.
+
 
 

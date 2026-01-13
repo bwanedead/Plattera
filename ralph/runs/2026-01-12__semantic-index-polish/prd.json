@@ -1,0 +1,156 @@
+{
+  "run_id": "2026-01-12__semantic-index-polish",
+  "title": "Semantic Index Polish — Readable Hits, Deterministic Read, Truthful State",
+  "repo_context": "Close the semantic indexing yellow-zone: preview excerpts + provenance trace, deterministic locate→read expansion, truthful manifest/model identity, explicit failure modes, safe update semantics, and reliable persistence tests.",
+  "global_verification": ["python -m pytest -q"],
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Add deterministic preview excerpt to semantic hits (store + return)",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Semantic hits include a non-empty preview/excerpt field suitable for triage (deterministic for the same chunk)",
+        "Preview is persisted in the semantic metadata store (so it works across restarts)",
+        "A pytest indexes a small fixture and asserts semantic lane evidence contains non-empty preview for returned hits"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": [],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/*",
+        "backend/retrieval/**/test_*.py"
+      ],
+      "notes": "Preview is for triage/debug, not final answer context. Keep it small and deterministic."
+    },
+    {
+      "id": "S2",
+      "title": "Ensure FINAL_SEGMENTS hit metadata has full CorpusEntryRef fidelity (hydrateable)",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Semantic hit metadata can reconstruct a fully-populated CorpusEntryRef for FINAL_SEGMENTS (includes required ids such as segment_id and draft_id)",
+        "A pytest demonstrates that hydrating the returned ref yields non-empty entry text (fixture-based; no external server dependency)",
+        "No 'unimplemented_hydration' is returned for FINAL_SEGMENTS hits in the fixture case"
+      ],
+      "verification_commands": ["python -m pytest -q backend/corpus/ backend/retrieval/"],
+      "depends_on": ["S1"],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/*",
+        "backend/corpus/*",
+        "backend/**/test_*.py"
+      ],
+      "notes": "Prefer storing the needed ref fields in SQLite (or a canonical serialized ref blob) so the lane can reconstruct faithfully."
+    },
+    {
+      "id": "S3",
+      "title": "Add explicit read-mode service: Evidence → full hydrated entry (locate→read bridge)",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "A new read-mode helper/service exists that takes a semantic hit/evidence reference and returns the full hydrated parent CorpusEntry",
+        "Read-mode is separate from the semantic lane (lane stays locator; read does heavy hydration)",
+        "A pytest shows a semantic result can be expanded to full text deterministically via the read service"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S2"],
+      "files_expected": [
+        "backend/retrieval/**",
+        "backend/retrieval/**/test_*.py",
+        "backend/corpus/*"
+      ],
+      "notes": "Keep this API small and explicit. It can initially hydrate full parent entry; selector-based windows can be a follow-up story if needed."
+    },
+    {
+      "id": "S4",
+      "title": "Make manifest truth real: builder writes/updates manifest on successful build; lane compares correctly",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Successful index build writes/updates manifest.json for the pool (verified by pytest fixture build)",
+        "Manifest includes unambiguous model identity (human-readable model id + immutable revision/fingerprint) and embedding_dim + policy id",
+        "Lane detects manifest mismatch and returns explicit stale status without rebuilding on query"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/lanes/semantic/"],
+      "depends_on": ["S3"],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/*",
+        "backend/retrieval/lanes/semantic/test_*.py"
+      ],
+      "notes": "Do not trigger silent rebuilds in query paths; surface 'stale / needs reindex'."
+    },
+    {
+      "id": "S5",
+      "title": "Make operational index failure modes explicit: missing vs unavailable/corrupt vs stale",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Lane distinguishes: index_not_initialized (files absent), index_unavailable (present but failed to load), and index_stale_needs_reindex (manifest mismatch)",
+        "Each failure mode includes actionable debug/provenance fields (pool identifier and an error/category string)",
+        "A pytest creates these states via temp directories (missing files, corrupt sqlite, mismatched manifest) and asserts the correct status"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/lanes/semantic/"],
+      "depends_on": ["S4"],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/*",
+        "backend/retrieval/lanes/semantic/test_*.py"
+      ],
+      "notes": "This is about operational clarity; avoid conflating states into a single 'None'."
+    },
+    {
+      "id": "S6",
+      "title": "Make update semantics provably safe: never reuse deleted labels; idempotent upsert behavior",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Updating/reindexing the same chunk_id does not reuse deleted labels in the ANN index (new label allocated; old label tombstoned)",
+        "Upserting the same chunk_id repeatedly is idempotent at the public API level (no duplicate public IDs in query results)",
+        "A pytest runs a loop of N updates and queries and asserts integrity (no crashes; expected hit remains retrievable)"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/lanes/semantic/"],
+      "depends_on": ["S5"],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/*",
+        "backend/retrieval/lanes/semantic/test_*.py"
+      ],
+      "notes": "Choose safe-by-design semantics rather than relying on questionable in-place replacement behavior."
+    },
+    {
+      "id": "S7",
+      "title": "Make persistence tests reliable: isolate HNSW integration tests if needed (no permanent ignores)",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "No guidance in-repo suggests permanently ignoring persistence tests to avoid crashes",
+        "If isolation is needed, HNSW integration tests are explicitly marked and runnable in a separate pytest invocation",
+        "Project docs/commands include how to run both the normal suite and the isolated HNSW suite deterministically"
+      ],
+      "verification_commands": [],
+      "depends_on": ["S6"],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/test_*.py",
+        "docs/*",
+        "backend/**/agents.md"
+      ],
+      "notes": "CI wiring may be out of scope if no CI config exists; focus on a reliable local strategy and clear commands."
+    },
+    {
+      "id": "S8",
+      "title": "Standardize 'why this matched' trace in semantic evidence (score + policy + pool + model identity)",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "Each semantic evidence item includes structured debug/provenance fields: pool identifier, similarity score/distance, chunking policy id, and embedding model identity",
+        "A pytest asserts these fields are present and stable for a deterministic fixture"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S6"],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/*",
+        "backend/retrieval/**/test_*.py"
+      ],
+      "notes": "Keep trace minimal but sufficient for tuning and audit."
+    }
+  ]
+}
+
+

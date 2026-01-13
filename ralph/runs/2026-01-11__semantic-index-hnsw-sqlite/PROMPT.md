@@ -10,7 +10,7 @@ IMPORTANT: This exact prompt will be re-run repeatedly each iteration. You must 
 3) Read `ralph/templates/HOW_RALPH_WORKS.md` (understand the loop mechanics).
 4) Read `ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/PRD.md`
 5) Read `ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/prd.json`
-6) Read any `agents.md` files in directories you touch (and create/update them if you learn durable constraints).
+6) Read any `agents.md` files in directories you touch.
 
 ## Mission (loop behavior)
 Each iteration:
@@ -35,7 +35,6 @@ For the selected story:
    - Confirm you preserved stated constraints/invariants (PRD, agents.md, existing contracts).
    - Confirm the change is structurally sound: clear module boundaries, no dumping grounds, no tight coupling.
    - Confirm anything that must be durable is persisted (not left only in ephemeral state).
-   - If you discovered a durable local constraint or footgun, note it for `agents.md`.
 3) Add/update tests and/or verification commands so acceptance criteria are objectively verifiable.
 4) Run relevant checks when feasible:
    - Backend: `pytest` (or `python -m pytest`) for Python code.
@@ -43,10 +42,15 @@ For the selected story:
 6) Update `ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/prd.json`:
    - set that story `"passes": true` ONLY if acceptance criteria are satisfied
 7) Append to `ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/progress.md` (format below)
-8) If you learn a durable local rule, create/update a folder-level `agents.md` using the repo’s standard template (keep it short).
+8) Append to `ralph/runs/2026-01-11__semantic-index-hnsw-sqlite/SUMMARY.md` (format below)
+9) (Optional) Consider local `agents.md` enrichment:
+   - For each directory you edited, check if a local `agents.md` exists
+   - If you discovered a gotcha, invariant, required workflow, or sharp edge that would help future agents working in that area, create/update the folder-level `agents.md` using the repo’s standard template (see root `AGENTS.md` section 4)
+   - Only do this if there's genuinely useful information to capture (don't spam empty files)
+   - Keep it short (~30-50 lines) and factual
 
 ## Progress log format (append)
-Append exactly this shape:
+Append exactly this shape to `progress.md`:
 
 - Iteration: <n or unknown>
 - Story: <S#> <title>
@@ -55,6 +59,34 @@ Append exactly this shape:
 - Commands run: <list>
 - Notes:
   - <bullets>
+
+---
+
+## Summary format (append)
+Append exactly this shape to `SUMMARY.md`:
+
+---
+
+## Story S<#>: <title>
+**Status:** PASS|FAIL
+**Iteration:** <n>
+
+### What was built
+- <bullet: concrete deliverable>
+- <bullet: concrete deliverable>
+
+### Files changed
+- `<path>` - <what changed>
+- `<path>` - <what changed>
+
+### Key decisions
+- <bullet: architectural choice or tradeoff>
+
+### Tests added
+- <count> new tests in `<path>`
+
+### Notes
+- <bullet: anything notable for future maintainers>
 
 ## Completion promise (required)
 When ALL stories in `prd.json` are `"passes": true`, output exactly:
