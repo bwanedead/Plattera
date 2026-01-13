@@ -150,6 +150,8 @@ class SemanticIndexBuilder:
                             entry_id=ref.entry_id,
                             selector_json=json.dumps(chunk.selector.to_dict()),
                             preview=preview,
+                            segment_id=ref.segment_id,
+                            draft_id=ref.draft_id,
                         )
                         result.chunks_added += 1
                     except Exception as e:

@@ -43,6 +43,8 @@ class PersistentVectorStore:
         entry_id: str,
         selector_json: str,
         preview: Optional[str] = None,
+        segment_id: Optional[str] = None,
+        draft_id: Optional[str] = None,
     ) -> None:
         """
         Insert or update a chunk's vector.
@@ -56,6 +58,8 @@ class PersistentVectorStore:
             entry_id: Corpus entry identifier
             selector_json: JSON-serialized ChunkSelector
             preview: Short deterministic excerpt for triage (max ~200 chars)
+            segment_id: Segment identifier (for FINAL_SEGMENTS CorpusEntryRef)
+            draft_id: Draft identifier (for FINAL_SEGMENTS CorpusEntryRef)
         """
         # Check if chunk_id already exists
         existing_meta = self.metadata_store.lookup_by_chunk_id(chunk_id)
@@ -79,6 +83,8 @@ class PersistentVectorStore:
                 entry_id=entry_id,
                 selector_json=selector_json,
                 preview=preview,
+                segment_id=segment_id,
+                draft_id=draft_id,
                 is_deleted=False,
             )
             self.metadata_store.upsert_chunk(metadata)
@@ -98,6 +104,8 @@ class PersistentVectorStore:
                 entry_id=entry_id,
                 selector_json=selector_json,
                 preview=preview,
+                segment_id=segment_id,
+                draft_id=draft_id,
                 is_deleted=False,
             )
             self.metadata_store.upsert_chunk(metadata)

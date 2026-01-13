@@ -25,7 +25,7 @@ from typing import List, Optional, Tuple
 # Schema Version
 # -----------------------------------------------------------------------------
 
-METADATA_SCHEMA_VERSION = 2
+METADATA_SCHEMA_VERSION = 3
 
 
 # -----------------------------------------------------------------------------
@@ -46,6 +46,8 @@ class ChunkMetadata:
         entry_id: Corpus entry identifier
         selector_json: JSON-serialized ChunkSelector for reconstruction
         preview: Short deterministic excerpt for triage/debug (max ~200 chars)
+        segment_id: Segment identifier (for FINAL_SEGMENTS CorpusEntryRef reconstruction)
+        draft_id: Draft identifier (for FINAL_SEGMENTS CorpusEntryRef reconstruction)
         is_deleted: Tombstone flag (True = deleted, False = active)
     """
 
@@ -56,6 +58,8 @@ class ChunkMetadata:
     entry_id: str
     selector_json: str
     preview: Optional[str] = None
+    segment_id: Optional[str] = None
+    draft_id: Optional[str] = None
     is_deleted: bool = False
 
 
@@ -101,6 +105,8 @@ class VectorMetadataStore:
                     entry_id TEXT NOT NULL,
                     selector_json TEXT NOT NULL,
                     preview TEXT,
+                    segment_id TEXT,
+                    draft_id TEXT,
                     is_deleted INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
@@ -154,8 +160,8 @@ class VectorMetadataStore:
             cursor.execute(
                 """
                 INSERT INTO chunk_metadata
-                (chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, preview, is_deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, preview, segment_id, draft_id, is_deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(chunk_id) DO UPDATE SET
                     label = excluded.label,
                     dossier_id = excluded.dossier_id,
@@ -163,6 +169,8 @@ class VectorMetadataStore:
                     entry_id = excluded.entry_id,
                     selector_json = excluded.selector_json,
                     preview = excluded.preview,
+                    segment_id = excluded.segment_id,
+                    draft_id = excluded.draft_id,
                     is_deleted = excluded.is_deleted
                 """,
                 (
@@ -173,6 +181,8 @@ class VectorMetadataStore:
                     metadata.entry_id,
                     metadata.selector_json,
                     metadata.preview,
+                    metadata.segment_id,
+                    metadata.draft_id,
                     1 if metadata.is_deleted else 0,
                 ),
             )
@@ -195,7 +205,7 @@ class VectorMetadataStore:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, preview, is_deleted
+                SELECT chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, preview, segment_id, draft_id, is_deleted
                 FROM chunk_metadata
                 WHERE chunk_id = ?
                 """,
@@ -213,7 +223,9 @@ class VectorMetadataStore:
                 entry_id=row[4],
                 selector_json=row[5],
                 preview=row[6],
-                is_deleted=bool(row[7]),
+                segment_id=row[7],
+                draft_id=row[8],
+                is_deleted=bool(row[9]),
             )
         finally:
             conn.close()
@@ -233,7 +245,7 @@ class VectorMetadataStore:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, preview, is_deleted
+                SELECT chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, preview, segment_id, draft_id, is_deleted
                 FROM chunk_metadata
                 WHERE label = ?
                 """,
@@ -251,7 +263,9 @@ class VectorMetadataStore:
                 entry_id=row[4],
                 selector_json=row[5],
                 preview=row[6],
-                is_deleted=bool(row[7]),
+                segment_id=row[7],
+                draft_id=row[8],
+                is_deleted=bool(row[9]),
             )
         finally:
             conn.close()

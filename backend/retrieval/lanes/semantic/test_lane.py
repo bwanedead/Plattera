@@ -243,3 +243,172 @@ def test_semantic_hits_include_preview():
             assert len(metadata.preview) > 0, f"Preview should be non-empty for chunk {chunk_id}"
             # Preview should be deterministic (first N chars of the text)
             assert metadata.preview in test_text, f"Preview should be substring of source text"
+
+
+def test_final_segments_metadata_has_full_corpus_entry_ref_fidelity():
+    """
+    Test that FINAL_SEGMENTS hits can reconstruct fully-populated CorpusEntryRef.
+
+    Acceptance criteria for S2:
+    - Semantic hit metadata can reconstruct a fully-populated CorpusEntryRef for
+      FINAL_SEGMENTS (includes required ids such as segment_id and draft_id)
+    - A pytest demonstrates that hydrating the returned ref yields non-empty entry text
+    - No 'unimplemented_hydration' is returned for FINAL_SEGMENTS hits
+
+    This test builds a small index with segment_id and draft_id,
+    then verifies the returned ref can be hydrated successfully.
+    """
+    import hashlib
+    import tempfile
+    from pathlib import Path
+    from typing import Iterable, List, Optional, Set
+
+    from corpus.interfaces import CorpusProvider
+    from corpus.types import (
+        CorpusEntry,
+        CorpusEntryKind,
+        CorpusEntryRef,
+        CorpusView,
+    )
+
+    from .chunking import ChunkPolicy, Chunker
+    from .embeddings import EmbeddingProvider
+    from .index_builder import SemanticIndexBuilder
+    from .persistent_store import create_persistent_store
+
+    # Stub embedding provider
+    class StubEmbeddingProvider(EmbeddingProvider):
+        def __init__(self, dim: int = 4):
+            self.dim = dim
+
+        def embed(self, texts: List[str]) -> List[List[float]]:
+            return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
+
+    # Stub corpus provider that tracks hydration calls
+    class StubCorpusProvider(CorpusProvider):
+        def __init__(self, entries: List[CorpusEntry]):
+            self.entries = entries
+            self.hydration_calls = []
+
+        def list_entry_refs(
+            self,
+            view: CorpusView,
+            *,
+            dossier_id: Optional[str] = None,
+            kinds: Optional[Set[CorpusEntryKind]] = None,
+        ) -> Iterable[CorpusEntryRef]:
+            for entry in self.entries:
+                if dossier_id and entry.ref.dossier_id != dossier_id:
+                    continue
+                if entry.ref.view != view:
+                    continue
+                if kinds and entry.ref.kind not in kinds:
+                    continue
+                yield entry.ref
+
+        def hydrate_entry(self, ref: CorpusEntryRef) -> CorpusEntry:
+            self.hydration_calls.append(ref)
+            for entry in self.entries:
+                if (
+                    entry.ref.entry_id == ref.entry_id
+                    and entry.ref.segment_id == ref.segment_id
+                    and entry.ref.draft_id == ref.draft_id
+                ):
+                    return entry
+            raise ValueError(f"Entry not found: {ref.entry_id} (segment={ref.segment_id}, draft={ref.draft_id})")
+
+    # Create temporary directory for this test
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+
+        # Create synthetic corpus entry with FINAL_SEGMENTS fields
+        test_text = "This is a final segment text with segment_id and draft_id for hydration testing."
+        ref = CorpusEntryRef(
+            view=CorpusView.FINAL_SEGMENTS,
+            entry_id="seg_hydrate_test",
+            kind=CorpusEntryKind.SEGMENT_FINAL_TEXT,
+            dossier_id="test_dossier_hydrate",
+            segment_id="seg_123",
+            draft_id="draft_456",
+        )
+        entry = CorpusEntry(
+            ref=ref,
+            text=test_text,
+            content_hash=hashlib.sha256(test_text.encode()).hexdigest(),
+        )
+
+        # Create providers and builder
+        corpus = StubCorpusProvider(entries=[entry])
+        embedder = StubEmbeddingProvider(dim=4)
+        chunker = Chunker()
+        policy = ChunkPolicy(
+            policy_id="test_hydrate_v1",
+            max_chars_per_chunk=500,
+            min_chars=10,
+        )
+
+        # Create persistent vector store
+        hnsw_path = tmpdir_path / "test_hydrate.hnsw"
+        metadata_path = tmpdir_path / "test_hydrate.db"
+
+        vector_store = create_persistent_store(
+            pool_identifier="TEST_HYDRATE_POOL",
+            embedding_dim=4,
+            metadata_db_path=metadata_path,
+            max_elements=100,
+        )
+
+        # Build index
+        builder = SemanticIndexBuilder(
+            corpus_provider=corpus,
+            embedding_provider=embedder,
+            chunker=chunker,
+            chunk_policy=policy,
+        )
+
+        result = builder.build_index_for_dossier(
+            vector_store=vector_store,
+            dossier_id="test_dossier_hydrate",
+            view=CorpusView.FINAL_SEGMENTS,
+        )
+
+        # Verify index was built
+        assert result.chunks_added > 0, "Should have indexed at least one chunk"
+        assert result.errors == [], f"Build should succeed without errors: {result.errors}"
+
+        # Query the index and verify metadata has full ref fields
+        query_vector = [1.0, 0.0, 0.0, 0.0]
+        hits = vector_store.query(vector=query_vector, k=5)
+
+        assert len(hits) > 0, "Should return at least one hit"
+
+        # Verify metadata has segment_id and draft_id
+        for chunk_id, distance in hits:
+            metadata = vector_store.metadata_store.lookup_by_chunk_id(chunk_id)
+            assert metadata is not None, f"Metadata should exist for chunk {chunk_id}"
+            assert metadata.segment_id == "seg_123", f"segment_id should be preserved"
+            assert metadata.draft_id == "draft_456", f"draft_id should be preserved"
+            assert metadata.entry_id == "seg_hydrate_test", f"entry_id should match"
+            assert metadata.dossier_id == "test_dossier_hydrate", f"dossier_id should match"
+
+            # Reconstruct CorpusEntryRef from metadata (simulating LocalSemanticLane)
+            reconstructed_ref = CorpusEntryRef(
+                view=CorpusView.FINAL_SEGMENTS,
+                entry_id=metadata.entry_id,
+                kind=CorpusEntryKind.SEGMENT_FINAL_TEXT,
+                dossier_id=metadata.dossier_id,
+                segment_id=metadata.segment_id,
+                draft_id=metadata.draft_id,
+            )
+
+            # Hydrate the entry using the reconstructed ref
+            hydrated_entry = corpus.hydrate_entry(reconstructed_ref)
+            assert hydrated_entry is not None, "Hydration should succeed"
+            assert hydrated_entry.text == test_text, "Hydrated text should match original"
+            assert len(hydrated_entry.text) > 0, "Hydrated text should be non-empty"
+
+        # Verify hydration was called with full ref
+        assert len(corpus.hydration_calls) > 0, "Hydration should have been called"
+        hydrated_ref = corpus.hydration_calls[0]
+        assert hydrated_ref.segment_id == "seg_123", "Hydration ref should have segment_id"
+        assert hydrated_ref.draft_id == "draft_456", "Hydration ref should have draft_id"
