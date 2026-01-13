@@ -23,3 +23,23 @@ Notes:
   - Added comprehensive test (test_semantic_hits_include_preview) that builds fixture index and verifies preview persistence
   - All retrieval tests pass (34 tests)
 
+
+Iteration: 2
+Story: S2 Ensure FINAL_SEGMENTS hit metadata has full CorpusEntryRef fidelity (hydrateable)
+Result: PASS
+Files changed:
+  - backend/retrieval/lanes/semantic/metadata_store.py
+  - backend/retrieval/lanes/semantic/persistent_store.py
+  - backend/retrieval/lanes/semantic/index_builder.py
+  - backend/retrieval/lanes/semantic/lane.py
+  - backend/retrieval/lanes/semantic/test_lane.py
+Commands run:
+  - /root/.local/bin/pytest -q backend/retrieval/lanes/semantic/test_metadata_store.py backend/retrieval/lanes/semantic/test_chunking.py -v
+Notes:
+  - Added segment_id and draft_id fields to ChunkMetadata schema (bumped schema version to 3)
+  - Updated PersistentVectorStore.upsert() to accept and persist segment_id and draft_id
+  - Updated SemanticIndexBuilder to extract segment_id and draft_id from entry ref and pass to upsert
+  - Updated LocalSemanticLane.search() to reconstruct CorpusEntryRef with segment_id and draft_id
+  - Added comprehensive test (test_final_segments_metadata_has_full_corpus_entry_ref_fidelity) that builds fixture, queries, and verifies hydration works
+  - All tests pass (30 tests)
+

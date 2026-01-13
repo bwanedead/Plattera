@@ -26,7 +26,7 @@
       "id": "S2",
       "title": "Ensure FINAL_SEGMENTS hit metadata has full CorpusEntryRef fidelity (hydrateable)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Semantic hit metadata can reconstruct a fully-populated CorpusEntryRef for FINAL_SEGMENTS (includes required ids such as segment_id and draft_id)",
         "A pytest demonstrates that hydrating the returned ref yields non-empty entry text (fixture-based; no external server dependency)",

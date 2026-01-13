@@ -38,3 +38,36 @@ Notes:
 - Preview is small (~200 chars) and deterministic for the same chunk
 - Implementation follows repo ethos: robust, weight-bearing, mechanically clear
 
+
+Story S2: Ensure FINAL_SEGMENTS hit metadata has full CorpusEntryRef fidelity (hydrateable)
+Status: PASS
+Iteration: 2
+
+What was built:
+- Extended ChunkMetadata to include segment_id and draft_id for full CorpusEntryRef reconstruction
+- Updated entire indexing and query chain to preserve and reconstruct segment_id and draft_id
+- Added test demonstrating successful hydration of FINAL_SEGMENTS entries from semantic hits
+- Ensured no "unimplemented_hydration" errors for FINAL_SEGMENTS view
+
+Files changed:
+- backend/retrieval/lanes/semantic/metadata_store.py - Added segment_id and draft_id to ChunkMetadata and SQLite schema (bumped to version 3)
+- backend/retrieval/lanes/semantic/persistent_store.py - Added segment_id and draft_id parameters to upsert()
+- backend/retrieval/lanes/semantic/index_builder.py - Extract and pass segment_id and draft_id from entry ref
+- backend/retrieval/lanes/semantic/lane.py - Reconstruct CorpusEntryRef with segment_id and draft_id for full fidelity
+- backend/retrieval/lanes/semantic/test_lane.py - Added test_final_segments_metadata_has_full_corpus_entry_ref_fidelity
+
+Key decisions:
+- Store segment_id and draft_id as separate optional fields in SQLite for clarity and query capability
+- Pass ref fields through the entire chain (builder → store → lane) rather than serializing full ref as blob
+- Schema version bumped to 3 to reflect new columns
+- All fields remain Optional[str] for backward compatibility with other views
+
+Tests added:
+- test_final_segments_metadata_has_full_corpus_entry_ref_fidelity: Builds fixture with segment_id/draft_id, queries index, reconstructs ref, and verifies successful hydration
+- All existing tests continue to pass
+
+Notes:
+- FINAL_SEGMENTS entries can now be deterministically hydrated from semantic lane results
+- CorpusEntryRef reconstruction is faithful to original entry ref used during indexing
+- No changes to other corpus views or entry kinds (remains backward compatible)
+
