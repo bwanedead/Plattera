@@ -8,7 +8,7 @@
       "id": "S1",
       "title": "Add deterministic preview excerpt to semantic hits (store + return)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Semantic hits include a non-empty preview/excerpt field suitable for triage (deterministic for the same chunk)",
         "Preview is persisted in the semantic metadata store (so it works across restarts)",
