@@ -138,12 +138,18 @@ class SemanticIndexBuilder:
                 # Upsert to vector store
                 for chunk, embedding in zip(chunks, embeddings):
                     try:
+                        # Generate preview: use snippet_hint if available, else first 200 chars of text
+                        preview = chunk.snippet_hint
+                        if preview is None and chunk.text:
+                            preview = chunk.text[:200].strip()
+
                         vector_store.upsert(
                             chunk_id=chunk.chunk_id,
                             vector=embedding,
                             dossier_id=dossier_id,
                             entry_id=ref.entry_id,
                             selector_json=json.dumps(chunk.selector.to_dict()),
+                            preview=preview,
                         )
                         result.chunks_added += 1
                     except Exception as e:

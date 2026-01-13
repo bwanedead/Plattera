@@ -171,11 +171,12 @@ class LocalSemanticLane:
                 metadata=selector_dict if selector else {},
             )
 
-            # Create EvidenceSpan
+            # Create EvidenceSpan with preview
             span = EvidenceSpan(
                 entry=entry_ref,
                 text="",  # Text not stored in index; would need hydration
                 chunk=chunk_ref,
+                preview=metadata.preview,
             )
 
             # Create EvidenceCard

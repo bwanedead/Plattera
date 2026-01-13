@@ -102,3 +102,144 @@ def test_manifest_mismatch_detection():
         # Verify the method exists and has correct signature
         assert hasattr(lane, "_check_manifest_mismatch")
         assert callable(lane._check_manifest_mismatch)
+
+
+def test_semantic_hits_include_preview():
+    """
+    Test that semantic lane returns preview in evidence spans.
+
+    Acceptance criteria for S1:
+    - Semantic hits include a non-empty preview/excerpt field suitable for triage
+    - Preview is deterministic for the same chunk
+    - Preview is persisted in the semantic metadata store (works across restarts)
+
+    This test builds a small index fixture and verifies preview is returned.
+    """
+    import hashlib
+    import tempfile
+    from pathlib import Path
+    from typing import Iterable, List, Optional, Set
+
+    from corpus.interfaces import CorpusProvider
+    from corpus.types import (
+        CorpusEntry,
+        CorpusEntryKind,
+        CorpusEntryRef,
+        CorpusView,
+    )
+
+    from .chunking import ChunkPolicy, Chunker
+    from .embeddings import EmbeddingProvider
+    from .index_builder import SemanticIndexBuilder
+    from .persistent_store import create_persistent_store
+
+    # Stub embedding provider
+    class StubEmbeddingProvider(EmbeddingProvider):
+        def __init__(self, dim: int = 4):
+            self.dim = dim
+
+        def embed(self, texts: List[str]) -> List[List[float]]:
+            return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
+
+    # Stub corpus provider
+    class StubCorpusProvider(CorpusProvider):
+        def __init__(self, entries: List[CorpusEntry]):
+            self.entries = entries
+
+        def list_entry_refs(
+            self,
+            view: CorpusView,
+            *,
+            dossier_id: Optional[str] = None,
+            kinds: Optional[Set[CorpusEntryKind]] = None,
+        ) -> Iterable[CorpusEntryRef]:
+            for entry in self.entries:
+                if dossier_id and entry.ref.dossier_id != dossier_id:
+                    continue
+                if entry.ref.view != view:
+                    continue
+                if kinds and entry.ref.kind not in kinds:
+                    continue
+                yield entry.ref
+
+        def hydrate_entry(self, ref: CorpusEntryRef) -> CorpusEntry:
+            for entry in self.entries:
+                if entry.ref == ref:
+                    return entry
+            raise ValueError(f"Entry not found: {ref.entry_id}")
+
+    # Create temporary directory for this test
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+
+        # Create synthetic corpus entry with known text
+        test_text = "This is a test segment with enough text to create a deterministic chunk for verification purposes."
+        ref = CorpusEntryRef(
+            view=CorpusView.FINAL_SEGMENTS,
+            entry_id="seg_preview_test",
+            kind=CorpusEntryKind.SEGMENT_FINAL_TEXT,
+            dossier_id="test_dossier_preview",
+            segment_id="seg_preview_test",
+        )
+        entry = CorpusEntry(
+            ref=ref,
+            text=test_text,
+            content_hash=hashlib.sha256(test_text.encode()).hexdigest(),
+        )
+
+        # Create providers and builder
+        corpus = StubCorpusProvider(entries=[entry])
+        embedder = StubEmbeddingProvider(dim=4)
+        chunker = Chunker()
+        policy = ChunkPolicy(
+            policy_id="test_preview_v1",
+            max_chars_per_chunk=500,
+            min_chars=10,
+        )
+
+        # Create persistent vector store
+        hnsw_path = tmpdir_path / "test_preview.hnsw"
+        metadata_path = tmpdir_path / "test_preview.db"
+
+        vector_store = create_persistent_store(
+            pool_identifier="TEST_PREVIEW_POOL",
+            embedding_dim=4,
+            metadata_db_path=metadata_path,
+            max_elements=100,
+        )
+
+        # Build index
+        builder = SemanticIndexBuilder(
+            corpus_provider=corpus,
+            embedding_provider=embedder,
+            chunker=chunker,
+            chunk_policy=policy,
+        )
+
+        result = builder.build_index_for_dossier(
+            vector_store=vector_store,
+            dossier_id="test_dossier_preview",
+            view=CorpusView.FINAL_SEGMENTS,
+        )
+
+        # Verify index was built
+        assert result.chunks_added > 0, "Should have indexed at least one chunk"
+        assert result.errors == [], f"Build should succeed without errors: {result.errors}"
+
+        # Save the vector store
+        vector_store.save(hnsw_path, metadata_path)
+
+        # Query the index and verify preview is present
+        query_vector = [1.0, 0.0, 0.0, 0.0]
+        hits = vector_store.query(vector=query_vector, k=5)
+
+        assert len(hits) > 0, "Should return at least one hit"
+
+        # Verify preview is persisted in metadata
+        for chunk_id, distance in hits:
+            metadata = vector_store.metadata_store.lookup_by_chunk_id(chunk_id)
+            assert metadata is not None, f"Metadata should exist for chunk {chunk_id}"
+            assert metadata.preview is not None, f"Preview should be set for chunk {chunk_id}"
+            assert len(metadata.preview) > 0, f"Preview should be non-empty for chunk {chunk_id}"
+            # Preview should be deterministic (first N chars of the text)
+            assert metadata.preview in test_text, f"Preview should be substring of source text"

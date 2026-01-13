@@ -25,7 +25,7 @@ from typing import List, Optional, Tuple
 # Schema Version
 # -----------------------------------------------------------------------------
 
-METADATA_SCHEMA_VERSION = 1
+METADATA_SCHEMA_VERSION = 2
 
 
 # -----------------------------------------------------------------------------
@@ -45,6 +45,7 @@ class ChunkMetadata:
         pool_identifier: Pool/view this chunk belongs to (e.g., "FINAL_SEGMENTS")
         entry_id: Corpus entry identifier
         selector_json: JSON-serialized ChunkSelector for reconstruction
+        preview: Short deterministic excerpt for triage/debug (max ~200 chars)
         is_deleted: Tombstone flag (True = deleted, False = active)
     """
 
@@ -54,6 +55,7 @@ class ChunkMetadata:
     pool_identifier: str
     entry_id: str
     selector_json: str
+    preview: Optional[str] = None
     is_deleted: bool = False
 
 
@@ -98,6 +100,7 @@ class VectorMetadataStore:
                     pool_identifier TEXT NOT NULL,
                     entry_id TEXT NOT NULL,
                     selector_json TEXT NOT NULL,
+                    preview TEXT,
                     is_deleted INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
@@ -151,14 +154,15 @@ class VectorMetadataStore:
             cursor.execute(
                 """
                 INSERT INTO chunk_metadata
-                (chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, is_deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, preview, is_deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(chunk_id) DO UPDATE SET
                     label = excluded.label,
                     dossier_id = excluded.dossier_id,
                     pool_identifier = excluded.pool_identifier,
                     entry_id = excluded.entry_id,
                     selector_json = excluded.selector_json,
+                    preview = excluded.preview,
                     is_deleted = excluded.is_deleted
                 """,
                 (
@@ -168,6 +172,7 @@ class VectorMetadataStore:
                     metadata.pool_identifier,
                     metadata.entry_id,
                     metadata.selector_json,
+                    metadata.preview,
                     1 if metadata.is_deleted else 0,
                 ),
             )
@@ -190,7 +195,7 @@ class VectorMetadataStore:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, is_deleted
+                SELECT chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, preview, is_deleted
                 FROM chunk_metadata
                 WHERE chunk_id = ?
                 """,
@@ -207,7 +212,8 @@ class VectorMetadataStore:
                 pool_identifier=row[3],
                 entry_id=row[4],
                 selector_json=row[5],
-                is_deleted=bool(row[6]),
+                preview=row[6],
+                is_deleted=bool(row[7]),
             )
         finally:
             conn.close()
@@ -227,7 +233,7 @@ class VectorMetadataStore:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, is_deleted
+                SELECT chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, preview, is_deleted
                 FROM chunk_metadata
                 WHERE label = ?
                 """,
@@ -244,7 +250,8 @@ class VectorMetadataStore:
                 pool_identifier=row[3],
                 entry_id=row[4],
                 selector_json=row[5],
-                is_deleted=bool(row[6]),
+                preview=row[6],
+                is_deleted=bool(row[7]),
             )
         finally:
             conn.close()
