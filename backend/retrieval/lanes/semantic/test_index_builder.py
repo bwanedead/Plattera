@@ -220,6 +220,7 @@ def test_rebuild_slice_logic():
     # This ensures stale chunk_ids (from chunks_v1) are tombstoned and won't appear in queries
 
 
+@pytest.mark.hnsw
 def test_builder_writes_manifest_on_successful_build():
     """
     Test that builder writes manifest.json on successful build.
@@ -307,6 +308,7 @@ def test_builder_writes_manifest_on_successful_build():
         assert manifest.updated_at is not None
 
 
+@pytest.mark.hnsw
 def test_builder_skips_manifest_if_parameters_missing():
     """
     Test that builder gracefully skips manifest write if parameters are missing.

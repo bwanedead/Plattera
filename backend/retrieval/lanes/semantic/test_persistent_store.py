@@ -6,6 +6,10 @@ Validates:
 - Upsert idempotency (same chunk_id doesn't create duplicates)
 - Build → save → load → query round-trip
 - Tombstone/deletion integration
+
+All tests in this module require hnswlib and numpy dependencies.
+Run HNSW integration tests: pytest -m hnsw
+Run non-HNSW tests: pytest -m "not hnsw"
 """
 
 import tempfile
@@ -14,6 +18,9 @@ from pathlib import Path
 import pytest
 
 from .persistent_store import create_persistent_store, load_persistent_store
+
+# Mark all tests in this module as requiring HNSW
+pytestmark = pytest.mark.hnsw
 
 
 def test_create_and_upsert():

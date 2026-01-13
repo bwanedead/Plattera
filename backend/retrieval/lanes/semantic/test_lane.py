@@ -104,6 +104,7 @@ def test_manifest_mismatch_detection():
         assert callable(lane._check_manifest_mismatch)
 
 
+@pytest.mark.hnsw
 def test_semantic_hits_include_preview():
     """
     Test that semantic lane returns preview in evidence spans.
@@ -245,6 +246,7 @@ def test_semantic_hits_include_preview():
             assert metadata.preview in test_text, f"Preview should be substring of source text"
 
 
+@pytest.mark.hnsw
 def test_final_segments_metadata_has_full_corpus_entry_ref_fidelity():
     """
     Test that FINAL_SEGMENTS hits can reconstruct fully-populated CorpusEntryRef.
