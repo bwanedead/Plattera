@@ -65,19 +65,20 @@ class PersistentVectorStore:
         existing_meta = self.metadata_store.lookup_by_chunk_id(chunk_id)
 
         if existing_meta is not None:
-            # Update existing: reuse label
-            label = existing_meta.label
+            # Update existing: allocate NEW label, tombstone old (safe-by-design)
+            old_label = existing_meta.label
+            new_label = self.metadata_store.get_next_label()
 
-            # Mark old label as deleted (tombstone)
-            self.hnsw_store.mark_deleted(label)
+            # Tombstone old label in HNSW (never reuse deleted labels)
+            self.hnsw_store.mark_deleted(old_label)
 
-            # Add new vector with same label
-            self.hnsw_store.add_vector(label=label, vector=vector)
+            # Add new vector with NEW label
+            self.hnsw_store.add_vector(label=new_label, vector=vector)
 
-            # Update metadata (unmark deleted)
+            # Update metadata to point chunk_id to new label
             metadata = ChunkMetadata(
                 chunk_id=chunk_id,
-                label=label,
+                label=new_label,
                 dossier_id=dossier_id,
                 pool_identifier=self.pool_identifier,
                 entry_id=entry_id,
