@@ -187,11 +187,24 @@ class PersistentVectorStore:
         Get statistics about the vector store.
 
         Returns:
-            Dict with count statistics
+            Dict with:
+            - active_chunks: Number of active (non-deleted) chunks
+            - total_vectors: Total vectors in HNSW index (active + tombstoned)
+            - tombstoned_count: Number of tombstoned (deleted) chunks
+            - tombstone_ratio: Ratio of tombstoned to total (0.0-1.0)
+            - pool_identifier: Pool this store belongs to
         """
+        active_chunks = self.metadata_store.count_active_chunks()
+        tombstoned_count = self.metadata_store.count_tombstoned_chunks()
+        total_chunks = active_chunks + tombstoned_count
+        tombstone_ratio = tombstoned_count / total_chunks if total_chunks > 0 else 0.0
+
         return {
+            "active_chunks": active_chunks,
             "total_vectors": self.hnsw_store.get_current_count(),
-            "active_chunks": self.metadata_store.count_active_chunks(),
+            "tombstoned_count": tombstoned_count,
+            "tombstone_ratio": tombstone_ratio,
+            "pool_identifier": self.pool_identifier,
         }
 
 

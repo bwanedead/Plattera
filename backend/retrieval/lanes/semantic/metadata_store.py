@@ -340,6 +340,21 @@ class VectorMetadataStore:
         finally:
             conn.close()
 
+    def count_tombstoned_chunks(self) -> int:
+        """
+        Count tombstoned (deleted) chunks.
+
+        Returns:
+            Number of tombstoned chunks
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM chunk_metadata WHERE is_deleted = 1")
+            return cursor.fetchone()[0]
+        finally:
+            conn.close()
+
     def get_next_label(self) -> int:
         """
         Get the next available label value.

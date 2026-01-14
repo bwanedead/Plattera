@@ -371,3 +371,66 @@ def test_update_never_reuses_deleted_labels():
         stats = store.get_stats()
         assert stats["total_vectors"] == 31  # 20 filler + 11 target versions
         assert stats["active_chunks"] == 21  # 20 filler + 1 current target (10 old versions tombstoned)
+
+
+@pytest.mark.hnsw
+def test_get_stats():
+    """get_stats() returns accurate tombstone statistics."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        store = create_persistent_store(
+            pool_identifier="TEST_STATS_POOL",
+            embedding_dim=4,
+            hnsw_path=tmppath / "test.hnsw",
+            metadata_path=tmppath / "test.db",
+        )
+
+        # Initial state: empty
+        stats = store.get_stats()
+        assert stats["active_chunks"] == 0
+        assert stats["tombstoned_count"] == 0
+        assert stats["tombstone_ratio"] == 0.0
+        assert stats["pool_identifier"] == "TEST_STATS_POOL"
+        assert stats["total_vectors"] == 0
+
+        # Add 10 chunks
+        for i in range(10):
+            store.upsert(
+                chunk_id=f"chunk_{i}",
+                vector=[float(i), 0.0, 0.0, 0.0],
+                dossier_id="dossier_1",
+                entry_id=f"entry_{i}",
+                selector_json='{"type": "whole"}',
+            )
+
+        stats = store.get_stats()
+        assert stats["active_chunks"] == 10
+        assert stats["tombstoned_count"] == 0
+        assert stats["tombstone_ratio"] == 0.0
+        assert stats["total_vectors"] == 10
+
+        # Update 3 chunks (creates 3 tombstones)
+        for i in range(3):
+            store.upsert(
+                chunk_id=f"chunk_{i}",
+                vector=[float(i) + 1.0, 0.0, 0.0, 0.0],
+                dossier_id="dossier_1",
+                entry_id=f"entry_{i}",
+                selector_json='{"type": "whole"}',
+            )
+
+        stats = store.get_stats()
+        assert stats["active_chunks"] == 10  # Still 10 active chunks (updates don't increase count)
+        assert stats["tombstoned_count"] == 3  # 3 old versions tombstoned
+        assert stats["tombstone_ratio"] == 3 / 13  # 3 tombstoned out of 13 total
+        assert stats["total_vectors"] == 13  # 10 original + 3 updates
+
+        # Delete a slice (tombstone 10 chunks)
+        deleted_count = store.delete_slice(dossier_id="dossier_1")
+        assert deleted_count == 10
+
+        stats = store.get_stats()
+        assert stats["active_chunks"] == 0  # All chunks deleted
+        assert stats["tombstoned_count"] == 13  # All 13 vectors tombstoned (10 active + 3 old)
+        assert stats["tombstone_ratio"] == 1.0  # 100% tombstoned
+        assert stats["total_vectors"] == 13
