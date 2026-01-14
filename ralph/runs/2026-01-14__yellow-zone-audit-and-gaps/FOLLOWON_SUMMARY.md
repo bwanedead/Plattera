@@ -359,3 +359,89 @@ To rebuild:
 **Next phase ready:** Hybrid fusion, reranking, agent orchestration
 
 The semantic retrieval foundation is production-ready.
+
+---
+
+## Codex Follow-Up (Yellow-zone stats/compaction/test alignment)
+
+### What was addressed
+- Fixed test/API mismatch by aligning `create_persistent_store(...)` usage with the real signature (`metadata_db_path`, no `hnsw_path`/`metadata_path`).
+- Reframed tombstone stats to reflect vector-level truth:
+  - `tombstoned_vectors = total_vectors_in_hnsw - active_chunks`
+  - `deleted_chunks` now tracks `is_deleted=1` rows separately.
+- Made `compact()` safe and future-proof:
+  - Rebuilds metadata in a fresh SQLite DB to avoid `UNIQUE(label)` collisions.
+  - Preserves HNSW capacity (no shrink that would break future upserts).
+  - Rebuilds even when no active chunks remain (cleans tombstones fully).
+- Closed remaining test reliability gaps:
+  - Auto-resize HNSW on upsert to prevent capacity crashes during update churn.
+  - Fixed compaction test vectors to respect cosine normalization behavior.
+  - Added a shared test helper for semantic index root patching and repaired imports/assertions in non-HNSW tests.
+
+### Files updated
+  - `backend/retrieval/lanes/semantic/hnsw_store.py`
+    - Auto-resize when adding vectors would exceed capacity.
+  - `backend/retrieval/lanes/semantic/persistent_store.py`
+    - `get_stats()` now reports `tombstoned_vectors` and `deleted_chunks`; `tombstone_ratio` uses vector tombstones.
+    - `compact()` rebuilds metadata via a temp DB and preserves capacity.
+  - `backend/retrieval/lanes/semantic/metadata_store.py`
+    - Added `count_deleted_chunks()`; clarified `count_tombstoned_chunks()` as legacy alias.
+  - `backend/retrieval/lanes/semantic/test_persistent_store.py`
+    - Updated tests to match constructor API.
+    - Added tests for vector churn stats, compaction collision safety, and post-compaction growth.
+  - `backend/retrieval/lanes/semantic/test_metadata_store.py`
+    - Fixed schema mismatch setup to align with current table shape.
+  - `backend/retrieval/lanes/semantic/test_manifest.py`
+    - Uses shared semantic index root helper.
+  - `backend/retrieval/lanes/semantic/test_lane.py`
+    - Fixed imports, assertions, and explicit load-failure checks.
+  - `backend/retrieval/lanes/semantic/test_utils.py`
+    - New helper for patching semantic index root paths in tests.
+  - `backend/retrieval/lanes/semantic/agents.md`
+    - Updated compaction examples to use `tombstoned_vectors` and `deleted_chunks`.
+
+### Current state (post-fix)
+- Y1 (Test/API mismatch): RESOLVED
+- Y2 (Vector-level tombstone accounting): RESOLVED
+- Y3 (Compaction safety + capacity): RESOLVED
+
+### Tests
+- Ran in venv:
+  - `pytest backend/retrieval/lanes/semantic/ -m "not hnsw" -v`
+  - `pytest backend/retrieval/lanes/semantic/ -m hnsw -v`
+  - Result: both suites passed (warnings from Biopython deprecation only).
+
+---
+
+## Codex Follow-Up Round 2 (Test fixes + HNSW growth + compaction verification)
+
+### What was addressed
+- Auto-resized HNSW on add to prevent capacity crashes during update churn.
+- Adjusted compaction test vectors to be cosine-distinct and broadened k to assert retrievability.
+- Repaired non-HNSW tests via shared helper + fixed imports and assertions.
+- Updated schema mismatch test setup to reflect current metadata table shape.
+
+### Files updated
+- `backend/retrieval/lanes/semantic/hnsw_store.py`
+  - Added capacity checks that resize before adding new vectors.
+- `backend/retrieval/lanes/semantic/test_persistent_store.py`
+  - Compaction test now uses cosine-distinct vectors and k=10 for coverage.
+- `backend/retrieval/lanes/semantic/test_utils.py`
+  - Added helper for semantic index root patching.
+- `backend/retrieval/lanes/semantic/test_manifest.py`
+  - Uses shared semantic index root helper.
+- `backend/retrieval/lanes/semantic/test_lane.py`
+  - Fixed imports, assertions, and explicit load-failure checks.
+- `backend/retrieval/lanes/semantic/test_metadata_store.py`
+  - Fixed schema mismatch setup to reach version check.
+
+### Current state (post-fix)
+- HNSW update churn no longer fails due to capacity.
+- Compaction verification aligns with cosine similarity semantics.
+- Both hnsw and non-hnsw test suites are green.
+
+### Tests
+- Ran in venv:
+  - `pytest backend/retrieval/lanes/semantic/ -m "not hnsw" -v`
+  - `pytest backend/retrieval/lanes/semantic/ -m hnsw -v`
+  - Result: both suites passed (warnings from Biopython deprecation only).

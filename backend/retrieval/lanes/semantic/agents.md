@@ -107,7 +107,8 @@ Compaction should be triggered when tombstone accumulation impacts performance o
 ```python
 stats = store.get_stats()
 print(f"Tombstone ratio: {stats['tombstone_ratio']:.1%}")
-print(f"Tombstoned vectors: {stats['tombstoned_count']}/{stats['total_vectors']}")
+print(f"Tombstoned vectors: {stats['tombstoned_vectors']}/{stats['total_vectors']}")
+print(f"Deleted chunk rows: {stats['deleted_chunks']}")
 
 if store.should_compact(threshold=0.3):
     print("Compaction recommended")
@@ -128,7 +129,7 @@ store = load_persistent_store(
 
 # Check stats before compaction
 pre_stats = store.get_stats()
-print(f"Before: {pre_stats['active_chunks']} active, {pre_stats['tombstoned_count']} tombstoned")
+print(f"Before: {pre_stats['active_chunks']} active, {pre_stats['tombstoned_vectors']} tombstoned")
 
 # Compact the index
 compact_stats = store.compact()
@@ -140,7 +141,7 @@ store.save(hnsw_path=Path("path/to/index.hnsw"), metadata_path=Path("path/to/met
 
 # Verify post-compaction
 post_stats = store.get_stats()
-print(f"After: {post_stats['active_chunks']} active, {post_stats['tombstoned_count']} tombstoned")
+print(f"After: {post_stats['active_chunks']} active, {post_stats['tombstoned_vectors']} tombstoned")
 assert post_stats['tombstone_ratio'] == 0.0, "All tombstones should be removed"
 ```
 

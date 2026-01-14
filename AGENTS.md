@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-# CLAUDE.md — Repo Operating Rules (read first)
+# Repo Operating Rules (read first)
 
 This file defines non-negotiables and working norms for any agent (including Ralph loops) operating in this repository.
 

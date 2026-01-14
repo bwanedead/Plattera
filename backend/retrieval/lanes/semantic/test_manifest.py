@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
+from .test_utils import mock_semantic_index_root
 from .manifest import (
     MANIFEST_SCHEMA_VERSION,
     SemanticIndexManifest,

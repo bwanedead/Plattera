@@ -190,7 +190,8 @@ class PersistentVectorStore:
         -------------------
         Compaction rebuilds the HNSW index without tombstoned vectors, reclaiming
         memory and improving query performance. Compaction is recommended when the
-        tombstone ratio exceeds a threshold (default 30%).
+        tombstone ratio exceeds a threshold (default 30%). Tombstones are measured
+        at the vector level (HNSW entries that are no longer active chunk_ids).
 
         When to compact:
         - tombstone_ratio > threshold (default 30%)
@@ -244,44 +245,39 @@ class PersistentVectorStore:
         # Get all active chunks from metadata
         active_chunks = self.metadata_store.list_all_active_chunks()
 
-        if not active_chunks:
-            # No active chunks, nothing to compact
-            return {
-                "chunks_retained": 0,
-                "tombstones_removed": 0,
-                "old_total_vectors": self.hnsw_store.get_current_count(),
-                "new_total_vectors": 0,
-            }
-
         # Get old stats for reporting
         old_stats = self.get_stats()
         old_total = old_stats["total_vectors"]
-        tombstones_removed = old_stats["tombstoned_count"]
+        tombstones_removed = old_stats["tombstoned_vectors"]
 
-        # Retrieve vectors for all active chunks
-        old_labels = [chunk.label for chunk in active_chunks]
-        vectors = self.hnsw_store.get_vectors(old_labels)
-
-        # Create new HNSW index with same parameters
+        # Create new HNSW index with preserved capacity
         from .hnsw_store import HnswVectorStore
 
+        new_capacity = max(self.hnsw_store.max_elements, len(active_chunks))
         new_hnsw = HnswVectorStore(
             embedding_dim=self.hnsw_store.embedding_dim,
-            max_elements=len(active_chunks),  # Exact size needed
+            max_elements=new_capacity,
             ef_construction=self.hnsw_store.ef_construction,
             M=self.hnsw_store.M,
         )
 
-        # Add vectors with new sequential labels
+        # Retrieve and re-add vectors for all active chunks
+        old_labels = [chunk.label for chunk in active_chunks]
+        vectors = self.hnsw_store.get_vectors(old_labels)
         new_labels = list(range(len(active_chunks)))
-        new_hnsw.add_vectors(new_labels, vectors)
+        if new_labels:
+            new_hnsw.add_vectors(new_labels, vectors)
 
-        # Build label remapping: old_label -> new_label
-        label_remap = {old_label: new_label for old_label, new_label in zip(old_labels, new_labels)}
+        # Rebuild metadata in a new SQLite DB to avoid label collisions
+        metadata_db_path = self.metadata_store.db_path
+        temp_db_path = metadata_db_path.with_name(
+            f"{metadata_db_path.stem}.compact{metadata_db_path.suffix}"
+        )
+        if temp_db_path.exists():
+            temp_db_path.unlink()
 
-        # Update metadata with new labels
-        for chunk in active_chunks:
-            new_label = label_remap[chunk.label]
+        temp_metadata_store = VectorMetadataStore(db_path=temp_db_path)
+        for chunk, new_label in zip(active_chunks, new_labels):
             updated_chunk = ChunkMetadata(
                 chunk_id=chunk.chunk_id,
                 label=new_label,
@@ -294,10 +290,11 @@ class PersistentVectorStore:
                 draft_id=chunk.draft_id,
                 is_deleted=False,
             )
-            self.metadata_store.upsert_chunk(updated_chunk)
+            temp_metadata_store.upsert_chunk(updated_chunk)
 
-        # Delete all tombstoned entries from metadata
-        self.metadata_store.delete_tombstones()
+        # Swap compacted metadata DB into place
+        temp_db_path.replace(metadata_db_path)
+        self.metadata_store = VectorMetadataStore(db_path=metadata_db_path)
 
         # Replace old HNSW store with new one
         self.hnsw_store = new_hnsw
@@ -317,20 +314,26 @@ class PersistentVectorStore:
             Dict with:
             - active_chunks: Number of active (non-deleted) chunks
             - total_vectors: Total vectors in HNSW index (active + tombstoned)
-            - tombstoned_count: Number of tombstoned (deleted) chunks
-            - tombstone_ratio: Ratio of tombstoned to total (0.0-1.0)
+            - tombstoned_vectors: Number of vectors not mapped to active chunks
+            - tombstone_ratio: Ratio of tombstoned vectors to total (0.0-1.0)
+            - deleted_chunks: Number of deleted chunk rows in metadata
             - pool_identifier: Pool this store belongs to
         """
         active_chunks = self.metadata_store.count_active_chunks()
-        tombstoned_count = self.metadata_store.count_tombstoned_chunks()
-        total_chunks = active_chunks + tombstoned_count
-        tombstone_ratio = tombstoned_count / total_chunks if total_chunks > 0 else 0.0
+        deleted_chunks = self.metadata_store.count_deleted_chunks()
+        total_vectors = self.hnsw_store.get_current_count()
+        tombstoned_vectors = max(total_vectors - active_chunks, 0)
+        tombstone_ratio = (
+            tombstoned_vectors / total_vectors if total_vectors > 0 else 0.0
+        )
 
         return {
             "active_chunks": active_chunks,
-            "total_vectors": self.hnsw_store.get_current_count(),
-            "tombstoned_count": tombstoned_count,
+            "total_vectors": total_vectors,
+            "tombstoned_vectors": tombstoned_vectors,
+            "tombstoned_count": tombstoned_vectors,
             "tombstone_ratio": tombstone_ratio,
+            "deleted_chunks": deleted_chunks,
             "pool_identifier": self.pool_identifier,
         }
 

@@ -7,11 +7,15 @@ Validates:
 - EvidenceCard structure and provenance
 """
 
+from unittest import mock
+from unittest.mock import patch
+
 import pytest
 
 from services.assets.service import AssetsService
 
 from .lane import LocalSemanticLane
+from .test_utils import mock_semantic_index_root
 
 
 def test_missing_index_safe_failure():
@@ -427,9 +431,6 @@ def test_operational_index_failure_modes():
     - Test creates these states via temp directories and asserts correct status
     """
     import tempfile
-    from pathlib import Path
-
-    from .manifest import hnsw_index_path, metadata_db_path, manifest_path, write_manifest, MANIFEST_SCHEMA_VERSION, SemanticIndexManifest
 
     # Test 1: index_not_initialized (files absent)
     lane = LocalSemanticLane(pool_identifier="TEST_MISSING_POOL")
@@ -443,7 +444,7 @@ def test_operational_index_failure_modes():
     # If we get gating_errors for missing embedding model, that's fine (expected in test env)
     if "reason" in result.debug:
         assert result.debug["reason"] == "index_not_initialized", f"Expected index_not_initialized, got {result.debug}"
-        assert result.debug["pool_identifier"] == "FINAL_SEGMENTS"
+        assert result.debug["pool_identifier"] == "TEST_MISSING_POOL"
         assert "error" in result.debug
 
     # Test for UNAVAILABLE (corrupt index) is difficult without creating actual corrupt files
@@ -466,28 +467,35 @@ def test_index_failure_modes_explicit():
     import tempfile
     from pathlib import Path
 
-    from .lane import LocalSemanticLane, IndexLoadStatus
+    from .lane import IndexLoadStatus, LocalSemanticLane
 
-    # Test 1: index_not_initialized (files absent)
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
-
-        # Point lane at non-existent directory
         lane = LocalSemanticLane(pool_identifier="TEST_MISSING_POOL")
 
-        # Mock the paths to point to temp directory (no files)
-        import backend.retrieval.lanes.semantic.lane as lane_module
-        original_hnsw_path = lane_module.hnsw_index_path
-        original_metadata_path = lane_module.metadata_db_path
+        missing_hnsw = tmpdir_path / "missing.hnsw"
+        missing_db = tmpdir_path / "missing.db"
 
-        def mock_hnsw_path(pool_identifier):
-            return Path(tmpdir) / "missing.hnsw"
+        with patch("retrieval.lanes.semantic.lane.hnsw_index_path", return_value=missing_hnsw), \
+            patch("retrieval.lanes.semantic.lane.metadata_db_path", return_value=missing_db):
+            result = lane._get_or_load_vector_store(embedding_dim=4)
 
-        def mock_metadata_path(pool_identifier):
-            return Path(tmpdir) / "missing.db"
+            assert result.status == IndexLoadStatus.NOT_INITIALIZED
+            assert result.vector_store is None
+            assert "Index files missing" in (result.error or "")
 
-        # We can't easily test this without mocking, so let me just add a simpler test
-        # that validates the debug fields are present
+        # Create empty files to simulate presence
+        missing_hnsw.write_text("not an index", encoding="utf-8")
+        missing_db.write_text("not a db", encoding="utf-8")
+
+        with patch("retrieval.lanes.semantic.lane.hnsw_index_path", return_value=missing_hnsw), \
+            patch("retrieval.lanes.semantic.lane.metadata_db_path", return_value=missing_db), \
+            patch("retrieval.lanes.semantic.lane.load_persistent_store", side_effect=RuntimeError("boom")):
+            result = lane._get_or_load_vector_store(embedding_dim=4)
+
+            assert result.status == IndexLoadStatus.UNAVAILABLE
+            assert result.vector_store is None
+            assert "Failed to load index" in (result.error or "")
 
 
 @pytest.mark.hnsw
@@ -650,10 +658,11 @@ def test_semantic_evidence_includes_provenance_metadata():
 
 def test_staleness_detects_fingerprint_mismatch():
     """Lane detects stale index via fingerprint mismatch even if model_id matches."""
-    from .embeddings import compute_model_fingerprint
     from .manifest import SemanticIndexManifest, MANIFEST_SCHEMA_VERSION, write_manifest
     from .provider import EmbeddingModelInfo
+    from .embeddings import SentenceTransformersEmbeddingProvider
     import tempfile
+    from pathlib import Path
 
     with tempfile.TemporaryDirectory() as tmpdir:
         with mock_semantic_index_root(tmpdir):

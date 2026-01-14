@@ -8,6 +8,7 @@ Validates:
 - Tombstone marking
 """
 
+import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -289,7 +290,16 @@ def test_schema_version_mismatch_detection():
                 """
                 CREATE TABLE chunk_metadata (
                     chunk_id TEXT PRIMARY KEY,
-                    label INTEGER NOT NULL UNIQUE
+                    label INTEGER NOT NULL UNIQUE,
+                    dossier_id TEXT,
+                    pool_identifier TEXT NOT NULL,
+                    entry_id TEXT NOT NULL,
+                    selector_json TEXT NOT NULL,
+                    preview TEXT,
+                    segment_id TEXT,
+                    draft_id TEXT,
+                    is_deleted INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )

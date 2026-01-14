@@ -381,17 +381,17 @@ def test_get_stats():
         store = create_persistent_store(
             pool_identifier="TEST_STATS_POOL",
             embedding_dim=4,
-            hnsw_path=tmppath / "test.hnsw",
-            metadata_path=tmppath / "test.db",
+            metadata_db_path=tmppath / "test.db",
         )
 
         # Initial state: empty
         stats = store.get_stats()
         assert stats["active_chunks"] == 0
-        assert stats["tombstoned_count"] == 0
+        assert stats["tombstoned_vectors"] == 0
         assert stats["tombstone_ratio"] == 0.0
         assert stats["pool_identifier"] == "TEST_STATS_POOL"
         assert stats["total_vectors"] == 0
+        assert stats["deleted_chunks"] == 0
 
         # Add 10 chunks
         for i in range(10):
@@ -405,9 +405,10 @@ def test_get_stats():
 
         stats = store.get_stats()
         assert stats["active_chunks"] == 10
-        assert stats["tombstoned_count"] == 0
+        assert stats["tombstoned_vectors"] == 0
         assert stats["tombstone_ratio"] == 0.0
         assert stats["total_vectors"] == 10
+        assert stats["deleted_chunks"] == 0
 
         # Update 3 chunks (creates 3 tombstones)
         for i in range(3):
@@ -421,9 +422,10 @@ def test_get_stats():
 
         stats = store.get_stats()
         assert stats["active_chunks"] == 10  # Still 10 active chunks (updates don't increase count)
-        assert stats["tombstoned_count"] == 3  # 3 old versions tombstoned
+        assert stats["tombstoned_vectors"] == 3  # 3 old versions tombstoned
         assert stats["tombstone_ratio"] == 3 / 13  # 3 tombstoned out of 13 total
         assert stats["total_vectors"] == 13  # 10 original + 3 updates
+        assert stats["deleted_chunks"] == 0
 
         # Delete a slice (tombstone 10 chunks)
         deleted_count = store.delete_slice(dossier_id="dossier_1")
@@ -431,9 +433,47 @@ def test_get_stats():
 
         stats = store.get_stats()
         assert stats["active_chunks"] == 0  # All chunks deleted
-        assert stats["tombstoned_count"] == 13  # All 13 vectors tombstoned (10 active + 3 old)
+        assert stats["tombstoned_vectors"] == 13  # All 13 vectors tombstoned (10 active + 3 old)
         assert stats["tombstone_ratio"] == 1.0  # 100% tombstoned
         assert stats["total_vectors"] == 13
+        assert stats["deleted_chunks"] == 10
+
+
+@pytest.mark.hnsw
+def test_vector_tombstones_track_update_churn():
+    """Vector tombstones reflect update churn even without slice deletes."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        store = create_persistent_store(
+            pool_identifier="TEST_CHURN_STATS",
+            embedding_dim=3,
+            metadata_db_path=tmppath / "test.db",
+        )
+
+        store.upsert(
+            chunk_id="chunk_stable",
+            vector=[1.0, 0.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_1",
+            selector_json='{"type": "whole"}',
+        )
+
+        # Apply multiple updates to create tombstoned vectors
+        for i in range(4):
+            store.upsert(
+                chunk_id="chunk_stable",
+                vector=[1.0 - (i * 0.1), (i + 1) * 0.1, 0.0],
+                dossier_id="dossier_1",
+                entry_id="entry_1",
+                selector_json='{"type": "whole"}',
+            )
+
+        stats = store.get_stats()
+        assert stats["active_chunks"] == 1
+        assert stats["total_vectors"] == 5  # 1 active + 4 tombstoned vectors
+        assert stats["tombstoned_vectors"] == 4
+        assert stats["deleted_chunks"] == 0
+        assert stats["tombstone_ratio"] == 4 / 5
 
 
 @pytest.mark.hnsw
@@ -443,16 +483,17 @@ def test_compact_removes_tombstones():
         tmppath = Path(tmpdir)
         store = create_persistent_store(
             pool_identifier="TEST_COMPACT_POOL",
-            embedding_dim=4,
-            hnsw_path=tmppath / "test.hnsw",
-            metadata_path=tmppath / "test.db",
+            embedding_dim=10,
+            metadata_db_path=tmppath / "test.db",
         )
 
         # Add 10 chunks
         for i in range(10):
+            vec = [0.0] * 10
+            vec[i] = 1.0
             store.upsert(
                 chunk_id=f"chunk_{i}",
-                vector=[float(i), 0.0, 0.0, 0.0],
+                vector=vec,
                 dossier_id="dossier_1",
                 entry_id=f"entry_{i}",
                 selector_json='{"type": "whole"}',
@@ -460,9 +501,12 @@ def test_compact_removes_tombstones():
 
         # Update 5 chunks (creates 5 tombstones)
         for i in range(5):
+            vec = [0.0] * 10
+            vec[i] = 1.0
+            vec[(i + 1) % 10] = 0.1
             store.upsert(
                 chunk_id=f"chunk_{i}",
-                vector=[float(i) + 1.0, 0.0, 0.0, 0.0],
+                vector=vec,
                 dossier_id="dossier_1",
                 entry_id=f"entry_{i}",
                 selector_json='{"type": "whole"}',
@@ -471,8 +515,9 @@ def test_compact_removes_tombstones():
         # Verify pre-compaction state
         pre_stats = store.get_stats()
         assert pre_stats["active_chunks"] == 10
-        assert pre_stats["tombstoned_count"] == 5
+        assert pre_stats["tombstoned_vectors"] == 5
         assert pre_stats["total_vectors"] == 15  # 10 active + 5 tombstoned
+        assert pre_stats["deleted_chunks"] == 0
 
         # Compact the store
         compact_result = store.compact()
@@ -486,14 +531,18 @@ def test_compact_removes_tombstones():
         # Verify post-compaction state
         post_stats = store.get_stats()
         assert post_stats["active_chunks"] == 10
-        assert post_stats["tombstoned_count"] == 0  # All tombstones removed
+        assert post_stats["tombstoned_vectors"] == 0  # All tombstones removed
         assert post_stats["total_vectors"] == 10  # Only active chunks
         assert post_stats["tombstone_ratio"] == 0.0
+        assert post_stats["deleted_chunks"] == 0
 
         # Verify all chunks are still retrievable
         for i in range(10):
-            query_vec = [float(i) + 1.0 if i < 5 else float(i), 0.0, 0.0, 0.0]
-            results = store.query(vector=query_vec, k=5)
+            query_vec = [0.0] * 10
+            query_vec[i] = 1.0
+            if i < 5:
+                query_vec[(i + 1) % 10] = 0.1
+            results = store.query(vector=query_vec, k=10)
             chunk_ids = [cid for cid, _ in results]
             assert f"chunk_{i}" in chunk_ids, f"chunk_{i} should be retrievable after compaction"
 
@@ -512,8 +561,7 @@ def test_compact_empty_index():
         store = create_persistent_store(
             pool_identifier="TEST_COMPACT_EMPTY",
             embedding_dim=4,
-            hnsw_path=tmppath / "test.hnsw",
-            metadata_path=tmppath / "test.db",
+            metadata_db_path=tmppath / "test.db",
         )
 
         # Compact empty index
@@ -532,8 +580,7 @@ def test_compact_all_tombstones():
         store = create_persistent_store(
             pool_identifier="TEST_COMPACT_ALL_TOMBSTONES",
             embedding_dim=4,
-            hnsw_path=tmppath / "test.hnsw",
-            metadata_path=tmppath / "test.db",
+            metadata_db_path=tmppath / "test.db",
         )
 
         # Add 5 chunks then delete all
@@ -562,7 +609,108 @@ def test_compact_all_tombstones():
         # Verify empty after compaction
         post_stats = store.get_stats()
         assert post_stats["active_chunks"] == 0
-        assert post_stats["tombstoned_count"] == 0
+        assert post_stats["tombstoned_vectors"] == 0
+        assert post_stats["deleted_chunks"] == 0
+
+
+@pytest.mark.hnsw
+def test_compact_handles_deleted_label_collisions():
+    """compact() succeeds even when deleted rows hold low labels."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        store = create_persistent_store(
+            pool_identifier="TEST_COMPACT_COLLISION",
+            embedding_dim=3,
+            metadata_db_path=tmppath / "test.db",
+        )
+
+        # Insert three chunks (labels 0,1,2)
+        store.upsert(
+            chunk_id="chunk_a",
+            vector=[1.0, 0.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_a",
+            selector_json='{"type": "whole"}',
+        )
+        store.upsert(
+            chunk_id="chunk_b",
+            vector=[0.0, 1.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_b",
+            selector_json='{"type": "whole"}',
+        )
+        store.upsert(
+            chunk_id="chunk_c",
+            vector=[0.0, 0.0, 1.0],
+            dossier_id="dossier_2",
+            entry_id="entry_c",
+            selector_json='{"type": "whole"}',
+        )
+
+        # Delete two chunks (labels 0,1 remain as deleted rows)
+        deleted = store.delete_slice(dossier_id="dossier_1")
+        assert deleted == 2
+
+        # Compaction should not hit UNIQUE(label) collisions
+        store.compact()
+
+        stats = store.get_stats()
+        assert stats["active_chunks"] == 1
+        assert stats["tombstoned_vectors"] == 0
+        assert stats["deleted_chunks"] == 0
+
+        # Remaining chunk is still retrievable
+        results = store.query(vector=[0.0, 0.0, 1.0], k=3)
+        chunk_ids = [cid for cid, _ in results]
+        assert "chunk_c" in chunk_ids
+
+
+@pytest.mark.hnsw
+def test_compact_preserves_capacity_for_growth():
+    """compact() keeps capacity so future upserts can succeed."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        store = create_persistent_store(
+            pool_identifier="TEST_COMPACT_GROWTH",
+            embedding_dim=3,
+            metadata_db_path=tmppath / "test.db",
+            max_elements=6,
+        )
+
+        # Add 5 chunks (capacity is 6)
+        for i in range(5):
+            store.upsert(
+                chunk_id=f"chunk_{i}",
+                vector=[float(i), 0.0, 0.0],
+                dossier_id="dossier_1",
+                entry_id=f"entry_{i}",
+                selector_json='{"type": "whole"}',
+            )
+
+        # Create tombstones via updates
+        for i in range(2):
+            store.upsert(
+                chunk_id=f"chunk_{i}",
+                vector=[float(i) + 1.0, 0.0, 0.0],
+                dossier_id="dossier_1",
+                entry_id=f"entry_{i}",
+                selector_json='{"type": "whole"}',
+            )
+
+        store.compact()
+
+        # Upsert a new chunk; should not fail due to capacity shrink
+        store.upsert(
+            chunk_id="chunk_new",
+            vector=[9.0, 0.0, 0.0],
+            dossier_id="dossier_2",
+            entry_id="entry_new",
+            selector_json='{"type": "whole"}',
+        )
+
+        stats = store.get_stats()
+        assert stats["active_chunks"] == 6
+        assert stats["tombstoned_vectors"] == 0
 
 
 @pytest.mark.hnsw
@@ -573,8 +721,7 @@ def test_should_compact_threshold():
         store = create_persistent_store(
             pool_identifier="TEST_SHOULD_COMPACT",
             embedding_dim=4,
-            hnsw_path=tmppath / "test.hnsw",
-            metadata_path=tmppath / "test.db",
+            metadata_db_path=tmppath / "test.db",
         )
 
         # Empty index: should not compact

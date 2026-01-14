@@ -352,12 +352,12 @@ class VectorMetadataStore:
         finally:
             conn.close()
 
-    def count_tombstoned_chunks(self) -> int:
+    def count_deleted_chunks(self) -> int:
         """
-        Count tombstoned (deleted) chunks.
+        Count deleted chunk rows (is_deleted=1).
 
         Returns:
-            Number of tombstoned chunks
+            Number of deleted chunk rows
         """
         conn = sqlite3.connect(self.db_path)
         try:
@@ -366,6 +366,15 @@ class VectorMetadataStore:
             return cursor.fetchone()[0]
         finally:
             conn.close()
+
+    def count_tombstoned_chunks(self) -> int:
+        """
+        Count deleted chunk rows (legacy name for count_deleted_chunks).
+
+        Returns:
+            Number of deleted chunk rows
+        """
+        return self.count_deleted_chunks()
 
     def delete_tombstones(self) -> int:
         """

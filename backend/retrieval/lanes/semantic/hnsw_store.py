@@ -75,6 +75,7 @@ class HnswVectorStore:
             label: Integer label for this vector
             vector: Vector to add (will be normalized for cosine similarity)
         """
+        self._ensure_capacity(1)
         # Normalize vector for cosine similarity via inner product
         normalized = self._normalize_vector(vector)
 
@@ -96,6 +97,7 @@ class HnswVectorStore:
         if not labels:
             return
 
+        self._ensure_capacity(len(labels))
         # Normalize vectors
         normalized = self._normalize_vectors(vectors)
 
@@ -229,6 +231,20 @@ class HnswVectorStore:
             Number of vectors in index
         """
         return self._current_count
+
+    def _ensure_capacity(self, additional: int) -> None:
+        """
+        Ensure the index can accommodate additional vectors.
+
+        Args:
+            additional: Number of new vectors to add
+        """
+        required = self._current_count + additional
+        if required <= self.max_elements:
+            return
+
+        new_max = max(self.max_elements * 2, required)
+        self.resize(new_max)
 
     @staticmethod
     def _normalize_vector(vector: List[float]) -> List[float]:
