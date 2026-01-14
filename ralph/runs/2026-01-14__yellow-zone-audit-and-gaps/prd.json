@@ -1,0 +1,84 @@
+{
+  "run_id": "2026-01-14__yellow-zone-audit-and-gaps",
+  "title": "Yellow Zone Audit and Final Hardening",
+  "repo_context": "Audit 10 yellow-zone correctness points after semantic-index-polish run; document/address gaps (primarily model identity and compaction strategy)",
+  "global_verification": [
+    "pytest backend/retrieval/lanes/semantic/ -v"
+  ],
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Audit all 10 yellow-zone points and document findings",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Create AUDIT.md in run directory listing all 10 points with status (COMPLETE/PARTIAL/MISSING)",
+        "Each point includes: status, evidence (file paths + line numbers), and gap description if applicable",
+        "Findings are objective and reference specific code locations"
+      ],
+      "verification_commands": [
+        "test -f ralph/runs/2026-01-14__yellow-zone-audit-and-gaps/AUDIT.md"
+      ],
+      "depends_on": [],
+      "files_expected": [
+        "ralph/runs/2026-01-14__yellow-zone-audit-and-gaps/AUDIT.md"
+      ],
+      "notes": "This creates a durable artifact documenting the audit results. Should reference specific files/line numbers as evidence."
+    },
+    {
+      "id": "S2",
+      "title": "Document model identity semantics decision in manifest system",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "Add inline documentation to manifest.py explaining model identity approach (friendly name vs immutable revision)",
+        "Document why current approach (friendly name only) is sufficient and when it would need revision tracking",
+        "Documentation explains staleness detection logic and its limitations"
+      ],
+      "verification_commands": [],
+      "depends_on": ["S1"],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/manifest.py"
+      ],
+      "notes": "Point 4 from yellow-zone brief. Current implementation uses friendly names consistently; document this decision and rationale."
+    },
+    {
+      "id": "S3",
+      "title": "Document tombstone compaction strategy in semantic lane agents.md",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Update backend/retrieval/lanes/semantic/agents.md with 'Tombstone Compaction Strategy' section",
+        "Strategy includes: what tombstones are, why they exist, when compaction is needed, how to trigger it",
+        "Strategy defines clear conditions (e.g., tombstone ratio > X%, index size > Y GB, periodic maintenance)",
+        "Strategy includes implementation approach (rebuild index from metadata, preserve chunk_ids)"
+      ],
+      "verification_commands": [
+        "grep -q 'Tombstone Compaction Strategy' backend/retrieval/lanes/semantic/agents.md"
+      ],
+      "depends_on": ["S1"],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/agents.md"
+      ],
+      "notes": "Point 7 from yellow-zone brief. Document the strategy without implementing compaction itself."
+    },
+    {
+      "id": "S4",
+      "title": "Final verification that all 10 yellow-zone points are addressed",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "Review AUDIT.md and confirm all 10 points are either COMPLETE or explicitly documented/addressed",
+        "All existing semantic lane tests pass (pytest backend/retrieval/lanes/semantic/ -v)",
+        "No regressions introduced in any of the 8 previously complete points",
+        "Update AUDIT.md final section with overall status summary"
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/lanes/semantic/ -v"
+      ],
+      "depends_on": ["S1", "S2", "S3"],
+      "files_expected": [],
+      "notes": "Final validation that the yellow zone is fully hardened and ready for next phase."
+    }
+  ]
+}
