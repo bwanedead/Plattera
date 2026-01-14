@@ -138,10 +138,22 @@ class VectorMetadataStore:
                 """
             )
 
-            # Insert schema version if not present
+            # Check schema version compatibility
             cursor.execute("SELECT version FROM schema_version LIMIT 1")
-            if cursor.fetchone() is None:
+            row = cursor.fetchone()
+            if row is None:
+                # New DB: insert current schema version
                 cursor.execute("INSERT INTO schema_version (version) VALUES (?)", (METADATA_SCHEMA_VERSION,))
+            else:
+                # Existing DB: verify schema version matches
+                existing_version = row[0]
+                if existing_version != METADATA_SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"Metadata store schema version mismatch: "
+                        f"database has version {existing_version}, "
+                        f"but code expects version {METADATA_SCHEMA_VERSION}. "
+                        f"Rebuild the index or downgrade code to match DB version."
+                    )
 
             conn.commit()
         finally:
