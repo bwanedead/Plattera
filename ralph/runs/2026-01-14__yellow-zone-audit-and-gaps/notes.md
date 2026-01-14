@@ -1,68 +1,49 @@
-# Notes — Yellow Zone Audit and Gaps
+# Notes — Yellow Zone Final Hardening
 
 ## Context
 This run follows the successful completion of `2026-01-12__semantic-index-polish` which implemented 8 stories (S1-S8) hardening the semantic retrieval system.
 
 ## Yellow Zone Brief (Original 10 Points)
 
-The following 10 points were identified as critical "yellow zone" items to verify before proceeding to the next phase (hybrid fusion, reranking, agent loop):
+The following 10 points were identified as critical "yellow zone" items before proceeding to the next phase:
 
-1. **Retrieval-time evidence should be readable, not just a locator**
-   - Semantic results should include deterministic excerpt/preview
-   - Intent: "why this matched" visibility for triage
+1. **Retrieval-time evidence readable** - ✅ COMPLETE (S1 from semantic-index-polish)
+2. **Retrieval vs reading separation** - ✅ COMPLETE (S3 from semantic-index-polish)
+3. **Manifest must be truth** - ✅ COMPLETE (S4 from semantic-index-polish)
+4. **Model identity semantics consistent** - ⚠️ PARTIAL (uses friendly names, needs fingerprint tracking)
+5. **Index load failure modes explicit** - ✅ COMPLETE (S5 from semantic-index-polish)
+6. **Updates safe and deterministic** - ✅ COMPLETE (S6 from semantic-index-polish)
+7. **Tombstone cleanup story** - ❌ MISSING (no stats API, no compaction, no strategy)
+8. **HNSW tests reliable** - ✅ COMPLETE (S7 from semantic-index-polish)
+9. **Hydration fidelity FINAL_SEGMENTS** - ✅ COMPLETE (S2 from semantic-index-polish)
+10. **"Why this matched" trace** - ✅ COMPLETE (S8 from semantic-index-polish)
 
-2. **Retrieval vs reading separation must be explicit and clean**
-   - Retrieval-time: lightweight, find candidates, return stable pointers + excerpts
-   - Reading-time: expensive, hydrate full entry on demand
-   - Intent: retrieve → decide → expand pattern
+## Analysis: What Needs Implementation
 
-3. **Manifest must be "truth," not a theoretical file**
-   - Builder writes/updates manifest during successful indexing
-   - Lane checks manifest during query
-   - Intent: detect "index no longer matches reality" explicitly
+**8 out of 10 points are COMPLETE** from previous run.
 
-4. **Model identity semantics must be consistent (no false staleness)**
-   - Manifest stores and lane compares same identity concept
-   - Intent: avoid friendly name vs revision SHA mismatches
+**2 points need actual implementation:**
 
-5. **Index load failure modes must be operationally unambiguous**
-   - Distinguish: not initialized vs can't load vs stale
-   - Intent: app/agent loop needs to know failure type to respond correctly
+### Point 7: Tombstone Compaction (3 stories)
+Currently, tombstones accumulate indefinitely with no cleanup mechanism.
 
-6. **Updates must be safe and deterministic under real workloads**
-   - Upsert/update doesn't rely on brittle HNSW assumptions
-   - Intent: new truth replaces old truth cleanly
+**Need to implement:**
+- S1: Stats API - `get_stats()` method to monitor tombstone accumulation
+- S2: Compaction - `compact()` method to rebuild index without tombstones
+- S3: Strategy - `should_compact()` helper + documentation
 
-7. **Tombstones are acceptable short-term, but we need a cleanup story**
-   - Deleted vectors shouldn't accumulate unbounded
-   - Intent: defined strategy for when/why to compact
+### Point 4: Model Fingerprint Tracking (1 story)
+Currently uses friendly names only (e.g., "all-MiniLM-L6-v2").
 
-8. **HNSW tests must be reliable and not silently skipped**
-   - Keep coverage without flaky CI or mysterious crashes
-   - Intent: explicit test isolation strategy
+**Need to implement:**
+- S4: Fingerprint field in manifest + computation + staleness check
 
-9. **Hydration fidelity for FINAL_SEGMENTS must be complete**
-   - Semantic hits carry enough metadata to reconstruct CorpusEntryRef
-   - Intent: reliably re-open authoritative text from any hit
-
-10. **"Why this matched" trace should be standardized and stable**
-    - Consistent provenance: distance, pool, model, policy, dimension
-    - Intent: debugging, evaluation, reranking support
-
-## Initial Sanity Check Results
-
-**8 out of 10 points: COMPLETE** (from semantic-index-polish run)
-- Points 1, 2, 3, 5, 6, 8, 9, 10: Fully implemented and tested
-
-**2 points: Need documentation/strategy**
-- Point 4 (model identity): Uses friendly names consistently, but decision not explicitly documented
-- Point 7 (tombstone compaction): Strategy not documented (when/how to compact)
-
-## Run Goals
-1. Formally audit all 10 points with evidence (file paths, line numbers)
-2. Document model identity decision and rationale
-3. Document tombstone compaction strategy
-4. Verify all points are satisfied before next phase
+## Run Goal
+Implement the missing functionality to fully satisfy all 10 yellow-zone points, with:
+- Deterministic acceptance criteria
+- Comprehensive tests
+- Safe implementations (no data loss)
+- Clear documentation
 
 ## References
 - Previous run: `ralph/runs/2026-01-12__semantic-index-polish/`
