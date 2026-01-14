@@ -201,6 +201,26 @@ class HnswVectorStore:
         self.index.resize_index(new_max_elements)
         self.max_elements = new_max_elements
 
+    def get_vectors(self, labels: List[int]) -> List[List[float]]:
+        """
+        Retrieve vectors by their labels.
+
+        Args:
+            labels: List of labels to retrieve
+
+        Returns:
+            List of vectors (denormalized back to original scale)
+        """
+        if not labels:
+            return []
+
+        # Get items from HNSW (returns normalized vectors)
+        normalized_vectors = self.index.get_items(labels)
+
+        # Denormalize is not necessary for our use case since we'll re-add them
+        # They're already normalized and that's what we want
+        return normalized_vectors.tolist()
+
     def get_current_count(self) -> int:
         """
         Get current number of indexed vectors.
