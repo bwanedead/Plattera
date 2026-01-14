@@ -51,3 +51,23 @@
   - Point 7 (tombstone compaction) now fully complete: stats API + compact() + should_compact() + strategy docs
 
 ---
+- Iteration: 4
+- Story: S4 Add model fingerprint tracking to manifest for robust staleness detection
+- Result: PASS
+- Files changed:
+  - backend/retrieval/lanes/semantic/manifest.py
+  - backend/retrieval/lanes/semantic/embeddings.py
+  - backend/retrieval/lanes/semantic/index_builder.py
+  - backend/retrieval/lanes/semantic/lane.py
+  - backend/retrieval/lanes/semantic/test_manifest.py
+  - backend/retrieval/lanes/semantic/test_lane.py
+- Commands run: None (tests require dependencies)
+- Notes:
+  - Added embedding_model_fingerprint (Optional[str]) to SemanticIndexManifest
+  - Added compute_model_fingerprint() to compute hash from model_info (asset_id + manifest hash)
+  - Builder accepts embedding_model_fingerprint parameter and writes to manifest
+  - Lane staleness check compares fingerprints if available, falls back to model_id for backward compat
+  - Added 3 tests: fingerprint round-trip, backward compat, fingerprint mismatch detection
+  - Point 4 (model identity) now COMPLETE: robust staleness detection via fingerprints
+
+---

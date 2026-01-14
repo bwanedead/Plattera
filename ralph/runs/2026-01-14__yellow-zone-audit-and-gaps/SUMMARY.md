@@ -118,3 +118,43 @@ This file captures a running summary of what was built, one entry per completed 
 - Documentation is production-ready: operators have clear guidance on when/how to compact
 - agents.md section includes: what tombstones are, when to compact, manual trigger examples, implementation details, operational recommendations
 - Compaction strategy is explicit: monitor ratio, compact at 30-50%, run during off-peak hours
+
+---
+
+## Story S4: Add model fingerprint tracking to manifest for robust staleness detection
+**Status:** PASS
+**Iteration:** 4
+
+### What was built
+- Added `embedding_model_fingerprint` field to SemanticIndexManifest (Optional[str])
+- Created `compute_model_fingerprint()` function to generate deterministic fingerprints from model_info
+- Updated IndexBuilder to accept and write fingerprint to manifest
+- Enhanced Lane staleness detection to compare fingerprints (with backward compat fallback)
+- Added 3 tests validating fingerprint round-trip, backward compat, and mismatch detection
+
+### Files changed
+- `backend/retrieval/lanes/semantic/manifest.py` - Added embedding_model_fingerprint field to dataclass, to_dict(), from_dict()
+- `backend/retrieval/lanes/semantic/embeddings.py` - Added compute_model_fingerprint() using asset_id + manifest hash
+- `backend/retrieval/lanes/semantic/index_builder.py` - Added fingerprint parameter to build_index_for_dossier(), writes to manifest
+- `backend/retrieval/lanes/semantic/lane.py` - Enhanced _check_manifest_mismatch() to compare fingerprints, falls back to model_id
+- `backend/retrieval/lanes/semantic/test_manifest.py` - Added test_manifest_includes_fingerprint, test_manifest_without_fingerprint_backward_compat
+- `backend/retrieval/lanes/semantic/test_lane.py` - Added test_staleness_detects_fingerprint_mismatch
+
+### Key decisions
+- Fingerprint = asset_id + hash(manifest_content) for determinism
+- Optional field for backward compatibility (old manifests have fingerprint=None)
+- Staleness check: if fingerprint available, use it; otherwise fall back to model_id
+- Fingerprint comparison catches model weight changes even if friendly name unchanged
+- SHA256 hash truncated to 16 chars for compactness
+
+### Tests added
+- test_manifest_includes_fingerprint(): Validates fingerprint preserved in round-trip
+- test_manifest_without_fingerprint_backward_compat(): Old manifests (no fingerprint) load correctly
+- test_staleness_detects_fingerprint_mismatch(): Lane detects stale index via fingerprint mismatch
+
+### Notes
+- **Point 4 (model identity semantics) COMPLETE:** Robust staleness detection implemented
+- Fingerprints prevent false negatives (model weights changed but name same)
+- Backward compatible: existing indexes without fingerprints continue working
+- Fingerprint is deterministic: same model → same fingerprint across runs
+- Future improvement: could include model file checksums for even stronger detection

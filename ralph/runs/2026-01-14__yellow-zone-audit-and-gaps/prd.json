@@ -78,7 +78,7 @@
       "id": "S4",
       "title": "Add model fingerprint tracking to manifest for robust staleness detection",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "SemanticIndexManifest includes embedding_model_fingerprint field (hash of model weights or version)",
         "Builder computes fingerprint from embedding provider and writes to manifest",
