@@ -54,7 +54,7 @@
       "id": "S3",
       "title": "Add should_compact() helper and document compaction strategy",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "PersistentVectorStore has should_compact(threshold=0.3) method returning bool",
         "Returns True when tombstone_ratio > threshold (default 30%)",

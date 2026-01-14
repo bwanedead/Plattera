@@ -77,3 +77,44 @@ This file captures a running summary of what was built, one entry per completed 
 - No data loss: vectors re-added with new labels, metadata updated atomically
 - Foundation for S3 (should_compact helper and strategy documentation)
 - Compaction is manual trigger only (no automatic compaction yet)
+
+---
+
+## Story S3: Add should_compact() helper and document compaction strategy
+**Status:** PASS
+**Iteration:** 3
+
+### What was built
+- Added `should_compact(threshold=0.3)` method to PersistentVectorStore
+- Comprehensive docstring documenting compaction strategy (when/why/how + operational impact)
+- Extensive "Tombstone Compaction" section in agents.md (130+ lines)
+- Test validating threshold logic across multiple tombstone ratios
+
+### Files changed
+- `backend/retrieval/lanes/semantic/persistent_store.py` - Added should_compact() with 35-line docstring documenting complete compaction strategy
+- `backend/retrieval/lanes/semantic/agents.md` - Added "Tombstone Compaction" section with what/when/how/operational guidance
+- `backend/retrieval/lanes/semantic/test_persistent_store.py` - Added test_should_compact_threshold testing threshold logic
+
+### Key decisions
+- Default threshold: 30% (based on memory/performance trade-off)
+- should_compact() is simple wrapper over get_stats() for clarity
+- Documentation emphasizes operational concerns: when to run, blocking operation, memory usage
+- agents.md includes Python code examples for manual compaction
+- Clear separation: should_compact() = decision helper, compact() = actual operation
+
+### Tests added
+- test_should_compact_threshold(): Validates threshold logic across scenarios
+  - Empty index (0% tombstones) → False
+  - 10 chunks, no updates (0% tombstones) → False  
+  - 2/12 (16.7% tombstones) → False for 30%, True for 10%
+  - 5/15 (33.3% tombstones) → True for 30%, False for 50%
+  - 100% tombstoned → True for all thresholds
+
+### Notes
+- **Point 7 (tombstone compaction) COMPLETE:** Full solution delivered
+  - S1: Stats API for visibility
+  - S2: Compaction implementation
+  - S3: should_compact() helper + comprehensive documentation
+- Documentation is production-ready: operators have clear guidance on when/how to compact
+- agents.md section includes: what tombstones are, when to compact, manual trigger examples, implementation details, operational recommendations
+- Compaction strategy is explicit: monitor ratio, compact at 30-50%, run during off-peak hours

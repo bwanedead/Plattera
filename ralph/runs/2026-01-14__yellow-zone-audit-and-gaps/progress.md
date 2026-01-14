@@ -34,3 +34,20 @@
   - Safe by design: retrieves vectors before rebuilding, no data loss
 
 ---
+- Iteration: 3
+- Story: S3 Add should_compact() helper and document compaction strategy
+- Result: PASS
+- Files changed:
+  - backend/retrieval/lanes/semantic/persistent_store.py
+  - backend/retrieval/lanes/semantic/agents.md
+  - backend/retrieval/lanes/semantic/test_persistent_store.py
+- Commands run: grep -q 'Tombstone Compaction' backend/retrieval/lanes/semantic/agents.md (verified)
+- Notes:
+  - Added should_compact(threshold=0.3) method with comprehensive docstring
+  - Docstring documents: when to compact, why, operational impact, example usage
+  - Added extensive "Tombstone Compaction" section to agents.md (130+ lines)
+  - Documentation covers: what tombstones are, when to compact, how to trigger, implementation details, operational recommendations
+  - Added test_should_compact_threshold validating threshold logic across multiple scenarios
+  - Point 7 (tombstone compaction) now fully complete: stats API + compact() + should_compact() + strategy docs
+
+---
