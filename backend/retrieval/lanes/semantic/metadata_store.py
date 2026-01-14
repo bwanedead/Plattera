@@ -138,10 +138,22 @@ class VectorMetadataStore:
                 """
             )
 
-            # Insert schema version if not present
+            # Check schema version compatibility
             cursor.execute("SELECT version FROM schema_version LIMIT 1")
-            if cursor.fetchone() is None:
+            row = cursor.fetchone()
+            if row is None:
+                # New DB: insert current schema version
                 cursor.execute("INSERT INTO schema_version (version) VALUES (?)", (METADATA_SCHEMA_VERSION,))
+            else:
+                # Existing DB: verify schema version matches
+                existing_version = row[0]
+                if existing_version != METADATA_SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"Metadata store schema version mismatch: "
+                        f"database has version {existing_version}, "
+                        f"but code expects version {METADATA_SCHEMA_VERSION}. "
+                        f"Rebuild the index or downgrade code to match DB version."
+                    )
 
             conn.commit()
         finally:
@@ -337,6 +349,75 @@ class VectorMetadataStore:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM chunk_metadata WHERE is_deleted = 0")
             return cursor.fetchone()[0]
+        finally:
+            conn.close()
+
+    def count_tombstoned_chunks(self) -> int:
+        """
+        Count tombstoned (deleted) chunks.
+
+        Returns:
+            Number of tombstoned chunks
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM chunk_metadata WHERE is_deleted = 1")
+            return cursor.fetchone()[0]
+        finally:
+            conn.close()
+
+    def delete_tombstones(self) -> int:
+        """
+        Permanently delete all tombstoned (is_deleted=1) entries from metadata.
+
+        Returns:
+            Number of tombstoned entries deleted
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM chunk_metadata WHERE is_deleted = 1")
+            deleted_count = cursor.rowcount
+            conn.commit()
+            return deleted_count
+        finally:
+            conn.close()
+
+    def list_all_active_chunks(self) -> List[ChunkMetadata]:
+        """
+        List all active (non-deleted) chunks.
+
+        Returns:
+            List of ChunkMetadata for all active chunks
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT chunk_id, label, dossier_id, pool_identifier, entry_id, selector_json, preview, segment_id, draft_id, is_deleted
+                FROM chunk_metadata
+                WHERE is_deleted = 0
+                ORDER BY label ASC
+                """
+            )
+            rows = cursor.fetchall()
+            return [
+                ChunkMetadata(
+                    chunk_id=row[0],
+                    label=row[1],
+                    dossier_id=row[2],
+                    pool_identifier=row[3],
+                    entry_id=row[4],
+                    selector_json=row[5],
+                    preview=row[6],
+                    segment_id=row[7],
+                    draft_id=row[8],
+                    is_deleted=bool(row[9]),
+                )
+                for row in rows
+            ]
         finally:
             conn.close()
 

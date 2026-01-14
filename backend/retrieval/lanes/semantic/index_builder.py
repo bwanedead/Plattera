@@ -78,6 +78,7 @@ class SemanticIndexBuilder:
         pool_identifier: Optional[str] = None,
         embedding_dim: Optional[int] = None,
         embedding_model_id: Optional[str] = None,
+        embedding_model_fingerprint: Optional[str] = None,
     ) -> IndexBuildResult:
         """
         Build index for all entries in a single dossier.
@@ -92,6 +93,7 @@ class SemanticIndexBuilder:
             pool_identifier: Pool identifier for manifest (required for manifest write)
             embedding_dim: Embedding dimensionality (required for manifest write)
             embedding_model_id: Model identifier (required for manifest write)
+            embedding_model_fingerprint: Model fingerprint (optional for manifest write)
 
         Returns:
             IndexBuildResult with statistics
@@ -181,6 +183,7 @@ class SemanticIndexBuilder:
                     pool_identifier=pool_identifier,
                     embedding_dim=embedding_dim,
                     embedding_model_id=embedding_model_id,
+                    embedding_model_fingerprint=embedding_model_fingerprint,
                     chunking_policy_id=self.chunk_policy.policy_id,
                     created_at=now,
                     updated_at=now,

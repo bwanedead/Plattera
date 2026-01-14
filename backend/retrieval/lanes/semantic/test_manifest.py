@@ -189,3 +189,59 @@ def test_manifest_deterministic():
 
             # Should be identical
             assert content1 == content2
+
+
+def test_manifest_includes_fingerprint():
+    """Manifest preserves embedding_model_fingerprint field in round-trip."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with mock_semantic_index_root(tmpdir):
+            pool_id = "TEST_FINGERPRINT_POOL"
+
+            # Create manifest with fingerprint
+            manifest = SemanticIndexManifest(
+                schema_version=MANIFEST_SCHEMA_VERSION,
+                pool_identifier=pool_id,
+                embedding_dim=384,
+                embedding_model_id="all-MiniLM-L6-v2",
+                embedding_model_fingerprint="all-MiniLM-L6-v2:abc123def456",
+                chunking_policy_id="final_segments_v1",
+                created_at="2026-01-14T00:00:00Z",
+                updated_at="2026-01-14T00:00:00Z",
+            )
+
+            # Write and read back
+            write_manifest(pool_id, manifest)
+            restored = read_manifest(pool_id)
+
+            assert restored is not None
+            assert restored.embedding_model_fingerprint == "all-MiniLM-L6-v2:abc123def456"
+            assert restored.embedding_model_id == "all-MiniLM-L6-v2"
+
+
+def test_manifest_without_fingerprint_backward_compat():
+    """Manifest without fingerprint field (old format) loads correctly."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with mock_semantic_index_root(tmpdir):
+            pool_id = "TEST_BACKWARD_COMPAT"
+            path = manifest_path(pool_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Write old-format manifest (no fingerprint field)
+            old_manifest = {
+                "schema_version": "v1",
+                "pool_identifier": pool_id,
+                "embedding_dim": 384,
+                "embedding_model_id": "all-MiniLM-L6-v2",
+                "chunking_policy_id": "final_segments_v1",
+                "created_at": "2026-01-14T00:00:00Z",
+                "updated_at": "2026-01-14T00:00:00Z",
+            }
+
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(old_manifest, f)
+
+            # Read should succeed with fingerprint=None
+            restored = read_manifest(pool_id)
+            assert restored is not None
+            assert restored.embedding_model_fingerprint is None
+            assert restored.embedding_model_id == "all-MiniLM-L6-v2"

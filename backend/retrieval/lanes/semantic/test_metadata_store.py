@@ -270,3 +270,48 @@ def test_lookup_missing_returns_none():
 
         assert store.lookup_by_chunk_id("nonexistent") is None
         assert store.lookup_by_label(999) is None
+
+
+def test_schema_version_mismatch_detection():
+    """Metadata store detects and fails on schema version mismatch."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "test.db"
+
+        # Create DB with old schema version
+        conn = sqlite3.connect(db_path)
+        try:
+            cursor = conn.cursor()
+            # Create tables manually
+            cursor.execute(
+                """
+                CREATE TABLE chunk_metadata (
+                    chunk_id TEXT PRIMARY KEY,
+                    label INTEGER NOT NULL UNIQUE
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE schema_version (
+                    version INTEGER PRIMARY KEY
+                )
+                """
+            )
+            # Insert old version (current is 3, use 2)
+            cursor.execute("INSERT INTO schema_version (version) VALUES (?)", (2,))
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Attempt to open with current code should fail with clear error
+        try:
+            store = VectorMetadataStore(db_path)
+            assert False, "Should have raised RuntimeError for schema mismatch"
+        except RuntimeError as e:
+            assert "schema version mismatch" in str(e).lower()
+            assert "database has version 2" in str(e)
+            assert "code expects version 3" in str(e)
+            assert "rebuild" in str(e).lower()

@@ -59,6 +59,35 @@ class SentenceTransformersEmbeddingProvider:
         return self._model
 
 
+def compute_model_fingerprint(model_info: EmbeddingModelInfo) -> str:
+    """
+    Compute a fingerprint for the embedding model.
+
+    The fingerprint is used to detect model weight changes, not just name changes.
+    It combines the asset_id with manifest content hash (if available).
+
+    Args:
+        model_info: Embedding model information
+
+    Returns:
+        Fingerprint string (deterministic for same model weights)
+    """
+    import hashlib
+    import json
+
+    # Start with asset_id as base
+    fingerprint_parts = [model_info.asset_id]
+
+    # If manifest exists, include its hash
+    if model_info.manifest:
+        # Sort keys for deterministic hash
+        manifest_json = json.dumps(model_info.manifest, sort_keys=True)
+        manifest_hash = hashlib.sha256(manifest_json.encode()).hexdigest()[:16]
+        fingerprint_parts.append(manifest_hash)
+
+    return ":".join(fingerprint_parts)
+
+
 def build_embedding_provider(
     *,
     assets_service: AssetsService | None = None,

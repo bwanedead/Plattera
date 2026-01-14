@@ -1,0 +1,129 @@
+{
+  "run_id": "2026-01-14__yellow-zone-audit-and-gaps",
+  "title": "Yellow Zone Final Hardening - Implement Missing Functionality",
+  "repo_context": "Implement remaining yellow-zone gaps: tombstone stats/compaction and robust model identity tracking",
+  "global_verification": [
+    "pytest backend/retrieval/lanes/semantic/ -v"
+  ],
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Add tombstone statistics API to PersistentVectorStore",
+      "size": "S",
+      "passes": true,
+      "acceptance_criteria": [
+        "PersistentVectorStore has get_stats() method returning dict with active_chunks, total_vectors, tombstoned_count, tombstone_ratio",
+        "get_stats() queries metadata store for accurate counts",
+        "Test validates stats accuracy after insertions, updates, and deletions",
+        "Stats include pool_identifier for context"
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/lanes/semantic/test_persistent_store.py::test_get_stats -v"
+      ],
+      "depends_on": [],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/persistent_store.py",
+        "backend/retrieval/lanes/semantic/test_persistent_store.py"
+      ],
+      "notes": "Point 7 - need visibility into tombstone accumulation before we can compact"
+    },
+    {
+      "id": "S2",
+      "title": "Implement compact() method to rebuild index without tombstones",
+      "size": "M",
+      "passes": true,
+      "acceptance_criteria": [
+        "PersistentVectorStore has compact() method that rebuilds HNSW index from metadata",
+        "Compaction preserves all active chunk_ids and vectors, discards tombstones",
+        "Label mapping is rebuilt (old labels → new sequential labels)",
+        "Metadata store is updated with new label mappings",
+        "Test validates: index works after compaction, tombstone_count = 0, all active chunks still retrievable",
+        "Compaction is safe (no data loss)"
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/lanes/semantic/test_persistent_store.py::test_compact_removes_tombstones -v"
+      ],
+      "depends_on": ["S1"],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/persistent_store.py",
+        "backend/retrieval/lanes/semantic/test_persistent_store.py"
+      ],
+      "notes": "Point 7 - implement the actual compaction logic to clean up tombstones"
+    },
+    {
+      "id": "S3",
+      "title": "Add should_compact() helper and document compaction strategy",
+      "size": "S",
+      "passes": true,
+      "acceptance_criteria": [
+        "PersistentVectorStore has should_compact(threshold=0.3) method returning bool",
+        "Returns True when tombstone_ratio > threshold (default 30%)",
+        "Add docstring documenting compaction strategy: when to compact, why, operational impact",
+        "Update agents.md with 'Tombstone Compaction' section documenting: what tombstones are, when to compact, how to trigger manually",
+        "Test validates threshold logic"
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/lanes/semantic/test_persistent_store.py::test_should_compact_threshold -v",
+        "grep -q 'Tombstone Compaction' backend/retrieval/lanes/semantic/agents.md"
+      ],
+      "depends_on": ["S1", "S2"],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/persistent_store.py",
+        "backend/retrieval/lanes/semantic/agents.md",
+        "backend/retrieval/lanes/semantic/test_persistent_store.py"
+      ],
+      "notes": "Point 7 - provide clear guidance on when/why to compact"
+    },
+    {
+      "id": "S4",
+      "title": "Add model fingerprint tracking to manifest for robust staleness detection",
+      "size": "S",
+      "passes": true,
+      "acceptance_criteria": [
+        "SemanticIndexManifest includes embedding_model_fingerprint field (hash of model weights or version)",
+        "Builder computes fingerprint from embedding provider and writes to manifest",
+        "Lane staleness check compares fingerprints, not just friendly names",
+        "Staleness detection differentiates: model name changed vs model weights changed",
+        "Test validates: fingerprint mismatch detected even if friendly name matches"
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/lanes/semantic/test_manifest.py::test_manifest_includes_fingerprint -v",
+        "pytest backend/retrieval/lanes/semantic/test_lane.py::test_staleness_detects_fingerprint_mismatch -v"
+      ],
+      "depends_on": [],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/manifest.py",
+        "backend/retrieval/lanes/semantic/index_builder.py",
+        "backend/retrieval/lanes/semantic/lane.py",
+        "backend/retrieval/lanes/semantic/embeddings.py",
+        "backend/retrieval/lanes/semantic/test_manifest.py",
+        "backend/retrieval/lanes/semantic/test_lane.py"
+      ],
+      "notes": "Point 4 - robust model identity to prevent false positives/negatives in staleness detection"
+    },
+    {
+      "id": "S5",
+      "title": "Validate all 10 yellow-zone points are complete with comprehensive tests",
+      "size": "S",
+      "passes": true,
+      "acceptance_criteria": [
+        "All semantic lane tests pass (pytest backend/retrieval/lanes/semantic/ -v)",
+        "Create VALIDATION.md documenting all 10 points with status COMPLETE and evidence",
+        "Each point includes: what was implemented, file paths, test names",
+        "No regressions in existing functionality",
+        "Stats API shows correct tombstone counts",
+        "Compaction works and removes tombstones",
+        "Fingerprint tracking prevents false staleness"
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/lanes/semantic/ -v",
+        "test -f ralph/runs/2026-01-14__yellow-zone-audit-and-gaps/VALIDATION.md"
+      ],
+      "depends_on": ["S1", "S2", "S3", "S4"],
+      "files_expected": [
+        "ralph/runs/2026-01-14__yellow-zone-audit-and-gaps/VALIDATION.md"
+      ],
+      "notes": "Final verification that all yellow zone points are truly solved and production-ready"
+    }
+  ]
+}

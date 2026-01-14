@@ -280,15 +280,26 @@ class LocalSemanticLane:
         if manifest.embedding_dim != runtime_embedding_dim:
             return f"embedding_dim_mismatch: manifest={manifest.embedding_dim}, runtime={runtime_embedding_dim}"
 
-        # Check embedding model ID
-        runtime_model_id = "unknown"
-        if isinstance(embedding_provider, SentenceTransformersEmbeddingProvider):
-            model_info = embedding_provider.model_info
-            manifest_data = model_info.manifest or {}
-            runtime_model_id = manifest_data.get("resolved_revision") or manifest_data.get("revision") or "unknown"
+        # Check embedding model fingerprint (if available)
+        if manifest.embedding_model_fingerprint is not None:
+            # Manifest has fingerprint: use robust fingerprint comparison
+            if isinstance(embedding_provider, SentenceTransformersEmbeddingProvider):
+                from .embeddings import compute_model_fingerprint
+                runtime_fingerprint = compute_model_fingerprint(embedding_provider.model_info)
 
-        if manifest.embedding_model_id != runtime_model_id:
-            return f"embedding_model_mismatch: manifest={manifest.embedding_model_id}, runtime={runtime_model_id}"
+                if manifest.embedding_model_fingerprint != runtime_fingerprint:
+                    return f"embedding_model_fingerprint_mismatch: manifest={manifest.embedding_model_fingerprint}, runtime={runtime_fingerprint}"
+            # If provider doesn't have model_info, can't compute fingerprint, skip check
+        else:
+            # Manifest has no fingerprint: fall back to model_id comparison (backward compat)
+            runtime_model_id = "unknown"
+            if isinstance(embedding_provider, SentenceTransformersEmbeddingProvider):
+                model_info = embedding_provider.model_info
+                manifest_data = model_info.manifest or {}
+                runtime_model_id = manifest_data.get("resolved_revision") or manifest_data.get("revision") or "unknown"
+
+            if manifest.embedding_model_id != runtime_model_id:
+                return f"embedding_model_mismatch: manifest={manifest.embedding_model_id}, runtime={runtime_model_id}"
 
         # Check chunking policy
         runtime_policy_id = FINAL_SEGMENTS_POLICY.policy_id

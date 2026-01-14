@@ -36,6 +36,7 @@ class SemanticIndexManifest:
         pool_identifier: Which corpus pool/view is indexed (e.g., "FINAL_SEGMENTS")
         embedding_dim: Vector dimensionality
         embedding_model_id: Model identifier for tracking model changes
+        embedding_model_fingerprint: Model fingerprint for detecting model weight changes (optional)
         chunking_policy_id: Chunking policy identifier for tracking policy changes
         created_at: ISO timestamp of index creation
         updated_at: ISO timestamp of last index update
@@ -46,6 +47,7 @@ class SemanticIndexManifest:
     embedding_dim: int
     embedding_model_id: str
     chunking_policy_id: str
+    embedding_model_fingerprint: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -56,6 +58,7 @@ class SemanticIndexManifest:
             "pool_identifier": self.pool_identifier,
             "embedding_dim": self.embedding_dim,
             "embedding_model_id": self.embedding_model_id,
+            "embedding_model_fingerprint": self.embedding_model_fingerprint,
             "chunking_policy_id": self.chunking_policy_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -70,6 +73,7 @@ class SemanticIndexManifest:
             embedding_dim=data["embedding_dim"],
             embedding_model_id=data["embedding_model_id"],
             chunking_policy_id=data["chunking_policy_id"],
+            embedding_model_fingerprint=data.get("embedding_model_fingerprint"),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
         )

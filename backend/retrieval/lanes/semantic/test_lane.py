@@ -646,3 +646,49 @@ def test_semantic_evidence_includes_provenance_metadata():
         first_chunk_id, first_distance = hits[0]
         assert isinstance(first_distance, float), "Distance should be a float"
         assert 0.0 <= first_distance <= 2.0, "Distance should be in reasonable range for normalized vectors"
+
+
+def test_staleness_detects_fingerprint_mismatch():
+    """Lane detects stale index via fingerprint mismatch even if model_id matches."""
+    from .embeddings import compute_model_fingerprint
+    from .manifest import SemanticIndexManifest, MANIFEST_SCHEMA_VERSION, write_manifest
+    from .provider import EmbeddingModelInfo
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with mock_semantic_index_root(tmpdir):
+            pool_id = "TEST_FINGERPRINT_MISMATCH"
+
+            # Create manifest with specific fingerprint
+            manifest = SemanticIndexManifest(
+                schema_version=MANIFEST_SCHEMA_VERSION,
+                pool_identifier=pool_id,
+                embedding_dim=384,
+                embedding_model_id="all-MiniLM-L6-v2",
+                embedding_model_fingerprint="all-MiniLM-L6-v2:old_hash",  # Old fingerprint
+                chunking_policy_id="final_segments_v1",
+                created_at="2026-01-01T00:00:00Z",
+                updated_at="2026-01-01T00:00:00Z",
+            )
+            write_manifest(pool_id, manifest)
+
+            # Mock embedding provider with different fingerprint
+            mock_model_info = EmbeddingModelInfo(
+                asset_id="all-MiniLM-L6-v2",
+                model_dir=Path("/fake/path"),
+                manifest={"some": "different_data"},  # This will produce different hash
+            )
+
+            mock_provider = mock.Mock()
+            mock_provider.model_info = mock_model_info
+            mock_provider.__class__ = SentenceTransformersEmbeddingProvider
+
+            # Create lane
+            lane = LocalSemanticLane(pool_identifier=pool_id)
+
+            # Check for staleness - should detect fingerprint mismatch
+            stale_reason = lane._check_manifest_mismatch(384, mock_provider)
+
+            assert stale_reason is not None
+            assert "embedding_model_fingerprint_mismatch" in stale_reason
+            assert "old_hash" in stale_reason
