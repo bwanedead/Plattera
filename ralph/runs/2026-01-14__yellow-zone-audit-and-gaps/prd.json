@@ -10,7 +10,7 @@
       "id": "S1",
       "title": "Add tombstone statistics API to PersistentVectorStore",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "PersistentVectorStore has get_stats() method returning dict with active_chunks, total_vectors, tombstoned_count, tombstone_ratio",
         "get_stats() queries metadata store for accurate counts",
