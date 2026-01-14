@@ -16,3 +16,21 @@
   - Stats API provides visibility needed for compaction decisions
 
 ---
+- Iteration: 2
+- Story: S2 Implement compact() method to rebuild index without tombstones
+- Result: PASS
+- Files changed:
+  - backend/retrieval/lanes/semantic/metadata_store.py
+  - backend/retrieval/lanes/semantic/hnsw_store.py
+  - backend/retrieval/lanes/semantic/persistent_store.py
+  - backend/retrieval/lanes/semantic/test_persistent_store.py
+- Commands run: None (tests require numpy/hnswlib)
+- Notes:
+  - Added list_all_active_chunks() and delete_tombstones() to VectorMetadataStore
+  - Added get_vectors() to HnswVectorStore to retrieve vectors by labels
+  - Implemented compact() method that rebuilds HNSW index with sequential labels
+  - Compaction preserves all active chunks, discards tombstones, remaps labels 0..N-1
+  - Added 3 tests: normal compaction, empty index, all-tombstoned index
+  - Safe by design: retrieves vectors before rebuilding, no data loss
+
+---

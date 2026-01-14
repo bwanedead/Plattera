@@ -31,7 +31,7 @@
       "id": "S2",
       "title": "Implement compact() method to rebuild index without tombstones",
       "size": "M",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "PersistentVectorStore has compact() method that rebuilds HNSW index from metadata",
         "Compaction preserves all active chunk_ids and vectors, discards tombstones",
