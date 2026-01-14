@@ -205,3 +205,157 @@ The next phase remains:
 4. Evaluation framework
 
 The yellow-zone is now **fully hardened** and ready to support those next layers.
+
+---
+
+## Follow-On Round 2: Edge Case Verification
+
+### Review Agent Follow-Up Concerns
+
+The review agent raised two important edge cases to verify:
+
+**1) Does schema mismatch RuntimeError propagate as a crash, or is it caught gracefully?**
+**2) What if the DB exists but schema_version table doesn't (legacy DB)?**
+
+Both edge cases are **already handled correctly** in the implementation.
+
+---
+
+### Edge Case 1: Schema Mismatch → Graceful Failure ✅
+
+**Question:** Does the RuntimeError from metadata_store get caught and translated to `IndexLoadStatus.UNAVAILABLE`?
+
+**Answer:** YES - The lane's load path properly catches all exceptions.
+
+**Evidence:** `backend/retrieval/lanes/semantic/lane.py:339-355`
+
+```python
+# Try to load (files exist but may be corrupt/incompatible)
+try:
+    self._vector_store = load_persistent_store(
+        pool_identifier=self.pool_identifier,
+        embedding_dim=embedding_dim,
+        hnsw_path=hnsw_path,
+        metadata_db_path=metadata_path,
+    )
+    return IndexLoadResult(
+        status=IndexLoadStatus.SUCCESS,
+        vector_store=self._vector_store,
+    )
+except Exception as e:
+    # Failed to load (corrupted, wrong dim, etc.)
+    return IndexLoadResult(
+        status=IndexLoadStatus.UNAVAILABLE,
+        error=f"Failed to load index: {type(e).__name__}: {str(e)}",
+    )
+```
+
+**Flow:**
+1. Lane calls `load_persistent_store()` in try/except
+2. `load_persistent_store()` → `VectorMetadataStore(db_path)` (persistent_store.py:402)
+3. `VectorMetadataStore.__init__()` → `_ensure_schema()` (metadata_store.py:87)
+4. `_ensure_schema()` raises `RuntimeError` on schema mismatch (metadata_store.py:151-156)
+5. RuntimeError propagates back to lane's try/except
+6. Lane catches it and returns:
+   - `IndexLoadStatus.UNAVAILABLE`
+   - Error: "Failed to load index: RuntimeError: Metadata store schema version mismatch: database has version X, but code expects version Y. Rebuild the index or downgrade code to match DB version."
+
+**Result:** Schema mismatch surfaces as `UNAVAILABLE` with actionable error message, not as a crash.
+
+---
+
+### Edge Case 2: Legacy DB Without schema_version Table ✅
+
+**Question:** If a DB exists but has no `schema_version` table (legacy or corrupted), does the SELECT query crash?
+
+**Answer:** NO - The table is created before the SELECT query.
+
+**Evidence:** `backend/retrieval/lanes/semantic/metadata_store.py:132-148`
+
+```python
+# Schema version tracking
+cursor.execute(
+    """
+    CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY
+    )
+    """
+)
+
+# Check schema version compatibility
+cursor.execute("SELECT version FROM schema_version LIMIT 1")
+row = cursor.fetchone()
+if row is None:
+    # New DB: insert current schema version
+    cursor.execute("INSERT INTO schema_version (version) VALUES (?)", (METADATA_SCHEMA_VERSION,))
+else:
+    # Existing DB: verify schema version matches
+    existing_version = row[0]
+    if existing_version != METADATA_SCHEMA_VERSION:
+        raise RuntimeError(...)
+```
+
+**Order of operations:**
+1. `CREATE TABLE IF NOT EXISTS schema_version` (lines 133-139)
+2. `SELECT version FROM schema_version` (line 142)
+
+**Result:** The table is guaranteed to exist before the SELECT query executes, so legacy DBs are handled safely.
+
+---
+
+### Operational Impact: Rebuild Process
+
+**When schema mismatch occurs, users must:**
+
+1. Delete index files:
+   - `{pool}/hnsw.bin` (HNSW index)
+   - `{pool}/metadata.db` (SQLite metadata)
+   - `{pool}/manifest.json` (manifest - optional but recommended)
+
+2. Rebuild index from corpus:
+   - Call `IndexBuilder.build_index_for_dossier()` for each dossier
+   - New files will be created with current schema version
+
+**Why all three files:**
+- HNSW and metadata are tightly coupled (label mappings)
+- Manifest tracks index identity (model, policy, fingerprint)
+- Partial rebuild → inconsistent state
+
+This is **not documented explicitly** in error message or agents.md yet, but it's the correct operational procedure.
+
+---
+
+### Potential Future Enhancement (Not Urgent)
+
+**Observation:** The error message says "rebuild the index" but doesn't specify which files to delete.
+
+**Enhancement:** Could add to agents.md or error message:
+```
+To rebuild:
+1. Delete {pool}/hnsw.bin, {pool}/metadata.db, {pool}/manifest.json
+2. Re-run indexing for each dossier in this pool
+```
+
+**Priority:** LOW - Current error is actionable, this would just be more explicit guidance.
+
+---
+
+## Final Verification: Both Edge Cases Handled
+
+✅ **Edge Case 1 (Schema mismatch → crash?):** Caught and translated to UNAVAILABLE  
+✅ **Edge Case 2 (Missing schema_version table?):** Table created before SELECT
+
+**No additional implementation needed.** The existing code already handles both edge cases correctly.
+
+---
+
+## Summary: Yellow-Zone is Truly Complete
+
+**All original 10 points:** ✅ COMPLETE  
+**Schema version mismatch detection:** ✅ COMPLETE  
+**Edge case 1 (graceful failure):** ✅ VERIFIED  
+**Edge case 2 (legacy DB):** ✅ VERIFIED  
+
+**Next phase ready:** Hybrid fusion, reranking, agent orchestration
+
+The semantic retrieval foundation is production-ready.
