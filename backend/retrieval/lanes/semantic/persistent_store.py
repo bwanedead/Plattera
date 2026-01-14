@@ -182,6 +182,46 @@ class PersistentVectorStore:
         self.hnsw_store.save(hnsw_path)
         # Metadata store is already persisted to SQLite (no explicit save needed)
 
+    def should_compact(self, threshold: float = 0.3) -> bool:
+        """
+        Check if compaction is recommended based on tombstone ratio.
+
+        Compaction Strategy:
+        -------------------
+        Compaction rebuilds the HNSW index without tombstoned vectors, reclaiming
+        memory and improving query performance. Compaction is recommended when the
+        tombstone ratio exceeds a threshold (default 30%).
+
+        When to compact:
+        - tombstone_ratio > threshold (default 30%)
+        - After many updates or deletions
+        - During off-peak hours or maintenance windows
+
+        Why compact:
+        - Reclaim memory from deleted vectors
+        - Improve query performance (fewer vectors to filter)
+        - Reset HNSW graph structure for better cache locality
+
+        Operational impact:
+        - Compaction is a blocking operation (no queries during compaction)
+        - Duration scales with number of active chunks (not tombstones)
+        - Index remains functional during compaction (old index replaced atomically)
+        - No data loss (all active chunks preserved with vectors)
+
+        Args:
+            threshold: Tombstone ratio threshold (0.0-1.0). Default 0.3 (30%)
+
+        Returns:
+            True if tombstone_ratio > threshold, False otherwise
+
+        Example:
+            >>> if store.should_compact(threshold=0.3):
+            >>>     stats = store.compact()
+            >>>     print(f"Compacted: removed {stats['tombstones_removed']} tombstones")
+        """
+        stats = self.get_stats()
+        return stats["tombstone_ratio"] > threshold
+
     def compact(self) -> dict:
         """
         Compact the vector store by rebuilding without tombstones.

@@ -563,3 +563,79 @@ def test_compact_all_tombstones():
         post_stats = store.get_stats()
         assert post_stats["active_chunks"] == 0
         assert post_stats["tombstoned_count"] == 0
+
+
+@pytest.mark.hnsw
+def test_should_compact_threshold():
+    """should_compact() returns True when tombstone_ratio exceeds threshold."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+        store = create_persistent_store(
+            pool_identifier="TEST_SHOULD_COMPACT",
+            embedding_dim=4,
+            hnsw_path=tmppath / "test.hnsw",
+            metadata_path=tmppath / "test.db",
+        )
+
+        # Empty index: should not compact
+        assert store.should_compact(threshold=0.3) is False
+
+        # Add 10 chunks
+        for i in range(10):
+            store.upsert(
+                chunk_id=f"chunk_{i}",
+                vector=[float(i), 0.0, 0.0, 0.0],
+                dossier_id="dossier_1",
+                entry_id=f"entry_{i}",
+                selector_json='{"type": "whole"}',
+            )
+
+        # No tombstones: should not compact
+        assert store.should_compact(threshold=0.3) is False
+        assert store.should_compact(threshold=0.0) is False
+
+        # Update 2 chunks (2/12 = 16.7% tombstones)
+        for i in range(2):
+            store.upsert(
+                chunk_id=f"chunk_{i}",
+                vector=[float(i) + 1.0, 0.0, 0.0, 0.0],
+                dossier_id="dossier_1",
+                entry_id=f"entry_{i}",
+                selector_json='{"type": "whole"}',
+            )
+
+        stats = store.get_stats()
+        assert stats["tombstone_ratio"] < 0.3
+
+        # Below threshold: should not compact
+        assert store.should_compact(threshold=0.3) is False
+
+        # Above lower threshold: should compact
+        assert store.should_compact(threshold=0.1) is True
+
+        # Update 3 more chunks (5/15 = 33.3% tombstones)
+        for i in range(2, 5):
+            store.upsert(
+                chunk_id=f"chunk_{i}",
+                vector=[float(i) + 1.0, 0.0, 0.0, 0.0],
+                dossier_id="dossier_1",
+                entry_id=f"entry_{i}",
+                selector_json='{"type": "whole"}',
+            )
+
+        stats = store.get_stats()
+        assert stats["tombstone_ratio"] > 0.3
+
+        # Above threshold: should compact
+        assert store.should_compact(threshold=0.3) is True
+        assert store.should_compact(threshold=0.5) is False
+
+        # Delete all (100% tombstones)
+        store.delete_slice("dossier_1")
+
+        stats = store.get_stats()
+        assert stats["tombstone_ratio"] == 1.0
+
+        # 100% tombstoned: should definitely compact
+        assert store.should_compact(threshold=0.3) is True
+        assert store.should_compact(threshold=0.9) is True
