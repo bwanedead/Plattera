@@ -8,7 +8,7 @@
       "id": "S1",
       "title": "Add deterministic preview excerpt to semantic hits (store + return)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Semantic hits include a non-empty preview/excerpt field suitable for triage (deterministic for the same chunk)",
         "Preview is persisted in the semantic metadata store (so it works across restarts)",
@@ -26,7 +26,7 @@
       "id": "S2",
       "title": "Ensure FINAL_SEGMENTS hit metadata has full CorpusEntryRef fidelity (hydrateable)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Semantic hit metadata can reconstruct a fully-populated CorpusEntryRef for FINAL_SEGMENTS (includes required ids such as segment_id and draft_id)",
         "A pytest demonstrates that hydrating the returned ref yields non-empty entry text (fixture-based; no external server dependency)",
@@ -45,7 +45,7 @@
       "id": "S3",
       "title": "Add explicit read-mode service: Evidence → full hydrated entry (locate→read bridge)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "A new read-mode helper/service exists that takes a semantic hit/evidence reference and returns the full hydrated parent CorpusEntry",
         "Read-mode is separate from the semantic lane (lane stays locator; read does heavy hydration)",
@@ -64,7 +64,7 @@
       "id": "S4",
       "title": "Make manifest truth real: builder writes/updates manifest on successful build; lane compares correctly",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Successful index build writes/updates manifest.json for the pool (verified by pytest fixture build)",
         "Manifest includes unambiguous model identity (human-readable model id + immutable revision/fingerprint) and embedding_dim + policy id",
@@ -82,7 +82,7 @@
       "id": "S5",
       "title": "Make operational index failure modes explicit: missing vs unavailable/corrupt vs stale",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Lane distinguishes: index_not_initialized (files absent), index_unavailable (present but failed to load), and index_stale_needs_reindex (manifest mismatch)",
         "Each failure mode includes actionable debug/provenance fields (pool identifier and an error/category string)",
@@ -100,7 +100,7 @@
       "id": "S6",
       "title": "Make update semantics provably safe: never reuse deleted labels; idempotent upsert behavior",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Updating/reindexing the same chunk_id does not reuse deleted labels in the ANN index (new label allocated; old label tombstoned)",
         "Upserting the same chunk_id repeatedly is idempotent at the public API level (no duplicate public IDs in query results)",
@@ -118,7 +118,7 @@
       "id": "S7",
       "title": "Make persistence tests reliable: isolate HNSW integration tests if needed (no permanent ignores)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "No guidance in-repo suggests permanently ignoring persistence tests to avoid crashes",
         "If isolation is needed, HNSW integration tests are explicitly marked and runnable in a separate pytest invocation",
@@ -137,7 +137,7 @@
       "id": "S8",
       "title": "Standardize 'why this matched' trace in semantic evidence (score + policy + pool + model identity)",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Each semantic evidence item includes structured debug/provenance fields: pool identifier, similarity score/distance, chunking policy id, and embedding model identity",
         "A pytest asserts these fields are present and stable for a deterministic fixture"

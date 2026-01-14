@@ -42,6 +42,9 @@ class PersistentVectorStore:
         dossier_id: Optional[str],
         entry_id: str,
         selector_json: str,
+        preview: Optional[str] = None,
+        segment_id: Optional[str] = None,
+        draft_id: Optional[str] = None,
     ) -> None:
         """
         Insert or update a chunk's vector.
@@ -54,28 +57,35 @@ class PersistentVectorStore:
             dossier_id: Dossier this chunk belongs to (for replace-slice)
             entry_id: Corpus entry identifier
             selector_json: JSON-serialized ChunkSelector
+            preview: Short deterministic excerpt for triage (max ~200 chars)
+            segment_id: Segment identifier (for FINAL_SEGMENTS CorpusEntryRef)
+            draft_id: Draft identifier (for FINAL_SEGMENTS CorpusEntryRef)
         """
         # Check if chunk_id already exists
         existing_meta = self.metadata_store.lookup_by_chunk_id(chunk_id)
 
         if existing_meta is not None:
-            # Update existing: reuse label
-            label = existing_meta.label
+            # Update existing: allocate NEW label, tombstone old (safe-by-design)
+            old_label = existing_meta.label
+            new_label = self.metadata_store.get_next_label()
 
-            # Mark old label as deleted (tombstone)
-            self.hnsw_store.mark_deleted(label)
+            # Tombstone old label in HNSW (never reuse deleted labels)
+            self.hnsw_store.mark_deleted(old_label)
 
-            # Add new vector with same label
-            self.hnsw_store.add_vector(label=label, vector=vector)
+            # Add new vector with NEW label
+            self.hnsw_store.add_vector(label=new_label, vector=vector)
 
-            # Update metadata (unmark deleted)
+            # Update metadata to point chunk_id to new label
             metadata = ChunkMetadata(
                 chunk_id=chunk_id,
-                label=label,
+                label=new_label,
                 dossier_id=dossier_id,
                 pool_identifier=self.pool_identifier,
                 entry_id=entry_id,
                 selector_json=selector_json,
+                preview=preview,
+                segment_id=segment_id,
+                draft_id=draft_id,
                 is_deleted=False,
             )
             self.metadata_store.upsert_chunk(metadata)
@@ -94,6 +104,9 @@ class PersistentVectorStore:
                 pool_identifier=self.pool_identifier,
                 entry_id=entry_id,
                 selector_json=selector_json,
+                preview=preview,
+                segment_id=segment_id,
+                draft_id=draft_id,
                 is_deleted=False,
             )
             self.metadata_store.upsert_chunk(metadata)

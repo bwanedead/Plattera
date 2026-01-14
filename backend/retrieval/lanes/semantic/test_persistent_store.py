@@ -6,6 +6,10 @@ Validates:
 - Upsert idempotency (same chunk_id doesn't create duplicates)
 - Build → save → load → query round-trip
 - Tombstone/deletion integration
+
+All tests in this module require hnswlib and numpy dependencies.
+Run HNSW integration tests: pytest -m hnsw
+Run non-HNSW tests: pytest -m "not hnsw"
 """
 
 import tempfile
@@ -14,6 +18,9 @@ from pathlib import Path
 import pytest
 
 from .persistent_store import create_persistent_store, load_persistent_store
+
+# Mark all tests in this module as requiring HNSW
+pytestmark = pytest.mark.hnsw
 
 
 def test_create_and_upsert():
@@ -263,3 +270,104 @@ def test_query_skips_tombstoned_chunks():
         # No dossier_1 chunks should appear (they're tombstoned)
         d1_chunks = [cid for cid in chunk_ids if cid.startswith("chunk_d1_")]
         assert len(d1_chunks) == 0
+
+
+def test_update_never_reuses_deleted_labels():
+    """
+    Updating same chunk_id multiple times allocates new labels (never reuses deleted).
+
+    Verifies safe-by-design semantics:
+    - Each update gets a fresh label
+    - Old labels are tombstoned (never reused)
+    - Chunk remains retrievable after N updates
+    - No crashes during repeated update/query cycles
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_db = Path(tmpdir) / "metadata.db"
+
+        store = create_persistent_store(
+            pool_identifier="FINAL_SEGMENTS",
+            embedding_dim=4,
+            metadata_db_path=metadata_db,
+            max_elements=1000,
+        )
+
+        # Add filler chunks to establish HNSW graph connectivity
+        for i in range(20):
+            vec = [0.0] * 4
+            vec[0] = 0.3 + (i * 0.02)
+            store.upsert(
+                chunk_id=f"chunk_filler_{i}",
+                vector=vec,
+                dossier_id="dossier_filler",
+                entry_id=f"entry_{i}",
+                selector_json='{"kind":"section","section_index":0}',
+            )
+
+        # Track labels allocated for our target chunk
+        allocated_labels = []
+
+        # Initial insert
+        store.upsert(
+            chunk_id="chunk_target",
+            vector=[1.0, 0.0, 0.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_1",
+            selector_json='{"kind":"section","section_index":0}',
+        )
+
+        # Get initial label
+        meta_0 = store.metadata_store.lookup_by_chunk_id("chunk_target")
+        assert meta_0 is not None
+        allocated_labels.append(meta_0.label)
+
+        # Update the same chunk 10 times with different vectors
+        for i in range(10):
+            angle = (i + 1) * 0.1
+            vec = [1.0 - angle, angle, 0.0, 0.0]
+
+            store.upsert(
+                chunk_id="chunk_target",
+                vector=vec,
+                dossier_id="dossier_1",
+                entry_id="entry_1",
+                selector_json='{"kind":"section","section_index":0}',
+            )
+
+            # Get new label after update
+            meta = store.metadata_store.lookup_by_chunk_id("chunk_target")
+            assert meta is not None
+            allocated_labels.append(meta.label)
+
+            # Verify chunk remains retrievable
+            results = store.query(vector=vec, k=5)
+            chunk_ids = [cid for cid, _ in results]
+
+            # Target chunk should be in results
+            assert "chunk_target" in chunk_ids
+
+            # Target chunk should appear exactly once (no duplicates)
+            assert chunk_ids.count("chunk_target") == 1
+
+        # Verify all labels are unique (never reused)
+        assert len(allocated_labels) == 11  # Initial + 10 updates
+        assert len(set(allocated_labels)) == 11  # All distinct
+
+        # Verify labels are monotonically increasing (no reuse of deleted labels)
+        for i in range(1, len(allocated_labels)):
+            assert allocated_labels[i] > allocated_labels[i - 1], (
+                f"Label {allocated_labels[i]} should be > {allocated_labels[i - 1]}"
+            )
+
+        # Final verification: chunk is still retrievable with latest vector
+        final_vec = [1.0 - 1.0, 1.0, 0.0, 0.0]
+        final_results = store.query(vector=final_vec, k=10)
+        final_chunk_ids = [cid for cid, _ in final_results]
+
+        assert "chunk_target" in final_chunk_ids
+        assert final_chunk_ids.count("chunk_target") == 1
+
+        # Verify stats: 21 vectors total (20 filler + 1 active target + 10 tombstoned old labels)
+        stats = store.get_stats()
+        assert stats["total_vectors"] == 31  # 20 filler + 11 target versions
+        assert stats["active_chunks"] == 21  # 20 filler + 1 current target (10 old versions tombstoned)

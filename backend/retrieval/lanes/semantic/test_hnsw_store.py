@@ -8,10 +8,9 @@ Validates:
 - Tombstone (mark_deleted) functionality
 - Cosine-equivalent similarity via normalization
 
-NOTE: These tests pass when run in isolation but may crash when run with
-the full test suite due to hnswlib's behavior when creating/destroying
-multiple index instances rapidly. This is a known hnswlib issue.
-Run with: pytest backend/retrieval/lanes/semantic/test_hnsw_store.py
+All tests in this module require hnswlib and numpy dependencies.
+Run HNSW integration tests: pytest -m hnsw
+Run non-HNSW tests: pytest -m "not hnsw"
 """
 
 import tempfile
@@ -21,6 +20,9 @@ import numpy as np
 import pytest
 
 from .hnsw_store import HnswVectorStore, create_hnsw_store, load_hnsw_store
+
+# Mark all tests in this module as requiring HNSW
+pytestmark = pytest.mark.hnsw
 
 
 def test_create_index():
