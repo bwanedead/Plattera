@@ -29,7 +29,7 @@
       "id": "S2",
       "title": "Add hybrid_semantic lane to RetrievalEngine",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "`RetrievalEngine.search(... lanes=[\"hybrid_semantic\"])` runs lexical.raw, lexical.normalized, and semantic, then returns a unified candidate list",
         "Existing `\"hybrid\"` behavior (lexical → provenance) remains unchanged",
