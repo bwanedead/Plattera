@@ -11,6 +11,7 @@ from ..filters.models import RetrievalFilters
 from ..lanes.provenance.recipes import ProvenanceRecipe
 from ..engine.retrieval_engine import HybridConfig, RetrievalEngine
 from .hybrid_search import HybridSearchTool
+from .hybrid_semantic_search import HybridSemanticSearchTool
 from .lexical_search import LexicalSearchTool
 from .provenance_search import ProvenanceSearchTool
 
@@ -176,3 +177,46 @@ def test_provenance_recipe_typo_fallback_notes() -> None:
 
     assert provenance.calls == ["D9"]
     assert any("unknown_provenance_recipe_fallback:" in note for note in result.debug["notes"])
+
+
+def test_hybrid_semantic_tool_calls_hybrid_semantic_lane() -> None:
+    """HybridSemanticSearchTool should call engine with hybrid_semantic lane."""
+    engine = FakeEngine()
+    tool = HybridSemanticSearchTool(engine=engine)
+
+    result = tool("query")
+
+    assert engine.last_lanes == ["hybrid_semantic"]
+    assert result.debug["tool"] == "hybrid_semantic_search"
+    assert result.debug["lanes"] == ["hybrid_semantic"]
+    assert result.debug["gating_errors"] == []
+
+
+def test_hybrid_semantic_tool_with_filters() -> None:
+    """HybridSemanticSearchTool should pass filters to engine."""
+    engine = FakeEngine()
+    tool = HybridSemanticSearchTool(engine=engine)
+    filters = RetrievalFilters(dossier_id="D1")
+
+    result = tool("query", filters=filters, limit=20)
+
+    assert engine.last_filters == filters
+    assert engine.last_limit == 20
+    assert result.debug["overrides"]["filters"] is True
+    assert result.debug["overrides"]["limit"] == 20
+
+
+def test_hybrid_semantic_tool_debug_metadata() -> None:
+    """HybridSemanticSearchTool should add standard debug metadata."""
+    engine = FakeEngine()
+    tool = HybridSemanticSearchTool(engine=engine)
+
+    result = tool("query")
+
+    assert result.debug["tool"] == "hybrid_semantic_search"
+    assert result.debug["lanes"] == ["hybrid_semantic"]
+    assert result.debug["defaults"] == {"limit": 10}
+    assert result.debug["overrides"] == {}
+    assert result.debug["gating_errors"] == []
+    assert "notes" in result.debug
+    assert any("fuses lexical.raw + lexical.normalized + semantic lanes" in note for note in result.debug["notes"])

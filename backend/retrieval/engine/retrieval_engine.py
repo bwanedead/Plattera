@@ -9,8 +9,9 @@ from ..lanes.lexical.grep_backend import GrepBackendLexicalLane
 from ..lanes.lexical.lane import LexicalLane
 from ..lanes.provenance.lane import ProvenanceLane
 from ..lanes.provenance.recipes import ProvenanceRecipe, parse_provenance_recipe
+from ..lanes.rerank.lane import NoopRerankLane, RerankLane
 from ..lanes.semantic.lane import SemanticLane, LocalSemanticLane
-from .merge import dedupe_by_id, sort_by_score
+from .merge import FusionConfig, dedupe_by_id, fusion_merge, sort_by_score
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,7 @@ class RetrievalEngine:
     lexical_normalized_lane: LexicalLane = field(default_factory=lambda: GrepBackendLexicalLane(mode="normalized"))
     semantic_lane: SemanticLane = field(default_factory=LocalSemanticLane)
     provenance_lane: ProvenanceLane = field(default_factory=ProvenanceLane)
+    rerank_lane: RerankLane = field(default_factory=NoopRerankLane)
     hybrid_config: HybridConfig = field(default_factory=HybridConfig)
 
     def search(
@@ -111,6 +113,45 @@ class RetrievalEngine:
                     cards.extend(prov_result.cards)
                 dbg["lane_debug"]["hybrid"] = hybrid_debug
                 continue
+            if lane_name == "hybrid_semantic":
+                # True hybrid: fuse lexical.raw + lexical.normalized + semantic
+                fusion_debug: Dict[str, Any] = {}
+                fusion_config = FusionConfig(per_lane_cap=limit)
+                fusion_debug["fusion_config"] = {
+                    "per_lane_cap": fusion_config.per_lane_cap,
+                    "lane_order": fusion_config.lane_order,
+                }
+
+                # Run all three lanes
+                raw_result = self.lexical_raw_lane.search(query, filters=filters, limit=limit)
+                norm_result = self.lexical_normalized_lane.search(query, filters=filters, limit=limit)
+                sem_result = self.semantic_lane.search(query, filters=filters, limit=limit)
+
+                # Capture per-lane debug
+                fusion_debug["per_lane_debug"] = {
+                    "lexical.raw": raw_result.debug,
+                    "lexical.normalized": norm_result.debug,
+                    "semantic": sem_result.debug,
+                }
+                fusion_debug["per_lane_counts"] = {
+                    "lexical.raw": len(raw_result.cards),
+                    "lexical.normalized": len(norm_result.cards),
+                    "semantic": len(sem_result.cards),
+                }
+
+                # Fusion merge
+                lane_results = {
+                    "lexical.raw": raw_result.cards,
+                    "lexical.normalized": norm_result.cards,
+                    "semantic": sem_result.cards,
+                }
+                fused_cards = fusion_merge(lane_results, config=fusion_config)
+                fusion_debug["fused_count"] = len(fused_cards)
+                fusion_debug["fused_unique_ids"] = len(set(c.id for c in fused_cards))
+
+                cards.extend(fused_cards)
+                dbg["lane_debug"]["hybrid_semantic"] = fusion_debug
+                continue
             if lane_name == "lexical.raw":
                 result = self.lexical_raw_lane.search(query, filters=filters, limit=limit)
             elif lane_name == "lexical.normalized":
@@ -134,7 +175,36 @@ class RetrievalEngine:
             dbg["lane_debug"][lane_name] = result.debug
             cards.extend(result.cards)
 
-        cards = sort_by_score(dedupe_by_id(cards))
+        # Optional rerank stage (only if explicitly enabled)
+        rerank_enabled = (filters and filters.extra and filters.extra.get("rerank") is True)
+        if rerank_enabled:
+            rerank_debug: Dict[str, Any] = {}
+            pre_rerank_count = len(cards)
+            rerank_debug["pre_rerank_count"] = pre_rerank_count
+            rerank_debug["pre_rerank_ids"] = [c.id for c in cards[:5]]  # First 5 for debugging
+
+            # Apply rerank
+            cards = self.rerank_lane.rerank(query, cards)
+
+            rerank_debug["post_rerank_count"] = len(cards)
+            rerank_debug["post_rerank_ids"] = [c.id for c in cards[:5]]  # First 5 for debugging
+            rerank_debug["reorder_occurred"] = (
+                rerank_debug["pre_rerank_ids"] != rerank_debug["post_rerank_ids"]
+            )
+
+            # Annotate cards with rerank provenance
+            for card in cards:
+                if "rerank" not in card.provenance:
+                    card.provenance["rerank"] = {"applied": True, "query": query}
+
+            dbg["lane_debug"]["rerank"] = rerank_debug
+            # Dedupe but preserve rerank order
+            cards = dedupe_by_id(cards)
+        else:
+            dbg["lane_debug"]["rerank"] = {"enabled": False}
+            # Only sort when rerank is disabled
+            cards = sort_by_score(dedupe_by_id(cards))
+
         if limit:
             cards = cards[:limit]
 

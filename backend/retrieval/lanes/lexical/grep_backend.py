@@ -80,6 +80,47 @@ class GrepBackendLexicalLane:
             return self._search_entry_normalized(entry, query, remaining)
         return self._search_entry_raw(entry, query, remaining)
 
+    def _calculate_score(
+        self, match_index: int, total_matches: int, position: int, text_length: int
+    ) -> float:
+        """
+        Calculate lightweight score for a match.
+
+        Factors:
+        - Match density: More matches in document = higher score
+        - Position: Earlier matches weighted slightly higher
+        - Deterministic and explainable
+
+        Args:
+            match_index: 0-based index of this match (0 = first match)
+            total_matches: Total number of matches in this entry
+            position: Character position in text
+            text_length: Total length of text
+
+        Returns:
+            Score between 0.0 and 1.0
+        """
+        # Base score from match density (more matches = better)
+        # Range: 0.5 to 1.0 based on log(match_count)
+        import math
+
+        density_score = 0.5 + (0.3 * min(1.0, math.log(total_matches + 1) / math.log(10)))
+
+        # Position bonus: earlier matches get small bonus
+        # Range: 0.0 to 0.2 based on relative position
+        if text_length > 0:
+            relative_pos = position / text_length
+            position_bonus = 0.2 * (1.0 - relative_pos)
+        else:
+            position_bonus = 0.0
+
+        # Combine factors
+        score = density_score + position_bonus
+
+        # Ensure score is in valid range
+        return min(1.0, max(0.0, score))
+
+
     def _search_entry_raw(self, entry: CorpusEntry, query: str, remaining: int) -> List[EvidenceCard]:
         return self._emit_matches(
             entry,
@@ -117,8 +158,9 @@ class GrepBackendLexicalLane:
         cards: List[EvidenceCard] = []
         query_norm = normalize_text_v1(query) if self.mode == "normalized" else None
 
+        # First pass: collect all match positions
+        match_positions: List[tuple[int, int, int, int]] = []  # (norm_start, norm_end, orig_start, orig_end)
         start = 0
-        hits = 0
         while True:
             idx = haystack.find(query_norm if query_norm is not None else query, start)
             if idx == -1:
@@ -131,9 +173,20 @@ class GrepBackendLexicalLane:
             else:
                 orig_start, orig_end = norm_start, norm_end
 
-            if orig_end <= orig_start:
-                start = idx + 1
-                continue
+            if orig_end > orig_start:
+                match_positions.append((norm_start, norm_end, orig_start, orig_end))
+
+            start = idx + 1
+            if len(match_positions) >= self.max_hits_per_entry:
+                break
+
+        total_matches = len(match_positions)
+        text_length = len(entry.text)
+
+        # Second pass: create cards with scores
+        for match_index, (norm_start, norm_end, orig_start, orig_end) in enumerate(match_positions):
+            if remaining and len(cards) >= remaining:
+                break
 
             span_text = _excerpt(entry.text, orig_start, orig_end)
             trace = None
@@ -155,10 +208,14 @@ class GrepBackendLexicalLane:
                 preview=span_text,
                 trace=trace,
             )
+
+            # Calculate score based on density and position
+            score = self._calculate_score(match_index, total_matches, orig_start, text_length)
+
             card = EvidenceCard(
                 id=f"lex:{self.mode}:{entry.ref.entry_id}:{orig_start}:{orig_end}",
                 spans=[span],
-                score=1.0,
+                score=score,
                 lane=f"lexical.{self.mode}",
                 title=entry.title or entry.ref.entry_id,
                 provenance=self._build_provenance(
@@ -173,10 +230,6 @@ class GrepBackendLexicalLane:
                 ),
             )
             cards.append(card)
-            hits += 1
-            if hits >= self.max_hits_per_entry or (remaining and len(cards) >= remaining):
-                break
-            start = idx + 1
 
         return cards
 

@@ -10,7 +10,7 @@
       "id": "S1",
       "title": "Add fusion merge helper for multi-lane candidates",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "New fusion helper in `backend/retrieval/engine/merge.py` merges per-lane top-K, dedupes by card id, and returns deterministic ordering",
         "Unit tests cover per-lane caps, dedupe behavior, and stable ordering"
@@ -29,7 +29,7 @@
       "id": "S2",
       "title": "Add hybrid_semantic lane to RetrievalEngine",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "`RetrievalEngine.search(... lanes=[\"hybrid_semantic\"])` runs lexical.raw, lexical.normalized, and semantic, then returns a unified candidate list",
         "Existing `\"hybrid\"` behavior (lexical → provenance) remains unchanged",
@@ -51,7 +51,7 @@
       "id": "S3",
       "title": "Add hybrid_semantic tool wrapper",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "New tool wrapper calls engine with lanes=[\"hybrid_semantic\"] and adds standard debug metadata",
         "Tools __init__ exports the new wrapper and dispatch tests cover it"
@@ -73,7 +73,7 @@
       "id": "S4",
       "title": "Wire optional rerank stage into RetrievalEngine",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Rerank is invoked only when explicitly enabled (filters.extra or lanes config), and does not run by default",
         "Rerank reorders cards and annotates provenance/debug without changing EvidenceCard shape",
@@ -95,7 +95,7 @@
       "id": "S5",
       "title": "Add retrieval maintenance controller (orchestration-only)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Maintenance controller reports missing/stale/compact-needed actions without mutating state when dry_run=True",
         "Controller can execute build/rebuild/compact via existing primitives when dry_run=False",
@@ -115,7 +115,7 @@
       "id": "S6",
       "title": "Lexical v0+ scoring improvements (non-BM25)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Lexical lane scores reflect match density/proximity and remain deterministic",
         "Tests validate scoring order and do not change existing match fidelity"
