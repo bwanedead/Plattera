@@ -1,0 +1,135 @@
+{
+  "run_id": "2026-01-14__true-hybrid-rag",
+  "title": "True hybrid retrieval (fusion + rerank + maintenance controller)",
+  "repo_context": "Extend retrieval orchestration to fuse lexical+semantic, optionally rerank, and add an explicit maintenance controller without changing existing hybrid(provenance) semantics.",
+  "global_verification": [
+    "pytest backend/retrieval/ -v"
+  ],
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Add fusion merge helper for multi-lane candidates",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "New fusion helper in `backend/retrieval/engine/merge.py` merges per-lane top-K, dedupes by card id, and returns deterministic ordering",
+        "Unit tests cover per-lane caps, dedupe behavior, and stable ordering"
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/engine/test_fusion_merge.py -v"
+      ],
+      "depends_on": [],
+      "files_expected": [
+        "backend/retrieval/engine/merge.py",
+        "backend/retrieval/engine/test_fusion_merge.py"
+      ],
+      "notes": "Keep the helper generic; avoid changing EvidenceCard schema. Use a fixed lane order (lexical.raw, lexical.normalized, semantic) and stable tie-breakers."
+    },
+    {
+      "id": "S2",
+      "title": "Add hybrid_semantic lane to RetrievalEngine",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "`RetrievalEngine.search(... lanes=[\"hybrid_semantic\"])` runs lexical.raw, lexical.normalized, and semantic, then returns a unified candidate list",
+        "Existing `\"hybrid\"` behavior (lexical → provenance) remains unchanged",
+        "Debug output includes per-lane diagnostics and fusion config"
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/engine/test_hybrid_dispatch.py -v"
+      ],
+      "depends_on": [
+        "S1"
+      ],
+      "files_expected": [
+        "backend/retrieval/engine/retrieval_engine.py",
+        "backend/retrieval/engine/test_hybrid_dispatch.py"
+      ],
+      "notes": "Use the fusion helper and add a new config struct if needed. Keep ordering deterministic per PRD policy."
+    },
+    {
+      "id": "S3",
+      "title": "Add hybrid_semantic tool wrapper",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "New tool wrapper calls engine with lanes=[\"hybrid_semantic\"] and adds standard debug metadata",
+        "Tools __init__ exports the new wrapper and dispatch tests cover it"
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/tools/test_tools_dispatch.py -v"
+      ],
+      "depends_on": [
+        "S2"
+      ],
+      "files_expected": [
+        "backend/retrieval/tools/hybrid_semantic_search.py",
+        "backend/retrieval/tools/__init__.py",
+        "backend/retrieval/tools/test_tools_dispatch.py"
+      ],
+      "notes": "Keep existing hybrid_search unchanged."
+    },
+    {
+      "id": "S4",
+      "title": "Wire optional rerank stage into RetrievalEngine",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Rerank is invoked only when explicitly enabled (filters.extra or lanes config), and does not run by default",
+        "Rerank reorders cards and annotates provenance/debug without changing EvidenceCard shape",
+        "Tests verify rerank gating and ordering"
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/engine/test_rerank_integration.py -v"
+      ],
+      "depends_on": [
+        "S2"
+      ],
+      "files_expected": [
+        "backend/retrieval/engine/retrieval_engine.py",
+        "backend/retrieval/engine/test_rerank_integration.py"
+      ],
+      "notes": "Primary toggle: filters.extra[\"rerank\"] == True. Prefer using EvidenceSpan.preview; avoid read-service calls unless bounded."
+    },
+    {
+      "id": "S5",
+      "title": "Add retrieval maintenance controller (orchestration-only)",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Maintenance controller reports missing/stale/compact-needed actions without mutating state when dry_run=True",
+        "Controller can execute build/rebuild/compact via existing primitives when dry_run=False",
+        "Tests cover decision outputs and dry-run safety"
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/engine/test_maintenance_controller.py -v"
+      ],
+      "depends_on": [],
+      "files_expected": [
+        "backend/retrieval/engine/maintenance_controller.py",
+        "backend/retrieval/engine/test_maintenance_controller.py"
+      ],
+      "notes": "Keep policy explicit and avoid implicit rebuilds on query paths. Controller must not be called from RetrievalEngine.search()."
+    },
+    {
+      "id": "S6",
+      "title": "Lexical v0+ scoring improvements (non-BM25)",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Lexical lane scores reflect match density/proximity and remain deterministic",
+        "Tests validate scoring order and do not change existing match fidelity"
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/lanes/lexical/test_grep_lane.py -v"
+      ],
+      "depends_on": [],
+      "files_expected": [
+        "backend/retrieval/lanes/lexical/grep_backend.py",
+        "backend/retrieval/lanes/lexical/test_grep_lane.py"
+      ],
+      "notes": "No BM25/FTS; keep scoring lightweight and explainable. Preserve EvidenceCard.id format and match offsets."
+    }
+  ]
+}
+
