@@ -75,3 +75,37 @@ This file captures a running summary of what was built, one entry per completed 
 
 ---
 
+## Story S3: Add hybrid_semantic tool wrapper
+**Status:** PASS
+**Iteration:** 3
+
+### What was built
+- HybridSemanticSearchTool class that wraps RetrievalEngine hybrid_semantic lane
+- Standard debug metadata structure matching existing tool patterns
+- 3 tests validating tool behavior and integration
+
+### Files changed
+- `backend/retrieval/tools/hybrid_semantic_search.py` - New tool wrapper class
+- `backend/retrieval/tools/__init__.py` - Export HybridSemanticSearchTool in __all__
+- `backend/retrieval/tools/test_tools_dispatch.py` - Added 3 tests for hybrid_semantic tool
+
+### Key decisions
+- Followed existing HybridSearchTool pattern for consistency
+- Default limit of 10 matches other tools
+- Minimal debug notes mentioning fusion of three lanes
+- No gating logic needed (unlike ProvenanceSearchTool which requires dossier_id)
+
+### Tests added
+- 3 new tests in `backend/retrieval/tools/test_tools_dispatch.py`
+  - Lane dispatch verification
+  - Filter and limit passthrough
+  - Debug metadata structure
+
+### Notes
+- XS story completed quickly following established patterns
+- Code syntax verified with py_compile
+- Tool is now available for agent use via tools.__init__
+- Completes the hybrid_semantic integration chain: merge helper → engine → tool
+
+---
+

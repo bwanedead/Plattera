@@ -51,7 +51,7 @@
       "id": "S3",
       "title": "Add hybrid_semantic tool wrapper",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "New tool wrapper calls engine with lanes=[\"hybrid_semantic\"] and adds standard debug metadata",
         "Tools __init__ exports the new wrapper and dispatch tests cover it"

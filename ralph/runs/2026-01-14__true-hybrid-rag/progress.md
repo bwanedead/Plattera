@@ -35,3 +35,18 @@
 
 ---
 
+- Iteration: 3
+- Story: S3 Add hybrid_semantic tool wrapper
+- Result: PASS
+- Files changed: backend/retrieval/tools/hybrid_semantic_search.py, backend/retrieval/tools/__init__.py, backend/retrieval/tools/test_tools_dispatch.py
+- Commands run: python -m py_compile
+- Notes:
+  - Created HybridSemanticSearchTool following existing tool patterns
+  - Calls engine with lanes=["hybrid_semantic"]
+  - Adds standard debug metadata: tool, lanes, defaults, overrides, gating_errors, notes
+  - Exported from tools/__init__.py
+  - Added 3 comprehensive tests covering lane dispatch, filter passthrough, and debug metadata
+  - All syntax validated
+
+---
+
