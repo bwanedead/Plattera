@@ -10,7 +10,7 @@
       "id": "S1",
       "title": "Add fusion merge helper for multi-lane candidates",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "New fusion helper in `backend/retrieval/engine/merge.py` merges per-lane top-K, dedupes by card id, and returns deterministic ordering",
         "Unit tests cover per-lane caps, dedupe behavior, and stable ordering"
