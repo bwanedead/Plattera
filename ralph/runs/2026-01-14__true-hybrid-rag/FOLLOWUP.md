@@ -27,7 +27,7 @@ cards = sort_by_score(dedupe_by_id(cards))  # <-- UNDOES RERANK!
 
 **Test needed**: Verify rerank ordering is preserved (fake rerank that reverses list, assert final order matches)
 
-**Status**: Not fixed
+**Status**: ✅ FIXED - See commit b8ab318
 
 ---
 
@@ -51,7 +51,7 @@ def dedupe_by_id(cards: List[EvidenceCard]) -> List[EvidenceCard]:
 
 **Fix**: Use explicit list append to make order preservation obvious.
 
-**Status**: Not fixed
+**Status**: ✅ FIXED - See commit b8ab318
 
 ---
 
@@ -105,7 +105,10 @@ def dedupe_by_id(cards: List[EvidenceCard]) -> List[EvidenceCard]:
 - Verify final output matches reversed order
 - Verify pre-rerank and post-rerank IDs differ
 
-**Status**: Not added
+**Status**: ✅ ADDED - 3 tests in test_rerank_integration.py (commit b8ab318)
+- `test_rerank_ordering_is_not_undone_by_subsequent_sort` (CRITICAL)
+- `test_rerank_ordering_respects_limit_but_not_score`
+- `test_rerank_disabled_allows_score_sorting`
 
 ---
 
@@ -118,7 +121,7 @@ def dedupe_by_id(cards: List[EvidenceCard]) -> List[EvidenceCard]:
 - Verify lexical results still returned
 - Verify debug preserves semantic failure reason
 
-**Status**: Not added
+**Status**: ✅ ADDED - test_hybrid_semantic_graceful_degradation_without_index (commit b8ab318)
 
 ---
 
@@ -126,10 +129,10 @@ def dedupe_by_id(cards: List[EvidenceCard]) -> List[EvidenceCard]:
 
 | Issue | Priority | Type | Status |
 |-------|----------|------|--------|
-| Rerank ordering undone | 🔴 Critical | Bug | Not fixed |
-| dedupe_by_id order preservation | 🟡 Should fix | Code clarity | Not fixed |
-| Rerank ordering test | 🔴 Critical | Test gap | Not added |
-| Graceful degradation test | 🟡 Should add | Test gap | Not added |
+| Rerank ordering undone | 🔴 Critical | Bug | ✅ FIXED (b8ab318) |
+| dedupe_by_id order preservation | 🟡 Should fix | Code clarity | ✅ FIXED (b8ab318) |
+| Rerank ordering test | 🔴 Critical | Test gap | ✅ ADDED (b8ab318) |
+| Graceful degradation test | 🟡 Should add | Test gap | ✅ ADDED (b8ab318) |
 | Fusion dedupe semantics | ℹ️ Info | Design choice | Documented |
 | Score commensurability | ℹ️ Info | Design choice | Documented |
 
