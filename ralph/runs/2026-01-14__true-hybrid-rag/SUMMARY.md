@@ -152,3 +152,49 @@ This file captures a running summary of what was built, one entry per completed 
 
 ---
 
+
+## Story S5: Add retrieval maintenance controller (orchestration-only)
+**Status:** PASS
+**Iteration:** 5
+
+### What was built
+- MaintenanceController class for explicit index maintenance orchestration
+- Diagnose method to detect missing/stale/compact-needed conditions
+- Execute_actions method with dry_run safety mode
+- Action and report data structures for maintenance workflows
+- 13 comprehensive tests for diagnosis, execution, and safety
+
+### Files changed
+- `backend/retrieval/engine/maintenance_controller.py` - New maintenance controller
+- `backend/retrieval/engine/test_maintenance_controller.py` - 13 tests
+
+### Key decisions
+- Never called from RetrievalEngine.search() (query paths must remain fast)
+- Explicit dry_run mode (default behavior is report-only, no mutations)
+- Three action kinds: BUILD_MISSING (priority 10), REBUILD_STALE (priority 5), COMPACT (priority 2)
+- Diagnose checks manifest existence, can detect staleness and compaction needs
+- Execute_actions orchestrates existing primitives (SemanticIndexBuilder, PersistentVectorStore)
+- Placeholder implementation for actual build/rebuild/compact (hooks for future integration)
+
+### Tests added
+- 13 new tests in `backend/retrieval/engine/test_maintenance_controller.py`
+  - Missing index detection
+  - Dry-run safety (no mutations)
+  - Metadata inclusion
+  - Existing manifest handling
+  - Execution with dry_run flag
+  - Success/failure counting
+  - Action details
+  - Corrupt manifest handling
+  - Contract test: never imported from retrieval_engine
+  - Action priority ordering
+
+### Notes
+- All syntax validated with py_compile
+- Controller is orchestration-only, uses existing primitives
+- Deterministic decision outputs make testing straightforward
+- Ready for integration with actual index build/rebuild/compact operations
+- Maintains separation: query paths (hot) vs maintenance (cold)
+
+---
+

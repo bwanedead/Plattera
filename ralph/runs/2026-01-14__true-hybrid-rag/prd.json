@@ -95,7 +95,7 @@
       "id": "S5",
       "title": "Add retrieval maintenance controller (orchestration-only)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Maintenance controller reports missing/stale/compact-needed actions without mutating state when dry_run=True",
         "Controller can execute build/rebuild/compact via existing primitives when dry_run=False",

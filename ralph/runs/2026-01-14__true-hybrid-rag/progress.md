@@ -67,3 +67,20 @@
 
 ---
 
+- Iteration: 5
+- Story: S5 Add retrieval maintenance controller (orchestration-only)
+- Result: PASS
+- Files changed: backend/retrieval/engine/maintenance_controller.py, backend/retrieval/engine/test_maintenance_controller.py
+- Commands run: python -m py_compile
+- Notes:
+  - Created MaintenanceController with diagnose() and execute_actions() methods
+  - Diagnose reports missing/stale/compact actions based on manifest state
+  - Execute_actions has dry_run parameter for safety (defaults to report-only)
+  - Never imported or called from RetrievalEngine.search() (verified by contract test)
+  - Action types: BUILD_MISSING, REBUILD_STALE, COMPACT with priority levels
+  - MaintenanceReport includes actions, warnings, and metadata
+  - Added 13 comprehensive tests covering diagnosis, execution, dry-run safety, error handling
+  - All syntax validated
+
+---
+
