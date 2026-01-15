@@ -109,3 +109,46 @@ This file captures a running summary of what was built, one entry per completed 
 
 ---
 
+## Story S4: Wire optional rerank stage into RetrievalEngine
+**Status:** PASS
+**Iteration:** 4
+
+### What was built
+- Rerank stage integration in RetrievalEngine with explicit opt-in gating
+- Rerank lane field with NoopRerankLane default
+- Debug output tracking rerank application and reordering
+- Provenance annotation for reranked cards
+- 10 comprehensive tests for gating, ordering, and edge cases
+
+### Files changed
+- `backend/retrieval/engine/retrieval_engine.py` - Added rerank_lane field and rerank stage logic
+- `backend/retrieval/engine/test_rerank_integration.py` - New test file with 10 tests
+
+### Key decisions
+- Rerank enabled only via filters.extra["rerank"] == True (explicit opt-in, not default)
+- Rerank runs after lane searches but before final sort/dedupe/limit
+- Uses existing RerankLane protocol (NoopRerankLane as default)
+- Annotates cards via provenance dict (no schema changes)
+- Debug includes pre/post counts, IDs, and reorder_occurred flag
+- Per PRD note: uses EvidenceSpan.preview implicitly (rerank lane receives full cards)
+
+### Tests added
+- 10 new tests in `backend/retrieval/engine/test_rerank_integration.py`
+  - Default disabled behavior
+  - Explicit enable via filters.extra
+  - Reordering detection
+  - Provenance annotation
+  - Card shape preservation
+  - False value handling
+  - Missing key handling
+  - Empty cards edge case
+  - Integration with hybrid_semantic fusion
+
+### Notes
+- All syntax validated with py_compile
+- Rerank lane can be swapped with real cross-encoder later
+- Gating ensures no performance impact when disabled
+- Works with all lane types (lexical, semantic, hybrid, hybrid_semantic)
+
+---
+

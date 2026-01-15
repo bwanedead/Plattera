@@ -73,7 +73,7 @@
       "id": "S4",
       "title": "Wire optional rerank stage into RetrievalEngine",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Rerank is invoked only when explicitly enabled (filters.extra or lanes config), and does not run by default",
         "Rerank reorders cards and annotates provenance/debug without changing EvidenceCard shape",

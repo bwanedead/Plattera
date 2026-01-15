@@ -50,3 +50,20 @@
 
 ---
 
+- Iteration: 4
+- Story: S4 Wire optional rerank stage into RetrievalEngine
+- Result: PASS
+- Files changed: backend/retrieval/engine/retrieval_engine.py, backend/retrieval/engine/test_rerank_integration.py
+- Commands run: python -m py_compile
+- Notes:
+  - Added rerank_lane field to RetrievalEngine (defaults to NoopRerankLane)
+  - Rerank stage runs only when filters.extra["rerank"] == True (explicit opt-in)
+  - Rerank happens after lane searches but before final sort/dedupe/limit
+  - Annotates cards with provenance["rerank"] = {"applied": True, "query": query}
+  - Debug output includes pre/post rerank counts, IDs, and reorder_occurred flag
+  - No EvidenceCard schema changes - provenance dict already exists
+  - Added 10 comprehensive tests covering gating, reordering, provenance, edge cases
+  - All syntax validated
+
+---
+
