@@ -9,6 +9,7 @@ from ..lanes.lexical.grep_backend import GrepBackendLexicalLane
 from ..lanes.lexical.lane import LexicalLane
 from ..lanes.provenance.lane import ProvenanceLane
 from ..lanes.provenance.recipes import ProvenanceRecipe, parse_provenance_recipe
+from ..lanes.rerank.lane import NoopRerankLane, RerankLane
 from ..lanes.semantic.lane import SemanticLane, LocalSemanticLane
 from .merge import FusionConfig, dedupe_by_id, fusion_merge, sort_by_score
 
@@ -49,6 +50,7 @@ class RetrievalEngine:
     lexical_normalized_lane: LexicalLane = field(default_factory=lambda: GrepBackendLexicalLane(mode="normalized"))
     semantic_lane: SemanticLane = field(default_factory=LocalSemanticLane)
     provenance_lane: ProvenanceLane = field(default_factory=ProvenanceLane)
+    rerank_lane: RerankLane = field(default_factory=NoopRerankLane)
     hybrid_config: HybridConfig = field(default_factory=HybridConfig)
 
     def search(
@@ -172,6 +174,32 @@ class RetrievalEngine:
                 continue
             dbg["lane_debug"][lane_name] = result.debug
             cards.extend(result.cards)
+
+        # Optional rerank stage (only if explicitly enabled)
+        rerank_enabled = (filters and filters.extra and filters.extra.get("rerank") is True)
+        if rerank_enabled:
+            rerank_debug: Dict[str, Any] = {}
+            pre_rerank_count = len(cards)
+            rerank_debug["pre_rerank_count"] = pre_rerank_count
+            rerank_debug["pre_rerank_ids"] = [c.id for c in cards[:5]]  # First 5 for debugging
+
+            # Apply rerank
+            cards = self.rerank_lane.rerank(query, cards)
+
+            rerank_debug["post_rerank_count"] = len(cards)
+            rerank_debug["post_rerank_ids"] = [c.id for c in cards[:5]]  # First 5 for debugging
+            rerank_debug["reorder_occurred"] = (
+                rerank_debug["pre_rerank_ids"] != rerank_debug["post_rerank_ids"]
+            )
+
+            # Annotate cards with rerank provenance
+            for card in cards:
+                if "rerank" not in card.provenance:
+                    card.provenance["rerank"] = {"applied": True, "query": query}
+
+            dbg["lane_debug"]["rerank"] = rerank_debug
+        else:
+            dbg["lane_debug"]["rerank"] = {"enabled": False}
 
         cards = sort_by_score(dedupe_by_id(cards))
         if limit:
