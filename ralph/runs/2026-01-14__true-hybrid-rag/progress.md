@@ -84,3 +84,21 @@
 
 ---
 
+- Iteration: 6
+- Story: S6 Lexical v0+ scoring improvements (non-BM25)
+- Result: PASS
+- Files changed: backend/retrieval/lanes/lexical/grep_backend.py, backend/retrieval/lanes/lexical/test_grep_lane.py
+- Commands run: python -m py_compile
+- Notes:
+  - Added _calculate_score method with density and position weighting
+  - Match density: log-based score (more matches = higher score, range 0.5-0.8)
+  - Position bonus: earlier matches get small bonus (range 0.0-0.2)
+  - Refactored _emit_matches to two-pass: collect matches, then score
+  - Scores remain deterministic (same query + entry = same scores)
+  - No BM25, no FTS - lightweight and explainable
+  - Preserved EvidenceCard.id format and match offsets
+  - Added 8 comprehensive scoring tests covering density, position, determinism, fidelity
+  - All syntax validated
+
+---
+

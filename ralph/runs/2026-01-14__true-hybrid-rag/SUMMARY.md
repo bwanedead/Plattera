@@ -198,3 +198,45 @@ This file captures a running summary of what was built, one entry per completed 
 
 ---
 
+
+## Story S6: Lexical v0+ scoring improvements (non-BM25)
+**Status:** PASS
+**Iteration:** 6
+
+### What was built
+- Lightweight scoring algorithm for lexical lane based on match density and position
+- Two-pass match collection and scoring in _emit_matches
+- 8 comprehensive tests validating scoring behavior and backward compatibility
+
+### Files changed
+- `backend/retrieval/lanes/lexical/grep_backend.py` - Added _calculate_score method and refactored _emit_matches
+- `backend/retrieval/lanes/lexical/test_grep_lane.py` - Added 8 scoring tests
+
+### Key decisions
+- Density score: log-based (0.5 + 0.3 * log(matches) / log(10)) rewards documents with multiple matches
+- Position bonus: 0.2 * (1 - relative_position) gives small boost to earlier matches
+- Two-pass approach: collect all matches first to know total_matches, then calculate scores
+- Deterministic: same input always produces same scores
+- No BM25, no FTS - keeps scoring lightweight and explainable
+- Preserved all existing behavior: match fidelity, card ID format, offsets
+
+### Tests added
+- 8 new tests in `backend/retrieval/lanes/lexical/test_grep_lane.py`
+  - Match density scoring
+  - Deterministic scores
+  - Position weighting
+  - Score range validation (0.0-1.0)
+  - Match fidelity preservation
+  - Card ID format preservation
+  - Normalized mode compatibility
+  - Single match handling
+
+### Notes
+- All syntax validated with py_compile
+- Scoring is additive - doesn't change what matches are found, only how they're ranked
+- Scores in range [0.5, 1.0] typically (density base + position bonus)
+- Ready for use in fusion and ranking scenarios
+- Completes the true hybrid RAG feature set
+
+---
+

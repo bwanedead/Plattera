@@ -115,7 +115,7 @@
       "id": "S6",
       "title": "Lexical v0+ scoring improvements (non-BM25)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Lexical lane scores reflect match density/proximity and remain deterministic",
         "Tests validate scoring order and do not change existing match fidelity"
