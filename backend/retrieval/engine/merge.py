@@ -35,11 +35,22 @@ class FusionConfig:
 
 
 def dedupe_by_id(cards: List[EvidenceCard]) -> List[EvidenceCard]:
-    seen: Dict[str, EvidenceCard] = {}
+    """
+    Deduplicate cards by card.id, preserving first occurrence order.
+
+    Args:
+        cards: List of cards that may contain duplicates
+
+    Returns:
+        Deduplicated list with first occurrence of each ID preserved in order
+    """
+    seen: set[str] = set()
+    deduped: List[EvidenceCard] = []
     for c in cards:
         if c.id not in seen:
-            seen[c.id] = c
-    return list(seen.values())
+            seen.add(c.id)
+            deduped.append(c)
+    return deduped
 
 
 def sort_by_score(cards: List[EvidenceCard]) -> List[EvidenceCard]:

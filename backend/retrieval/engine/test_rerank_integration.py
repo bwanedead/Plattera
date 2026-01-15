@@ -236,3 +236,89 @@ def test_rerank_with_hybrid_semantic_lane() -> None:
     assert reranker.calls[0][0] == "query"
     # Should have fused cards from raw and norm lanes
     assert reranker.calls[0][1] == 2  # 2 cards fused
+
+
+def test_rerank_ordering_is_not_undone_by_subsequent_sort() -> None:
+    """
+    CRITICAL: Verify rerank ordering is preserved and not undone by score sorting.
+
+    This test guards against the footgun where rerank reorders cards but then
+    a subsequent sort_by_score() call undoes the reranking.
+    """
+    # Create cards with scores that would sort differently than rerank order
+    cards = [
+        _make_card("card1", 0.9, "lexical.raw"),  # High score
+        _make_card("card2", 0.5, "lexical.raw"),  # Low score  
+        _make_card("card3", 0.7, "lexical.raw"),  # Medium score
+    ]
+
+    # Fake reranker reverses order (so card3, card2, card1)
+    reranker = FakeRerankLane()
+
+    engine = RetrievalEngine(
+        lexical_raw_lane=FakeLexicalLane(cards),
+        rerank_lane=reranker,
+    )
+
+    filters = RetrievalFilters(extra={"rerank": True})
+    result = engine.search("query", lanes=["lexical.raw"], filters=filters, limit=10)
+
+    # Critical assertion: final order should match rerank's reversed order
+    # NOT the original score-sorted order
+    assert len(result.cards) == 3
+    assert result.cards[0].id == "card3"  # Reversed by rerank
+    assert result.cards[1].id == "card2"  # Reversed by rerank
+    assert result.cards[2].id == "card1"  # Reversed by rerank
+
+    # If this fails, it means rerank was undone by subsequent sorting
+    # (cards would be: card1[0.9], card3[0.7], card2[0.5] if sorted by score)
+
+
+def test_rerank_ordering_respects_limit_but_not_score() -> None:
+    """Verify limit truncates reranked results without re-sorting them."""
+    cards = [
+        _make_card("card1", 0.9, "lexical.raw"),
+        _make_card("card2", 0.8, "lexical.raw"),
+        _make_card("card3", 0.7, "lexical.raw"),
+        _make_card("card4", 0.6, "lexical.raw"),
+        _make_card("card5", 0.5, "lexical.raw"),
+    ]
+
+    # Reranker reverses order
+    reranker = FakeRerankLane()
+
+    engine = RetrievalEngine(
+        lexical_raw_lane=FakeLexicalLane(cards),
+        rerank_lane=reranker,
+    )
+
+    filters = RetrievalFilters(extra={"rerank": True})
+    result = engine.search("query", lanes=["lexical.raw"], filters=filters, limit=3)
+
+    # Should get first 3 from reversed order, not top 3 by score
+    assert len(result.cards) == 3
+    assert result.cards[0].id == "card5"  # First in reranked order
+    assert result.cards[1].id == "card4"  # Second in reranked order
+    assert result.cards[2].id == "card3"  # Third in reranked order
+
+
+def test_rerank_disabled_allows_score_sorting() -> None:
+    """When rerank disabled, cards should still be sorted by score."""
+    cards = [
+        _make_card("card1", 0.5, "lexical.raw"),  # Low score
+        _make_card("card2", 0.9, "lexical.raw"),  # High score
+        _make_card("card3", 0.7, "lexical.raw"),  # Medium score
+    ]
+
+    engine = RetrievalEngine(
+        lexical_raw_lane=FakeLexicalLane(cards),
+        rerank_lane=FakeRerankLane(),  # Won't be called
+    )
+
+    # No rerank enabled
+    result = engine.search("query", lanes=["lexical.raw"], limit=10)
+
+    # Should be sorted by score
+    assert result.cards[0].id == "card2"  # 0.9
+    assert result.cards[1].id == "card3"  # 0.7
+    assert result.cards[2].id == "card1"  # 0.5

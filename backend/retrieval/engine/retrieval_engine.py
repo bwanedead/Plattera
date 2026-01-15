@@ -198,10 +198,13 @@ class RetrievalEngine:
                     card.provenance["rerank"] = {"applied": True, "query": query}
 
             dbg["lane_debug"]["rerank"] = rerank_debug
+            # Dedupe but preserve rerank order
+            cards = dedupe_by_id(cards)
         else:
             dbg["lane_debug"]["rerank"] = {"enabled": False}
+            # Only sort when rerank is disabled
+            cards = sort_by_score(dedupe_by_id(cards))
 
-        cards = sort_by_score(dedupe_by_id(cards))
         if limit:
             cards = cards[:limit]
 

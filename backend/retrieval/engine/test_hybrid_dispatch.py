@@ -349,3 +349,38 @@ def test_hybrid_semantic_with_filters() -> None:
     assert result.debug["filters"]["dossier_id"] == "doss1"
     # Should still return results (fake lanes don't enforce filters, but real ones would)
     assert len(result.cards) >= 1
+
+
+def test_hybrid_semantic_graceful_degradation_without_index() -> None:
+    """hybrid_semantic should degrade to lexical-only when semantic index missing."""
+    raw_cards = [_lex_card("raw:A", None, "lexical.raw")]
+    norm_cards = [_lex_card("norm:B", None, "lexical.normalized")]
+
+    @dataclass
+    class SemanticWithMissingIndex:
+        def search(self, query: str, *, filters=None, limit=10):
+            return RetrievalResult(
+                query=query,
+                cards=[],
+                debug={"lane": "semantic", "reason": "index_not_initialized"}
+            )
+
+    engine = RetrievalEngine(
+        lexical_raw_lane=FakeLexicalLane(raw_cards),
+        lexical_normalized_lane=FakeLexicalLane(norm_cards),
+        semantic_lane=SemanticWithMissingIndex(),
+    )
+
+    result = engine.search("query", lanes=["hybrid_semantic"], limit=10)
+
+    # Should still return lexical results
+    assert len(result.cards) >= 2
+    lexical_cards = [c for c in result.cards if c.lane.startswith("lexical")]
+    assert len(lexical_cards) == 2
+
+    # Semantic should report why it failed in debug
+    assert result.debug["lane_debug"]["hybrid_semantic"]["per_lane_debug"]["semantic"]["reason"] == "index_not_initialized"
+    
+    # Should still have fusion debug showing counts
+    assert result.debug["lane_debug"]["hybrid_semantic"]["per_lane_counts"]["semantic"] == 0
+    assert result.debug["lane_debug"]["hybrid_semantic"]["per_lane_counts"]["lexical.raw"] >= 1
