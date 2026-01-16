@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -11,11 +9,18 @@ from .maintenance_controller import (
     MaintenanceAction,
     MaintenanceController,
     MaintenanceReport,
+    RuntimeIndexIdentity,
+)
+from ..lanes.semantic.manifest import (
+    MANIFEST_SCHEMA_VERSION,
+    SemanticIndexManifest,
+    write_manifest,
 )
 
 
-def test_diagnose_reports_missing_index() -> None:
+def test_diagnose_reports_missing_index(tmp_path: Path, monkeypatch) -> None:
     """When manifest doesn't exist, should recommend BUILD_MISSING."""
+    monkeypatch.setattr("retrieval.lanes.semantic.manifest.assets_root", lambda: tmp_path)
     controller = MaintenanceController()
 
     report = controller.diagnose(pool_identifier="TEST_POOL", dry_run=True)
@@ -24,12 +29,13 @@ def test_diagnose_reports_missing_index() -> None:
     assert len(report.actions) == 1
     assert report.actions[0].kind == ActionKind.BUILD_MISSING
     assert report.actions[0].pool_identifier == "TEST_POOL"
-    assert "not found" in report.actions[0].reason.lower()
+    assert "missing" in report.actions[0].reason.lower()
     assert report.actions[0].priority == 10
 
 
-def test_diagnose_dry_run_does_not_mutate() -> None:
+def test_diagnose_dry_run_does_not_mutate(tmp_path: Path, monkeypatch) -> None:
     """Diagnose with dry_run=True should not modify filesystem."""
+    monkeypatch.setattr("retrieval.lanes.semantic.manifest.assets_root", lambda: tmp_path)
     controller = MaintenanceController()
 
     # Get initial state
@@ -52,27 +58,35 @@ def test_diagnose_includes_metadata() -> None:
 
     assert report.metadata["pool_identifier"] == "MY_POOL"
     assert report.metadata["dry_run"] is True
+    assert report.metadata["compaction_threshold"] == 0.3
 
 
 def test_diagnose_with_existing_manifest(tmp_path: Path, monkeypatch) -> None:
     """When manifest exists, should not recommend BUILD_MISSING."""
-    # Create a fake manifest
-    manifest_dir = tmp_path / "semantic_indexes" / "TEST_POOL"
-    manifest_dir.mkdir(parents=True)
-    manifest_path = manifest_dir / "manifest.json"
-
-    manifest_data = {
-        "schema_version": "1",
-        "pool_identifier": "TEST_POOL",
-        "embedding_dim": 384,
-        "embedding_model_id": "test-model",
-        "chunking_policy_id": "test-policy",
-    }
-    with open(manifest_path, "w") as f:
-        json.dump(manifest_data, f)
-
     # Patch assets_root to use tmp_path
-    monkeypatch.setattr("backend.retrieval.engine.maintenance_controller.assets_root", lambda: tmp_path)
+    monkeypatch.setattr("retrieval.lanes.semantic.manifest.assets_root", lambda: tmp_path)
+
+    manifest = SemanticIndexManifest(
+        schema_version=MANIFEST_SCHEMA_VERSION,
+        pool_identifier="TEST_POOL",
+        embedding_dim=384,
+        embedding_model_id="test-model",
+        chunking_policy_id="test-policy",
+    )
+    write_manifest("TEST_POOL", manifest)
+
+    pool_root = tmp_path / "semantic_indexes" / "TEST_POOL"
+    (pool_root / "hnsw.bin").write_text("stub", encoding="utf-8")
+    (pool_root / "metadata.db").write_text("stub", encoding="utf-8")
+
+    class StubStore:
+        def should_compact(self, threshold: float = 0.3) -> bool:
+            return False
+
+    monkeypatch.setattr(
+        "retrieval.engine.maintenance_controller.load_persistent_store",
+        lambda **kwargs: StubStore(),
+    )
 
     controller = MaintenanceController()
     report = controller.diagnose(pool_identifier="TEST_POOL", dry_run=True)
@@ -104,9 +118,12 @@ def test_execute_actions_dry_run_does_not_execute() -> None:
 
 def test_execute_actions_reports_success_count() -> None:
     """Execute should count succeeded and failed actions."""
-    controller = MaintenanceController()
+    class CompactingController(MaintenanceController):
+        def _compact_index(self, pool_identifier: str) -> dict:
+            return {"tombstones_removed": 5}
 
-    # Placeholder actions (will succeed since methods are noops)
+    controller = CompactingController()
+
     actions = [
         MaintenanceAction(ActionKind.BUILD_MISSING, "POOL1", "reason1"),
         MaintenanceAction(ActionKind.REBUILD_STALE, "POOL2", "reason2"),
@@ -117,21 +134,24 @@ def test_execute_actions_reports_success_count() -> None:
 
     assert result["dry_run"] is False
     assert result["actions_attempted"] == 3
-    assert result["actions_succeeded"] == 3
+    assert result["actions_succeeded"] == 1
     assert result["actions_failed"] == 0
+    assert result["actions_not_executed"] == 2
+    assert "execution_unimplemented:build_missing" in result["warnings"]
+    assert "execution_unimplemented:rebuild_stale" in result["warnings"]
 
 
 def test_execute_actions_handles_failures() -> None:
     """Execute should catch and report failures."""
 
     class FailingController(MaintenanceController):
-        def _build_index(self, pool_identifier: str) -> None:
-            raise ValueError("Simulated build failure")
+        def _compact_index(self, pool_identifier: str) -> dict:
+            raise ValueError("Simulated compact failure")
 
     controller = FailingController()
 
     actions = [
-        MaintenanceAction(ActionKind.BUILD_MISSING, "POOL1", "reason"),
+        MaintenanceAction(ActionKind.COMPACT, "POOL1", "reason"),
     ]
 
     result = controller.execute_actions(actions, dry_run=False)
@@ -139,7 +159,7 @@ def test_execute_actions_handles_failures() -> None:
     assert result["actions_succeeded"] == 0
     assert result["actions_failed"] == 1
     assert result["details"][0]["status"] == "failed"
-    assert "Simulated build failure" in result["details"][0]["error"]
+    assert "Simulated compact failure" in result["details"][0]["error"]
 
 
 def test_execute_actions_includes_details() -> None:
@@ -186,14 +206,121 @@ def test_diagnose_handles_corrupt_manifest(tmp_path: Path, monkeypatch) -> None:
     with open(manifest_path, "w") as f:
         f.write("{ corrupt json")
 
+    (manifest_dir / "hnsw.bin").write_text("stub", encoding="utf-8")
+    (manifest_dir / "metadata.db").write_text("stub", encoding="utf-8")
+
     # Patch assets_root
-    monkeypatch.setattr("backend.retrieval.engine.maintenance_controller.assets_root", lambda: tmp_path)
+    monkeypatch.setattr("retrieval.lanes.semantic.manifest.assets_root", lambda: tmp_path)
 
     controller = MaintenanceController()
     report = controller.diagnose(pool_identifier="TEST_POOL", dry_run=True)
 
     assert len(report.warnings) > 0
-    assert any("Failed to load manifest" in w for w in report.warnings)
+    assert any("manifest_unavailable" in w for w in report.warnings)
+
+
+def test_diagnose_staleness_mismatch_adds_action(tmp_path: Path, monkeypatch) -> None:
+    """Manifest mismatch should yield REBUILD_STALE action."""
+    monkeypatch.setattr("retrieval.lanes.semantic.manifest.assets_root", lambda: tmp_path)
+
+    manifest = SemanticIndexManifest(
+        schema_version=MANIFEST_SCHEMA_VERSION,
+        pool_identifier="TEST_POOL",
+        embedding_dim=384,
+        embedding_model_id="model_a",
+        chunking_policy_id="policy_a",
+        embedding_model_fingerprint=None,
+    )
+    write_manifest("TEST_POOL", manifest)
+
+    pool_root = tmp_path / "semantic_indexes" / "TEST_POOL"
+    (pool_root / "hnsw.bin").write_text("stub", encoding="utf-8")
+    (pool_root / "metadata.db").write_text("stub", encoding="utf-8")
+
+    class StubStore:
+        def should_compact(self, threshold: float = 0.3) -> bool:
+            return False
+
+    monkeypatch.setattr(
+        "retrieval.engine.maintenance_controller.load_persistent_store",
+        lambda **kwargs: StubStore(),
+    )
+
+    runtime_identity = RuntimeIndexIdentity(
+        embedding_dim=384,
+        embedding_model_id="model_b",
+        chunking_policy_id="policy_a",
+    )
+
+    controller = MaintenanceController()
+    report = controller.diagnose(pool_identifier="TEST_POOL", runtime_identity=runtime_identity, dry_run=True)
+
+    assert any(a.kind == ActionKind.REBUILD_STALE for a in report.actions)
+
+
+def test_diagnose_compaction_recommended(tmp_path: Path, monkeypatch) -> None:
+    """Compaction should be recommended when should_compact returns True."""
+    monkeypatch.setattr("retrieval.lanes.semantic.manifest.assets_root", lambda: tmp_path)
+
+    manifest = SemanticIndexManifest(
+        schema_version=MANIFEST_SCHEMA_VERSION,
+        pool_identifier="TEST_POOL",
+        embedding_dim=384,
+        embedding_model_id="model_a",
+        chunking_policy_id="policy_a",
+    )
+    write_manifest("TEST_POOL", manifest)
+
+    pool_root = tmp_path / "semantic_indexes" / "TEST_POOL"
+    (pool_root / "hnsw.bin").write_text("stub", encoding="utf-8")
+    (pool_root / "metadata.db").write_text("stub", encoding="utf-8")
+
+    class StubStore:
+        def should_compact(self, threshold: float = 0.3) -> bool:
+            return True
+
+        def get_stats(self) -> dict:
+            return {"tombstone_ratio": 0.5}
+
+    monkeypatch.setattr(
+        "retrieval.engine.maintenance_controller.load_persistent_store",
+        lambda **kwargs: StubStore(),
+    )
+
+    controller = MaintenanceController()
+    report = controller.diagnose(pool_identifier="TEST_POOL", runtime_identity=None, dry_run=True)
+
+    assert any(a.kind == ActionKind.COMPACT for a in report.actions)
+    assert any("tombstone_ratio" in a.reason for a in report.actions if a.kind == ActionKind.COMPACT)
+
+
+def test_diagnose_warns_when_staleness_unimplemented(tmp_path: Path, monkeypatch) -> None:
+    """Missing runtime identity should add staleness_check_unimplemented warning."""
+    monkeypatch.setattr("retrieval.lanes.semantic.manifest.assets_root", lambda: tmp_path)
+
+    manifest = SemanticIndexManifest(
+        schema_version=MANIFEST_SCHEMA_VERSION,
+        pool_identifier="TEST_POOL",
+        embedding_dim=384,
+        embedding_model_id="model_a",
+        chunking_policy_id="policy_a",
+    )
+    write_manifest("TEST_POOL", manifest)
+
+    pool_root = tmp_path / "semantic_indexes" / "TEST_POOL"
+    (pool_root / "hnsw.bin").write_text("stub", encoding="utf-8")
+    (pool_root / "metadata.db").write_text("stub", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "retrieval.engine.maintenance_controller.load_persistent_store",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("nope")),
+    )
+
+    controller = MaintenanceController()
+    report = controller.diagnose(pool_identifier="TEST_POOL", runtime_identity=None, dry_run=True)
+
+    assert "staleness_check_unimplemented" in report.warnings
+    assert any(w.startswith("compaction_check_unavailable") for w in report.warnings)
 
 
 def test_controller_never_called_from_search() -> None:

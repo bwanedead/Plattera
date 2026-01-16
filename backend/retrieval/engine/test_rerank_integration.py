@@ -276,6 +276,15 @@ def test_rerank_ordering_is_not_undone_by_subsequent_sort() -> None:
 
 def test_rerank_ordering_respects_limit_but_not_score() -> None:
     """Verify limit truncates reranked results without re-sorting them."""
+    @dataclass
+    class LimitIgnoringLane:
+        cards: List[EvidenceCard] = field(default_factory=list)
+
+        def search(
+            self, query: str, *, filters: RetrievalFilters | None = None, limit: int = 10
+        ) -> RetrievalResult:
+            return RetrievalResult(query=query, cards=list(self.cards), debug={"lane": "limit_ignored"})
+
     cards = [
         _make_card("card1", 0.9, "lexical.raw"),
         _make_card("card2", 0.8, "lexical.raw"),
@@ -288,7 +297,7 @@ def test_rerank_ordering_respects_limit_but_not_score() -> None:
     reranker = FakeRerankLane()
 
     engine = RetrievalEngine(
-        lexical_raw_lane=FakeLexicalLane(cards),
+        lexical_raw_lane=LimitIgnoringLane(cards),
         rerank_lane=reranker,
     )
 

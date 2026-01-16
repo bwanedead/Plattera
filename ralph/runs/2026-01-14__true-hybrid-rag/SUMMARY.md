@@ -240,3 +240,41 @@ This file captures a running summary of what was built, one entry per completed 
 
 ---
 
+## Story S7: True hybrid RAG footgun hardening (maintenance + fusion)
+**Status:** PASS
+**Iteration:** 7
+
+### What was built
+- MaintenanceController now reports unimplemented checks/actions explicitly, with actionable warnings.
+- Diagnose uses real file checks (manifest + hnsw + metadata) and can detect compaction needs via PersistentVectorStore.
+- Staleness detection uses a RuntimeIndexIdentity against manifest (no lane logic duplication).
+- COMPACT execution is wired; build/rebuild remain explicitly unexecuted (inventory required).
+- Fusion tie-break supports semantic lane prefixes and optional cross-lane dedupe via stable_key_fn.
+- Tests updated to avoid HNSW crashes and to respect rerank/limit semantics.
+
+### Files changed
+- `backend/retrieval/engine/maintenance_controller.py`
+- `backend/retrieval/engine/test_maintenance_controller.py`
+- `backend/retrieval/engine/merge.py`
+- `backend/retrieval/engine/test_fusion_merge.py`
+- `backend/retrieval/engine/test_rerank_integration.py`
+
+### Key decisions
+- Missing index = any of manifest/hnsw/metadata absent (BUILD_MISSING).
+- Staleness check requires runtime identity; otherwise emits `staleness_check_unimplemented`.
+- Compaction check uses `should_compact()`; failures emit `compaction_check_unavailable:<error>`.
+- Build/rebuild actions report `not_executed_missing_inventory` until orchestration provides inputs.
+- Fusion tie-break supports `semantic:*` lanes without changing lane strings.
+- Dedupe semantics are explicit; cross-lane merge remains opt-in via stable_key_fn.
+
+### Tests run
+- `pytest backend/retrieval/engine/ -v`
+- `pytest backend/retrieval/tools/ -v`
+- `pytest backend/retrieval/lanes/semantic/ -m "not hnsw" -v`
+
+### Notes
+- All tests passed (Biopython deprecation warning only).
+- Footguns are now explicit, and minimal execution wiring exists for COMPACT.
+
+---
+

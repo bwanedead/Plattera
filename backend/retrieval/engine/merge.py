@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Literal
+from typing import Callable, Dict, List
 
 from ..evidence.models import EvidenceCard
 
 
-LaneName = Literal["lexical.raw", "lexical.normalized", "semantic"]
+LaneName = str
 
 
 @dataclass
@@ -60,6 +60,7 @@ def sort_by_score(cards: List[EvidenceCard]) -> List[EvidenceCard]:
 def fusion_merge(
     lane_results: Dict[str, List[EvidenceCard]],
     config: FusionConfig | None = None,
+    stable_key_fn: Callable[[EvidenceCard], str] | None = None,
 ) -> List[EvidenceCard]:
     """
     Merge multi-lane candidates with deterministic ordering.
@@ -67,12 +68,14 @@ def fusion_merge(
     Process:
     1. Take top-K from each lane in fixed order
     2. Concatenate in lane order
-    3. Dedupe by card.id (first occurrence wins)
+    3. Dedupe by card.id (first occurrence wins; no cross-lane merge by default)
     4. Sort by score desc, with stable tie-breaker (lane order, then card.id)
 
     Args:
         lane_results: Dict mapping lane names to their result cards
         config: Optional fusion configuration (defaults provided)
+        stable_key_fn: Optional function to compute a stable dedupe key across lanes.
+            If None, dedupe uses card.id only.
 
     Returns:
         Merged and deduplicated list of evidence cards
@@ -90,18 +93,24 @@ def fusion_merge(
             lane_cards = lane_results[lane_name][: config.per_lane_cap]
             candidates.extend(lane_cards)
 
-    # Step 3: Dedupe by card.id (first wins)
+    # Step 3: Dedupe by stable key (card.id by default; cross-lane merge optional)
     seen: Dict[str, EvidenceCard] = {}
     deduped: List[EvidenceCard] = []
     for card in candidates:
-        if card.id not in seen:
-            seen[card.id] = card
+        key = stable_key_fn(card) if stable_key_fn is not None else card.id
+        if key not in seen:
+            seen[key] = card
             deduped.append(card)
 
     # Step 4: Sort by score (desc), with stable tie-breaker
     # Tie-breaker: lane order index, then card.id
     def sort_key(card: EvidenceCard):
         lane_idx = lane_order_index.get(card.lane, 999)
+        if lane_idx == 999:
+            for lane, idx in lane_order_index.items():
+                if card.lane == lane or card.lane.startswith(f"{lane}:"):
+                    lane_idx = idx
+                    break
         return (-card.score, lane_idx, card.id)
 
     sorted_cards = sorted(deduped, key=sort_key)

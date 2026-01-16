@@ -179,3 +179,30 @@ if load_result.status == IndexLoadStatus.NOT_INITIALIZED:
 2. Add rerank ordering preservation test (Priority 1)
 3. Make dedupe_by_id order preservation explicit (Priority 2)
 4. Add graceful degradation test (Priority 2)
+
+---
+
+## Codex Follow-Up: True hybrid RAG footgun hardening
+
+### What was addressed
+- MaintenanceController now reports unimplemented checks/actions explicitly and no longer implies silent success.
+- Diagnose checks all index files (manifest/hnsw/metadata) and uses should_compact() for compaction signal.
+- Staleness detection compares manifest to a provided RuntimeIndexIdentity (no lane logic duplication).
+- COMPACT action executes; BUILD/REBUILD explicitly report missing inventory instead of pretending success.
+- Fusion tie-breaks honor semantic lane prefixes (e.g., semantic:local) and dedupe semantics are explicit with optional stable_key_fn.
+- Tests updated to avoid HNSW crashes and reflect rerank/limit behavior.
+
+### Files updated
+- `backend/retrieval/engine/maintenance_controller.py`
+- `backend/retrieval/engine/test_maintenance_controller.py`
+- `backend/retrieval/engine/merge.py`
+- `backend/retrieval/engine/test_fusion_merge.py`
+- `backend/retrieval/engine/test_rerank_integration.py`
+- `ralph/runs/2026-01-14__true-hybrid-rag/SUMMARY.md`
+- `ralph/runs/2026-01-14__true-hybrid-rag/progress.md`
+
+### Tests run
+- `pytest backend/retrieval/engine/ -v`
+- `pytest backend/retrieval/tools/ -v`
+- `pytest backend/retrieval/lanes/semantic/ -m "not hnsw" -v`
+  - Result: all passed (Biopython deprecation warning only).

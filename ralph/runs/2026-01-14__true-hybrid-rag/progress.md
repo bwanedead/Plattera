@@ -46,7 +46,29 @@
   - Adds standard debug metadata: tool, lanes, defaults, overrides, gating_errors, notes
   - Exported from tools/__init__.py
   - Added 3 comprehensive tests covering lane dispatch, filter passthrough, and debug metadata
-  - All syntax validated
+- All syntax validated
+
+---
+
+- Iteration: 7
+- Story: S7 True hybrid RAG footgun hardening (maintenance + fusion)
+- Result: PASS
+- Files changed:
+  - backend/retrieval/engine/maintenance_controller.py
+  - backend/retrieval/engine/test_maintenance_controller.py
+  - backend/retrieval/engine/merge.py
+  - backend/retrieval/engine/test_fusion_merge.py
+  - backend/retrieval/engine/test_rerank_integration.py
+- Commands run:
+  - pytest backend/retrieval/engine/ -v
+  - pytest backend/retrieval/tools/ -v
+  - pytest backend/retrieval/lanes/semantic/ -m "not hnsw" -v
+- Notes:
+  - Diagnose now checks manifest+hnsw+metadata and emits explicit warnings for unimplemented checks.
+  - Staleness uses runtime identity against manifest; compaction uses should_compact().
+  - COMPACT execution wired; build/rebuild report not_executed_missing_inventory.
+  - Fusion tie-break supports semantic lane prefixes; optional stable_key_fn enables cross-lane dedupe.
+  - Tests updated to avoid HNSW crashes and to respect rerank ordering with limit.
 
 ---
 

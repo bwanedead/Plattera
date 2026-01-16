@@ -24,7 +24,14 @@ from enum import Enum
 from pathlib import Path
 from typing import List, Optional
 
-from config.paths import assets_root
+from ..lanes.semantic.manifest import (
+    SemanticIndexManifest,
+    hnsw_index_path,
+    manifest_path,
+    metadata_db_path,
+    read_manifest,
+)
+from ..lanes.semantic.persistent_store import load_persistent_store
 
 
 class ActionKind(str, Enum):
@@ -58,6 +65,19 @@ class MaintenanceReport:
         return len(self.actions) > 0
 
 
+@dataclass(frozen=True)
+class RuntimeIndexIdentity:
+    """Runtime identity for comparing against a persisted manifest."""
+
+    embedding_dim: int
+    embedding_model_id: Optional[str]
+    chunking_policy_id: Optional[str]
+    embedding_model_fingerprint: Optional[str] = None
+
+    def is_complete(self) -> bool:
+        return self.embedding_model_id is not None and self.chunking_policy_id is not None
+
+
 @dataclass
 class MaintenanceController:
     """
@@ -67,7 +87,14 @@ class MaintenanceController:
     never invoked from query paths.
     """
 
-    def diagnose(self, *, pool_identifier: str = "FINAL_SEGMENTS", dry_run: bool = True) -> MaintenanceReport:
+    def diagnose(
+        self,
+        *,
+        pool_identifier: str = "FINAL_SEGMENTS",
+        runtime_identity: Optional[RuntimeIndexIdentity] = None,
+        compaction_threshold: float = 0.3,
+        dry_run: bool = True,
+    ) -> MaintenanceReport:
         """
         Diagnose maintenance needs for a given pool.
 
@@ -81,48 +108,70 @@ class MaintenanceController:
         report = MaintenanceReport()
         report.metadata["pool_identifier"] = pool_identifier
         report.metadata["dry_run"] = dry_run
+        report.metadata["compaction_threshold"] = compaction_threshold
 
-        # Check if index exists
-        manifest_path = self._get_manifest_path(pool_identifier)
-        if not manifest_path.exists():
+        manifest_file = manifest_path(pool_identifier)
+        hnsw_path = hnsw_index_path(pool_identifier)
+        metadata_path = metadata_db_path(pool_identifier)
+
+        missing_files = [
+            name
+            for name, path in (
+                ("manifest.json", manifest_file),
+                ("hnsw.bin", hnsw_path),
+                ("metadata.db", metadata_path),
+            )
+            if not path.exists()
+        ]
+        if missing_files:
             report.actions.append(
                 MaintenanceAction(
                     kind=ActionKind.BUILD_MISSING,
                     pool_identifier=pool_identifier,
-                    reason=f"Index manifest not found at {manifest_path}",
+                    reason=f"Index files missing: {', '.join(missing_files)}",
                     priority=10,
                 )
             )
             return report
 
-        # Check if index is stale (placeholder logic - could check manifest timestamps, model versions, etc.)
-        # For now, we just check existence
-        manifest_data = self._load_manifest(manifest_path)
-        if manifest_data is None:
-            report.warnings.append(f"Failed to load manifest from {manifest_path}")
+        manifest = read_manifest(pool_identifier)
+        if manifest is None:
+            report.warnings.append(f"manifest_unavailable:{manifest_file}")
             return report
 
-        # Check for stale indicators (model changes, policy changes, etc.)
-        if self._is_stale(manifest_data):
-            report.actions.append(
-                MaintenanceAction(
-                    kind=ActionKind.REBUILD_STALE,
-                    pool_identifier=pool_identifier,
-                    reason="Index configuration mismatch or outdated",
-                    priority=5,
+        if runtime_identity is None or not runtime_identity.is_complete():
+            report.warnings.append("staleness_check_unimplemented")
+        else:
+            stale_reason = self._check_manifest_mismatch(manifest, runtime_identity)
+            if stale_reason is not None:
+                report.actions.append(
+                    MaintenanceAction(
+                        kind=ActionKind.REBUILD_STALE,
+                        pool_identifier=pool_identifier,
+                        reason=stale_reason,
+                        priority=5,
+                    )
                 )
-            )
 
-        # Check if compaction is needed (placeholder logic)
-        if self._needs_compaction(manifest_data):
-            report.actions.append(
-                MaintenanceAction(
-                    kind=ActionKind.COMPACT,
-                    pool_identifier=pool_identifier,
-                    reason="Index fragmentation detected",
-                    priority=2,
-                )
+        try:
+            store = load_persistent_store(
+                pool_identifier=pool_identifier,
+                embedding_dim=manifest.embedding_dim,
+                hnsw_path=hnsw_path,
+                metadata_db_path=metadata_path,
             )
+            if store.should_compact(threshold=compaction_threshold):
+                stats = store.get_stats()
+                report.actions.append(
+                    MaintenanceAction(
+                        kind=ActionKind.COMPACT,
+                        pool_identifier=pool_identifier,
+                        reason=f"tombstone_ratio={stats['tombstone_ratio']:.2f}",
+                        priority=2,
+                    )
+                )
+        except Exception as exc:
+            report.warnings.append(f"compaction_check_unavailable:{type(exc).__name__}")
 
         return report
 
@@ -144,7 +193,9 @@ class MaintenanceController:
             "actions_attempted": len(actions),
             "actions_succeeded": 0,
             "actions_failed": 0,
+            "actions_not_executed": 0,
             "details": [],
+            "warnings": [],
         }
 
         for action in actions:
@@ -159,14 +210,22 @@ class MaintenanceController:
                 )
                 continue
 
-            # Execute action (placeholder - would call actual build/rebuild/compact)
             try:
-                if action.kind == ActionKind.BUILD_MISSING:
-                    self._build_index(action.pool_identifier)
-                elif action.kind == ActionKind.REBUILD_STALE:
-                    self._rebuild_index(action.pool_identifier)
-                elif action.kind == ActionKind.COMPACT:
-                    self._compact_index(action.pool_identifier)
+                if action.kind in (ActionKind.BUILD_MISSING, ActionKind.REBUILD_STALE):
+                    report["actions_not_executed"] += 1
+                    report["warnings"].append(f"execution_unimplemented:{action.kind.value}")
+                    report["details"].append(
+                        {
+                            "action": action.kind.value,
+                            "pool": action.pool_identifier,
+                            "status": "not_executed_missing_inventory",
+                            "reason": action.reason,
+                        }
+                    )
+                    continue
+
+                if action.kind == ActionKind.COMPACT:
+                    compact_stats = self._compact_index(action.pool_identifier)
 
                 report["actions_succeeded"] += 1
                 report["details"].append(
@@ -174,6 +233,7 @@ class MaintenanceController:
                         "action": action.kind.value,
                         "pool": action.pool_identifier,
                         "status": "success",
+                        "stats": compact_stats if action.kind == ActionKind.COMPACT else None,
                     }
                 )
             except Exception as e:
@@ -193,30 +253,42 @@ class MaintenanceController:
 
     def _get_manifest_path(self, pool_identifier: str) -> Path:
         """Get path to index manifest for a pool."""
-        return assets_root() / "semantic_indexes" / pool_identifier / "manifest.json"
+        return manifest_path(pool_identifier)
 
-    def _load_manifest(self, path: Path) -> Optional[dict]:
-        """Load manifest JSON from path."""
-        try:
-            import json
+    def _check_manifest_mismatch(
+        self, manifest: SemanticIndexManifest, runtime_identity: RuntimeIndexIdentity
+    ) -> Optional[str]:
+        """Check runtime identity against manifest for staleness."""
+        if manifest.embedding_dim != runtime_identity.embedding_dim:
+            return (
+                f"embedding_dim_mismatch: manifest={manifest.embedding_dim}, "
+                f"runtime={runtime_identity.embedding_dim}"
+            )
 
-            with open(path, "r") as f:
-                return json.load(f)
-        except Exception:
-            return None
+        if manifest.embedding_model_fingerprint and runtime_identity.embedding_model_fingerprint:
+            if manifest.embedding_model_fingerprint != runtime_identity.embedding_model_fingerprint:
+                return (
+                    "embedding_model_fingerprint_mismatch: "
+                    f"manifest={manifest.embedding_model_fingerprint}, "
+                    f"runtime={runtime_identity.embedding_model_fingerprint}"
+                )
+        elif runtime_identity.embedding_model_id is not None:
+            if manifest.embedding_model_id != runtime_identity.embedding_model_id:
+                return (
+                    "embedding_model_mismatch: "
+                    f"manifest={manifest.embedding_model_id}, "
+                    f"runtime={runtime_identity.embedding_model_id}"
+                )
 
-    def _is_stale(self, manifest_data: dict) -> bool:
-        """Check if manifest indicates stale index (placeholder)."""
-        # Real implementation would check:
-        # - embedding_model_id vs current model
-        # - chunking_policy_id vs current policy
-        # - schema_version vs current version
-        return False
+        if runtime_identity.chunking_policy_id is not None:
+            if manifest.chunking_policy_id != runtime_identity.chunking_policy_id:
+                return (
+                    "chunking_policy_mismatch: "
+                    f"manifest={manifest.chunking_policy_id}, "
+                    f"runtime={runtime_identity.chunking_policy_id}"
+                )
 
-    def _needs_compaction(self, manifest_data: dict) -> bool:
-        """Check if index needs compaction (placeholder)."""
-        # Real implementation would check vector store fragmentation
-        return False
+        return None
 
     def _build_index(self, pool_identifier: str) -> None:
         """Build index from scratch (placeholder)."""
@@ -228,7 +300,19 @@ class MaintenanceController:
         # Real implementation would use SemanticIndexBuilder.rebuild_slice
         pass
 
-    def _compact_index(self, pool_identifier: str) -> None:
-        """Compact index (placeholder)."""
-        # Real implementation would use PersistentVectorStore compaction
-        pass
+    def _compact_index(self, pool_identifier: str) -> dict:
+        """Compact index using PersistentVectorStore."""
+        manifest = read_manifest(pool_identifier)
+        if manifest is None:
+            raise RuntimeError("Manifest unavailable for compaction")
+
+        hnsw_path = hnsw_index_path(pool_identifier)
+        metadata_path = metadata_db_path(pool_identifier)
+
+        store = load_persistent_store(
+            pool_identifier=pool_identifier,
+            embedding_dim=manifest.embedding_dim,
+            hnsw_path=hnsw_path,
+            metadata_db_path=metadata_path,
+        )
+        return store.compact()

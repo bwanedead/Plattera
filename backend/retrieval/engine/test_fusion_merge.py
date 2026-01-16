@@ -122,7 +122,7 @@ def test_fusion_merge_stable_ordering_lane_tiebreaker() -> None:
     cards = [
         _make_card("raw1", 0.5, "lexical.raw"),
         _make_card("norm1", 0.5, "lexical.normalized"),
-        _make_card("sem1", 0.5, "semantic"),
+        _make_card("sem1", 0.5, "semantic:local"),
     ]
     result = fusion_merge(
         {
@@ -172,6 +172,38 @@ def test_fusion_merge_respects_lane_order() -> None:
     assert result[0].id == "sem1"
     assert result[1].id == "norm1"
     assert result[2].id == "raw1"
+
+
+def test_fusion_merge_tiebreaker_accepts_lane_prefix() -> None:
+    """Lane order should apply to lanes with prefixes (e.g., semantic:local)."""
+    cards = [
+        _make_card("sem1", 0.5, "semantic:local"),
+        _make_card("raw1", 0.5, "lexical.raw"),
+    ]
+    result = fusion_merge({"lexical.raw": [cards[1]], "semantic": [cards[0]]})
+
+    assert result[0].id == "raw1"
+    assert result[1].id == "sem1"
+
+
+def test_fusion_merge_stable_key_fn_dedupes_across_lanes() -> None:
+    """Stable key function enables cross-lane dedupe when provided."""
+    raw_cards = [
+        _make_card("doc1:raw", 0.6, "lexical.raw"),
+    ]
+    sem_cards = [
+        _make_card("doc1:sem", 0.9, "semantic:local"),
+    ]
+
+    def stable_key(card: EvidenceCard) -> str:
+        return card.id.split(":")[0]
+
+    result = fusion_merge(
+        {"lexical.raw": raw_cards, "semantic": sem_cards}, stable_key_fn=stable_key
+    )
+
+    assert len(result) == 1
+    assert result[0].id == "doc1:raw"
 
 
 def test_fusion_merge_missing_lanes_handled_gracefully() -> None:
