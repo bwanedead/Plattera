@@ -1,0 +1,147 @@
+{
+  "run_id": "2026-01-16__doc-slice-index-maintenance",
+  "title": "Doc-Level Index Maintenance + Draft-Aware Identity (FINAL first)",
+  "repo_context": "Add doc-slice inventory/diagnose/execute for semantic indexing (FINAL_SEGMENTS v0) plus draft-aware identity/hydration enabling step for EVERYTHING.",
+  "global_verification": ["python -m pytest -q"],
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Make EVERYTHING view draft-aware: entry_id becomes canonical draft_id (head-only v0) + tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "EVERYTHING enumeration emits a draft-aware ref where entry_id == draft_id",
+        "draft_id format is exactly `draft:head:<dossier_id>:<transcription_id>` for the canonical head-only v0 policy",
+        "A deterministic pytest verifies the ref identity contract for at least one fixture entry"
+      ],
+      "verification_commands": ["python -m pytest -q backend/corpus/"],
+      "depends_on": [],
+      "files_expected": ["backend/corpus/views/everything.py", "backend/corpus/**/test_*.py"],
+      "notes": "This is an enabling story: it preserves head-only behavior while upgrading identity vocabulary to doc-slice draft-aware IDs."
+    },
+    {
+      "id": "S2",
+      "title": "Make transcript hydration draft-aware for head-form draft_ids (fallback to existing behavior) + tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Hydrating a transcript ref with draft_id `draft:head:<did>:<tid>` deterministically loads the same head content as the legacy path",
+        "Behavior remains backward compatible for refs without draft_id",
+        "A deterministic pytest validates draft-aware hydration and produces a stable content_hash"
+      ],
+      "verification_commands": ["python -m pytest -q backend/corpus/"],
+      "depends_on": ["S1"],
+      "files_expected": ["backend/corpus/hydrate.py", "backend/corpus/**/test_*.py"],
+      "notes": "Keep v0 minimal: support head-form now; add resolver-based hydration for non-head draft ids in a later story if needed."
+    },
+    {
+      "id": "S3",
+      "title": "Add doc-slice label enumeration: list_labels_for_entry(pool,dossier,entry_id) in VectorMetadataStore + tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "VectorMetadataStore exposes list_labels_for_entry(pool_identifier, dossier_id, entry_id) -> List[int]",
+        "A deterministic pytest inserts rows for multiple entry_ids and verifies only the target entry’s labels are returned"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": [],
+      "files_expected": ["backend/retrieval/lanes/semantic/metadata_store.py", "backend/retrieval/**/test_*.py"],
+      "notes": "This is required to support replace-all at doc-slice resolution."
+    },
+    {
+      "id": "S4",
+      "title": "Add delete_entry_slice(pool,dossier,entry_id): tombstone all vectors for that entry slice + tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Persistent store exposes delete_entry_slice(pool_identifier, dossier_id, entry_id) returning counts (or equivalent)",
+        "Deletion tombstones the slice’s labels in HNSW and marks deleted in metadata so deleted labels do not return as hits",
+        "A deterministic pytest shows that after deleting one entry slice, queries no longer return that entry’s chunks while other entry chunks still appear"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S3"],
+      "files_expected": [
+        "backend/retrieval/lanes/semantic/persistent_store.py",
+        "backend/retrieval/lanes/semantic/metadata_store.py",
+        "backend/retrieval/**/test_*.py"
+      ],
+      "notes": "Correctness-first; compaction remains separate and explicit."
+    },
+    {
+      "id": "S5",
+      "title": "Persist per-slice indexed state: add indexed_entry_state table + store methods + schema bump tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "A new SQLite table exists for per-slice state keyed by (pool_identifier, dossier_id, entry_id)",
+        "Store can upsert and read indexed_signature plus identity fields (embedding_model_fingerprint, chunking_policy_id)",
+        "A deterministic pytest verifies: missing row -> None, upsert -> row exists, upsert again -> replaces deterministically"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": [],
+      "files_expected": ["backend/retrieval/lanes/semantic/metadata_store.py", "backend/retrieval/**/test_*.py"],
+      "notes": "This enables missing/stale/healthy diagnosis at doc-slice granularity."
+    },
+    {
+      "id": "S6",
+      "title": "Write indexed_entry_state after slice rebuild: builder stores indexed_signature and runtime identity + tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "After indexing a single entry slice, indexed_entry_state is updated with indexed_signature == entry.content_hash",
+        "Stored identity fields (model fingerprint + chunking policy id) match the runtime identity used for indexing",
+        "A deterministic pytest validates state is written after indexing"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S5"],
+      "files_expected": ["backend/retrieval/lanes/semantic/index_builder.py", "backend/retrieval/**/test_*.py"],
+      "notes": "Keep signatures opaque strings. Favor dependency injection so tests can use a stub embedder."
+    },
+    {
+      "id": "S7",
+      "title": "InventoryProvider v0 for FINAL_SEGMENTS: enumerate slices and compute desired_signature (content_hash) + tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "InventoryProvider can list desired doc slices for FINAL_SEGMENTS with (pool_identifier, dossier_id, entry_id, desired_signature)",
+        "desired_signature is derived from deterministic hydrated entry content_hash",
+        "A deterministic pytest verifies inventory output for a small fixture without network calls"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": [],
+      "files_expected": ["backend/retrieval/engine/*", "backend/retrieval/**/test_*.py", "backend/corpus/*"],
+      "notes": "Start with FINAL only; EVERYTHING inventory can be added in a later phase once draft-aware hydration expands."
+    },
+    {
+      "id": "S8",
+      "title": "Diagnose v0: compare inventory desired_signature vs indexed_entry_state to classify missing/stale/healthy/unavailable + tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Diagnose returns slice-level statuses for FINAL_SEGMENTS: missing (no state), stale_content (signature mismatch), stale_identity (model/policy mismatch), unavailable (hydrate failure), healthy",
+        "A deterministic pytest covers at least: missing -> stale after indexing -> healthy after rebuild, and an unavailable slice returns unavailable with a reason"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S5", "S7"],
+      "files_expected": ["backend/retrieval/engine/*", "backend/retrieval/**/test_*.py"],
+      "notes": "Cheap and safe: diagnose should not perform heavy rebuild work."
+    },
+    {
+      "id": "S9",
+      "title": "Execute v0: rebuild exactly one doc slice (delete_entry_slice + rebuild + update state) + tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Execute performs replace-all per doc slice for FINAL_SEGMENTS: tombstone existing slice labels then rebuild and update indexed_entry_state",
+        "A deterministic pytest changes one slice’s content, verifies diagnose marks exactly that slice stale, and execute rebuilds only that slice to return healthy",
+        "Heavy work is only done in execute path (no silent rebuild in query paths)"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/"],
+      "depends_on": ["S4", "S6", "S8"],
+      "files_expected": ["backend/retrieval/engine/*", "backend/retrieval/lanes/semantic/*", "backend/retrieval/**/test_*.py"],
+      "notes": "Keep policy simple and deterministic; auto-light scheduling can remain a UI concern in v0."
+    }
+  ]
+}
+
+
