@@ -244,8 +244,15 @@ class SemanticIndexBuilder:
         result: IndexBuildResult,
         embedding_model_fingerprint: Optional[str],
     ) -> None:
+        """
+        Index a single entry by chunking, embedding, and upserting vectors.
+
+        H2 INVARIANT: Only writes indexed_entry_state if ALL vector upserts
+        for this entry succeeded. If any chunk fails to upsert, state is NOT written.
+        """
         result.entries_processed += 1
         entry_chunks_added = 0
+        entry_had_failures = False
 
         chunks = self.chunker.chunk_entry(entry, self.chunk_policy)
         if not chunks:
@@ -258,6 +265,7 @@ class SemanticIndexBuilder:
             result.errors.append(f"Embedding failed for entry {ref.entry_id}: {e}")
             return
 
+        # Track per-entry success: all chunks must succeed for state write
         for chunk, embedding in zip(chunks, embeddings):
             try:
                 preview = chunk.snippet_hint
@@ -279,8 +287,16 @@ class SemanticIndexBuilder:
             except Exception as e:
                 result.errors.append(f"Upsert failed for chunk {chunk.chunk_id}: {e}")
                 result.chunks_skipped += 1
+                entry_had_failures = True  # Mark entry as failed
 
-        if entry_chunks_added > 0 and entry.content_hash and embedding_model_fingerprint:
+        # H2: Only write indexed_entry_state if ALL chunks succeeded
+        # This ensures we never mark an entry as indexed when vectors are incomplete
+        if (
+            entry_chunks_added > 0
+            and not entry_had_failures
+            and entry.content_hash
+            and embedding_model_fingerprint
+        ):
             try:
                 vector_store.metadata_store.upsert_indexed_entry_state(
                     pool_identifier=vector_store.pool_identifier,
@@ -291,6 +307,7 @@ class SemanticIndexBuilder:
                     chunking_policy_id=self.chunk_policy.policy_id,
                 )
             except Exception as e:
+                # H2: If state write fails, mark entire operation as failed
                 result.errors.append(
-                    f"Failed to write indexed_entry_state for {ref.entry_id}: {e}"
+                    f"CRITICAL: Vector upserts succeeded but state write failed for {ref.entry_id}: {e}"
                 )

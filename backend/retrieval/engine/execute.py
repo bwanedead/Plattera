@@ -13,12 +13,21 @@ from .diagnose import RuntimeIndexIdentity, SliceDiagnoser, SliceDiagnosis, Slic
 
 @dataclass(frozen=True)
 class ExecuteResult:
+    """
+    Result of executing a slice rebuild operation.
+
+    H2 INVARIANT: did_write_state is True ONLY if:
+    - All vector upserts succeeded (chunks_added > 0)
+    - indexed_entry_state was successfully written
+    - status is HEALTHY
+    """
     pool_identifier: str
     dossier_id: str
     entry_id: str
     status: SliceStatus
     deleted_count: int
     chunks_added: int
+    did_write_state: bool
     reason: Optional[str] = None
 
 
@@ -59,6 +68,7 @@ class SliceExecutor:
                 status=SliceStatus.UNAVAILABLE,
                 deleted_count=0,
                 chunks_added=0,
+                did_write_state=False,
                 reason="entry_not_in_inventory",
             )
 
@@ -70,6 +80,7 @@ class SliceExecutor:
                 status=diagnosis.status,
                 deleted_count=0,
                 chunks_added=0,
+                did_write_state=False,
                 reason=diagnosis.reason,
             )
 
@@ -81,9 +92,11 @@ class SliceExecutor:
                 status=diagnosis.status,
                 deleted_count=0,
                 chunks_added=0,
+                did_write_state=False,  # No write happened (already healthy)
                 reason="already_healthy",
             )
 
+        # H2: Delete old vectors before rebuild
         deleted_count = self.vector_store.delete_entry_slice(
             dossier_id=dossier_id, entry_id=entry_id
         )
@@ -97,17 +110,22 @@ class SliceExecutor:
                 status=SliceStatus.UNAVAILABLE,
                 deleted_count=deleted_count,
                 chunks_added=0,
+                did_write_state=False,
                 reason="entry_ref_not_found",
             )
 
+        # H2: Rebuild entry (will write state only if all chunks succeed)
         build_result = self.builder.build_index_for_entry(
             vector_store=self.vector_store,
             ref=ref,
             embedding_model_fingerprint=self.runtime_identity.embedding_model_fingerprint,
         )
 
+        # H2 ENFORCEMENT: status is HEALTHY only if no errors
+        # This means state was successfully written (per index_builder logic)
         status = SliceStatus.HEALTHY if not build_result.errors else diagnosis.status
         reason = None if not build_result.errors else "; ".join(build_result.errors)
+        did_write_state = status == SliceStatus.HEALTHY and build_result.chunks_added > 0
 
         return ExecuteResult(
             pool_identifier=self.vector_store.pool_identifier,
@@ -116,6 +134,7 @@ class SliceExecutor:
             status=status,
             deleted_count=deleted_count,
             chunks_added=build_result.chunks_added,
+            did_write_state=did_write_state,
             reason=reason,
         )
 
