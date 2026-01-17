@@ -1,0 +1,87 @@
+{
+  "run_id": "2026-01-17__multi-pool-index-maintenance-wave2",
+  "title": "Multi-Pool Index Maintenance (Wave 2) — No-Throw Pool Open + EVERYTHING + Health Report + Logging",
+  "repo_context": "Wave 2 focuses on operational contracts: safe pool-open boundary, EVERYTHING pool maintenance (head-only v0), stable pool health report, and structured logging.",
+  "global_verification": ["python -m pytest -q"],
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Add safe pool-open boundary: PoolOpenReport (OK|UNAVAILABLE) + stable reason codes (no-throw contract) + tests",
+      "size": "S",
+      "passes": true,
+      "acceptance_criteria": [
+        "A typed PoolOpenReport exists with fields: status (OK|UNAVAILABLE), reason_code (DiagnosticReasonCode), detail (optional), action_hint (optional)",
+        "MaintenanceController (or a wrapper it calls) uses safe_open_pool(...) so UI/agent-facing maintenance calls do not throw for schema mismatch, missing artifacts, or open failures",
+        "Deterministic pytest: schema mismatch yields UNAVAILABLE_SCHEMA_VERSION_MISMATCH with action_hint REBUILD_POOL",
+        "Deterministic pytest: generic open failure yields UNAVAILABLE_UNKNOWN (or the closest existing stable reason code)"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/engine/"],
+      "depends_on": [],
+      "files_expected": ["backend/retrieval/engine/*", "backend/retrieval/**/test_*.py"],
+      "notes": "Pool-open is an orchestrator boundary concern. SliceDiagnoser/SliceExecutor should remain pure and not open files."
+    },
+    {
+      "id": "S2",
+      "title": "Make multi-pool selection explicit: maintenance surfaces accept pool_identifier + explicit view mapping + tests",
+      "size": "S",
+      "passes": true,
+      "acceptance_criteria": [
+        "Diagnose/execute entry points do not default to FINAL implicitly; view selection is explicit and tested",
+        "A deterministic pytest shows that selecting pool_identifier EVERYTHING uses CorpusView.EVERYTHING inventory and does not enumerate FINAL slices"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/engine/"],
+      "depends_on": ["S1"],
+      "files_expected": ["backend/retrieval/engine/*", "backend/retrieval/**/test_*.py"],
+      "notes": "Either pass both (pool_identifier + CorpusView) or implement a tiny explicit mapping layer; avoid hidden defaults."
+    },
+    {
+      "id": "S3",
+      "title": "EVERYTHING pool inventory/diagnose/execute (head-only v0) end-to-end + deterministic tests",
+      "size": "S",
+      "passes": true,
+      "acceptance_criteria": [
+        "Inventory for CorpusView.EVERYTHING emits entry_id values in head-form draft_id format: draft:head:<dossier_id>:<transcription_id>",
+        "desired_signature for EVERYTHING slices equals hydrated entry.content_hash",
+        "Diagnose for EVERYTHING returns expected statuses (MISSING/STALE/HEALTHY/UNAVAILABLE) using indexed_entry_state comparisons",
+        "Execute rebuilds exactly one EVERYTHING entry slice (delete_entry_slice + rebuild + update state) without touching other slices",
+        "Deterministic tests cover the above without network calls or external server dependency"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/engine/", "python -m pytest -q backend/corpus/"],
+      "depends_on": ["S1", "S2"],
+      "files_expected": ["backend/retrieval/engine/*", "backend/corpus/*", "backend/retrieval/**/test_*.py"],
+      "notes": "No parallel drafts ingestion this wave. Keep semantics strictly head-only v0."
+    },
+    {
+      "id": "S4",
+      "title": "Expose stable PoolHealthReport shape (reuse existing stats/should_compact) + tests",
+      "size": "XS",
+      "passes": true,
+      "acceptance_criteria": [
+        "When pool open succeeds, the maintenance surface returns a PoolHealthReport with: active_vectors, tombstoned_vectors, tombstone_ratio, compact_recommended (and optional threshold)",
+        "Implementation reuses existing stats logic and should_compact() (no duplicate computation logic)",
+        "Deterministic pytest: health report fields exist when pool opens; compaction recommendation toggles when threshold is crossed (stubbed is acceptable)"
+      ],
+      "verification_commands": ["python -m pytest -q backend/retrieval/engine/"],
+      "depends_on": ["S1"],
+      "files_expected": ["backend/retrieval/engine/*", "backend/retrieval/lanes/semantic/*", "backend/retrieval/**/test_*.py"],
+      "notes": "Only include slice_diagnoses when pool open succeeded; pool_open report is always present."
+    },
+    {
+      "id": "S5",
+      "title": "Replace stderr prints with structured logging in maintenance paths (no behavior change) + tests (if applicable)",
+      "size": "XS",
+      "passes": true,
+      "acceptance_criteria": [
+        "Index maintenance paths no longer use print(..., file=sys.stderr); they use the repo logger",
+        "Logs include useful fields where possible: pool_identifier, dossier_id, entry_id, operation, exception_type",
+        "No behavior changes beyond logging"
+      ],
+      "verification_commands": [],
+      "depends_on": ["S1"],
+      "files_expected": ["backend/retrieval/engine/*", "backend/retrieval/lanes/semantic/*"],
+      "notes": "Do not add heavy dependencies. Use existing logging conventions configured in the repo."
+    }
+  ]
+}
+
+

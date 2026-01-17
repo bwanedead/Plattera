@@ -41,12 +41,21 @@ class StubCorpusProvider(CorpusProvider):
         raise ValueError(f"Entry not found: {ref.entry_id}")
 
 
-def _make_entry(dossier_id: str, entry_id: str, text: str) -> CorpusEntry:
+def _make_entry(
+    dossier_id: str,
+    entry_id: str,
+    text: str,
+    *,
+    view: CorpusView = CorpusView.FINAL_SEGMENTS,
+    kind: CorpusEntryKind = CorpusEntryKind.SEGMENT_FINAL_TEXT,
+    draft_id: Optional[str] = None,
+) -> CorpusEntry:
     ref = CorpusEntryRef(
-        view=CorpusView.FINAL_SEGMENTS,
+        view=view,
         entry_id=entry_id,
-        kind=CorpusEntryKind.SEGMENT_FINAL_TEXT,
+        kind=kind,
         dossier_id=dossier_id,
+        draft_id=draft_id,
     )
     return CorpusEntry(
         ref=ref,
@@ -244,3 +253,112 @@ def test_diagnose_stale_identity_mismatch() -> None:
         results = diagnoser.diagnose()
         assert results[0].status == SliceStatus.STALE_IDENTITY
         assert results[0].reason == DiagnosticReasonCode.STALE_IDENTITY_MISMATCH.value
+
+
+def test_diagnose_respects_everything_view_mapping() -> None:
+    final_entry = _make_entry("D1", "segment_final:D1:seg_001:T1", "Final text")
+    draft_id = "draft:head:D1:T1"
+    everything_entry = _make_entry(
+        "D1",
+        draft_id,
+        "Everything text",
+        view=CorpusView.EVERYTHING,
+        kind=CorpusEntryKind.TRANSCRIPT,
+        draft_id=draft_id,
+    )
+    corpus = StubCorpusProvider(entries=[final_entry, everything_entry])
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "metadata.db"
+        store = VectorMetadataStore(db_path)
+
+        diagnoser = SliceDiagnoser(
+            corpus_provider=corpus,
+            metadata_store=store,
+            pool_identifier="EVERYTHING",
+            runtime_identity=RuntimeIndexIdentity(
+                embedding_model_fingerprint="model_v1",
+                chunking_policy_id="policy_v1",
+            ),
+        )
+
+        results = diagnoser.diagnose()
+        assert len(results) == 1
+        assert results[0].entry_id == draft_id
+        assert results[0].status == SliceStatus.MISSING
+
+
+def test_diagnose_everything_missing_stale_healthy_unavailable() -> None:
+    draft_id = "draft:head:D1:T1"
+    entry = _make_entry(
+        "D1",
+        draft_id,
+        "Transcript v1",
+        view=CorpusView.EVERYTHING,
+        kind=CorpusEntryKind.TRANSCRIPT,
+        draft_id=draft_id,
+    )
+    error_entry = CorpusEntry(
+        ref=CorpusEntryRef(
+            view=CorpusView.EVERYTHING,
+            entry_id="draft:head:D1:T2",
+            kind=CorpusEntryKind.TRANSCRIPT,
+            dossier_id="D1",
+            transcription_id="T2",
+            draft_id="draft:head:D1:T2",
+        ),
+        text="",
+        content_hash=None,
+        provenance={"error": "missing"},
+    )
+    corpus = StubCorpusProvider(entries=[entry, error_entry])
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "metadata.db"
+        store = VectorMetadataStore(db_path)
+
+        runtime_identity = RuntimeIndexIdentity(
+            embedding_model_fingerprint="model_v1",
+            chunking_policy_id="policy_v1",
+        )
+
+        diagnoser = SliceDiagnoser(
+            corpus_provider=corpus,
+            metadata_store=store,
+            pool_identifier="EVERYTHING",
+            runtime_identity=runtime_identity,
+        )
+
+        results = {d.entry_id: d for d in diagnoser.diagnose()}
+        assert results[draft_id].status == SliceStatus.MISSING
+        assert results[draft_id].reason == DiagnosticReasonCode.MISSING_INDEX_STATE.value
+        assert results["draft:head:D1:T2"].status == SliceStatus.UNAVAILABLE
+        assert (
+            results["draft:head:D1:T2"].reason
+            == DiagnosticReasonCode.UNAVAILABLE_HYDRATION_FAILED.value
+        )
+
+        store.upsert_indexed_entry_state(
+            pool_identifier="EVERYTHING",
+            dossier_id="D1",
+            entry_id=draft_id,
+            indexed_signature="stale_signature",
+            embedding_model_fingerprint=runtime_identity.embedding_model_fingerprint,
+            chunking_policy_id=runtime_identity.chunking_policy_id,
+        )
+
+        results = {d.entry_id: d for d in diagnoser.diagnose()}
+        assert results[draft_id].status == SliceStatus.STALE_CONTENT
+        assert results[draft_id].reason == DiagnosticReasonCode.STALE_SIGNATURE_MISMATCH.value
+
+        store.upsert_indexed_entry_state(
+            pool_identifier="EVERYTHING",
+            dossier_id="D1",
+            entry_id=draft_id,
+            indexed_signature=entry.content_hash or "",
+            embedding_model_fingerprint=runtime_identity.embedding_model_fingerprint,
+            chunking_policy_id=runtime_identity.chunking_policy_id,
+        )
+
+        results = {d.entry_id: d for d in diagnoser.diagnose()}
+        assert results[draft_id].status == SliceStatus.HEALTHY

@@ -16,6 +16,7 @@ Key responsibilities:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -202,13 +203,20 @@ class PersistentVectorStore:
         try:
             self.hnsw_store.mark_deleted_batch(labels)
         except Exception as e:
-            # Log warning but continue - metadata cleanup is more critical
-            # for maintaining index health than HNSW tombstones
-            import sys
-            print(
-                f"WARNING: HNSW tombstone failed for entry {entry_id}: {e}. "
-                f"Metadata will still be marked deleted.",
-                file=sys.stderr,
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "HNSW tombstone failed for entry slice: pool=%s dossier=%s entry=%s error=%s",
+                self.pool_identifier,
+                dossier_id,
+                entry_id,
+                e,
+                extra={
+                    "pool_identifier": self.pool_identifier,
+                    "dossier_id": dossier_id,
+                    "entry_id": entry_id,
+                    "operation": "delete_entry_slice",
+                    "exception_type": type(e).__name__,
+                },
             )
 
         # H3: Always mark metadata as deleted, even if HNSW fails

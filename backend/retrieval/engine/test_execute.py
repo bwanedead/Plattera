@@ -93,12 +93,21 @@ class StubVectorStore:
         return len(labels)
 
 
-def _make_entry(dossier_id: str, entry_id: str, text: str) -> CorpusEntry:
+def _make_entry(
+    dossier_id: str,
+    entry_id: str,
+    text: str,
+    *,
+    view: CorpusView = CorpusView.FINAL_SEGMENTS,
+    kind: CorpusEntryKind = CorpusEntryKind.SEGMENT_FINAL_TEXT,
+    draft_id: Optional[str] = None,
+) -> CorpusEntry:
     ref = CorpusEntryRef(
-        view=CorpusView.FINAL_SEGMENTS,
+        view=view,
         entry_id=entry_id,
-        kind=CorpusEntryKind.SEGMENT_FINAL_TEXT,
+        kind=kind,
         dossier_id=dossier_id,
+        draft_id=draft_id,
     )
     return CorpusEntry(
         ref=ref,
@@ -260,3 +269,115 @@ def test_execute_no_state_write_on_vector_failure() -> None:
             entry_id=entry.ref.entry_id,
         )
         assert state is None  # No state written due to failure
+
+
+def test_execute_rebuilds_only_stale_everything_slice() -> None:
+    policy = ChunkPolicy(policy_id="exec_policy_everything_v1", max_chars_per_chunk=500, min_chars=10)
+    chunker = Chunker()
+    embedder = StubEmbeddingProvider()
+
+    entry_a_id = "draft:head:D1:T1"
+    entry_b_id = "draft:head:D1:T2"
+
+    entry_a_v1 = _make_entry(
+        "D1",
+        entry_a_id,
+        "Alpha transcript v1",
+        view=CorpusView.EVERYTHING,
+        kind=CorpusEntryKind.TRANSCRIPT,
+        draft_id=entry_a_id,
+    )
+    entry_b_v1 = _make_entry(
+        "D1",
+        entry_b_id,
+        "Beta transcript v1",
+        view=CorpusView.EVERYTHING,
+        kind=CorpusEntryKind.TRANSCRIPT,
+        draft_id=entry_b_id,
+    )
+
+    corpus_v1 = StubCorpusProvider(entries=[entry_a_v1, entry_b_v1])
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_path = Path(tmpdir) / "metadata.db"
+        vector_store = StubVectorStore(pool_identifier="EVERYTHING", metadata_path=metadata_path)
+
+        builder_v1 = SemanticIndexBuilder(
+            corpus_provider=corpus_v1,
+            embedding_provider=embedder,
+            chunker=chunker,
+            chunk_policy=policy,
+        )
+
+        build_result = builder_v1.build_index_for_dossier(
+            vector_store=vector_store,
+            dossier_id="D1",
+            view=CorpusView.EVERYTHING,
+            embedding_model_fingerprint="model_v1",
+        )
+        assert build_result.errors == []
+
+        entry_a_chunks_v1 = chunker.chunk_entry(entry_a_v1, policy)
+        entry_b_chunks_v1 = chunker.chunk_entry(entry_b_v1, policy)
+
+        entry_a_v2 = _make_entry(
+            "D1",
+            entry_a_id,
+            "Alpha transcript v2 updated",
+            view=CorpusView.EVERYTHING,
+            kind=CorpusEntryKind.TRANSCRIPT,
+            draft_id=entry_a_id,
+        )
+        corpus_v2 = StubCorpusProvider(entries=[entry_a_v2, entry_b_v1])
+
+        runtime_identity = RuntimeIndexIdentity(
+            embedding_model_fingerprint="model_v1",
+            chunking_policy_id=policy.policy_id,
+        )
+
+        diagnoser = SliceDiagnoser(
+            corpus_provider=corpus_v2,
+            metadata_store=vector_store.metadata_store,
+            pool_identifier="EVERYTHING",
+            runtime_identity=runtime_identity,
+        )
+
+        statuses = {d.entry_id: d.status for d in diagnoser.diagnose(dossier_id="D1")}
+        assert statuses[entry_a_id] == SliceStatus.STALE_CONTENT
+        assert statuses[entry_b_id] == SliceStatus.HEALTHY
+
+        executor = SliceExecutor(
+            corpus_provider=corpus_v2,
+            vector_store=vector_store,
+            builder=SemanticIndexBuilder(
+                corpus_provider=corpus_v2,
+                embedding_provider=embedder,
+                chunker=chunker,
+                chunk_policy=policy,
+            ),
+            runtime_identity=runtime_identity,
+        )
+
+        exec_result = executor.execute_entry(dossier_id="D1", entry_id=entry_a_id)
+        assert exec_result.status == SliceStatus.HEALTHY
+        assert exec_result.deleted_count == len(entry_a_chunks_v1)
+
+        for chunk in entry_a_chunks_v1:
+            meta = vector_store.metadata_store.lookup_by_chunk_id(chunk.chunk_id)
+            assert meta is not None
+            assert meta.is_deleted is True
+
+        for chunk in entry_b_chunks_v1:
+            meta = vector_store.metadata_store.lookup_by_chunk_id(chunk.chunk_id)
+            assert meta is not None
+            assert meta.is_deleted is False
+
+        entry_a_chunks_v2 = chunker.chunk_entry(entry_a_v2, policy)
+        for chunk in entry_a_chunks_v2:
+            meta = vector_store.metadata_store.lookup_by_chunk_id(chunk.chunk_id)
+            assert meta is not None
+            assert meta.is_deleted is False
+
+        post_statuses = {d.entry_id: d.status for d in diagnoser.diagnose(dossier_id="D1")}
+        assert post_statuses[entry_a_id] == SliceStatus.HEALTHY
+        assert post_statuses[entry_b_id] == SliceStatus.HEALTHY

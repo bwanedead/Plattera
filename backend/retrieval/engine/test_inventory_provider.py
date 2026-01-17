@@ -78,3 +78,28 @@ def test_inventory_provider_final_segments_signatures():
     assert by_entry[ref_a.entry_id].dossier_id == "D1"
     assert by_entry[ref_a.entry_id].desired_signature == entry_a.content_hash
     assert by_entry[ref_b.entry_id].desired_signature == entry_b.content_hash
+
+
+def test_inventory_provider_everything_signatures():
+    text = "Transcript text."
+    draft_id = "draft:head:D1:T1"
+    ref = CorpusEntryRef(
+        view=CorpusView.EVERYTHING,
+        entry_id=draft_id,
+        kind=CorpusEntryKind.TRANSCRIPT,
+        dossier_id="D1",
+        transcription_id="T1",
+        draft_id=draft_id,
+    )
+    entry = CorpusEntry(
+        ref=ref,
+        text=text,
+        content_hash=hashlib.sha256(text.encode()).hexdigest(),
+    )
+    corpus = StubCorpusProvider(entries=[entry])
+    provider = InventoryProvider(corpus_provider=corpus, view=CorpusView.EVERYTHING)
+
+    slices = provider.list_slices(pool_identifier="EVERYTHING")
+    assert len(slices) == 1
+    assert slices[0].entry_id == draft_id
+    assert slices[0].desired_signature == entry.content_hash

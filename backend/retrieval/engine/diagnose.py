@@ -5,9 +5,10 @@ from enum import Enum
 from typing import List, Optional
 
 from corpus.interfaces import CorpusProvider
+from corpus.types import CorpusView
 
 from ..lanes.semantic.metadata_store import VectorMetadataStore
-from .inventory_provider import InventoryProvider
+from .inventory_provider import InventoryProvider, resolve_view_for_pool_identifier
 from .reason_codes import DiagnosticReasonCode
 
 
@@ -48,11 +49,13 @@ class SliceDiagnoser:
         *,
         pool_identifier: str = "FINAL_SEGMENTS",
         runtime_identity: Optional[RuntimeIndexIdentity] = None,
+        view: Optional[CorpusView] = None,
     ):
         self.corpus_provider = corpus_provider
         self.metadata_store = metadata_store
         self.pool_identifier = pool_identifier
         self.runtime_identity = runtime_identity
+        self.view = view or resolve_view_for_pool_identifier(pool_identifier)
 
     def diagnose(self, *, dossier_id: Optional[str] = None) -> List[SliceDiagnosis]:
         """
@@ -65,7 +68,8 @@ class SliceDiagnoser:
         - runtime_identity is available and matches indexed identity
         """
         inventory = InventoryProvider(
-            corpus_provider=self.corpus_provider
+            corpus_provider=self.corpus_provider,
+            view=self.view,
         ).list_slices(
             pool_identifier=self.pool_identifier,
             dossier_id=dossier_id,

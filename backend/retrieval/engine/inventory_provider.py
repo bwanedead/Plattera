@@ -23,11 +23,22 @@ class InventorySlice:
     unavailable_reason: Optional[str] = None
 
 
+def resolve_view_for_pool_identifier(pool_identifier: str) -> CorpusView:
+    mapping = {
+        "FINAL_SEGMENTS": CorpusView.FINAL_SEGMENTS,
+        "EVERYTHING": CorpusView.EVERYTHING,
+    }
+    try:
+        return mapping[pool_identifier]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported pool_identifier: {pool_identifier}") from exc
+
+
 class InventoryProvider:
     """
     Enumerate desired doc slices for a corpus view.
 
-    v0: FINAL_SEGMENTS only, desired_signature comes from entry.content_hash.
+    v0: FINAL_SEGMENTS + EVERYTHING, desired_signature comes from entry.content_hash.
     """
 
     def __init__(self, corpus_provider: CorpusProvider, view: CorpusView = CorpusView.FINAL_SEGMENTS):

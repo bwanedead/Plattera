@@ -9,6 +9,7 @@ from corpus.types import CorpusView
 from ..lanes.semantic.index_builder import SemanticIndexBuilder
 from ..lanes.semantic.persistent_store import PersistentVectorStore
 from .diagnose import RuntimeIndexIdentity, SliceDiagnoser, SliceDiagnosis, SliceStatus
+from .inventory_provider import resolve_view_for_pool_identifier
 
 
 @dataclass(frozen=True)
@@ -43,13 +44,13 @@ class SliceExecutor:
         vector_store: PersistentVectorStore,
         builder: SemanticIndexBuilder,
         runtime_identity: RuntimeIndexIdentity,
-        view: CorpusView = CorpusView.FINAL_SEGMENTS,
+        view: Optional[CorpusView] = None,
     ):
         self.corpus_provider = corpus_provider
         self.vector_store = vector_store
         self.builder = builder
         self.runtime_identity = runtime_identity
-        self.view = view
+        self.view = view or resolve_view_for_pool_identifier(vector_store.pool_identifier)
 
     def execute_entry(self, *, dossier_id: str, entry_id: str) -> ExecuteResult:
         diagnoser = SliceDiagnoser(
@@ -57,6 +58,7 @@ class SliceExecutor:
             metadata_store=self.vector_store.metadata_store,
             pool_identifier=self.vector_store.pool_identifier,
             runtime_identity=self.runtime_identity,
+            view=self.view,
         )
 
         diagnosis = self._find_diagnosis(diagnoser, dossier_id=dossier_id, entry_id=entry_id)
