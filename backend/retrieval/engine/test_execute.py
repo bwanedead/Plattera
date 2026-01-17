@@ -176,6 +176,7 @@ def test_execute_rebuilds_only_stale_slice() -> None:
         )
         assert exec_result.status == SliceStatus.HEALTHY
         assert exec_result.deleted_count == len(entry_a_chunks_v1)
+        assert exec_result.did_write_state is True  # H2: state written on success
 
         for chunk in entry_a_chunks_v1:
             meta = vector_store.metadata_store.lookup_by_chunk_id(chunk.chunk_id)
@@ -198,3 +199,64 @@ def test_execute_rebuilds_only_stale_slice() -> None:
         }
         assert post_statuses[entry_a_v1.ref.entry_id] == SliceStatus.HEALTHY
         assert post_statuses[entry_b_v1.ref.entry_id] == SliceStatus.HEALTHY
+
+
+def test_execute_no_state_write_on_vector_failure() -> None:
+    """
+    H2 Test: Verify that indexed_entry_state is NOT written if vector upserts fail.
+    """
+    policy = ChunkPolicy(policy_id="fail_policy_v1", max_chars_per_chunk=500, min_chars=10)
+    chunker = Chunker()
+    embedder = StubEmbeddingProvider()
+
+    entry = _make_entry("D1", "segment_final:D1:seg_001:T1", "Test text")
+    corpus = StubCorpusProvider(entries=[entry])
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_path = Path(tmpdir) / "metadata.db"
+
+        # Create a failing vector store that throws on upsert
+        class FailingVectorStore(StubVectorStore):
+            def upsert(self, *args, **kwargs):
+                raise RuntimeError("Simulated vector upsert failure")
+
+        vector_store = FailingVectorStore(pool_identifier="FINAL_SEGMENTS", metadata_path=metadata_path)
+
+        runtime_identity = RuntimeIndexIdentity(
+            embedding_model_fingerprint="model_v1",
+            chunking_policy_id=policy.policy_id,
+        )
+
+        builder = SemanticIndexBuilder(
+            corpus_provider=corpus,
+            embedding_provider=embedder,
+            chunker=chunker,
+            chunk_policy=policy,
+        )
+
+        executor = SliceExecutor(
+            corpus_provider=corpus,
+            vector_store=vector_store,
+            builder=builder,
+            runtime_identity=runtime_identity,
+        )
+
+        # Execute should fail due to upsert failure
+        exec_result = executor.execute_entry(
+            dossier_id="D1",
+            entry_id=entry.ref.entry_id,
+        )
+
+        # H2: Verify failure status and no state write
+        assert exec_result.status != SliceStatus.HEALTHY
+        assert exec_result.did_write_state is False
+        assert exec_result.chunks_added == 0
+        assert "Upsert failed" in exec_result.reason or ""
+
+        # H2: Verify indexed_entry_state was NOT written
+        state = vector_store.metadata_store.get_indexed_entry_state(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="D1",
+            entry_id=entry.ref.entry_id,
+        )
+        assert state is None  # No state written due to failure

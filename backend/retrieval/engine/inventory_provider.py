@@ -7,6 +7,8 @@ from typing import List, Optional, Tuple
 from corpus.interfaces import CorpusProvider
 from corpus.types import CorpusEntry, CorpusView
 
+from .reason_codes import DiagnosticReasonCode
+
 
 @dataclass(frozen=True)
 class InventorySlice:
@@ -73,11 +75,23 @@ class InventoryProvider:
 
     @staticmethod
     def _desired_signature(entry: CorpusEntry) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Compute desired signature for an entry.
+
+        Returns (signature, unavailable_reason) where unavailable_reason is a
+        stable DiagnosticReasonCode if the entry cannot be indexed.
+        """
+        # Hydration failed or other provenance error
         if entry.provenance and entry.provenance.get("error"):
-            return None, str(entry.provenance.get("error"))
+            return None, DiagnosticReasonCode.UNAVAILABLE_HYDRATION_FAILED.value
+
+        # Preferred: use content_hash if available
         if entry.content_hash:
             return entry.content_hash, None
+
+        # Fallback: compute from text
         text = entry.text or ""
         if not text:
-            return None, "empty_entry_text"
+            return None, DiagnosticReasonCode.UNAVAILABLE_MISSING_CONTENT_HASH.value
+
         return hashlib.sha256(text.encode("utf-8")).hexdigest(), None

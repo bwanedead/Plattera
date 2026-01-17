@@ -175,12 +175,17 @@ class PersistentVectorStore:
         """
         Delete all chunks for a specific entry slice (tombstone).
 
+        H3 SAFETY GUARANTEES:
+        - Idempotent: safe to call multiple times on same entry
+        - No-op safe: returns 0 if entry was never indexed
+        - Graceful: HNSW tombstone failures are logged but don't block metadata cleanup
+
         Args:
             dossier_id: Dossier identifier
             entry_id: Corpus entry identifier
 
         Returns:
-            Number of labels tombstoned
+            Number of labels tombstoned in metadata
         """
         labels = self.metadata_store.list_labels_for_entry(
             pool_identifier=self.pool_identifier,
@@ -188,10 +193,26 @@ class PersistentVectorStore:
             entry_id=entry_id,
         )
 
+        # H3: No-op safety - if entry was never indexed, return 0
         if not labels:
             return 0
 
-        self.hnsw_store.mark_deleted_batch(labels)
+        # H3: Graceful HNSW tombstoning - catch failures but continue to metadata cleanup
+        # This handles rare corruption cases where metadata has labels that HNSW doesn't
+        try:
+            self.hnsw_store.mark_deleted_batch(labels)
+        except Exception as e:
+            # Log warning but continue - metadata cleanup is more critical
+            # for maintaining index health than HNSW tombstones
+            import sys
+            print(
+                f"WARNING: HNSW tombstone failed for entry {entry_id}: {e}. "
+                f"Metadata will still be marked deleted.",
+                file=sys.stderr,
+            )
+
+        # H3: Always mark metadata as deleted, even if HNSW fails
+        # This ensures diagnose can detect the inconsistency
         self.metadata_store.mark_deleted(labels)
 
         return len(labels)

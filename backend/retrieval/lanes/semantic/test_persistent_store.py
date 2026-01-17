@@ -278,6 +278,67 @@ def test_delete_entry_slice():
         assert "chunk_entry_b_1" in chunk_ids_b
 
 
+def test_delete_entry_slice_idempotent():
+    """H3: delete_entry_slice is idempotent (safe to call multiple times)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_db = Path(tmpdir) / "metadata.db"
+
+        store = create_persistent_store(
+            pool_identifier="FINAL_SEGMENTS",
+            embedding_dim=3,
+            metadata_db_path=metadata_db,
+            max_elements=50,
+        )
+
+        store.upsert(
+            chunk_id="chunk_1",
+            vector=[1.0, 0.0, 0.0],
+            dossier_id="D1",
+            entry_id="entry_a",
+            selector_json='{"kind":"section","section_index":0}',
+        )
+        store.upsert(
+            chunk_id="chunk_2",
+            vector=[0.9, 0.1, 0.0],
+            dossier_id="D1",
+            entry_id="entry_a",
+            selector_json='{"kind":"section","section_index":1}',
+        )
+
+        # First delete
+        deleted_count_1 = store.delete_entry_slice(dossier_id="D1", entry_id="entry_a")
+        assert deleted_count_1 == 2
+
+        # H3: Second delete should be idempotent (still returns 2, no error)
+        deleted_count_2 = store.delete_entry_slice(dossier_id="D1", entry_id="entry_a")
+        assert deleted_count_2 == 2  # Still finds 2 labels (already deleted)
+
+        # Verify metadata is still marked deleted
+        meta_1 = store.metadata_store.lookup_by_chunk_id("chunk_1")
+        meta_2 = store.metadata_store.lookup_by_chunk_id("chunk_2")
+        assert meta_1 is not None and meta_1.is_deleted is True
+        assert meta_2 is not None and meta_2.is_deleted is True
+
+
+def test_delete_entry_slice_never_indexed():
+    """H3: delete_entry_slice returns 0 for never-indexed entry (no error)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_db = Path(tmpdir) / "metadata.db"
+
+        store = create_persistent_store(
+            pool_identifier="FINAL_SEGMENTS",
+            embedding_dim=3,
+            metadata_db_path=metadata_db,
+            max_elements=50,
+        )
+
+        # H3: Deleting a never-indexed entry should return 0, not error
+        deleted_count = store.delete_entry_slice(
+            dossier_id="nonexistent_dossier", entry_id="nonexistent_entry"
+        )
+        assert deleted_count == 0
+
+
 def test_query_skips_tombstoned_chunks():
     """Query automatically filters out tombstoned/deleted chunks."""
     with tempfile.TemporaryDirectory() as tmpdir:

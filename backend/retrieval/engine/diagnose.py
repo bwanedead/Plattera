@@ -8,6 +8,7 @@ from corpus.interfaces import CorpusProvider
 
 from ..lanes.semantic.metadata_store import VectorMetadataStore
 from .inventory_provider import InventoryProvider
+from .reason_codes import DiagnosticReasonCode
 
 
 class SliceStatus(str, Enum):
@@ -54,6 +55,15 @@ class SliceDiagnoser:
         self.runtime_identity = runtime_identity
 
     def diagnose(self, *, dossier_id: Optional[str] = None) -> List[SliceDiagnosis]:
+        """
+        Diagnose index health for doc slices.
+
+        Returns SliceDiagnosis with stable reason codes for all failure modes.
+
+        CRITICAL INVARIANT: Never returns HEALTHY unless:
+        - desired_signature exists and matches indexed_signature
+        - runtime_identity is available and matches indexed identity
+        """
         inventory = InventoryProvider(
             corpus_provider=self.corpus_provider
         ).list_slices(
@@ -64,6 +74,7 @@ class SliceDiagnoser:
 
         results: List[SliceDiagnosis] = []
         for inv in inventory:
+            # Handle unavailable slices from inventory (hydration failures, missing content, etc.)
             if inv.unavailable_reason:
                 results.append(
                     SliceDiagnosis(
@@ -78,6 +89,7 @@ class SliceDiagnoser:
                 )
                 continue
 
+            # Missing indexed state
             state = self.metadata_store.get_indexed_entry_state(
                 pool_identifier=inv.pool_identifier,
                 dossier_id=inv.dossier_id,
@@ -93,29 +105,46 @@ class SliceDiagnoser:
                         status=SliceStatus.MISSING,
                         desired_signature=inv.desired_signature,
                         indexed_signature=None,
-                        reason="missing_indexed_state",
+                        reason=DiagnosticReasonCode.MISSING_INDEX_STATE.value,
                     )
                 )
                 continue
 
-            if self.runtime_identity:
-                if (
-                    state.embedding_model_fingerprint != self.runtime_identity.embedding_model_fingerprint
-                    or state.chunking_policy_id != self.runtime_identity.chunking_policy_id
-                ):
-                    results.append(
-                        SliceDiagnosis(
-                            pool_identifier=inv.pool_identifier,
-                            dossier_id=inv.dossier_id,
-                            entry_id=inv.entry_id,
-                            status=SliceStatus.STALE_IDENTITY,
-                            desired_signature=inv.desired_signature,
-                            indexed_signature=state.indexed_signature,
-                            reason="identity_mismatch",
-                        )
+            # H4: Cannot evaluate staleness without runtime identity
+            # NEVER mark healthy if we can't verify identity checks
+            if self.runtime_identity is None:
+                results.append(
+                    SliceDiagnosis(
+                        pool_identifier=inv.pool_identifier,
+                        dossier_id=inv.dossier_id,
+                        entry_id=inv.entry_id,
+                        status=SliceStatus.UNAVAILABLE,
+                        desired_signature=inv.desired_signature,
+                        indexed_signature=state.indexed_signature,
+                        reason=DiagnosticReasonCode.UNAVAILABLE_RUNTIME_IDENTITY_MISSING.value,
                     )
-                    continue
+                )
+                continue
 
+            # Identity mismatch (stale model or policy)
+            if (
+                state.embedding_model_fingerprint != self.runtime_identity.embedding_model_fingerprint
+                or state.chunking_policy_id != self.runtime_identity.chunking_policy_id
+            ):
+                results.append(
+                    SliceDiagnosis(
+                        pool_identifier=inv.pool_identifier,
+                        dossier_id=inv.dossier_id,
+                        entry_id=inv.entry_id,
+                        status=SliceStatus.STALE_IDENTITY,
+                        desired_signature=inv.desired_signature,
+                        indexed_signature=state.indexed_signature,
+                        reason=DiagnosticReasonCode.STALE_IDENTITY_MISMATCH.value,
+                    )
+                )
+                continue
+
+            # Content signature mismatch (stale content)
             if inv.desired_signature != state.indexed_signature:
                 results.append(
                     SliceDiagnosis(
@@ -125,11 +154,12 @@ class SliceDiagnoser:
                         status=SliceStatus.STALE_CONTENT,
                         desired_signature=inv.desired_signature,
                         indexed_signature=state.indexed_signature,
-                        reason="signature_mismatch",
+                        reason=DiagnosticReasonCode.STALE_SIGNATURE_MISMATCH.value,
                     )
                 )
                 continue
 
+            # All checks passed: mark as HEALTHY
             results.append(
                 SliceDiagnosis(
                     pool_identifier=inv.pool_identifier,
