@@ -30,12 +30,14 @@ class EverythingCorpusView:
         """
 
         for did, tid, _path in self.adapter.iter_transcription_heads(dossier_id=dossier_id):
+            draft_id = f"draft:head:{did}:{tid}"
             yield CorpusEntryRef(
                 view=CorpusView.EVERYTHING,
-                entry_id=f"transcript:{did}:{tid}",
+                entry_id=draft_id,
                 kind=CorpusEntryKind.TRANSCRIPT,
                 dossier_id=did,
                 transcription_id=tid,
+                draft_id=draft_id,
             )
 
 

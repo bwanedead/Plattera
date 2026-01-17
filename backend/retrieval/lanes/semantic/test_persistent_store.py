@@ -221,6 +221,63 @@ def test_delete_slice():
         assert stats["active_chunks"] == 0  # All marked deleted
 
 
+def test_delete_entry_slice():
+    """delete_entry_slice tombstones only chunks for a specific entry."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_db = Path(tmpdir) / "metadata.db"
+
+        store = create_persistent_store(
+            pool_identifier="FINAL_SEGMENTS",
+            embedding_dim=3,
+            metadata_db_path=metadata_db,
+            max_elements=50,
+        )
+
+        store.upsert(
+            chunk_id="chunk_entry_a_1",
+            vector=[1.0, 0.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_a",
+            selector_json='{"kind":"section","section_index":0}',
+        )
+        store.upsert(
+            chunk_id="chunk_entry_a_2",
+            vector=[0.9, 0.1, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_a",
+            selector_json='{"kind":"section","section_index":1}',
+        )
+        store.upsert(
+            chunk_id="chunk_entry_b_1",
+            vector=[0.0, 1.0, 0.0],
+            dossier_id="dossier_1",
+            entry_id="entry_b",
+            selector_json='{"kind":"section","section_index":0}',
+        )
+
+        deleted_count = store.delete_entry_slice(
+            dossier_id="dossier_1", entry_id="entry_a"
+        )
+        assert deleted_count == 2
+
+        meta_a1 = store.metadata_store.lookup_by_chunk_id("chunk_entry_a_1")
+        meta_a2 = store.metadata_store.lookup_by_chunk_id("chunk_entry_a_2")
+        meta_b1 = store.metadata_store.lookup_by_chunk_id("chunk_entry_b_1")
+
+        assert meta_a1 is not None and meta_a1.is_deleted is True
+        assert meta_a2 is not None and meta_a2.is_deleted is True
+        assert meta_b1 is not None and meta_b1.is_deleted is False
+
+        results_a = store.query(vector=[1.0, 0.0, 0.0], k=1)
+        chunk_ids_a = [cid for cid, _ in results_a]
+        assert "chunk_entry_a_1" not in chunk_ids_a
+        assert "chunk_entry_a_2" not in chunk_ids_a
+
+        results_b = store.query(vector=[0.0, 1.0, 0.0], k=1)
+        chunk_ids_b = [cid for cid, _ in results_b]
+        assert "chunk_entry_b_1" in chunk_ids_b
+
+
 def test_query_skips_tombstoned_chunks():
     """Query automatically filters out tombstoned/deleted chunks."""
     with tempfile.TemporaryDirectory() as tmpdir:

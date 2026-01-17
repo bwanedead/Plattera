@@ -42,6 +42,105 @@ def test_enumerate_finalized_empty_ok() -> None:
     assert isinstance(refs, list)
 
 
+def test_enumerate_everything_draft_aware_entry_id() -> None:
+    """
+    EVERYTHING view should emit draft-aware transcript refs with entry_id == draft_id.
+    """
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+
+        original_dossiers_root = paths_mod.dossiers_root
+
+        def _patched_dossiers_root() -> Path:
+            return root / "dossiers_data"
+
+        paths_mod.dossiers_root = _patched_dossiers_root  # type: ignore[assignment]
+        try:
+            dossier_id = "D_EVERY"
+            transcription_id = "T_HEAD"
+            raw_path = (
+                _patched_dossiers_root()
+                / "views"
+                / "transcriptions"
+                / dossier_id
+                / transcription_id
+                / "raw"
+                / f"{transcription_id}.json"
+            )
+            _write_json(raw_path, {"text": "Hello draft"})
+
+            provider = VirtualCorpusProvider()
+            refs = list(provider.list_entry_refs(CorpusView.EVERYTHING))
+
+            assert len(refs) >= 1, "Expected at least 1 ref from EVERYTHING view"
+            ref = refs[0]
+            expected_draft_id = f"draft:head:{dossier_id}:{transcription_id}"
+            assert ref.entry_id == expected_draft_id
+            assert ref.draft_id == expected_draft_id
+            assert ref.kind == CorpusEntryKind.TRANSCRIPT
+            assert ref.dossier_id == dossier_id
+            assert ref.transcription_id == transcription_id
+        finally:
+            paths_mod.dossiers_root = original_dossiers_root  # type: ignore[assignment]
+
+
+def test_hydrate_transcript_head_draft_id_matches_legacy() -> None:
+    """
+    Hydrating a transcript ref with head-form draft_id loads the same content as legacy.
+    """
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+
+        original_dossiers_root = paths_mod.dossiers_root
+
+        def _patched_dossiers_root() -> Path:
+            return root / "dossiers_data"
+
+        paths_mod.dossiers_root = _patched_dossiers_root  # type: ignore[assignment]
+        try:
+            dossier_id = "D_DRAFT_HYDRATE"
+            transcription_id = "T_HEAD"
+            raw_path = (
+                _patched_dossiers_root()
+                / "views"
+                / "transcriptions"
+                / dossier_id
+                / transcription_id
+                / "raw"
+                / f"{transcription_id}.json"
+            )
+            payload = {"sections": [{"body": "Draft body"}], "title": "Draft Title"}
+            _write_json(raw_path, payload)
+
+            hydrator = CorpusHydrator()
+            legacy_ref = CorpusEntryRef(
+                view=CorpusView.EVERYTHING,
+                entry_id=f"transcript:{dossier_id}:{transcription_id}",
+                kind=CorpusEntryKind.TRANSCRIPT,
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+            )
+            draft_id = f"draft:head:{dossier_id}:{transcription_id}"
+            draft_ref = CorpusEntryRef(
+                view=CorpusView.EVERYTHING,
+                entry_id=draft_id,
+                kind=CorpusEntryKind.TRANSCRIPT,
+                draft_id=draft_id,
+            )
+
+            legacy_entry = hydrator.hydrate(legacy_ref)
+            draft_entry = hydrator.hydrate(draft_ref)
+
+            assert legacy_entry.text == "Draft body"
+            assert draft_entry.text == legacy_entry.text
+            assert draft_entry.content_hash == legacy_entry.content_hash
+            assert draft_entry.provenance.get("draft_id") == draft_id
+        finally:
+            paths_mod.dossiers_root = original_dossiers_root  # type: ignore[assignment]
+
+
 def test_hydrate_finalized_minimal_snapshot() -> None:
     """
     Hydrating a FINALIZED_DOSSIER_TEXT entry over a minimal fake snapshot

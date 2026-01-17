@@ -33,6 +33,18 @@ class CorpusHydrator:
     def _compute_content_hash(self, text: str) -> str:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
+    def _parse_head_draft_id(self, draft_id: str) -> Optional[tuple[str, str]]:
+        parts = draft_id.split(":")
+        if len(parts) != 4:
+            return None
+        if parts[0] != "draft" or parts[1] != "head":
+            return None
+        dossier_id = parts[2].strip()
+        transcription_id = parts[3].strip()
+        if not dossier_id or not transcription_id:
+            return None
+        return dossier_id, transcription_id
+
     def _mtime_iso(self, p: Path) -> Optional[str]:
         try:
             ts = p.stat().st_mtime
@@ -55,7 +67,9 @@ class CorpusHydrator:
             ):
                 return self._hydrate_finalized(ref)
 
-            if ref.kind == CorpusEntryKind.TRANSCRIPT and ref.dossier_id and ref.transcription_id:
+            if ref.kind == CorpusEntryKind.TRANSCRIPT and (
+                ref.draft_id or (ref.dossier_id and ref.transcription_id)
+            ):
                 return self._hydrate_transcript(ref)
 
             if ref.kind == CorpusEntryKind.SCHEMA_JSON and ref.dossier_id:
@@ -120,8 +134,17 @@ class CorpusHydrator:
         )
 
     def _hydrate_transcript(self, ref: CorpusEntryRef) -> CorpusEntry:
-        assert ref.dossier_id is not None and ref.transcription_id is not None
-        p = self.dossiers.transcript_raw_path(ref.dossier_id, ref.transcription_id)
+        dossier_id = ref.dossier_id
+        transcription_id = ref.transcription_id
+        if ref.draft_id:
+            parsed = self._parse_head_draft_id(ref.draft_id)
+            if parsed:
+                dossier_id, transcription_id = parsed
+
+        if not dossier_id or not transcription_id:
+            return self._empty_with_error(ref, error="transcript_identity_incomplete")
+
+        p = self.dossiers.transcript_raw_path(dossier_id, transcription_id)
         if not p.exists():
             return self._empty_with_error(ref, error="transcript_raw_not_found", path=p)
 
@@ -170,8 +193,9 @@ class CorpusHydrator:
             provenance={
                 "source": "transcript_raw",
                 "path": str(p),
-                "dossier_id": ref.dossier_id,
-                "transcription_id": ref.transcription_id,
+                "dossier_id": dossier_id,
+                "transcription_id": transcription_id,
+                "draft_id": ref.draft_id,
             },
         )
 

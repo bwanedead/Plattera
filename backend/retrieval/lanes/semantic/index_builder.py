@@ -126,48 +126,14 @@ class SemanticIndexBuilder:
             try:
                 # Hydrate entry
                 entry = self.corpus_provider.hydrate_entry(ref)
-                result.entries_processed += 1
-
-                # Chunk entry
-                chunks = self.chunker.chunk_entry(entry, self.chunk_policy)
-
-                if not chunks:
-                    continue
-
-                # Embed chunks in batch
-                chunk_texts = [chunk.text for chunk in chunks]
-                try:
-                    embeddings = self.embedding_provider.embed(chunk_texts)
-                except Exception as e:
-                    result.errors.append(
-                        f"Embedding failed for entry {ref.entry_id}: {e}"
-                    )
-                    continue
-
-                # Upsert to vector store
-                for chunk, embedding in zip(chunks, embeddings):
-                    try:
-                        # Generate preview: use snippet_hint if available, else first 200 chars of text
-                        preview = chunk.snippet_hint
-                        if preview is None and chunk.text:
-                            preview = chunk.text[:200].strip()
-
-                        vector_store.upsert(
-                            chunk_id=chunk.chunk_id,
-                            vector=embedding,
-                            dossier_id=dossier_id,
-                            entry_id=ref.entry_id,
-                            selector_json=json.dumps(chunk.selector.to_dict()),
-                            preview=preview,
-                            segment_id=ref.segment_id,
-                            draft_id=ref.draft_id,
-                        )
-                        result.chunks_added += 1
-                    except Exception as e:
-                        result.errors.append(
-                            f"Upsert failed for chunk {chunk.chunk_id}: {e}"
-                        )
-                        result.chunks_skipped += 1
+                self._index_entry(
+                    vector_store=vector_store,
+                    ref=ref,
+                    entry=entry,
+                    dossier_id=dossier_id,
+                    result=result,
+                    embedding_model_fingerprint=embedding_model_fingerprint,
+                )
 
             except Exception as e:
                 result.errors.append(f"Failed to process entry {ref.entry_id}: {e}")
@@ -191,6 +157,46 @@ class SemanticIndexBuilder:
                 write_manifest(pool_identifier, manifest)
             except Exception as e:
                 result.errors.append(f"Failed to write manifest: {e}")
+
+        return result
+
+    def build_index_for_entry(
+        self,
+        vector_store: PersistentVectorStore,
+        ref: CorpusEntryRef,
+        *,
+        embedding_model_fingerprint: Optional[str] = None,
+    ) -> IndexBuildResult:
+        """
+        Build index for a single entry reference.
+
+        Args:
+            vector_store: Target persistent vector store
+            ref: Corpus entry ref to index
+            embedding_model_fingerprint: Model fingerprint for indexed_entry_state
+        """
+        result = IndexBuildResult(
+            chunks_added=0,
+            chunks_skipped=0,
+            entries_processed=0,
+            errors=[],
+        )
+
+        try:
+            entry = self.corpus_provider.hydrate_entry(ref)
+            if not ref.dossier_id:
+                result.errors.append(f"Missing dossier_id for entry {ref.entry_id}")
+                return result
+            self._index_entry(
+                vector_store=vector_store,
+                ref=ref,
+                entry=entry,
+                dossier_id=ref.dossier_id,
+                result=result,
+                embedding_model_fingerprint=embedding_model_fingerprint,
+            )
+        except Exception as e:
+            result.errors.append(f"Failed to process entry {ref.entry_id}: {e}")
 
         return result
 
@@ -227,3 +233,64 @@ class SemanticIndexBuilder:
 
         # Note: We could add deleted_count to result metadata if needed
         return result
+
+    def _index_entry(
+        self,
+        *,
+        vector_store: PersistentVectorStore,
+        ref: CorpusEntryRef,
+        entry: CorpusEntry,
+        dossier_id: str,
+        result: IndexBuildResult,
+        embedding_model_fingerprint: Optional[str],
+    ) -> None:
+        result.entries_processed += 1
+        entry_chunks_added = 0
+
+        chunks = self.chunker.chunk_entry(entry, self.chunk_policy)
+        if not chunks:
+            return
+
+        chunk_texts = [chunk.text for chunk in chunks]
+        try:
+            embeddings = self.embedding_provider.embed(chunk_texts)
+        except Exception as e:
+            result.errors.append(f"Embedding failed for entry {ref.entry_id}: {e}")
+            return
+
+        for chunk, embedding in zip(chunks, embeddings):
+            try:
+                preview = chunk.snippet_hint
+                if preview is None and chunk.text:
+                    preview = chunk.text[:200].strip()
+
+                vector_store.upsert(
+                    chunk_id=chunk.chunk_id,
+                    vector=embedding,
+                    dossier_id=dossier_id,
+                    entry_id=ref.entry_id,
+                    selector_json=json.dumps(chunk.selector.to_dict()),
+                    preview=preview,
+                    segment_id=ref.segment_id,
+                    draft_id=ref.draft_id,
+                )
+                result.chunks_added += 1
+                entry_chunks_added += 1
+            except Exception as e:
+                result.errors.append(f"Upsert failed for chunk {chunk.chunk_id}: {e}")
+                result.chunks_skipped += 1
+
+        if entry_chunks_added > 0 and entry.content_hash and embedding_model_fingerprint:
+            try:
+                vector_store.metadata_store.upsert_indexed_entry_state(
+                    pool_identifier=vector_store.pool_identifier,
+                    dossier_id=dossier_id,
+                    entry_id=ref.entry_id,
+                    indexed_signature=entry.content_hash,
+                    embedding_model_fingerprint=embedding_model_fingerprint,
+                    chunking_policy_id=self.chunk_policy.policy_id,
+                )
+            except Exception as e:
+                result.errors.append(
+                    f"Failed to write indexed_entry_state for {ref.entry_id}: {e}"
+                )

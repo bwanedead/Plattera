@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from .metadata_store import ChunkMetadata, VectorMetadataStore
+from .metadata_store import ChunkMetadata, IndexedEntryState, VectorMetadataStore
 
 
 def test_schema_initialization():
@@ -182,6 +182,57 @@ def test_list_labels_for_slice():
         assert labels_none == []
 
 
+def test_list_labels_for_entry():
+    """Store can list labels for a specific entry slice."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "metadata.db"
+        store = VectorMetadataStore(db_path)
+
+        for i in range(3):
+            store.upsert_chunk(
+                ChunkMetadata(
+                    chunk_id=f"chunk_a_{i}",
+                    label=i,
+                    dossier_id="dossier_1",
+                    pool_identifier="FINAL_SEGMENTS",
+                    entry_id="entry_a",
+                    selector_json='{"kind":"section","section_index":0}',
+                )
+            )
+
+        for i in range(2):
+            store.upsert_chunk(
+                ChunkMetadata(
+                    chunk_id=f"chunk_b_{i}",
+                    label=i + 10,
+                    dossier_id="dossier_1",
+                    pool_identifier="FINAL_SEGMENTS",
+                    entry_id="entry_b",
+                    selector_json='{"kind":"section","section_index":0}',
+                )
+            )
+
+        store.upsert_chunk(
+            ChunkMetadata(
+                chunk_id="chunk_other",
+                label=99,
+                dossier_id="dossier_2",
+                pool_identifier="FINAL_SEGMENTS",
+                entry_id="entry_a",
+                selector_json='{"kind":"section","section_index":0}',
+            )
+        )
+
+        labels_a = store.list_labels_for_entry("FINAL_SEGMENTS", "dossier_1", "entry_a")
+        assert set(labels_a) == {0, 1, 2}
+
+        labels_b = store.list_labels_for_entry("FINAL_SEGMENTS", "dossier_1", "entry_b")
+        assert set(labels_b) == {10, 11}
+
+        labels_none = store.list_labels_for_entry("FINAL_SEGMENTS", "dossier_1", "missing")
+        assert labels_none == []
+
+
 def test_mark_deleted():
     """Store can mark labels as deleted (tombstone)."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -273,6 +324,59 @@ def test_lookup_missing_returns_none():
         assert store.lookup_by_label(999) is None
 
 
+def test_indexed_entry_state_upsert_and_get():
+    """Store can upsert and read indexed_entry_state rows."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "metadata.db"
+        store = VectorMetadataStore(db_path)
+
+        missing = store.get_indexed_entry_state(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="dossier_1",
+            entry_id="entry_1",
+        )
+        assert missing is None
+
+        store.upsert_indexed_entry_state(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="dossier_1",
+            entry_id="entry_1",
+            indexed_signature="sig_v1",
+            embedding_model_fingerprint="model_v1",
+            chunking_policy_id="policy_v1",
+        )
+
+        retrieved = store.get_indexed_entry_state(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="dossier_1",
+            entry_id="entry_1",
+        )
+        assert retrieved is not None
+        assert isinstance(retrieved, IndexedEntryState)
+        assert retrieved.indexed_signature == "sig_v1"
+        assert retrieved.embedding_model_fingerprint == "model_v1"
+        assert retrieved.chunking_policy_id == "policy_v1"
+
+        store.upsert_indexed_entry_state(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="dossier_1",
+            entry_id="entry_1",
+            indexed_signature="sig_v2",
+            embedding_model_fingerprint="model_v2",
+            chunking_policy_id="policy_v2",
+        )
+
+        updated = store.get_indexed_entry_state(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="dossier_1",
+            entry_id="entry_1",
+        )
+        assert updated is not None
+        assert updated.indexed_signature == "sig_v2"
+        assert updated.embedding_model_fingerprint == "model_v2"
+        assert updated.chunking_policy_id == "policy_v2"
+
+
 def test_schema_version_mismatch_detection():
     """Metadata store detects and fails on schema version mismatch."""
     import tempfile
@@ -310,8 +414,8 @@ def test_schema_version_mismatch_detection():
                 )
                 """
             )
-            # Insert old version (current is 3, use 2)
-            cursor.execute("INSERT INTO schema_version (version) VALUES (?)", (2,))
+            # Insert old version (current is 4, use 3)
+            cursor.execute("INSERT INTO schema_version (version) VALUES (?)", (3,))
             conn.commit()
         finally:
             conn.close()
@@ -322,6 +426,6 @@ def test_schema_version_mismatch_detection():
             assert False, "Should have raised RuntimeError for schema mismatch"
         except RuntimeError as e:
             assert "schema version mismatch" in str(e).lower()
-            assert "database has version 2" in str(e)
-            assert "code expects version 3" in str(e)
+            assert "database has version 3" in str(e)
+            assert "code expects version 4" in str(e)
             assert "rebuild" in str(e).lower()

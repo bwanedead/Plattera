@@ -14,6 +14,7 @@ Acceptance criteria for S5:
 import hashlib
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, List, Optional, Set
 
 import pytest
@@ -29,6 +30,7 @@ from corpus.types import (
 from .chunking import ChunkPolicy, Chunker
 from .embeddings import EmbeddingProvider
 from .index_builder import IndexBuildResult, SemanticIndexBuilder
+from .metadata_store import ChunkMetadata, VectorMetadataStore
 
 
 class StubEmbeddingProvider(EmbeddingProvider):
@@ -70,6 +72,40 @@ class StubCorpusProvider(CorpusProvider):
             if entry.ref == ref:
                 return entry
         raise ValueError(f"Entry not found: {ref.entry_id}")
+
+
+class StubVectorStore:
+    """Stub vector store that only writes metadata (no HNSW dependency)."""
+
+    def __init__(self, pool_identifier: str, metadata_db_path: Path):
+        self.pool_identifier = pool_identifier
+        self.metadata_store = VectorMetadataStore(metadata_db_path)
+
+    def upsert(
+        self,
+        chunk_id: str,
+        vector: List[float],
+        dossier_id: Optional[str],
+        entry_id: str,
+        selector_json: str,
+        preview: Optional[str] = None,
+        segment_id: Optional[str] = None,
+        draft_id: Optional[str] = None,
+    ) -> None:
+        label = self.metadata_store.get_next_label()
+        metadata = ChunkMetadata(
+            chunk_id=chunk_id,
+            label=label,
+            dossier_id=dossier_id,
+            pool_identifier=self.pool_identifier,
+            entry_id=entry_id,
+            selector_json=selector_json,
+            preview=preview,
+            segment_id=segment_id,
+            draft_id=draft_id,
+            is_deleted=False,
+        )
+        self.metadata_store.upsert_chunk(metadata)
 
 
 def test_builder_api_without_persistence():
@@ -371,3 +407,67 @@ def test_builder_skips_manifest_if_parameters_missing():
         # Verify build still succeeded
         assert result.chunks_added > 0, "Should still index without manifest params"
         assert result.errors == [], f"Should not error: {result.errors}"
+
+
+def test_builder_writes_indexed_entry_state():
+    """
+    Successful entry indexing writes indexed_entry_state with content hash + identity.
+    """
+    import tempfile
+    from pathlib import Path
+
+    ref = CorpusEntryRef(
+        view=CorpusView.FINAL_SEGMENTS,
+        entry_id="seg_state_test",
+        kind=CorpusEntryKind.SEGMENT_FINAL_TEXT,
+        dossier_id="test_dossier_state",
+        segment_id="seg_state_test",
+    )
+    text = "Indexed entry state test content."
+    entry = CorpusEntry(
+        ref=ref,
+        text=text,
+        content_hash=hashlib.sha256(text.encode()).hexdigest(),
+    )
+
+    corpus = StubCorpusProvider(entries=[entry])
+    embedder = StubEmbeddingProvider(dim=4)
+    chunker = Chunker()
+    policy = ChunkPolicy(policy_id="test_state_v1", max_chars_per_chunk=500, min_chars=10)
+
+    builder = SemanticIndexBuilder(
+        corpus_provider=corpus,
+        embedding_provider=embedder,
+        chunker=chunker,
+        chunk_policy=policy,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_path = Path(tmpdir) / "test_state.db"
+        vector_store = StubVectorStore(
+            pool_identifier="TEST_STATE_POOL",
+            metadata_db_path=metadata_path,
+        )
+
+        result = builder.build_index_for_dossier(
+            vector_store=vector_store,
+            dossier_id="test_dossier_state",
+            view=CorpusView.FINAL_SEGMENTS,
+            embedding_dim=4,
+            embedding_model_id="test_model_v1",
+            embedding_model_fingerprint="test_model_fingerprint_v1",
+        )
+
+        assert result.errors == [], f"Build should succeed: {result.errors}"
+        assert result.chunks_added > 0, "Should have indexed at least one chunk"
+
+        state = vector_store.metadata_store.get_indexed_entry_state(
+            pool_identifier="TEST_STATE_POOL",
+            dossier_id="test_dossier_state",
+            entry_id="seg_state_test",
+        )
+
+        assert state is not None
+        assert state.indexed_signature == entry.content_hash
+        assert state.embedding_model_fingerprint == "test_model_fingerprint_v1"
+        assert state.chunking_policy_id == "test_state_v1"

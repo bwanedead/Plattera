@@ -25,7 +25,7 @@ from typing import List, Optional, Tuple
 # Schema Version
 # -----------------------------------------------------------------------------
 
-METADATA_SCHEMA_VERSION = 3
+METADATA_SCHEMA_VERSION = 4
 
 
 # -----------------------------------------------------------------------------
@@ -61,6 +61,28 @@ class ChunkMetadata:
     segment_id: Optional[str] = None
     draft_id: Optional[str] = None
     is_deleted: bool = False
+
+
+@dataclass(frozen=True)
+class IndexedEntryState:
+    """
+    Persistent indexed state for a single entry slice.
+
+    Attributes:
+        pool_identifier: Pool/view identifier (e.g., "FINAL_SEGMENTS")
+        dossier_id: Dossier identifier
+        entry_id: Corpus entry identifier
+        indexed_signature: Content signature captured at index time
+        embedding_model_fingerprint: Embedding model fingerprint used
+        chunking_policy_id: Chunking policy identifier/hash used
+    """
+
+    pool_identifier: str
+    dossier_id: str
+    entry_id: str
+    indexed_signature: str
+    embedding_model_fingerprint: str
+    chunking_policy_id: str
 
 
 # -----------------------------------------------------------------------------
@@ -126,6 +148,29 @@ class VectorMetadataStore:
                 """
                 CREATE INDEX IF NOT EXISTS idx_dossier_pool
                 ON chunk_metadata(dossier_id, pool_identifier)
+                """
+            )
+
+            # Indexed entry state table
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS indexed_entry_state (
+                    pool_identifier TEXT NOT NULL,
+                    dossier_id TEXT NOT NULL,
+                    entry_id TEXT NOT NULL,
+                    indexed_signature TEXT NOT NULL,
+                    embedding_model_fingerprint TEXT NOT NULL,
+                    chunking_policy_id TEXT NOT NULL,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (pool_identifier, dossier_id, entry_id)
+                )
+                """
+            )
+
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_indexed_entry_state_identity
+                ON indexed_entry_state(pool_identifier, dossier_id, entry_id)
                 """
             )
 
@@ -307,6 +352,115 @@ class VectorMetadataStore:
                 (dossier_id, pool_identifier),
             )
             return [row[0] for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def list_labels_for_entry(
+        self, pool_identifier: str, dossier_id: str, entry_id: str
+    ) -> List[int]:
+        """
+        List all labels for a specific (pool, dossier, entry) slice.
+
+        Args:
+            pool_identifier: Pool/view identifier
+            dossier_id: Dossier identifier
+            entry_id: Corpus entry identifier
+
+        Returns:
+            List of internal labels
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT label
+                FROM chunk_metadata
+                WHERE pool_identifier = ? AND dossier_id = ? AND entry_id = ?
+                """,
+                (pool_identifier, dossier_id, entry_id),
+            )
+            return [row[0] for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def upsert_indexed_entry_state(
+        self,
+        *,
+        pool_identifier: str,
+        dossier_id: str,
+        entry_id: str,
+        indexed_signature: str,
+        embedding_model_fingerprint: str,
+        chunking_policy_id: str,
+    ) -> None:
+        """
+        Upsert indexed state for a specific entry slice.
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO indexed_entry_state (
+                    pool_identifier,
+                    dossier_id,
+                    entry_id,
+                    indexed_signature,
+                    embedding_model_fingerprint,
+                    chunking_policy_id,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(pool_identifier, dossier_id, entry_id) DO UPDATE SET
+                    indexed_signature = excluded.indexed_signature,
+                    embedding_model_fingerprint = excluded.embedding_model_fingerprint,
+                    chunking_policy_id = excluded.chunking_policy_id,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    pool_identifier,
+                    dossier_id,
+                    entry_id,
+                    indexed_signature,
+                    embedding_model_fingerprint,
+                    chunking_policy_id,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_indexed_entry_state(
+        self, *, pool_identifier: str, dossier_id: str, entry_id: str
+    ) -> Optional[IndexedEntryState]:
+        """
+        Fetch indexed state for a specific entry slice.
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT pool_identifier, dossier_id, entry_id,
+                       indexed_signature, embedding_model_fingerprint, chunking_policy_id
+                FROM indexed_entry_state
+                WHERE pool_identifier = ? AND dossier_id = ? AND entry_id = ?
+                """,
+                (pool_identifier, dossier_id, entry_id),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+
+            return IndexedEntryState(
+                pool_identifier=row[0],
+                dossier_id=row[1],
+                entry_id=row[2],
+                indexed_signature=row[3],
+                embedding_model_fingerprint=row[4],
+                chunking_policy_id=row[5],
+            )
         finally:
             conn.close()
 

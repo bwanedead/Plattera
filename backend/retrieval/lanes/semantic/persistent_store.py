@@ -171,6 +171,31 @@ class PersistentVectorStore:
 
         return len(labels)
 
+    def delete_entry_slice(self, dossier_id: str, entry_id: str) -> int:
+        """
+        Delete all chunks for a specific entry slice (tombstone).
+
+        Args:
+            dossier_id: Dossier identifier
+            entry_id: Corpus entry identifier
+
+        Returns:
+            Number of labels tombstoned
+        """
+        labels = self.metadata_store.list_labels_for_entry(
+            pool_identifier=self.pool_identifier,
+            dossier_id=dossier_id,
+            entry_id=entry_id,
+        )
+
+        if not labels:
+            return 0
+
+        self.hnsw_store.mark_deleted_batch(labels)
+        self.metadata_store.mark_deleted(labels)
+
+        return len(labels)
+
     def save(self, hnsw_path: Path, metadata_path: Path) -> None:
         """
         Save both HNSW index and metadata to disk.
