@@ -1,0 +1,105 @@
+{
+  "run_id": "2026-01-17__index-maintenance-api-job-plumbing",
+  "title": "Index Maintenance API + Persisted Job Plumbing (No UI)",
+  "repo_context": "Expose multi-pool index maintenance via FastAPI endpoints and a file-backed job store so maintenance can be executed and polled deterministically.",
+  "global_verification": ["python -m pytest -q"],
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Add file-backed IndexMaintenanceJobStore (mirrors ImageToTextJobStore patterns) + models + deterministic tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "IndexMaintenanceJobStore persists one JSON file per job under dossiers_processing_jobs_root(\"index_maintenance\") and maintains an index file mapping job_id -> filename",
+        "Job record includes required fields: request, computed identity, timestamps, status, progress, results",
+        "A deterministic pytest verifies create -> update -> reload roundtrip produces identical job state"
+      ],
+      "verification_commands": ["python -m pytest -q backend/"],
+      "depends_on": [],
+      "files_expected": ["backend/services/**/job_store.py", "backend/**/test_*.py"],
+      "notes": "Reuse patterns from backend/services/image_queue/job_store.py; keep it lightweight and deterministic."
+    },
+    {
+      "id": "S2",
+      "title": "Server-side RuntimeIndexIdentity helper for /api/index (compute fingerprint + policy id; deterministic UNAVAILABLE on failure) + tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "A helper computes RuntimeIndexIdentity server-side using resolve_embedding_model(AssetsService()) and compute_model_fingerprint(model_info)",
+        "Chunking policy id is explicit and matches v0 decision: FINAL_SEGMENTS and EVERYTHING both use FINAL_SEGMENTS_POLICY.policy_id",
+        "If identity cannot be computed (e.g. missing model info), API surfaces return UNAVAILABLE deterministically without throwing",
+        "A deterministic pytest covers identity computation failure -> UNAVAILABLE response shape (no stack traces)"
+      ],
+      "verification_commands": ["python -m pytest -q backend/api/"],
+      "depends_on": [],
+      "files_expected": ["backend/api/endpoints/index_maintenance.py", "backend/api/**/test_*.py", "backend/retrieval/engine/*"],
+      "notes": "Frontend never supplies identity. Keep exception details minimal (exception_type only)."
+    },
+    {
+      "id": "S3",
+      "title": "Add GET /api/index/diagnose endpoint mounted at /api/index (stable report + counts + caps) + deterministic tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "New FastAPI router exists at backend/api/endpoints/index_maintenance.py and is mounted in backend/api/router.py under prefix /api/index",
+        "GET /api/index/diagnose calls PoolMaintenanceController.diagnose_pool(...) using server-computed runtime identity",
+        "Response always includes pool_open; includes pool_health only when open OK; includes slice_diagnoses only when include_slices=true (capped by limit_slices server max)",
+        "Response includes derived counts: healthy/missing/stale/unavailable",
+        "Endpoint never throws: unexpected failure returns pool_open UNAVAILABLE with reason_code UNAVAILABLE_UNKNOWN and detail=<exception_type>",
+        "Deterministic pytest verifies stable no-throw fallback behavior and slice limiting"
+      ],
+      "verification_commands": ["python -m pytest -q backend/api/"],
+      "depends_on": ["S2"],
+      "files_expected": ["backend/api/endpoints/index_maintenance.py", "backend/api/router.py", "backend/api/**/test_*.py"],
+      "notes": "Enforce server cap on limit_slices (e.g. max 1000) to prevent huge payloads."
+    },
+    {
+      "id": "S4",
+      "title": "Add POST /api/index/execute: enqueue job, deterministic slice selection, background execution, persisted progress + tests",
+      "size": "M",
+      "passes": false,
+      "acceptance_criteria": [
+        "POST /api/index/execute accepts body {pool_identifier, mode, limit, dossier_id?, dry_run} and returns a job_id",
+        "Endpoint computes runtime identity server-side; safe_open_pool is used first and UNAVAILABLE is handled deterministically (job records UNAVAILABLE or stable error response)",
+        "Slice selection is deterministic: filtered by mode, sorted by (dossier_id, entry_id), hard-limited and server-max-limited",
+        "Execution runs in background task and updates the persisted job record slice-by-slice (progress counts + results)",
+        "Deterministic pytest verifies selection ordering + limit enforcement and that job record is created with expected fields"
+      ],
+      "verification_commands": ["python -m pytest -q backend/api/"],
+      "depends_on": ["S1", "S2", "S3"],
+      "files_expected": ["backend/api/endpoints/index_maintenance.py", "backend/services/**/job_store.py", "backend/api/**/test_*.py"],
+      "notes": "Prefer non-HNSW stubs in tests; job execution can be validated with stub executor/controller."
+    },
+    {
+      "id": "S5",
+      "title": "Add GET /api/index/jobs/{job_id}: return persisted job record (with optional result capping) + tests",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "GET /api/index/jobs/{job_id} returns a stable job record shape from IndexMaintenanceJobStore",
+        "Nonexistent job_id returns 404 with deterministic error payload",
+        "A deterministic pytest verifies job fetch returns persisted state and 404 behavior"
+      ],
+      "verification_commands": ["python -m pytest -q backend/api/"],
+      "depends_on": ["S1", "S4"],
+      "files_expected": ["backend/api/endpoints/index_maintenance.py", "backend/api/**/test_*.py"],
+      "notes": "If you cap returned results, document the cap and ensure stored results remain complete."
+    },
+    {
+      "id": "S6",
+      "title": "Optional: typed frontend API wrapper (no UI) for diagnose/execute/getJob",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "frontend/src/lib/indexMaintenanceApi.ts exports diagnoseIndex(params), executeIndex(body), getIndexJob(jobId)",
+        "No React components or UI wiring is added"
+      ],
+      "verification_commands": [],
+      "depends_on": ["S3", "S4", "S5"],
+      "files_expected": ["frontend/src/lib/indexMaintenanceApi.ts"],
+      "notes": "Keep it minimal; reuse existing frontend fetch helpers if present."
+    }
+  ]
+}
+
+
