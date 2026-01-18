@@ -50,3 +50,4 @@
 - Commands run: .\.venv\scripts\activate.ps1; python -m pytest -q backend/retrieval/engine/; python -m pytest -q backend/corpus/
 - Notes:
   - Replaced stderr logging with repo logger and structured fields.
+

@@ -136,3 +136,4 @@ This file captures a running summary of what was built, one entry per completed 
 
 ### Notes
 - Logging includes pool_identifier, dossier_id, entry_id, and operation metadata
+

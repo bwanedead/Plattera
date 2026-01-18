@@ -16,3 +16,4 @@ Deferred (do NOT implement):
 - Atomic-ish rebuild hole reduction (build-first-then-delete is a footgun without generations/snapshots).
 
 
+

@@ -52,3 +52,4 @@ Backend maintenance layer only:
 - Pool open succeeds, but slice hydration fails: slice is `unavailable` with a stable reason code; controller still returns pool health.
 
 
+
