@@ -39,3 +39,11 @@ npm run dev
 This is the basic skeleton structure. Core logic will be implemented in the `backend/core/` modules and connected through the API endpoints.
 
 The frontend provides a basic interface for text input, processing status, and map visualization using React and Leaflet.
+
+## Index Maintenance API
+
+Backend endpoints mounted under `/api/index` provide safe diagnostics and bounded maintenance jobs:
+
+- `GET /api/index/diagnose` â€” stable pool health report (optionally include slice diagnoses)
+- `POST /api/index/execute` â€” enqueue a bounded maintenance job (missing_only | missing_and_stale)
+- `GET /api/index/jobs/{job_id}` â€” poll job status and results

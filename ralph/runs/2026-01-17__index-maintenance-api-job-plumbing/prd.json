@@ -8,7 +8,7 @@
       "id": "S1",
       "title": "Add file-backed IndexMaintenanceJobStore (mirrors ImageToTextJobStore patterns) + models + deterministic tests",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "IndexMaintenanceJobStore persists one JSON file per job under dossiers_processing_jobs_root(\"index_maintenance\") and maintains an index file mapping job_id -> filename",
         "Job record includes required fields: request, computed identity, timestamps, status, progress, results",
@@ -23,7 +23,7 @@
       "id": "S2",
       "title": "Server-side RuntimeIndexIdentity helper for /api/index (compute fingerprint + policy id; deterministic UNAVAILABLE on failure) + tests",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "A helper computes RuntimeIndexIdentity server-side using resolve_embedding_model(AssetsService()) and compute_model_fingerprint(model_info)",
         "Chunking policy id is explicit and matches v0 decision: FINAL_SEGMENTS and EVERYTHING both use FINAL_SEGMENTS_POLICY.policy_id",
@@ -39,7 +39,7 @@
       "id": "S3",
       "title": "Add GET /api/index/diagnose endpoint mounted at /api/index (stable report + counts + caps) + deterministic tests",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "New FastAPI router exists at backend/api/endpoints/index_maintenance.py and is mounted in backend/api/router.py under prefix /api/index",
         "GET /api/index/diagnose calls PoolMaintenanceController.diagnose_pool(...) using server-computed runtime identity",
@@ -57,7 +57,7 @@
       "id": "S4",
       "title": "Add POST /api/index/execute: enqueue job, deterministic slice selection, background execution, persisted progress + tests",
       "size": "M",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "POST /api/index/execute accepts body {pool_identifier, mode, limit, dossier_id?, dry_run} and returns a job_id",
         "Endpoint computes runtime identity server-side; safe_open_pool is used first and UNAVAILABLE is handled deterministically (job records UNAVAILABLE or stable error response)",
@@ -74,7 +74,7 @@
       "id": "S5",
       "title": "Add GET /api/index/jobs/{job_id}: return persisted job record (with optional result capping) + tests",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "GET /api/index/jobs/{job_id} returns a stable job record shape from IndexMaintenanceJobStore",
         "Nonexistent job_id returns 404 with deterministic error payload",
@@ -89,7 +89,7 @@
       "id": "S6",
       "title": "Optional: typed frontend API wrapper (no UI) for diagnose/execute/getJob",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "frontend/src/lib/indexMaintenanceApi.ts exports diagnoseIndex(params), executeIndex(body), getIndexJob(jobId)",
         "No React components or UI wiring is added"
