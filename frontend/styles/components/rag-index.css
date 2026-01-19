@@ -1,0 +1,371 @@
+/* 
+  RAG Index Maintenance Styles
+  Clean architecture, dark theme 
+*/
+
+.rag-index-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #0b1220; /* Matches menu/drawer background */
+  color: #e2e8f0;
+  overflow: hidden;
+}
+
+/* ============================================================================
+   HEADER
+   ============================================================================ */
+
+.index-health-header {
+  padding: 16px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.header-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.pool-selector {
+  display: flex;
+  background: #1e293b;
+  border-radius: 6px;
+  padding: 2px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.pool-option {
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+}
+
+.pool-option.active {
+  background: #334155;
+  color: #f8fafc;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.header-status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-pill.ready {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-pill.needs-update {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.status-pill.unavailable {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-pill.not-indexed {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.refresh-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.refresh-btn:hover {
+  background: rgba(255,255,255,0.05);
+  color: #94a3b8;
+}
+
+/* ============================================================================
+   COUNTS ROW
+   ============================================================================ */
+
+.index-counts-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(15, 23, 42, 0.5);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.count-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.02);
+}
+
+.count-val {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.count-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.count-item.healthy .count-val { color: #34d399; }
+.count-item.missing .count-val { color: #fbbf24; }
+.count-item.stale .count-val { color: #f97316; }
+.count-item.unavailable .count-val { color: #ef4444; }
+
+.index-counts-row.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ============================================================================
+   EXECUTION CONTROLS
+   ============================================================================ */
+
+.index-execution-controls {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.controls-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.limit-input {
+  background: #1e293b;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #e2e8f0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  width: 80px;
+}
+
+.dry-run-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.execute-btn {
+  width: 100%;
+  padding: 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.execute-btn.primary {
+  background: #3b82f6;
+  color: white;
+}
+.execute-btn.primary:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.execute-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #334155;
+  color: #94a3b8;
+}
+
+.unavailable-msg {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+/* ============================================================================
+   JOB STRIP
+   ============================================================================ */
+
+.index-job-strip {
+  padding: 12px 16px;
+  background: #1e293b;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.job-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.job-status {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.job-status.queued { color: #94a3b8; }
+.job-status.running { color: #3b82f6; }
+.job-status.succeeded { color: #34d399; }
+.job-status.failed { color: #ef4444; }
+
+.job-progress-bar {
+  height: 6px;
+  background: #334155;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.job-progress-fill {
+  height: 100%;
+  background: #3b82f6;
+  transition: width 0.3s ease;
+}
+
+.job-stats {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  display: flex;
+  gap: 12px;
+}
+
+/* ============================================================================
+   DETAILS PANEL
+   ============================================================================ */
+
+.index-details-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.details-toggle {
+  padding: 8px 16px;
+  background: rgba(15, 23, 42, 0.3);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+.details-toggle:hover {
+  background: rgba(15, 23, 42, 0.6);
+  color: #e2e8f0;
+}
+
+.details-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.slice-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.slice-table th {
+  text-align: left;
+  padding: 8px 12px;
+  background: #1e293b;
+  color: #94a3b8;
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+}
+
+.slice-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  color: #e2e8f0;
+}
+
+.slice-status-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.slice-status-badge.HEALTHY { background: rgba(52, 211, 153, 0.1); color: #34d399; }
+.slice-status-badge.MISSING { background: rgba(251, 191, 36, 0.1); color: #fbbf24; }
+.slice-status-badge.STALE_CONTENT { background: rgba(249, 115, 22, 0.1); color: #f97316; }
+.slice-status-badge.STALE_IDENTITY { background: rgba(249, 115, 22, 0.1); color: #f97316; }
+.slice-status-badge.UNAVAILABLE { background: rgba(239, 68, 68, 0.1); color: #f87171; }
+
+.id-col {
+  font-family: monospace;
+  opacity: 0.8;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

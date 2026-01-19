@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { AssetsTray } from '../assets/AssetsTray';
+import { RagIndexPanel } from '../rag-index/RagIndexPanel';
 
-type MenuTab = 'assets';
+type MenuTab = 'assets' | 'rag-index';
 
 interface MenuTrayProps {
   visible?: boolean;
@@ -61,6 +62,8 @@ export const MenuTray: React.FC<MenuTrayProps> = ({ visible = true }) => {
           zIndex: 2150,
           padding: 16,
           pointerEvents: open ? 'auto' : 'none',
+          display: 'flex',
+          flexDirection: 'column'
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -94,10 +97,24 @@ export const MenuTray: React.FC<MenuTrayProps> = ({ visible = true }) => {
           >
             Assets
           </button>
+          <button
+            onClick={() => setActiveTab('rag-index')}
+            style={{
+              background: activeTab === 'rag-index' ? '#1e293b' : 'transparent',
+              color: '#e2e8f0',
+              border: '1px solid rgba(148, 163, 184, 0.3)',
+              padding: '6px 10px',
+              borderRadius: 6,
+              cursor: 'pointer',
+            }}
+          >
+            RAG Index
+          </button>
         </div>
 
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 16, flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {activeTab === 'assets' && <AssetsTray open={open} onClose={() => setOpen(false)} />}
+          {activeTab === 'rag-index' && <RagIndexPanel />}
         </div>
       </div>
     </>
