@@ -25,6 +25,10 @@ export function useIndexMaintenance() {
   // Polling Refs
   const jobPollTimeoutRef = useRef<number | null>(null);
   const diagnosePollTimeoutRef = useRef<number | null>(null);
+  const bootstrapAttemptedRef = useRef<Record<PoolIdentifier, boolean>>({
+    FINAL_SEGMENTS: false,
+    EVERYTHING: false
+  });
 
   // ============================================================================
   // DIAGNOSE
@@ -57,6 +61,29 @@ export function useIndexMaintenance() {
     }
   }, [detailsOpen, diagnoseResult, fetchDiagnose]);
 
+  useEffect(() => {
+    if (!diagnoseResult || isLoadingDiagnose) {
+      return;
+    }
+    const poolOpen = diagnoseResult.pool_open;
+    if (poolOpen.status !== 'unavailable') {
+      return;
+    }
+    if (!poolOpen.detail?.startsWith('missing_files')) {
+      return;
+    }
+    if (bootstrapAttemptedRef.current[pool]) {
+      return;
+    }
+    bootstrapAttemptedRef.current[pool] = true;
+    indexMaintenanceApi
+      .bootstrapIndex({ pool_identifier: pool })
+      .then(() => fetchDiagnose())
+      .catch((err) => {
+        console.error('Auto bootstrap failed:', err);
+      });
+  }, [diagnoseResult, isLoadingDiagnose, pool, fetchDiagnose]);
+
   // ============================================================================
   // EXECUTION
   // ============================================================================
@@ -79,6 +106,17 @@ export function useIndexMaintenance() {
       setIsExecuting(false);
     }
   };
+
+  const bootstrapIndex = useCallback(async () => {
+    setError(null);
+    try {
+      await indexMaintenanceApi.bootstrapIndex({ pool_identifier: pool });
+      await fetchDiagnose();
+    } catch (err: any) {
+      console.error('Bootstrap failed:', err);
+      setError(err.message || 'Failed to bootstrap index');
+    }
+  }, [pool, fetchDiagnose]);
 
   // ============================================================================
   // JOB POLLING
@@ -127,6 +165,7 @@ export function useIndexMaintenance() {
     activeJob,
     isExecuting,
     executeIndex,
+    bootstrapIndex,
     detailsOpen,
     setDetailsOpen,
     refreshDiagnose: () => fetchDiagnose()

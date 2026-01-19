@@ -85,3 +85,25 @@ export interface ExecuteIndexResponse {
   job_id: string;
   status: JobStatus;
 }
+
+export interface BootstrapIndexRequest {
+  pool_identifier?: PoolIdentifier;
+  force?: boolean;
+}
+
+export interface PoolBootstrapReport {
+  status: string;
+  reason_code: string | null;
+  detail: string | null;
+  action_hint: string | null;
+}
+
+export interface BootstrapPoolResult {
+  pool_identifier: PoolIdentifier;
+  bootstrap: PoolBootstrapReport;
+  pool_open: PoolOpenStatus;
+}
+
+export interface BootstrapIndexResponse {
+  results: BootstrapPoolResult[];
+}

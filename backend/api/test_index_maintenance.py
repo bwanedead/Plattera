@@ -8,6 +8,8 @@ from fastapi import BackgroundTasks, HTTPException
 
 from retrieval.engine.diagnose import RuntimeIndexIdentity, SliceDiagnosis, SliceStatus
 from retrieval.engine.pool_maintenance import (
+    PoolBootstrapReport,
+    PoolBootstrapStatus,
     PoolMaintenanceReport,
     PoolOpenReport,
     PoolOpenResult,
@@ -210,3 +212,75 @@ def test_get_job_404(tmp_path: Path, monkeypatch) -> None:
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(endpoint.get_index_job("does-not-exist"))
     assert excinfo.value.status_code == 404
+
+
+def test_bootstrap_single_pool(monkeypatch) -> None:
+    report = PoolBootstrapReport(
+        pool_identifier="FINAL_SEGMENTS",
+        status=PoolBootstrapStatus.NEEDS_FORCE_REPAIR,
+        reason_code=DiagnosticReasonCode.UNAVAILABLE_NEEDS_FORCE_REPAIR,
+        detail="missing_files:metadata.db",
+        action_hint="FORCE_REPAIR",
+    )
+    monkeypatch.setattr(
+        endpoint,
+        "bootstrap_pool_artifacts",
+        lambda **_kwargs: report,
+    )
+    monkeypatch.setattr(
+        endpoint,
+        "safe_open_pool",
+        lambda _pool: PoolOpenResult(
+            report=PoolOpenReport(
+                status=PoolOpenStatus.UNAVAILABLE,
+                reason_code=DiagnosticReasonCode.UNAVAILABLE_UNKNOWN,
+                detail="missing_files:metadata.db",
+                action_hint=None,
+            )
+        ),
+    )
+
+    payload = endpoint.BootstrapRequest(pool_identifier="FINAL_SEGMENTS", force=True)
+    data = asyncio.run(endpoint.bootstrap_index(payload))
+    assert data["results"][0]["pool_identifier"] == "FINAL_SEGMENTS"
+    assert data["results"][0]["bootstrap"]["status"] == PoolBootstrapStatus.NEEDS_FORCE_REPAIR.value
+    assert (
+        data["results"][0]["bootstrap"]["reason_code"]
+        == DiagnosticReasonCode.UNAVAILABLE_NEEDS_FORCE_REPAIR.value
+    )
+
+
+def test_bootstrap_all_pools(monkeypatch) -> None:
+    calls = []
+
+    def _bootstrap(**kwargs):
+        calls.append(kwargs["pool_identifier"])
+        return PoolBootstrapReport(
+            pool_identifier=kwargs["pool_identifier"],
+            status=PoolBootstrapStatus.CREATED,
+            reason_code=None,
+            detail=None,
+            action_hint=None,
+        )
+
+    monkeypatch.setattr(endpoint, "bootstrap_pool_artifacts", _bootstrap)
+    monkeypatch.setattr(
+        endpoint,
+        "safe_open_pool",
+        lambda _pool: PoolOpenResult(
+            report=PoolOpenReport(
+                status=PoolOpenStatus.OK,
+                reason_code=None,
+                detail=None,
+                action_hint=None,
+            )
+        ),
+    )
+
+    payload = endpoint.BootstrapRequest()
+    data = asyncio.run(endpoint.bootstrap_index(payload))
+    assert set(calls) == {"FINAL_SEGMENTS", "EVERYTHING"}
+    assert {item["pool_identifier"] for item in data["results"]} == {
+        "FINAL_SEGMENTS",
+        "EVERYTHING",
+    }

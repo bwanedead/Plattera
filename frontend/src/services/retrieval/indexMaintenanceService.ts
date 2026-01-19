@@ -5,6 +5,8 @@
 // ============================================================================
 
 import {
+  BootstrapIndexRequest,
+  BootstrapIndexResponse,
   DiagnoseResponse,
   ExecuteIndexRequest,
   ExecuteIndexResponse,
@@ -47,6 +49,14 @@ class RetrievalApiClient {
 
   async executeIndex(request: ExecuteIndexRequest): Promise<ExecuteIndexResponse> {
     const response = await this.request<ExecuteIndexResponse>('/index/execute', {
+      method: 'POST',
+      body: JSON.stringify(request)
+    });
+    return response;
+  }
+
+  async bootstrapIndex(request: BootstrapIndexRequest = {}): Promise<BootstrapIndexResponse> {
+    const response = await this.request<BootstrapIndexResponse>('/index/bootstrap', {
       method: 'POST',
       body: JSON.stringify(request)
     });

@@ -9,7 +9,7 @@ This file defines non-negotiables and working norms for any agent (including Ral
 ## 1) Safety / blast-radius rules (non-negotiable)
 
 ### Protected branches
-- Do NOT checkout, commit to, push to, or modify protected branches:
+- Do NOT checkout, commit to, push to protected branches, working and modifying as asked is fine, the purpose of this rule is to prevent unwanted git pushes:
   - `main`
   - `agent-loop-building`
 - Work only on the current working branch (e.g. `ralph/*`, `feature/*`, etc.).

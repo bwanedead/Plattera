@@ -12,11 +12,13 @@ from retrieval.engine.diagnose import RuntimeIndexIdentity, SliceDiagnosis, Slic
 from retrieval.engine.execute import SliceExecutor
 from retrieval.engine.inventory_provider import resolve_view_for_pool_identifier
 from retrieval.engine.pool_maintenance import (
+    PoolBootstrapReport,
     PoolHealthReport,
     PoolMaintenanceController,
     PoolOpenReport,
     PoolOpenResult,
     PoolOpenStatus,
+    bootstrap_pool_artifacts,
     safe_open_pool,
 )
 from retrieval.engine.reason_codes import DiagnosticReasonCode
@@ -50,6 +52,11 @@ class ExecuteRequest(BaseModel):
     limit: int = DEFAULT_EXECUTE_LIMIT
     dossier_id: Optional[str] = None
     dry_run: bool = False
+
+
+class BootstrapRequest(BaseModel):
+    pool_identifier: Optional[str] = None
+    force: bool = False
 
 
 def _bounded_limit(requested: Optional[int], default: int, max_limit: int) -> int:
@@ -99,6 +106,15 @@ def _resolve_runtime_identity(
 
 
 def _serialize_pool_open(report: PoolOpenReport) -> Dict:
+    return {
+        "status": report.status.value,
+        "reason_code": report.reason_code.value if report.reason_code else None,
+        "detail": report.detail,
+        "action_hint": report.action_hint,
+    }
+
+
+def _serialize_bootstrap(report: PoolBootstrapReport) -> Dict:
     return {
         "status": report.status.value,
         "reason_code": report.reason_code.value if report.reason_code else None,
@@ -337,6 +353,32 @@ async def diagnose_index(
         return _fallback_unavailable(pool_identifier, exc)
 
 
+@router.post("/bootstrap")
+async def bootstrap_index(payload: BootstrapRequest) -> Dict:
+    pool_identifier = payload.pool_identifier
+    pools = [pool_identifier] if pool_identifier else ["FINAL_SEGMENTS", "EVERYTHING"]
+    for pool in pools:
+        if pool not in ("FINAL_SEGMENTS", "EVERYTHING"):
+            raise HTTPException(status_code=400, detail="Unsupported pool identifier")
+
+    results = []
+    for pool in pools:
+        bootstrap_report = bootstrap_pool_artifacts(
+            pool_identifier=pool,
+            force=payload.force,
+        )
+        open_result = safe_open_pool(pool)
+        results.append(
+            {
+                "pool_identifier": pool,
+                "bootstrap": _serialize_bootstrap(bootstrap_report),
+                "pool_open": _serialize_pool_open(open_result.report),
+            }
+        )
+
+    return {"results": results}
+
+
 @router.post("/execute")
 async def execute_index(
     payload: ExecuteRequest, background_tasks: BackgroundTasks
@@ -366,13 +408,24 @@ async def execute_index(
 
     open_result = safe_open_pool(payload.pool_identifier)
     if open_result.report.status != PoolOpenStatus.OK or open_result.store is None:
-        store.update_status(
-            job.id,
-            IndexMaintenanceJobStatus.FAILED,
-            finished_at=datetime.utcnow().isoformat(),
-            error=open_result.report.reason_code.value if open_result.report.reason_code else "unavailable",
+        bootstrap_report = bootstrap_pool_artifacts(
+            pool_identifier=payload.pool_identifier,
+            force=False,
         )
-        return {"job_id": job.id, "status": IndexMaintenanceJobStatus.FAILED.value}
+        open_result = safe_open_pool(payload.pool_identifier)
+        if open_result.report.status != PoolOpenStatus.OK or open_result.store is None:
+            error = (
+                bootstrap_report.reason_code.value
+                if bootstrap_report.reason_code
+                else bootstrap_report.status.value
+            )
+            store.update_status(
+                job.id,
+                IndexMaintenanceJobStatus.FAILED,
+                finished_at=datetime.utcnow().isoformat(),
+                error=error,
+            )
+            return {"job_id": job.id, "status": IndexMaintenanceJobStatus.FAILED.value}
 
     diagnoses = _collect_slice_diagnoses(
         pool_identifier=payload.pool_identifier,

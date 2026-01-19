@@ -24,6 +24,8 @@ class DiagnosticReasonCode(str, Enum):
     # Unavailable states
     UNAVAILABLE_MISSING_CONTENT_HASH = "unavailable_missing_content_hash"
     UNAVAILABLE_HYDRATION_FAILED = "unavailable_hydration_failed"
+    UNAVAILABLE_EMBEDDINGS_MISSING = "unavailable_embeddings_missing"
     UNAVAILABLE_RUNTIME_IDENTITY_MISSING = "unavailable_runtime_identity_missing"
     UNAVAILABLE_SCHEMA_VERSION_MISMATCH = "unavailable_schema_version_mismatch"
+    UNAVAILABLE_NEEDS_FORCE_REPAIR = "unavailable_needs_force_repair"
     UNAVAILABLE_UNKNOWN = "unavailable_unknown"

@@ -5,7 +5,7 @@ import { IndexCountsRow } from './IndexCountsRow';
 import { IndexExecutionControls } from './IndexExecutionControls';
 import { IndexJobStrip } from './IndexJobStrip';
 import { IndexDetailsPanel } from './IndexDetailsPanel';
-import '../../../styles/components/rag-index.css';
+// import '../../../styles/components/rag-index.css';
 
 export const RagIndexPanel: React.FC = () => {
   const {
@@ -15,6 +15,7 @@ export const RagIndexPanel: React.FC = () => {
     isLoadingDiagnose,
     refreshDiagnose,
     executeIndex,
+    bootstrapIndex,
     isExecuting,
     activeJob,
     activeJobId,
@@ -37,6 +38,7 @@ export const RagIndexPanel: React.FC = () => {
       <IndexExecutionControls 
         diagnose={diagnoseResult}
         onExecute={executeIndex}
+        onBootstrap={bootstrapIndex}
         isExecuting={isExecuting}
         activeJobId={activeJobId}
       />

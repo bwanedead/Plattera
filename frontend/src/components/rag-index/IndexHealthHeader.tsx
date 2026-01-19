@@ -23,8 +23,20 @@ export const IndexHealthHeader: React.FC<IndexHealthHeaderProps> = ({
   if (!diagnose) {
     statusText = isLoading ? 'Loading...' : 'Unknown';
   } else if (diagnose.pool_open.status !== 'ok') {
-    statusClass = 'unavailable';
-    statusText = 'Unavailable';
+    const detail = diagnose.pool_open.detail;
+    const embeddingMissing = !!detail?.includes('EmbeddingAssetMissingError') || !!detail?.includes('embedding_asset_missing');
+    const missingArtifacts = detail?.startsWith('missing_files') || detail === 'manifest_unavailable';
+
+    if (embeddingMissing) {
+      statusClass = 'unavailable';
+      statusText = 'Embedding model not installed';
+    } else if (missingArtifacts) {
+      statusClass = 'not-indexed';
+      statusText = 'Not Indexed Yet';
+    } else {
+      statusClass = 'unavailable';
+      statusText = 'Unavailable';
+    }
   } else {
     // Pool is OK
     const { missing, stale } = diagnose.counts;

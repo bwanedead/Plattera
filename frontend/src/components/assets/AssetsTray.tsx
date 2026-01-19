@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { assetsApi } from '../../services/assets/assetApi';
 import { AssetRow } from '../../types/assets';
 import { plssDataService } from '../../services/plss';
+import { indexMaintenanceApi } from '../../services/retrieval/indexMaintenanceService';
 import { AssetInstallModal } from './AssetInstallModal';
 
 interface AssetsTrayProps {
@@ -50,6 +51,8 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
   const [cacheInProgress, setCacheInProgress] = useState(false);
   const [cacheDone, setCacheDone] = useState(false);
   const [cacheError, setCacheError] = useState<string | null>(null);
+  const bootstrapInFlightRef = useRef(false);
+  const lastEmbeddingStatusRef = useRef<string | null>(null);
   const initialFetchDoneRef = useRef(false);
   const lastSnapshotRef = useRef<string | null>(null);
 
@@ -57,6 +60,8 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
     if (!open) {
       initialFetchDoneRef.current = false;
       lastSnapshotRef.current = null;
+      bootstrapInFlightRef.current = false;
+      lastEmbeddingStatusRef.current = null;
       setLoading(false);
       return;
     }
@@ -114,6 +119,25 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
     embedding?.status === 'canceled' ||
     embedding?.status === 'stopped' ||
     embedding?.status === 'stalled';
+
+  useEffect(() => {
+    const currentStatus = embedding?.status ?? null;
+    const previousStatus = lastEmbeddingStatusRef.current;
+    if (currentStatus !== previousStatus) {
+      lastEmbeddingStatusRef.current = currentStatus;
+    }
+    if (currentStatus !== 'installed') {
+      bootstrapInFlightRef.current = false;
+      return;
+    }
+    if (previousStatus === 'installed' || bootstrapInFlightRef.current) {
+      return;
+    }
+    bootstrapInFlightRef.current = true;
+    indexMaintenanceApi.bootstrapIndex().catch((e) => {
+      console.error('RAG bootstrap failed', e);
+    });
+  }, [embedding?.status]);
 
   const badgeStyles = (tone: 'good' | 'warn' | 'info' | 'danger') => {
     const palettes = {

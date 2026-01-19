@@ -1,0 +1,130 @@
+{
+  "run_id": "2026-01-19__rag-index-bootstrap",
+  "title": "RAG index bootstrap and self-heal",
+  "repo_context": "Ensure RAG index artifacts are initialized after embeddings install and can self-repair without auto-indexing user docs.",
+  "global_verification": [],
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Add idempotent backend bootstrap helper in retrieval",
+      "size": "S",
+      "passes": true,
+      "acceptance_criteria": [
+        "A backend helper in retrieval/semantic index maintenance ensures empty manifest, hnsw, and metadata db artifacts exist for a pool and returns a stable report.",
+        "Calling the helper twice with the same pool is non-destructive and returns a status indicating already initialized.",
+        "If embeddings are missing/unloadable, the helper returns a stable \"embeddings missing\" reason without mutation.",
+        "If artifacts are partially missing or the manifest identity mismatches runtime identity, the helper returns a \"needs force repair\" reason without mutation unless `force=true`.",
+        "A new test alongside the retrieval maintenance module verifies creation of missing artifacts and idempotent behavior."
+      ],
+      "verification_commands": [
+        "pytest backend/retrieval/test_index_bootstrap.py"
+      ],
+      "depends_on": [],
+      "files_expected": [
+        "backend/retrieval/"
+      ],
+      "notes": "Keep diagnose read-only; helper should not index documents or create artifacts when embeddings are missing."
+    },
+    {
+      "id": "S2",
+      "title": "Add POST /api/index/bootstrap endpoint",
+      "size": "S",
+      "passes": true,
+      "acceptance_criteria": [
+        "POST /api/index/bootstrap accepts optional pool_identifier and force, and bootstraps both pools when omitted.",
+        "Endpoint is added to the existing index maintenance router (`backend/api/endpoints/index_maintenance.py`).",
+        "Response includes per-pool bootstrapped status and current pool_open report, including embeddings-missing and needs-force reasons.",
+        "API tests cover bootstrap for a single pool and for both pools in `backend/api/test_index_maintenance.py`."
+      ],
+      "verification_commands": [
+        "pytest backend/api/test_index_maintenance.py"
+      ],
+      "depends_on": [
+        "S1"
+      ],
+      "files_expected": [
+        "backend/api/"
+      ],
+      "notes": "Endpoint must not index user docs; keep diagnose read-only."
+    },
+    {
+      "id": "S3",
+      "title": "Self-repair in /api/index/execute when artifacts missing",
+      "size": "S",
+      "passes": true,
+      "acceptance_criteria": [
+        "When /api/index/execute encounters missing index artifacts, it calls the bootstrap helper and retries pool open before running the job.",
+        "If bootstrap fails, execute returns a clear reason without crashing.",
+        "API test covers missing-artifact scenario and confirms execute proceeds after bootstrap."
+      ],
+      "verification_commands": [
+        "pytest backend/api/test_index_execute_bootstrap.py"
+      ],
+      "depends_on": [
+        "S1"
+      ],
+      "files_expected": [
+        "backend/api/",
+        "backend/retrieval/"
+      ],
+      "notes": "Call helper directly; keep behavior non-destructive unless explicitly forced."
+    },
+    {
+      "id": "S4",
+      "title": "Trigger bootstrap after embeddings install",
+      "size": "XS",
+      "passes": true,
+      "acceptance_criteria": [
+        "Assets tray calls POST /api/index/bootstrap when embedding asset transitions to installed.",
+        "The call is guarded to avoid repeated bootstrap calls during normal polling."
+      ],
+      "verification_commands": [],
+      "depends_on": [
+        "S2"
+      ],
+      "files_expected": [
+        "frontend/src/components/assets/AssetsTray.tsx",
+        "frontend/src/services/"
+      ],
+      "notes": "No auto-indexing; only initialize empty artifacts."
+    },
+    {
+      "id": "S5",
+      "title": "Auto-bootstrap on RAG panel open when missing files",
+      "size": "XS",
+      "passes": true,
+      "acceptance_criteria": [
+        "If diagnose reports pool_open missing files, the RAG index panel triggers a one-time bootstrap and re-runs diagnose.",
+        "Guard prevents repeated bootstrap loops."
+      ],
+      "verification_commands": [],
+      "depends_on": [
+        "S2"
+      ],
+      "files_expected": [
+        "frontend/src/components/rag-index/RagIndexPanel.tsx",
+        "frontend/src/hooks/"
+      ],
+      "notes": "Only run when embeddings are installed."
+    },
+    {
+      "id": "S6",
+      "title": "Update RAG health messaging for not-initialized state",
+      "size": "XS",
+      "passes": true,
+      "acceptance_criteria": [
+        "When embeddings are installed but index artifacts are missing or empty, UI shows Not Indexed Yet and offers Initialize action.",
+        "When embeddings are not installed, UI shows Embedding model not installed with install CTA."
+      ],
+      "verification_commands": [],
+      "depends_on": [
+        "S4",
+        "S5"
+      ],
+      "files_expected": [
+        "frontend/src/components/rag-index/"
+      ],
+      "notes": "Avoid labeling this state as UNAVAILABLE."
+    }
+  ]
+}
