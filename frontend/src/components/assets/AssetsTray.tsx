@@ -68,6 +68,9 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
     let cancelled = false;
     const poll = async () => {
       while (!cancelled) {
+        // Only run fetch logic if we're still mounted and 'open' is true
+        if (cancelled) break;
+
         const showLoading = !initialFetchDoneRef.current;
         if (showLoading) {
           setLoading(true);
@@ -97,7 +100,11 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
         if (list && list.some(asset => asset.status === 'installing')) {
           nextDelay = 2000;
         }
-        await new Promise(r => setTimeout(r, nextDelay));
+        
+        // Wait before next loop, checking cancelled status
+        if (!cancelled) {
+          await new Promise(r => setTimeout(r, nextDelay));
+        }
       }
     };
     poll();
@@ -105,8 +112,6 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
       cancelled = true;
     };
   }, [open, plssState]);
-
-  if (!open) return null;
 
   const embedding = assets.find(a => a.asset_id === EMBEDDING_ASSET_ID);
   const plss = assets.find(a => a.asset_id === 'plss');
@@ -121,23 +126,35 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
     embedding?.status === 'stalled';
 
   useEffect(() => {
-    const currentStatus = embedding?.status ?? null;
+    if (!open) {
+      return;
+    }
+    // Only run this logic if we have valid asset data and embedding object exists
+    if (!embedding) return;
+
+    const currentStatus = embedding.status;
     const previousStatus = lastEmbeddingStatusRef.current;
+    
+    // Always update the ref to current status
     if (currentStatus !== previousStatus) {
       lastEmbeddingStatusRef.current = currentStatus;
     }
+
     if (currentStatus !== 'installed') {
       bootstrapInFlightRef.current = false;
       return;
     }
+    
+    // Don't bootstrap if we were already installed or if a bootstrap is running
     if (previousStatus === 'installed' || bootstrapInFlightRef.current) {
       return;
     }
+    
     bootstrapInFlightRef.current = true;
     indexMaintenanceApi.bootstrapIndex().catch((e) => {
       console.error('RAG bootstrap failed', e);
     });
-  }, [embedding?.status]);
+  }, [open, embedding?.status, embedding?.asset_id]); // Added explicit dependencies to prevent churn
 
   const badgeStyles = (tone: 'good' | 'warn' | 'info' | 'danger') => {
     const palettes = {
@@ -264,6 +281,8 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
       setPurgeInProgress(false);
     }
   };
+
+  if (!open) return null;
 
   return (
     <div>
