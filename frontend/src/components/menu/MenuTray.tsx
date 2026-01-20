@@ -23,12 +23,14 @@ export const MenuTray: React.FC<MenuTrayProps> = ({ visible = true }) => {
           top: 14,
           left: 14,
           zIndex: 2200,
-          background: '#0f172a',
-          color: '#e2e8f0',
-          border: '1px solid rgba(148, 163, 184, 0.4)',
-          padding: '8px 12px',
-          borderRadius: 8,
+          background: '#1c1f23',
+          color: '#f3f4f6',
+          border: '1px solid #2c3137',
+          padding: '6px 10px',
+          borderRadius: 10,
           cursor: 'pointer',
+          fontSize: '0.8rem',
+          letterSpacing: '0.02em'
         }}
       >
         Menu
@@ -53,66 +55,70 @@ export const MenuTray: React.FC<MenuTrayProps> = ({ visible = true }) => {
           left: 0,
           height: '100vh',
           width: 380,
-          background: '#0b1220',
-          color: '#f8fafc',
-          borderRight: '1px solid rgba(148, 163, 184, 0.1)',
-          boxShadow: open ? '0 25px 50px -12px rgba(0, 0, 0, 0.5)' : 'none',
+          minWidth: 320,
+          maxWidth: 560,
+          background: '#15171a',
+          color: '#f3f4f6',
+          borderRight: '1px solid rgba(255, 255, 255, 0.06)',
+          boxShadow: open ? '0 30px 60px rgba(0, 0, 0, 0.45)' : 'none',
           transform: open ? 'translateX(0)' : 'translateX(-100%)',
           transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
           zIndex: 2150,
-          padding: '24px',
+          padding: '18px',
           pointerEvents: open ? 'auto' : 'none',
           display: 'flex',
           flexDirection: 'column',
-          backdropFilter: 'blur(12px)'
+          backdropFilter: 'blur(8px)',
+          resize: 'horizontal',
+          overflow: 'auto'
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, letterSpacing: '-0.025em', color: '#f8fafc' }}>Menu</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, letterSpacing: '0.02em', color: '#f3f4f6' }}>Menu</h3>
           <button
             onClick={() => setOpen(false)}
             style={{
               background: 'transparent',
-              border: '1px solid rgba(148, 163, 184, 0.2)',
-              color: '#94a3b8',
-              padding: '6px 12px',
-              borderRadius: '6px',
+              border: '1px solid #2c3137',
+              color: '#9ca3af',
+              padding: '4px 10px',
+              borderRadius: '8px',
               cursor: 'pointer',
-              fontSize: '0.875rem',
+              fontSize: '0.75rem',
               transition: 'all 0.2s',
             }}
             onMouseOver={(e) => {
-              e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.4)';
-              e.currentTarget.style.color = '#e2e8f0';
+              e.currentTarget.style.borderColor = '#3a3f46';
+              e.currentTarget.style.color = '#f3f4f6';
             }}
             onMouseOut={(e) => {
-              e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.2)';
-              e.currentTarget.style.color = '#94a3b8';
+              e.currentTarget.style.borderColor = '#2c3137';
+              e.currentTarget.style.color = '#9ca3af';
             }}
           >
             Close
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '1px solid rgba(148, 163, 184, 0.1)', paddingBottom: '12px' }}>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '1px solid rgba(255, 255, 255, 0.06)', paddingBottom: '10px' }}>
           <button
             onClick={() => setActiveTab('assets')}
             style={{
-              background: activeTab === 'assets' ? '#1e293b' : 'transparent',
-              color: activeTab === 'assets' ? '#f8fafc' : '#94a3b8',
+              background: activeTab === 'assets' ? '#1f2328' : 'transparent',
+              color: activeTab === 'assets' ? '#f9fafb' : '#9ca3af',
               border: 'none',
-              padding: '8px 16px',
-              borderRadius: '6px',
+              padding: '6px 12px',
+              borderRadius: '8px',
               cursor: 'pointer',
-              fontSize: '0.9rem',
+              fontSize: '0.8rem',
               fontWeight: 500,
               transition: 'all 0.2s',
             }}
             onMouseOver={(e) => {
-              if (activeTab !== 'assets') e.currentTarget.style.color = '#e2e8f0';
+              if (activeTab !== 'assets') e.currentTarget.style.color = '#f3f4f6';
             }}
             onMouseOut={(e) => {
-              if (activeTab !== 'assets') e.currentTarget.style.color = '#94a3b8';
+              if (activeTab !== 'assets') e.currentTarget.style.color = '#9ca3af';
             }}
           >
             Assets
@@ -120,21 +126,21 @@ export const MenuTray: React.FC<MenuTrayProps> = ({ visible = true }) => {
           <button
             onClick={() => setActiveTab('rag-index')}
             style={{
-              background: activeTab === 'rag-index' ? '#1e293b' : 'transparent',
-              color: activeTab === 'rag-index' ? '#f8fafc' : '#94a3b8',
+              background: activeTab === 'rag-index' ? '#1f2328' : 'transparent',
+              color: activeTab === 'rag-index' ? '#f9fafb' : '#9ca3af',
               border: 'none',
-              padding: '8px 16px',
-              borderRadius: '6px',
+              padding: '6px 12px',
+              borderRadius: '8px',
               cursor: 'pointer',
-              fontSize: '0.9rem',
+              fontSize: '0.8rem',
               fontWeight: 500,
               transition: 'all 0.2s',
             }}
             onMouseOver={(e) => {
-              if (activeTab !== 'rag-index') e.currentTarget.style.color = '#e2e8f0';
+              if (activeTab !== 'rag-index') e.currentTarget.style.color = '#f3f4f6';
             }}
             onMouseOut={(e) => {
-              if (activeTab !== 'rag-index') e.currentTarget.style.color = '#94a3b8';
+              if (activeTab !== 'rag-index') e.currentTarget.style.color = '#9ca3af';
             }}
           >
             RAG Index

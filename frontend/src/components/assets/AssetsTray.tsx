@@ -55,6 +55,66 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
   const lastEmbeddingStatusRef = useRef<string | null>(null);
   const initialFetchDoneRef = useRef(false);
   const lastSnapshotRef = useRef<string | null>(null);
+  const cardStyle = {
+    padding: 12,
+    borderRadius: 12,
+    background: '#1c1f23',
+    border: '1px solid #2c3137'
+  } as const;
+  const sectionTitleStyle = {
+    fontWeight: 600,
+    fontSize: 13,
+    letterSpacing: 0.2
+  } as const;
+  const buttonBase = {
+    borderRadius: 8,
+    padding: '6px 12px',
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'transform 0.15s ease, background 0.2s ease'
+  } as const;
+  const buttonPrimary = {
+    ...buttonBase,
+    background: '#e5e7eb',
+    color: '#111827',
+    border: '1px solid rgba(229, 231, 235, 0.9)'
+  } as const;
+  const buttonGhost = {
+    ...buttonBase,
+    background: 'transparent',
+    color: '#e2e8f0',
+    border: '1px solid rgba(148, 163, 184, 0.35)'
+  } as const;
+  const buttonWarn = {
+    ...buttonBase,
+    background: 'transparent',
+    color: '#f59e0b',
+    border: '1px solid rgba(245, 158, 11, 0.7)'
+  } as const;
+  const buttonDanger = {
+    ...buttonBase,
+    background: 'transparent',
+    color: '#f87171',
+    border: '1px solid rgba(248, 113, 113, 0.7)'
+  } as const;
+  const statusDot = (tone: 'good' | 'warn' | 'info' | 'danger') => {
+    const palettes = {
+      good: { bg: '#22c55e', glow: 'rgba(34, 197, 94, 0.6)' },
+      warn: { bg: '#f59e0b', glow: 'rgba(245, 158, 11, 0.5)' },
+      info: { bg: '#60a5fa', glow: 'rgba(96, 165, 250, 0.5)' },
+      danger: { bg: '#ef4444', glow: 'rgba(239, 68, 68, 0.6)' }
+    };
+    const palette = palettes[tone];
+    return {
+      width: 8,
+      height: 8,
+      borderRadius: 999,
+      background: palette.bg,
+      boxShadow: `0 0 8px ${palette.glow}`,
+      display: 'inline-block'
+    } as const;
+  };
 
   useEffect(() => {
     if (!open) {
@@ -158,23 +218,23 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
 
   const badgeStyles = (tone: 'good' | 'warn' | 'info' | 'danger') => {
     const palettes = {
-      good: { bg: '#14532d', border: '#22c55e', text: '#dcfce7' },
-      warn: { bg: '#78350f', border: '#f59e0b', text: '#fef3c7' },
-      info: { bg: '#1e3a8a', border: '#60a5fa', text: '#dbeafe' },
-      danger: { bg: '#7f1d1d', border: '#f87171', text: '#fee2e2' },
+      good: { bg: 'rgba(34, 197, 94, 0.12)', border: 'rgba(34, 197, 94, 0.5)', text: '#bbf7d0' },
+      warn: { bg: 'rgba(245, 158, 11, 0.12)', border: 'rgba(245, 158, 11, 0.6)', text: '#fde68a' },
+      info: { bg: 'rgba(96, 165, 250, 0.12)', border: 'rgba(96, 165, 250, 0.6)', text: '#bfdbfe' },
+      danger: { bg: 'rgba(248, 113, 113, 0.12)', border: 'rgba(248, 113, 113, 0.6)', text: '#fecaca' },
     };
     const palette = palettes[tone];
     return {
       display: 'inline-flex',
       alignItems: 'center',
       gap: 6,
-      padding: '6px 12px',
+      padding: '3px 9px',
       borderRadius: 999,
       background: palette.bg,
       border: `1px solid ${palette.border}`,
       color: palette.text,
       fontWeight: 600,
-      fontSize: 12,
+      fontSize: 11,
     } as const;
   };
   const embeddingUpdateLabel = embedding?.updated_at
@@ -290,44 +350,59 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
       {loading && <div style={{ marginTop: 8, color: '#94a3b8' }}>Loading...</div>}
 
       <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ padding: 12, borderRadius: 10, background: '#0f172a' }}>
-          <div style={{ fontWeight: 600 }}>PLSS data</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-            <label style={{ fontSize: 12, color: '#cbd5f5' }}>State</label>
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={statusDot(plssInstalled ? 'good' : 'warn')} />
+              <div style={sectionTitleStyle}>PLSS data</div>
+              <div style={{ fontSize: 11, color: plssInstalled ? '#bbf7d0' : '#fde68a' }}>
+                {plssInstalled ? 'Ready' : 'Not installed'}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+            <label style={{ fontSize: 12, color: '#cbd5f5', minWidth: 42 }}>State</label>
             <input
               value={plssState}
               onChange={(e) => setPlssState(e.target.value)}
               style={{
-                background: '#0b1220',
+                flex: 1,
+                background: '#111318',
                 color: '#f8fafc',
-                border: '1px solid rgba(148, 163, 184, 0.3)',
-                borderRadius: 6,
-                padding: '4px 8px',
+                border: '1px solid rgba(148, 163, 184, 0.2)',
+                borderRadius: 8,
+                padding: '6px 10px',
+                fontSize: 12
               }}
             />
-            {plssInstalled ? (
-              <span style={{ ...badgeStyles('good'), fontSize: 12 }}>Ready</span>
-            ) : (
+            {plssInstalled ? null : (
               <button
                 onClick={handlePlssInstall}
-                style={{
-                  background: '#2563eb',
-                  color: '#fff',
-                  border: 'none',
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                }}
+                style={buttonPrimary}
               >
-                Download PLSS
+                Download
               </button>
             )}
           </div>
         </div>
 
-        <div style={{ padding: 12, borderRadius: 10, background: '#0f172a' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-            <div style={{ fontWeight: 600 }}>Embedding model (bge-small-en-v1.5)</div>
+        <div style={cardStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span
+                style={statusDot(
+                  embeddingInstalled
+                    ? 'good'
+                    : embeddingInstalling
+                    ? 'info'
+                    : embedding?.status === 'failed' || embedding?.status === 'stalled'
+                    ? 'danger'
+                    : 'warn'
+                )}
+              />
+              <div style={sectionTitleStyle}>Embedding model</div>
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>bge-small-en-v1.5</div>
+            </div>
             {embeddingInstalling ? (
               <span style={badgeStyles('info')}>Installing</span>
             ) : embeddingInstalled ? (
@@ -342,18 +417,11 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
               <span style={badgeStyles('warn')}>Not installed</span>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             {embeddingMissing && (
               <button
                 onClick={() => setInstallModalOpen(true)}
-                style={{
-                  background: '#4f46e5',
-                  color: '#fff',
-                  border: 'none',
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                }}
+                style={buttonPrimary}
               >
                 Install
               </button>
@@ -363,12 +431,9 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
                 onClick={handleStopEmbedding}
                 disabled={stopInProgress}
                 style={{
-                  background: stopInProgress ? '#1f2937' : 'transparent',
-                  color: '#f87171',
-                  border: '1px solid #f87171',
-                  padding: '6px 12px',
-                  borderRadius: 6,
+                  ...buttonDanger,
                   cursor: stopInProgress ? 'default' : 'pointer',
+                  opacity: stopInProgress ? 0.7 : 1
                 }}
               >
                 {stopInProgress ? 'Stopping...' : 'Stop'}
@@ -381,39 +446,24 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
                 setPurgeDone(false);
                 setPurgeError(null);
               }}
-              style={{
-                background: 'transparent',
-                color: '#f59e0b',
-                border: '1px solid #f59e0b',
-                padding: '6px 12px',
-                borderRadius: 6,
-                cursor: 'pointer',
-              }}
+              style={buttonWarn}
             >
               Purge
             </button>
           )}
         </div>
         {embeddingInstalling && (
-          <div style={{ marginTop: 8, fontSize: 12, color: '#94a3b8' }}>
+          <div style={{ marginTop: 10, fontSize: 12, color: '#94a3b8' }}>
             <div>{embeddingDetail}</div>
             {embeddingUpdateLabel && <div>Updated {embeddingUpdateLabel}</div>}
-            <div>Stop ends the download and purges any partial files.</div>
+            <div>Stop ends the download and purges partial files.</div>
           </div>
         )}
         {!embeddingInstalling && (
           <div style={{ marginTop: 10 }}>
             <button
               onClick={() => setAdvancedOpen(prev => !prev)}
-              style={{
-                background: 'transparent',
-                border: '1px solid rgba(148, 163, 184, 0.4)',
-                color: '#cbd5f5',
-                padding: '4px 10px',
-                borderRadius: 6,
-                cursor: 'pointer',
-                fontSize: 12,
-              }}
+              style={buttonGhost}
             >
               {advancedOpen ? 'Hide advanced' : 'Advanced'}
             </button>
@@ -425,14 +475,7 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
                     setCacheDone(false);
                     setCacheError(null);
                   }}
-                  style={{
-                    background: 'transparent',
-                    color: '#fca5a5',
-                    border: '1px solid #fca5a5',
-                    padding: '6px 12px',
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                  }}
+                  style={buttonDanger}
                 >
                   Clear cache
                 </button>

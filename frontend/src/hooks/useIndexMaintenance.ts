@@ -7,9 +7,9 @@ import {
   PoolIdentifier 
 } from '../types/retrieval';
 
-export function useIndexMaintenance() {
+export function useIndexMaintenance(initialPool: PoolIdentifier = 'FINAL_SEGMENTS') {
   // State
-  const [pool, setPool] = useState<PoolIdentifier>('FINAL_SEGMENTS');
+  const [pool, setPool] = useState<PoolIdentifier>(initialPool);
   const [diagnoseResult, setDiagnoseResult] = useState<DiagnoseResponse | null>(null);
   const [isLoadingDiagnose, setIsLoadingDiagnose] = useState(false);
   const [error, setError] = useState<string | null>(null);
