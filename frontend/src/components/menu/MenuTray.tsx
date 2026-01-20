@@ -73,8 +73,7 @@ export const MenuTray: React.FC<MenuTrayProps> = ({ visible = true }) => {
           overflow: 'auto'
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, letterSpacing: '0.02em', color: '#f3f4f6' }}>Menu</h3>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '16px' }}>
           <button
             onClick={() => setOpen(false)}
             style={{
