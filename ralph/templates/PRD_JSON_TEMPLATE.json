@@ -3,6 +3,11 @@
   "title": "Feature title here",
   "repo_context": "Optional: 1-2 sentences of context",
   "global_verification": [],
+  "loop_settings": {
+    "global_verify_every_n_stories": 5,
+    "review_every_n_iterations": 5,
+    "steer_every_n_iterations": 10
+  },
   "stories": [
     {
       "id": "S1",

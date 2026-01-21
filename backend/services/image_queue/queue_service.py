@@ -183,6 +183,58 @@ class ImageToTextQueueService:
                     except Exception:
                         pass
 
+                    # Persist LLM consensus output (if generated) for UI status
+                    try:
+                        auto_llm_consensus = bool((job or {}).get("auto_llm_consensus") or False)
+                        llm_consensus_model = (job or {}).get("llm_consensus_model") or "gpt-5-consensus"
+                        ra = (result or {}).get("metadata", {}).get("redundancy_analysis", {}) or {}
+                        consensus_text = ra.get("consensus_text")
+                        if auto_llm_consensus and isinstance(consensus_text, str) and consensus_text.strip():
+                            from datetime import datetime as _dt2
+                            consensus_dir = (
+                                dossiers_views_root()
+                                / str(dossier_id)
+                                / str(transcription_id)
+                                / "consensus"
+                            )
+                            consensus_dir.mkdir(parents=True, exist_ok=True)
+                            consensus_file = consensus_dir / f"llm_{transcription_id}.json"
+                            with open(consensus_file, 'w', encoding='utf-8') as cf:
+                                _json.dump({
+                                    "type": "llm_consensus",
+                                    "model": ra.get("consensus_model") or llm_consensus_model,
+                                    "title": ra.get("consensus_title"),
+                                    "text": consensus_text,
+                                    "created_at": _dt2.now().isoformat(),
+                                    "metadata": {}
+                                }, cf, indent=2, ensure_ascii=False)
+                            try:
+                                from services.dossier.management_service import DossierManagementService as _DMS3
+                                _ms3 = _DMS3()
+                                _ms3.update_run_metadata(
+                                    dossier_id=str(dossier_id),
+                                    transcription_id=str(transcription_id),
+                                    updates={
+                                        "has_llm_consensus": True,
+                                        "timestamps": {"last_update_at": _dt2.now().isoformat()}
+                                    }
+                                )
+                            except Exception:
+                                pass
+                        elif auto_llm_consensus:
+                            try:
+                                from services.dossier.management_service import DossierManagementService as _DMS4
+                                _ms4 = _DMS4()
+                                _ms4.update_run_metadata(
+                                    dossier_id=str(dossier_id),
+                                    transcription_id=str(transcription_id),
+                                    updates={"llm_consensus_status": "failed"}
+                                )
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
                     # Create provenance and attach image thumbnails metadata to association for UI
                     try:
                         from api.endpoints.dossier.dossier_utils import create_transcription_provenance

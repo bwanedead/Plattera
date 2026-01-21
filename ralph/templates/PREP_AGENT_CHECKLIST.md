@@ -40,6 +40,11 @@ Optional (only if useful):
 - `SUMMARY.md` (human-readable debrief, one entry per story)
 - `notes.md` (raw brainstorm dump)
 - `artifacts/` (screenshots/log snippets)
+- `transcripts/` (per-iteration durable logs; recommended)
+- `review.md` (review cadence output; optional)
+- `steering.md` (steering notes if review triggers; optional)
+- `loop_state.json` (control plane for advanced loops; optional)
+- `VISION.md` (high-level intent for review/steering; optional)
 
 ---
 
@@ -107,10 +112,38 @@ Start from:
 
 ---
 
-## Step 8 — Final validation (before handing to Ralph)
+## Step 8 — Create transcripts/ (recommended)
+Create:
+`ralph/runs/<run_id>/transcripts/`
+
+(Ralph will write `iter-XXXX.md` files each iteration.)
+
+---
+
+## Step 9 — Create loop_state.json (optional for advanced loops)
+Create:
+`ralph/runs/<run_id>/loop_state.json`
+
+Start from:
+`ralph/templates/LOOP_STATE_TEMPLATE.json`
+
+---
+
+## Step 10 — Create VISION.md (optional)
+Create:
+`ralph/runs/<run_id>/VISION.md`
+
+Start from:
+`ralph/templates/VISION_TEMPLATE.md`
+
+---
+
+## Step 11 — Final validation (before handing to Ralph)
 Confirm:
 - Run folder contains required files (PRD.md, prd.json, PROMPT.md, progress.md)
 - `SUMMARY.md` exists (recommended) so the loop can append per-story debrief entries
+- `transcripts/` exists (recommended) for per-iteration logs
+- If `loop_state.json` exists, it is valid JSON and follows `CONTROL_PLANE.md`
 - All stories in prd.json start with `"passes": false`
 - Acceptance criteria are objective and testable
 - Stories are XS/S and ordered

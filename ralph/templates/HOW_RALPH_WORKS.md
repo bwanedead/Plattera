@@ -36,8 +36,22 @@ We keep durable, replayable state in the repo so iterations remain coherent:
 - `prd.json`: ordered atomic stories (each should fit in one iteration)
 - `PROMPT.md`: the single prompt repeatedly fed to Ralph
 - `progress.md`: short-term memory across iterations
+- `SUMMARY.md`: per-story human debrief (recommended)
+- `transcripts/`: per-iteration durable logs (recommended)
+- `review.md`: review cadence output (optional)
+- `steering.md`: steering notes if review indicates drift (optional)
 
 This makes the loop deterministic and inspectable.
+
+## Review & steering cadence
+Every N iterations, a review pass may run and must fill out `STEERING_NEEDED: yes/no`.
+Steering runs only when `STEERING_NEEDED: yes` (unless forced by `loop_settings`).
+Steering updates PRD/story structure while preserving tiny-story discipline.
+
+## Loop state control plane (optional)
+`loop_state.json` is an optional control plane at `ralph/runs/<run_id>/loop_state.json`.
+Review may set `steering_requested`; worker must not edit `loop_state.json`.
+Permissions are defined in `ralph/templates/CONTROL_PLANE.md`.
 
 ## Required compatibility requirements for a “Ralph-ready” run
 A run is considered “Ralph-ready” if:

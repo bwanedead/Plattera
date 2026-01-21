@@ -7,6 +7,7 @@ Top-level:
 - `title`: string
 - `repo_context`: short string (optional)
 - `global_verification`: array of strings (optional; commands to run when relevant)
+- `loop_settings`: object (optional; loop cadence settings)
 - `stories`: array of story objects (ordered)
 
 Story object:
@@ -20,9 +21,17 @@ Story object:
 - `files_expected`: array of strings (optional; helps keep scope tight)
 - `notes`: string (optional)
 
+Loop settings object (all optional):
+- `global_verify_every_n_stories`: integer (run `global_verification` every N completed stories)
+- `review_every_n_iterations`: integer (run review cadence every N iterations)
+- `steer_every_n_iterations`: integer (run steering cadence every N iterations)
+
 Rules:
 - Each story MUST be completable in one iteration.
 - `acceptance_criteria` must be objectively verifiable.
 - Stories are ordered by dependency (foundation first).
+- If `loop_settings` is absent:
+  - run `global_verification` only at the end (if defined)
+  - no review/steering cadence is required
 
 

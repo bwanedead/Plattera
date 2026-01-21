@@ -1,0 +1,13 @@
+{
+  "mode": "worker",
+  "steering_requested": false,
+  "steering_reason": "",
+  "steering_requested_by": "review",
+  "iteration": 0,
+  "story_completions": 0,
+  "last_review_iteration": 0,
+  "last_steering_iteration": 0,
+  "min_iterations_between_steering": 0,
+  "review_every_n_iterations": 0,
+  "steering_force_every_n_iterations": 0
+}
