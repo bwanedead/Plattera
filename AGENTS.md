@@ -22,7 +22,7 @@ This file defines non-negotiables and working norms for any agent (including Ral
   - `del /s`, `rmdir /s`
   - `Remove-Item -Recurse C:\*` or any absolute-path recursive deletion
 - Never delete or modify `.git/` or git internals.
-- Never use absolute paths for deletion or edits.
+- Never use absolute paths for deletion or edits. except for adding .gitattributes
 - Never use `..` path traversal for deletion or edits.
 - Never read, print, commit, or modify secrets (e.g. `.env`, private keys, tokens, credentials).
 
