@@ -252,10 +252,17 @@ pub fn run() {
             app.handle().plugin(
                 tauri_plugin_log::Builder::default()
                     .level(log::LevelFilter::Info)
-                    // Make updater and sidecar chatter as verbose as needed in logs.
-                    .level_for("tauri_plugin_updater", log::LevelFilter::Trace)
+                    // Keep backend stdout/stderr visible, suppress noisy Tauri internals.
+                    .level_for("app_lib", log::LevelFilter::Info)
+                    .level_for("tauri", log::LevelFilter::Warn)
+                    .level_for("tauri::app", log::LevelFilter::Warn)
+                    .level_for("tauri::plugin", log::LevelFilter::Warn)
+                    .level_for("tauri_runtime_wry", log::LevelFilter::Warn)
+                    .level_for("wry", log::LevelFilter::Warn)
+                    .level_for("tracing", log::LevelFilter::Warn)
+                    .level_for("tracing::span", log::LevelFilter::Warn)
+                    .level_for("tauri_plugin_updater", log::LevelFilter::Warn)
                     .level_for("tauri::manager", log::LevelFilter::Warn)
-                    .level_for("app_lib", log::LevelFilter::Debug)
                     .build(),
             )?;
 
