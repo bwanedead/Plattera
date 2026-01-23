@@ -22,7 +22,7 @@ class ServiceRegistry:
     def _discover_services(self):
         """Auto-discover all available LLM and OCR services"""
         logger = logging.getLogger(__name__)
-        logger.info("🔍 Discovering services...")
+        logger.debug("🔍 Discovering services...")
         
         # Discover LLM services
         self._discover_llm_services()
@@ -30,7 +30,7 @@ class ServiceRegistry:
         # Discover OCR services  
         self._discover_ocr_services()
         
-        logger.info(f"✅ Loaded {len(self.llm_services)} LLM services, {len(self.ocr_services)} OCR services")
+        logger.debug(f"✅ Loaded {len(self.llm_services)} LLM services, {len(self.ocr_services)} OCR services")
     
     def _register_service_from_module(self, module_name: str, service_type: str):
         """Helper to inspect a module and register its service."""

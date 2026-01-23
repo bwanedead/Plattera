@@ -297,7 +297,8 @@ async def _process_image_to_text(
                 redundancy_count,
                 consensus_strategy,
                 dossier_id=dossier_id,
-                transcription_id=transcription_id
+                transcription_id=transcription_id,
+                run_context="solo"
             )
         else:
             result = pipeline.process(temp_path, model, extraction_mode, enhancement_settings)

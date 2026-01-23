@@ -48,7 +48,7 @@ class ProgressiveDraftSaver:
         # Get backend directory path
         self.backend_dir = Path(__file__).resolve().parents[2]
         self.dossiers_data_dir = dossiers_root()
-        logger.info("📝 ProgressiveDraftSaver initialized")
+        logger.debug("📝 ProgressiveDraftSaver initialized")
 
     def save_draft_result(self, dossier_id: str, transcription_id: str,
                          draft_index: int, result: Dict[str, Any]) -> bool:
@@ -65,8 +65,8 @@ class ProgressiveDraftSaver:
             bool: Success status
         """
         try:
-            logger.info(f"🔥 PROGRESSIVE SAVER CALLED: Draft v{draft_index + 1} for {transcription_id} in dossier {dossier_id}")
-            logger.info(f"📊 Result success: {result.get('success', False)}, extracted_text length: {len(result.get('extracted_text', '')) if result.get('extracted_text') else 0}")
+            logger.debug(f"🔥 PROGRESSIVE SAVER CALLED: Draft v{draft_index + 1} for {transcription_id} in dossier {dossier_id}")
+            logger.debug(f"📊 Result success: {result.get('success', False)}, extracted_text length: {len(result.get('extracted_text', '')) if result.get('extracted_text') else 0}")
 
             # Build file paths
             drafts_dir = self._get_drafts_dir(dossier_id, transcription_id)
@@ -95,7 +95,7 @@ class ProgressiveDraftSaver:
                 if not v1_snapshot.exists():
                     with open(v1_snapshot, 'w', encoding='utf-8') as vf:
                         json.dump(content, vf, indent=2, ensure_ascii=False)
-                    logger.info(f"📌 Created immutable v1 snapshot: {v1_snapshot}")
+                    logger.debug(f"📌 Created immutable v1 snapshot: {v1_snapshot}")
             except Exception as snap_err:
                 logger.warning(f"⚠️ Failed to write v1 snapshot for v{draft_index + 1}: {snap_err}")
 
@@ -104,7 +104,7 @@ class ProgressiveDraftSaver:
             with open(base_file, 'w', encoding='utf-8') as f:
                 json.dump(content, f, indent=2, ensure_ascii=False)
 
-            logger.info(f"✅ Base file saved for frontend: {base_file}")
+            logger.debug(f"✅ Base file saved for frontend: {base_file}")
 
             # Update run metadata with completion status
             self._update_run_metadata(dossier_id, transcription_id, draft_index, result)

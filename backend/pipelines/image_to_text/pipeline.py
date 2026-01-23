@@ -304,8 +304,8 @@ class ImageToTextPipeline:
         return get_available_extraction_modes()
     
     def process_with_redundancy(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document_json",
-                              enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = "sequential",
-                              dossier_id: str = None, transcription_id: str = None) -> dict:
+                               enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = "sequential",
+                               dossier_id: str = None, transcription_id: str = None, run_context: str = "solo") -> dict:
         """
         Process with redundancy using the dedicated RedundancyProcessor
 
@@ -373,7 +373,10 @@ class ImageToTextPipeline:
                 model=model,
                 redundancy_count=redundancy_count,
                 json_mode=json_mode,
-                progressive_save_callback=progressive_save_callback
+                progressive_save_callback=progressive_save_callback,
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                run_context=run_context
             )
 
         except Exception as e:

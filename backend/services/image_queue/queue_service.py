@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import queue
+import logging
 from datetime import datetime
 from typing import Optional, Callable, Dict, Any, List
 
@@ -9,6 +10,8 @@ from config.paths import dossiers_views_root
 from .job_store import ImageToTextJobStore
 from .job_models import JobStatus
 from .processor_adapter import ImageToTextProcessorAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class ImageToTextQueueService:
@@ -208,6 +211,7 @@ class ImageToTextQueueService:
                                     "created_at": _dt2.now().isoformat(),
                                     "metadata": {}
                                 }, cf, indent=2, ensure_ascii=False)
+                            logger.info(f"🤝 LLM CONSENSUS SAVED ► {consensus_file}")
                             try:
                                 from services.dossier.management_service import DossierManagementService as _DMS3
                                 _ms3 = _DMS3()
@@ -230,6 +234,7 @@ class ImageToTextQueueService:
                                     transcription_id=str(transcription_id),
                                     updates={"llm_consensus_status": "failed"}
                                 )
+                                logger.warning("⚠️ LLM CONSENSUS FAILED ► No consensus text returned")
                             except Exception:
                                 pass
                     except Exception:

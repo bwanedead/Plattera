@@ -115,24 +115,29 @@ async def process_with_dossier_association(
     Returns:
         ProcessResponse with processing results and dossier context
     """
-    # Add detailed logging
-    logger.info("🔥 DOSSIER PROCESSING REQUEST RECEIVED:")
-    logger.info(f"   📁 File: {file.filename} (size: {file.size if hasattr(file, 'size') else 'unknown'})")
-    logger.info(f"   📋 Content-Type: {file.content_type}")
-    logger.info(f"   🎯 Processing Type: {extraction_mode}")
-    logger.info(f"   🤖 Model: {model}")
-    logger.info(f"   📂 Dossier ID: {dossier_id}")
-    logger.info(f"   🆔 Transcription ID: {transcription_id}")
-    logger.info(f"   🎨 Enhancement Settings: contrast={contrast}, sharpness={sharpness}, brightness={brightness}, color={color}")
-    logger.info(f"   🔄 Redundancy: {redundancy}")
-    logger.info(f"   🧠 Consensus Strategy: {consensus_strategy}")
-    logger.info(f"   🤝 Auto LLM Consensus: {auto_llm_consensus}")
-    logger.info(f"   🤖 LLM Consensus Model: {llm_consensus_model}")
+    # Add concise logging (details at DEBUG)
+    logger.info(
+        f"🔥 DOSSIER PROCESSING ► file={file.filename} model={model} "
+        f"mode={extraction_mode} redundancy={redundancy} consensus={consensus_strategy} "
+        f"auto_llm={auto_llm_consensus} dossier={dossier_id} transcription={transcription_id}"
+    )
+    logger.debug("🔥 DOSSIER PROCESSING REQUEST RECEIVED:")
+    logger.debug(f"   📁 File: {file.filename} (size: {file.size if hasattr(file, 'size') else 'unknown'})")
+    logger.debug(f"   📋 Content-Type: {file.content_type}")
+    logger.debug(f"   🎯 Processing Type: {extraction_mode}")
+    logger.debug(f"   🤖 Model: {model}")
+    logger.debug(f"   📂 Dossier ID: {dossier_id}")
+    logger.debug(f"   🆔 Transcription ID: {transcription_id}")
+    logger.debug(f"   🎨 Enhancement Settings: contrast={contrast}, sharpness={sharpness}, brightness={brightness}, color={color}")
+    logger.debug(f"   🔄 Redundancy: {redundancy}")
+    logger.debug(f"   🧠 Consensus Strategy: {consensus_strategy}")
+    logger.debug(f"   🤝 Auto LLM Consensus: {auto_llm_consensus}")
+    logger.debug(f"   🤖 LLM Consensus Model: {llm_consensus_model}")
 
     # Check if we have the right parameters for progressive saving
     has_dossier_id = bool(dossier_id)
     has_transcription_id = bool(transcription_id)
-    logger.info(f"   ⚡ Progressive Saving Ready: dossier_id={has_dossier_id}, transcription_id={has_transcription_id}")
+    logger.debug(f"   ⚡ Progressive Saving Ready: dossier_id={has_dossier_id}, transcription_id={has_transcription_id}")
 
     # Validate required dossier context
     if not dossier_id:
@@ -151,7 +156,7 @@ async def process_with_dossier_association(
         }
         if user_instruction and user_instruction.strip():
             enhancement_settings['user_instruction'] = user_instruction.strip()
-        logger.info(f"✅ Enhancement settings parsed: {enhancement_settings}")
+        logger.debug(f"✅ Enhancement settings parsed: {enhancement_settings}")
     except (ValueError, TypeError) as e:
         logger.warning(f"⚠️ Invalid enhancement parameters, using defaults: {e}")
         enhancement_settings = {
@@ -163,7 +168,7 @@ async def process_with_dossier_association(
 
     try:
         redundancy_count = max(1, min(10, int(redundancy)))
-        logger.info(f"✅ Redundancy count parsed: {redundancy_count}")
+        logger.debug(f"✅ Redundancy count parsed: {redundancy_count}")
     except (ValueError, TypeError) as e:
         logger.warning(f"⚠️ Invalid redundancy parameter, using default: {e}")
         redundancy_count = 3
@@ -309,7 +314,8 @@ async def process_with_dossier_association(
             redundancy_count,
             consensus_strategy,
             dossier_id=dossier_id,
-            transcription_id=transcription_id
+            transcription_id=transcription_id,
+            run_context="solo"
         ))
 
         if not result.get("success", False):

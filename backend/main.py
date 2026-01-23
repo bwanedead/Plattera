@@ -9,6 +9,7 @@ import uvicorn
 import logging
 import sys
 import asyncio
+import warnings
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -35,6 +36,18 @@ from services.registry import get_registry
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from config.paths import dossiers_images_root, dossiers_original_images_root, dossiers_processed_images_root
+
+# Reduce noisy startup warnings in dev logs
+warnings.filterwarnings(
+    "ignore",
+    message=r"Bio\.pairwise2 has been deprecated",
+    category=Warning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"Field \"model_used\" has conflict with protected namespace",
+    category=UserWarning,
+)
 
 # Custom colored formatter for better log readability
 class ColoredFormatter(logging.Formatter):
@@ -107,6 +120,10 @@ except Exception:
     # Do not fail startup if file logging isn't available
     pass
 logger = logging.getLogger(__name__)
+logger.info("================================================================================")
+logger.info("= 🔵🔵🔵🔵🔵🔵🔵  NEW SESSION START  🔵🔵🔵🔵🔵🔵🔵 =")
+logger.info("=        Plattera backend log stream (dev launch boundary)        =")
+logger.info("================================================================================")
 
 # Create FastAPI app
 app = FastAPI(
@@ -142,12 +159,12 @@ try:
     original_root.mkdir(parents=True, exist_ok=True)
     processed_root.mkdir(parents=True, exist_ok=True)
     # Diagnostics for path issues
-    logging.getLogger(__name__).info(f"BOOT: __file__={Path(__file__).resolve()}")
-    logging.getLogger(__name__).info(f"BOOT: images_root={images_root.resolve()} exists={images_root.exists()}")
-    logging.getLogger(__name__).info(f"BOOT: original={original_root.resolve()} exists={original_root.exists()}")
-    logging.getLogger(__name__).info(f"BOOT: processed={processed_root.resolve()} exists={processed_root.exists()}")
+    logging.getLogger(__name__).debug(f"BOOT: __file__={Path(__file__).resolve()}")
+    logging.getLogger(__name__).debug(f"BOOT: images_root={images_root.resolve()} exists={images_root.exists()}")
+    logging.getLogger(__name__).debug(f"BOOT: original={original_root.resolve()} exists={original_root.exists()}")
+    logging.getLogger(__name__).debug(f"BOOT: processed={processed_root.resolve()} exists={processed_root.exists()}")
     app.mount("/static/images", StaticFiles(directory=str(images_root), html=False), name="static-images")
-    logging.getLogger(__name__).info(f"🖼️ Static images mounted at /static/images -> {images_root.resolve()}")
+    logging.getLogger(__name__).debug(f"🖼️ Static images mounted at /static/images -> {images_root.resolve()}")
 except Exception as e:
     logging.getLogger(__name__).warning(f"⚠️ Failed to mount static images: {e}")
 
@@ -165,7 +182,7 @@ async def startup_event():
     
     # Initialize health monitor
     health_monitor = get_health_monitor()
-    logger.info("🏥 Health monitoring initialized")
+    logger.debug("🏥 Health monitoring initialized")
 
     # Log service registry status in the background so it doesn't block startup.
     # This avoids paying the LLM/registry import cost on the critical path.
@@ -176,7 +193,7 @@ async def startup_event():
                 await asyncio.sleep(2.0)
                 registry = get_registry()
                 info = registry.get_service_info()
-                logger.info(f"SERVICE_REGISTRY ► {info}")
+                logger.debug(f"SERVICE_REGISTRY ► {info}")
             except Exception as e:
                 logger.error(f"SERVICE_REGISTRY ► failed to inspect services: {e}")
 
@@ -186,7 +203,7 @@ async def startup_event():
 
     # Perform initial health check (cheap)
     health_status = health_monitor.check_system_health()
-    logger.info(f"🏥 Initial health check: {health_status['overall_status']}")
+    logger.debug(f"🏥 Initial health check: {health_status['overall_status']}")
 
     # Alignment warm-up is disabled by default to ensure fastest startup. The
     # first alignment request will lazily initialize the service.

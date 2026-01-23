@@ -115,14 +115,14 @@ def _get_openai_api_key():
     try:
         key = keyring.get_password("plattera", "openai_api_key")
         if key:
-            logger.info("OPENAI_KEY ► resolved from keyring")
+            logger.debug("OPENAI_KEY ► resolved from keyring")
             return key
     except Exception as e:
         logger.warning(f"OPENAI_KEY ► keyring error: {e}")
 
     env_key = os.getenv("OPENAI_API_KEY")
     if env_key:
-        logger.info("OPENAI_KEY ► resolved from environment")
+        logger.debug("OPENAI_KEY ► resolved from environment")
         return env_key
 
     logger.warning("OPENAI_KEY ► not found in keyring or environment")
@@ -149,7 +149,8 @@ class OpenAIService(LLMService):
             "capabilities": ["vision", "text"],
             "description": "Lightweight, fast model with reasoning capabilities",
             "verification_required": False,
-            "api_model_name": "o4-mini-2025-04-16"
+            "api_model_name": "o4-mini-2025-04-16",
+            "default_max_tokens": 16000
         },
         "o3": {
             "name": "o3", 
@@ -206,7 +207,7 @@ class OpenAIService(LLMService):
             "description": "Profile for LLM consensus generation (free-text)",
             "verification_required": False,
             "api_model_name": "gpt-5",
-            "default_max_tokens": 10000
+            "default_max_tokens": 16000
         },
         "gpt-5-mini-consensus": {
             "name": "GPT-5 Mini (Consensus)",
@@ -216,7 +217,7 @@ class OpenAIService(LLMService):
             "description": "Profile for LLM consensus generation (balanced speed/quality)",
             "verification_required": False,
             "api_model_name": "gpt-5-mini",
-            "default_max_tokens": 10000
+            "default_max_tokens": 12000
         },
         "gpt-5-nano-consensus": {
             "name": "GPT-5 Nano (Consensus)",
@@ -226,7 +227,7 @@ class OpenAIService(LLMService):
             "description": "Profile for LLM consensus generation (speed/cost optimized)",
             "verification_required": False,
             "api_model_name": "gpt-5-nano",
-            "default_max_tokens": 10000
+            "default_max_tokens": 8000
         }
     })
     
@@ -248,6 +249,28 @@ class OpenAIService(LLMService):
     def call_text(self, prompt: str, model: str, **kwargs) -> Dict[str, Any]:
         """Make text-only API call to OpenAI"""
         try:
+            run_context = kwargs.get("run_context")
+            draft_index = kwargs.get("draft_index")
+            draft_count = kwargs.get("draft_count")
+            transcription_id = kwargs.get("transcription_id")
+            dossier_id = kwargs.get("dossier_id")
+            phase = kwargs.get("phase")
+            draft_label = None
+            if isinstance(draft_index, int) and isinstance(draft_count, int) and draft_count > 0:
+                draft_label = f"{draft_index + 1}/{draft_count}"
+            ctx_parts = []
+            if run_context:
+                ctx_parts.append(f"run={run_context}")
+            if phase:
+                ctx_parts.append(f"phase={phase}")
+            if draft_label:
+                ctx_parts.append(f"draft={draft_label}")
+            if dossier_id:
+                ctx_parts.append(f"dossier={dossier_id}")
+            if transcription_id:
+                ctx_parts.append(f"transcription={transcription_id}")
+            ctx = f" ({' '.join(ctx_parts)})" if ctx_parts else ""
+
             api_model_name = self._get_api_model_name(model)
             
             # Build parameters based on model type
@@ -268,14 +291,57 @@ class OpenAIService(LLMService):
                 completion_params["temperature"] = kwargs.get("temperature", 0.1)
                 default_max = self.models.get(model, {}).get("default_max_tokens", 4000)
                 completion_params["max_tokens"] = kwargs.get("max_tokens", default_max)
+            max_tokens = completion_params.get("max_completion_tokens") or completion_params.get("max_tokens")
+            logger.info(f"🧠 TEXT CALL ► model={model} max_tokens={max_tokens}{ctx}")
             
             response = self.client.chat.completions.create(**completion_params)
+            finish_reason = response.choices[0].finish_reason if response.choices else None
+            token_usage = response.usage.total_tokens if response.usage else 0
+            prompt_tokens = response.usage.prompt_tokens if response.usage else None
+            completion_tokens = response.usage.completion_tokens if response.usage else None
+            reasoning_tokens = getattr(response.usage, "reasoning_tokens", None) if response.usage else None
+            logger.info(f"📨 TEXT response received: finish_reason='{finish_reason}', tokens={token_usage}{ctx}")
+            logger.info(
+                f"📊 TEXT TOKEN USAGE ► prompt={prompt_tokens} completion={completion_tokens} "
+                f"reasoning={reasoning_tokens} total={token_usage}{ctx}"
+            )
+
+            if finish_reason == "length":
+                logger.warning(f"⚠️ Text response truncated due to token limit (model={model}){ctx}")
+                return {
+                    "success": False,
+                    "error": f"OpenAI returned truncated response (finish_reason: {finish_reason})",
+                    "text": None,
+                    "model": model
+                }
+            if finish_reason == "content_filter":
+                logger.warning(f"⚠️ Text response blocked by content filter (model={model}){ctx}")
+                return {
+                    "success": False,
+                    "error": f"OpenAI blocked response (finish_reason: {finish_reason})",
+                    "text": None,
+                    "model": model
+                }
+            if not response.choices or not response.choices[0].message.content:
+                logger.warning(f"❌ Empty text response content (model={model}){ctx}")
+                return {
+                    "success": False,
+                    "error": "OpenAI returned empty text response",
+                    "text": None,
+                    "model": model
+                }
             
             return {
                 "success": True,
                 "text": response.choices[0].message.content,
-                "tokens_used": response.usage.total_tokens,
-                "model": model
+                "tokens_used": token_usage,
+                "model": model,
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "reasoning_tokens": reasoning_tokens,
+                    "total_tokens": token_usage
+                }
             }
             
         except Exception as e:
@@ -305,11 +371,30 @@ class OpenAIService(LLMService):
                 "model": model
             }
         
+        run_context = kwargs.get("run_context")
+        draft_index = kwargs.get("draft_index")
+        draft_count = kwargs.get("draft_count")
+        transcription_id = kwargs.get("transcription_id")
+        dossier_id = kwargs.get("dossier_id")
+        draft_label = None
+        if isinstance(draft_index, int) and isinstance(draft_count, int) and draft_count > 0:
+            draft_label = f"{draft_index + 1}/{draft_count}"
+        ctx_parts = []
+        if run_context:
+            ctx_parts.append(f"run={run_context}")
+        if draft_label:
+            ctx_parts.append(f"draft={draft_label}")
+        if dossier_id:
+            ctx_parts.append(f"dossier={dossier_id}")
+        if transcription_id:
+            ctx_parts.append(f"transcription={transcription_id}")
+        ctx = f" ({' '.join(ctx_parts)})" if ctx_parts else ""
+
         # 🔧 IMPROVEMENT: Enhanced retry logic with exponential backoff + jitter
         max_retries = 4  # Increased from 3 to 4 for o4-mini reliability
         base_delay = 1.0
         
-        logger.info(f"🤖 Starting OpenAI API call for {model} (max {max_retries} attempts)")
+        logger.info(f"🤖 Starting OpenAI API call for {model} (max {max_retries} attempts){ctx}")
         
         for attempt in range(max_retries):
             try:
@@ -317,7 +402,7 @@ class OpenAIService(LLMService):
                 if attempt > 0:
                     jitter = random.uniform(0.2, 0.5)
                     delay = base_delay * (2 ** (attempt - 1)) + jitter  # Exponential backoff + jitter
-                    logger.info(f"🔄 Retry attempt {attempt + 1} after {delay:.2f}s delay")
+                    logger.debug(f"🔄 Retry attempt {attempt + 1} after {delay:.2f}s delay{ctx}")
                     time.sleep(delay)
                 
                 api_model_name = self._get_api_model_name(model)
@@ -347,13 +432,16 @@ class OpenAIService(LLMService):
                 
                 # 🔧 IMPROVEMENT: Explicit high max_tokens for all models to prevent cutoffs
                 if "o4-mini" in api_model_name:
-                    completion_params["max_completion_tokens"] = kwargs.get("max_tokens", 12000)  # Increased from 8000
+                    default_max = self.models.get(model, {}).get("default_max_tokens", 12000)
+                    completion_params["max_completion_tokens"] = kwargs.get("max_tokens", default_max)
                     completion_params["reasoning_effort"] = "high"
-                    logger.info(f"🧠 Using o4-mini with high reasoning effort, max_tokens: {completion_params['max_completion_tokens']}")
+                    if attempt == 0:
+                        logger.debug(f"🧠 Using o4-mini with high reasoning effort, max_tokens: {completion_params['max_completion_tokens']}{ctx}")
                 else:
                     completion_params["temperature"] = kwargs.get("temperature", 0.1)
                     completion_params["max_tokens"] = kwargs.get("max_tokens", 8000)  # Increased from 4000
-                    logger.info(f"🤖 Using {api_model_name}, max_tokens: {completion_params['max_tokens']}")
+                    if attempt == 0:
+                        logger.debug(f"🤖 Using {api_model_name}, max_tokens: {completion_params['max_tokens']}{ctx}")
                 
                 # CRITICAL: Add structured JSON response format for JSON extraction mode
                 json_mode = kwargs.get("json_mode", False)
@@ -385,28 +473,40 @@ class OpenAIService(LLMService):
                             "strict": True
                         }
                     }
-                    logger.info("📋 Using structured JSON output mode")
+                    if attempt == 0:
+                        logger.debug(f"📋 Using structured JSON output mode{ctx}")
                 
                 # CRITICAL: Make OpenAI API call
-                logger.info(f"📡 Sending API request (attempt {attempt + 1}/{max_retries})...")
+                logger.info(f"📡 Sending API request (attempt {attempt + 1}/{max_retries})...{ctx}")
                 response = self.client.chat.completions.create(**completion_params)
                 
                 # 🔧 IMPROVEMENT: Detailed logging of finish_reason for debugging
                 finish_reason = response.choices[0].finish_reason if response.choices else None
                 token_usage = response.usage.total_tokens if response.usage else 0
-                logger.info(f"📨 API response received: finish_reason='{finish_reason}', tokens={token_usage}")
+                prompt_tokens = response.usage.prompt_tokens if response.usage else None
+                completion_tokens = response.usage.completion_tokens if response.usage else None
+                reasoning_tokens = getattr(response.usage, "reasoning_tokens", None) if response.usage else None
+                logger.info(f"📨 API response received: finish_reason='{finish_reason}', tokens={token_usage}{ctx}")
+                logger.info(
+                    f"📊 TOKEN USAGE ► prompt={prompt_tokens} completion={completion_tokens} "
+                    f"reasoning={reasoning_tokens} total={token_usage}{ctx}"
+                )
                 
                 # Check for problematic finish reasons
                 if finish_reason == "length":
-                    logger.warning(f"⚠️ Response truncated due to token limit - consider increasing max_tokens")
+                    max_tokens_hint = (
+                        completion_params.get("max_completion_tokens")
+                        or completion_params.get("max_tokens")
+                    )
+                    logger.warning(f"⚠️ Response truncated due to token limit (max_tokens={max_tokens_hint}, prompt_chars={len(prompt)}){ctx}")
                 elif finish_reason == "content_filter":
-                    logger.warning(f"⚠️ Response blocked by content filter")
+                    logger.warning(f"⚠️ Response blocked by content filter{ctx}")
                 elif finish_reason != "stop":
-                    logger.warning(f"⚠️ Unexpected finish_reason: {finish_reason}")
+                    logger.warning(f"⚠️ Unexpected finish_reason: {finish_reason}{ctx}")
                 
                 # Validate response
                 if not response.choices or not response.choices[0].message.content:
-                    logger.warning(f"❌ Empty response content (finish_reason: {finish_reason})")
+                    logger.warning(f"❌ Empty response content (finish_reason: {finish_reason}){ctx}")
                     if attempt < max_retries - 1:
                         continue
                     else:
@@ -421,7 +521,7 @@ class OpenAIService(LLMService):
                 extracted_text = response.choices[0].message.content.strip()
                 
                 if not extracted_text:
-                    logger.warning(f"❌ Empty text content after strip (finish_reason: {finish_reason})")
+                    logger.warning(f"❌ Empty text content after strip (finish_reason: {finish_reason}){ctx}")
                     if attempt < max_retries - 1:
                         continue
                     else:
@@ -435,7 +535,7 @@ class OpenAIService(LLMService):
                 # 🔧 IMPROVEMENT: Success logging with detailed metrics
                 char_count = len(extracted_text)
                 word_count = len(extracted_text.split())
-                logger.info(f"✅ API call successful: {char_count} chars, {word_count} words, {token_usage} tokens, finish_reason: {finish_reason}")
+                logger.info(f"✅ API call successful: {char_count} chars, {word_count} words, {token_usage} tokens, finish_reason: {finish_reason}{ctx}")
                 
                 return {
                     "success": True,
@@ -444,7 +544,13 @@ class OpenAIService(LLMService):
                     "model": model,
                     "finish_reason": finish_reason,  # 🔧 IMPROVEMENT: Include for debugging
                     "char_count": char_count,
-                    "word_count": word_count
+                    "word_count": word_count,
+                    "usage": {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "reasoning_tokens": reasoning_tokens,
+                        "total_tokens": token_usage
+                    }
                 }
                 
             except Exception as e:
@@ -553,7 +659,7 @@ class OpenAIService(LLMService):
                         "max_completion_tokens": 8000,   # 🚀 Lower cap - nano should be efficient
                         # 🚀 NO reasoning_effort - let nano be fast like GPT-4o
                     }
-                    logger.info(f"🚀 Using GPT-5 Nano speed-optimized parameters: model={api_model_name}, max_completion_tokens=8000, no_reasoning")
+                    logger.debug(f"🚀 Using GPT-5 Nano speed-optimized parameters: model={api_model_name}, max_completion_tokens=8000, no_reasoning")
                     
                 elif api_model_name == "gpt-5-mini":
                     # ⚡ MINI: Balanced approach
@@ -567,7 +673,7 @@ class OpenAIService(LLMService):
                         "max_completion_tokens": 12000,  # ⚡ Medium cap
                         "reasoning_effort": "medium"     # ⚡ Balanced reasoning
                     }
-                    logger.info(f"⚡ Using GPT-5 Mini balanced parameters: model={api_model_name}, max_completion_tokens=12000, reasoning_effort=medium")
+                    logger.debug(f"⚡ Using GPT-5 Mini balanced parameters: model={api_model_name}, max_completion_tokens=12000, reasoning_effort=medium")
                     
                 else:  # gpt-5 full model
                     # 🧠 FULL GPT-5: Maximum quality
@@ -581,7 +687,7 @@ class OpenAIService(LLMService):
                         "max_completion_tokens": 16000,  # 🧠 High cap for quality
                         "reasoning_effort": "high"       # 🧠 Maximum accuracy
                     }
-                    logger.info(f"🧠 Using GPT-5 full model parameters: model={api_model_name}, max_completion_tokens=16000, reasoning_effort=high")
+                    logger.debug(f"🧠 Using GPT-5 full model parameters: model={api_model_name}, max_completion_tokens=16000, reasoning_effort=high")
                     
             else:
                 # 🔄 EXISTING LOGIC - Keep exactly as before for non-GPT-5 models
@@ -600,7 +706,7 @@ class OpenAIService(LLMService):
             
             # 🔍 CRITICAL: Log the full response envelope for debugging
             try:
-                logger.info(f"🔍 RAW_OPENAI_ENVELOPE for {api_model_name}:")
+                logger.debug(f"🔍 RAW_OPENAI_ENVELOPE for {api_model_name}:")
                 envelope_data = {
                     "choices": [
                         {
@@ -619,7 +725,7 @@ class OpenAIService(LLMService):
                     } if completion.usage else None,
                     "model": completion.model if hasattr(completion, 'model') else api_model_name
                 }
-                logger.info(f"🔍 Envelope: {json.dumps(envelope_data, indent=2)}")
+                logger.debug(f"🔍 Envelope: {json.dumps(envelope_data, indent=2)}")
             except Exception as e:
                 logger.warning(f"⚠️ Could not log envelope: {e}")
             
@@ -650,11 +756,11 @@ class OpenAIService(LLMService):
                 }
             
             # 🔍 Enhanced response content logging
-            logger.info(f"🔍 Raw response received from {api_model_name}:")
-            logger.info(f"🔍 Response type: {type(response_content)}")
-            logger.info(f"🔍 Response length: {len(response_content) if response_content else 'None'}")
-            logger.info(f"🔍 Response content (first 500 chars): {repr(response_content[:500]) if response_content else 'None'}")
-            logger.info(f"🔍 Finish reason: {finish_reason}")
+            logger.debug(f"🔍 Raw response received from {api_model_name}:")
+            logger.debug(f"🔍 Response type: {type(response_content)}")
+            logger.debug(f"🔍 Response length: {len(response_content) if response_content else 'None'}")
+            logger.debug(f"🔍 Response content (first 500 chars): {repr(response_content[:500]) if response_content else 'None'}")
+            logger.debug(f"🔍 Finish reason: {finish_reason}")
             
             # Check for empty/None response 
             if not response_content:
@@ -695,7 +801,7 @@ class OpenAIService(LLMService):
                 tokens_used = completion.usage.total_tokens
                 output_tokens = getattr(completion.usage, 'completion_tokens', 0)
                 prompt_tokens = getattr(completion.usage, 'prompt_tokens', 0)
-                logger.info(f"📊 Token usage: {tokens_used} total ({prompt_tokens} prompt + {output_tokens} output) for {api_model_name}")
+                logger.debug(f"📊 Token usage: {tokens_used} total ({prompt_tokens} prompt + {output_tokens} output) for {api_model_name}")
                 
                 # 🚨 Check for potential truncation
                 if is_gpt5_model and output_tokens >= 15500:  # Close to 16k cap
@@ -705,11 +811,11 @@ class OpenAIService(LLMService):
             
             # Parse the JSON response
             try:
-                logger.info(f"🔍 Attempting to parse JSON from {api_model_name}...")
+                logger.debug(f"🔍 Attempting to parse JSON from {api_model_name}...")
                 structured_data = json.loads(response_content)
                 structured_data['parcel_id'] = parcel_id  # Ensure parcel_id is set
                 
-                logger.info(f"✅ Successfully parsed JSON response from {api_model_name}")
+                logger.debug(f"✅ Successfully parsed JSON response from {api_model_name}")
                 
                 # Return standardized response format
                 return {

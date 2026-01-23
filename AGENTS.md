@@ -15,7 +15,8 @@ This file defines non-negotiables and working norms for any agent (including Ral
 - Work only on the current working branch (e.g. `ralph/*`, `feature/*`, etc.).
 
 ### Never-dos (hard bans)
-- Never delete or modify anything outside the repository root.
+- Never delete or modify anything outside the repository root. (exceptions:skill factory actions needed to add new skills via agent kit or profile skills to update a profile)
+
 - Never run destructive / wide delete commands, especially anything that could target a drive/root/home, such as:
   - `rm -rf /`, `rm -rf ~`, `rm -rf ..`
   - `del /s`, `rmdir /s`

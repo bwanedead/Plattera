@@ -125,6 +125,7 @@ class ImageToTextProcessorAdapter:
                 consensus_strategy,
                 dossier_id=dossier_id,
                 transcription_id=transcription_id,
+                run_context="batch",
             )
         else:
             # For single draft, we still want dossier progressive saving if dossier_id/transcription_id provided
@@ -138,6 +139,7 @@ class ImageToTextProcessorAdapter:
                     "sequential",
                     dossier_id=dossier_id,
                     transcription_id=transcription_id,
+                    run_context="batch",
                 )
             else:
                 result = pipeline.process(

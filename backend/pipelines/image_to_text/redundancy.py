@@ -9,7 +9,7 @@ import logging
 import time
 import random
 import concurrent.futures
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from services.registry import get_registry
 from prompts.redundancy_consensus import build_consensus_prompt
 
@@ -27,7 +27,10 @@ class RedundancyProcessor:
     
     def process(self, service, image_data: str, image_format: str, prompt: str, model: str,
                redundancy_count: int, json_mode: bool = False,
-               progressive_save_callback: callable = None) -> dict:
+               progressive_save_callback: callable = None,
+               dossier_id: Optional[str] = None,
+               transcription_id: Optional[str] = None,
+               run_context: str = "solo") -> dict:
         """
         Complete redundancy processing workflow with optional progressive saving
 
@@ -45,34 +48,48 @@ class RedundancyProcessor:
         Returns:
             dict: Fully formatted redundancy response
         """
+        ctx_parts = [f"run={run_context}"]
+        if dossier_id:
+            ctx_parts.append(f"dossier={dossier_id}")
+        if transcription_id:
+            ctx_parts.append(f"transcription={transcription_id}")
+        ctx = " ".join(ctx_parts)
+        logger.info(f"🧭 RUN CONTEXT ► {ctx}")
         logger.info(f"🚀 REDUNDANCY PROCESSING ► Starting {redundancy_count} parallel calls")
         if progressive_save_callback:
-            logger.info("💾 PROGRESSIVE SAVING ENABLED ► Drafts will be saved as they complete")
+            logger.debug("💾 PROGRESSIVE SAVING ENABLED ► Drafts will be saved as they complete")
 
         # Execute parallel API calls with optional progressive saving
         parallel_results = self._execute_parallel_calls(
             service, image_data, image_format, prompt, model, redundancy_count, json_mode,
-            progressive_save_callback
+            progressive_save_callback, dossier_id, transcription_id, run_context
         )
 
         # Analyze results and format response
-        logger.info("")  # Add spacing for readability
         logger.info("🧠 CONSENSUS ANALYSIS ► Starting redundancy analysis...")
-        final_result = self._analyze_results(parallel_results, model)
+        final_result = self._analyze_results(
+            parallel_results,
+            model,
+            run_context=run_context,
+            dossier_id=dossier_id,
+            transcription_id=transcription_id
+        )
         logger.info("✅ CONSENSUS COMPLETE ► Analysis finished successfully")
-        logger.info("")  # Add spacing for readability
 
         return final_result
     
     def _execute_parallel_calls(self, service, image_data: str, image_format: str, prompt: str,
                                model: str, count: int, json_mode: bool = False,
-                               progressive_save_callback: callable = None) -> List[dict]:
+                               progressive_save_callback: callable = None,
+                               dossier_id: Optional[str] = None,
+                               transcription_id: Optional[str] = None,
+                               run_context: str = "solo") -> List[dict]:
         """Execute multiple API calls with improved staggering and jitter to reduce empty responses"""
         results = []
 
-        logger.info(f"🚀 API EXECUTION ► Starting {count} parallel calls with staggered timing")
+        logger.info(f"🚀 API EXECUTION ► Starting {count} parallel calls with staggered timing (run={run_context})")
         if progressive_save_callback:
-            logger.info("💾 PROGRESSIVE CALLBACK ACTIVE ► Will save drafts as they complete")
+            logger.debug("💾 PROGRESSIVE CALLBACK ACTIVE ► Will save drafts as they complete")
 
         # Increased base delay + added jitter for o4-mini reliability
         base_stagger_delay = 1.5  # Increased from 700ms to 1500ms for o4-mini
@@ -87,7 +104,7 @@ class RedundancyProcessor:
                     jitter = random.uniform(0.2, 0.8)
                     total_delay = base_stagger_delay + jitter
                     time.sleep(total_delay)
-                    logger.info(f"⏱️  API CALL {i+1} ► Submitted after {total_delay:.2f}s delay (base {base_stagger_delay}s + jitter {jitter:.2f}s)")
+                    logger.debug(f"⏱️  API CALL {i+1} ► Submitted after {total_delay:.2f}s delay (base {base_stagger_delay}s + jitter {jitter:.2f}s)")
 
                 # Pass explicit max_tokens to reduce cutoffs
                 future = executor.submit(
@@ -97,12 +114,17 @@ class RedundancyProcessor:
                     model=model,
                     image_format=image_format,
                     json_mode=json_mode,
+                    run_context=run_context,
+                    draft_index=i,
+                    draft_count=count,
+                    dossier_id=dossier_id,
+                    transcription_id=transcription_id,
                     # Do NOT override max tokens here; let the service profile decide.
                 )
                 futures.append((i, future))  # Store index with future
 
                 if i == 0:
-                    logger.info(f"⚡ API CALL {i+1} ► Submitted immediately")
+                    logger.debug(f"⚡ API CALL {i+1} ► Submitted immediately")
 
             # Collect results as they complete (not necessarily in order)
             for draft_index, future in futures:
@@ -115,24 +137,47 @@ class RedundancyProcessor:
                     if progressive_save_callback:
                         try:
                             progressive_save_callback(draft_index, result)
-                            logger.info(f"💾 PROGRESSIVE SAVE TRIGGERED ► Draft v{draft_index+1} saved")
+                            logger.debug(f"💾 PROGRESSIVE SAVE TRIGGERED ► Draft v{draft_index+1} saved")
                         except Exception as save_error:
                             logger.warning(f"⚠️ Progressive save failed for draft v{draft_index+1}: {save_error}")
 
                     results.append(result)
-                except Exception as e:
-                    logger.error(f"❌ API CALL {draft_index+1} ► Failed: {e}")
+                except concurrent.futures.TimeoutError as e:
+                    logger.error(f"⏳ API CALL {draft_index+1} ► Timed out after 240s")
                     failed_result = {
                         "success": False,
-                        "error": f"API call failed: {str(e)}",
-                        "extracted_text": ""
+                        "error": "API call failed: timeout",
+                        "extracted_text": "",
+                        "metadata": {
+                            "run_context": run_context,
+                            "draft_index": draft_index,
+                            "draft_count": count,
+                            "dossier_id": dossier_id,
+                            "transcription_id": transcription_id
+                        }
+                    }
+                except Exception as e:
+                    err_type = type(e).__name__
+                    err_msg = str(e) or repr(e)
+                    logger.error(f"❌ API CALL {draft_index+1} ► Failed: {err_type}: {err_msg}")
+                    failed_result = {
+                        "success": False,
+                        "error": f"API call failed: {err_type}: {err_msg}",
+                        "extracted_text": "",
+                        "metadata": {
+                            "run_context": run_context,
+                            "draft_index": draft_index,
+                            "draft_count": count,
+                            "dossier_id": dossier_id,
+                            "transcription_id": transcription_id
+                        }
                     }
 
                     # Save failed result immediately if callback provided
                     if progressive_save_callback:
                         try:
                             progressive_save_callback(draft_index, failed_result)
-                            logger.info(f"💾 PROGRESSIVE SAVE TRIGGERED ► Draft v{draft_index+1} failed, saved error state")
+                            logger.debug(f"💾 PROGRESSIVE SAVE TRIGGERED ► Draft v{draft_index+1} failed, saved error state")
                         except Exception as save_error:
                             logger.warning(f"⚠️ Progressive save failed for failed draft v{draft_index+1}: {save_error}")
 
@@ -143,15 +188,18 @@ class RedundancyProcessor:
 
         return results
     
-    def _analyze_results(self, results: List[dict], model: str) -> dict:
+    def _analyze_results(self, results: List[dict], model: str,
+                        run_context: Optional[str] = None,
+                        dossier_id: Optional[str] = None,
+                        transcription_id: Optional[str] = None) -> dict:
         """Analyze multiple results to find consensus - simplified without alignment"""
         
-        logger.info(f"🔍 CONSENSUS ANALYSIS ► Starting redundancy analysis on {len(results)} API calls")
+        logger.debug(f"🔍 CONSENSUS ANALYSIS ► Starting redundancy analysis on {len(results)} API calls")
         
         # Continue with consensus analysis...
-        logger.info("🔍 CONSENSUS INPUT ► Filtering successful results...")
+        logger.debug("🔍 CONSENSUS INPUT ► Filtering successful results...")
         successful_results = [r for r in results if r.get("success", False)]
-        logger.info(f"   ✅ Found {len(successful_results)}/{len(results)} successful API calls")
+        logger.debug(f"   ✅ Found {len(successful_results)}/{len(results)} successful API calls")
         
         if not successful_results:
             logger.info("❌ CONSENSUS FAILED ► No successful results to analyze")
@@ -163,9 +211,9 @@ class RedundancyProcessor:
             )
         
         # Filter out LLM refusals and failed extractions
-        logger.info("🔧 CONSENSUS FILTERING ► Removing failed extractions...")
+        logger.debug("🔧 CONSENSUS FILTERING ► Removing failed extractions...")
         filtered_texts = filter_valid_extractions([r.get("extracted_text", "") for r in successful_results])
-        logger.info(f"   📊 Using {len(filtered_texts)} high-quality extractions")
+        logger.debug(f"   📊 Using {len(filtered_texts)} high-quality extractions")
         
         if not filtered_texts:
             logger.info("❌ CONSENSUS FAILED ► No valid extractions after filtering")
@@ -204,10 +252,20 @@ class RedundancyProcessor:
             try:
                 if len(filtered_texts) > 1:
                     logger.info(f"🤝 LLM CONSENSUS ► Generating using model: {self.llm_consensus_model}")
-                    consensus_payload = self._generate_llm_consensus(filtered_texts)
+                    consensus_payload = self._generate_llm_consensus(
+                        filtered_texts,
+                        run_context=run_context,
+                        dossier_id=dossier_id,
+                        transcription_id=transcription_id
+                    )
                 else:
                     logger.info("🤝 LLM CONSENSUS ► Only 1 valid draft; running title/cleanup pass")
-                    consensus_payload = self._generate_llm_consensus(filtered_texts)
+                    consensus_payload = self._generate_llm_consensus(
+                        filtered_texts,
+                        run_context=run_context,
+                        dossier_id=dossier_id,
+                        transcription_id=transcription_id
+                    )
                 if consensus_payload.get("text"):
                     logger.info(f"✅ LLM CONSENSUS ► Received consensus text ({len(consensus_payload['text'])} chars)")
                 if consensus_payload.get("title"):
@@ -294,7 +352,10 @@ class RedundancyProcessor:
             }
         } 
 
-    def _generate_llm_consensus(self, drafts: List[str]) -> Dict[str, Any]:
+    def _generate_llm_consensus(self, drafts: List[str],
+                                run_context: Optional[str] = None,
+                                dossier_id: Optional[str] = None,
+                                transcription_id: Optional[str] = None) -> Dict[str, Any]:
         """Generate LLM-based consensus with retry and higher token cap."""
         registry = get_registry()
         prompt = build_consensus_prompt(drafts)
@@ -306,7 +367,15 @@ class RedundancyProcessor:
             try:
                 # Delegate token limits to service profile; only vary temperature slightly across attempts
                 temp = 0.2 if i < 2 else 0.1
-                res = registry.process_text(prompt=prompt, model=model, temperature=temp)
+                res = registry.process_text(
+                    prompt=prompt,
+                    model=model,
+                    temperature=temp,
+                    run_context=run_context or "solo",
+                    phase="consensus",
+                    dossier_id=dossier_id,
+                    transcription_id=transcription_id
+                )
                 if res and res.get("success") and res.get("text"):
                     raw = res.get("text") or ""
                     tokens = res.get("tokens_used")

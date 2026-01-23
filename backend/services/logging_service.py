@@ -1,8 +1,11 @@
 import logging
 import os
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from collections import deque
-from typing import Deque, Dict, Any
+from typing import Deque, Dict, Any, Optional
+
+from config.paths import is_frozen
 
 
 LOG_DIR = os.getenv("LOG_DIR", os.path.join(os.path.dirname(__file__), "..", "logs"))
@@ -56,9 +59,23 @@ def init_logging():
     if root.level == logging.NOTSET:
         root.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 
+    def _env_truthy(value: Optional[str], default: bool) -> bool:
+        if value is None:
+            return default
+        return value.strip().lower() in ("1", "true", "yes", "on")
+
+    # Per-launch log file in dev, stable file in frozen builds
+    session_file_default = not is_frozen()
+    use_session_file = _env_truthy(os.getenv("LOG_SESSION_FILE"), session_file_default)
+    if use_session_file and not is_frozen():
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = os.path.join(LOG_DIR, f"app_{stamp}.log")
+    else:
+        log_file = LOG_FILE
+
     # Rotating file handler (append-only)
     file_handler = RotatingFileHandler(
-        LOG_FILE,
+        log_file,
         maxBytes=5_000_000,
         backupCount=5,
         encoding="utf-8",
