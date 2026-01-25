@@ -3,7 +3,7 @@
  * Handles API calls for geographic mapping functionality
  */
 
-const API_BASE = 'http://localhost:8000/api/mapping';
+const API_BASE = 'http://127.0.0.1:8000/api/mapping';
 
 export interface PLSSDescription {
   state: string;
@@ -188,7 +188,7 @@ export async function extractPLSSInfo(schemaData: any): Promise<{
   try {
     console.log('🗺️ Extracting PLSS info for mapping:', schemaData);
     
-    const response = await fetch('http://localhost:8000/api/mapping/extract-plss-info', {
+    const response = await fetch('http://127.0.0.1:8000/api/mapping/extract-plss-info', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(schemaData)

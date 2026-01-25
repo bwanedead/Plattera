@@ -161,7 +161,7 @@ export const DossierManager: React.FC<DossierManagerProps> = ({
     let reconnectTimer: number | null = null;
     const connect = () => {
       try {
-        es = new EventSource('http://localhost:8000/api/dossier/events');
+        es = new EventSource('http://127.0.0.1:8000/api/dossier/events');
         es.onmessage = (ev) => {
           try {
             const data = JSON.parse(ev.data || '{}');

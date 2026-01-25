@@ -34,6 +34,14 @@ const buildSnapshot = (rows: AssetRow[]) =>
     })),
   );
 
+// CSS for spinning loader
+const spinStyle = `
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
+
 export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose }) => {
   const [assets, setAssets] = useState<AssetRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -136,7 +144,7 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
           setLoading(true);
         }
         let list: AssetRow[] | null = null;
-        let nextDelay = 35000;
+        let nextDelay = 10000; // Default refresh: 10s (was 35s)
         try {
           list = await assetsApi.listAssets(plssState);
           if (!cancelled) {
@@ -149,7 +157,8 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
           }
         } catch (e: any) {
           if (!cancelled) {
-            setError(e?.message || 'Failed to load assets');
+            // setError(e?.message || 'Failed to load assets'); // Don't show error banner for transient connection issues
+            nextDelay = 2000; // Fast retry on error
           }
         } finally {
           if (!cancelled && showLoading) {
@@ -350,13 +359,14 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
       {loading && <div style={{ marginTop: 8, color: '#94a3b8' }}>Loading...</div>}
 
       <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <style>{spinStyle}</style>
         <div style={cardStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={statusDot(plssInstalled ? 'good' : 'warn')} />
               <div style={sectionTitleStyle}>PLSS data</div>
-              <div style={{ fontSize: 11, color: plssInstalled ? '#bbf7d0' : '#fde68a' }}>
-                {plssInstalled ? 'Ready' : 'Not installed'}
+              <div style={{ fontSize: 11, color: loading ? '#94a3b8' : plssInstalled ? '#bbf7d0' : '#fde68a' }}>
+                {loading ? 'Checking...' : plssInstalled ? 'Ready' : 'Not installed'}
               </div>
             </div>
           </div>
@@ -389,17 +399,30 @@ export const AssetsTray: React.FC<AssetsTrayProps> = ({ open, onClose: _onClose 
         <div style={cardStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span
-                style={statusDot(
-                  embeddingInstalled
-                    ? 'good'
-                    : embeddingInstalling
-                    ? 'info'
-                    : embedding?.status === 'failed' || embedding?.status === 'stalled'
-                    ? 'danger'
-                    : 'warn'
-                )}
-              />
+              {loading ? (
+                <div
+                  style={{
+                    width: 14,
+                    height: 14,
+                    border: '2px solid rgba(148, 163, 184, 0.3)',
+                    borderTopColor: '#38bdf8',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                  }}
+                />
+              ) : (
+                <span
+                  style={statusDot(
+                    embeddingInstalled
+                      ? 'good'
+                      : embeddingInstalling
+                      ? 'info'
+                      : embedding?.status === 'failed' || embedding?.status === 'stalled'
+                      ? 'danger'
+                      : 'warn'
+                  )}
+                />
+              )}
               <div style={sectionTitleStyle}>Embedding model</div>
               <div style={{ fontSize: 11, color: '#94a3b8' }}>bge-small-en-v1.5</div>
             </div>

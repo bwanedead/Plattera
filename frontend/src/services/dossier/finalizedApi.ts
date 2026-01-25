@@ -1,4 +1,4 @@
-const API_BASE = (typeof process !== 'undefined' && process.env && (process.env.NEXT_PUBLIC_API_BASE as string)) || 'http://localhost:8000';
+const API_BASE = (typeof process !== 'undefined' && process.env && (process.env.NEXT_PUBLIC_API_BASE as string)) || 'http://127.0.0.1:8000';
 const API_BASE_URL = `${API_BASE}/api`;
 
 class FinalizedApiClient {

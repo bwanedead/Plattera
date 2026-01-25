@@ -22,6 +22,15 @@ export const RagIndexPanel: React.FC = () => {
 
   const registerPoolActions = useCallback(
     (pool: PoolIdentifier, state: PoolActionState) => {
+      const current = poolActionsRef.current[pool];
+      if (
+        current &&
+        current.canExecute === state.canExecute &&
+        current.isBusy === state.isBusy &&
+        current.execute === state.execute
+      ) {
+        return;
+      }
       poolActionsRef.current[pool] = state;
       setPoolStates(prev => ({
         ...prev,
@@ -83,33 +92,51 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
     setDetailsOpen
   } = useIndexMaintenance(pool);
 
+  const [bootstrapStatus, setBootstrapStatus] = useState<string | null>(null);
+
   const counts = diagnoseResult?.counts ?? { healthy: 0, missing: 0, stale: 0, unavailable: 0 };
   const poolHealth = diagnoseResult?.pool_health;
   const poolOpen = diagnoseResult?.pool_open;
   const isUnavailable = poolOpen?.status !== 'ok';
   const detail = poolOpen?.detail ?? '';
   const reason = poolOpen?.reason_code ?? '';
+  const isInitializing = isLoadingDiagnose && !diagnoseResult;
   const embeddingMissing =
+    !isInitializing && (
     detail.includes('EmbeddingAssetMissingError') ||
     detail.includes('embedding_asset_missing') ||
-    reason === 'unavailable_embeddings_missing';
-  const missingArtifacts = detail.startsWith('missing_files') || detail === 'manifest_unavailable';
-  const notIndexed = missingArtifacts || (poolHealth?.active_vectors === 0 && counts.missing > 0);
-  const isBusy = isExecuting || !!activeJobId || isLoadingDiagnose;
-  const canExecute = !embeddingMissing && !missingArtifacts && !isUnavailable;
+    reason === 'unavailable_embeddings_missing');
+  const missingArtifacts = !isInitializing && (detail.startsWith('missing_files') || detail === 'manifest_unavailable');
+  const needsInitialize = !isInitializing && missingArtifacts;
+  const emptyButReady = !isInitializing && !missingArtifacts && poolOpen?.status === 'ok' && (poolHealth?.active_vectors === 0);
+  const isIndexing =
+    isExecuting ||
+    activeJob?.status === 'queued' ||
+    activeJob?.status === 'running' ||
+    !!activeJobId;
+  const isBusy = isIndexing || isLoadingDiagnose;
+  const canExecute = !isInitializing && !embeddingMissing && !missingArtifacts && !isUnavailable;
 
-  const statusTone = embeddingMissing || isUnavailable
+  const statusTone = isInitializing
+    ? 'info'
+    : embeddingMissing || isUnavailable
     ? 'danger'
-    : notIndexed
+    : needsInitialize
     ? 'warn'
+    : emptyButReady
+    ? 'info'
     : counts.stale > 0 || counts.missing > 0
     ? 'warn'
     : 'good';
 
-  const statusLabel = embeddingMissing
+  const statusLabel = isInitializing
+    ? 'Checking...'
+    : embeddingMissing
     ? 'Embeddings missing'
-    : notIndexed
-    ? 'Not indexed'
+    : needsInitialize
+    ? 'Not initialized'
+    : emptyButReady
+    ? 'Empty (Ready)'
     : counts.stale > 0 || counts.missing > 0
     ? 'Needs update'
     : 'Ready';
@@ -123,7 +150,15 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
   }, [executeIndex]);
 
   const handleInitialize = useCallback(async () => {
-    await bootstrapIndex();
+    setBootstrapStatus('Initializing...');
+    try {
+      await bootstrapIndex();
+      setBootstrapStatus('Artifacts initialized');
+      window.setTimeout(() => setBootstrapStatus(null), 3000);
+    } catch (err) {
+      setBootstrapStatus('Initialization failed');
+      window.setTimeout(() => setBootstrapStatus(null), 5000);
+    }
   }, [bootstrapIndex]);
 
   useEffect(() => {
@@ -148,7 +183,11 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
           </div>
         </div>
         <div className="pool-status">
-          <span className={`pool-pill ${statusTone}`}>{statusLabel}</span>
+          <span className={`pool-pill ${statusTone}`}>
+            <span className="pool-pill-label">{statusLabel}</span>
+            {isLoadingDiagnose ? <span className="rag-spinner small" /> : null}
+            {isIndexing && !isLoadingDiagnose ? <span className="rag-spinner small" /> : null}
+          </span>
           <button className="pool-btn ghost" onClick={refreshDiagnose} disabled={isLoadingDiagnose}>
             {isLoadingDiagnose ? '...' : 'Refresh'}
           </button>
@@ -182,20 +221,27 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
           >
             Install embeddings
           </button>
-        ) : notIndexed ? (
+        ) : needsInitialize ? (
           <button className="pool-btn primary" onClick={handleInitialize} disabled={isBusy}>
             Initialize pool
           </button>
         ) : (
           <button className="pool-btn primary" onClick={handleUpdate} disabled={isBusy || !canExecute}>
-            Update index
+            {isIndexing ? <span className="rag-spinner small" /> : null}
+            {isIndexing
+              ? (emptyButReady ? 'Indexing...' : 'Updating...')
+              : (emptyButReady ? 'Index now' : 'Update index')}
           </button>
         )}
         <div className="pool-actions-hint">
-          {embeddingMissing
+          {bootstrapStatus ? (
+            <span style={{ color: '#60a5fa', fontWeight: 600 }}>{bootstrapStatus}</span>
+          ) : embeddingMissing
             ? 'Embeddings are required before indexing.'
-            : notIndexed
+            : needsInitialize
             ? 'Creates empty index artifacts without indexing documents.'
+            : emptyButReady
+            ? 'Starts indexing from scratch.'
             : 'Indexes missing and stale entries only.'}
         </div>
       </div>

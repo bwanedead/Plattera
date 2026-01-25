@@ -43,10 +43,20 @@ warnings.filterwarnings(
     message=r"Bio\.pairwise2 has been deprecated",
     category=Warning,
 )
+try:
+    from Bio import BiopythonDeprecationWarning  # type: ignore
+    warnings.filterwarnings("ignore", category=BiopythonDeprecationWarning)
+except Exception:
+    pass
 warnings.filterwarnings(
     "ignore",
     message=r"Field \"model_used\" has conflict with protected namespace",
     category=UserWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"on_event is deprecated, use lifespan event handlers instead\.",
+    category=DeprecationWarning,
 )
 
 # Custom colored formatter for better log readability
@@ -100,6 +110,9 @@ def setup_logging():
     # Silence noisy libraries
     logging.getLogger('uvicorn.access').setLevel(logging.WARNING)
     logging.getLogger('uvicorn.error').setLevel(logging.WARNING)
+    logging.getLogger('sentence_transformers').setLevel(logging.WARNING)
+    logging.getLogger('transformers').setLevel(logging.WARNING)
+    logging.getLogger('torch').setLevel(logging.WARNING)
     
     # Reduce alignment engine debug spam - these are the main culprits
     logging.getLogger('pipelines.image_to_text.json_alignment').setLevel(logging.WARNING)
@@ -293,6 +306,6 @@ if __name__ == "__main__":
         host="127.0.0.1",
         port=8000,
         reload=False,  # ← This will fix it
-        log_level="info",
+        log_level="warning",
         access_log=False,  # Disable per-request access log spam
     )

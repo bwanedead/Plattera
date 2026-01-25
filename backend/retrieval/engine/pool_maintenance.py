@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from corpus.interfaces import CorpusProvider
 
@@ -96,6 +97,14 @@ class BootstrapIdentity:
     chunking_policy_id: str
 
 
+_POOL_CACHE: Dict[str, Tuple[PersistentVectorStore, str]] = {}
+
+
+def _compute_manifest_fingerprint(manifest: SemanticIndexManifest) -> str:
+    """Compute a fingerprint for manifest state to invalidate cache."""
+    return f"{manifest.schema_version}|{manifest.embedding_dim}|{manifest.embedding_model_fingerprint}|{manifest.chunking_policy_id}"
+
+
 def safe_open_pool(pool_identifier: str) -> PoolOpenResult:
     """
     Safe pool-open boundary that never throws.
@@ -116,6 +125,9 @@ def safe_open_pool(pool_identifier: str) -> PoolOpenResult:
         if not path.exists()
     ]
     if missing_files:
+        # Invalidate cache if files are missing
+        if pool_identifier in _POOL_CACHE:
+            del _POOL_CACHE[pool_identifier]
         return PoolOpenResult(
             report=PoolOpenReport(
                 status=PoolOpenStatus.UNAVAILABLE,
@@ -127,6 +139,9 @@ def safe_open_pool(pool_identifier: str) -> PoolOpenResult:
 
     manifest = read_manifest(pool_identifier)
     if manifest is None:
+        # Invalidate cache if manifest is missing
+        if pool_identifier in _POOL_CACHE:
+            del _POOL_CACHE[pool_identifier]
         return PoolOpenResult(
             report=PoolOpenReport(
                 status=PoolOpenStatus.UNAVAILABLE,
@@ -136,6 +151,20 @@ def safe_open_pool(pool_identifier: str) -> PoolOpenResult:
             )
         )
 
+    fingerprint = _compute_manifest_fingerprint(manifest)
+    if pool_identifier in _POOL_CACHE:
+        cached_store, cached_fp = _POOL_CACHE[pool_identifier]
+        if cached_fp == fingerprint:
+            return PoolOpenResult(
+                report=PoolOpenReport(
+                    status=PoolOpenStatus.OK,
+                    reason_code=None,
+                    detail=None,
+                    action_hint=None,
+                ),
+                store=cached_store,
+            )
+
     try:
         store = load_persistent_store(
             pool_identifier=pool_identifier,
@@ -143,6 +172,8 @@ def safe_open_pool(pool_identifier: str) -> PoolOpenResult:
             hnsw_path=hnsw_path,
             metadata_db_path=metadata_path,
         )
+        # Update cache
+        _POOL_CACHE[pool_identifier] = (store, fingerprint)
         return PoolOpenResult(
             report=PoolOpenReport(
                 status=PoolOpenStatus.OK,

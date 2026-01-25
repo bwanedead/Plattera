@@ -73,7 +73,9 @@ class HealthMonitor:
             
             msg = f"🏥 HEALTH CHECK ► Memory: {memory_mb:.1f}MB, CPU: {cpu_percent:.1f}%, Status: {health_status['overall_status']}"
             now = time.time()
-            if now - self._last_health_log_ts > 60:
+            overall_status = health_status.get("overall_status", "unknown")
+            should_log_info = overall_status not in ("healthy", "maintenance_needed")
+            if now - self._last_health_log_ts > 60 and should_log_info:
                 logger.info(msg)
                 self._last_health_log_ts = now
             else:

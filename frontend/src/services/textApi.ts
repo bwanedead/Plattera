@@ -2,7 +2,7 @@
 // TEXT API CLIENT - FETCH DRAFT CONTENT BY ID
 // ============================================================================
 
-const BASE_URL = 'http://localhost:8000/api';
+const BASE_URL = 'http://127.0.0.1:8000/api';
 
 // Simple in-memory caches with TTL and in-flight request de-duplication
 type CacheEntry<T> = { value: T; expiresAt: number };

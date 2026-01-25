@@ -38,6 +38,7 @@ class HnswVectorStore:
         max_elements: int = 10000,
         ef_construction: int = 200,
         M: int = 16,
+        init: bool = True,
     ):
         """
         Initialize HNSW vector store.
@@ -47,6 +48,7 @@ class HnswVectorStore:
             max_elements: Maximum number of vectors (can be resized later)
             ef_construction: HNSW construction parameter (higher = better recall, slower build)
             M: HNSW M parameter (higher = better recall, more memory)
+            init: Whether to initialize the index. Set to False when loading an existing index.
         """
         if hnswlib is None:
             raise RuntimeError("hnswlib is not installed")
@@ -58,11 +60,13 @@ class HnswVectorStore:
 
         # Initialize HNSW index with inner product (for normalized vectors = cosine)
         self.index = hnswlib.Index(space="ip", dim=embedding_dim)
-        self.index.init_index(
-            max_elements=max_elements,
-            ef_construction=ef_construction,
-            M=M,
-        )
+        
+        if init:
+            self.index.init_index(
+                max_elements=max_elements,
+                ef_construction=ef_construction,
+                M=M,
+            )
 
         # Track current element count
         self._current_count = 0
@@ -334,6 +338,7 @@ def load_hnsw_store(
     store = HnswVectorStore(
         embedding_dim=embedding_dim,
         max_elements=max_elements,
+        init=False,
     )
     store.load(path, max_elements=max_elements)
     return store

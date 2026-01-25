@@ -3,7 +3,7 @@
  * Provides endpoints to project polygons and resolve POB
  */
 
-const API_BASE = 'http://localhost:8000/api/mapping/georeference';
+const API_BASE = 'http://127.0.0.1:8000/api/mapping/georeference';
 
 export interface LocalCoordinate {
   x: number;

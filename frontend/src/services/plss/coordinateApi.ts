@@ -43,7 +43,7 @@ export interface PLSSCoordinateResult {
  * Provides direct backend communication for PLSS coordinate operations
  */
 export class PLSSCoordinateService {
-  private readonly apiBase = 'http://localhost:8000/api/plss';
+  private readonly apiBase = 'http://127.0.0.1:8000/api/plss';
 
   /**
    * Find nearest PLSS feature to given coordinates

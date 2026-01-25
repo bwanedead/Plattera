@@ -54,7 +54,9 @@ async def check_system_health():
         )
         global _LAST_HEALTH_LOG_TS
         now = time.time()
-        if now - _LAST_HEALTH_LOG_TS > 60:
+        overall_status = str(health_status.get("overall_status", "unknown"))
+        should_log_info = overall_status not in ("healthy", "maintenance_needed")
+        if now - _LAST_HEALTH_LOG_TS > 60 and should_log_info:
             logger.info(msg)
             _LAST_HEALTH_LOG_TS = now
         else:

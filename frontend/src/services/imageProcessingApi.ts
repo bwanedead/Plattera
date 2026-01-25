@@ -36,7 +36,7 @@ export const processFilesAPI = async (
     if (userInstruction) form.append('user_instruction', userInstruction);
     // Do NOT send a single transcription_id for batch; server will generate per-file IDs
 
-    const resp = await fetch('http://localhost:8000/api/image-to-text/jobs', { method: 'POST', body: form });
+    const resp = await fetch('http://127.0.0.1:8000/api/image-to-text/jobs', { method: 'POST', body: form });
     const data = await resp.json();
     if (!resp.ok) {
       throw new Error(data?.detail || data?.error || `HTTP ${resp.status}`);
@@ -71,7 +71,7 @@ export const processFilesAPI = async (
     if (transcriptionId) formData.append('transcription_id', transcriptionId);
     if (userInstruction) formData.append('user_instruction', userInstruction);
 
-    const endpoint = dossierId ? 'http://localhost:8000/api/dossier/process' : 'http://localhost:8000/api/process';
+    const endpoint = dossierId ? 'http://127.0.0.1:8000/api/dossier/process' : 'http://127.0.0.1:8000/api/process';
     const response = await fetch(endpoint, { method: 'POST', body: formData });
     const data = await response.json();
     if (data.status === 'success') {
@@ -121,7 +121,7 @@ export const retryLlmConsensusAPI = async (params: {
   dossierId?: string;
   transcriptionId?: string;
 }): Promise<{ success: boolean; consensus_text?: string; consensus_title?: string; error?: string }> => {
-  const response = await fetch('http://localhost:8000/api/llm-consensus/generate', {
+  const response = await fetch('http://127.0.0.1:8000/api/llm-consensus/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -146,7 +146,7 @@ export const alignDraftsAPI = async (
     console.log(`Aligning ${drafts.length} drafts with strategy: ${consensusStrategy}`);
     
     const attempt = async () => {
-      const response = await fetch('http://localhost:8000/api/alignment/align-drafts', {
+      const response = await fetch('http://127.0.0.1:8000/api/alignment/align-drafts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -277,7 +277,7 @@ export const saveDossierEditAPI = async (params: {
     formData.append('alignment_draft_index', String(params.alignmentDraftIndex));
   }
 
-  const response = await fetch('http://localhost:8000/api/dossier/edits/save', {
+  const response = await fetch('http://127.0.0.1:8000/api/dossier/edits/save', {
     method: 'POST',
     body: formData
   });
@@ -336,7 +336,7 @@ export const revertToV1API = async (params: {
     formData.append('draft_index', String(params.draftIndex));
   }
 
-  const response = await fetch('http://localhost:8000/api/dossier/versions/revert-to-v1', {
+  const response = await fetch('http://127.0.0.1:8000/api/dossier/versions/revert-to-v1', {
     method: 'POST',
     body: formData
   });

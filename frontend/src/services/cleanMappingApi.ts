@@ -3,7 +3,7 @@
  * Simple, fast mapping operations using new backend services
  */
 
-const API_BASE = 'http://localhost:8000/api/mapping';
+const API_BASE = 'http://127.0.0.1:8000/api/mapping';
 
 export interface ProjectPolygonRequest {
   local_coordinates: Array<{ x: number; y: number }>;

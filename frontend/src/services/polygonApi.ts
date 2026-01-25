@@ -56,7 +56,7 @@ export interface PolygonDrawingResponse {
   error?: string;
 }
 
-const API_BASE_URL = 'http://localhost:8000/api/polygon';
+const API_BASE_URL = 'http://127.0.0.1:8000/api/polygon';
 
 /**
  * Generate polygon coordinates from structured parcel data

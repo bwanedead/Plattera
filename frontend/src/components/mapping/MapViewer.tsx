@@ -12,7 +12,7 @@ interface MapViewerProps {
   plssPadding?: number;
 }
 
-const API_BASE = 'http://localhost:8000/api/mapping';
+const API_BASE = 'http://127.0.0.1:8000/api/mapping';
 
 export const MapViewer: React.FC<MapViewerProps> = ({
   polygonData,

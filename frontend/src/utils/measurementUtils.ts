@@ -87,7 +87,7 @@ export async function calculateEndPointBackend(
   try {
     console.log(`🧮 Calling backend ${method} calculation...`);
 
-    const response = await fetch('http://localhost:8000/api/mapping/coordinates/calculate-endpoint', {
+    const response = await fetch('http://127.0.0.1:8000/api/mapping/coordinates/calculate-endpoint', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

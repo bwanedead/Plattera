@@ -85,10 +85,36 @@ export function useIndexMaintenance(initialPool: PoolIdentifier = 'FINAL_SEGMENT
   }, [diagnoseResult, isLoadingDiagnose, pool, fetchDiagnose]);
 
   // ============================================================================
+  // JOB POLLING
+  // ============================================================================
+
+  const pollJob = useCallback(async (jobId: string) => {
+    try {
+      const job = await indexMaintenanceApi.getIndexJob(jobId);
+      setActiveJob(job);
+
+      if (['queued', 'running'].includes(job.status)) {
+        // Continue polling
+        jobPollTimeoutRef.current = window.setTimeout(() => pollJob(jobId), 1000);
+      } else {
+        // Terminal state
+        setActiveJobId(null);
+        // Refresh diagnose to show new counts
+        fetchDiagnose();
+      }
+    } catch (err) {
+      console.error('Job poll failed:', err);
+      // Stop polling on 404/error? Or retry?
+      // For now, retry slower
+      jobPollTimeoutRef.current = window.setTimeout(() => pollJob(jobId), 3000);
+    }
+  }, [fetchDiagnose]);
+
+  // ============================================================================
   // EXECUTION
   // ============================================================================
 
-  const executeIndex = async (req: Omit<ExecuteIndexRequest, 'pool_identifier'>) => {
+  const executeIndex = useCallback(async (req: Omit<ExecuteIndexRequest, 'pool_identifier'>) => {
     setIsExecuting(true);
     try {
       const res = await indexMaintenanceApi.executeIndex({
@@ -105,7 +131,7 @@ export function useIndexMaintenance(initialPool: PoolIdentifier = 'FINAL_SEGMENT
     } finally {
       setIsExecuting(false);
     }
-  };
+  }, [pool, pollJob]);
 
   const bootstrapIndex = useCallback(async () => {
     setError(null);
@@ -117,36 +143,6 @@ export function useIndexMaintenance(initialPool: PoolIdentifier = 'FINAL_SEGMENT
       setError(err.message || 'Failed to bootstrap index');
     }
   }, [pool, fetchDiagnose]);
-
-  // ============================================================================
-  // JOB POLLING
-  // ============================================================================
-
-  const pollJob = useCallback(async (jobId: string) => {
-    try {
-      const job = await indexMaintenanceApi.getIndexJob(jobId);
-      setActiveJob(job);
-
-      if (['queued', 'running'].includes(job.status)) {
-        // Continue polling
-        jobPollTimeoutRef.current = window.setTimeout(() => pollJob(jobId), 1000);
-        
-        // Optionally refresh diagnose periodically while running (every ~5s)
-        // For simplicity v0, we won't strictly enforce a 5s diagnose poll unless requested,
-        // but the brief says "optionally re-diagnose every 3-5s". 
-        // Let's stick to simple post-job refresh for now to avoid race conditions.
-      } else {
-        // Terminal state
-        // Refresh diagnose to show new counts
-        fetchDiagnose();
-      }
-    } catch (err) {
-      console.error('Job poll failed:', err);
-      // Stop polling on 404/error? Or retry?
-      // For now, retry slower
-      jobPollTimeoutRef.current = window.setTimeout(() => pollJob(jobId), 3000);
-    }
-  }, [fetchDiagnose]);
 
   // Cleanup timers
   useEffect(() => {
@@ -163,6 +159,7 @@ export function useIndexMaintenance(initialPool: PoolIdentifier = 'FINAL_SEGMENT
     isLoadingDiagnose,
     error,
     activeJob,
+    activeJobId,
     isExecuting,
     executeIndex,
     bootstrapIndex,

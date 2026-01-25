@@ -34,7 +34,7 @@ export const MapEngine: React.FC<MapEngineProps> = ({
 				sources: {
 					'raster-tiles': {
 						type: 'raster',
-						tiles: ['http://localhost:8000/api/mapping/tile/usgs_topo/{z}/{x}/{y}'],
+						tiles: ['http://127.0.0.1:8000/api/mapping/tile/usgs_topo/{z}/{x}/{y}'],
 						tileSize: 256,
 						minzoom: 0,
 						maxzoom: 16,

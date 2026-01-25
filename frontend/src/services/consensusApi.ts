@@ -21,7 +21,7 @@ export interface ConsensusGenerationResponse {
  */
 export async function generateConsensusDrafts(alignmentResults: any): Promise<ConsensusGenerationResponse> {
   try {
-    const response = await fetch('http://localhost:8000/api/consensus/generate-consensus', {  // ← FIX: Add full URL
+    const response = await fetch('http://127.0.0.1:8000/api/consensus/generate-consensus', {  // ← FIX: Add full URL
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

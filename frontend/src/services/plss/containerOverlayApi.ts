@@ -32,7 +32,7 @@ export interface ContainerOverlayResponse {
 }
 
 export class ContainerOverlayApi {
-  private baseUrl = 'http://localhost:8000/api/plss/container';
+  private baseUrl = 'http://127.0.0.1:8000/api/plss/container';
 
   /**
    * Get container overlay for a specific layer

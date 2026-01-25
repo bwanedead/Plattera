@@ -1,6 +1,6 @@
 import { AssetProgress, AssetRow } from '../../types/assets';
 
-const apiBase = 'http://localhost:8000/api';
+const apiBase = 'http://127.0.0.1:8000/api';
 
 export class AssetsApi {
   async listAssets(plssState?: string | null): Promise<AssetRow[]> {

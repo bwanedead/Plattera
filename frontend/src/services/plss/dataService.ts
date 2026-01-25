@@ -46,7 +46,7 @@ export interface PLSSDataDownloadResult {
  * - Extracting state information from various data sources
  */
 export class PLSSDataService {
-  private readonly apiBase = 'http://localhost:8000/api/mapping';
+  private readonly apiBase = 'http://127.0.0.1:8000/api/mapping';
 
   /**
    * Check if PLSS data is available locally for a given state

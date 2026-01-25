@@ -15,7 +15,7 @@ class DossierApiError extends Error {
 }
 
 class DossierApiClient {
-  private baseUrl = 'http://localhost:8000/api';
+  private baseUrl = 'http://127.0.0.1:8000/api';
   private retryAttempts = 5; // trimmed for quicker feedback
   private retryDelay = 400;  // slightly lower base delay
   private warmedUp = false;  // mark after first success

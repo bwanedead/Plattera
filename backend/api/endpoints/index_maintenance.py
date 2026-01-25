@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import asdict
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -39,11 +41,88 @@ from services.index_maintenance import (
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 MAX_DIAGNOSE_SLICE_LIMIT = 1000
 DEFAULT_DIAGNOSE_LIMIT = 200
 MAX_EXECUTE_LIMIT = 100
 DEFAULT_EXECUTE_LIMIT = 25
+
+
+def _truncate(value: Optional[str], max_len: int = 200) -> Optional[str]:
+    if value is None:
+        return None
+    if len(value) <= max_len:
+        return value
+    return value[: max_len - 3] + "..."
+
+
+def _shorten(value: Optional[str], length: int = 8) -> Optional[str]:
+    if not value:
+        return value
+    return value[:length]
+
+
+def _log_event(name: str, **fields: object) -> None:
+    emoji = ""
+    if name == "index_bootstrap_result":
+        emoji = "🔧"
+    elif name == "index_execute_requested":
+        emoji = "📥"
+    elif name == "index_job_started":
+        emoji = "▶️"
+    elif name == "index_job_finished":
+        status_value = fields.get("status")
+        status_token = str(status_value).lower() if status_value is not None else ""
+        emoji = "🏁✅" if status_token in ("succeeded", "ok", "success") else "🏁❌"
+    elif name == "index_slice_executed":
+        status_value = fields.get("status")
+        emoji = "❌" if status_value and status_value != "healthy" else "✅"
+    elif name == "index_job_progress":
+        emoji = "⏳"
+    elif name == "index_job_separator":
+        emoji = "─"
+
+    if name == "index_slice_executed":
+        message = (
+            f"{name} {emoji} dossier={fields.get('dossier_id')} entry={fields.get('entry_id')} "
+            f"+{fields.get('chunks_added')} -{fields.get('deleted_count')} "
+            f"status={fields.get('status')} pool={fields.get('pool_identifier')}"
+        )
+    elif name == "index_job_finished":
+        message = (
+            f"{name} {emoji} job={fields.get('job_id')} pool={fields.get('pool_identifier')} "
+            f"status={fields.get('status')} ok={fields.get('ok')} failed={fields.get('failed')} "
+            f"duration_ms={fields.get('duration_ms')}"
+        )
+    elif name == "index_job_started":
+        message = (
+            f"{name} {emoji} job={fields.get('job_id')} pool={fields.get('pool_identifier')} "
+            f"total={fields.get('total_slices')} model_id={fields.get('model_id')} "
+            f"model_fp={fields.get('model_fp')} chunking={fields.get('chunking_policy_id')}"
+        )
+    elif name == "index_execute_requested":
+        message = (
+            f"{name} {emoji} job={fields.get('job_id')} pool={fields.get('pool_identifier')} "
+            f"mode={fields.get('mode')} selected={fields.get('selected_slices')} "
+            f"limit={fields.get('limit')} dry_run={fields.get('dry_run')}"
+        )
+    elif name == "index_bootstrap_result":
+        message = (
+            f"{name} {emoji} pool={fields.get('pool_identifier')} "
+            f"status={fields.get('status')} reason={fields.get('reason_code') or 'none'}"
+        )
+    elif name == "index_job_progress":
+        message = (
+            f"{name} {emoji} job={fields.get('job_id')} pool={fields.get('pool_identifier')} "
+            f"done={fields.get('done')}/{fields.get('total')} ok={fields.get('ok')} "
+            f"failed={fields.get('failed')}"
+        )
+    elif name == "index_job_separator":
+        message = f"{name} {emoji * 24}"
+    else:
+        message = name
+    logger.info(message, extra={"event": name, **fields})
 
 
 class ExecuteRequest(BaseModel):
@@ -224,19 +303,52 @@ def _run_job(
     pool_identifier: str,
     selection: List[SliceDiagnosis],
     runtime_identity: RuntimeIndexIdentity,
+    model_id: Optional[str],
     dry_run: bool,
 ) -> None:
     store = IndexMaintenanceJobStore()
     now = datetime.utcnow().isoformat()
     store.update_status(job_id, IndexMaintenanceJobStatus.RUNNING, started_at=now)
+    start_time = time.monotonic()
+    _log_event(
+        "index_job_started",
+        job_id=job_id,
+        pool_identifier=pool_identifier,
+        total_slices=len(selection),
+        model_id=model_id,
+        model_fp=_shorten(runtime_identity.embedding_model_fingerprint),
+        chunking_policy_id=runtime_identity.chunking_policy_id,
+    )
+    _log_event(
+        "index_job_separator",
+        job_id=job_id,
+        pool_identifier=pool_identifier,
+    )
 
     open_result = safe_open_pool(pool_identifier)
     if open_result.report.status != PoolOpenStatus.OK or open_result.store is None:
+        error = (
+            open_result.report.reason_code.value
+            if open_result.report.reason_code
+            else "unavailable"
+        )
         store.update_status(
             job_id,
             IndexMaintenanceJobStatus.FAILED,
             finished_at=datetime.utcnow().isoformat(),
-            error=open_result.report.reason_code.value if open_result.report.reason_code else "unavailable",
+            error=error,
+        )
+        _log_event(
+            "index_job_finished",
+            job_id=job_id,
+            pool_identifier=pool_identifier,
+            status=IndexMaintenanceJobStatus.FAILED.value,
+            total=len(selection),
+            done=0,
+            ok=0,
+            failed=len(selection),
+            duration_ms=int((time.monotonic() - start_time) * 1000),
+            error=_truncate(error),
         )
         return
 
@@ -254,6 +366,7 @@ def _run_job(
     )
 
     progress = IndexMaintenanceProgress(total=len(selection), done=0, ok=0, failed=0)
+    last_progress_time = time.monotonic()
     for diagnosis in selection:
         if dry_run:
             result = IndexMaintenanceSliceResult(
@@ -293,15 +406,73 @@ def _run_job(
             results=results,
         )
 
+        if not dry_run:
+            deleted_count = getattr(exec_result, "deleted_count", 0)
+            chunks_added = getattr(exec_result, "chunks_added", 0)
+            did_write_state = getattr(exec_result, "did_write_state", False)
+            status_value = exec_result.status.value
+            reason = _truncate(exec_result.reason)
+            if (
+                deleted_count > 0
+                or chunks_added > 0
+                or did_write_state
+                or exec_result.status != SliceStatus.HEALTHY
+            ):
+                _log_event(
+                    "index_slice_executed",
+                    job_id=job_id,
+                    pool_identifier=pool_identifier,
+                    dossier_id=exec_result.dossier_id,
+                    entry_id=exec_result.entry_id,
+                    status=status_value,
+                    deleted_count=deleted_count,
+                    chunks_added=chunks_added,
+                    did_write_state=did_write_state,
+                    reason=reason,
+                )
+
+        now_time = time.monotonic()
+        if progress.done % 10 == 0 or (now_time - last_progress_time) >= 5:
+            _log_event(
+                "index_job_progress",
+                job_id=job_id,
+                pool_identifier=pool_identifier,
+                done=progress.done,
+                total=progress.total,
+                ok=progress.ok,
+                failed=progress.failed,
+            )
+            last_progress_time = now_time
+
     final_status = (
         IndexMaintenanceJobStatus.SUCCEEDED
         if progress.failed == 0
         else IndexMaintenanceJobStatus.FAILED
     )
+    error = None
+    if final_status == IndexMaintenanceJobStatus.FAILED:
+        error = "slice_failures"
     store.update_status(
         job_id,
         final_status,
         finished_at=datetime.utcnow().isoformat(),
+    )
+    _log_event(
+        "index_job_separator",
+        job_id=job_id,
+        pool_identifier=pool_identifier,
+    )
+    _log_event(
+        "index_job_finished",
+        job_id=job_id,
+        pool_identifier=pool_identifier,
+        status=final_status.value,
+        total=progress.total,
+        done=progress.done,
+        ok=progress.ok,
+        failed=progress.failed,
+        duration_ms=int((time.monotonic() - start_time) * 1000),
+        error=_truncate(error),
     )
 
 
@@ -366,6 +537,13 @@ async def bootstrap_index(payload: BootstrapRequest) -> Dict:
         bootstrap_report = bootstrap_pool_artifacts(
             pool_identifier=pool,
             force=payload.force,
+        )
+        _log_event(
+            "index_bootstrap_result",
+            pool_identifier=pool,
+            status=bootstrap_report.status.value,
+            reason_code=bootstrap_report.reason_code.value if bootstrap_report.reason_code else None,
+            detail=_truncate(bootstrap_report.detail),
         )
         open_result = safe_open_pool(pool)
         results.append(
@@ -439,6 +617,26 @@ async def execute_index(
         job.id,
         progress=IndexMaintenanceProgress(total=len(selection)).__dict__,
     )
+    counts = _build_counts(diagnoses)
+    model_id = None
+    try:
+        model_info = resolve_embedding_model(AssetsService())
+        model_id = model_info.asset_id
+    except Exception:
+        model_id = None
+    _log_event(
+        "index_execute_requested",
+        job_id=job.id,
+        pool_identifier=payload.pool_identifier,
+        mode=payload.mode,
+        limit=request.limit,
+        dossier_id=payload.dossier_id or "*",
+        dry_run=payload.dry_run,
+        selected_slices=len(selection),
+        missing_count=counts["missing"],
+        stale_count=counts["stale"],
+        unavailable_count=counts["unavailable"],
+    )
 
     if not selection:
         store.update_status(
@@ -454,6 +652,7 @@ async def execute_index(
         pool_identifier=payload.pool_identifier,
         selection=selection,
         runtime_identity=runtime_identity,
+        model_id=model_id,
         dry_run=payload.dry_run,
     )
     return {"job_id": job.id, "status": IndexMaintenanceJobStatus.QUEUED.value}

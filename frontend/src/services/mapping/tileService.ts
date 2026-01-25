@@ -29,7 +29,7 @@ export interface TileConfig {
 }
 
 class TileService {
-  private apiBase = 'http://localhost:8000/api/mapping';
+  private apiBase = 'http://127.0.0.1:8000/api/mapping';
   private providers: Map<string, TileProvider> = new Map();
   private config: TileConfig | null = null;
 

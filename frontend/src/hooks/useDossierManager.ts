@@ -629,7 +629,7 @@ export function useDossierManager() {
 
     try {
       // New job-based bulk delete: start job, drive progress via SSE then polling
-      const startRes = await fetch('http://localhost:8000/api/dossier-management/bulk/start', {
+      const startRes = await fetch('http://127.0.0.1:8000/api/dossier-management/bulk/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetIds: itemIds })
@@ -651,7 +651,7 @@ export function useDossierManager() {
           if (ok) resolve(); else reject(new Error('Bulk delete failed'));
         };
         try {
-          es = new EventSource(`http://localhost:8000/api/dossier/bulk/progress/${encodeURIComponent(jobId)}`);
+          es = new EventSource(`http://127.0.0.1:8000/api/dossier/bulk/progress/${encodeURIComponent(jobId)}`);
           es.onmessage = (ev) => {
             try {
               const data = JSON.parse(ev.data || '{}');
@@ -672,7 +672,7 @@ export function useDossierManager() {
             const poll = async () => {
               try {
                 while (!completed) {
-                  const stRes = await fetch(`http://localhost:8000/api/dossier-management/bulk/status/${encodeURIComponent(jobId)}`);
+                  const stRes = await fetch(`http://127.0.0.1:8000/api/dossier-management/bulk/status/${encodeURIComponent(jobId)}`);
                   if (!stRes.ok) throw new Error('status failed');
                   const st = await stRes.json();
                   doneCount = st.done || 0;
