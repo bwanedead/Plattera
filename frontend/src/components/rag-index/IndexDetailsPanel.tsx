@@ -5,12 +5,16 @@ import { dossierApi } from '../../services/dossier/dossierApi';
 interface IndexDetailsPanelProps {
   diagnose: DiagnoseResponse | null;
   detailsOpen: boolean;
+  statusFilter: string | null;
+  clearStatusFilter: () => void;
   toggleDetails: () => void;
 }
 
 export const IndexDetailsPanel: React.FC<IndexDetailsPanelProps> = ({
   diagnose,
   detailsOpen,
+  statusFilter,
+  clearStatusFilter,
   toggleDetails
 }) => {
   const [dossierTitles, setDossierTitles] = useState<Record<string, string>>({});
@@ -49,6 +53,18 @@ export const IndexDetailsPanel: React.FC<IndexDetailsPanelProps> = ({
 
       {detailsOpen && diagnose && (
         <div className="details-content">
+          {statusFilter && (
+            <div style={{ padding: '8px 16px', fontSize: '0.7rem', color: '#9ca3af' }}>
+              Filter: <strong style={{ color: '#e5e7eb' }}>{statusFilter.toUpperCase()}</strong>{' '}
+              <button
+                type="button"
+                onClick={clearStatusFilter}
+                style={{ marginLeft: 8, background: 'transparent', border: 'none', color: '#60a5fa', cursor: 'pointer' }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
           {!diagnose.slice_diagnoses ? (
             <div style={{ padding: 16, textAlign: 'center', color: '#64748b' }}>
               Loading slices...
@@ -63,7 +79,15 @@ export const IndexDetailsPanel: React.FC<IndexDetailsPanelProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {diagnose.slice_diagnoses.map((slice, i) => {
+                {(statusFilter
+                  ? diagnose.slice_diagnoses.filter((slice) => {
+                      if (statusFilter === 'stale') {
+                        return slice.status === 'stale_content' || slice.status === 'stale_identity';
+                      }
+                      return slice.status === statusFilter;
+                    })
+                  : diagnose.slice_diagnoses
+                ).map((slice, i) => {
                   const dossierLabel = dossierTitles[slice.dossier_id] || slice.dossier_id;
                   const showId = dossierLabel !== slice.dossier_id;
                   return (
@@ -78,7 +102,7 @@ export const IndexDetailsPanel: React.FC<IndexDetailsPanelProps> = ({
                       </td>
                       <td>
                         <span className={`slice-status-badge ${slice.status}`}>
-                          {slice.status}
+                          {slice.status.toUpperCase()}
                         </span>
                       </td>
                       <td>{slice.reason}</td>

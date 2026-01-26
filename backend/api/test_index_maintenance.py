@@ -142,6 +142,32 @@ def test_select_slices_orders_and_limits() -> None:
     assert [d.entry_id for d in selected] == ["A", "C"]
 
 
+def test_select_slices_prune_orphans() -> None:
+    diagnoses = [
+        SliceDiagnosis(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="D1",
+            entry_id="A",
+            status=SliceStatus.ORPHANED,
+        ),
+        SliceDiagnosis(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="D1",
+            entry_id="B",
+            status=SliceStatus.MISSING,
+        ),
+        SliceDiagnosis(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="D2",
+            entry_id="C",
+            status=SliceStatus.ORPHANED,
+        ),
+    ]
+
+    selected = endpoint._select_slices(diagnoses, "prune_orphans", 10)
+    assert [d.entry_id for d in selected] == ["A", "C"]
+
+
 def test_execute_creates_job_record(tmp_path: Path, monkeypatch) -> None:
 
     identity = RuntimeIndexIdentity(

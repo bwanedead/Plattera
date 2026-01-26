@@ -15,7 +15,13 @@ export interface PoolHealthReport {
   compact_threshold: number;
 }
 
-export type SliceStatus = 'HEALTHY' | 'MISSING' | 'STALE_CONTENT' | 'STALE_IDENTITY' | 'UNAVAILABLE';
+export type SliceStatus =
+  | 'healthy'
+  | 'missing'
+  | 'stale_content'
+  | 'stale_identity'
+  | 'unavailable'
+  | 'orphaned';
 
 export interface SliceDiagnosis {
   dossier_id: string;
@@ -31,6 +37,7 @@ export interface DiagnosisCounts {
   missing: number;
   stale: number;
   unavailable: number;
+  orphaned: number;
 }
 
 export interface DiagnoseResponse {
@@ -71,7 +78,7 @@ export interface IndexJob {
   error?: string;
 }
 
-export type IndexMode = 'missing_only' | 'missing_and_stale';
+export type IndexMode = 'missing_only' | 'missing_and_stale' | 'prune_orphans';
 
 export interface ExecuteIndexRequest {
   pool_identifier: PoolIdentifier;

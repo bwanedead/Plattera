@@ -21,6 +21,9 @@ class DiagnosticReasonCode(str, Enum):
     STALE_SIGNATURE_MISMATCH = "stale_signature_mismatch"
     STALE_IDENTITY_MISMATCH = "stale_identity_mismatch"
 
+    # Orphaned states
+    ORPHANED_NOT_IN_INVENTORY = "orphaned_not_in_inventory"
+
     # Unavailable states
     UNAVAILABLE_MISSING_CONTENT_HASH = "unavailable_missing_content_hash"
     UNAVAILABLE_HYDRATION_FAILED = "unavailable_hydration_failed"

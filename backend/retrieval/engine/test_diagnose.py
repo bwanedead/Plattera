@@ -221,6 +221,50 @@ def test_diagnose_unavailable_runtime_identity_missing() -> None:
         assert results[0].reason == DiagnosticReasonCode.UNAVAILABLE_RUNTIME_IDENTITY_MISSING.value
 
 
+def test_diagnose_orphaned_entries() -> None:
+    entry = _make_entry("D1", "segment_final:D1:seg_001:T1", "Original text")
+    corpus = StubCorpusProvider(entries=[entry])
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "metadata.db"
+        store = VectorMetadataStore(db_path)
+
+        store.upsert_indexed_entry_state(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="D1",
+            entry_id="segment_final:D1:seg_001:T1",
+            indexed_signature=entry.content_hash or "",
+            embedding_model_fingerprint="model_v1",
+            chunking_policy_id="policy_v1",
+        )
+        store.upsert_indexed_entry_state(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="D1",
+            entry_id="segment_final:D1:seg_orphan:T1",
+            indexed_signature="sig_orphan",
+            embedding_model_fingerprint="model_v1",
+            chunking_policy_id="policy_v1",
+        )
+
+        diagnoser = SliceDiagnoser(
+            corpus_provider=corpus,
+            metadata_store=store,
+            pool_identifier="FINAL_SEGMENTS",
+            runtime_identity=RuntimeIndexIdentity(
+                embedding_model_fingerprint="model_v1",
+                chunking_policy_id="policy_v1",
+            ),
+        )
+
+        results = {d.entry_id: d for d in diagnoser.diagnose()}
+        assert results["segment_final:D1:seg_001:T1"].status == SliceStatus.HEALTHY
+        assert results["segment_final:D1:seg_orphan:T1"].status == SliceStatus.ORPHANED
+        assert (
+            results["segment_final:D1:seg_orphan:T1"].reason
+            == DiagnosticReasonCode.ORPHANED_NOT_IN_INVENTORY.value
+        )
+
+
 def test_diagnose_stale_identity_mismatch() -> None:
     """Test stale identity due to model or policy mismatch."""
     entry = _make_entry("D1", "segment_final:D1:seg_001:T1", "Original text")

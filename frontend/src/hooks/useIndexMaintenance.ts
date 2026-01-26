@@ -133,6 +133,37 @@ export function useIndexMaintenance(initialPool: PoolIdentifier = 'FINAL_SEGMENT
     }
   }, [pool, pollJob]);
 
+  const executeIndexAndWait = useCallback(async (req: Omit<ExecuteIndexRequest, 'pool_identifier'>) => {
+    setIsExecuting(true);
+    try {
+      const res = await indexMaintenanceApi.executeIndex({
+        ...req,
+        pool_identifier: pool
+      });
+      setActiveJobId(res.job_id);
+      setActiveJob(null);
+
+      let job = await indexMaintenanceApi.getIndexJob(res.job_id);
+      setActiveJob(job);
+
+      while (['queued', 'running'].includes(job.status)) {
+        await new Promise(resolve => window.setTimeout(resolve, 1000));
+        job = await indexMaintenanceApi.getIndexJob(res.job_id);
+        setActiveJob(job);
+      }
+
+      setActiveJobId(null);
+      fetchDiagnose();
+      return job;
+    } catch (err: any) {
+      console.error('Execute failed:', err);
+      setError(err.message || 'Failed to start indexing job');
+      throw err;
+    } finally {
+      setIsExecuting(false);
+    }
+  }, [pool, fetchDiagnose]);
+
   const bootstrapIndex = useCallback(async () => {
     setError(null);
     try {
@@ -162,6 +193,7 @@ export function useIndexMaintenance(initialPool: PoolIdentifier = 'FINAL_SEGMENT
     activeJobId,
     isExecuting,
     executeIndex,
+    executeIndexAndWait,
     bootstrapIndex,
     detailsOpen,
     setDetailsOpen,

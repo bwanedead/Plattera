@@ -18,6 +18,7 @@ class SliceStatus(str, Enum):
     STALE_IDENTITY = "stale_identity"
     UNAVAILABLE = "unavailable"
     HEALTHY = "healthy"
+    ORPHANED = "orphaned"
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,9 @@ class SliceDiagnoser:
         )
 
         results: List[SliceDiagnosis] = []
+        desired_keys: set[tuple[str, str]] = set()
         for inv in inventory:
+            desired_keys.add((inv.dossier_id, inv.entry_id))
             # Handle unavailable slices from inventory (hydration failures, missing content, etc.)
             if inv.unavailable_reason:
                 results.append(
@@ -173,6 +176,31 @@ class SliceDiagnoser:
                     desired_signature=inv.desired_signature,
                     indexed_signature=state.indexed_signature,
                     reason=None,
+                )
+            )
+
+        indexed_keys = set(
+            self.metadata_store.list_indexed_entry_keys(
+                pool_identifier=self.pool_identifier,
+                dossier_id=dossier_id,
+            )
+        )
+        orphaned = sorted(indexed_keys - desired_keys)
+        for orphan_dossier_id, orphan_entry_id in orphaned:
+            state = self.metadata_store.get_indexed_entry_state(
+                pool_identifier=self.pool_identifier,
+                dossier_id=orphan_dossier_id,
+                entry_id=orphan_entry_id,
+            )
+            results.append(
+                SliceDiagnosis(
+                    pool_identifier=self.pool_identifier,
+                    dossier_id=orphan_dossier_id,
+                    entry_id=orphan_entry_id,
+                    status=SliceStatus.ORPHANED,
+                    desired_signature=None,
+                    indexed_signature=state.indexed_signature if state else None,
+                    reason=DiagnosticReasonCode.ORPHANED_NOT_IN_INVENTORY.value,
                 )
             )
 

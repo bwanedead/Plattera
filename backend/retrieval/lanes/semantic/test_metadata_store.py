@@ -377,6 +377,45 @@ def test_indexed_entry_state_upsert_and_get():
         assert updated.chunking_policy_id == "policy_v2"
 
 
+def test_list_and_delete_indexed_entry_keys():
+    """Store can list and delete indexed entry keys."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "metadata.db"
+        store = VectorMetadataStore(db_path)
+
+        store.upsert_indexed_entry_state(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="D1",
+            entry_id="entry_a",
+            indexed_signature="sig_a",
+            embedding_model_fingerprint="model_v1",
+            chunking_policy_id="policy_v1",
+        )
+        store.upsert_indexed_entry_state(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="D2",
+            entry_id="entry_b",
+            indexed_signature="sig_b",
+            embedding_model_fingerprint="model_v1",
+            chunking_policy_id="policy_v1",
+        )
+
+        keys = store.list_indexed_entry_keys(pool_identifier="FINAL_SEGMENTS")
+        assert keys == [("D1", "entry_a"), ("D2", "entry_b")]
+
+        keys_d1 = store.list_indexed_entry_keys(pool_identifier="FINAL_SEGMENTS", dossier_id="D1")
+        assert keys_d1 == [("D1", "entry_a")]
+
+        store.delete_indexed_entry_state(
+            pool_identifier="FINAL_SEGMENTS",
+            dossier_id="D1",
+            entry_id="entry_a",
+        )
+
+        remaining = store.list_indexed_entry_keys(pool_identifier="FINAL_SEGMENTS")
+        assert remaining == [("D2", "entry_b")]
+
+
 def test_schema_version_mismatch_detection():
     """Metadata store detects and fails on schema version mismatch."""
     import tempfile

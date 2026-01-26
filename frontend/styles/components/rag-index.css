@@ -132,6 +132,8 @@
   display: inline-flex;
   gap: 6px;
   align-items: center;
+  cursor: pointer;
+  appearance: none;
 }
 
 .metric-pill::before {
@@ -168,6 +170,11 @@
   box-shadow: 0 0 8px rgba(96, 165, 250, 0.6);
 }
 
+.metric-pill.orphaned::before {
+  background: #f97316;
+  box-shadow: 0 0 8px rgba(249, 115, 22, 0.6);
+}
+
 .metric-pill span {
   color: #f3f4f6;
   font-weight: 600;
@@ -177,6 +184,13 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.pool-actions-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .pool-actions-hint {
@@ -648,11 +662,12 @@
   font-weight: 600;
   letter-spacing: 0.02em;
 }
-.slice-status-badge.HEALTHY { background: rgba(52, 211, 153, 0.1); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.2); }
-.slice-status-badge.MISSING { background: rgba(251, 191, 36, 0.1); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.2); }
-.slice-status-badge.STALE_CONTENT { background: rgba(249, 115, 22, 0.1); color: #f97316; border: 1px solid rgba(249, 115, 22, 0.2); }
-.slice-status-badge.STALE_IDENTITY { background: rgba(249, 115, 22, 0.1); color: #f97316; border: 1px solid rgba(249, 115, 22, 0.2); }
-.slice-status-badge.UNAVAILABLE { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); }
+.slice-status-badge.healthy { background: rgba(52, 211, 153, 0.1); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.2); }
+.slice-status-badge.missing { background: rgba(251, 191, 36, 0.1); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.2); }
+.slice-status-badge.stale_content { background: rgba(249, 115, 22, 0.1); color: #f97316; border: 1px solid rgba(249, 115, 22, 0.2); }
+.slice-status-badge.stale_identity { background: rgba(249, 115, 22, 0.1); color: #f97316; border: 1px solid rgba(249, 115, 22, 0.2); }
+.slice-status-badge.unavailable { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); }
+.slice-status-badge.orphaned { background: rgba(249, 115, 22, 0.1); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.2); }
 
 .id-col {
   font-family: 'JetBrains Mono', monospace;

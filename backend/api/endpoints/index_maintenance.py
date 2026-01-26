@@ -77,7 +77,7 @@ def _log_event(name: str, **fields: object) -> None:
         emoji = "🏁✅" if status_token in ("succeeded", "ok", "success") else "🏁❌"
     elif name == "index_slice_executed":
         status_value = fields.get("status")
-        emoji = "❌" if status_value and status_value != "healthy" else "✅"
+        emoji = "❌" if status_value and status_value not in ("healthy", "pruned") else "✅"
     elif name == "index_job_progress":
         emoji = "⏳"
     elif name == "index_job_separator":
@@ -219,7 +219,13 @@ def _serialize_slice(slice_diag: SliceDiagnosis) -> Dict:
 
 
 def _build_counts(slices: List[SliceDiagnosis]) -> Dict[str, int]:
-    counts = {"healthy": 0, "missing": 0, "stale": 0, "unavailable": 0}
+    counts = {
+        "healthy": 0,
+        "missing": 0,
+        "stale": 0,
+        "unavailable": 0,
+        "orphaned": 0,
+    }
     for s in slices:
         if s.status == SliceStatus.HEALTHY:
             counts["healthy"] += 1
@@ -229,6 +235,8 @@ def _build_counts(slices: List[SliceDiagnosis]) -> Dict[str, int]:
             counts["stale"] += 1
         elif s.status == SliceStatus.UNAVAILABLE:
             counts["unavailable"] += 1
+        elif s.status == SliceStatus.ORPHANED:
+            counts["orphaned"] += 1
     return counts
 
 
@@ -244,7 +252,13 @@ def _fallback_unavailable(pool_identifier: str, exc: Exception) -> Dict:
         "pool_open": _serialize_pool_open(report),
         "pool_health": None,
         "slice_diagnoses": None,
-        "counts": {"healthy": 0, "missing": 0, "stale": 0, "unavailable": 0},
+        "counts": {
+            "healthy": 0,
+            "missing": 0,
+            "stale": 0,
+            "unavailable": 0,
+            "orphaned": 0,
+        },
     }
 
 
@@ -281,6 +295,8 @@ def _select_slices(
             for d in diagnoses
             if d.status in (SliceStatus.MISSING, SliceStatus.STALE_CONTENT, SliceStatus.STALE_IDENTITY)
         ]
+    elif mode == "prune_orphans":
+        candidates = [d for d in diagnoses if d.status == SliceStatus.ORPHANED]
     else:
         raise HTTPException(status_code=400, detail="Unsupported mode")
 
@@ -368,6 +384,12 @@ def _run_job(
     progress = IndexMaintenanceProgress(total=len(selection), done=0, ok=0, failed=0)
     last_progress_time = time.monotonic()
     for diagnosis in selection:
+        deleted_count = 0
+        chunks_added = 0
+        did_write_state = False
+        status_value = "unknown"
+        reason = None
+
         if dry_run:
             result = IndexMaintenanceSliceResult(
                 dossier_id=diagnosis.dossier_id,
@@ -376,8 +398,43 @@ def _run_job(
                 reason_code=None,
                 detail=None,
             )
+            status_value = "dry_run"
             progress.done += 1
             progress.ok += 1
+        elif diagnosis.status == SliceStatus.ORPHANED:
+            try:
+                deleted_count = open_result.store.delete_entry_slice(
+                    dossier_id=diagnosis.dossier_id,
+                    entry_id=diagnosis.entry_id,
+                )
+                open_result.store.metadata_store.delete_indexed_entry_state(
+                    pool_identifier=pool_identifier,
+                    dossier_id=diagnosis.dossier_id,
+                    entry_id=diagnosis.entry_id,
+                )
+                status_value = "pruned"
+                did_write_state = True
+                result = IndexMaintenanceSliceResult(
+                    dossier_id=diagnosis.dossier_id,
+                    entry_id=diagnosis.entry_id,
+                    status=status_value,
+                    reason_code=None,
+                    detail=None,
+                )
+                progress.done += 1
+                progress.ok += 1
+            except Exception as exc:
+                status_value = "failed"
+                reason = _truncate(str(exc))
+                result = IndexMaintenanceSliceResult(
+                    dossier_id=diagnosis.dossier_id,
+                    entry_id=diagnosis.entry_id,
+                    status=status_value,
+                    reason_code=None,
+                    detail=reason,
+                )
+                progress.done += 1
+                progress.failed += 1
         else:
             exec_result = executor.execute_entry(
                 dossier_id=diagnosis.dossier_id,
@@ -391,6 +448,11 @@ def _run_job(
                 reason_code=reason_code,
                 detail=None if reason_code else exec_result.reason,
             )
+            deleted_count = getattr(exec_result, "deleted_count", 0)
+            chunks_added = getattr(exec_result, "chunks_added", 0)
+            did_write_state = getattr(exec_result, "did_write_state", False)
+            status_value = exec_result.status.value
+            reason = _truncate(exec_result.reason)
             progress.done += 1
             if exec_result.status == SliceStatus.HEALTHY:
                 progress.ok += 1
@@ -407,23 +469,18 @@ def _run_job(
         )
 
         if not dry_run:
-            deleted_count = getattr(exec_result, "deleted_count", 0)
-            chunks_added = getattr(exec_result, "chunks_added", 0)
-            did_write_state = getattr(exec_result, "did_write_state", False)
-            status_value = exec_result.status.value
-            reason = _truncate(exec_result.reason)
             if (
                 deleted_count > 0
                 or chunks_added > 0
                 or did_write_state
-                or exec_result.status != SliceStatus.HEALTHY
+                or status_value not in ("healthy", "pruned")
             ):
                 _log_event(
                     "index_slice_executed",
                     job_id=job_id,
                     pool_identifier=pool_identifier,
-                    dossier_id=exec_result.dossier_id,
-                    entry_id=exec_result.entry_id,
+                    dossier_id=diagnosis.dossier_id,
+                    entry_id=diagnosis.entry_id,
                     status=status_value,
                     deleted_count=deleted_count,
                     chunks_added=chunks_added,

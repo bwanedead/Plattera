@@ -464,6 +464,62 @@ class VectorMetadataStore:
         finally:
             conn.close()
 
+    def list_indexed_entry_keys(
+        self, *, pool_identifier: str, dossier_id: Optional[str] = None
+    ) -> List[Tuple[str, str]]:
+        """
+        List indexed entry keys for a pool (optionally filtered by dossier).
+
+        Returns:
+            List of (dossier_id, entry_id) tuples.
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            if dossier_id:
+                cursor.execute(
+                    """
+                    SELECT dossier_id, entry_id
+                    FROM indexed_entry_state
+                    WHERE pool_identifier = ? AND dossier_id = ?
+                    ORDER BY dossier_id, entry_id
+                    """,
+                    (pool_identifier, dossier_id),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT dossier_id, entry_id
+                    FROM indexed_entry_state
+                    WHERE pool_identifier = ?
+                    ORDER BY dossier_id, entry_id
+                    """,
+                    (pool_identifier,),
+                )
+            return [(row[0], row[1]) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def delete_indexed_entry_state(
+        self, *, pool_identifier: str, dossier_id: str, entry_id: str
+    ) -> None:
+        """
+        Delete indexed entry state for a specific entry slice.
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                DELETE FROM indexed_entry_state
+                WHERE pool_identifier = ? AND dossier_id = ? AND entry_id = ?
+                """,
+                (pool_identifier, dossier_id, entry_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def mark_deleted(self, labels: List[int]) -> None:
         """
         Mark labels as deleted (tombstone).

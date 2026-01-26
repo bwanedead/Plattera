@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useIndexMaintenance } from '../../hooks/useIndexMaintenance';
-import { PoolIdentifier } from '../../types/retrieval';
+import { PoolIdentifier, SliceStatus } from '../../types/retrieval';
 import { IndexJobStrip } from './IndexJobStrip';
 import { IndexDetailsPanel } from './IndexDetailsPanel';
 
@@ -84,6 +84,7 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
     isLoadingDiagnose,
     refreshDiagnose,
     executeIndex,
+    executeIndexAndWait,
     bootstrapIndex,
     isExecuting,
     activeJob,
@@ -93,8 +94,9 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
   } = useIndexMaintenance(pool);
 
   const [bootstrapStatus, setBootstrapStatus] = useState<string | null>(null);
+  const [detailsFilter, setDetailsFilter] = useState<null | SliceStatus | 'stale'>(null);
 
-  const counts = diagnoseResult?.counts ?? { healthy: 0, missing: 0, stale: 0, unavailable: 0 };
+  const counts = diagnoseResult?.counts ?? { healthy: 0, missing: 0, stale: 0, unavailable: 0, orphaned: 0 };
   const poolHealth = diagnoseResult?.pool_health;
   const poolOpen = diagnoseResult?.pool_open;
   const isUnavailable = poolOpen?.status !== 'ok';
@@ -116,12 +118,15 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
     !!activeJobId;
   const isBusy = isIndexing || isLoadingDiagnose;
   const canExecute = !isInitializing && !embeddingMissing && !missingArtifacts && !isUnavailable;
+  const canPrune = !isInitializing && !isUnavailable;
 
   const statusTone = isInitializing
     ? 'info'
     : embeddingMissing || isUnavailable
     ? 'danger'
     : needsInitialize
+    ? 'warn'
+    : counts.orphaned > 0
     ? 'warn'
     : emptyButReady
     ? 'info'
@@ -135,6 +140,8 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
     ? 'Embeddings missing'
     : needsInitialize
     ? 'Not initialized'
+    : counts.orphaned > 0
+    ? 'Orphaned'
     : emptyButReady
     ? 'Empty (Ready)'
     : counts.stale > 0 || counts.missing > 0
@@ -148,6 +155,35 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
       dry_run: false
     });
   }, [executeIndex]);
+
+  const handleRepair = useCallback(async () => {
+    if (isBusy) return;
+    const needsIndexing = emptyButReady || counts.missing > 0 || counts.stale > 0;
+    const needsPrune = counts.orphaned > 0;
+
+    if (needsIndexing) {
+      await executeIndexAndWait({
+        mode: 'missing_and_stale',
+        limit: 25,
+        dry_run: false
+      });
+    }
+    if (needsPrune) {
+      await executeIndexAndWait({
+        mode: 'prune_orphans',
+        limit: Math.min(200, Math.max(1, counts.orphaned || 1)),
+        dry_run: false
+      });
+    }
+  }, [counts.missing, counts.orphaned, counts.stale, emptyButReady, executeIndexAndWait, isBusy]);
+
+  const handlePrune = useCallback(async () => {
+    await executeIndex({
+      mode: 'prune_orphans',
+      limit: Math.min(200, Math.max(1, counts.orphaned || 1)),
+      dry_run: false
+    });
+  }, [executeIndex, counts.orphaned]);
 
   const handleInitialize = useCallback(async () => {
     setBootstrapStatus('Initializing...');
@@ -195,18 +231,21 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
       </div>
 
       <div className="pool-metrics">
-        <div className="metric-pill healthy">
+        <button className="metric-pill healthy" type="button" onClick={() => { setDetailsOpen(true); setDetailsFilter('healthy'); }}>
           Healthy <span>{counts.healthy}</span>
-        </div>
-        <div className="metric-pill missing">
+        </button>
+        <button className="metric-pill missing" type="button" onClick={() => { setDetailsOpen(true); setDetailsFilter('missing'); }}>
           Missing <span>{counts.missing}</span>
-        </div>
-        <div className="metric-pill stale">
+        </button>
+        <button className="metric-pill stale" type="button" onClick={() => { setDetailsOpen(true); setDetailsFilter('stale'); }}>
           Stale <span>{counts.stale}</span>
-        </div>
-        <div className="metric-pill unavailable">
+        </button>
+        <button className="metric-pill orphaned" type="button" onClick={() => { setDetailsOpen(true); setDetailsFilter('orphaned'); }}>
+          Orphaned <span>{counts.orphaned}</span>
+        </button>
+        <button className="metric-pill unavailable" type="button" onClick={() => { setDetailsOpen(true); setDetailsFilter('unavailable'); }}>
           Unavailable <span>{counts.unavailable}</span>
-        </div>
+        </button>
         <div className="metric-pill info">
           Vectors <span>{poolHealth?.active_vectors ?? 0}</span>
         </div>
@@ -226,12 +265,25 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
             Initialize pool
           </button>
         ) : (
-          <button className="pool-btn primary" onClick={handleUpdate} disabled={isBusy || !canExecute}>
-            {isIndexing ? <span className="rag-spinner small" /> : null}
-            {isIndexing
-              ? (emptyButReady ? 'Indexing...' : 'Updating...')
-              : (emptyButReady ? 'Index now' : 'Update index')}
-          </button>
+          <div className="pool-actions-row">
+            {(counts.missing > 0 || counts.stale > 0 || counts.orphaned > 0 || emptyButReady) ? (
+              <button className="pool-btn primary" onClick={handleRepair} disabled={isBusy || !canExecute}>
+                {isIndexing ? <span className="rag-spinner small" /> : null}
+                {isIndexing ? 'Repairing...' : 'Repair index'}
+              </button>
+            ) : null}
+            <button className="pool-btn ghost" onClick={handleUpdate} disabled={isBusy || !canExecute}>
+              {isIndexing ? <span className="rag-spinner small" /> : null}
+              {isIndexing
+                ? (emptyButReady ? 'Indexing...' : 'Updating...')
+                : (emptyButReady ? 'Index now' : 'Update index')}
+            </button>
+            {counts.orphaned > 0 ? (
+              <button className="pool-btn ghost" onClick={handlePrune} disabled={isBusy || !canPrune}>
+                Prune deleted
+              </button>
+            ) : null}
+          </div>
         )}
         <div className="pool-actions-hint">
           {bootstrapStatus ? (
@@ -240,6 +292,8 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
             ? 'Embeddings are required before indexing.'
             : needsInitialize
             ? 'Creates empty index artifacts without indexing documents.'
+            : counts.orphaned > 0
+            ? 'Index contains deleted entries; prune to clean orphaned slices.'
             : emptyButReady
             ? 'Starts indexing from scratch.'
             : 'Indexes missing and stale entries only.'}
@@ -251,6 +305,8 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
       <IndexDetailsPanel
         diagnose={diagnoseResult}
         detailsOpen={detailsOpen}
+        statusFilter={detailsFilter}
+        clearStatusFilter={() => setDetailsFilter(null)}
         toggleDetails={() => setDetailsOpen(!detailsOpen)}
       />
     </div>
