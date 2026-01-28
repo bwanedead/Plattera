@@ -21,11 +21,14 @@ class EvidenceFormatter:
         title = card.title or card.id
         parts.append(f"[{card.lane}] {title} (score={card.score:.4f})")
         for i, span in enumerate(card.spans, start=1):
-            txt = span.text or ""
+            txt = span.text or span.preview or ""
             if len(txt) > self.max_chars_per_span:
                 txt = txt[: self.max_chars_per_span] + "…"
-            did = span.doc.doc_id
-            parts.append(f"  - span {i} ({did}): {txt}")
+            entry_id = span.entry.entry_id
+            dossier_id = span.entry.dossier_id or "unknown"
+            similarity = span.metadata.get("similarity_score") if span.metadata else None
+            sim_note = f" score={similarity:.4f}" if isinstance(similarity, (int, float)) else ""
+            parts.append(f"  - span {i} ({dossier_id}:{entry_id}){sim_note}: {txt}")
         return "\n".join(parts)
 
     def format_cards(self, cards: list[EvidenceCard], limit: Optional[int] = None) -> str:

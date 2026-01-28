@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from api.endpoints import models, processing, system, alignment, consensus, final_draft, text_to_schema, polygon, mapping, plss_overlays, georeference, plss_endpoints, coordinates_endpoints, llm_consensus
 from api.endpoints import assets as assets_endpoints
 from api.endpoints import config as config_endpoints
-from api.endpoints import image_to_text_jobs, index_maintenance
+from api.endpoints import image_to_text_jobs, index_maintenance, retrieval
 from api import logs as logs_router
 from api.endpoints.plss import container_router
 from api.endpoints.dossier import management_router, association_router, navigation_router, views_router, dossier_image_processing_router, runs_router
@@ -64,6 +64,9 @@ api_router.include_router(image_to_text_jobs.router, prefix="/api", tags=["image
 
 # Index maintenance endpoints
 api_router.include_router(index_maintenance.router, prefix="/api/index", tags=["index-maintenance"])
+
+# Retrieval endpoints
+api_router.include_router(retrieval.router, prefix="/api", tags=["retrieval"])
 
 # Config endpoints (no additional prefix; router has /config)
 api_router.include_router(config_endpoints.router)
