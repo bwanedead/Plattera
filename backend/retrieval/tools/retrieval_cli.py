@@ -18,6 +18,7 @@ from services.assets.service import AssetsService
 from retrieval.lanes.semantic.embeddings import compute_model_fingerprint
 from retrieval.lanes.semantic.chunking import FINAL_SEGMENTS_POLICY
 from retrieval.lanes.semantic.provider import resolve_embedding_model
+from retrieval.lanes.semantic.lane import LocalSemanticLane
 
 
 def _parse_view(value: Optional[str]) -> Optional[CorpusView]:
@@ -40,18 +41,26 @@ def _parse_lanes(values: Optional[List[str]]) -> List[str]:
     return lanes
 
 
-def _lane_view_notes(lanes: List[str], filters: Optional[RetrievalFilters]) -> List[str]:
+def _lane_view_notes(
+    lanes: List[str],
+    filters: Optional[RetrievalFilters],
+    *,
+    semantic_pool: str,
+) -> List[str]:
     notes: List[str] = []
     if not filters or not filters.view:
-        return notes
-    view = filters.view.value
+        view = None
+    else:
+        view = filters.view.value
     has_lexical = any(lane.startswith("lexical") or lane == "hybrid" or lane == "hybrid_semantic" for lane in lanes)
     has_semantic = any("semantic" in lane for lane in lanes)
     if has_lexical and view == "final_segments":
         notes.append("lexical lanes do not target final_segments view")
-    if has_semantic and view not in ("final_segments", "everything"):
+    if has_semantic and view and view not in ("final_segments", "everything"):
         notes.append("semantic lane expects final_segments/everything views")
-    if "provenance" in lanes and not (filters.dossier_id or ""):
+    if has_semantic and view and semantic_pool.lower() != view:
+        notes.append(f"semantic lane uses pool={semantic_pool} (ignores view={view})")
+    if "provenance" in lanes and not (filters and (filters.dossier_id or "")):
         notes.append("provenance lane requires dossier_id filter")
     return notes
 
@@ -251,6 +260,7 @@ def _evaluate_query_set(
     limit: int,
     filters: Optional[RetrievalFilters],
     include_index_health: bool,
+    semantic_pool: str,
 ) -> Path:
     items = json.loads(query_set_path.read_text())
     run_rows = []
@@ -267,7 +277,7 @@ def _evaluate_query_set(
         query = item.get("query", "")
         expected = set(item.get("expected_dossier_ids", []))
         result = engine.search(query, filters=filters, limit=limit, lanes=lanes)
-        notes = _lane_view_notes(lanes, filters)
+        notes = _lane_view_notes(lanes, filters, semantic_pool=semantic_pool)
         if notes:
             debug = result.debug or {}
             debug_notes = list(debug.get("notes", []) or [])
@@ -317,7 +327,7 @@ def _evaluate_query_set(
         "runs": run_rows,
     }
     if include_index_health:
-        pools = ["FINAL_SEGMENTS"] if any("semantic" in lane for lane in lanes) else []
+        pools = [semantic_pool] if any("semantic" in lane for lane in lanes) else []
         payload["index_health"] = _snapshot_index_health(pools)
         payload["index_health_scope"] = "batch"
 
@@ -344,11 +354,19 @@ def main() -> None:
     parser.add_argument("--max-expand", type=int, default=3)
     parser.add_argument("--include-index-health", action="store_true")
     parser.add_argument("--query-set", help="Run a batch query set JSON")
+    parser.add_argument(
+        "--semantic-pool",
+        default="FINAL_SEGMENTS",
+        help="Semantic pool identifier (FINAL_SEGMENTS or EVERYTHING)",
+    )
     args = parser.parse_args()
 
     lanes = _parse_lanes(args.lanes)
     filters = _build_filters(args)
-    engine = RetrievalEngine()
+    semantic_pool = args.semantic_pool.strip().upper()
+    if semantic_pool not in ("FINAL_SEGMENTS", "EVERYTHING"):
+        raise SystemExit("semantic-pool must be FINAL_SEGMENTS or EVERYTHING")
+    engine = RetrievalEngine(semantic_lane=LocalSemanticLane(pool_identifier=semantic_pool))
 
     if args.query_set:
         path = _evaluate_query_set(
@@ -358,6 +376,7 @@ def main() -> None:
             limit=args.limit,
             filters=filters,
             include_index_health=args.include_index_health,
+            semantic_pool=semantic_pool,
         )
         print(f"Wrote batch run: {path}")
         return
@@ -366,7 +385,7 @@ def main() -> None:
         raise SystemExit("Query required unless --query-set is provided.")
 
     result = engine.search(args.query, filters=filters, limit=args.limit, lanes=lanes)
-    notes = _lane_view_notes(lanes, filters)
+    notes = _lane_view_notes(lanes, filters, semantic_pool=semantic_pool)
     if notes:
         debug = result.debug or {}
         debug_notes = list(debug.get("notes", []) or [])
@@ -386,7 +405,7 @@ def main() -> None:
     }
 
     if args.include_index_health:
-        pools = ["FINAL_SEGMENTS"] if any("semantic" in lane for lane in lanes) else []
+        pools = [semantic_pool] if any("semantic" in lane for lane in lanes) else []
         run_payload["index_health"] = _snapshot_index_health(pools)
 
     if args.expand:

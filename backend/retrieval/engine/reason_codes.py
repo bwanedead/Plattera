@@ -31,4 +31,6 @@ class DiagnosticReasonCode(str, Enum):
     UNAVAILABLE_RUNTIME_IDENTITY_MISSING = "unavailable_runtime_identity_missing"
     UNAVAILABLE_SCHEMA_VERSION_MISMATCH = "unavailable_schema_version_mismatch"
     UNAVAILABLE_NEEDS_FORCE_REPAIR = "unavailable_needs_force_repair"
+    UNAVAILABLE_VECTOR_INDEX_EMPTY = "unavailable_vector_index_empty"
+    UNAVAILABLE_VECTOR_METADATA_MISMATCH = "unavailable_vector_metadata_mismatch"
     UNAVAILABLE_UNKNOWN = "unavailable_unknown"

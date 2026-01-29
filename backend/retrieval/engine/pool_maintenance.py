@@ -47,9 +47,13 @@ class PoolOpenReport:
 @dataclass(frozen=True)
 class PoolHealthReport:
     active_vectors: int
+    active_chunks: int
+    total_vectors: int
     tombstoned_vectors: int
     tombstone_ratio: float
     compact_recommended: bool
+    vector_consistency_ok: bool
+    consistency_reason: Optional[str] = None
     compact_threshold: Optional[float] = None
 
 
@@ -316,11 +320,31 @@ def build_pool_health_report(
     store: PersistentVectorStore, *, threshold: float
 ) -> PoolHealthReport:
     stats = store.get_stats()
+    active_chunks = stats["active_chunks"]
+    total_vectors = stats["total_vectors"]
+    if active_chunks == 0:
+        vector_consistency_ok = True
+        consistency_reason = None
+    elif total_vectors == 0:
+        vector_consistency_ok = False
+        consistency_reason = DiagnosticReasonCode.UNAVAILABLE_VECTOR_INDEX_EMPTY.value
+    elif total_vectors < active_chunks:
+        vector_consistency_ok = False
+        consistency_reason = (
+            DiagnosticReasonCode.UNAVAILABLE_VECTOR_METADATA_MISMATCH.value
+        )
+    else:
+        vector_consistency_ok = True
+        consistency_reason = None
     return PoolHealthReport(
-        active_vectors=stats["active_chunks"],
+        active_vectors=active_chunks,
+        active_chunks=active_chunks,
+        total_vectors=total_vectors,
         tombstoned_vectors=stats["tombstoned_vectors"],
         tombstone_ratio=stats["tombstone_ratio"],
         compact_recommended=store.should_compact(threshold=threshold),
+        vector_consistency_ok=vector_consistency_ok,
+        consistency_reason=consistency_reason,
         compact_threshold=threshold,
     )
 

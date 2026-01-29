@@ -9,10 +9,14 @@ export interface PoolOpenStatus {
 
 export interface PoolHealthReport {
   active_vectors: number;
+  active_chunks?: number;
+  total_vectors: number;
   tombstoned_vectors: number;
   tombstone_ratio: number;
   compact_recommended: boolean;
   compact_threshold: number;
+  vector_consistency_ok?: boolean;
+  consistency_reason?: string | null;
 }
 
 export type SliceStatus =

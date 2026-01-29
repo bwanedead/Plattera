@@ -193,15 +193,24 @@ class LocalSemanticLane:
             except Exception:
                 selector = None
 
-            # Build CorpusEntryRef with full fidelity for FINAL_SEGMENTS
-            entry_ref = CorpusEntryRef(
-                view=CorpusView.FINAL_SEGMENTS,
-                entry_id=metadata.entry_id,
-                kind=CorpusEntryKind.SEGMENT_FINAL_TEXT,
-                dossier_id=metadata.dossier_id,
-                segment_id=metadata.segment_id,
-                draft_id=metadata.draft_id,
-            )
+            # Build CorpusEntryRef based on pool
+            if self.pool_identifier == "EVERYTHING":
+                entry_ref = CorpusEntryRef(
+                    view=CorpusView.EVERYTHING,
+                    entry_id=metadata.entry_id,
+                    kind=CorpusEntryKind.TRANSCRIPT,
+                    dossier_id=metadata.dossier_id,
+                    draft_id=metadata.draft_id,
+                )
+            else:
+                entry_ref = CorpusEntryRef(
+                    view=CorpusView.FINAL_SEGMENTS,
+                    entry_id=metadata.entry_id,
+                    kind=CorpusEntryKind.SEGMENT_FINAL_TEXT,
+                    dossier_id=metadata.dossier_id,
+                    segment_id=metadata.segment_id,
+                    draft_id=metadata.draft_id,
+                )
 
             # Build CorpusChunkRef
             chunk_ref = CorpusChunkRef(

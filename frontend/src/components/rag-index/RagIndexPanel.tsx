@@ -102,6 +102,7 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
   const isUnavailable = poolOpen?.status !== 'ok';
   const detail = poolOpen?.detail ?? '';
   const reason = poolOpen?.reason_code ?? '';
+  const vectorMismatch = poolHealth?.vector_consistency_ok === false;
   const isInitializing = isLoadingDiagnose && !diagnoseResult;
   const embeddingMissing =
     !isInitializing && (
@@ -126,6 +127,8 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
     ? 'danger'
     : needsInitialize
     ? 'warn'
+    : vectorMismatch
+    ? 'danger'
     : counts.orphaned > 0
     ? 'warn'
     : emptyButReady
@@ -140,6 +143,8 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
     ? 'Embeddings missing'
     : needsInitialize
     ? 'Not initialized'
+    : vectorMismatch
+    ? 'Index mismatch'
     : counts.orphaned > 0
     ? 'Orphaned'
     : emptyButReady
@@ -158,7 +163,7 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
 
   const handleRepair = useCallback(async () => {
     if (isBusy) return;
-    const needsIndexing = emptyButReady || counts.missing > 0 || counts.stale > 0;
+    const needsIndexing = vectorMismatch || emptyButReady || counts.missing > 0 || counts.stale > 0;
     const needsPrune = counts.orphaned > 0;
 
     if (needsIndexing) {
@@ -175,7 +180,7 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
         dry_run: false
       });
     }
-  }, [counts.missing, counts.orphaned, counts.stale, emptyButReady, executeIndexAndWait, isBusy]);
+  }, [counts.missing, counts.orphaned, counts.stale, emptyButReady, executeIndexAndWait, isBusy, vectorMismatch]);
 
   const handlePrune = useCallback(async () => {
     await executeIndex({
@@ -249,6 +254,9 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
         <div className="metric-pill info">
           Vectors <span>{poolHealth?.active_vectors ?? 0}</span>
         </div>
+        <div className="metric-pill info">
+          HNSW <span>{poolHealth?.total_vectors ?? 0}</span>
+        </div>
       </div>
 
       <div className="pool-actions">
@@ -266,7 +274,7 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
           </button>
         ) : (
           <div className="pool-actions-row">
-            {(counts.missing > 0 || counts.stale > 0 || counts.orphaned > 0 || emptyButReady) ? (
+            {(counts.missing > 0 || counts.stale > 0 || counts.orphaned > 0 || emptyButReady || vectorMismatch) ? (
               <button className="pool-btn primary" onClick={handleRepair} disabled={isBusy || !canExecute}>
                 {isIndexing ? <span className="rag-spinner small" /> : null}
                 {isIndexing ? 'Repairing...' : 'Repair index'}
@@ -292,6 +300,8 @@ const PoolSection: React.FC<PoolSectionProps> = ({ pool, onRegister }) => {
             ? 'Embeddings are required before indexing.'
             : needsInitialize
             ? 'Creates empty index artifacts without indexing documents.'
+            : vectorMismatch
+            ? 'Vector index is out of sync; reindex to restore search.'
             : counts.orphaned > 0
             ? 'Index contains deleted entries; prune to clean orphaned slices.'
             : emptyButReady

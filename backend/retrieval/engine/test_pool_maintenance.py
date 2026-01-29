@@ -116,8 +116,10 @@ def test_pool_health_report_compaction_toggle(monkeypatch) -> None:
             def get_stats(self) -> dict:
                 return {
                     "active_chunks": 10,
+                    "total_vectors": 12,
                     "tombstoned_vectors": 5,
                     "tombstone_ratio": 0.33,
+                    "deleted_chunks": 0,
                 }
 
             def should_compact(self, threshold: float = 0.3) -> bool:
@@ -149,5 +151,50 @@ def test_pool_health_report_compaction_toggle(monkeypatch) -> None:
 
         assert low_threshold_report.pool_health is not None
         assert low_threshold_report.pool_health.compact_recommended is True
+        assert low_threshold_report.pool_health.total_vectors == 12
+        assert low_threshold_report.pool_health.vector_consistency_ok is True
         assert high_threshold_report.pool_health is not None
         assert high_threshold_report.pool_health.compact_recommended is False
+
+
+def test_pool_health_report_vector_mismatch(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        metadata_path = Path(tmpdir) / "metadata.db"
+        metadata_store = VectorMetadataStore(metadata_path)
+
+        class StubStore:
+            def __init__(self):
+                self.metadata_store = metadata_store
+
+            def get_stats(self) -> dict:
+                return {
+                    "active_chunks": 5,
+                    "total_vectors": 0,
+                    "tombstoned_vectors": 0,
+                    "tombstone_ratio": 0.0,
+                    "deleted_chunks": 0,
+                }
+
+            def should_compact(self, threshold: float = 0.3) -> bool:
+                return False
+
+        store = StubStore()
+        ok_report = PoolOpenReport(
+            status=PoolOpenStatus.OK,
+            reason_code=None,
+        )
+
+        monkeypatch.setattr(
+            "retrieval.engine.pool_maintenance.safe_open_pool",
+            lambda _pool_identifier: PoolOpenResult(report=ok_report, store=store),
+        )
+
+        controller = PoolMaintenanceController(corpus_provider=StubCorpusProvider(entries=[]))
+        report = controller.diagnose_pool(
+            pool_identifier="FINAL_SEGMENTS",
+            runtime_identity=None,
+        )
+
+        assert report.pool_health is not None
+        assert report.pool_health.vector_consistency_ok is False
+        assert report.pool_health.consistency_reason == DiagnosticReasonCode.UNAVAILABLE_VECTOR_INDEX_EMPTY.value

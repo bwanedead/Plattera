@@ -27,6 +27,7 @@ from retrieval.engine.reason_codes import DiagnosticReasonCode
 from retrieval.lanes.semantic.chunking import FINAL_SEGMENTS_POLICY
 from retrieval.lanes.semantic.embeddings import build_embedding_provider, compute_model_fingerprint
 from retrieval.lanes.semantic.index_builder import SemanticIndexBuilder
+from retrieval.lanes.semantic.manifest import hnsw_index_path, metadata_db_path
 from retrieval.lanes.semantic.provider import resolve_embedding_model
 from services.assets.service import AssetsService
 from services.index_maintenance import (
@@ -383,6 +384,7 @@ def _run_job(
 
     progress = IndexMaintenanceProgress(total=len(selection), done=0, ok=0, failed=0)
     last_progress_time = time.monotonic()
+    did_mutate = False
     for diagnosis in selection:
         deleted_count = 0
         chunks_added = 0
@@ -487,6 +489,8 @@ def _run_job(
                     did_write_state=did_write_state,
                     reason=reason,
                 )
+            if deleted_count > 0 or chunks_added > 0 or did_write_state:
+                did_mutate = True
 
         now_time = time.monotonic()
         if progress.done % 10 == 0 or (now_time - last_progress_time) >= 5:
@@ -501,13 +505,38 @@ def _run_job(
             )
             last_progress_time = now_time
 
+    save_error: Optional[str] = None
+    if not dry_run and did_mutate and open_result.store is not None:
+        try:
+            open_result.store.save(
+                hnsw_index_path(pool_identifier),
+                metadata_db_path(pool_identifier),
+            )
+        except Exception as exc:
+            save_error = f"save_failed:{type(exc).__name__}"
+            logger.warning(
+                "Index save failed after job: pool=%s job=%s error=%s",
+                pool_identifier,
+                job_id,
+                exc,
+                extra={
+                    "event": "index_job_save_failed",
+                    "pool_identifier": pool_identifier,
+                    "job_id": job_id,
+                    "exception_type": type(exc).__name__,
+                },
+            )
+
     final_status = (
         IndexMaintenanceJobStatus.SUCCEEDED
         if progress.failed == 0
         else IndexMaintenanceJobStatus.FAILED
     )
     error = None
-    if final_status == IndexMaintenanceJobStatus.FAILED:
+    if save_error:
+        final_status = IndexMaintenanceJobStatus.FAILED
+        error = save_error
+    elif final_status == IndexMaintenanceJobStatus.FAILED:
         error = "slice_failures"
     store.update_status(
         job_id,

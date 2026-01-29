@@ -40,18 +40,23 @@ export const IndexHealthHeader: React.FC<IndexHealthHeaderProps> = ({
   } else {
     // Pool is OK
     const { missing, stale } = diagnose.counts;
-    if (missing === 0 && stale === 0) {
-      statusClass = 'ready';
-      statusText = 'Ready';
+    const vectorMismatch = diagnose.pool_health?.vector_consistency_ok === false;
+    if (vectorMismatch) {
+      statusClass = 'unavailable';
+      statusText = 'Index mismatch';
     } else {
-      statusClass = 'needs-update';
-      statusText = 'Needs Update';
-    }
-    
-    // Check for "Not indexed yet" specifically
-    if (diagnose.pool_health?.active_vectors === 0 && missing > 0) {
-      statusClass = 'not-indexed';
-      statusText = 'Not Indexed Yet';
+      if (missing === 0 && stale === 0) {
+        statusClass = 'ready';
+        statusText = 'Ready';
+      } else {
+        statusClass = 'needs-update';
+        statusText = 'Needs Update';
+      }
+      // Check for "Not indexed yet" specifically
+      if (diagnose.pool_health?.active_vectors === 0 && missing > 0) {
+        statusClass = 'not-indexed';
+        statusText = 'Not Indexed Yet';
+      }
     }
   }
 

@@ -14,6 +14,11 @@ Key responsibilities:
 
 from __future__ import annotations
 
+import json
+import logging
+import os
+import subprocess
+import sys
 import numpy as np
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -67,9 +72,11 @@ class HnswVectorStore:
                 ef_construction=ef_construction,
                 M=M,
             )
+            self._configure_threads()
 
         # Track current element count
         self._current_count = 0
+        self._index_path: Optional[Path] = None
 
     def add_vector(self, label: int, vector: List[float]) -> None:
         """
@@ -84,7 +91,9 @@ class HnswVectorStore:
         normalized = self._normalize_vector(vector)
 
         # Add to index
-        self.index.add_items(np.array([normalized]), np.array([label]))
+        vector_batch = np.ascontiguousarray(np.expand_dims(normalized, axis=0))
+        label_batch = np.ascontiguousarray(np.array([label], dtype=np.int64))
+        self.index.add_items(vector_batch, label_batch)
         self._current_count += 1
 
     def add_vectors(self, labels: List[int], vectors: List[List[float]]) -> None:
@@ -106,7 +115,8 @@ class HnswVectorStore:
         normalized = self._normalize_vectors(vectors)
 
         # Add to index
-        self.index.add_items(np.array(normalized), np.array(labels))
+        label_batch = np.ascontiguousarray(np.array(labels, dtype=np.int64))
+        self.index.add_items(normalized, label_batch)
         self._current_count += len(labels)
 
     def knn_query(
@@ -123,7 +133,18 @@ class HnswVectorStore:
         Returns:
             List of (label, distance) tuples sorted by distance
         """
+        if self._should_use_subprocess():
+            if self._index_path is None:
+                return self._knn_query_in_process(vector=vector, k=k, ef=ef)
+            return self._knn_query_subprocess(vector=vector, k=k, ef=ef)
+        return self._knn_query_in_process(vector=vector, k=k, ef=ef)
+
+    def _knn_query_in_process(
+        self, vector: List[float], k: int = 10, ef: Optional[int] = None
+    ) -> List[Tuple[int, float]]:
         if self._current_count == 0:
+            return []
+        if k <= 0:
             return []
 
         # Set ef for search if provided
@@ -132,17 +153,13 @@ class HnswVectorStore:
 
         # Normalize query vector
         normalized = self._normalize_vector(vector)
+        vector_batch = np.ascontiguousarray(np.expand_dims(normalized, axis=0))
+        actual_k = min(k, self._current_count)
+        if actual_k <= 0:
+            return []
 
-        # Query index (handle case where deleted items reduce available results)
-        try:
-            labels, distances = self.index.knn_query(np.array([normalized]), k=k)
-        except RuntimeError:
-            # If k is larger than available non-deleted items, reduce k
-            # This can happen when many items are marked deleted
-            actual_k = min(k, self._current_count)
-            if actual_k == 0:
-                return []
-            labels, distances = self.index.knn_query(np.array([normalized]), k=actual_k)
+        # Query index (avoid k overflow crash in some builds)
+        labels, distances = self.index.knn_query(vector_batch, k=actual_k)
 
         # Convert to list of tuples
         results = []
@@ -150,6 +167,67 @@ class HnswVectorStore:
             results.append((int(label), float(distance)))
 
         return results
+
+    def _knn_query_subprocess(
+        self, vector: List[float], k: int = 10, ef: Optional[int] = None
+    ) -> List[Tuple[int, float]]:
+        logger = logging.getLogger(__name__)
+        if self._index_path is None:
+            return []
+
+        payload = {
+            "index_path": str(self._index_path),
+            "embedding_dim": self.embedding_dim,
+            "max_elements": self.max_elements,
+            "vector": np.asarray(vector, dtype=np.float32).tolist(),
+            "k": int(k),
+            "ef": int(ef) if ef is not None else None,
+        }
+
+        timeout_seconds = 15
+        raw_timeout = os.getenv("HNSW_QUERY_TIMEOUT_SEC")
+        if raw_timeout:
+            try:
+                timeout_seconds = max(1, int(raw_timeout))
+            except ValueError:
+                timeout_seconds = 15
+
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "retrieval.lanes.semantic.tools.hnsw_query_worker",
+                ],
+                input=json.dumps(payload),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning("HNSW subprocess query timed out after %ss", timeout_seconds)
+            return []
+        except Exception as exc:
+            logger.warning("HNSW subprocess query failed to start: %s", exc)
+            return []
+
+        if result.returncode != 0:
+            logger.warning(
+                "HNSW subprocess query failed (code=%s): %s",
+                result.returncode,
+                (result.stderr or "").strip(),
+            )
+            return []
+
+        try:
+            response = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            logger.warning("HNSW subprocess returned invalid JSON: %s", exc)
+            return []
+
+        raw_results = response.get("results", []) or []
+        return [(int(label), float(distance)) for label, distance in raw_results]
 
     def mark_deleted(self, label: int) -> None:
         """
@@ -179,6 +257,7 @@ class HnswVectorStore:
         """
         path.parent.mkdir(parents=True, exist_ok=True)
         self.index.save_index(str(path))
+        self._index_path = path
 
     def load(self, path: Path, max_elements: Optional[int] = None) -> None:
         """
@@ -193,6 +272,8 @@ class HnswVectorStore:
 
         # Load index
         self.index.load_index(str(path), max_elements=max_elements or self.max_elements)
+        self._configure_threads()
+        self._index_path = path
 
         # Update element count
         self._current_count = self.index.get_current_count()
@@ -251,7 +332,7 @@ class HnswVectorStore:
         self.resize(new_max)
 
     @staticmethod
-    def _normalize_vector(vector: List[float]) -> List[float]:
+    def _normalize_vector(vector: List[float]) -> np.ndarray:
         """
         Normalize a single vector to unit length.
 
@@ -261,16 +342,17 @@ class HnswVectorStore:
         Returns:
             Normalized vector
         """
-        arr = np.array(vector, dtype=np.float32)
+        arr = np.asarray(vector, dtype=np.float32)
+        arr = np.ascontiguousarray(arr)
         norm = np.linalg.norm(arr)
 
         if norm == 0:
-            return vector  # Avoid division by zero
+            return arr  # Avoid division by zero
 
-        return (arr / norm).tolist()
+        return np.ascontiguousarray(arr / norm)
 
     @staticmethod
-    def _normalize_vectors(vectors: List[List[float]]) -> List[List[float]]:
+    def _normalize_vectors(vectors: List[List[float]]) -> np.ndarray:
         """
         Normalize multiple vectors to unit length.
 
@@ -281,16 +363,38 @@ class HnswVectorStore:
             List of normalized vectors
         """
         if not vectors:
-            return []
+            return np.ascontiguousarray(np.zeros((0, 0), dtype=np.float32))
 
-        arr = np.array(vectors, dtype=np.float32)
+        arr = np.asarray(vectors, dtype=np.float32)
+        arr = np.ascontiguousarray(arr)
         norms = np.linalg.norm(arr, axis=1, keepdims=True)
 
         # Avoid division by zero
         norms = np.where(norms == 0, 1, norms)
 
         normalized = arr / norms
-        return normalized.tolist()
+        return np.ascontiguousarray(normalized)
+
+    def _configure_threads(self) -> None:
+        if not hasattr(self.index, "set_num_threads"):
+            return
+        default_threads = 1 if sys.platform.startswith("win") else 0
+        raw = os.getenv("HNSW_NUM_THREADS")
+        threads = default_threads
+        if raw:
+            try:
+                threads = max(1, int(raw))
+            except ValueError:
+                threads = default_threads
+        if threads > 0:
+            self.index.set_num_threads(threads)
+
+    @staticmethod
+    def _should_use_subprocess() -> bool:
+        raw = os.getenv("HNSW_QUERY_SUBPROCESS")
+        if raw is not None:
+            return raw.strip().lower() in {"1", "true", "yes", "on"}
+        return sys.platform.startswith("win")
 
 
 def create_hnsw_store(

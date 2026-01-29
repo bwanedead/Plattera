@@ -31,6 +31,8 @@ export const IndexExecutionControls: React.FC<IndexExecutionControlsProps> = ({
     reason === 'unavailable_embeddings_missing';
   const isMissingArtifacts = detail?.startsWith('missing_files') || detail === 'manifest_unavailable';
   const isEmptyVectors = diagnose.pool_health?.active_vectors === 0;
+  const vectorMismatch = diagnose.pool_health?.vector_consistency_ok === false;
+  const consistencyReason = diagnose.pool_health?.consistency_reason;
 
   // If running, disable
   const isBusy = isExecuting || !!activeJobId;
@@ -96,7 +98,7 @@ export const IndexExecutionControls: React.FC<IndexExecutionControlsProps> = ({
   }
 
   const { missing, stale } = diagnose.counts;
-  const nothingToDo = missing === 0 && stale === 0;
+  const nothingToDo = !vectorMismatch && missing === 0 && stale === 0;
   const showInitialize = isEmptyVectors && missing > 0;
 
   if (showInitialize) {
@@ -121,6 +123,14 @@ export const IndexExecutionControls: React.FC<IndexExecutionControlsProps> = ({
 
   return (
     <div className="index-execution-controls">
+      {vectorMismatch ? (
+        <div className="unavailable-msg" style={{ marginBottom: 12 }}>
+          <strong>Vector index mismatch.</strong>
+          <div style={{ fontSize: '0.8em', marginTop: 4 }}>
+            {consistencyReason ? `Reason: ${consistencyReason}` : 'HNSW index does not match metadata.'}
+          </div>
+        </div>
+      ) : null}
       <div className="controls-row">
         <input 
           type="number" 
