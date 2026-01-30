@@ -73,6 +73,11 @@ If adding CI automation later:
 - Run HNSW integration tests in a separate job (may need retry logic or isolation)
 - Consider running HNSW tests in separate processes to avoid hnswlib crashes
 
+## Worker Notes (Windows)
+
+- Semantic queries on Windows are served by a persistent TCP worker to isolate hnswlib crashes.
+- Ensure worker ports are available (`HNSW_WORKER_PORT_FINAL_SEGMENTS`, `HNSW_WORKER_PORT_EVERYTHING`).
+
 ## Tombstone Compaction
 
 ### What are tombstones?

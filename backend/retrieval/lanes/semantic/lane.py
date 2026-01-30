@@ -16,7 +16,9 @@ from .chunking import ChunkSelector
 from .embeddings import EmbeddingAssetMissingError, build_embedding_provider, SentenceTransformersEmbeddingProvider
 from .chunking import FINAL_SEGMENTS_POLICY
 from .manifest import SemanticIndexManifest, hnsw_index_path, metadata_db_path, read_manifest
-from .persistent_store import PersistentVectorStore, load_persistent_store
+from .metadata_store import VectorMetadataStore
+from .worker.protocol import manifest_fingerprint
+from .worker.supervisor import get_supervisor
 
 
 class IndexLoadStatus(Enum):
@@ -28,9 +30,9 @@ class IndexLoadStatus(Enum):
 
 @dataclass
 class IndexLoadResult:
-    """Result of attempting to load vector store."""
+    """Result of attempting to load metadata store."""
     status: IndexLoadStatus
-    vector_store: Optional[PersistentVectorStore] = None
+    vector_store: Optional[VectorMetadataStore] = None
     error: Optional[str] = None
 
 
@@ -70,7 +72,7 @@ class LocalSemanticLane:
     assets_service: AssetsService = field(default_factory=AssetsService)
     batch_size: int = 16
     pool_identifier: str = "FINAL_SEGMENTS"
-    _vector_store: Optional[PersistentVectorStore] = field(default=None, init=False, repr=False)
+    _metadata_store: Optional[VectorMetadataStore] = field(default=None, init=False, repr=False)
 
     def search(self, query: str, *, filters: RetrievalFilters | None = None, limit: int = 10) -> RetrievalResult:
         # Build embedding provider
@@ -129,8 +131,8 @@ class LocalSemanticLane:
                 },
             )
 
-        # Try to load vector store
-        load_result = self._get_or_load_vector_store(embedding_dim)
+        # Try to load metadata store (no HNSW in-process)
+        load_result = self._get_or_load_metadata_store()
 
         if load_result.status == IndexLoadStatus.NOT_INITIALIZED:
             # Index files absent (not built yet)
@@ -158,33 +160,42 @@ class LocalSemanticLane:
                 },
             )
 
-        vector_store = load_result.vector_store
-        assert vector_store is not None, "SUCCESS status must have vector_store"
+        metadata_store = load_result.vector_store
+        assert metadata_store is not None, "SUCCESS status must have metadata_store"
 
         # Read manifest for provenance metadata (S8: embedding model id, chunking policy id)
         manifest = read_manifest(pool_identifier=self.pool_identifier)
+        fingerprint = manifest_fingerprint(manifest)
 
-        # Query vector store
-        try:
-            hits = vector_store.query(vector=query_vector, k=limit)
-        except Exception as exc:
+        supervisor = get_supervisor(self.pool_identifier)
+        response, reason = supervisor.query(
+            vector=query_vector,
+            k=limit,
+            embedding_dim=embedding_dim,
+            manifest_fingerprint=fingerprint,
+        )
+        if response.status != "ok":
             return RetrievalResult(
                 query=query,
                 cards=[],
                 debug={
                     "lane": self.lane_name,
-                    "gating_errors": ["vector_query_failed"],
-                    "error": type(exc).__name__,
+                    "reason": reason or response.reason_code or "semantic_worker_unavailable",
+                    "pool_identifier": self.pool_identifier,
                 },
             )
 
+        hits = response.results
+
         # Convert hits to EvidenceCards
         cards = []
-        for chunk_id, distance in hits:
+        for label, distance in hits:
             # Lookup metadata to get entry_id and selector
-            metadata = vector_store.metadata_store.lookup_by_chunk_id(chunk_id)
+            metadata = metadata_store.lookup_by_label(label)
             if metadata is None:
                 continue  # Missing metadata, skip
+            if metadata.is_deleted:
+                continue
 
             # Parse selector from JSON
             try:
@@ -215,7 +226,7 @@ class LocalSemanticLane:
             # Build CorpusChunkRef
             chunk_ref = CorpusChunkRef(
                 entry=entry_ref,
-                chunk_id=chunk_id,
+                chunk_id=metadata.chunk_id,
                 metadata=selector_dict if selector else {},
             )
 
@@ -243,11 +254,11 @@ class LocalSemanticLane:
 
             # Create EvidenceCard
             card = EvidenceCard(
-                id=chunk_id,
+                id=metadata.chunk_id,
                 spans=[span],
                 score=1.0 - distance,  # Convert distance to similarity score
                 lane=self.lane_name,
-                provenance={"chunk_id": chunk_id, "distance": distance},
+                provenance={"chunk_id": metadata.chunk_id, "distance": distance},
             )
             cards.append(card)
 
@@ -318,27 +329,26 @@ class LocalSemanticLane:
         # No mismatch
         return None
 
-    def _get_or_load_vector_store(self, embedding_dim: int) -> IndexLoadResult:
+    def _get_or_load_metadata_store(self) -> IndexLoadResult:
         """
-        Load vector store if it exists.
+        Load metadata store if it exists.
 
         Returns IndexLoadResult with explicit status:
         - SUCCESS: Store loaded successfully
         - NOT_INITIALIZED: Index files absent (not built yet)
         - UNAVAILABLE: Index files present but failed to load (corrupt/incompatible)
         """
-        if self._vector_store is not None:
+        if self._metadata_store is not None:
             return IndexLoadResult(
                 status=IndexLoadStatus.SUCCESS,
-                vector_store=self._vector_store,
+                vector_store=self._metadata_store,
             )
 
-        # Resolve paths
         hnsw_path = hnsw_index_path(pool_identifier=self.pool_identifier)
         metadata_path = metadata_db_path(pool_identifier=self.pool_identifier)
 
         # Check if index files exist
-        if not hnsw_path.exists() or not metadata_path.exists():
+        if not metadata_path.exists() or not hnsw_path.exists():
             return IndexLoadResult(
                 status=IndexLoadStatus.NOT_INITIALIZED,
                 error=f"Index files missing: hnsw={hnsw_path.exists()}, metadata={metadata_path.exists()}",
@@ -346,15 +356,10 @@ class LocalSemanticLane:
 
         # Try to load (files exist but may be corrupt/incompatible)
         try:
-            self._vector_store = load_persistent_store(
-                pool_identifier=self.pool_identifier,
-                embedding_dim=embedding_dim,
-                hnsw_path=hnsw_path,
-                metadata_db_path=metadata_path,
-            )
+            self._metadata_store = VectorMetadataStore(metadata_path)
             return IndexLoadResult(
                 status=IndexLoadStatus.SUCCESS,
-                vector_store=self._vector_store,
+                vector_store=self._metadata_store,
             )
         except Exception as e:
             # Failed to load (corrupted, wrong dim, etc.)
@@ -362,8 +367,4 @@ class LocalSemanticLane:
                 status=IndexLoadStatus.UNAVAILABLE,
                 error=f"Failed to load index: {type(e).__name__}: {str(e)}",
             )
-
-
-
-
 

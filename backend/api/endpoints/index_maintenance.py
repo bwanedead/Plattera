@@ -29,6 +29,7 @@ from retrieval.lanes.semantic.embeddings import build_embedding_provider, comput
 from retrieval.lanes.semantic.index_builder import SemanticIndexBuilder
 from retrieval.lanes.semantic.manifest import hnsw_index_path, metadata_db_path
 from retrieval.lanes.semantic.provider import resolve_embedding_model
+from retrieval.lanes.semantic.worker.supervisor import get_supervisor
 from services.assets.service import AssetsService
 from services.index_maintenance import (
     IndexMaintenanceJob,
@@ -561,6 +562,16 @@ def _run_job(
         error=_truncate(error),
     )
 
+    if final_status == IndexMaintenanceJobStatus.SUCCEEDED:
+        try:
+            get_supervisor(pool_identifier).restart()
+        except Exception as exc:
+            logger.warning(
+                "semantic_worker_restart_failed pool=%s error=%s",
+                pool_identifier,
+                type(exc).__name__,
+            )
+
 
 @router.get("/diagnose")
 async def diagnose_index(
@@ -569,6 +580,7 @@ async def diagnose_index(
     include_slices: bool = False,
     limit_slices: int = DEFAULT_DIAGNOSE_LIMIT,
     dossier_id: Optional[str] = None,
+    include_worker: bool = False,
 ) -> Dict:
     try:
         runtime_identity, identity_report, _job_identity = _resolve_runtime_identity(pool_identifier)
@@ -601,6 +613,13 @@ async def diagnose_index(
             "slice_diagnoses": None,
             "counts": counts,
         }
+        if include_worker:
+            health = get_supervisor(pool_identifier).stats()
+            response["worker_health"] = {
+                "status": health.status,
+                "reason_code": health.reason_code,
+                "worker_stats": health.worker_stats,
+            }
         if include_slices:
             response["slice_diagnoses"] = [
                 _serialize_slice(s) for s in slices[:limit]

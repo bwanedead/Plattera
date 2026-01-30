@@ -21,7 +21,7 @@ import subprocess
 import sys
 import numpy as np
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 try:
     import hnswlib
@@ -78,7 +78,7 @@ class HnswVectorStore:
         self._current_count = 0
         self._index_path: Optional[Path] = None
 
-    def add_vector(self, label: int, vector: List[float]) -> None:
+    def add_vector(self, label: int, vector: Iterable[float]) -> None:
         """
         Add a single vector to the index.
 
@@ -96,7 +96,7 @@ class HnswVectorStore:
         self.index.add_items(vector_batch, label_batch)
         self._current_count += 1
 
-    def add_vectors(self, labels: List[int], vectors: List[List[float]]) -> None:
+    def add_vectors(self, labels: List[int], vectors: Iterable[Iterable[float]]) -> None:
         """
         Add multiple vectors to the index.
 
@@ -104,6 +104,7 @@ class HnswVectorStore:
             labels: List of integer labels
             vectors: List of vectors (will be normalized)
         """
+        vectors = list(vectors)
         if len(labels) != len(vectors):
             raise ValueError("labels and vectors must have same length")
 
@@ -120,7 +121,7 @@ class HnswVectorStore:
         self._current_count += len(labels)
 
     def knn_query(
-        self, vector: List[float], k: int = 10, ef: Optional[int] = None
+        self, vector: Iterable[float], k: int = 10, ef: Optional[int] = None
     ) -> List[Tuple[int, float]]:
         """
         Query for k nearest neighbors.
@@ -332,7 +333,7 @@ class HnswVectorStore:
         self.resize(new_max)
 
     @staticmethod
-    def _normalize_vector(vector: List[float]) -> np.ndarray:
+    def _normalize_vector(vector: Iterable[float]) -> np.ndarray:
         """
         Normalize a single vector to unit length.
 
@@ -352,7 +353,7 @@ class HnswVectorStore:
         return np.ascontiguousarray(arr / norm)
 
     @staticmethod
-    def _normalize_vectors(vectors: List[List[float]]) -> np.ndarray:
+    def _normalize_vectors(vectors: Iterable[Iterable[float]]) -> np.ndarray:
         """
         Normalize multiple vectors to unit length.
 
