@@ -1,0 +1,27 @@
+{
+  "run_id": "YYYY-MM-DD__short-slug",
+  "title": "Feature title here",
+  "repo_context": "Optional: 1-2 sentences of context",
+  "global_verification": [],
+  "loop_settings": {
+    "global_verify_every_n_stories": 5,
+    "review_every_n_iterations": 5,
+    "steer_every_n_iterations": 10
+  },
+  "stories": [
+    {
+      "id": "S1",
+      "title": "First atomic story",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "Objective check 1 (e.g., `pytest -q` passes)",
+        "Objective check 2 (e.g., endpoint returns JSON with fields X,Y,Z)"
+      ],
+      "verification_commands": [],
+      "depends_on": [],
+      "files_expected": [],
+      "notes": ""
+    }
+  ]
+}
