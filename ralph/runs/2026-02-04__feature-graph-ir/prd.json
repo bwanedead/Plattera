@@ -1,0 +1,276 @@
+{
+  "run_id": "2026-02-04__feature-graph-ir",
+  "title": "Universal Feature Graph IR (deed meaning substrate) — first leg",
+  "repo_context": "Backend-only feature graph IR, persistence, compiler/judge, and API endpoints running parallel to legacy pipelines.",
+  "global_verification": [],
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Create core Feature Graph IR models",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Pydantic models for FeatureKind, FeatureNode, FeatureEdge, FeatureRef, OpExpr, Literal, FeatureGraph exist under `backend/feature_graph/`.",
+        "`pytest backend/feature_graph/test_models.py` passes and asserts JSON round-trip for a minimal graph."
+      ],
+      "verification_commands": [
+        "pytest backend/feature_graph/test_models.py"
+      ],
+      "depends_on": [],
+      "files_expected": [
+        "backend/feature_graph/__init__.py",
+        "backend/feature_graph/models.py",
+        "backend/feature_graph/test_models.py"
+      ],
+      "notes": "Ensure representability is total and no confidence scores are introduced."
+    },
+    {
+      "id": "S2",
+      "title": "Add provenance + citation models and attach to nodes",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "Provenance models (TextSpan, Citation, EvidenceRef) exist and are referenced by FeatureNode/FeatureEdge.",
+        "`pytest backend/feature_graph/test_provenance.py` passes with citation round-trip coverage."
+      ],
+      "verification_commands": [
+        "pytest backend/feature_graph/test_provenance.py"
+      ],
+      "depends_on": [
+        "S1"
+      ],
+      "files_expected": [
+        "backend/feature_graph/provenance.py",
+        "backend/feature_graph/test_provenance.py"
+      ],
+      "notes": "Citations must point to text spans and evidence links."
+    },
+    {
+      "id": "S3",
+      "title": "Define gap types and judge report models",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "Gap types include MissingAnchor, MissingOperand, MissingParameter, AmbiguousChoice, UnsupportedOperation.",
+        "`pytest backend/feature_graph/test_gaps.py` passes and validates JSON serialization."
+      ],
+      "verification_commands": [
+        "pytest backend/feature_graph/test_gaps.py"
+      ],
+      "depends_on": [
+        "S1",
+        "S2"
+      ],
+      "files_expected": [
+        "backend/feature_graph/gaps.py",
+        "backend/feature_graph/test_gaps.py"
+      ],
+      "notes": "Gap records must be deterministic and carry citations."
+    },
+    {
+      "id": "S4",
+      "title": "Add operation registry for universal constructors",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Operation definitions include Traverse/LineStep/CurveStep/ConstraintStep, Derive ops, Constraint ops, and Region booleans.",
+        "Unsupported ops can be stored as UnsupportedOperation entries.",
+        "`pytest backend/feature_graph/test_operations.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/feature_graph/test_operations.py"
+      ],
+      "depends_on": [
+        "S1"
+      ],
+      "files_expected": [
+        "backend/feature_graph/operations.py",
+        "backend/feature_graph/test_operations.py"
+      ],
+      "notes": "IR must accept ops it cannot execute."
+    },
+    {
+      "id": "S5",
+      "title": "Define artifact models for IR/compile/judge/bundle",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Artifact models include IR Artifact, Compile Artifact, Judge Report, and Bundle Artifact with lineage fields.",
+        "`pytest backend/feature_graph/test_artifacts.py` passes with round-trip coverage."
+      ],
+      "verification_commands": [
+        "pytest backend/feature_graph/test_artifacts.py"
+      ],
+      "depends_on": [
+        "S1",
+        "S2",
+        "S3"
+      ],
+      "files_expected": [
+        "backend/feature_graph/artifacts.py",
+        "backend/feature_graph/test_artifacts.py"
+      ],
+      "notes": "Artifacts must be durable and rehydratable."
+    },
+    {
+      "id": "S6",
+      "title": "Add feature graph artifact persistence service + paths",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "New paths exist for feature graph artifacts and index under `config.paths`.",
+        "FeatureGraphPersistenceService writes artifacts atomically and maintains an index.",
+        "`pytest backend/feature_graph/test_persistence.py` passes using temp roots."
+      ],
+      "verification_commands": [
+        "pytest backend/feature_graph/test_persistence.py"
+      ],
+      "depends_on": [
+        "S5"
+      ],
+      "files_expected": [
+        "backend/config/paths.py",
+        "backend/services/feature_graph/feature_graph_persistence_service.py",
+        "backend/feature_graph/test_persistence.py"
+      ],
+      "notes": "Keep artifacts separate from legacy schema/georef artifacts."
+    },
+    {
+      "id": "S7",
+      "title": "Add IR artifact API endpoints",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "New router `backend/api/endpoints/feature_graph.py` exposes save/get/list/list-all for IR artifacts.",
+        "`pytest backend/api/test_feature_graph_ir_endpoints.py` passes with basic CRUD responses."
+      ],
+      "verification_commands": [
+        "pytest backend/api/test_feature_graph_ir_endpoints.py"
+      ],
+      "depends_on": [
+        "S6"
+      ],
+      "files_expected": [
+        "backend/api/endpoints/feature_graph.py",
+        "backend/api/router.py",
+        "backend/api/test_feature_graph_ir_endpoints.py"
+      ],
+      "notes": "Endpoints must be separate from legacy pipelines."
+    },
+    {
+      "id": "S8",
+      "title": "Implement local traverse compiler for LineStep",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Compile produces local polyline output for Traverse LineSteps with numeric distance/bearing.",
+        "Missing numeric parameters emit MissingParameter gaps instead of failing.",
+        "`pytest backend/feature_graph/test_compiler_traverse.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/feature_graph/test_compiler_traverse.py"
+      ],
+      "depends_on": [
+        "S4",
+        "S5"
+      ],
+      "files_expected": [
+        "backend/feature_graph/compiler.py",
+        "backend/feature_graph/test_compiler_traverse.py"
+      ],
+      "notes": "Local compile only; anchoring to global frames remains optional."
+    },
+    {
+      "id": "S9",
+      "title": "Support Close derive (and stub Buffer) in compiler",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "Close(curve) produces a Region only when curve is closed; otherwise returns a MissingParameter or UnsupportedOperation gap.",
+        "Buffer(...) emits UnsupportedOperation with structured params.",
+        "`pytest backend/feature_graph/test_compiler_derive.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/feature_graph/test_compiler_derive.py"
+      ],
+      "depends_on": [
+        "S8"
+      ],
+      "files_expected": [
+        "backend/feature_graph/compiler.py",
+        "backend/feature_graph/test_compiler_derive.py"
+      ],
+      "notes": "Keep behavior deterministic and explicit."
+    },
+    {
+      "id": "S10",
+      "title": "Add deterministic judge engine for typed gaps",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Judge engine returns gap records for missing anchors, operands, parameters, and unsupported ops.",
+        "`pytest backend/feature_graph/test_judge.py` passes with deterministic outputs."
+      ],
+      "verification_commands": [
+        "pytest backend/feature_graph/test_judge.py"
+      ],
+      "depends_on": [
+        "S3",
+        "S8",
+        "S9"
+      ],
+      "files_expected": [
+        "backend/feature_graph/judge.py",
+        "backend/feature_graph/test_judge.py"
+      ],
+      "notes": "No confidence scores; gaps must include citations/evidence links."
+    },
+    {
+      "id": "S11",
+      "title": "Implement bundle/freeze operation for portability",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Bundle operation exports IR + minimal dependency subgraph and records why each dependency was included.",
+        "`pytest backend/feature_graph/test_bundle.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/feature_graph/test_bundle.py"
+      ],
+      "depends_on": [
+        "S5",
+        "S6"
+      ],
+      "files_expected": [
+        "backend/feature_graph/bundle.py",
+        "backend/feature_graph/test_bundle.py"
+      ],
+      "notes": "Bundle artifacts must be standalone and portable."
+    },
+    {
+      "id": "S12",
+      "title": "Add compile/judge/bundle API endpoints",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Feature graph router exposes compile/judge/bundle endpoints with deterministic JSON outputs.",
+        "`pytest backend/api/test_feature_graph_compile_endpoints.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/api/test_feature_graph_compile_endpoints.py"
+      ],
+      "depends_on": [
+        "S7",
+        "S8",
+        "S9",
+        "S10",
+        "S11"
+      ],
+      "files_expected": [
+        "backend/api/endpoints/feature_graph.py",
+        "backend/api/test_feature_graph_compile_endpoints.py"
+      ],
+      "notes": "Keep routes separate from legacy pipelines and use feature graph artifacts."
+    }
+  ]
+}

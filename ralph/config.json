@@ -1,0 +1,7 @@
+{
+  "driver": {
+    "name": "claude_code",
+    "worker_cmd": "claude.cmd -p {task_file}",
+    "reviewer_cmd": "claude.cmd -p {task_file}"
+  }
+}
