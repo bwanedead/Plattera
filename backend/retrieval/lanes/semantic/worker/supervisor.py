@@ -140,7 +140,22 @@ class SemanticWorkerSupervisor:
     def restart(self) -> None:
         if self.process and self.process.poll() is None:
             self.process.terminate()
-        self.process = None
+            self.process = None
+            self._spawn_worker()
+            return
+
+        response = self._client(timeout=1.0).reload()
+        if response.status == "ok":
+            self._reset_backoff()
+            return
+
+        probe = self._probe_existing_worker()
+        if probe == "ok":
+            return
+        if probe == "port_in_use":
+            self._update_backoff()
+            return
+
         self._spawn_worker()
 
     def stats(self) -> WorkerHealth:

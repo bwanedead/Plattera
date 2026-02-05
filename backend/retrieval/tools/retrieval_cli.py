@@ -243,7 +243,7 @@ def _write_run_artifact(
     payload: Dict[str, Any],
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
     lane_tag = "-".join(lanes) if lanes else "all"
     q_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()[:8]
     filename = f"{timestamp}__{lane_tag}__{q_hash}.json"
@@ -354,6 +354,7 @@ def main() -> None:
     parser.add_argument("--max-expand", type=int, default=3)
     parser.add_argument("--include-index-health", action="store_true")
     parser.add_argument("--query-set", help="Run a batch query set JSON")
+    parser.add_argument("--interactive", action="store_true", help="Interactive query loop (warm cache)")
     parser.add_argument(
         "--semantic-pool",
         default="FINAL_SEGMENTS",
@@ -381,39 +382,69 @@ def main() -> None:
         print(f"Wrote batch run: {path}")
         return
 
+    run_id = hashlib.sha256(str(datetime.utcnow().timestamp()).encode("utf-8")).hexdigest()[:8]
+    run_seq = 0
+
+    def _run_single_query(query: str) -> None:
+        nonlocal run_seq
+        run_seq += 1
+        result = engine.search(query, filters=filters, limit=args.limit, lanes=lanes)
+        notes = _lane_view_notes(lanes, filters, semantic_pool=semantic_pool)
+        if notes:
+            debug = result.debug or {}
+            debug_notes = list(debug.get("notes", []) or [])
+            debug_notes.extend(notes)
+            debug["notes"] = debug_notes
+            result.debug = debug
+        _print_results(result, args.limit)
+
+        run_payload: Dict[str, Any] = {
+            "request": {
+                "query": query,
+                "lanes": lanes,
+                "limit": args.limit,
+                "filters": (filters.__dict__ if filters else None),
+            },
+            "run": {
+                "run_id": run_id,
+                "seq": run_seq,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            "result": _serialize_result(result),
+        }
+
+        if args.include_index_health:
+            pools = [semantic_pool] if any("semantic" in lane for lane in lanes) else []
+            run_payload["index_health"] = _snapshot_index_health(pools)
+
+        if args.expand:
+            run_payload["expanded_entries"] = _expand_entries(result.cards, args.max_expand)
+
+        root = Path(__file__).resolve().parents[3] / "assets" / "rag_runs"
+        path = _write_run_artifact(root=root, query=query, lanes=lanes, payload=run_payload)
+        print(f"\nWrote run artifact: {path}")
+
+    if args.interactive:
+        if args.query:
+            _run_single_query(args.query)
+        print("\nInteractive mode (type 'exit' to quit).")
+        while True:
+            try:
+                line = input("query> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("")
+                break
+            if not line:
+                continue
+            if line.lower() in {"exit", "quit"}:
+                break
+            _run_single_query(line)
+        return
+
     if not args.query:
-        raise SystemExit("Query required unless --query-set is provided.")
+        raise SystemExit("Query required unless --query-set or --interactive is provided.")
 
-    result = engine.search(args.query, filters=filters, limit=args.limit, lanes=lanes)
-    notes = _lane_view_notes(lanes, filters, semantic_pool=semantic_pool)
-    if notes:
-        debug = result.debug or {}
-        debug_notes = list(debug.get("notes", []) or [])
-        debug_notes.extend(notes)
-        debug["notes"] = debug_notes
-        result.debug = debug
-    _print_results(result, args.limit)
-
-    run_payload: Dict[str, Any] = {
-        "request": {
-            "query": args.query,
-            "lanes": lanes,
-            "limit": args.limit,
-            "filters": (filters.__dict__ if filters else None),
-        },
-        "result": _serialize_result(result),
-    }
-
-    if args.include_index_health:
-        pools = [semantic_pool] if any("semantic" in lane for lane in lanes) else []
-        run_payload["index_health"] = _snapshot_index_health(pools)
-
-    if args.expand:
-        run_payload["expanded_entries"] = _expand_entries(result.cards, args.max_expand)
-
-    root = Path(__file__).resolve().parents[3] / "assets" / "rag_runs"
-    path = _write_run_artifact(root=root, query=args.query, lanes=lanes, payload=run_payload)
-    print(f"\nWrote run artifact: {path}")
+    _run_single_query(args.query)
 
 
 if __name__ == "__main__":

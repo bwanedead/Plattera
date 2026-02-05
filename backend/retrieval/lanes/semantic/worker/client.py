@@ -80,6 +80,10 @@ class SemanticWorkerClient:
         payload = build_request("reload", pool_identifier=self.pool_identifier)
         return self.request(payload)
 
+    def shutdown(self) -> WorkerResponse:
+        payload = build_request("shutdown", pool_identifier=self.pool_identifier)
+        return self.request(payload)
+
     @staticmethod
     def _readline(sock: socket.socket) -> bytes:
         with sock.makefile("rb") as stream:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -13,7 +15,7 @@ from services.assets.registry import EMBEDDING_MODEL_ASSET_ID
 from services.assets.service import AssetsService
 
 from .chunking import ChunkSelector
-from .embeddings import EmbeddingAssetMissingError, build_embedding_provider, SentenceTransformersEmbeddingProvider
+from .embeddings import EmbeddingAssetMissingError, EmbeddingProvider, build_embedding_provider, SentenceTransformersEmbeddingProvider
 from .chunking import FINAL_SEGMENTS_POLICY
 from .manifest import SemanticIndexManifest, hnsw_index_path, metadata_db_path, read_manifest
 from .metadata_store import VectorMetadataStore
@@ -34,6 +36,7 @@ class IndexLoadResult:
     status: IndexLoadStatus
     vector_store: Optional[VectorMetadataStore] = None
     error: Optional[str] = None
+    metadata_cached: bool = False
 
 
 class SemanticLane(Protocol):
@@ -73,15 +76,18 @@ class LocalSemanticLane:
     batch_size: int = 16
     pool_identifier: str = "FINAL_SEGMENTS"
     _metadata_store: Optional[VectorMetadataStore] = field(default=None, init=False, repr=False)
+    _embedding_provider: Optional[EmbeddingProvider] = field(default=None, init=False, repr=False)
+    _embedding_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def search(self, query: str, *, filters: RetrievalFilters | None = None, limit: int = 10) -> RetrievalResult:
+        total_started = time.monotonic()
         # Build embedding provider
         try:
-            provider = build_embedding_provider(
-                assets_service=self.assets_service,
-                batch_size=self.batch_size,
-            )
-            embeddings = provider.embed([query])
+            embed_started = time.monotonic()
+            provider = self._get_or_create_embedding_provider()
+            with self._embedding_lock:
+                embeddings = provider.embed([query])
+            embed_ms = int((time.monotonic() - embed_started) * 1000)
         except EmbeddingAssetMissingError:
             return RetrievalResult(
                 query=query,
@@ -90,6 +96,8 @@ class LocalSemanticLane:
                     "lane": self.lane_name,
                     "gating_errors": ["embedding_model_missing"],
                     "asset_id": EMBEDDING_MODEL_ASSET_ID,
+                    "embed_ms": int((time.monotonic() - total_started) * 1000),
+                    "total_lane_ms": int((time.monotonic() - total_started) * 1000),
                 },
             )
         except Exception as exc:
@@ -101,6 +109,8 @@ class LocalSemanticLane:
                     "gating_errors": ["embedding_model_unavailable"],
                     "asset_id": EMBEDDING_MODEL_ASSET_ID,
                     "error": type(exc).__name__,
+                    "embed_ms": int((time.monotonic() - total_started) * 1000),
+                    "total_lane_ms": int((time.monotonic() - total_started) * 1000),
                 },
             )
 
@@ -111,6 +121,8 @@ class LocalSemanticLane:
                 debug={
                     "lane": self.lane_name,
                     "gating_errors": ["embedding_empty"],
+                    "embed_ms": embed_ms,
+                    "total_lane_ms": int((time.monotonic() - total_started) * 1000),
                 },
             )
 
@@ -128,11 +140,15 @@ class LocalSemanticLane:
                     "reason": "index_stale_needs_reindex",
                     "stale_reason": stale_reason,
                     "pool_identifier": self.pool_identifier,
+                    "embed_ms": embed_ms,
+                    "total_lane_ms": int((time.monotonic() - total_started) * 1000),
                 },
             )
 
         # Try to load metadata store (no HNSW in-process)
+        metadata_started = time.monotonic()
         load_result = self._get_or_load_metadata_store()
+        metadata_open_ms = int((time.monotonic() - metadata_started) * 1000)
 
         if load_result.status == IndexLoadStatus.NOT_INITIALIZED:
             # Index files absent (not built yet)
@@ -144,6 +160,9 @@ class LocalSemanticLane:
                     "reason": "index_not_initialized",
                     "pool_identifier": self.pool_identifier,
                     "error": load_result.error,
+                    "embed_ms": embed_ms,
+                    "metadata_open_ms": metadata_open_ms,
+                    "total_lane_ms": int((time.monotonic() - total_started) * 1000),
                 },
             )
 
@@ -157,6 +176,9 @@ class LocalSemanticLane:
                     "reason": "index_unavailable",
                     "pool_identifier": self.pool_identifier,
                     "error": load_result.error,
+                    "embed_ms": embed_ms,
+                    "metadata_open_ms": metadata_open_ms,
+                    "total_lane_ms": int((time.monotonic() - total_started) * 1000),
                 },
             )
 
@@ -164,16 +186,20 @@ class LocalSemanticLane:
         assert metadata_store is not None, "SUCCESS status must have metadata_store"
 
         # Read manifest for provenance metadata (S8: embedding model id, chunking policy id)
+        manifest_started = time.monotonic()
         manifest = read_manifest(pool_identifier=self.pool_identifier)
+        manifest_ms = int((time.monotonic() - manifest_started) * 1000)
         fingerprint = manifest_fingerprint(manifest)
 
         supervisor = get_supervisor(self.pool_identifier)
+        worker_started = time.monotonic()
         response, reason = supervisor.query(
             vector=query_vector,
             k=limit,
             embedding_dim=embedding_dim,
             manifest_fingerprint=fingerprint,
         )
+        worker_knn_ms = int((time.monotonic() - worker_started) * 1000)
         if response.status != "ok":
             return RetrievalResult(
                 query=query,
@@ -182,6 +208,12 @@ class LocalSemanticLane:
                     "lane": self.lane_name,
                     "reason": reason or response.reason_code or "semantic_worker_unavailable",
                     "pool_identifier": self.pool_identifier,
+                    "embed_ms": embed_ms,
+                    "manifest_ms": manifest_ms,
+                    "metadata_open_ms": metadata_open_ms,
+                    "metadata_cached": load_result.metadata_cached,
+                    "worker_knn_ms": worker_knn_ms,
+                    "total_lane_ms": int((time.monotonic() - total_started) * 1000),
                 },
             )
 
@@ -270,6 +302,12 @@ class LocalSemanticLane:
                 "embedding_dim": embedding_dim,
                 "hits_count": len(hits),
                 "cards_count": len(cards),
+                "embed_ms": embed_ms,
+                "manifest_ms": manifest_ms,
+                "metadata_open_ms": metadata_open_ms,
+                "metadata_cached": load_result.metadata_cached,
+                "worker_knn_ms": worker_knn_ms,
+                "total_lane_ms": int((time.monotonic() - total_started) * 1000),
             },
         )
 
@@ -342,6 +380,7 @@ class LocalSemanticLane:
             return IndexLoadResult(
                 status=IndexLoadStatus.SUCCESS,
                 vector_store=self._metadata_store,
+                metadata_cached=True,
             )
 
         hnsw_path = hnsw_index_path(pool_identifier=self.pool_identifier)
@@ -360,6 +399,7 @@ class LocalSemanticLane:
             return IndexLoadResult(
                 status=IndexLoadStatus.SUCCESS,
                 vector_store=self._metadata_store,
+                metadata_cached=False,
             )
         except Exception as e:
             # Failed to load (corrupted, wrong dim, etc.)
@@ -368,3 +408,13 @@ class LocalSemanticLane:
                 error=f"Failed to load index: {type(e).__name__}: {str(e)}",
             )
 
+    def _get_or_create_embedding_provider(self) -> EmbeddingProvider:
+        if self._embedding_provider is not None:
+            return self._embedding_provider
+        with self._embedding_lock:
+            if self._embedding_provider is None:
+                self._embedding_provider = build_embedding_provider(
+                    assets_service=self.assets_service,
+                    batch_size=self.batch_size,
+                )
+        return self._embedding_provider
