@@ -22,7 +22,8 @@ Before writing any run artifacts, read:
 8. `ralph/templates/PROMPT_TEMPLATE.md` (what the loop will repeatedly receive)
 9. `ralph/templates/SUMMARY_TEMPLATE.md` (human-readable per-story run debrief)
 10. `ralph/templates/RUN_JSON_TEMPLATE.json` + `ralph/templates/CONTROL_JSON_TEMPLATE.json` (engine-required files)
-11. `ralph/templates/CONFIG_JSON_TEMPLATE.json` (project-level driver config)
+11. `ralph/templates/ORCHESTRATION_JSON_TEMPLATE.json` (engine-required orchestration state)
+12. `ralph/templates/CONFIG_JSON_TEMPLATE.json` (project-level driver config)
 
 ---
 
@@ -55,6 +56,7 @@ A valid run folder MUST contain:
 - `run.json` (engine-required; see schema below)
 - `control.json` (engine-required; see schema below)
 - `events.ndjson` (engine-required; empty file ok)
+- `orchestration.json` (engine-required; scheduling state)
 - `PRD.md` (human-readable spec)
 - `prd.json` (atomic stories; includes `passes` fields)
 - `PROMPT.md` (the single prompt repeatedly fed to Ralph)
@@ -109,6 +111,10 @@ Minimum schema:
 
 `events.ndjson`:
 - Copy from `ralph/templates/EVENTS_NDJSON_TEMPLATE.ndjson` (empty file ok). Engine will append.
+
+`orchestration.json` (from `ralph/templates/ORCHESTRATION_JSON_TEMPLATE.json`):
+- Default scheme is `W5R` (5 workers then 1 reviewer, repeat).
+- Leave `cursor`, `queue`, and `final_review_pending` at defaults for new runs.
 
 ---
 
@@ -215,7 +221,7 @@ Start from:
 ## Step 11 — Final validation (before handing to Ralph)
 
 Confirm:
-- Run folder contains required files (run.json, control.json, events.ndjson, PRD.md, prd.json, PROMPT.md, progress.md)
+- Run folder contains required files (run.json, control.json, events.ndjson, orchestration.json, PRD.md, prd.json, PROMPT.md, progress.md)
 - `ralph/config.json` exists and includes worker_cmd + reviewer_cmd with `{task_file}` for harness drivers
 - If PATH resolution fails, `ralph/config.json` points to a concrete executable (use `.cmd` on Windows)
 - run.json has status "pending" and UTC ISO 8601 timestamps

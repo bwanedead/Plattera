@@ -1,5 +1,7 @@
 # Review — Iteration <n>
 
+Review mode: <periodic|adhoc|final>
+
 ## Checks (short, objective)
 - On track vs PRD goals? <yes/no + note>
 - Drift or scope creep? <yes/no + note>

@@ -8,5 +8,6 @@
 
 Notes:
 - The prompt is re-run identically each iteration.
+- One iteration is one phase (worker or reviewer), not a worker+reviewer pair.
 - The loop stops when Claude outputs: `<promise>TASK COMPLETE</promise>`
 - If max iterations hits first, inspect `progress.md` and continue.

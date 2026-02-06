@@ -2,7 +2,9 @@
   "run_id": "2026-02-04__feature-graph-ir",
   "title": "Universal Feature Graph IR (deed meaning substrate) — first leg",
   "repo_context": "Backend-only feature graph IR, persistence, compiler/judge, and API endpoints running parallel to legacy pipelines.",
-  "global_verification": [],
+  "global_verification": [
+    "pytest backend/feature_graph -q"
+  ],
   "stories": [
     {
       "id": "S1",
@@ -51,7 +53,8 @@
       "size": "XS",
       "passes": false,
       "acceptance_criteria": [
-        "Gap types include MissingAnchor, MissingOperand, MissingParameter, AmbiguousChoice, UnsupportedOperation.",
+        "Gap types include MissingAnchor, MissingOperand, MissingParameter, AmbiguousChoice, UnsupportedOperation, and PreconditionFailed (for unclosed or invalid prerequisites).",
+        "Feature-graph gap records can serialize into the existing `backend/agents/common/contracts.py` Gap/CompileReport shape (or include an explicit adapter).",
         "`pytest backend/feature_graph/test_gaps.py` passes and validates JSON serialization."
       ],
       "verification_commands": [
@@ -163,8 +166,9 @@
       "size": "S",
       "passes": false,
       "acceptance_criteria": [
-        "Compile produces local polyline output for Traverse LineSteps with numeric distance/bearing.",
-        "Missing numeric parameters emit MissingParameter gaps instead of failing.",
+        "Compile produces local polyline output for Traverse LineSteps when numeric distance/bearing can be deterministically parsed.",
+        "IR stores raw measurements (bearing_raw, distance_raw) and preserves parsed numeric values separately when available.",
+        "Failed parse or missing numeric parameters emit MissingParameter (or parse-specific) gaps instead of failing.",
         "`pytest backend/feature_graph/test_compiler_traverse.py` passes."
       ],
       "verification_commands": [
@@ -186,7 +190,7 @@
       "size": "XS",
       "passes": false,
       "acceptance_criteria": [
-        "Close(curve) produces a Region only when curve is closed; otherwise returns a MissingParameter or UnsupportedOperation gap.",
+        "Close(curve) produces a Region only when curve is closed; otherwise returns a PreconditionFailed gap with a clear reason (unclosed curve).",
         "Buffer(...) emits UnsupportedOperation with structured params.",
         "`pytest backend/feature_graph/test_compiler_derive.py` passes."
       ],

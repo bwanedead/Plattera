@@ -32,6 +32,7 @@ Read and understand:
 - [ ] `run.json` created (engine-required; pending status)
 - [ ] `control.json` created (engine-required; all false)
 - [ ] `events.ndjson` created (engine-required; empty ok)
+- [ ] `orchestration.json` created (engine-required; from ORCHESTRATION_JSON_TEMPLATE.json)
 - [ ] `PRD.md` created (from PRD_TEMPLATE.md)
 - [ ] `prd.json` created (from PRD_JSON_TEMPLATE.json)
 - [ ] `PROMPT.md` created (from PROMPT_TEMPLATE.md)

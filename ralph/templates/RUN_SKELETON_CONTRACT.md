@@ -9,6 +9,7 @@ It MUST contain:
 - `run.json` (engine-required)
 - `control.json` (engine-required)
 - `events.ndjson` (engine-required; can start empty)
+- `orchestration.json` (engine-required; scheduling state)
 - `PRD.md`
 - `prd.json`
 - `PROMPT.md`

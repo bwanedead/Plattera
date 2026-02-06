@@ -22,7 +22,7 @@ The agent "sees its past work" because it can read the repo and git history.
 ## What the ralph-loop Plugin Does
 
 - Start with: `/ralph-loop "<PROMPT>" [options]`
-- Each iteration:
+- Each iteration (one phase: worker OR reviewer):
   1. Agent receives the SAME prompt
   2. Agent edits files / runs commands / commits as instructed
   3. Agent tries to exit
@@ -30,6 +30,7 @@ The agent "sees its past work" because it can read the repo and git history.
 - The loop ends when either:
   - Agent outputs the exact completion tag: `<promise>YOUR_PROMISE_TEXT</promise>`
   - OR the loop hits `--max-iterations N`
+  - Engine scheduling is driven by `orchestration.json`, and a reviewer can stop the run via control signals.
 
 ## Why Per-Run Directories
 
@@ -45,11 +46,23 @@ We keep durable, replayable state in the repo so iterations remain coherent:
 
 This makes the loop deterministic and inspectable.
 
+## Orchestration (Workers + Reviewers)
+
+Each run has `orchestration.json` that controls worker/reviewer scheduling.
+Default scheme is `W5R` (5 workers, then 1 reviewer, repeat).
+Reviewers can also be injected ad hoc (see `control.json` review flags).
+Workers can request a final review by writing `output/worker_result.json` with `{ "complete": true, "reason": "worker_done" }`.
+
 ## Review & Steering Cadence
 
 Every N iterations, a review pass may run and must fill out `STEERING_NEEDED: yes/no`.
 Steering runs only when `STEERING_NEEDED: yes` (unless forced by `loop_settings`).
 Steering updates PRD/story structure while preserving tiny-story discipline.
+
+Review tasks include a `review_mode` in their task envelope:
+- `periodic` (cadence)
+- `adhoc` (queued via control signals)
+- `final` (after worker signals completion)
 
 ## Loop State Control Plane (Optional)
 

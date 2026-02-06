@@ -1,8 +1,8 @@
 {
   "pause": false,
-  "stop_soft": false,
-  "stop_hard": false,
-  "skip_iteration": false,
+  "review_next": false,
   "review_now": false,
-  "review_next": false
+  "skip_iteration": false,
+  "stop_hard": false,
+  "stop_soft": false
 }

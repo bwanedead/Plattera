@@ -16,6 +16,7 @@ IMPORTANT: This exact prompt will be re-run repeatedly each iteration. You must 
 ## Mission (loop behavior)
 
 Each iteration:
+- If this is a reviewer task (review_mode is provided in the task envelope), run the review workflow only (see below) and do not implement stories.
 - Select the next story in `prd.json` where `"passes": false` (prefer lowest ordered unmet story).
 - Implement it with minimal scope.
 - Make it self-verifying (tests or deterministic commands).
@@ -63,6 +64,15 @@ For the selected story:
     - If you discovered a gotcha, invariant, required workflow, or sharp edge that would help future agents working in that area, create/update the folder-level `agents.md`
     - Only do this if there's genuinely useful information to capture (don't spam empty files)
     - Keep it short (~30-50 lines) and factual
+
+## Reviewer-only procedure (when review_mode is present)
+
+If `review_mode` is provided (`periodic`, `adhoc`, or `final`):
+1. Compute the deterministic iteration number.
+2. Write a review using `ralph/templates/REVIEW_TEMPLATE.md` to `ralph/runs/<run_id>/review.md` (overwrite is fine).
+3. If `STEERING_NEEDED: yes`, set `loop_state.json.steering_requested: true` and write `steering.md` using `ralph/templates/STEERING_TEMPLATE.md`.
+4. Write a transcript for this iteration (review-mode context).
+5. Do NOT edit `prd.json` or ship story changes in reviewer mode.
 
 ## Global verification (repo-wide cadence)
 
@@ -144,6 +154,12 @@ Append exactly this shape to `SUMMARY.md`:
 ## Completion promise (required)
 
 When ALL stories in `prd.json` are `"passes": true`, output exactly:
+
+```
+(also write `output/worker_result.json` with: { "complete": true, "reason": "worker_done" })
+```
+
+Then output exactly:
 
 ```
 <promise>TASK COMPLETE</promise>
