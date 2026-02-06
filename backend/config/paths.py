@@ -143,6 +143,16 @@ def dossiers_georefs_artifacts_root(dossier_id: str | None = None) -> Path:
     return base if dossier_id is None else base / str(dossier_id)
 
 
+def dossiers_feature_graphs_artifacts_root(dossier_id: str | None = None) -> Path:
+    """
+    Root for feature graph artifacts (IR, compile, judge, bundle).
+    - Dev: backend/dossiers_data/artifacts/feature_graphs[/<dossier_id>]
+    - Frozen: LOCALAPPDATA\\Plattera\\Data\\dossiers_data\\artifacts\\feature_graphs[\\<dossier_id>]
+    """
+    base = dossiers_artifacts_root() / "feature_graphs"
+    return base if dossier_id is None else base / str(dossier_id)
+
+
 # ----- Assets (models, external data) -----
 
 def assets_root() -> Path:
