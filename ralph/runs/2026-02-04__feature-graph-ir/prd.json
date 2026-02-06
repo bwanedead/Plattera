@@ -74,7 +74,7 @@
       "id": "S4",
       "title": "Add operation registry for universal constructors",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Operation definitions include Traverse/LineStep/CurveStep/ConstraintStep, Derive ops, Constraint ops, and Region booleans.",
         "Unsupported ops can be stored as UnsupportedOperation entries.",
@@ -96,7 +96,7 @@
       "id": "S5",
       "title": "Define artifact models for IR/compile/judge/bundle",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Artifact models include IR Artifact, Compile Artifact, Judge Report, and Bundle Artifact with lineage fields.",
         "`pytest backend/feature_graph/test_artifacts.py` passes with round-trip coverage."

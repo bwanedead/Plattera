@@ -147,6 +147,116 @@ This file captures a running summary of what was built, one entry per completed 
 
 ---
 
+## Story S4: Add operation registry for universal constructors
+**Status:** PASS
+**Iteration:** 4
+
+### What was built
+- Universal operation registry defining all operations that can appear in feature graph IR
+- `OperationCategory` enum for operation classification (Traverse, Derive, Constraint, Boolean, Unknown)
+- `ParameterSpec` model defining operation parameter specifications (name, type, required/optional, unit, default value)
+- `OperationDef` model defining complete operation specifications (name, category, parameters, operand counts, support status)
+- 14 operation definitions across 4 categories registered in `OPERATION_REGISTRY`
+- `UnsupportedOperation` wrapper for storing operations not yet implemented in compiler
+- Registry query helpers for retrieving and filtering operations
+
+### Files changed
+- `backend/feature_graph/operations.py` - operation registry with models and definitions (~470 lines)
+- `backend/feature_graph/test_operations.py` - comprehensive test suite with 17 tests (~320 lines)
+
+### Key decisions
+- Operations are registry entries, not hard-coded classes, allowing easy extension
+- Each operation specifies required/optional parameters, operand count constraints, and support status
+- UnsupportedOperation wrapper ensures total representability: any deed operation can be stored in IR even if not compilable
+- Marked LineStep and Close as supported (implemented in future stories), all others as unsupported initially
+- ParameterSpec includes unit hints (feet, degrees) for measurement parameters
+- Operand count validation built into OperationDef (min_operands, max_operands with None = unlimited)
+- Registry provides query functions: get by name, filter by category, list supported/unsupported operations
+
+### Tests added
+- 17 new tests in `backend/feature_graph/test_operations.py`
+- Coverage includes:
+  - Registry population validation (all expected operations present)
+  - get_operation_def retrieval (known and unknown operations)
+  - is_supported_operation filtering
+  - get_operations_by_category filtering (all 4 categories)
+  - get_supported_operations / get_unsupported_operations listing
+  - Specific operation definitions (LineStep, Close, Buffer structure validation)
+  - Operand count validation logic
+  - UnsupportedOperation wrapper and to_op_expr conversion
+  - ParameterSpec structure
+  - Operation descriptions and categories validation
+  - JSON serialization round-trip for OperationDef
+  - Boolean operations unlimited operand support
+  - Constraint operations correct operand counts
+
+### Notes
+- Operations organized into 4 categories:
+  - Traverse: LineStep (supported), CurveStep, ConstraintStep
+  - Derive: Close (supported), Buffer (stubbed), Offset
+  - Constraint: Distance, Angle, Perpendicular, Parallel
+  - Boolean: Union, Intersection, Difference, SymmetricDifference
+- LineStep includes both numeric params (bearing, distance) and raw string params (bearing_raw, distance_raw) for provenance
+- CurveStep includes comprehensive curve parameters (radius, arc_length, chord_bearing, chord_distance, delta_angle, direction)
+- Registry is extensible: new operations can be added without breaking existing code
+- UnsupportedOperation to_op_expr adds _unsupported and _reason flags to params for clear identification
+- All acceptance criteria met: operation definitions complete, UnsupportedOperation wrapper works, tests pass
+
+---
+
+## Story S5: Define artifact models for IR/compile/judge/bundle
+**Status:** PASS
+**Iteration:** 5
+
+### What was built
+- Five artifact models for durable persistence of feature graph pipeline states
+- `ArtifactMetadata` model with lineage tracking (parent_artifact_ids), timestamps, creator info, and version field
+- `IRArtifact` model for persisting complete feature graph IR with source document references
+- `CompileArtifact` model for storing compilation outputs (compiled features, gaps, warnings) with compiler version tracking
+- `JudgeArtifact` model wrapping JudgeReport with artifact metadata for validation results
+- `BundleArtifact` model for portable packaging of target graph + dependency subgraphs with inclusion reasons
+- Four constructor helpers that set timestamps and metadata automatically
+- Bundle helper methods (get_all_graph_ids, get_dependency_reason)
+
+### Files changed
+- `backend/feature_graph/artifacts.py` - new file with 5 artifact models and 4 constructor helpers (~280 lines)
+- `backend/feature_graph/test_artifacts.py` - comprehensive test suite with 20 tests (~500 lines)
+- `backend/feature_graph/__init__.py` - exported artifact models and helpers
+
+### Key decisions
+- Used ArtifactMetadata as common base for all artifacts (consistent lineage tracking pattern)
+- All artifacts have artifact_type discriminator field for polymorphic deserialization
+- Artifacts store timestamps in ISO format with UTC timezone ("2024-01-01T00:00:00Z")
+- BundleArtifact stores dependency_reasons as Dict[graph_id -> reason] for explainability
+- CompileArtifact stores gaps as plain dicts (not FeatureGap objects) for flexibility
+- JudgeArtifact wraps JudgeReport rather than duplicating fields (composition over inheritance)
+- Constructor helpers automatically set created_at timestamps using datetime.utcnow()
+- All artifacts support version field for schema evolution (defaults to "1.0")
+
+### Tests added
+- 20 new tests in `backend/feature_graph/test_artifacts.py`
+- Coverage includes:
+  - ArtifactMetadata JSON round-trip
+  - IRArtifact minimal and with source document tracking
+  - CompileArtifact with gaps, warnings, and empty results
+  - JudgeArtifact with JudgeReport integration
+  - BundleArtifact minimal, with dependencies, and with included artifacts
+  - Lineage tracking across all artifact types (IR → Compile → Judge → Bundle)
+  - Timestamp validation for all constructors
+  - Artifact type discriminator validation
+  - Complex nested graph serialization
+  - Version field validation
+
+### Notes
+- All artifacts are durable: full JSON round-trip with no loss of information
+- Lineage tracking enables full audit trail from bundle back to source documents
+- Bundles are self-contained and portable (include all dependencies)
+- BundleArtifact dependency_reasons field enables explainability (why was each dependency included)
+- Artifacts follow existing Pydantic patterns (BaseModel, Field, Config with frozen=False)
+- All acceptance criteria met: artifact models complete with lineage, tests pass, round-trip coverage verified
+
+---
+
 ## Final Summary (append when run complete)
 
 ### Overview
