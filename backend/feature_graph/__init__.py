@@ -7,7 +7,7 @@ Provides models for representing, compiling, and validating deed assertions
 with deterministic outcomes and provenance tracking.
 """
 
-from backend.feature_graph.models import (
+from .models import (
     FeatureKind,
     FeatureNode,
     FeatureEdge,
@@ -15,6 +15,13 @@ from backend.feature_graph.models import (
     OpExpr,
     Literal,
     FeatureGraph,
+)
+
+from .provenance import (
+    TextSpan,
+    EvidenceRef,
+    Citation,
+    ProvenanceAttachment,
 )
 
 __all__ = [
@@ -25,4 +32,8 @@ __all__ = [
     "OpExpr",
     "Literal",
     "FeatureGraph",
+    "TextSpan",
+    "EvidenceRef",
+    "Citation",
+    "ProvenanceAttachment",
 ]
