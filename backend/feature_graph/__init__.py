@@ -24,6 +24,18 @@ from .provenance import (
     ProvenanceAttachment,
 )
 
+from .artifacts import (
+    ArtifactMetadata,
+    IRArtifact,
+    CompileArtifact,
+    JudgeArtifact,
+    BundleArtifact,
+    create_ir_artifact,
+    create_compile_artifact,
+    create_judge_artifact,
+    create_bundle_artifact,
+)
+
 __all__ = [
     "FeatureKind",
     "FeatureNode",
@@ -36,4 +48,13 @@ __all__ = [
     "EvidenceRef",
     "Citation",
     "ProvenanceAttachment",
+    "ArtifactMetadata",
+    "IRArtifact",
+    "CompileArtifact",
+    "JudgeArtifact",
+    "BundleArtifact",
+    "create_ir_artifact",
+    "create_compile_artifact",
+    "create_judge_artifact",
+    "create_bundle_artifact",
 ]
