@@ -85,3 +85,20 @@
   - Artifacts include timestamps, version fields, and artifact_type discriminators
 
 ---
+
+- Iteration: 6
+- Story: S6 Add feature graph artifact persistence service + paths
+- Result: PASS
+- Files changed: backend/config/paths.py, backend/services/feature_graph/__init__.py, backend/services/feature_graph/feature_graph_persistence_service.py, backend/feature_graph/test_persistence.py
+- Commands run: pytest backend/feature_graph/test_persistence.py, git add, git commit
+- Notes:
+  - Added dossiers_feature_graphs_artifacts_root() path function to config/paths.py
+  - Created FeatureGraphPersistenceService with atomic writes and index maintenance
+  - Service supports CRUD operations (save, get, list, delete) for all artifact types (IR, compile, judge, bundle)
+  - Index is maintained at dossiers_data/state/feature_graphs_index.json
+  - Service accepts optional root and state_dir parameters for test isolation
+  - All 13 tests pass with temp root isolation (no shared state between tests)
+  - Artifacts stored under dossiers_data/artifacts/feature_graphs/<dossier_id>/<artifact_id>.json
+  - Index supports filtering by dossier_id and artifact_type, sorted by saved_at desc
+
+---

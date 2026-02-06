@@ -257,6 +257,54 @@ This file captures a running summary of what was built, one entry per completed 
 
 ---
 
+## Story S6: Add feature graph artifact persistence service + paths
+**Status:** PASS
+**Iteration:** 6
+
+### What was built
+- Feature graph artifact paths added to centralized path configuration
+- `FeatureGraphPersistenceService` for atomic writes and index maintenance
+- CRUD operations (save, get, list, delete) for all artifact types (IR, compile, judge, bundle)
+- Queryable index with filtering by dossier_id and artifact_type
+- Test isolation support via optional root and state_dir parameters
+
+### Files changed
+- `backend/config/paths.py` - added `dossiers_feature_graphs_artifacts_root()` path helper
+- `backend/services/feature_graph/__init__.py` - service module initialization
+- `backend/services/feature_graph/feature_graph_persistence_service.py` - persistence service implementation (~250 lines)
+- `backend/feature_graph/test_persistence.py` - comprehensive test suite with 13 tests (~400 lines)
+
+### Key decisions
+- Followed existing persistence patterns from `schema_persistence_service.py` (atomic writes with tempfile + os.replace)
+- Separated feature graph artifacts from legacy schema/georef artifacts at `dossiers_data/artifacts/feature_graphs/`
+- Index maintained at `dossiers_data/state/feature_graphs_index.json` for cross-dossier queries
+- Service accepts optional root and state_dir overrides for test isolation (each test gets temp dirs)
+- Index entries deduplicated by (dossier_id, artifact_id) and sorted by saved_at desc
+- Direct import pattern in tests to avoid triggering services/__init__.py which imports heavy dependencies
+
+### Tests added
+- 13 new tests in `backend/feature_graph/test_persistence.py`
+- Coverage includes:
+  - Service initialization with temp roots
+  - Save and retrieve for all 4 artifact types (IR, compile, judge, bundle)
+  - Atomic write crash-safety validation
+  - Index maintenance and query operations (list all, filter by dossier, filter by type)
+  - Index deduplication (same artifact_id overwrites, no duplicates)
+  - Delete operations with index cleanup
+  - Nonexistent artifact handling (returns None)
+  - Empty index handling (returns empty list)
+  - Index sorting by saved_at (newest first)
+  - Mixed artifact types filtering
+
+### Notes
+- All 13 tests pass with isolated temp directories (no shared state pollution)
+- Persistence service matches schema_persistence_service patterns for consistency
+- Artifacts separate from legacy pipelines (as required by PRD non-goal: "not replacing or refactoring existing pipelines")
+- Index enables efficient queries across dossiers without scanning filesystem
+- Service is production-ready: atomic writes ensure crash-safety, index maintains consistency
+
+---
+
 ## Final Summary (append when run complete)
 
 ### Overview

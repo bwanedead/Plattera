@@ -119,7 +119,7 @@
       "id": "S6",
       "title": "Add feature graph artifact persistence service + paths",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "New paths exist for feature graph artifacts and index under `config.paths`.",
         "FeatureGraphPersistenceService writes artifacts atomically and maintains an index.",
