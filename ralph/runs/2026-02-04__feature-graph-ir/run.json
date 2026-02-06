@@ -1,9 +1,15 @@
 {
   "run_id": "2026-02-04__feature-graph-ir",
-  "status": "pending",
+  "status": "running",
   "iteration": 0,
-  "max_iterations": 40,
+  "max_iterations": 12,
+  "phase": "worker",
   "created_at": "2026-02-04T00:00:00Z",
-  "updated_at": "2026-02-04T00:00:00Z",
-  "error": null
+  "updated_at": "2026-02-06T22:59:18.723258Z",
+  "started_at": "2026-02-06T22:59:18.672466Z",
+  "finished_at": null,
+  "error": null,
+  "git_branch": "ralph/2026-02-04__feature-graph-ir",
+  "git_base_branch": "agent-loop-building",
+  "git_base_commit": "551f2d9d03af54dc6fe812de81cccc29e287eee4"
 }

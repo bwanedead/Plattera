@@ -1,1 +1,5 @@
 
+{"time":"2026-02-06T22:59:18.632599Z","type":"git_branch_created","run_id":"2026-02-04__feature-graph-ir","iteration":0,"phase":"idle","message":"Created run branch: ralph/2026-02-04__feature-graph-ir","data":{"branch":"ralph/2026-02-04__feature-graph-ir","base_branch":"agent-loop-building","base_commit":"551f2d9d03af54dc6fe812de81cccc29e287eee4"}}
+{"time":"2026-02-06T22:59:18.682245Z","type":"run_started","run_id":"2026-02-04__feature-graph-ir","iteration":0,"phase":"idle","message":"Starting run","data":{"max_iterations":12}}
+{"time":"2026-02-06T22:59:18.723258Z","type":"iteration_started","run_id":"2026-02-04__feature-graph-ir","iteration":0,"phase":"idle","message":"Starting iteration 0","data":{}}
+{"time":"2026-02-06T22:59:18.733986Z","type":"phase_started","run_id":"2026-02-04__feature-graph-ir","iteration":0,"phase":"worker","message":"Starting worker phase","data":{}}

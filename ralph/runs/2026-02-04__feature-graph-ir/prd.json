@@ -10,7 +10,7 @@
       "id": "S1",
       "title": "Create core Feature Graph IR models",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Pydantic models for FeatureKind, FeatureNode, FeatureEdge, FeatureRef, OpExpr, Literal, FeatureGraph exist under `backend/feature_graph/`.",
         "`pytest backend/feature_graph/test_models.py` passes and asserts JSON round-trip for a minimal graph."
