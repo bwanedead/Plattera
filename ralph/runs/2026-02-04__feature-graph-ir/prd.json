@@ -30,7 +30,7 @@
       "id": "S2",
       "title": "Add provenance + citation models and attach to nodes",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Provenance models (TextSpan, Citation, EvidenceRef) exist and are referenced by FeatureNode/FeatureEdge.",
         "`pytest backend/feature_graph/test_provenance.py` passes with citation round-trip coverage."
@@ -51,7 +51,7 @@
       "id": "S3",
       "title": "Define gap types and judge report models",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Gap types include MissingAnchor, MissingOperand, MissingParameter, AmbiguousChoice, UnsupportedOperation, and PreconditionFailed (for unclosed or invalid prerequisites).",
         "Feature-graph gap records can serialize into the existing `backend/agents/common/contracts.py` Gap/CompileReport shape (or include an explicit adapter).",
