@@ -41,6 +41,16 @@ from .compiler import (
     CompileResult,
 )
 
+from .judge import (
+    judge_graph,
+)
+
+from .gaps import (
+    JudgeReport,
+    FeatureGap,
+    GapKind,
+)
+
 __all__ = [
     "FeatureKind",
     "FeatureNode",
@@ -64,4 +74,8 @@ __all__ = [
     "create_bundle_artifact",
     "compile_graph",
     "CompileResult",
+    "judge_graph",
+    "JudgeReport",
+    "FeatureGap",
+    "GapKind",
 ]
