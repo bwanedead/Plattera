@@ -51,6 +51,11 @@ from .gaps import (
     GapKind,
 )
 
+from .bundle import (
+    bundle_feature_graph,
+    BundleOperation,
+)
+
 __all__ = [
     "FeatureKind",
     "FeatureNode",
@@ -78,4 +83,6 @@ __all__ = [
     "JudgeReport",
     "FeatureGap",
     "GapKind",
+    "bundle_feature_graph",
+    "BundleOperation",
 ]
