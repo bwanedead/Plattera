@@ -3,6 +3,6 @@
   "review_next": false,
   "review_now": false,
   "skip_iteration": false,
-  "stop_hard": false,
+  "stop_hard": true,
   "stop_soft": false
 }
