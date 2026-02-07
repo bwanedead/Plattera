@@ -36,6 +36,11 @@ from .artifacts import (
     create_bundle_artifact,
 )
 
+from .compiler import (
+    compile_graph,
+    CompileResult,
+)
+
 __all__ = [
     "FeatureKind",
     "FeatureNode",
@@ -57,4 +62,6 @@ __all__ = [
     "create_compile_artifact",
     "create_judge_artifact",
     "create_bundle_artifact",
+    "compile_graph",
+    "CompileResult",
 ]
