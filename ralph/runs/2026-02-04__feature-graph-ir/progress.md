@@ -195,3 +195,26 @@
   - Updated __init__.py to export bundle_feature_graph and BundleOperation
 
 ---
+
+- Iteration: 12
+- Story: S12 Add compile/judge/bundle API endpoints
+- Result: PASS
+- Files changed: backend/api/endpoints/feature_graph.py, backend/api/test_feature_graph_compile_endpoints.py
+- Commands run: git add, git commit
+- Notes:
+  - Added three new FastAPI endpoints to feature_graph router: /compile, /judge, /bundle
+  - Compile endpoint: runs best-effort compilation via compile_graph(), returns CompileArtifact with compiled_features and typed gaps
+  - Judge endpoint: runs deterministic validation via judge_graph(), returns JudgeArtifact with judge report
+  - Bundle endpoint: bundles graph with dependencies via bundle_feature_graph(), returns BundleArtifact with reasons
+  - All endpoints accept graph dict, dossier_id, and optional artifact_id/parent_artifact_ids
+  - All endpoints save artifacts via persistence_service and return success + artifact + artifact_id
+  - Proper error handling with HTTPException for missing required fields
+  - Created 14 comprehensive tests in test_feature_graph_compile_endpoints.py
+  - Tests use asyncio.run() to call endpoint functions directly with temp directories for isolation
+  - Compile tests (4): simple traverse, missing parameters, unsupported operations, persistence verification
+  - Judge tests (5): valid graph, missing anchor, missing operand, warnings flag, persistence verification
+  - Bundle tests (4): simple graph, external dependencies, metadata capture, persistence verification
+  - Tests validate that artifacts are saved to disk and contain expected structure/gaps
+  - All endpoints return deterministic JSON outputs per PRD requirements
+
+---

@@ -255,7 +255,7 @@
       "id": "S12",
       "title": "Add compile/judge/bundle API endpoints",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Feature graph router exposes compile/judge/bundle endpoints with deterministic JSON outputs.",
         "`pytest backend/api/test_feature_graph_compile_endpoints.py` passes."

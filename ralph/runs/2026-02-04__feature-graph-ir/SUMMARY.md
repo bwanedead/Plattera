@@ -566,3 +566,42 @@ This file captures a running summary of what was built, one entry per completed 
 - Deterministic: same input graph + available_graphs always produces same bundle structure
 - BundleArtifact helper methods: get_all_graph_ids(), get_dependency_reason(graph_id)
 
+---
+
+## Story S12: Add compile/judge/bundle API endpoints
+**Status:** PASS
+**Iteration:** 12
+
+### What was built
+- Three new FastAPI POST endpoints in feature_graph router: /compile, /judge, /bundle
+- Compile endpoint runs best-effort compilation and returns CompileArtifact with compiled features and typed gaps
+- Judge endpoint runs deterministic validation and returns JudgeArtifact with judge report and gap records
+- Bundle endpoint packages graphs with minimal dependencies and returns BundleArtifact with inclusion reasons
+- All endpoints save artifacts via persistence_service and return deterministic JSON outputs
+- Created comprehensive test suite with 14 tests covering all three endpoints
+
+### Files changed
+- `backend/api/endpoints/feature_graph.py` - Added compile/judge/bundle endpoints with request/response models and error handling
+- `backend/api/test_feature_graph_compile_endpoints.py` - New test file with 14 tests for compile/judge/bundle operations
+
+### Key decisions
+- Endpoints accept graph dicts rather than requiring pre-saved artifacts, allowing direct invocation
+- All endpoints save artifacts atomically via persistence service before returning response
+- Used same direct-call test pattern as test_feature_graph_ir_endpoints.py (asyncio.run with temp directories)
+- Error handling validates required fields (dossier_id, graph, target_graph) and returns HTTPException 400/422
+- Bundle endpoint accepts optional available_graphs dict for dependency resolution
+
+### Tests added
+- 14 new tests in `backend/api/test_feature_graph_compile_endpoints.py`
+- Compile tests: simple traverse (LineSteps), missing parameters (gaps), unsupported operations (Buffer), persistence verification
+- Judge tests: valid graph, missing anchor (gap), missing operand (gap), warnings flag toggle, persistence verification
+- Bundle tests: simple graph (no deps), external dependencies (with reasons), metadata (created_by/bundle_purpose), persistence verification
+- All tests use temp directories for isolation and validate artifact disk persistence
+
+### Notes
+- Endpoints run in parallel with legacy pipelines per PRD constraint
+- All operations are deterministic (no LLM, no randomness, no confidence scores)
+- Gaps include citations and provenance when available
+- Bundle operation performs recursive dependency discovery with circular ref protection
+- Tests follow co-located pattern and can be run with: pytest backend/api/test_feature_graph_compile_endpoints.py
+
