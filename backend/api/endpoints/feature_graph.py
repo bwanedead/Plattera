@@ -22,6 +22,11 @@ from feature_graph.artifacts import (
     JudgeArtifact,
     BundleArtifact,
 )
+from feature_graph.models import FeatureGraph
+from feature_graph.compiler import compile_graph
+from feature_graph.judge import judge_graph
+from feature_graph.bundle import bundle_feature_graph
+from feature_graph.artifacts import create_compile_artifact, create_judge_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -231,3 +236,274 @@ async def list_all_artifacts(artifact_type: Optional[ArtifactType] = None):
         logger.error(f"❌ Failed to list all artifacts: {str(e)}")
         logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail=f"Failed to list all artifacts: {str(e)}")
+
+
+# ============================================================================
+# COMPILE / JUDGE / BUNDLE ENDPOINTS
+# ============================================================================
+
+class CompileRequest(BaseModel):
+    """Request model for compiling a feature graph"""
+    graph: Dict[str, Any]
+    dossier_id: str
+    artifact_id: Optional[str] = None
+    parent_artifact_ids: Optional[List[str]] = None
+
+
+class CompileResponse(BaseModel):
+    """Response model for compile operation"""
+    success: bool
+    artifact: Dict[str, Any]
+    artifact_id: str
+
+
+class JudgeRequest(BaseModel):
+    """Request model for judging a feature graph"""
+    graph: Dict[str, Any]
+    dossier_id: str
+    artifact_id: Optional[str] = None
+    parent_artifact_ids: Optional[List[str]] = None
+    include_warnings: bool = True
+
+
+class JudgeResponse(BaseModel):
+    """Response model for judge operation"""
+    success: bool
+    artifact: Dict[str, Any]
+    artifact_id: str
+
+
+class BundleRequest(BaseModel):
+    """Request model for bundling a feature graph"""
+    target_graph: Dict[str, Any]
+    available_graphs: Optional[Dict[str, Dict[str, Any]]] = None
+    dossier_id: str
+    artifact_id: Optional[str] = None
+    parent_artifact_ids: Optional[List[str]] = None
+    created_by: Optional[str] = None
+    bundle_purpose: Optional[str] = None
+
+
+class BundleResponse(BaseModel):
+    """Response model for bundle operation"""
+    success: bool
+    artifact: Dict[str, Any]
+    artifact_id: str
+
+
+@router.post("/compile", response_model=CompileResponse)
+async def compile_feature_graph(request: CompileRequest):
+    """
+    Compile a feature graph into concrete geometry outputs.
+
+    This endpoint runs best-effort compilation: produces partial results with
+    typed gaps for unsupported operations or missing parameters.
+
+    Args:
+        request: CompileRequest with graph dict and dossier_id
+
+    Returns:
+        CompileResponse with CompileArtifact containing compiled features and gaps
+    """
+    try:
+        if not request.dossier_id or not request.dossier_id.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="dossier_id is required"
+            )
+
+        if not request.graph:
+            raise HTTPException(
+                status_code=400,
+                detail="graph is required"
+            )
+
+        logger.info(f"🔧 Compiling feature graph for dossier {request.dossier_id}")
+
+        # Deserialize graph
+        graph = FeatureGraph(**request.graph)
+
+        # Run compiler
+        compile_result = compile_graph(graph)
+
+        # Create compile artifact
+        artifact_id = request.artifact_id or f"compile_{graph.graph_id}"
+        parent_ids = request.parent_artifact_ids or [graph.graph_id]
+
+        compile_artifact = create_compile_artifact(
+            artifact_id=artifact_id,
+            source_graph=graph,
+            compiled_features=compile_result.compiled_features,
+            gaps=compile_result.gaps,
+            warnings=compile_result.warnings,
+            parent_artifact_ids=parent_ids
+        )
+
+        # Save artifact
+        result = persistence_service.save_artifact(
+            artifact=compile_artifact,
+            dossier_id=request.dossier_id
+        )
+
+        logger.info(f"✅ Compiled graph with {len(compile_result.compiled_features)} features, {len(compile_result.gaps)} gaps")
+
+        return CompileResponse(
+            success=True,
+            artifact=compile_artifact.dict(),
+            artifact_id=result["artifact_id"]
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to compile graph: {str(e)}")
+        logger.exception("Full traceback:")
+        raise HTTPException(status_code=500, detail=f"Failed to compile graph: {str(e)}")
+
+
+@router.post("/judge", response_model=JudgeResponse)
+async def judge_feature_graph(request: JudgeRequest):
+    """
+    Validate a feature graph and produce typed gap records.
+
+    The judge performs deterministic validation:
+    - Missing anchors (features without global frame references)
+    - Missing operands (operations referencing non-existent features)
+    - Missing parameters (operations with missing required params)
+    - Unsupported operations (operations not yet implemented)
+
+    Args:
+        request: JudgeRequest with graph dict and dossier_id
+
+    Returns:
+        JudgeResponse with JudgeArtifact containing judge report and gaps
+    """
+    try:
+        if not request.dossier_id or not request.dossier_id.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="dossier_id is required"
+            )
+
+        if not request.graph:
+            raise HTTPException(
+                status_code=400,
+                detail="graph is required"
+            )
+
+        logger.info(f"⚖️ Judging feature graph for dossier {request.dossier_id}")
+
+        # Deserialize graph
+        graph = FeatureGraph(**request.graph)
+
+        # Run judge
+        judge_report = judge_graph(graph, include_warnings=request.include_warnings)
+
+        # Create judge artifact
+        artifact_id = request.artifact_id or f"judge_{graph.graph_id}"
+        parent_ids = request.parent_artifact_ids or [graph.graph_id]
+
+        judge_artifact = create_judge_artifact(
+            artifact_id=artifact_id,
+            source_graph=graph,
+            judge_report=judge_report,
+            parent_artifact_ids=parent_ids
+        )
+
+        # Save artifact
+        result = persistence_service.save_artifact(
+            artifact=judge_artifact,
+            dossier_id=request.dossier_id
+        )
+
+        logger.info(f"✅ Judge report: {judge_report.status}, {len(judge_report.gaps)} gaps")
+
+        return JudgeResponse(
+            success=True,
+            artifact=judge_artifact.dict(),
+            artifact_id=result["artifact_id"]
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to judge graph: {str(e)}")
+        logger.exception("Full traceback:")
+        raise HTTPException(status_code=500, detail=f"Failed to judge graph: {str(e)}")
+
+
+@router.post("/bundle", response_model=BundleResponse)
+async def bundle_graph(request: BundleRequest):
+    """
+    Bundle a feature graph with its minimal dependency subgraph.
+
+    The bundler performs recursive dependency discovery and packages
+    the target graph with all referenced graphs, recording why each
+    dependency was included.
+
+    Args:
+        request: BundleRequest with target_graph, available_graphs, and dossier_id
+
+    Returns:
+        BundleResponse with BundleArtifact containing target + dependencies
+    """
+    try:
+        if not request.dossier_id or not request.dossier_id.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="dossier_id is required"
+            )
+
+        if not request.target_graph:
+            raise HTTPException(
+                status_code=400,
+                detail="target_graph is required"
+            )
+
+        logger.info(f"📦 Bundling feature graph for dossier {request.dossier_id}")
+
+        # Deserialize target graph
+        target_graph = FeatureGraph(**request.target_graph)
+
+        # Deserialize available graphs if provided
+        available_graphs = None
+        if request.available_graphs:
+            available_graphs = {
+                graph_id: FeatureGraph(**graph_dict)
+                for graph_id, graph_dict in request.available_graphs.items()
+            }
+
+        # Run bundler
+        artifact_id = request.artifact_id or f"bundle_{target_graph.graph_id}"
+        bundle_artifact = bundle_feature_graph(
+            target_graph=target_graph,
+            available_graphs=available_graphs,
+            bundle_id=artifact_id,
+            created_by=request.created_by,
+            bundle_purpose=request.bundle_purpose
+        )
+
+        # Override parent_artifact_ids if provided
+        if request.parent_artifact_ids:
+            bundle_artifact.parent_artifact_ids = request.parent_artifact_ids
+
+        # Save artifact
+        result = persistence_service.save_artifact(
+            artifact=bundle_artifact,
+            dossier_id=request.dossier_id
+        )
+
+        logger.info(f"✅ Bundled graph with {len(bundle_artifact.dependency_graphs)} dependencies")
+
+        return BundleResponse(
+            success=True,
+            artifact=bundle_artifact.dict(),
+            artifact_id=result["artifact_id"]
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to bundle graph: {str(e)}")
+        logger.exception("Full traceback:")
+        raise HTTPException(status_code=500, detail=f"Failed to bundle graph: {str(e)}")
