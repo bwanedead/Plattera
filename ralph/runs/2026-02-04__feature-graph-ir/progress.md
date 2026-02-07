@@ -174,3 +174,24 @@
   - No confidence scores, deterministic validation only
 
 ---
+
+- Iteration: 11
+- Story: S11 Implement bundle/freeze operation for portability
+- Result: PASS
+- Files changed: backend/feature_graph/bundle.py, backend/feature_graph/test_bundle.py, backend/feature_graph/__init__.py
+- Commands run: git add, git commit
+- Notes:
+  - Created BundleOperation class with recursive dependency discovery
+  - Implements bundle_feature_graph() public API for bundling graphs with dependencies
+  - Discovers external FeatureRefs and includes minimal dependency subgraph
+  - Records explicit reasons for each dependency inclusion (which node referenced it, labels, etc)
+  - Handles circular dependencies via visited set (no infinite loops)
+  - Handles missing dependencies gracefully (records reason as "not available")
+  - Handles transitive dependencies by recursing through dependency chain
+  - Internal FeatureRefs (is_external=False) do not trigger dependency inclusion
+  - Created 26 comprehensive tests covering all scenarios
+  - Tests validate: basic bundling, recursive dependencies, circular refs, missing deps, internal vs external refs, metadata, JSON round-trip, edge cases
+  - Bundle artifacts are portable and self-contained per PRD requirements
+  - Updated __init__.py to export bundle_feature_graph and BundleOperation
+
+---

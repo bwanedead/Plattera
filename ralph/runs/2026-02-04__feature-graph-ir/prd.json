@@ -233,7 +233,7 @@
       "id": "S11",
       "title": "Implement bundle/freeze operation for portability",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Bundle operation exports IR + minimal dependency subgraph and records why each dependency was included.",
         "`pytest backend/feature_graph/test_bundle.py` passes."

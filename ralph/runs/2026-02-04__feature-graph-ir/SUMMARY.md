@@ -520,3 +520,49 @@ This file captures a running summary of what was built, one entry per completed 
 - Implementation follows deterministic validation principles (no confidence scores)
 - Citations properly preserved from node/edge provenance
 - Gap records include metadata for debugging and evidence traceability
+
+---
+
+## Story S11: Implement bundle/freeze operation for portability
+**Status:** PASS
+**Iteration:** 11
+
+### What was built
+- BundleOperation class with recursive dependency discovery algorithm
+- Public API function bundle_feature_graph() for creating portable bundle artifacts
+- Minimal dependency subgraph extraction based on external FeatureRefs
+- Explicit reason recording for each included dependency (which node referenced it, with labels)
+- Circular dependency handling via visited graph ID tracking
+- Missing dependency handling with informative reason messages
+- Transitive dependency resolution by recursing through dependency chains
+
+### Files changed
+- `backend/feature_graph/bundle.py` - new module with BundleOperation class and bundle_feature_graph() API (~180 lines)
+- `backend/feature_graph/test_bundle.py` - comprehensive test suite (~550 lines, 26 tests)
+- `backend/feature_graph/__init__.py` - added exports for bundle_feature_graph and BundleOperation
+
+### Key decisions
+- Used stateful BundleOperation class with visited_graph_ids set to prevent infinite loops in circular dependencies
+- External FeatureRefs (is_external=True) trigger dependency inclusion; internal refs do not
+- Missing dependencies recorded in dependency_reasons with "not available" message instead of failing
+- Dependency reasons include node ID, node label, graph ID, and ref label for full traceability
+- Bundle artifacts leverage existing create_bundle_artifact() helper from artifacts.py
+- Auto-generate bundle_id from target graph_id if not provided (pattern: "bundle_{graph_id}")
+
+### Tests added
+- 26 new tests in `backend/feature_graph/test_bundle.py` organized into 6 test classes
+- TestBundleBasics: single graph, single dependency, multiple dependencies (3 tests)
+- TestRecursiveDependencies: transitive chains, circular references (2 tests)
+- TestMissingDependencies: missing deps, partial deps (2 tests)
+- TestInternalReferences: internal vs external ref filtering (2 tests)
+- TestBundleMetadata: metadata, auto-ID, helper methods (5 tests)
+- TestBundleRoundTrip: JSON serialization/rehydration (2 tests)
+- TestBundleEdgeCases: empty graphs, None/empty available_graphs (3 tests)
+
+### Notes
+- Bundle artifacts are portable and self-contained per PRD requirements
+- Minimal dependency principle: only graphs directly referenced (or transitively referenced) are included
+- Future enhancement: _scan_op_expr_for_refs() stubbed for scanning OpExpr operands for external refs
+- Deterministic: same input graph + available_graphs always produces same bundle structure
+- BundleArtifact helper methods: get_all_graph_ids(), get_dependency_reason(graph_id)
+
