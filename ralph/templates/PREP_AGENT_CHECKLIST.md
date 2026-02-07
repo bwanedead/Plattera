@@ -82,7 +82,7 @@ Use atomic write for JSON outputs.
 `run.json` (from `ralph/templates/RUN_JSON_TEMPLATE.json`):
 - Set `run_id` to the run folder name.
 - Set `created_at` and `updated_at` to UTC ISO 8601 (e.g., `2026-01-29T21:04:33Z`).
-- Set `max_iterations` to an actual integer for the run (do not leave placeholders).
+- Set `max_iterations` to an actual integer for the run invocation (do not leave placeholders). It means N more phase iterations from now.
 
 Minimum schema:
 ```
@@ -104,10 +104,14 @@ Minimum schema:
   "stop_soft": false,
   "stop_hard": false,
   "skip_iteration": false,
+  "add_iterations": 0,
   "review_now": false,
   "review_next": false
 }
 ```
+
+Control field notes:
+- `add_iterations` (int, one-shot): extends the current run invocation by N more phase iterations.
 
 `events.ndjson`:
 - Copy from `ralph/templates/EVENTS_NDJSON_TEMPLATE.ndjson` (empty file ok). Engine will append.

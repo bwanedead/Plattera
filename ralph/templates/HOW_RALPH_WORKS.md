@@ -29,8 +29,8 @@ The agent "sees its past work" because it can read the repo and git history.
   4. The plugin intercepts stop and starts the next iteration with the SAME prompt
 - The loop ends when either:
   - Agent outputs the exact completion tag: `<promise>YOUR_PROMISE_TEXT</promise>`
-  - OR the loop hits `--max-iterations N`
-  - Engine scheduling is driven by `orchestration.json`, and a reviewer can stop the run via control signals.
+  - OR the loop hits `--max-iterations N` (which means N more phase iterations from now for this invocation)
+  - Engine scheduling is driven by `orchestration.json`, and a reviewer can stop the run via its review decision (`review_result.json`).
 
 ## Why Per-Run Directories
 

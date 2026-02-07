@@ -1,8 +1,8 @@
 {
   "driver": {
     "name": "claude_code",
-    "worker_cmd": "claude.cmd -p {task_file}",
-    "reviewer_cmd": "claude.cmd -p {task_file}"
+    "worker_cmd": "claude.cmd -p {task_file} --permission-mode dontAsk --add-dir <PROJECT_ROOT>",
+    "reviewer_cmd": "claude.cmd -p {task_file} --permission-mode dontAsk --add-dir <PROJECT_ROOT>"
   },
   "orchestration": {
     "scheme": "W5R"
