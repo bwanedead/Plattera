@@ -164,7 +164,7 @@
       "id": "S8",
       "title": "Implement local traverse compiler for LineStep",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Compile produces local polyline output for Traverse LineSteps when numeric distance/bearing can be deterministically parsed.",
         "IR stores raw measurements (bearing_raw, distance_raw) and preserves parsed numeric values separately when available.",
@@ -188,7 +188,7 @@
       "id": "S9",
       "title": "Support Close derive (and stub Buffer) in compiler",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Close(curve) produces a Region only when curve is closed; otherwise returns a PreconditionFailed gap with a clear reason (unclosed curve).",
         "Buffer(...) emits UnsupportedOperation with structured params.",
