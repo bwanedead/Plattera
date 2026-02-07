@@ -58,3 +58,7 @@
 {"time":"2026-02-07T22:52:34.823183Z","type":"run_started","run_id":"2026-02-04__feature-graph-ir","iteration":10,"phase":"reviewer","message":"Starting run","data":{"max_iterations":26}}
 {"time":"2026-02-07T22:52:34.836199Z","type":"stop_hard_requested","run_id":"2026-02-04__feature-graph-ir","iteration":10,"phase":"reviewer","message":"Hard stop requested","data":{}}
 {"time":"2026-02-07T22:52:34.844745Z","type":"run_stopped","run_id":"2026-02-04__feature-graph-ir","iteration":10,"phase":"reviewer","message":"Run stopped (hard)","data":{"stop_type":"hard","iteration":10}}
+{"time":"2026-02-07T22:54:55.139940Z","type":"git_branch_checked_out","run_id":"2026-02-04__feature-graph-ir","iteration":10,"phase":"reviewer","message":"Already on run branch: ralph/2026-02-04__feature-graph-ir","data":{"branch":"ralph/2026-02-04__feature-graph-ir"}}
+{"time":"2026-02-07T22:54:55.145679Z","type":"run_started","run_id":"2026-02-04__feature-graph-ir","iteration":10,"phase":"reviewer","message":"Starting run","data":{"max_iterations":26}}
+{"time":"2026-02-07T22:54:55.157111Z","type":"stop_hard_requested","run_id":"2026-02-04__feature-graph-ir","iteration":10,"phase":"reviewer","message":"Hard stop requested","data":{}}
+{"time":"2026-02-07T22:54:55.161444Z","type":"run_stopped","run_id":"2026-02-04__feature-graph-ir","iteration":10,"phase":"reviewer","message":"Run stopped (hard)","data":{"stop_type":"hard","iteration":10}}
