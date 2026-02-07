@@ -490,3 +490,33 @@ This file captures a running summary of what was built, one entry per completed 
 
 ### Production readiness
 <Brief assessment of whether this is ready for production use>
+
+---
+
+## Story S10: Add deterministic judge engine for typed gaps
+**Status:** PASS
+**Iteration:** 10
+
+### What was built
+- Fixed failing test in judge test suite to use correct Citation model structure
+- Judge engine validates: missing anchors, missing operands, missing parameters, unsupported operations
+- Gap records include citations and evidence links from provenance when available
+- Judge produces deterministic outputs with no confidence scores
+
+### Files changed
+- `backend/feature_graph/test_judge.py` - fixed test_judge_graph_with_citations to use TextSpan.document_id instead of non-existent source_id field
+
+### Key decisions
+- Judge engine and implementation were already completed in a previous iteration (judge.py existed)
+- Test was expecting Citation.source_id field which doesn't exist in the model
+- Corrected test to use Citation.text_span.document_id which is the actual structure
+- All 24 tests now pass with deterministic outputs
+
+### Tests added
+- 0 new tests (24 existing tests, fixed 1 failing test)
+
+### Notes
+- Judge engine validates all required gap types per acceptance criteria
+- Implementation follows deterministic validation principles (no confidence scores)
+- Citations properly preserved from node/edge provenance
+- Gap records include metadata for debugging and evidence traceability

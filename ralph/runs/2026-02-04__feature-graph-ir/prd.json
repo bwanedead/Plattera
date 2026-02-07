@@ -210,7 +210,7 @@
       "id": "S10",
       "title": "Add deterministic judge engine for typed gaps",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Judge engine returns gap records for missing anchors, operands, parameters, and unsupported ops.",
         "`pytest backend/feature_graph/test_judge.py` passes with deterministic outputs."

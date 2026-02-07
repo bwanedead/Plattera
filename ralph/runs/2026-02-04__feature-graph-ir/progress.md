@@ -158,3 +158,19 @@
   - All acceptance criteria met: Close produces Region for closed curves, PreconditionFailed for open curves, Buffer emits UnsupportedOperation
 
 ---
+
+- Iteration: 10
+- Story: S10 Add deterministic judge engine for typed gaps
+- Result: PASS
+- Files changed: backend/feature_graph/test_judge.py
+- Commands run: pytest backend/feature_graph/test_judge.py, git add, git commit
+- Notes:
+  - Judge engine and implementation already completed in previous iteration
+  - Fixed failing test (test_judge_graph_with_citations) that used incorrect Citation model structure
+  - Test was expecting non-existent source_id field, corrected to use TextSpan.document_id
+  - All 24 tests now pass with deterministic outputs
+  - Judge validates: missing anchors, missing operands, missing parameters, unsupported operations
+  - Gap records include citations and evidence links from provenance when available
+  - No confidence scores, deterministic validation only
+
+---
