@@ -142,7 +142,7 @@
       "id": "S7",
       "title": "Add IR artifact API endpoints",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "New router `backend/api/endpoints/feature_graph.py` exposes save/get/list/list-all for IR artifacts.",
         "`pytest backend/api/test_feature_graph_ir_endpoints.py` passes with basic CRUD responses."

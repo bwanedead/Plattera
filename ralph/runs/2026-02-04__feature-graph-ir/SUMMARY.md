@@ -305,6 +305,59 @@ This file captures a running summary of what was built, one entry per completed 
 
 ---
 
+## Story S7: Add IR artifact API endpoints
+**Status:** PASS
+**Iteration:** 7
+
+### What was built
+- FastAPI router at `/api/feature-graph` with 4 CRUD endpoints for feature graph artifacts
+- POST `/save` endpoint accepting IRArtifact, CompileArtifact, JudgeArtifact, or BundleArtifact with automatic type deserialization
+- GET `/get/{dossier_id}/{artifact_id}` endpoint for retrieving artifacts by ID
+- GET `/list/{dossier_id}` endpoint for listing artifacts within a dossier (with optional artifact_type filter)
+- GET `/list-all` endpoint for listing artifacts across all dossiers (with optional artifact_type filter)
+- Router registration in main API router with `/api/feature-graph` prefix
+- Comprehensive test suite with direct async function calls (no TestClient dependency)
+
+### Files changed
+- `backend/api/endpoints/feature_graph.py` - new FastAPI router with 4 endpoints (~230 lines)
+- `backend/api/router.py` - registered feature_graph router with `/api/feature-graph` prefix
+- `backend/api/test_feature_graph_ir_endpoints.py` - comprehensive test suite with 10 tests (~360 lines)
+
+### Key decisions
+- Used direct import pattern (`sys.path.insert`) to avoid triggering `services/__init__.py` which requires nltk (follows existing test patterns)
+- Endpoints accept artifact dicts and deserialize to appropriate Pydantic model based on artifact_type
+- Router uses FeatureGraphPersistenceService for all CRUD operations (no direct file access)
+- Tests call endpoint functions directly via asyncio.run (matches existing API test patterns)
+- All endpoints return structured response models (SaveArtifactResponse, GetArtifactResponse, ListArtifactsResponse)
+- Get endpoint returns `found: false` instead of 404 for missing artifacts (graceful degradation)
+- List endpoints return count field for easy pagination/UI display
+- Router prefix `/api/feature-graph` keeps endpoints separate from legacy pipelines (as required by PRD)
+
+### Tests added
+- 10 new tests in `backend/api/test_feature_graph_ir_endpoints.py`
+- Coverage includes:
+  - Save IR artifact via API
+  - Get artifact via API (found and not found cases)
+  - List artifacts by dossier (all types and filtered by type)
+  - List all artifacts across dossiers (all types and filtered by type)
+  - Save and retrieve compile artifact
+  - Save and retrieve judge artifact
+  - Save and retrieve bundle artifact
+  - Error handling (missing dossier_id, unknown artifact_type)
+- All tests use temp directories for isolation (no shared state)
+- All 10 tests pass with 0 failures
+
+### Notes
+- All endpoints are HTTP POST/GET (no PUT/PATCH/DELETE yet, only basic CRUD)
+- Endpoints run in parallel with legacy pipelines (no interference with existing text-to-schema or mapping pipelines)
+- Persistence service is module-level singleton (instantiated once at router import time)
+- Tests override persistence_service via monkeypatching for test isolation
+- Router follows existing API patterns (same import structure, response models, error handling)
+- Direct import pattern prevents nltk/biopython import issues during testing
+- All acceptance criteria met: router created, CRUD endpoints working, tests pass
+
+---
+
 ## Final Summary (append when run complete)
 
 ### Overview

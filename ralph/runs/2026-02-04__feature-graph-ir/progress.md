@@ -102,3 +102,23 @@
   - Index supports filtering by dossier_id and artifact_type, sorted by saved_at desc
 
 ---
+
+- Iteration: 7
+- Story: S7 Add IR artifact API endpoints
+- Result: PASS
+- Files changed: backend/api/endpoints/feature_graph.py, backend/api/router.py, backend/api/test_feature_graph_ir_endpoints.py
+- Commands run: pytest backend/api/test_feature_graph_ir_endpoints.py -v, git add, git commit
+- Notes:
+  - Created FastAPI router at /api/feature-graph with 4 endpoints (save, get, list, list-all)
+  - Save endpoint accepts IRArtifact, CompileArtifact, JudgeArtifact, or BundleArtifact and deserializes to appropriate type
+  - Get endpoint retrieves artifact by dossier_id and artifact_id, returns found=False if missing
+  - List endpoint filters by dossier_id and optional artifact_type
+  - List-all endpoint lists artifacts across all dossiers with optional artifact_type filter
+  - All endpoints use FeatureGraphPersistenceService for CRUD operations
+  - Router registered in backend/api/router.py at prefix /api/feature-graph
+  - Used direct import pattern to avoid triggering services/__init__.py (which requires nltk)
+  - All 10 tests pass with temp directory isolation (no shared state)
+  - Tests cover save/get/list operations for all 4 artifact types (IR, compile, judge, bundle)
+  - Tests verify filtering by dossier_id and artifact_type, 404 handling, and validation errors
+
+---
