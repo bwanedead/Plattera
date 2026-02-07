@@ -503,9 +503,16 @@ def test_judge_graph_valid_minimal():
 
 def test_judge_graph_with_citations():
     """Judge should preserve citations from provenance."""
+    from .provenance import TextSpan
+
     citation = Citation(
         citation_type="direct",
-        text_span=None,
+        text_span=TextSpan(
+            document_id="deed-123",
+            start_offset=10,
+            end_offset=50,
+            text_snippet="sample text"
+        ),
         evidence_refs=[]
     )
 
@@ -531,7 +538,8 @@ def test_judge_graph_with_citations():
     gap_with_citation = next((g for g in report.gaps if g.feature_id == "p1"), None)
     assert gap_with_citation is not None
     assert len(gap_with_citation.citations) == 1
-    assert gap_with_citation.citations[0].source_id == "deed-123"
+    assert gap_with_citation.citations[0].text_span is not None
+    assert gap_with_citation.citations[0].text_span.document_id == "deed-123"
 
 
 def test_judge_report_to_contract():
