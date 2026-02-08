@@ -1,2 +1,9 @@
-{"pause": false,
-  "stop_soft": true, "stop_hard": false, "skip_iteration": false, "add_iterations": 0, "review_now": false, "review_next": false}
+{
+  "add_iterations": 0,
+  "pause": false,
+  "review_next": false,
+  "review_now": false,
+  "skip_iteration": false,
+  "stop_hard": false,
+  "stop_soft": false
+}
