@@ -341,6 +341,36 @@ class TestInternalReferences:
         assert len(bundle.dependency_graphs) == 1
         assert bundle.dependency_graphs[0].graph_id == "other_graph"
 
+    def test_bundle_policy_a_marks_external_refs_inside_op_expr_as_ignored(self):
+        """Policy A: external dependencies inside OpExpr are not bundled and must be explicit."""
+        target = FeatureGraph(
+            graph_id="parcel_a",
+            nodes=[
+                FeatureNode(
+                    id="derived_ref",
+                    kind=FeatureKind.POINT,
+                    op_expr={
+                        "op_name": "FeatureRef",
+                        "params": {
+                            "ref": {
+                                "feature_id": "corner",
+                                "graph_id": "section_1",
+                                "is_external": True,
+                            }
+                        },
+                        "operands": [],
+                    },
+                )
+            ],
+        )
+
+        section = FeatureGraph(graph_id="section_1", nodes=[FeatureNode(id="corner", kind=FeatureKind.POINT)])
+        bundle = bundle_feature_graph(target, available_graphs={"section_1": section})
+
+        assert bundle.dependency_graphs == []
+        assert "section_1" in bundle.dependency_reasons
+        assert "ignored by bundle policy" in bundle.dependency_reasons["section_1"]
+
 
 class TestBundleMetadata:
     """Test bundle artifact metadata and helper methods."""

@@ -41,7 +41,11 @@ from .provenance import Citation
 # JUDGE ENGINE
 # ============================================================================
 
-def judge_missing_anchors(graph: FeatureGraph, gaps: List[FeatureGap]):
+def judge_missing_anchors(
+    graph: FeatureGraph,
+    gaps: List[FeatureGap],
+    global_placement_required: bool = False
+):
     """
     Detect features that lack global frame references (anchoring).
 
@@ -77,8 +81,12 @@ def judge_missing_anchors(graph: FeatureGraph, gaps: List[FeatureGap]):
         if node.id in anchored_ids:
             continue  # Already anchored
 
-        # Check if this feature needs anchoring
-        needs_anchor = node.kind in [FeatureKind.POINT, FeatureKind.CURVE, FeatureKind.REGION]
+        # Local-first default: only require global anchors if explicitly requested.
+        node_requires_global = bool(node.metadata.get("requires_global_placement", False))
+        needs_anchor = (
+            node.kind in [FeatureKind.POINT, FeatureKind.CURVE, FeatureKind.REGION]
+            and (global_placement_required or node_requires_global)
+        )
 
         if needs_anchor:
             # Check if it references a frame or anchored feature
@@ -295,8 +303,10 @@ def judge_graph(graph: FeatureGraph, include_warnings: bool = True) -> JudgeRepo
     gaps: List[FeatureGap] = []
     warnings: List[str] = []
 
+    requires_global_placement = bool(graph.metadata.get("global_placement_required", False))
+
     # Run all judge checks
-    judge_missing_anchors(graph, gaps)
+    judge_missing_anchors(graph, gaps, global_placement_required=requires_global_placement)
     judge_missing_operands(graph, gaps)
     judge_missing_parameters(graph, gaps)
     judge_unsupported_operations(graph, gaps)

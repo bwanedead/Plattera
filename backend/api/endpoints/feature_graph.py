@@ -11,11 +11,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, List, Literal
 import logging
 
-# Direct import to avoid triggering services/__init__.py
-import sys
-from pathlib import Path as PathLib
-sys.path.insert(0, str(PathLib(__file__).parents[2] / "services" / "feature_graph"))
-from feature_graph_persistence_service import FeatureGraphPersistenceService, ArtifactType
+from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService, ArtifactType
 from feature_graph.artifacts import (
     IRArtifact,
     CompileArtifact,
@@ -325,6 +321,7 @@ async def compile_feature_graph(request: CompileRequest):
 
         # Run compiler
         compile_result = compile_graph(graph)
+        gap_dicts = [gap.model_dump(mode="json") for gap in compile_result.gaps]
 
         # Create compile artifact
         artifact_id = request.artifact_id or f"compile_{graph.graph_id}"
@@ -332,9 +329,9 @@ async def compile_feature_graph(request: CompileRequest):
 
         compile_artifact = create_compile_artifact(
             artifact_id=artifact_id,
-            source_graph=graph,
+            graph_id=graph.graph_id,
             compiled_features=compile_result.compiled_features,
-            gaps=compile_result.gaps,
+            gaps=gap_dicts,
             warnings=compile_result.warnings,
             parent_artifact_ids=parent_ids
         )
@@ -349,7 +346,7 @@ async def compile_feature_graph(request: CompileRequest):
 
         return CompileResponse(
             success=True,
-            artifact=compile_artifact.dict(),
+            artifact=compile_artifact.model_dump(mode="json"),
             artifact_id=result["artifact_id"]
         )
 
@@ -405,8 +402,8 @@ async def judge_feature_graph(request: JudgeRequest):
 
         judge_artifact = create_judge_artifact(
             artifact_id=artifact_id,
-            source_graph=graph,
-            judge_report=judge_report,
+            graph_id=graph.graph_id,
+            report=judge_report,
             parent_artifact_ids=parent_ids
         )
 
@@ -416,11 +413,12 @@ async def judge_feature_graph(request: JudgeRequest):
             dossier_id=request.dossier_id
         )
 
-        logger.info(f"✅ Judge report: {judge_report.status}, {len(judge_report.gaps)} gaps")
+        judge_status = judge_report.to_contract_report()["status"]
+        logger.info(f"✅ Judge report: {judge_status}, {len(judge_report.gaps)} gaps")
 
         return JudgeResponse(
             success=True,
-            artifact=judge_artifact.dict(),
+            artifact=judge_artifact.model_dump(mode="json"),
             artifact_id=result["artifact_id"]
         )
 
@@ -497,7 +495,7 @@ async def bundle_graph(request: BundleRequest):
 
         return BundleResponse(
             success=True,
-            artifact=bundle_artifact.dict(),
+            artifact=bundle_artifact.model_dump(mode="json"),
             artifact_id=result["artifact_id"]
         )
 

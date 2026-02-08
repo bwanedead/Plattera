@@ -28,11 +28,7 @@ from feature_graph.gaps import JudgeReport
 from api.endpoints import feature_graph as endpoint
 from api.endpoints.feature_graph import SaveArtifactRequest
 
-# Direct import to avoid triggering services/__init__.py
-import sys
-from pathlib import Path as PathLib
-sys.path.insert(0, str(PathLib(__file__).parents[1] / "services" / "feature_graph"))
-from feature_graph_persistence_service import FeatureGraphPersistenceService
+from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
 
 def _setup_temp_persistence_service(tmpdir_path):
@@ -303,10 +299,10 @@ def test_save_and_retrieve_judge_artifact():
         # Create a judge artifact
         report = JudgeReport(
             graph_id="g1",
-            status="partial",
-            diagnostics=[],
+            gaps=[],
             warnings=[],
             artifacts={},
+            metadata={},
         )
         artifact = create_judge_artifact(
             artifact_id="judge_001",

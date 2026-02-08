@@ -35,11 +35,12 @@ def test_judge_missing_anchors_point_without_geometry():
         nodes=[
             FeatureNode(id="p1", kind=FeatureKind.POINT)
         ],
-        edges=[]
+        edges=[],
+        metadata={"global_placement_required": True},
     )
 
     gaps = []
-    judge_missing_anchors(graph, gaps)
+    judge_missing_anchors(graph, gaps, global_placement_required=True)
 
     assert len(gaps) == 1
     assert gaps[0].kind == GapKind.MISSING_ANCHOR
@@ -62,7 +63,7 @@ def test_judge_missing_anchors_point_with_geometry():
     )
 
     gaps = []
-    judge_missing_anchors(graph, gaps)
+    judge_missing_anchors(graph, gaps, global_placement_required=True)
 
     assert len(gaps) == 0
 
@@ -78,11 +79,12 @@ def test_judge_missing_anchors_curve_without_anchor():
                 op_expr=OpExpr(op_name="LineStep", params={"bearing": 45, "distance": 100})
             )
         ],
-        edges=[]
+        edges=[],
+        metadata={"global_placement_required": True},
     )
 
     gaps = []
-    judge_missing_anchors(graph, gaps)
+    judge_missing_anchors(graph, gaps, global_placement_required=True)
 
     assert len(gaps) == 1
     assert gaps[0].kind == GapKind.MISSING_ANCHOR
@@ -105,7 +107,7 @@ def test_judge_missing_anchors_curve_anchored_to_frame():
     )
 
     gaps = []
-    judge_missing_anchors(graph, gaps)
+    judge_missing_anchors(graph, gaps, global_placement_required=True)
 
     assert len(gaps) == 0
 
@@ -117,11 +119,12 @@ def test_judge_missing_anchors_region_without_anchor():
         nodes=[
             FeatureNode(id="r1", kind=FeatureKind.REGION)
         ],
-        edges=[]
+        edges=[],
+        metadata={"global_placement_required": True},
     )
 
     gaps = []
-    judge_missing_anchors(graph, gaps)
+    judge_missing_anchors(graph, gaps, global_placement_required=True)
 
     assert len(gaps) == 1
     assert gaps[0].kind == GapKind.MISSING_ANCHOR
@@ -425,8 +428,8 @@ def test_judge_graph_disconnected_nodes():
 
     report = judge_graph(graph)
 
-    # Should have missing anchor gaps + disconnected warning
-    assert len(report.gaps) == 2  # Both points missing anchors
+    # Local-first default: disconnected warning only, no missing-anchor errors.
+    assert len(report.gaps) == 0
     assert any("disconnected" in w.lower() for w in report.warnings)
 
 
@@ -436,7 +439,7 @@ def test_judge_graph_comprehensive_validation():
         graph_id="test-graph",
         nodes=[
             # Missing anchor (point without geometry)
-            FeatureNode(id="p1", kind=FeatureKind.POINT),
+            FeatureNode(id="p1", kind=FeatureKind.POINT, metadata={"requires_global_placement": True}),
             # Missing operand
             FeatureNode(
                 id="r1",
@@ -525,6 +528,7 @@ def test_judge_graph_with_citations():
             FeatureNode(
                 id="p1",
                 kind=FeatureKind.POINT,
+                metadata={"requires_global_placement": True},
                 provenance=provenance
             )
         ],
@@ -549,7 +553,8 @@ def test_judge_report_to_contract():
         nodes=[
             FeatureNode(id="p1", kind=FeatureKind.POINT)
         ],
-        edges=[]
+        edges=[],
+        metadata={"global_placement_required": True},
     )
 
     report = judge_graph(graph)
@@ -573,7 +578,8 @@ def test_judge_report_metadata():
             FeatureNode(id="p1", kind=FeatureKind.POINT),
             FeatureNode(id="p2", kind=FeatureKind.POINT)
         ],
-        edges=[]
+        edges=[],
+        metadata={"global_placement_required": True},
     )
 
     report = judge_graph(graph)
@@ -583,6 +589,19 @@ def test_judge_report_metadata():
     assert report.metadata["edge_count"] == 0
     assert report.metadata["gap_count"] == report.metadata["error_count"]
     assert report.metadata["gap_count"] == 2  # Both points missing anchors
+
+
+def test_judge_missing_anchor_not_emitted_for_local_first_default():
+    """Local-only graphs should not emit missing anchor gaps by default."""
+    graph = FeatureGraph(
+        graph_id="local-first",
+        nodes=[FeatureNode(id="p1", kind=FeatureKind.POINT)],
+        edges=[],
+    )
+
+    gaps = []
+    judge_missing_anchors(graph, gaps)
+    assert gaps == []
 
 
 def test_judge_graph_without_warnings():
@@ -598,3 +617,4 @@ def test_judge_graph_without_warnings():
     assert len(report.warnings) == 0
     # But gaps should still be present
     assert report.metadata["gap_count"] >= 0
+

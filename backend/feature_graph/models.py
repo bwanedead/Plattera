@@ -15,7 +15,7 @@ Design principles:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Dict, Any, Union, TYPE_CHECKING
 from enum import Enum
 
@@ -126,6 +126,18 @@ class FeatureNode(BaseModel):
 
     class Config:
         frozen = False
+
+    @model_validator(mode="after")
+    def validate_content_source_exclusivity(self) -> "FeatureNode":
+        """Ensure geometry/op_expr/feature_ref are mutually exclusive."""
+        content_fields = [self.geometry, self.op_expr, self.feature_ref]
+        provided_count = sum(1 for field in content_fields if field is not None)
+        if provided_count > 1:
+            raise ValueError(
+                "FeatureNode content is ambiguous: provide only one of "
+                "geometry, op_expr, or feature_ref."
+            )
+        return self
 
 
 class FeatureEdge(BaseModel):

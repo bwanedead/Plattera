@@ -14,7 +14,7 @@ Design principles:
 
 from __future__ import annotations
 
-from typing import List, Dict, Optional, Set
+from typing import Any, List, Dict, Optional, Set, Tuple
 from .models import FeatureGraph, FeatureNode, FeatureRef
 from .artifacts import BundleArtifact, create_bundle_artifact
 
@@ -64,7 +64,7 @@ class BundleOperation:
         self.dependency_reasons.clear()
 
         # Discover dependencies recursively
-        if available_graphs:
+        if available_graphs is not None:
             self._discover_dependencies(target_graph, available_graphs)
 
         # Generate bundle ID if not provided
@@ -135,23 +135,55 @@ class BundleOperation:
                 # Recursively process this dependency
                 self._discover_dependencies(dep_graph, available_graphs)
 
-    def _scan_op_expr_for_refs(self, op_expr, graph_id: str) -> List[tuple]:
-        """
-        Scan an OpExpr for external references (future enhancement).
+            # Policy A invariant: external dependencies must be explicit FeatureRef nodes.
+            # If we detect external-ref-like payloads inside OpExpr, record a reason so the
+            # omission is explicit and testable.
+            if node.op_expr:
+                op_expr_refs = self._scan_op_expr_for_refs(node.op_expr)
+                for ref_graph_id, ref_path in op_expr_refs:
+                    self.dependency_reasons[ref_graph_id] = (
+                        f"Referenced via {ref_path} in node '{node.id}' in graph "
+                        f"'{graph.graph_id}', but ignored by bundle policy. "
+                        "Declare external dependencies as node.feature_ref with "
+                        "is_external=true."
+                    )
 
-        Currently external refs are only tracked via FeatureRef nodes.
-        Future: OpExpr operands could also reference external features.
+    def _scan_op_expr_for_refs(self, op_expr: Any) -> List[Tuple[str, str]]:
+        """
+        Scan an OpExpr for external-reference-like payloads.
+
+        Bundle Policy A: dependencies are discovered only from explicit FeatureRef nodes.
+        This scanner intentionally does not include dependencies, it only surfaces policy
+        violations so they are not silently ignored.
 
         Args:
             op_expr: OpExpr to scan
-            graph_id: Current graph ID for context
 
         Returns:
-            List of (ref_graph_id, reason) tuples
+            List of (ref_graph_id, path) markers that looked like external refs.
         """
-        # Placeholder for future enhancement
-        # Could scan op_expr.operands for external references
-        return []
+        refs: List[Tuple[str, str]] = []
+
+        def walk(value: Any, path: str) -> None:
+            if isinstance(value, dict):
+                graph_id = value.get("graph_id")
+                is_external = value.get("is_external")
+                if is_external is True and isinstance(graph_id, str) and graph_id:
+                    refs.append((graph_id, path))
+                for key, nested in value.items():
+                    walk(nested, f"{path}.{key}")
+                return
+
+            if isinstance(value, list):
+                for idx, nested in enumerate(value):
+                    walk(nested, f"{path}[{idx}]")
+                return
+
+            if hasattr(value, "model_dump"):
+                walk(value.model_dump(mode="python"), path)
+
+        walk(op_expr, "op_expr")
+        return refs
 
 
 # Public API

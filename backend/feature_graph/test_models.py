@@ -12,6 +12,7 @@ These tests validate the weight-bearing invariants:
 
 import pytest
 import json
+from pydantic import ValidationError
 from backend.feature_graph.models import (
     FeatureKind,
     FeatureNode,
@@ -118,6 +119,40 @@ def test_feature_node_json_roundtrip():
     json_str = node3.model_dump_json()
     node3_restored = FeatureNode(**json.loads(json_str))
     assert node3_restored.feature_ref.feature_id == "section_1_T1N_R1W"
+
+
+def test_feature_node_allows_zero_or_one_content_source():
+    """FeatureNode permits zero or exactly one of geometry/op_expr/feature_ref."""
+    node_without_content = FeatureNode(id="n0", kind=FeatureKind.UNKNOWN)
+    assert node_without_content.geometry is None
+    assert node_without_content.op_expr is None
+    assert node_without_content.feature_ref is None
+
+    node_with_geometry = FeatureNode(
+        id="n1",
+        kind=FeatureKind.POINT,
+        geometry={"type": "Point", "coordinates": [0.0, 0.0]},
+    )
+    assert node_with_geometry.geometry is not None
+
+
+def test_feature_node_rejects_multiple_content_sources():
+    """FeatureNode must reject ambiguous content definitions."""
+    with pytest.raises(ValidationError):
+        FeatureNode(
+            id="bad1",
+            kind=FeatureKind.POINT,
+            geometry={"type": "Point", "coordinates": [0.0, 0.0]},
+            op_expr=OpExpr(op_name="LineStep", params={"bearing": 0, "distance": 10}),
+        )
+
+    with pytest.raises(ValidationError):
+        FeatureNode(
+            id="bad2",
+            kind=FeatureKind.POINT,
+            op_expr=OpExpr(op_name="LineStep", params={"bearing": 0, "distance": 10}),
+            feature_ref=FeatureRef(feature_id="p1", is_external=False),
+        )
 
 
 def test_feature_edge_json_roundtrip():
