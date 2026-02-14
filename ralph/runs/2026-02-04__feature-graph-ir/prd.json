@@ -10,7 +10,7 @@
       "id": "S1",
       "title": "Create core Feature Graph IR models",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Pydantic models for FeatureKind, FeatureNode, FeatureEdge, FeatureRef, OpExpr, Literal, FeatureGraph exist under `backend/feature_graph/`.",
         "`pytest backend/feature_graph/test_models.py` passes and asserts JSON round-trip for a minimal graph."
@@ -30,7 +30,7 @@
       "id": "S2",
       "title": "Add provenance + citation models and attach to nodes",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Provenance models (TextSpan, Citation, EvidenceRef) exist and are referenced by FeatureNode/FeatureEdge.",
         "`pytest backend/feature_graph/test_provenance.py` passes with citation round-trip coverage."
@@ -51,7 +51,7 @@
       "id": "S3",
       "title": "Define gap types and judge report models",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Gap types include MissingAnchor, MissingOperand, MissingParameter, AmbiguousChoice, UnsupportedOperation, and PreconditionFailed (for unclosed or invalid prerequisites).",
         "Feature-graph gap records can serialize into the existing `backend/agents/common/contracts.py` Gap/CompileReport shape (or include an explicit adapter).",
@@ -74,7 +74,7 @@
       "id": "S4",
       "title": "Add operation registry for universal constructors",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Operation definitions include Traverse/LineStep/CurveStep/ConstraintStep, Derive ops, Constraint ops, and Region booleans.",
         "Unsupported ops can be stored as UnsupportedOperation entries.",
@@ -96,7 +96,7 @@
       "id": "S5",
       "title": "Define artifact models for IR/compile/judge/bundle",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Artifact models include IR Artifact, Compile Artifact, Judge Report, and Bundle Artifact with lineage fields.",
         "`pytest backend/feature_graph/test_artifacts.py` passes with round-trip coverage."
@@ -119,7 +119,7 @@
       "id": "S6",
       "title": "Add feature graph artifact persistence service + paths",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "New paths exist for feature graph artifacts and index under `config.paths`.",
         "FeatureGraphPersistenceService writes artifacts atomically and maintains an index.",
@@ -142,7 +142,7 @@
       "id": "S7",
       "title": "Add IR artifact API endpoints",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "New router `backend/api/endpoints/feature_graph.py` exposes save/get/list/list-all for IR artifacts.",
         "`pytest backend/api/test_feature_graph_ir_endpoints.py` passes with basic CRUD responses."
@@ -164,7 +164,7 @@
       "id": "S8",
       "title": "Implement local traverse compiler for LineStep",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Compile produces local polyline output for Traverse LineSteps when numeric distance/bearing can be deterministically parsed.",
         "IR stores raw measurements (bearing_raw, distance_raw) and preserves parsed numeric values separately when available.",
@@ -188,7 +188,7 @@
       "id": "S9",
       "title": "Support Close derive (and stub Buffer) in compiler",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Close(curve) produces a Region only when curve is closed; otherwise returns a PreconditionFailed gap with a clear reason (unclosed curve).",
         "Buffer(...) emits UnsupportedOperation with structured params.",
@@ -210,7 +210,7 @@
       "id": "S10",
       "title": "Add deterministic judge engine for typed gaps",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Judge engine returns gap records for missing anchors, operands, parameters, and unsupported ops.",
         "`pytest backend/feature_graph/test_judge.py` passes with deterministic outputs."
@@ -233,7 +233,7 @@
       "id": "S11",
       "title": "Implement bundle/freeze operation for portability",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Bundle operation exports IR + minimal dependency subgraph and records why each dependency was included.",
         "`pytest backend/feature_graph/test_bundle.py` passes."
@@ -255,7 +255,7 @@
       "id": "S12",
       "title": "Add compile/judge/bundle API endpoints",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Feature graph router exposes compile/judge/bundle endpoints with deterministic JSON outputs.",
         "`pytest backend/api/test_feature_graph_compile_endpoints.py` passes."

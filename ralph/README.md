@@ -40,6 +40,7 @@ ralph/
 6. If your CLI command is not on PATH for the engine process, update `ralph/config.json` to point to a concrete executable (e.g., `C:\Users\<user>\AppData\Roaming\npm\claude.cmd` on Windows; use the extensionless command on macOS/Linux).
 7. The engine writes `worker_summary.md` and `review_result.json` from stdout when the CLI doesn't write those files itself, so commands just need to print to stdout.
 8. Orchestration defaults live in `ralph/config.json` under `orchestration.scheme` (default `W5R`).
+9. Update `ralph/config.json` to include `--permission-mode dontAsk` and `--add-dir <project_root>` so the agent can run tests without interactive prompts.
 
 ## Templates Reference
 

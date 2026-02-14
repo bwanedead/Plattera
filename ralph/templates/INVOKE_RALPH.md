@@ -10,4 +10,5 @@ Notes:
 - The prompt is re-run identically each iteration.
 - One iteration is one phase (worker or reviewer), not a worker+reviewer pair.
 - The loop stops when Claude outputs: `<promise>TASK COMPLETE</promise>`
-- If max iterations hits first, inspect `progress.md` and continue.
+- `max_iterations` means N more phase iterations from now (per run invocation).
+- You can extend a live run by setting `control.json.add_iterations`.
