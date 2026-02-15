@@ -1,0 +1,242 @@
+{
+  "run_id": "2026-02-04__agent-kernel-v0",
+  "title": "Agent Kernel v0 (deterministic run harness)",
+  "repo_context": "Library-first kernel with deterministic state machine, policy interface, and run artifacts. Parallel to existing feature-graph and retrieval systems.",
+  "global_verification": [
+    "pytest backend/agent_kernel -q"
+  ],
+  "stories": [
+    {
+      "id": "S1",
+      "title": "Create kernel request/result and core enums",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "KernelRequest, KernelResult, TerminalOutcome, StopReason, KernelState, and ActionType (including SET_GRAPH_REQUIREMENTS) models exist under `backend/agent_kernel/`.",
+        "KernelRequest includes goal.requires_global_placement and round-trips in tests.",
+        "`pytest backend/agent_kernel/test_models.py` passes with JSON round-trip coverage."
+      ],
+      "verification_commands": [
+        "pytest backend/agent_kernel/test_models.py"
+      ],
+      "depends_on": [],
+      "files_expected": [
+        "backend/agent_kernel/__init__.py",
+        "backend/agent_kernel/models.py",
+        "backend/agent_kernel/test_models.py"
+      ],
+      "notes": "Budgets and goal flags are required fields."
+    },
+    {
+      "id": "S2",
+      "title": "Add RunArtifact + StepRecord models with refs",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "RunArtifact stores refs to IR/compile/judge/bundle/retrieval artifacts (no blobs).",
+        "StepRecord captures action, inputs, outputs, and reason codes.",
+        "StepRecord supports a small inline validation_result (or outputs_inline) for deterministic validation outputs; tests assert it does not carry large geometry blobs.",
+        "`pytest backend/agent_kernel/test_run_artifact.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/agent_kernel/test_run_artifact.py"
+      ],
+      "depends_on": [
+        "S1"
+      ],
+      "files_expected": [
+        "backend/agent_kernel/run_artifact.py",
+        "backend/agent_kernel/test_run_artifact.py"
+      ],
+      "notes": "Evidence refs should be path + card/span indices."
+    },
+    {
+      "id": "S3",
+      "title": "Define kernel state machine transitions",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Kernel state machine covers INIT, HAVE_IR, HAVE_COMPILE, HAVE_JUDGE, REPAIRING, READY_TO_MAP, MAPPED, DONE.",
+        "Transitions are explicit and deterministic.",
+        "`pytest backend/agent_kernel/test_state_machine.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/agent_kernel/test_state_machine.py"
+      ],
+      "depends_on": [
+        "S1"
+      ],
+      "files_expected": [
+        "backend/agent_kernel/state_machine.py",
+        "backend/agent_kernel/test_state_machine.py"
+      ],
+      "notes": "Compile/Judge must be order-flexible."
+    },
+    {
+      "id": "S4",
+      "title": "Add policy interface + default FeatureGraphDeedToMapPolicy v0 scaffold",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Policy interface includes routing order hooks and gap scoring hooks.",
+        "Default policy class exists in `backend/agent_kernel/policies/feature_graph_deed_to_map_v0.py`.",
+        "`pytest backend/agent_kernel/test_policy_scaffold.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/agent_kernel/test_policy_scaffold.py"
+      ],
+      "depends_on": [
+        "S1",
+        "S2"
+      ],
+      "files_expected": [
+        "backend/agent_kernel/policies/__init__.py",
+        "backend/agent_kernel/policies/feature_graph_deed_to_map_v0.py",
+        "backend/agent_kernel/test_policy_scaffold.py"
+      ],
+      "notes": "Keep domain logic out of kernel mechanics."
+    },
+    {
+      "id": "S5",
+      "title": "Implement budget enforcement helpers",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "Budget tracking for steps, wall time, retrieval calls, semantic calls, and patch calls exists.",
+        "Over-budget results in StopReason budget_exceeded.",
+        "`pytest backend/agent_kernel/test_budgets.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/agent_kernel/test_budgets.py"
+      ],
+      "depends_on": [
+        "S1"
+      ],
+      "files_expected": [
+        "backend/agent_kernel/budgets.py",
+        "backend/agent_kernel/test_budgets.py"
+      ],
+      "notes": "Kernel enforces semantic budget by limiting semantic-lane retrieval calls."
+    },
+    {
+      "id": "S6",
+      "title": "Add no-progress detection and gap scoring",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Kernel computes gap_signature and artifact digests per iteration.",
+        "No-progress triggers StopReason no_progress after N repair cycles.",
+        "`pytest backend/agent_kernel/test_no_progress.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/agent_kernel/test_no_progress.py"
+      ],
+      "depends_on": [
+        "S2",
+        "S4"
+      ],
+      "files_expected": [
+        "backend/agent_kernel/no_progress.py",
+        "backend/agent_kernel/test_no_progress.py"
+      ],
+      "notes": "Policy owns gap scoring weights."
+    },
+    {
+      "id": "S7",
+      "title": "Implement deterministic action executor scaffold",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Action executor supports deterministic actions: SET_GRAPH_REQUIREMENTS, RETRIEVE_EVIDENCE, COMPILE, JUDGE, BUNDLE, GEOREFERENCE, VALIDATE.",
+        "SET_GRAPH_REQUIREMENTS updates graph.metadata.global_placement_required and records the updated IR ref in StepRecord outputs.",
+        "VALIDATE returns validation_result inline in StepRecord (no new validation artifact store).",
+        "LLM actions are stubbed with explicit interfaces (PROPOSE_PATCH, SUMMARIZE_STATUS).",
+        "`pytest backend/agent_kernel/test_actions.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/agent_kernel/test_actions.py"
+      ],
+      "depends_on": [
+        "S1",
+        "S2",
+        "S4"
+      ],
+      "files_expected": [
+        "backend/agent_kernel/actions.py",
+        "backend/agent_kernel/test_actions.py"
+      ],
+      "notes": "Actions should record reason codes on failure."
+    },
+    {
+      "id": "S8",
+      "title": "Add run artifact persistence service",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "RunArtifactPersistenceService writes artifacts atomically and maintains an index.",
+        "Artifacts are stored under a new agent-kernel root in config paths.",
+        "`pytest backend/agent_kernel/test_persistence.py` passes using temp roots."
+      ],
+      "verification_commands": [
+        "pytest backend/agent_kernel/test_persistence.py"
+      ],
+      "depends_on": [
+        "S2"
+      ],
+      "files_expected": [
+        "backend/services/agent_kernel/run_artifact_persistence_service.py",
+        "backend/config/paths.py",
+        "backend/agent_kernel/test_persistence.py"
+      ],
+      "notes": "Keep separate from feature-graph artifacts."
+    },
+    {
+      "id": "S9",
+      "title": "Implement kernel loop core (library entrypoint)",
+      "size": "S",
+      "passes": false,
+      "acceptance_criteria": [
+        "Kernel loop can run from a KernelRequest and emit KernelResult + RunArtifact.",
+        "When requires_global_placement=true, SET_GRAPH_REQUIREMENTS runs early before judge/compile so anchor gaps can surface deterministically.",
+        "Deterministic stop reasons are set for budget_exceeded and no_progress paths.",
+        "`pytest backend/agent_kernel/test_kernel_loop.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/agent_kernel/test_kernel_loop.py"
+      ],
+      "depends_on": [
+        "S3",
+        "S5",
+        "S6",
+        "S7",
+        "S8"
+      ],
+      "files_expected": [
+        "backend/agent_kernel/kernel.py",
+        "backend/agent_kernel/test_kernel_loop.py"
+      ],
+      "notes": "Library-first; no API router changes."
+    },
+    {
+      "id": "S10",
+      "title": "Add minimal CLI for deterministic kernel runs",
+      "size": "XS",
+      "passes": false,
+      "acceptance_criteria": [
+        "CLI accepts a JSON request file and prints a JSON KernelResult.",
+        "`pytest backend/agent_kernel/test_cli.py` passes."
+      ],
+      "verification_commands": [
+        "pytest backend/agent_kernel/test_cli.py"
+      ],
+      "depends_on": [
+        "S9"
+      ],
+      "files_expected": [
+        "backend/agent_kernel/cli.py",
+        "backend/agent_kernel/test_cli.py"
+      ],
+      "notes": "Keep CLI minimal; no external dependencies."
+    }
+  ]
+}

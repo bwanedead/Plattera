@@ -1,0 +1,9 @@
+{
+  "run_id": "2026-02-04__agent-kernel-v0",
+  "status": "pending",
+  "iteration": 0,
+  "max_iterations": 40,
+  "created_at": "2026-02-04T00:00:00Z",
+  "updated_at": "2026-02-04T00:00:00Z",
+  "error": null
+}
