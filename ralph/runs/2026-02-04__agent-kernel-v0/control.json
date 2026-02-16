@@ -4,5 +4,6 @@
   "stop_hard": false,
   "skip_iteration": false,
   "review_now": false,
-  "review_next": false
+  "review_next": false,
+  "add_iterations": 0
 }

@@ -1,9 +1,15 @@
 {
   "run_id": "2026-02-04__agent-kernel-v0",
-  "status": "pending",
+  "status": "error",
   "iteration": 0,
   "max_iterations": 40,
+  "phase": "worker",
   "created_at": "2026-02-04T00:00:00Z",
-  "updated_at": "2026-02-04T00:00:00Z",
-  "error": null
+  "updated_at": "2026-02-15T23:44:09.782353Z",
+  "started_at": "2026-02-15T23:44:09.515992Z",
+  "finished_at": "2026-02-15T23:44:09.782353Z",
+  "error": "worker phase failed: worker command failed: The syntax of the command is incorrect.\r\n",
+  "git_branch": "ralph/2026-02-04__agent-kernel-v0",
+  "git_base_branch": "agent-loop-building",
+  "git_base_commit": "169697c39907cbf2d8e4fd2fdc2baa1c322094be"
 }

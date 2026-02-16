@@ -1,0 +1,12 @@
+{
+  "driver": {
+    "name": "codex_cli",
+    "worker_cmd": "claude.cmd -p {task_file} --permission-mode dontAsk --add-dir <PROJECT_ROOT>",
+    "reviewer_cmd": "claude.cmd -p {task_file} --permission-mode dontAsk --add-dir <PROJECT_ROOT>"
+  },
+  "orchestration": {
+    "scheme": "W5R"
+  },
+  "max_iterations": 15,
+  "poll_interval": 0.5
+}
