@@ -1,9 +1,12 @@
 {
   "driver": {
     "name": "codex_cli",
-    "worker_cmd": "claude.cmd -p {task_file} --permission-mode dontAsk --add-dir <PROJECT_ROOT>",
-    "reviewer_cmd": "claude.cmd -p {task_file} --permission-mode dontAsk --add-dir <PROJECT_ROOT>"
+    "worker_cmd": "python -m ralph_engine.codex_adapter --phase worker --task-file {task_file} --output-dir {output_dir} --project-path {project_path}",
+    "reviewer_cmd": "python -m ralph_engine.codex_adapter --phase reviewer --task-file {task_file} --output-dir {output_dir} --project-path {project_path}"
   },
+  "worker_driver": null,
+  "reviewer_driver": null,
+  "driver_presets": {},
   "orchestration": {
     "scheme": "W5R"
   },
