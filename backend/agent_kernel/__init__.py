@@ -1,0 +1,80 @@
+"""Public model surface for Agent Kernel v0."""
+
+from .actions import (
+    ActionExecutor,
+    ActionExecutorDeps,
+    Bundler,
+    Compiler,
+    EvidenceRetriever,
+    Georeferencer,
+    Judge,
+    PatchProposer,
+    StatusSummarizer,
+    Validator,
+)
+from .kernel import KernelLoop, KernelLoopOutput, RunArtifactPersistence, run_kernel
+from .budgets import BudgetSnapshot, BudgetStatus, BudgetTracker
+from .models import (
+    ActionType,
+    KernelBudgets,
+    KernelGoal,
+    KernelRequest,
+    KernelResult,
+    KernelState,
+    StopReason,
+    TerminalOutcomeKind,
+    TerminalOutcome,
+)
+from .no_progress import (
+    GapSignal,
+    NoProgressDetector,
+    NoProgressStatus,
+    build_iteration_fingerprint,
+    compute_artifact_digests,
+    compute_gap_signature,
+)
+from .run_artifact import ArtifactRef, RunArtifact, StepRecord, ValidationInline
+from .state_machine import KernelEvent, TransitionError, advance_state, can_transition
+
+__all__ = [
+    "ActionType",
+    "ActionExecutor",
+    "ActionExecutorDeps",
+    "ArtifactRef",
+    "BudgetSnapshot",
+    "BudgetStatus",
+    "BudgetTracker",
+    "Bundler",
+    "Compiler",
+    "EvidenceRetriever",
+    "Georeferencer",
+    "Judge",
+    "KernelLoop",
+    "KernelLoopOutput",
+    "KernelBudgets",
+    "KernelGoal",
+    "KernelRequest",
+    "KernelResult",
+    "KernelState",
+    "GapSignal",
+    "NoProgressDetector",
+    "NoProgressStatus",
+    "PatchProposer",
+    "RunArtifact",
+    "RunArtifactPersistence",
+    "StopReason",
+    "StatusSummarizer",
+    "StepRecord",
+    "TerminalOutcome",
+    "TerminalOutcomeKind",
+    "Validator",
+    "ValidationInline",
+    "run_kernel",
+    "KernelEvent",
+    "TransitionError",
+    "advance_state",
+    "can_transition",
+    "build_iteration_fingerprint",
+    "compute_artifact_digests",
+    "compute_gap_signature",
+]

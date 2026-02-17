@@ -10,7 +10,7 @@
       "id": "S1",
       "title": "Create kernel request/result and core enums",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "KernelRequest, KernelResult, TerminalOutcome, StopReason, KernelState, and ActionType (including SET_GRAPH_REQUIREMENTS) models exist under `backend/agent_kernel/`.",
         "KernelRequest includes goal.requires_global_placement and round-trips in tests.",
@@ -31,7 +31,7 @@
       "id": "S2",
       "title": "Add RunArtifact + StepRecord models with refs",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "RunArtifact stores refs to IR/compile/judge/bundle/retrieval artifacts (no blobs).",
         "StepRecord captures action, inputs, outputs, and reason codes.",
@@ -54,7 +54,7 @@
       "id": "S3",
       "title": "Define kernel state machine transitions",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Kernel state machine covers INIT, HAVE_IR, HAVE_COMPILE, HAVE_JUDGE, REPAIRING, READY_TO_MAP, MAPPED, DONE.",
         "Transitions are explicit and deterministic.",
@@ -76,7 +76,7 @@
       "id": "S4",
       "title": "Add policy interface + default FeatureGraphDeedToMapPolicy v0 scaffold",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Policy interface includes routing order hooks and gap scoring hooks.",
         "Default policy class exists in `backend/agent_kernel/policies/feature_graph_deed_to_map_v0.py`.",
@@ -100,7 +100,7 @@
       "id": "S5",
       "title": "Implement budget enforcement helpers",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Budget tracking for steps, wall time, retrieval calls, semantic calls, and patch calls exists.",
         "Over-budget results in StopReason budget_exceeded.",
@@ -122,7 +122,7 @@
       "id": "S6",
       "title": "Add no-progress detection and gap scoring",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Kernel computes gap_signature and artifact digests per iteration.",
         "No-progress triggers StopReason no_progress after N repair cycles.",
@@ -145,7 +145,7 @@
       "id": "S7",
       "title": "Implement deterministic action executor scaffold",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Action executor supports deterministic actions: SET_GRAPH_REQUIREMENTS, RETRIEVE_EVIDENCE, COMPILE, JUDGE, BUNDLE, GEOREFERENCE, VALIDATE.",
         "SET_GRAPH_REQUIREMENTS updates graph.metadata.global_placement_required and records the updated IR ref in StepRecord outputs.",
@@ -171,7 +171,7 @@
       "id": "S8",
       "title": "Add run artifact persistence service",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "RunArtifactPersistenceService writes artifacts atomically and maintains an index.",
         "Artifacts are stored under a new agent-kernel root in config paths.",
@@ -194,7 +194,7 @@
       "id": "S9",
       "title": "Implement kernel loop core (library entrypoint)",
       "size": "S",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "Kernel loop can run from a KernelRequest and emit KernelResult + RunArtifact.",
         "When requires_global_placement=true, SET_GRAPH_REQUIREMENTS runs early before judge/compile so anchor gaps can surface deterministically.",
@@ -221,7 +221,7 @@
       "id": "S10",
       "title": "Add minimal CLI for deterministic kernel runs",
       "size": "XS",
-      "passes": false,
+      "passes": true,
       "acceptance_criteria": [
         "CLI accepts a JSON request file and prints a JSON KernelResult.",
         "`pytest backend/agent_kernel/test_cli.py` passes."
