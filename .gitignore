@@ -268,3 +268,13 @@ frontend/src-tauri/target/
 frontend/src-tauri/*.sig
 
 .claude/settings.local.json
+
+# Ralph runs
+ralph/runs/**/run.json
+ralph/runs/**/control.json
+ralph/runs/**/events.ndjson
+ralph/runs/**/orchestration.json
+ralph/runs/**/config.json
+ralph/runs/**/phases/
+ralph/runs/**/transcript*
+ralph/runs/**/logs/

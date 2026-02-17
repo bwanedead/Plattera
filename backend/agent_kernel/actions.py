@@ -1,0 +1,329 @@
+"""Deterministic action executor scaffold for Agent Kernel v0."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from dataclasses import dataclass
+from typing import Any, Mapping, Protocol
+
+from .models import ActionType
+from .run_artifact import ArtifactRef, StepRecord, ValidationInline
+
+
+class EvidenceRetriever(Protocol):
+    """Explicit interface for RETRIEVE_EVIDENCE action execution."""
+
+    def retrieve_evidence(self, inputs: Mapping[str, Any]) -> Any: ...
+
+
+class Compiler(Protocol):
+    """Explicit interface for COMPILE action execution."""
+
+    def compile(self, inputs: Mapping[str, Any]) -> ArtifactRef: ...
+
+
+class Judge(Protocol):
+    """Explicit interface for JUDGE action execution."""
+
+    def judge(self, inputs: Mapping[str, Any]) -> ArtifactRef: ...
+
+
+class Bundler(Protocol):
+    """Explicit interface for BUNDLE action execution."""
+
+    def bundle(self, inputs: Mapping[str, Any]) -> ArtifactRef: ...
+
+
+class Georeferencer(Protocol):
+    """Explicit interface for GEOREFERENCE action execution."""
+
+    def georeference(self, inputs: Mapping[str, Any]) -> ArtifactRef: ...
+
+
+class Validator(Protocol):
+    """Explicit interface for VALIDATE action execution."""
+
+    def validate(self, inputs: Mapping[str, Any]) -> ValidationInline: ...
+
+
+class PatchProposer(Protocol):
+    """Explicit interface stub for PROPOSE_PATCH."""
+
+    def propose_patch(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
+class StatusSummarizer(Protocol):
+    """Explicit interface stub for SUMMARIZE_STATUS."""
+
+    def summarize_status(self, inputs: Mapping[str, Any]) -> str: ...
+
+
+@dataclass(frozen=True)
+class ActionExecutorDeps:
+    """Dependency bundle for deterministic and LLM-scaffold action execution."""
+
+    evidence_retriever: EvidenceRetriever | None = None
+    compiler: Compiler | None = None
+    judge: Judge | None = None
+    bundler: Bundler | None = None
+    georeferencer: Georeferencer | None = None
+    validator: Validator | None = None
+    patch_proposer: PatchProposer | None = None
+    status_summarizer: StatusSummarizer | None = None
+
+
+class ActionExecutor:
+    """Executes deterministic actions and explicit LLM stubs."""
+
+    def __init__(self, deps: ActionExecutorDeps | None = None) -> None:
+        self._deps = deps or ActionExecutorDeps()
+
+    def execute(self, step_id: str, action: ActionType, inputs: Mapping[str, Any]) -> StepRecord:
+        if action == ActionType.SET_GRAPH_REQUIREMENTS:
+            return self._execute_set_graph_requirements(step_id=step_id, inputs=inputs)
+        if action == ActionType.RETRIEVE_EVIDENCE:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="retrieval_artifact_ref",
+                reason_code="evidence_retrieved",
+                missing_reason="missing_evidence_retriever_interface",
+                execute_fn=(
+                    self._deps.evidence_retriever.retrieve_evidence
+                    if self._deps.evidence_retriever is not None
+                    else None
+                ),
+                inputs=inputs,
+            )
+        if action == ActionType.COMPILE:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="compile_artifact_ref",
+                reason_code="compiled",
+                missing_reason="missing_compiler_interface",
+                execute_fn=self._deps.compiler.compile if self._deps.compiler is not None else None,
+                inputs=inputs,
+            )
+        if action == ActionType.JUDGE:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="judge_artifact_ref",
+                reason_code="judged",
+                missing_reason="missing_judge_interface",
+                execute_fn=self._deps.judge.judge if self._deps.judge is not None else None,
+                inputs=inputs,
+            )
+        if action == ActionType.BUNDLE:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="bundle_artifact_ref",
+                reason_code="bundled",
+                missing_reason="missing_bundler_interface",
+                execute_fn=self._deps.bundler.bundle if self._deps.bundler is not None else None,
+                inputs=inputs,
+            )
+        if action == ActionType.GEOREFERENCE:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="georeference_artifact_ref",
+                reason_code="georeferenced",
+                missing_reason="missing_georeferencer_interface",
+                execute_fn=(
+                    self._deps.georeferencer.georeference
+                    if self._deps.georeferencer is not None
+                    else None
+                ),
+                inputs=inputs,
+            )
+        if action == ActionType.VALIDATE:
+            return self._execute_validate(step_id=step_id, inputs=inputs)
+        if action == ActionType.PROPOSE_PATCH:
+            return self._execute_propose_patch(step_id=step_id, inputs=inputs)
+        if action == ActionType.SUMMARIZE_STATUS:
+            return self._execute_summarize_status(step_id=step_id, inputs=inputs)
+
+        return StepRecord(step_id=step_id, action=action, inputs=dict(inputs), reason_codes=["unsupported_action"])
+
+    def _execute_set_graph_requirements(self, step_id: str, inputs: Mapping[str, Any]) -> StepRecord:
+        graph_payload = inputs.get("graph", {})
+        if not isinstance(graph_payload, dict):
+            graph_payload = {}
+
+        graph = deepcopy(graph_payload)
+        metadata = graph.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+            graph["metadata"] = metadata
+
+        global_required = bool(inputs.get("global_placement_required", False))
+        metadata["global_placement_required"] = global_required
+
+        updated_ref = _resolve_ir_artifact_ref(inputs)
+        reason_codes = ["graph_requirements_set"]
+        if updated_ref is None:
+            reason_codes.append("missing_updated_ir_ref")
+
+        outputs: dict[str, Any] = {"graph": graph}
+        if updated_ref is not None:
+            outputs["ir_artifact_ref"] = updated_ref.model_dump(mode="json")
+
+        return StepRecord(
+            step_id=step_id,
+            action=ActionType.SET_GRAPH_REQUIREMENTS,
+            inputs=dict(inputs),
+            outputs=outputs,
+            reason_codes=reason_codes,
+        )
+
+    def _execute_artifact_action(
+        self,
+        step_id: str,
+        action: ActionType,
+        output_key: str,
+        reason_code: str,
+        missing_reason: str,
+        execute_fn: Any,
+        inputs: Mapping[str, Any],
+    ) -> StepRecord:
+        if execute_fn is None:
+            return StepRecord(
+                step_id=step_id,
+                action=action,
+                inputs=dict(inputs),
+                reason_codes=[missing_reason],
+            )
+
+        raw_result = execute_fn(inputs)
+        artifact_ref, reason_codes = _coerce_artifact_action_result(
+            raw_result=raw_result,
+            default_reason_code=reason_code,
+        )
+        outputs: dict[str, Any] = {}
+        if artifact_ref is not None:
+            outputs[output_key] = artifact_ref.model_dump(mode="json")
+        return StepRecord(
+            step_id=step_id,
+            action=action,
+            inputs=dict(inputs),
+            outputs=outputs,
+            reason_codes=reason_codes,
+        )
+
+    def _execute_validate(self, step_id: str, inputs: Mapping[str, Any]) -> StepRecord:
+        if self._deps.validator is None:
+            validation_result = ValidationInline(
+                passed=False,
+                reason_code="missing_validator_interface",
+                checks={},
+            )
+        else:
+            validation_result = self._deps.validator.validate(inputs)
+
+        reason_code = validation_result.reason_code or (
+            "validation_passed" if validation_result.passed else "validation_failed"
+        )
+        return StepRecord(
+            step_id=step_id,
+            action=ActionType.VALIDATE,
+            inputs=dict(inputs),
+            outputs={"validation_ref": "inline"},
+            reason_codes=[reason_code],
+            validation_result=validation_result,
+        )
+
+    def _execute_propose_patch(self, step_id: str, inputs: Mapping[str, Any]) -> StepRecord:
+        if self._deps.patch_proposer is None:
+            return StepRecord(
+                step_id=step_id,
+                action=ActionType.PROPOSE_PATCH,
+                inputs=dict(inputs),
+                reason_codes=["missing_patch_proposer_interface"],
+                outputs_inline={
+                    "stubbed": True,
+                    "required_interface": "PatchProposer",
+                },
+            )
+
+        patch = dict(self._deps.patch_proposer.propose_patch(inputs))
+        return StepRecord(
+            step_id=step_id,
+            action=ActionType.PROPOSE_PATCH,
+            inputs=dict(inputs),
+            reason_codes=["patch_proposed"],
+            outputs_inline=patch,
+        )
+
+    def _execute_summarize_status(self, step_id: str, inputs: Mapping[str, Any]) -> StepRecord:
+        if self._deps.status_summarizer is None:
+            return StepRecord(
+                step_id=step_id,
+                action=ActionType.SUMMARIZE_STATUS,
+                inputs=dict(inputs),
+                reason_codes=["missing_status_summarizer_interface"],
+                outputs_inline={
+                    "stubbed": True,
+                    "required_interface": "StatusSummarizer",
+                },
+            )
+
+        summary = self._deps.status_summarizer.summarize_status(inputs)
+        return StepRecord(
+            step_id=step_id,
+            action=ActionType.SUMMARIZE_STATUS,
+            inputs=dict(inputs),
+            reason_codes=["status_summarized"],
+            outputs_inline={"summary": summary},
+        )
+
+
+def _resolve_ir_artifact_ref(inputs: Mapping[str, Any]) -> ArtifactRef | None:
+    raw_ref = inputs.get("updated_ir_artifact_ref")
+    if isinstance(raw_ref, ArtifactRef):
+        return raw_ref
+    if isinstance(raw_ref, dict):
+        return ArtifactRef.model_validate(raw_ref)
+    if isinstance(raw_ref, str) and raw_ref:
+        return ArtifactRef(artifact_path=raw_ref)
+
+    raw_path = inputs.get("updated_ir_artifact_path")
+    if isinstance(raw_path, str) and raw_path:
+        return ArtifactRef(artifact_path=raw_path)
+
+    raw_path = inputs.get("ir_artifact_path")
+    if isinstance(raw_path, str) and raw_path:
+        return ArtifactRef(artifact_path=raw_path)
+
+    return None
+
+
+def _coerce_artifact_action_result(
+    *,
+    raw_result: Any,
+    default_reason_code: str,
+) -> tuple[ArtifactRef | None, list[str]]:
+    if isinstance(raw_result, ArtifactRef):
+        return raw_result, [default_reason_code]
+    if isinstance(raw_result, dict):
+        raw_ref = raw_result.get("artifact_ref")
+        artifact_ref = _coerce_artifact_ref(raw_ref)
+        raw_reason_codes = raw_result.get("reason_codes")
+        if isinstance(raw_reason_codes, list):
+            reason_codes = [str(code) for code in raw_reason_codes if str(code)]
+            if reason_codes:
+                return artifact_ref, reason_codes
+        return artifact_ref, [default_reason_code]
+    return None, [default_reason_code]
+
+
+def _coerce_artifact_ref(raw_ref: Any) -> ArtifactRef | None:
+    if isinstance(raw_ref, ArtifactRef):
+        return raw_ref
+    if isinstance(raw_ref, dict):
+        return ArtifactRef.model_validate(raw_ref)
+    if isinstance(raw_ref, str) and raw_ref:
+        return ArtifactRef(artifact_path=raw_ref)
+    return None

@@ -153,6 +153,17 @@ def dossiers_feature_graphs_artifacts_root(dossier_id: str | None = None) -> Pat
     return base if dossier_id is None else base / str(dossier_id)
 
 
+def agent_kernel_artifacts_root() -> Path:
+    """
+    Root for agent-kernel run artifacts.
+    - Dev: backend/dossiers_data/artifacts/agent_kernel
+    - Frozen: LOCALAPPDATA\\Plattera\\Data\\dossiers_data\\artifacts\\agent_kernel
+    """
+    root = dossiers_artifacts_root() / "agent_kernel"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 # ----- Assets (models, external data) -----
 
 def assets_root() -> Path:
@@ -204,5 +215,4 @@ def plss_parquet_root(state: str) -> Path:
 
 def plss_index_root(state: str) -> Path:
     return plss_state_root(state) / "index"
-
 
