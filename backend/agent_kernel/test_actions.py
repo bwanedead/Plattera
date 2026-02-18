@@ -12,8 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.agent_kernel.actions import (
     ActionExecutor,
     ActionExecutorDeps,
+    ArtifactOpener,
     Bundler,
     Compiler,
+    DeedHydrator,
+    DraftIRProposer,
     EvidenceRetriever,
     Georeferencer,
     Judge,
@@ -26,6 +29,9 @@ from backend.agent_kernel.run_artifact import ArtifactRef, ValidationInline
 
 
 class _DeterministicServices(
+    DeedHydrator,
+    ArtifactOpener,
+    DraftIRProposer,
     EvidenceRetriever,
     Compiler,
     Judge,
@@ -35,6 +41,18 @@ class _DeterministicServices(
     PatchProposer,
     StatusSummarizer,
 ):
+    def hydrate_deed(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+        del inputs
+        return ArtifactRef(artifact_path="artifacts/deed/hydrated-001.json")
+
+    def open_artifact(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        del inputs
+        return {"summary": "opened artifact summary", "reason_codes": ["artifact_opened"]}
+
+    def draft_ir(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+        del inputs
+        return ArtifactRef(artifact_path="artifacts/ir/ir-draft-001.json")
+
     def retrieve_evidence(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/retrieval/retrieval-001.json")
@@ -71,6 +89,9 @@ class _DeterministicServices(
 def _build_executor() -> ActionExecutor:
     services = _DeterministicServices()
     deps = ActionExecutorDeps(
+        deed_hydrator=services,
+        artifact_opener=services,
+        draft_ir_proposer=services,
         evidence_retriever=services,
         compiler=services,
         judge=services,
@@ -87,6 +108,9 @@ def test_executor_supports_required_deterministic_actions() -> None:
     executor = _build_executor()
     actions = (
         ActionType.SET_GRAPH_REQUIREMENTS,
+        ActionType.HYDRATE_DEED,
+        ActionType.OPEN_ARTIFACT,
+        ActionType.DRAFT_IR,
         ActionType.RETRIEVE_EVIDENCE,
         ActionType.COMPILE,
         ActionType.JUDGE,
@@ -152,6 +176,25 @@ def test_llm_actions_are_stubbed_with_explicit_interfaces() -> None:
     assert status_step.outputs_inline["required_interface"] == "StatusSummarizer"
 
 
+def test_open_artifact_and_draft_ir_have_deterministic_handler_behavior() -> None:
+    executor = _build_executor()
+    opened = executor.execute(
+        "open-artifact",
+        ActionType.OPEN_ARTIFACT,
+        {"artifact_ref": {"artifact_path": "artifacts/ir/ir-001.json"}},
+    )
+    drafted = executor.execute(
+        "draft-ir",
+        ActionType.DRAFT_IR,
+        {"deed_text_ref": {"artifact_path": "artifacts/deed/hydrated-001.json"}},
+    )
+
+    assert opened.reason_codes == ["artifact_opened"]
+    assert opened.outputs_inline is not None
+    assert opened.outputs_inline["summary"] == "opened artifact summary"
+    assert drafted.outputs["ir_artifact_ref"]["artifact_path"] == "artifacts/ir/ir-draft-001.json"
+
+
 def test_retrieve_evidence_propagates_reason_codes_from_dependency_payload() -> None:
     class _ReasonCodeRetriever(EvidenceRetriever):
         def retrieve_evidence(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -166,3 +209,18 @@ def test_retrieve_evidence_propagates_reason_codes_from_dependency_payload() -> 
 
     assert step.reason_codes == ["semantic_worker_unavailable"]
     assert step.outputs == {}
+
+
+def test_new_actions_return_explicit_missing_interface_reason_codes() -> None:
+    executor = ActionExecutor(deps=ActionExecutorDeps())
+    hydrated = executor.execute("hydrate", ActionType.HYDRATE_DEED, {"dossier_id": "d-1"})
+    opened = executor.execute(
+        "open",
+        ActionType.OPEN_ARTIFACT,
+        {"artifact_ref": {"artifact_path": "artifacts/x.json"}},
+    )
+    drafted = executor.execute("draft", ActionType.DRAFT_IR, {"deed_text": "..."})
+
+    assert hydrated.reason_codes == ["missing_deed_hydrator_interface"]
+    assert opened.reason_codes == ["missing_artifact_opener_interface"]
+    assert drafted.reason_codes == ["missing_draft_ir_proposer_interface"]

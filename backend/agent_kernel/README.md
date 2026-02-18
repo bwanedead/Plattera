@@ -3,6 +3,8 @@
 ## What This Is
 - Deterministic orchestration loop for request-driven deed-to-map kernel execution.
 - Library-first package (`run_kernel`) with a thin JSON CLI wrapper (`python -m backend.agent_kernel.cli`).
+- Primary interface is now step-driven via `KernelSessionManager.start_session()` and `KernelSessionManager.step()`.
+- `run_kernel` remains as a legacy/autopilot harness for deterministic regression/smoke usage.
 
 ## Core Invariants
 - Run artifacts store refs, not large blobs (`ArtifactRef` paths and compact inline payloads only).

@@ -16,6 +16,24 @@ class EvidenceRetriever(Protocol):
     def retrieve_evidence(self, inputs: Mapping[str, Any]) -> Any: ...
 
 
+class DeedHydrator(Protocol):
+    """Explicit interface for HYDRATE_DEED action execution."""
+
+    def hydrate_deed(self, inputs: Mapping[str, Any]) -> Any: ...
+
+
+class ArtifactOpener(Protocol):
+    """Explicit interface for OPEN_ARTIFACT action execution."""
+
+    def open_artifact(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
+class DraftIRProposer(Protocol):
+    """Explicit interface for DRAFT_IR action execution."""
+
+    def draft_ir(self, inputs: Mapping[str, Any]) -> Any: ...
+
+
 class Compiler(Protocol):
     """Explicit interface for COMPILE action execution."""
 
@@ -62,6 +80,9 @@ class StatusSummarizer(Protocol):
 class ActionExecutorDeps:
     """Dependency bundle for deterministic and LLM-scaffold action execution."""
 
+    deed_hydrator: DeedHydrator | None = None
+    artifact_opener: ArtifactOpener | None = None
+    draft_ir_proposer: DraftIRProposer | None = None
     evidence_retriever: EvidenceRetriever | None = None
     compiler: Compiler | None = None
     judge: Judge | None = None
@@ -78,9 +99,64 @@ class ActionExecutor:
     def __init__(self, deps: ActionExecutorDeps | None = None) -> None:
         self._deps = deps or ActionExecutorDeps()
 
+    def available_actions(self, *, allow_stubbed: bool = False) -> tuple[ActionType, ...]:
+        """Return actions currently available from configured dependencies."""
+        actions: list[ActionType] = [ActionType.SET_GRAPH_REQUIREMENTS]
+        if self._deps.deed_hydrator is not None or allow_stubbed:
+            actions.append(ActionType.HYDRATE_DEED)
+        if self._deps.artifact_opener is not None or allow_stubbed:
+            actions.append(ActionType.OPEN_ARTIFACT)
+        if self._deps.draft_ir_proposer is not None or allow_stubbed:
+            actions.append(ActionType.DRAFT_IR)
+        if self._deps.evidence_retriever is not None or allow_stubbed:
+            actions.append(ActionType.RETRIEVE_EVIDENCE)
+        if self._deps.compiler is not None or allow_stubbed:
+            actions.append(ActionType.COMPILE)
+        if self._deps.judge is not None or allow_stubbed:
+            actions.append(ActionType.JUDGE)
+        if self._deps.bundler is not None or allow_stubbed:
+            actions.append(ActionType.BUNDLE)
+        if self._deps.georeferencer is not None or allow_stubbed:
+            actions.append(ActionType.GEOREFERENCE)
+        if self._deps.validator is not None or allow_stubbed:
+            actions.append(ActionType.VALIDATE)
+        if self._deps.patch_proposer is not None or allow_stubbed:
+            actions.append(ActionType.PROPOSE_PATCH)
+        if self._deps.status_summarizer is not None or allow_stubbed:
+            actions.append(ActionType.SUMMARIZE_STATUS)
+        return tuple(actions)
+
     def execute(self, step_id: str, action: ActionType, inputs: Mapping[str, Any]) -> StepRecord:
         if action == ActionType.SET_GRAPH_REQUIREMENTS:
             return self._execute_set_graph_requirements(step_id=step_id, inputs=inputs)
+        if action == ActionType.HYDRATE_DEED:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="hydrated_deed_artifact_ref",
+                reason_code="deed_hydrated",
+                missing_reason="missing_deed_hydrator_interface",
+                execute_fn=(
+                    self._deps.deed_hydrator.hydrate_deed if self._deps.deed_hydrator is not None else None
+                ),
+                inputs=inputs,
+            )
+        if action == ActionType.OPEN_ARTIFACT:
+            return self._execute_open_artifact(step_id=step_id, inputs=inputs)
+        if action == ActionType.DRAFT_IR:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="ir_artifact_ref",
+                reason_code="ir_drafted",
+                missing_reason="missing_draft_ir_proposer_interface",
+                execute_fn=(
+                    self._deps.draft_ir_proposer.draft_ir
+                    if self._deps.draft_ir_proposer is not None
+                    else None
+                ),
+                inputs=inputs,
+            )
         if action == ActionType.RETRIEVE_EVIDENCE:
             return self._execute_artifact_action(
                 step_id=step_id,
@@ -277,6 +353,39 @@ class ActionExecutor:
             inputs=dict(inputs),
             reason_codes=["status_summarized"],
             outputs_inline={"summary": summary},
+        )
+
+    def _execute_open_artifact(self, step_id: str, inputs: Mapping[str, Any]) -> StepRecord:
+        if self._deps.artifact_opener is None:
+            return StepRecord(
+                step_id=step_id,
+                action=ActionType.OPEN_ARTIFACT,
+                inputs=dict(inputs),
+                reason_codes=["missing_artifact_opener_interface"],
+            )
+        payload = dict(self._deps.artifact_opener.open_artifact(inputs))
+        raw_reason_codes = payload.get("reason_codes")
+        reason_codes = (
+            [str(code) for code in raw_reason_codes if str(code)]
+            if isinstance(raw_reason_codes, list)
+            else ["artifact_opened"]
+        )
+        raw_ref = payload.get("artifact_ref")
+        artifact_ref = _coerce_artifact_ref(raw_ref)
+        outputs: dict[str, Any] = {}
+        if artifact_ref is not None:
+            outputs["opened_artifact_ref"] = artifact_ref.model_dump(mode="json")
+        outputs_inline = None
+        summary = payload.get("summary")
+        if isinstance(summary, str):
+            outputs_inline = {"summary": summary[:512]}
+        return StepRecord(
+            step_id=step_id,
+            action=ActionType.OPEN_ARTIFACT,
+            inputs=dict(inputs),
+            outputs=outputs,
+            reason_codes=reason_codes,
+            outputs_inline=outputs_inline,
         )
 
 

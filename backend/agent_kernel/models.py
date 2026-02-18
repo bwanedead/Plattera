@@ -41,6 +41,10 @@ class ActionType(str, Enum):
     """Kernel actions, including deterministic and LLM-facing stubs."""
 
     SET_GRAPH_REQUIREMENTS = "set_graph_requirements"
+    HYDRATE_DEED = "hydrate_deed"
+    OPEN_ARTIFACT = "open_artifact"
+    DRAFT_IR = "draft_ir"
+    DECLARE_DONE = "declare_done"
     RETRIEVE_EVIDENCE = "retrieve_evidence"
     COMPILE = "compile"
     JUDGE = "judge"
@@ -121,3 +125,124 @@ class KernelResult(BaseModel):
         default=None,
         description="Durable reference to persisted run artifact.",
     )
+
+
+class KernelRefusal(BaseModel):
+    """Deterministic refusal contract for session start/step calls."""
+
+    reason_code: str = Field(..., min_length=1)
+    missing_inputs: list[str] = Field(default_factory=list)
+    retryable: bool
+    blocked_by_budget: bool = False
+    blocked_by_invariant: bool = False
+
+
+class KernelLatestRefs(BaseModel):
+    """Compact latest artifact refs for dashboard instrumentation."""
+
+    ir_ref: Optional[dict[str, object]] = None
+    compile_ref: Optional[dict[str, object]] = None
+    judge_ref: Optional[dict[str, object]] = None
+    bundle_ref: Optional[dict[str, object]] = None
+    georef_ref: Optional[dict[str, object]] = None
+    validate_ref: Optional[dict[str, object]] = None
+    retrieval_ref: Optional[dict[str, object]] = None
+
+
+class KernelGapSummary(BaseModel):
+    """Compact gap summary for controller-side planning."""
+
+    top_gap_kinds: list[str] = Field(default_factory=list)
+    gap_counts_by_kind: dict[str, int] = Field(default_factory=dict)
+    top_reason_codes: list[str] = Field(default_factory=list)
+
+
+class KernelClaimabilityStatus(BaseModel):
+    """Claimability gate status computed from deterministic artifacts/results."""
+
+    claimable_ready: bool
+    missing_claimability: list[str] = Field(default_factory=list)
+
+
+class KernelFailureClassification(BaseModel):
+    """Most recent deterministic failure classification."""
+
+    stop_reason: Optional[StopReason] = None
+    reason_code: Optional[str] = None
+
+
+class KernelNoProgressRisk(BaseModel):
+    """Non-terminal no-progress risk signal returned every step."""
+
+    risk_score: float = Field(0.0, ge=0.0, le=1.0)
+    basis: str = Field(default="", max_length=128)
+
+
+class KernelDashboard(BaseModel):
+    """Compact flight-instruments payload returned on every session call."""
+
+    latest_refs: KernelLatestRefs
+    gap_summary: KernelGapSummary
+    claimability: KernelClaimabilityStatus
+    semantic_ready: Optional[bool] = None
+    budgets_remaining: dict[str, int]
+    failure_classification: KernelFailureClassification
+    no_progress_risk: KernelNoProgressRisk
+    last_refusal: Optional[KernelRefusal] = None
+
+
+class KernelSessionStartRequest(BaseModel):
+    """Input contract for initializing a step-driven kernel session."""
+
+    session_id: Optional[str] = None
+    request_id: str = Field(..., min_length=1)
+    goal: KernelGoal
+    budgets: KernelBudgets
+    dossier_id: Optional[str] = None
+    source_entry_ref: Optional[str] = None
+    initial_ir_ref: Optional[str] = None
+    initial_graph_json: Optional[dict[str, object]] = None
+    policy_id: str = "feature_graph_deed_to_map_v0"
+
+
+class KernelSessionStartResult(BaseModel):
+    """Session bootstrap result with initial dashboard/tool menu state."""
+
+    session_id: Optional[str] = None
+    run_id: Optional[str] = None
+    run_artifact_ref: Optional[str] = None
+    tool_menu: list[str] = Field(default_factory=list)
+    dashboard: Optional[KernelDashboard] = None
+    budgets_remaining: Optional[dict[str, int]] = None
+    refusal: Optional[KernelRefusal] = None
+
+
+class KernelStepRequest(BaseModel):
+    """One-step action request chosen by a controller."""
+
+    session_id: str = Field(..., min_length=1)
+    idempotency_key: str = Field(..., min_length=1)
+    action_type: ActionType
+    inputs: dict[str, object] = Field(default_factory=dict)
+    semantic_ready: Optional[bool] = None
+    notes: Optional[str] = Field(default=None, max_length=512)
+
+
+class StepExecutionState(str, Enum):
+    """Execution-state classification for one-step responses."""
+
+    EXECUTED = "executed"
+    REFUSED = "refused"
+    DEDUPED = "deduped"
+
+
+class KernelStepResult(BaseModel):
+    """Result envelope for exactly one session step call."""
+
+    session_id: str
+    idempotency_key: str
+    execution_state: StepExecutionState
+    step_record: Optional[dict[str, object]] = None
+    refusal: Optional[KernelRefusal] = None
+    dashboard: KernelDashboard
+    terminal: Optional[TerminalOutcome] = None
