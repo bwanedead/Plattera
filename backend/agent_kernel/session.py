@@ -33,6 +33,12 @@ from .models import (
 )
 from .run_artifact import ArtifactRef, RunArtifact, StepRecord
 from .tooling import CorpusArtifactOpener, CorpusDeedHydrator, DraftIRFilesystemProposer
+from .tooling import (
+    FeatureGraphBundlerTool,
+    FeatureGraphCompilerTool,
+    FeatureGraphJudgeTool,
+    RetrievalEvidenceTool,
+)
 
 _MAX_INPUT_BYTES = 4096
 _MAX_INITIAL_GRAPH_JSON_BYTES = 262144
@@ -62,6 +68,10 @@ class KernelSessionManager:
                 deed_hydrator=CorpusDeedHydrator(),
                 artifact_opener=CorpusArtifactOpener(),
                 draft_ir_proposer=DraftIRFilesystemProposer(),
+                evidence_retriever=RetrievalEvidenceTool(),
+                compiler=FeatureGraphCompilerTool(),
+                judge=FeatureGraphJudgeTool(),
+                bundler=FeatureGraphBundlerTool(),
             )
         )
         self._persistence_service = persistence_service

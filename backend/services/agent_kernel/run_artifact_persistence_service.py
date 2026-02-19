@@ -9,8 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from backend.agent_kernel.run_artifact import RunArtifact
-from backend.config.paths import agent_kernel_artifacts_root, dossiers_state_root
+try:
+    from backend.agent_kernel.run_artifact import RunArtifact
+    from backend.config.paths import agent_kernel_artifacts_root, dossiers_state_root
+except ModuleNotFoundError:
+    from agent_kernel.run_artifact import RunArtifact
+    from config.paths import agent_kernel_artifacts_root, dossiers_state_root
 
 
 class RunArtifactPersistenceService:
@@ -40,7 +44,13 @@ class RunArtifactPersistenceService:
                 json.dump(data, file_obj, ensure_ascii=False, indent=2)
                 file_obj.flush()
                 os.fsync(file_obj.fileno())
-            os.replace(tmp_path, str(path))
+            try:
+                os.replace(tmp_path, str(path))
+            except PermissionError:
+                with open(path, "w", encoding="utf-8") as file_obj:
+                    json.dump(data, file_obj, ensure_ascii=False, indent=2)
+                    file_obj.flush()
+                    os.fsync(file_obj.fileno())
         finally:
             try:
                 if os.path.exists(tmp_path):

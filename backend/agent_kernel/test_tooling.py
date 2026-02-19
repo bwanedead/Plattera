@@ -16,7 +16,13 @@ from backend.agent_kernel.tooling import (
     CorpusArtifactOpener,
     CorpusDeedHydrator,
     DraftIRFilesystemProposer,
+    FeatureGraphBundlerTool,
+    FeatureGraphCompilerTool,
+    FeatureGraphJudgeTool,
+    RetrievalEvidenceTool,
 )
+from backend.retrieval.evidence.models import RetrievalResult
+from backend.services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
 
 def _write_json(path: Path, obj: dict[str, object]) -> None:
@@ -93,5 +99,78 @@ def test_draft_ir_proposer_persists_stub_artifact_ref() -> None:
             assert payload["artifact_type"] == "ir_draft_stub"
             assert payload["dossier_id"] == "D_DRAFT"
             assert "graph" in payload
+            assert str(payload["graph"].get("graph_id", "")).startswith("graph_draft_")
         finally:
             legacy_paths.dossiers_root = original_legacy_dossiers_root  # type: ignore[assignment]
+
+
+def test_feature_graph_compiler_and_judge_tools_persist_artifact_refs() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        fg_persistence = FeatureGraphPersistenceService(
+            root=root / "dossiers_data" / "artifacts" / "feature_graphs",
+            state_dir=root / "dossiers_data" / "state",
+        )
+        compiler = FeatureGraphCompilerTool(persistence=fg_persistence)
+        judge = FeatureGraphJudgeTool(persistence=fg_persistence)
+        graph = {
+            "graph_id": "g_local_001",
+            "nodes": [{"id": "n1", "kind": "point", "geometry": {"type": "Point", "coordinates": [0, 0]}}],
+            "edges": [],
+            "metadata": {"dossier_id": "D_LOCAL"},
+        }
+        compile_result = compiler.compile({"graph": graph, "dossier_id": "D_LOCAL"})
+        judge_result = judge.judge({"graph": graph, "dossier_id": "D_LOCAL"})
+
+        compile_ref = ArtifactRef.model_validate(compile_result["artifact_ref"])
+        judge_ref = ArtifactRef.model_validate(judge_result["artifact_ref"])
+        assert "compiled" in compile_result["reason_codes"]
+        assert "judged" in judge_result["reason_codes"]
+        assert Path(compile_ref.artifact_path).exists()
+        assert Path(judge_ref.artifact_path).exists()
+
+
+def test_feature_graph_bundler_tool_persists_bundle_artifact_ref() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        fg_persistence = FeatureGraphPersistenceService(
+            root=root / "dossiers_data" / "artifacts" / "feature_graphs",
+            state_dir=root / "dossiers_data" / "state",
+        )
+        bundler = FeatureGraphBundlerTool(persistence=fg_persistence)
+        graph = {
+            "graph_id": "g_bundle_001",
+            "nodes": [{"id": "n1", "kind": "point", "geometry": {"type": "Point", "coordinates": [0, 0]}}],
+            "edges": [],
+            "metadata": {"dossier_id": "D_BUNDLE"},
+        }
+        bundle_result = bundler.bundle({"graph": graph, "dossier_id": "D_BUNDLE"})
+        bundle_ref = ArtifactRef.model_validate(bundle_result["artifact_ref"])
+        assert bundle_result["reason_codes"] == ["bundled"]
+        assert Path(bundle_ref.artifact_path).exists()
+
+
+class _FakeRetrievalEngine:
+    def __init__(self, debug: dict[str, object]) -> None:
+        self._debug = debug
+
+    def search(self, query: str, *, filters=None, limit: int = 10, lanes=None) -> RetrievalResult:
+        del query, filters, limit, lanes
+        return RetrievalResult(query="q", cards=[], debug=self._debug)
+
+
+def test_retrieval_tool_maps_semantic_worker_reason_codes() -> None:
+    debug = {"lane_debug": {"hybrid_semantic": {"per_lane_debug": {"semantic": {"reason": "semantic_worker_in_backoff"}}}}}
+    tool = RetrievalEvidenceTool(engine=_FakeRetrievalEngine(debug=debug))  # type: ignore[arg-type]
+    result = tool.retrieve_evidence(
+        {
+            "query": "find anchor",
+            "routing": {"lanes": ["hybrid_semantic"], "view": "everything"},
+            "options": {"limit": 5},
+            "dossier_id": "D_RET",
+        }
+    )
+
+    artifact_ref = ArtifactRef.model_validate(result["artifact_ref"])
+    assert result["reason_codes"] == ["semantic_worker_in_backoff"]
+    assert Path(artifact_ref.artifact_path).exists()

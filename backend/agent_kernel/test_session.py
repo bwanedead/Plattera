@@ -151,7 +151,9 @@ def test_start_session_tool_menu_is_capability_aware_for_default_manager() -> No
     assert ActionType.HYDRATE_DEED.value in result.tool_menu
     assert ActionType.OPEN_ARTIFACT.value in result.tool_menu
     assert ActionType.DRAFT_IR.value in result.tool_menu
-    assert ActionType.COMPILE.value not in result.tool_menu
+    assert ActionType.RETRIEVE_EVIDENCE.value in result.tool_menu
+    assert ActionType.COMPILE.value in result.tool_menu
+    assert ActionType.JUDGE.value in result.tool_menu
     assert ActionType.DECLARE_DONE.value in result.tool_menu
 
 

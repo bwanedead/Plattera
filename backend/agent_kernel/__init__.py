@@ -17,7 +17,15 @@ from .actions import (
 )
 from .kernel import KernelLoop, KernelLoopOutput, RunArtifactPersistence, run_kernel
 from .session import KernelSessionManager, SessionPersistence
-from .tooling import CorpusArtifactOpener, CorpusDeedHydrator, DraftIRFilesystemProposer
+from .tooling import (
+    CorpusArtifactOpener,
+    CorpusDeedHydrator,
+    DraftIRFilesystemProposer,
+    FeatureGraphBundlerTool,
+    FeatureGraphCompilerTool,
+    FeatureGraphJudgeTool,
+    RetrievalEvidenceTool,
+)
 from .budgets import BudgetSnapshot, BudgetStatus, BudgetTracker
 from .models import (
     ActionType,
@@ -68,6 +76,9 @@ __all__ = [
     "CorpusDeedHydrator",
     "DeedHydrator",
     "DraftIRFilesystemProposer",
+    "FeatureGraphBundlerTool",
+    "FeatureGraphCompilerTool",
+    "FeatureGraphJudgeTool",
     "DraftIRProposer",
     "EvidenceRetriever",
     "Georeferencer",
@@ -96,6 +107,7 @@ __all__ = [
     "NoProgressStatus",
     "PatchProposer",
     "RunArtifact",
+    "RetrievalEvidenceTool",
     "RunArtifactPersistence",
     "StopReason",
     "StatusSummarizer",

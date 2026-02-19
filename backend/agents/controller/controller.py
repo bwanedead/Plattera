@@ -58,6 +58,7 @@ class ControllerRunResult:
     last_dashboard: dict[str, object]
     transcript_artifact_ref: str
     session_id: str | None
+    run_artifact_ref: str | None
     iterations: int
 
 
@@ -100,18 +101,21 @@ def run_controller_loop(
             last_dashboard=started.dashboard.model_dump(mode="json") if started.dashboard is not None else {},
             transcript_artifact_ref=transcript_ref,
             session_id=session_id,
+            run_artifact_ref=started.run_artifact_ref,
             iterations=0,
         )
     if started.dashboard is None or session_id is None:
         raise ControllerLoopError("kernel_start_session_missing_dashboard_or_session")
 
     iterations = 0
+    bootstrap_context = _build_bootstrap_context(start_request)
     while iterations < max_iterations:
         iterations += 1
         observation = {
             "session_id": session_id,
             "tool_menu": started.tool_menu,
             "dashboard": started.dashboard.model_dump(mode="json"),
+            "bootstrap_context": bootstrap_context,
             "last_refusal": last_refusal.model_dump(mode="json") if last_refusal is not None else None,
             "last_step": last_result.step_record if last_result is not None else None,
         }
@@ -234,6 +238,7 @@ def run_controller_loop(
                 last_dashboard=step_result.dashboard.model_dump(mode="json"),
                 transcript_artifact_ref=transcript_ref,
                 session_id=session_id,
+                run_artifact_ref=started.run_artifact_ref,
                 iterations=iterations,
             )
 
@@ -258,6 +263,7 @@ def run_controller_loop(
         last_dashboard=started.dashboard.model_dump(mode="json"),
         transcript_artifact_ref=transcript_ref,
         session_id=session_id,
+        run_artifact_ref=started.run_artifact_ref,
         iterations=iterations,
     )
 
@@ -337,6 +343,25 @@ def _validate_controller_inputs(inputs: dict[str, object]) -> KernelRefusal | No
             blocked_by_invariant=True,
         )
     return None
+
+
+def _build_bootstrap_context(start_request: KernelSessionStartRequest) -> dict[str, object]:
+    context: dict[str, object] = {
+        "dossier_id": start_request.dossier_id,
+        "source_entry_ref": start_request.source_entry_ref,
+        "initial_ir_ref": start_request.initial_ir_ref,
+    }
+    graph = start_request.initial_graph_json if isinstance(start_request.initial_graph_json, dict) else None
+    if graph is not None:
+        metadata = graph.get("metadata")
+        if isinstance(metadata, dict):
+            deed_ref = metadata.get("deed_text_artifact_ref")
+            excerpt = metadata.get("deed_text_excerpt")
+            if isinstance(deed_ref, str) and deed_ref:
+                context["deed_text_artifact_ref"] = deed_ref
+            if isinstance(excerpt, str) and excerpt:
+                context["deed_text_excerpt"] = excerpt[:512]
+    return context
 
 
 def _contains_large_geometry(value: object, parent_key: str = "") -> bool:

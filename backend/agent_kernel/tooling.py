@@ -14,6 +14,14 @@ from uuid import uuid4
 from config.paths import agent_kernel_artifacts_root
 from corpus.types import CorpusEntryKind, CorpusEntryRef, CorpusView
 from corpus.virtual_provider import VirtualCorpusProvider
+from feature_graph.artifacts import create_compile_artifact, create_judge_artifact
+from feature_graph.bundle import bundle_feature_graph
+from feature_graph.compiler import compile_graph
+from feature_graph.judge import judge_graph
+from feature_graph.models import FeatureGraph
+from retrieval.engine.retrieval_engine import RetrievalEngine
+from retrieval.filters.models import RetrievalFilters
+from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
 from .run_artifact import ArtifactRef
 
@@ -98,6 +106,7 @@ class DraftIRFilesystemProposer:
             "dossier_id": dossier_id,
             "source_artifact_ref": source_ref.model_dump(mode="json") if source_ref is not None else None,
             "graph": {
+                "graph_id": f"graph_draft_{uuid4().hex[:12]}",
                 "metadata": {
                     "drafted_by": "kernel_step_tool_stub",
                     "dossier_id": dossier_id,
@@ -111,6 +120,133 @@ class DraftIRFilesystemProposer:
             dossier_id=dossier_id,
             payload=payload,
         )
+
+
+@dataclass
+class FeatureGraphCompilerTool:
+    """Compile a FeatureGraph IR artifact and persist a compile artifact ref."""
+
+    persistence: FeatureGraphPersistenceService = field(default_factory=FeatureGraphPersistenceService)
+
+    def compile(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
+        graph, reason_codes = _load_feature_graph_from_inputs(inputs)
+        if graph is None:
+            return {"artifact_ref": None, "reason_codes": reason_codes}
+        dossier_id = _resolve_dossier_id(inputs, graph)
+        compile_result = compile_graph(graph)
+        gap_dicts = [gap.model_dump(mode="json") for gap in compile_result.gaps]
+        artifact_id = f"compile_{graph.graph_id}_{uuid4().hex[:8]}"
+        parent_ids = _infer_parent_artifact_ids(inputs)
+        artifact = create_compile_artifact(
+            artifact_id=artifact_id,
+            graph_id=graph.graph_id,
+            compiled_features=compile_result.compiled_features,
+            gaps=gap_dicts,
+            warnings=compile_result.warnings,
+            parent_artifact_ids=parent_ids,
+            created_by="agent_kernel",
+        )
+        saved = self.persistence.save_artifact(artifact=artifact, dossier_id=dossier_id)
+        codes = ["compiled"]
+        if compile_result.gaps:
+            codes.append("compile_has_gaps")
+        return {"artifact_ref": ArtifactRef(artifact_path=str(saved["path"])), "reason_codes": codes}
+
+
+@dataclass
+class FeatureGraphJudgeTool:
+    """Judge a FeatureGraph IR artifact and persist a judge artifact ref."""
+
+    persistence: FeatureGraphPersistenceService = field(default_factory=FeatureGraphPersistenceService)
+
+    def judge(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
+        graph, reason_codes = _load_feature_graph_from_inputs(inputs)
+        if graph is None:
+            return {"artifact_ref": None, "reason_codes": reason_codes}
+        dossier_id = _resolve_dossier_id(inputs, graph)
+        report = judge_graph(graph, include_warnings=True)
+        artifact_id = f"judge_{graph.graph_id}_{uuid4().hex[:8]}"
+        parent_ids = _infer_parent_artifact_ids(inputs)
+        artifact = create_judge_artifact(
+            artifact_id=artifact_id,
+            graph_id=graph.graph_id,
+            report=report,
+            parent_artifact_ids=parent_ids,
+            created_by="agent_kernel",
+        )
+        saved = self.persistence.save_artifact(artifact=artifact, dossier_id=dossier_id)
+        codes = ["judged"]
+        if report.gaps:
+            codes.append("judge_has_gaps")
+            first_kind = report.gaps[0].kind.value
+            codes.append(f"gap_kind:{first_kind}")
+        return {"artifact_ref": ArtifactRef(artifact_path=str(saved["path"])), "reason_codes": codes}
+
+
+@dataclass
+class FeatureGraphBundlerTool:
+    """Bundle a FeatureGraph and persist a bundle artifact ref."""
+
+    persistence: FeatureGraphPersistenceService = field(default_factory=FeatureGraphPersistenceService)
+
+    def bundle(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
+        graph, reason_codes = _load_feature_graph_from_inputs(inputs)
+        if graph is None:
+            return {"artifact_ref": None, "reason_codes": reason_codes}
+        dossier_id = _resolve_dossier_id(inputs, graph)
+        artifact_id = f"bundle_{graph.graph_id}_{uuid4().hex[:8]}"
+        bundle_artifact = bundle_feature_graph(
+            target_graph=graph,
+            available_graphs=None,
+            bundle_id=artifact_id,
+            created_by="agent_kernel",
+            bundle_purpose="controller_loop_bundle",
+        )
+        saved = self.persistence.save_artifact(artifact=bundle_artifact, dossier_id=dossier_id)
+        return {"artifact_ref": ArtifactRef(artifact_path=str(saved["path"])), "reason_codes": ["bundled"]}
+
+
+@dataclass
+class RetrievalEvidenceTool:
+    """Execute retrieval query packs and persist deterministic retrieval artifacts."""
+
+    engine: RetrievalEngine = field(default_factory=RetrievalEngine)
+
+    def retrieve_evidence(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
+        query = _read_str(inputs.get("query"))
+        if not query:
+            return {"artifact_ref": None, "reason_codes": ["retrieval_missing_query"]}
+        routing = inputs.get("routing")
+        options = inputs.get("options")
+        routing_dict = routing if isinstance(routing, dict) else {}
+        options_dict = options if isinstance(options, dict) else {}
+        lanes = routing_dict.get("lanes")
+        lanes_list = [str(item) for item in lanes] if isinstance(lanes, list) and lanes else ["hybrid"]
+        limit = int(options_dict.get("limit", 10)) if str(options_dict.get("limit", "")).strip() else 10
+        limit = max(1, min(limit, 25))
+        filters = _build_retrieval_filters(routing_dict=routing_dict, inputs=inputs)
+        result = self.engine.search(query, filters=filters, limit=limit, lanes=lanes_list)
+        reason_code = _extract_retrieval_reason_code(result.debug)
+        reason_codes = ["evidence_retrieved"]
+        if reason_code is not None:
+            reason_codes = [reason_code]
+        payload = {
+            "artifact_type": "retrieval_result",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "query": query,
+            "intent": _read_str(inputs.get("intent")),
+            "lanes": lanes_list,
+            "limit": limit,
+            "cards_count": len(result.cards),
+            "cards": [_evidence_card_to_dict(card) for card in result.cards[:25]],
+            "debug": result.debug,
+        }
+        artifact_ref = _persist_json_artifact(
+            category="retrieval",
+            dossier_id=filters.dossier_id,
+            payload=payload,
+        )
+        return {"artifact_ref": artifact_ref, "reason_codes": reason_codes}
 
 
 def _resolve_deed_ref(inputs: Mapping[str, Any]) -> CorpusEntryRef | None:
@@ -224,7 +360,13 @@ def _persist_json_artifact(
             json.dump(payload, f, ensure_ascii=False, indent=2)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp_path, str(path))
+        try:
+            os.replace(tmp_path, str(path))
+        except PermissionError:
+            with path.open("w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
     finally:
         try:
             if os.path.exists(tmp_path):
@@ -232,6 +374,144 @@ def _persist_json_artifact(
         except Exception:
             pass
     return ArtifactRef(artifact_path=str(path))
+
+
+def _load_feature_graph_from_inputs(inputs: Mapping[str, Any]) -> tuple[FeatureGraph | None, list[str]]:
+    graph_payload = inputs.get("graph")
+    if isinstance(graph_payload, dict):
+        try:
+            return FeatureGraph.model_validate(graph_payload), []
+        except Exception:
+            return None, ["invalid_graph_payload"]
+
+    ir_ref = _coerce_artifact_ref(inputs.get("ir_artifact_ref"))
+    if ir_ref is None:
+        ir_ref = _coerce_artifact_ref(inputs.get("updated_ir_artifact_ref"))
+    if ir_ref is None:
+        ir_ref = _coerce_artifact_ref(inputs.get("ir_artifact_path"))
+    if ir_ref is None:
+        return None, ["missing_ir_artifact_ref_or_graph"]
+
+    path = Path(ir_ref.artifact_path)
+    if not path.exists():
+        return None, ["ir_artifact_not_found"]
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None, ["ir_artifact_invalid_json"]
+    if not isinstance(payload, dict):
+        return None, ["ir_artifact_payload_not_object"]
+    graph_candidate = payload.get("graph") if isinstance(payload.get("graph"), dict) else payload
+    if not isinstance(graph_candidate, dict):
+        return None, ["ir_artifact_missing_graph"]
+    try:
+        return FeatureGraph.model_validate(graph_candidate), []
+    except Exception:
+        return None, ["ir_graph_validation_failed"]
+
+
+def _resolve_dossier_id(inputs: Mapping[str, Any], graph: FeatureGraph) -> str:
+    dossier_id = _read_str(inputs.get("dossier_id"))
+    if dossier_id:
+        return dossier_id
+    graph_dossier = _read_str((graph.metadata or {}).get("dossier_id"))
+    if graph_dossier:
+        return graph_dossier
+    return "unknown"
+
+
+def _infer_parent_artifact_ids(inputs: Mapping[str, Any]) -> list[str]:
+    refs: list[str] = []
+    for key in ("ir_artifact_ref", "compile_artifact_ref", "judge_artifact_ref", "bundle_artifact_ref"):
+        ref = _coerce_artifact_ref(inputs.get(key))
+        if ref is None:
+            continue
+        stem = Path(ref.artifact_path).stem
+        if stem:
+            refs.append(stem)
+    return refs
+
+
+def _build_retrieval_filters(*, routing_dict: dict[str, Any], inputs: Mapping[str, Any]) -> RetrievalFilters:
+    view_raw = _read_str(routing_dict.get("view")) or _read_str(inputs.get("view"))
+    view = None
+    if view_raw:
+        normalized = view_raw.strip().lower()
+        view_map = {
+            "everything": CorpusView.EVERYTHING,
+            "finalized": CorpusView.FINALIZED,
+            "final_segments": CorpusView.FINAL_SEGMENTS,
+        }
+        view = view_map.get(normalized)
+    filters_raw = routing_dict.get("filters")
+    filters_dict = filters_raw if isinstance(filters_raw, dict) else {}
+    return RetrievalFilters(
+        view=view,
+        dossier_id=_read_str(inputs.get("dossier_id")),
+        transcription_id=_read_str(inputs.get("transcription_id")),
+        artifact_type=_read_str(filters_dict.get("artifact_type")),
+        extra=dict(filters_dict),
+    )
+
+
+def _extract_retrieval_reason_code(debug: dict[str, Any]) -> str | None:
+    known = {
+        "semantic_worker_unavailable",
+        "semantic_worker_in_backoff",
+        "semantic_worker_timeout",
+        "semantic_worker_port_in_use",
+        "semantic_worker_backoff",
+    }
+    if not isinstance(debug, dict):
+        return None
+    stack: list[Any] = [debug]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            reason = node.get("reason")
+            if isinstance(reason, str) and reason in known:
+                return reason
+            reason_code = node.get("reason_code")
+            if isinstance(reason_code, str) and reason_code in known:
+                return reason_code
+            for value in node.values():
+                stack.append(value)
+        elif isinstance(node, list):
+            stack.extend(node)
+    return None
+
+
+def _evidence_card_to_dict(card: Any) -> dict[str, Any]:
+    spans = []
+    for span in getattr(card, "spans", []) or []:
+        entry = getattr(span, "entry", None)
+        chunk = getattr(span, "chunk", None)
+        spans.append(
+            {
+                "entry": {
+                    "view": getattr(getattr(entry, "view", None), "value", None),
+                    "entry_id": getattr(entry, "entry_id", None),
+                    "kind": getattr(getattr(entry, "kind", None), "value", None),
+                    "dossier_id": getattr(entry, "dossier_id", None),
+                    "segment_id": getattr(entry, "segment_id", None),
+                    "transcription_id": getattr(entry, "transcription_id", None),
+                    "draft_id": getattr(entry, "draft_id", None),
+                },
+                "chunk_id": getattr(chunk, "chunk_id", None),
+                "preview": getattr(span, "preview", None),
+                "start": getattr(span, "start", None),
+                "end": getattr(span, "end", None),
+                "metadata": getattr(span, "metadata", {}) or {},
+            }
+        )
+    return {
+        "id": getattr(card, "id", ""),
+        "lane": getattr(card, "lane", ""),
+        "score": float(getattr(card, "score", 0.0) or 0.0),
+        "title": getattr(card, "title", None),
+        "provenance": getattr(card, "provenance", {}) or {},
+        "spans": spans,
+    }
 
 
 def _summarize_path(path: Path) -> str:
