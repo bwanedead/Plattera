@@ -19,10 +19,32 @@ from services.dossier.view_service import DossierViewService
 from services.dossier.edit_persistence_service import EditPersistenceService
 from services.dossier.final_registry_service import FinalRegistryService
 from services.dossier.finalization_service import FinalizationService
-from config.paths import dossiers_views_root
+from config.paths import dossiers_views_root, dossiers_state_root
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _remove_from_finalized_index(dossier_id: str) -> None:
+	try:
+		index_path = dossiers_state_root() / "finalized_index.json"
+		if not index_path.exists():
+			return
+		with open(index_path, "r", encoding="utf-8") as f:
+			data = json.load(f)
+		entries = data.get("finalized", []) if isinstance(data, dict) else []
+		if not isinstance(entries, list):
+			entries = []
+		filtered = [e for e in entries if str((e or {}).get("dossier_id")) != str(dossier_id)]
+		if len(filtered) == len(entries):
+			return
+		tmp = index_path.with_suffix(index_path.suffix + ".tmp")
+		with open(tmp, "w", encoding="utf-8") as f:
+			json.dump({"finalized": filtered}, f, indent=2, ensure_ascii=False)
+		tmp.replace(index_path)
+	except Exception:
+		# Best-effort cleanup; do not fail unfinalize on index maintenance.
+		pass
 
 
 class FinalizeRequest(BaseModel):
@@ -150,6 +172,7 @@ async def delete_finalized_dossier(dossier_id: str):
 		pointer_path = final_dir / "dossier_final.json"
 		if pointer_path.exists():
 			pointer_path.unlink()
+		_remove_from_finalized_index(dossier_id)
 		return {"success": True}
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=str(e))

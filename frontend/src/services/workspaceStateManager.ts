@@ -24,7 +24,16 @@ export interface TextToSchemaState {
   finalDraftMetadata: any | null;
   schemaResults: any | null;
   selectedModel: string;
+  engine: 'legacy' | 'agent_loop';
   isProcessing: boolean;
+  agentLoopRunId?: string | null;
+  agentLoopRunStatus?: string | null;
+  agentLoopTerminal?: any | null;
+  agentLoopRunArtifactRef?: string | null;
+  agentLoopTranscriptArtifactRef?: string | null;
+  agentLoopIrArtifactRef?: string | null;
+  agentLoopDossierId?: string | null;
+  agentLoopStatusMessage?: string | null;
   selectedFinalizedDossierId?: string | null;
   selectedFinalizedSnapshotAt?: string | null; // from generated_at in snapshot
   isFinalizedSnapshotStale?: boolean; // true if backend has newer generated_at than our loaded one
@@ -56,7 +65,16 @@ const defaultTextToSchemaState: TextToSchemaState = {
   finalDraftMetadata: null,
   schemaResults: null,
   selectedModel: 'gpt-4o',
+  engine: 'legacy',
   isProcessing: false,
+  agentLoopRunId: null,
+  agentLoopRunStatus: null,
+  agentLoopTerminal: null,
+  agentLoopRunArtifactRef: null,
+  agentLoopTranscriptArtifactRef: null,
+  agentLoopIrArtifactRef: null,
+  agentLoopDossierId: null,
+  agentLoopStatusMessage: null,
   selectedFinalizedDossierId: null,
   selectedFinalizedSnapshotAt: null,
   isFinalizedSnapshotStale: false,

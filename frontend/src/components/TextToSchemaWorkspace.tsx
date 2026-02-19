@@ -3,6 +3,7 @@ import { Allotment } from "allotment";
 import { AnimatedBorder } from './AnimatedBorder';
 import { useTextToSchemaState, useWorkspaceNavigation } from '../hooks/useWorkspaceState';
 import { convertTextToSchema, getTextToSchemaModels, getSchema } from '../services/textToSchemaApi';
+import { getAgentLoopArtifactJson, getAgentLoopRun, startAgentLoopRun } from '../services/agentLoopApi';
 import { finalizedApi } from '../services/dossier/finalizedApi';
 import { saveSchemaForDossier } from '../services/textToSchemaApi';
 import { saveDossierEditAPI } from '../services/imageProcessingApi';
@@ -46,6 +47,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   const [finalEdits, setFinalEdits] = useState<string[]>([]);
   const [jsonEditToken, setJsonEditToken] = useState<number>(0);
   const [showSchemaManagerPanel, setShowSchemaManagerPanel] = useState<boolean>(false);
+  const AGENT_LOOP_POLL_INTERVAL_MS = 1000;
+  const AGENT_LOOP_MAX_POLLS = 120;
 
   // Schema selection loading + error state so that Schema Manager
   // "View" interactions surface clearly in the UI (not just devtools).
@@ -407,6 +410,107 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   }, []);
 
   // Handle text-to-schema processing
+  const pollAgentLoopRun = useCallback(
+    async (
+      runId: string,
+      options: {
+        textToProcess: string;
+        effectiveDossierId: string;
+        shouldSelectJson: boolean;
+      }
+    ) => {
+      const { textToProcess, effectiveDossierId, shouldSelectJson } = options;
+      let attempts = 0;
+      while (attempts < AGENT_LOOP_MAX_POLLS) {
+        attempts += 1;
+        const snapshot = await getAgentLoopRun(runId);
+        updateState({
+          agentLoopRunStatus: snapshot.status,
+          agentLoopTerminal: snapshot.terminal || null,
+          agentLoopRunArtifactRef: snapshot.run_artifact_ref || null,
+          agentLoopTranscriptArtifactRef: snapshot.transcript_artifact_ref || null,
+          agentLoopStatusMessage:
+            snapshot.status === 'running'
+              ? `Polling run status... (${attempts}/${AGENT_LOOP_MAX_POLLS})`
+              : null,
+        } as any);
+
+        if (snapshot.status === 'completed' || snapshot.status === 'failed') {
+          const terminalReason = snapshot?.terminal?.reason_code || snapshot?.error || null;
+          let irArtifactRef: string | null =
+            snapshot?.dashboard?.latest_refs?.ir_ref?.artifact_path || null;
+          if (!irArtifactRef && snapshot?.run_artifact_ref) {
+            try {
+              const runArtifact = await getAgentLoopArtifactJson(snapshot.run_artifact_ref);
+              irArtifactRef = runArtifact?.json?.ir_artifact_ref?.artifact_path || null;
+            } catch {}
+          }
+
+          let irPayload: any = null;
+          if (irArtifactRef) {
+            try {
+              const irArtifact = await getAgentLoopArtifactJson(irArtifactRef);
+              irPayload = irArtifact?.json || null;
+            } catch {}
+          }
+
+          if (snapshot.status === 'completed' && irPayload) {
+            const structuredData = irPayload;
+            updateState({
+              isProcessing: false,
+              agentLoopRunStatus: snapshot.status,
+              agentLoopStatusMessage: `Run completed: ${snapshot?.terminal?.terminal_outcome || 'completed'}`,
+              agentLoopIrArtifactRef: irArtifactRef,
+              agentLoopDossierId: String(effectiveDossierId),
+              schemaResults: {
+                success: true,
+                structured_data: structuredData,
+                original_text: textToProcess,
+                model_used: state.selectedModel,
+                metadata: {
+                  ...(structuredData?.metadata || {}),
+                  dossierId: String(effectiveDossierId),
+                  ir_artifact_ref: irArtifactRef,
+                  run_id: runId,
+                  terminal: snapshot?.terminal || null,
+                },
+              },
+            } as any);
+            if (shouldSelectJson) setSelectedTab('json');
+          } else {
+            updateState({
+              isProcessing: false,
+              agentLoopRunStatus: snapshot.status,
+              agentLoopStatusMessage:
+                snapshot.status === 'failed'
+                  ? `Run failed: ${terminalReason || 'unknown'}`
+                  : 'Run completed but no IR artifact found',
+              agentLoopIrArtifactRef: irArtifactRef,
+              agentLoopDossierId: String(effectiveDossierId),
+              schemaResults: {
+                success: false,
+                error:
+                  snapshot.status === 'failed'
+                    ? `Agent loop failed: ${terminalReason || 'unknown'}`
+                    : 'Agent loop completed but no IR artifact was returned.',
+                original_text: textToProcess,
+              },
+            } as any);
+          }
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, AGENT_LOOP_POLL_INTERVAL_MS));
+      }
+
+      updateState({
+        isProcessing: false,
+        agentLoopRunStatus: 'running',
+        agentLoopStatusMessage: 'Run still in progress. Click "Keep Polling" to continue.',
+      } as any);
+    },
+    [updateState, state.selectedModel]
+  );
+
   const handleStartTextToSchema = useCallback(async (directText?: string) => {
     const DIRECT_TEXT_DOSSIER_ID = '__direct_text__';
 
@@ -427,8 +531,23 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     }
 
     // Determine dossier context: real dossier when selected, otherwise virtual
-    const effectiveDossierId = selectedFinalizedId || DIRECT_TEXT_DOSSIER_ID;
+    const effectiveDossierId =
+      selectedFinalizedId ||
+      (state.finalDraftMetadata as any)?.dossierId ||
+      DIRECT_TEXT_DOSSIER_ID;
     const isVirtualDossier = !selectedFinalizedId;
+
+    // Persist direct input as current text context so Original Text tab remains meaningful.
+    if (directText && directText.trim()) {
+      updateState({
+        finalDraftText: textToProcess,
+        finalDraftMetadata: {
+          ...(state.finalDraftMetadata || {}),
+          source: 'direct_text',
+          dossierId: effectiveDossierId,
+        },
+      } as any);
+    }
 
     // Optimistic pending row for all schema runs (direct-text or finalized-dossier)
     const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -451,6 +570,32 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     updateState({ isProcessing: true, schemaResults: null });
 
     try {
+      if ((state.engine || 'legacy') === 'agent_loop') {
+        const start = await startAgentLoopRun({
+          dossier_id: isVirtualDossier ? undefined : effectiveDossierId,
+          text: isVirtualDossier ? textToProcess : undefined,
+          model: state.selectedModel || 'gpt-5-mini',
+          max_iterations: 12,
+          background: true,
+        });
+        updateState({
+          agentLoopRunId: start.run_id,
+          agentLoopRunStatus: start.status,
+          agentLoopTerminal: null,
+          agentLoopRunArtifactRef: null,
+          agentLoopTranscriptArtifactRef: null,
+          agentLoopIrArtifactRef: null,
+          agentLoopDossierId: String(effectiveDossierId),
+          agentLoopStatusMessage: 'Run started. Polling status...',
+        } as any);
+        await pollAgentLoopRun(start.run_id, {
+          textToProcess,
+          effectiveDossierId,
+          shouldSelectJson: true,
+        });
+        return;
+      }
+
       const response = await convertTextToSchema({
         text: textToProcess,
         model: state.selectedModel,
@@ -552,7 +697,36 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
         );
       } catch {}
     }
-  }, [state.finalDraftText, state.selectedModel, updateState, selectedFinalizedId, state]);
+  }, [state.finalDraftText, state.selectedModel, state.engine, updateState, selectedFinalizedId, state, pollAgentLoopRun]);
+
+  const handleResumeAgentLoopPolling = useCallback(async () => {
+    const runId = (state as any)?.agentLoopRunId as string | null | undefined;
+    if (!runId) return;
+    const textToProcess =
+      typeof state.finalDraftText === 'string' ? state.finalDraftText : String(state.finalDraftText || '');
+    const effectiveDossierId =
+      selectedFinalizedId ||
+      (state as any)?.agentLoopDossierId ||
+      (state.finalDraftMetadata as any)?.dossierId ||
+      '__direct_text__';
+    updateState({ isProcessing: true, agentLoopStatusMessage: 'Resuming run polling...' } as any);
+    try {
+      await pollAgentLoopRun(runId, {
+        textToProcess,
+        effectiveDossierId,
+        shouldSelectJson: false,
+      });
+    } catch (error) {
+      updateState({
+        isProcessing: false,
+        schemaResults: {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to poll agent-loop run',
+          original_text: textToProcess,
+        },
+      } as any);
+    }
+  }, [state, selectedFinalizedId, updateState, pollAgentLoopRun]);
 
   // Finalized selection handler
   const handleSelectFinalized = useCallback(async (dossierId: string) => {
@@ -560,6 +734,26 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       setSelectedFinalizedId(dossierId);
       updateState({ selectedFinalizedDossierId: dossierId } as any);
       const data = await finalizedApi.getFinalLive(dossierId);
+      if (!data) {
+        const refreshed = await finalizedApi.listFinalized().catch(() => []);
+        setFinalizedList(refreshed || []);
+        updateState({
+          finalDraftText: null,
+          finalDraftMetadata: {
+            source: 'finalized-dossier',
+            dossierId,
+          },
+          selectedFinalizedSnapshotAt: null,
+          isFinalizedSnapshotStale: true,
+          selectedFinalizedSections: [],
+          selectedFinalizedSectionRefs: [],
+          schemaResults: {
+            success: false,
+            error: `Selected finalized dossier is no longer available: ${dossierId}`,
+          },
+        } as any);
+        return;
+      }
       const sectionsArr: string[] = Array.isArray(data?.sections)
         ? data.sections.map((s: any) => String(s?.text || '').trim())
         : (data?.stitched_text ? [String(data.stitched_text)] : []);
@@ -590,6 +784,12 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       setFinalEdits(sectionsArr);
     } catch (e) {
       console.error('Failed to load finalized dossier', e);
+      updateState({
+        schemaResults: {
+          success: false,
+          error: e instanceof Error ? e.message : 'Failed to load finalized dossier',
+        },
+      } as any);
     }
   }, [updateState]);
 
@@ -758,11 +958,16 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
           <TextToSchemaControlPanel
             finalDraftText={finalText}
             finalDraftMetadata={state.finalDraftMetadata}
+            engine={(state as any).engine || 'legacy'}
             selectedModel={state.selectedModel}
             availableModels={availableModels}
             isProcessing={state.isProcessing}
+            agentLoopRunStatus={(state as any).agentLoopRunStatus}
+            agentLoopStatusMessage={(state as any).agentLoopStatusMessage}
+            onEngineChange={(engine) => updateState({ engine } as any)}
             onModelChange={handleModelChange}
             onStartProcessing={handleStartTextToSchema} // Now accepts optional text parameter
+            onResumePolling={handleResumeAgentLoopPolling}
             finalizedDossiers={finalizedList}
             finalizedLoading={finalizedLoading}
             selectedFinalizedId={selectedFinalizedId}

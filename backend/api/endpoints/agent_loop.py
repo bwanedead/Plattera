@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
 from threading import Thread
 from time import time
 from typing import Any, AsyncGenerator, Optional
@@ -23,12 +24,14 @@ from agents.controller.bootstrap import persist_deed_text_artifact
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from services.agent_loop.event_bus import event_bus
 from services.agent_loop.run_registry_service import AgentLoopRunRegistryService
+from config.paths import agent_kernel_artifacts_root
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _run_registry = AgentLoopRunRegistryService()
 _artifact_opener = CorpusArtifactOpener()
+_MAX_ARTIFACT_JSON_BYTES = 262144
 
 
 class AgentLoopRunRequest(BaseModel):
@@ -168,6 +171,28 @@ async def open_agent_loop_artifact(artifact_ref: str = Query(..., min_length=1))
     }
 
 
+@router.get("/artifact/json")
+async def get_agent_loop_artifact_json(artifact_ref: str = Query(..., min_length=1)) -> dict[str, Any]:
+    safe_path = _resolve_agent_kernel_artifact_path(artifact_ref)
+    if safe_path is None:
+        raise HTTPException(status_code=400, detail="artifact_ref_outside_agent_kernel_root")
+    if not safe_path.exists():
+        raise HTTPException(status_code=404, detail="artifact_not_found")
+    try:
+        raw = safe_path.read_bytes()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"artifact_read_failed:{type(exc).__name__}") from exc
+    if len(raw) > _MAX_ARTIFACT_JSON_BYTES:
+        raise HTTPException(status_code=413, detail="artifact_json_too_large")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"artifact_json_invalid:{type(exc).__name__}") from exc
+    if not isinstance(payload, (dict, list)):
+        raise HTTPException(status_code=400, detail="artifact_json_not_object_or_array")
+    return {"artifact_path": str(safe_path), "json": payload}
+
+
 async def _sse_stream(run_id: str, q: asyncio.Queue) -> AsyncGenerator[str, None]:
     try:
         while True:
@@ -186,3 +211,14 @@ async def _sse_stream(run_id: str, q: asyncio.Queue) -> AsyncGenerator[str, None
 async def stream_agent_loop_events(run_id: str):
     q = await event_bus.subscribe(run_id)
     return StreamingResponse(_sse_stream(run_id, q), media_type="text/event-stream")
+
+
+def _resolve_agent_kernel_artifact_path(artifact_ref: str) -> Path | None:
+    try:
+        root = agent_kernel_artifacts_root().resolve()
+        path = Path(artifact_ref).resolve()
+    except Exception:
+        return None
+    if path == root or root in path.parents:
+        return path
+    return None

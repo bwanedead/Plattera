@@ -6,11 +6,16 @@ type InputMode = 'finalized' | 'direct-input';
 interface TextToSchemaControlPanelProps {
   finalDraftText: string | null;
   finalDraftMetadata: any | null;
+  engine: 'legacy' | 'agent_loop';
   selectedModel: string;
   availableModels: Record<string, any>;
   isProcessing: boolean;
+  agentLoopRunStatus?: string | null;
+  agentLoopStatusMessage?: string | null;
+  onEngineChange: (engine: 'legacy' | 'agent_loop') => void;
   onModelChange: (model: string) => void;
   onStartProcessing: (text?: string) => void; // Updated to accept optional text
+  onResumePolling?: () => void;
   finalizedDossiers: Array<{ dossier_id: string; title?: string; latest_generated_at?: string }>;
   finalizedLoading: boolean;
   selectedFinalizedId: string | null | undefined;
@@ -20,11 +25,16 @@ interface TextToSchemaControlPanelProps {
 export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> = ({
   finalDraftText,
   finalDraftMetadata,
+  engine,
   selectedModel,
   availableModels,
   isProcessing,
+  agentLoopRunStatus,
+  agentLoopStatusMessage,
+  onEngineChange,
   onModelChange,
   onStartProcessing,
+  onResumePolling,
   finalizedDossiers,
   finalizedLoading,
   selectedFinalizedId,
@@ -172,6 +182,20 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
 
       {/* Model Selection */}
       <div className="model-section">
+        <label>Engine</label>
+        <select
+          value={engine}
+          onChange={(e) => onEngineChange(e.target.value as 'legacy' | 'agent_loop')}
+          className="model-selector"
+          disabled={isProcessing}
+        >
+          <option value="legacy">Legacy</option>
+          <option value="agent_loop">New (Agent Loop)</option>
+        </select>
+      </div>
+
+      {/* Model Selection */}
+      <div className="model-section">
         <label>Model Selection</label>
         <select 
           value={selectedModel} 
@@ -207,7 +231,9 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
       {isProcessing && (
         <div className="processing-status">
           <div className="status-message">
-            Extracting PLSS Description and Metes & Bounds data...
+            {engine === 'agent_loop'
+              ? 'Running agent loop...'
+              : 'Extracting PLSS Description and Metes & Bounds data...'}
           </div>
           <div className="status-details">
             {inputMode === 'direct-input' 
@@ -215,6 +241,21 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
               : 'Processing final draft from image-to-text...'
             }
           </div>
+        </div>
+      )}
+      {!isProcessing && engine === 'agent_loop' && agentLoopRunStatus && (
+        <div className="processing-status">
+          <div className="status-message">Agent Loop Status: {agentLoopRunStatus}</div>
+          {agentLoopStatusMessage && <div className="status-details">{agentLoopStatusMessage}</div>}
+          {agentLoopRunStatus === 'running' && (
+            <button
+              className="mode-button"
+              style={{ marginTop: 8, padding: '4px 8px' }}
+              onClick={() => onResumePolling && onResumePolling()}
+            >
+              Keep Polling
+            </button>
+          )}
         </div>
       )}
     </div>

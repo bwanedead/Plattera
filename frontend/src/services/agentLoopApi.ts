@@ -1,0 +1,75 @@
+export interface AgentLoopRunRequest {
+  dossier_id?: string;
+  text?: string;
+  model?: string;
+  max_iterations?: number;
+  requires_global_placement?: boolean;
+  render_required?: boolean;
+  background?: boolean;
+}
+
+export interface AgentLoopRunStartResponse {
+  run_id: string;
+  status: string;
+}
+
+export interface AgentLoopRunSnapshot {
+  run_id: string;
+  request_id?: string;
+  dossier_id?: string | null;
+  model?: string | null;
+  status: 'running' | 'completed' | 'failed' | string;
+  session_id?: string | null;
+  run_artifact_ref?: string | null;
+  transcript_artifact_ref?: string | null;
+  terminal?: any;
+  dashboard?: any;
+  error?: string | null;
+}
+
+const API_BASE = (typeof process !== 'undefined' && process.env && (process.env.NEXT_PUBLIC_API_BASE as string)) || 'http://127.0.0.1:8000';
+const API_BASE_URL = `${API_BASE}/api/agent-loop`;
+
+export const startAgentLoopRun = async (request: AgentLoopRunRequest): Promise<AgentLoopRunStartResponse> => {
+  const response = await fetch(`${API_BASE_URL}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      background: true,
+      model: 'gpt-5-mini',
+      max_iterations: 12,
+      ...request,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Agent loop start failed (${response.status})`);
+  }
+  return response.json();
+};
+
+export const getAgentLoopRun = async (runId: string): Promise<AgentLoopRunSnapshot> => {
+  const response = await fetch(`${API_BASE_URL}/run/${encodeURIComponent(runId)}`);
+  if (!response.ok) {
+    throw new Error(`Agent loop run fetch failed (${response.status})`);
+  }
+  return response.json();
+};
+
+export const openAgentLoopArtifact = async (artifactRef: string): Promise<any> => {
+  const url = `${API_BASE_URL}/artifact/open?artifact_ref=${encodeURIComponent(artifactRef)}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Agent loop artifact open failed (${response.status})`);
+  }
+  return response.json();
+};
+
+export const getAgentLoopArtifactJson = async (artifactRef: string): Promise<{ artifact_path: string; json: any }> => {
+  const url = `${API_BASE_URL}/artifact/json?artifact_ref=${encodeURIComponent(artifactRef)}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Agent loop artifact json failed (${response.status})`);
+  }
+  return response.json();
+};
+

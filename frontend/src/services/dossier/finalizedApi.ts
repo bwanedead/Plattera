@@ -20,13 +20,13 @@ class FinalizedApiClient {
   async getFinalLive(dossierId: string): Promise<any> {
     const res = await fetch(`${API_BASE_URL}/dossier/final/live/${encodeURIComponent(dossierId)}?t=${Date.now()}`, { cache: 'no-store' as RequestCache });
     const data = await res.json().catch(() => ({}));
+    if (res.status === 404) return null;
     if (!res.ok) throw new Error(data?.detail || 'Failed to get live final');
     return (data?.data || data);
   }
 }
 
 export const finalizedApi = new FinalizedApiClient();
-
 
 
 
