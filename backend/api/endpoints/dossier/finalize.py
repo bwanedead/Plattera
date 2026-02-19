@@ -170,6 +170,8 @@ async def delete_finalized_dossier(dossier_id: str):
 	try:
 		final_dir = dossiers_views_root() / str(dossier_id) / "final"
 		pointer_path = final_dir / "dossier_final.json"
+		# Canonical unfinalize: clear segment finals so corpus/RAG + UI remain in sync.
+		FinalRegistryService().clear_all_finals(dossier_id)
 		if pointer_path.exists():
 			pointer_path.unlink()
 		_remove_from_finalized_index(dossier_id)

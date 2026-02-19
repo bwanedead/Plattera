@@ -120,4 +120,11 @@ class FinalRegistryService:
         self._atomic_write(self._registry_path(dossier_id), reg)
         return removed is not None
 
+    def clear_all_finals(self, dossier_id: str) -> int:
+        reg = self._read_registry(dossier_id)
+        segs = reg.setdefault("segments", {})
+        removed_count = len(segs)
+        reg["segments"] = {}
+        self._atomic_write(self._registry_path(dossier_id), reg)
+        return removed_count
 
