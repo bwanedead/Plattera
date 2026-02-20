@@ -24,6 +24,7 @@ export interface TextToSchemaState {
   finalDraftMetadata: any | null;
   schemaResults: any | null;
   selectedModel: string;
+  agentLoopModel: string;
   engine: 'legacy' | 'agent_loop';
   isProcessing: boolean;
   agentLoopRunId?: string | null;
@@ -65,6 +66,7 @@ const defaultTextToSchemaState: TextToSchemaState = {
   finalDraftMetadata: null,
   schemaResults: null,
   selectedModel: 'gpt-4o',
+  agentLoopModel: 'gpt-5.2',
   engine: 'legacy',
   isProcessing: false,
   agentLoopRunId: null,

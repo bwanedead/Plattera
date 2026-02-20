@@ -8,12 +8,14 @@ interface TextToSchemaControlPanelProps {
   finalDraftMetadata: any | null;
   engine: 'legacy' | 'agent_loop';
   selectedModel: string;
+  agentLoopModel: string;
   availableModels: Record<string, any>;
   isProcessing: boolean;
   agentLoopRunStatus?: string | null;
   agentLoopStatusMessage?: string | null;
   onEngineChange: (engine: 'legacy' | 'agent_loop') => void;
   onModelChange: (model: string) => void;
+  onAgentLoopModelChange: (model: string) => void;
   onStartProcessing: (text?: string) => void; // Updated to accept optional text
   onResumePolling?: () => void;
   finalizedDossiers: Array<{ dossier_id: string; title?: string; latest_generated_at?: string }>;
@@ -27,12 +29,14 @@ export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> =
   finalDraftMetadata,
   engine,
   selectedModel,
+  agentLoopModel,
   availableModels,
   isProcessing,
   agentLoopRunStatus,
   agentLoopStatusMessage,
   onEngineChange,
   onModelChange,
+  onAgentLoopModelChange,
   onStartProcessing,
   onResumePolling,
   finalizedDossiers,
@@ -194,22 +198,35 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
         </select>
       </div>
 
-      {/* Model Selection */}
-      <div className="model-section">
-        <label>Model Selection</label>
-        <select 
-          value={selectedModel} 
-          onChange={(e) => onModelChange(e.target.value)}
-          className="model-selector"
-          disabled={isProcessing}
-        >
-          {Object.entries(availableModels).map(([key, model]) => (
-            <option key={key} value={key}>
-              {model.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {engine === 'legacy' ? (
+        <div className="model-section">
+          <label>Model Selection</label>
+          <select 
+            value={selectedModel} 
+            onChange={(e) => onModelChange(e.target.value)}
+            className="model-selector"
+            disabled={isProcessing}
+          >
+            {Object.entries(availableModels).map(([key, model]) => (
+              <option key={key} value={key}>
+                {model.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div className="model-section">
+          <label>Agent Loop Model</label>
+          <select
+            value={agentLoopModel}
+            onChange={(e) => onAgentLoopModelChange(e.target.value)}
+            className="model-selector"
+            disabled={isProcessing}
+          >
+            <option value="gpt-5.2">GPT-5.2</option>
+          </select>
+        </div>
+      )}
 
       {/* Process Button */}
       <button 

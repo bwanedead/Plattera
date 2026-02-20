@@ -89,5 +89,7 @@ def test_openai_next_step_client_reports_runtime_failure() -> None:
     )
 
     assert result["success"] is False
-    assert str(result["error"]).startswith("openai_next_step_failed:")
-
+    assert result["error"] == "openai_next_step_failed"
+    assert result["model"] == "gpt-5-mini"
+    assert result["api_model"] == "gpt-5-mini"
+    assert "request_flags" in result

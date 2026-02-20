@@ -36,7 +36,7 @@ export const startAgentLoopRun = async (request: AgentLoopRunRequest): Promise<A
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       background: true,
-      model: 'gpt-5-mini',
+      model: 'gpt-5.2',
       max_iterations: 12,
       ...request,
     }),
@@ -72,4 +72,3 @@ export const getAgentLoopArtifactJson = async (artifactRef: string): Promise<{ a
   }
   return response.json();
 };
-

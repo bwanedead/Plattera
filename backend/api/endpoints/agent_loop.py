@@ -32,13 +32,14 @@ logger = logging.getLogger(__name__)
 _run_registry = AgentLoopRunRegistryService()
 _artifact_opener = CorpusArtifactOpener()
 _MAX_ARTIFACT_JSON_BYTES = 262144
+_MAX_LOG_ERROR_CHARS = 1000
 
 
 class AgentLoopRunRequest(BaseModel):
     dossier_id: Optional[str] = None
     text: Optional[str] = None
     initial_ir_ref: Optional[str] = None
-    model: str = "gpt-5-mini"
+    model: str = "gpt-5.2"
     max_iterations: int = Field(default=12, ge=1, le=100)
     requires_global_placement: bool = False
     render_required: bool = False
@@ -108,10 +109,43 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
             "dashboard": result.last_dashboard,
         }
         updated = _run_registry.update_run(run_id=run_id, patch=patch)
+        logger.info(
+            "agent_loop_run_completed %s",
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "status": "completed",
+                    "model": request.model,
+                    "max_iterations": request.max_iterations,
+                    "session_id": result.session_id,
+                    "run_artifact_ref": result.run_artifact_ref,
+                    "transcript_artifact_ref": result.transcript_artifact_ref,
+                    "terminal": result.terminal.model_dump(mode="json"),
+                },
+                ensure_ascii=True,
+            ),
+        )
         if updated is not None:
             event_bus.publish_sync(run_id, {"event_type": "run_completed", "run": updated})
     except Exception as exc:
         logger.exception("agent_loop_run_failed")
+        snapshot = _run_registry.get_run(run_id) or {}
+        logger.error(
+            "agent_loop_run_failed_summary %s",
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "status": "failed",
+                    "model": request.model,
+                    "max_iterations": request.max_iterations,
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc)[:_MAX_LOG_ERROR_CHARS],
+                    "run_artifact_ref": snapshot.get("run_artifact_ref"),
+                    "transcript_artifact_ref": snapshot.get("transcript_artifact_ref"),
+                },
+                ensure_ascii=True,
+            ),
+        )
         patch = {"status": "failed", "error": str(exc)}
         updated = _run_registry.update_run(run_id=run_id, patch=patch)
         if updated is not None:
@@ -130,6 +164,22 @@ async def start_agent_loop_run(request: AgentLoopRunRequest) -> dict[str, Any]:
             "dossier_id": request.dossier_id,
             "model": request.model,
         },
+    )
+    logger.info(
+        "agent_loop_run_created %s",
+        json.dumps(
+            {
+                "run_id": run_id,
+                "request_id": f"agent-loop-{run_id}",
+                "dossier_id": request.dossier_id,
+                "has_text_input": bool(request.text and request.text.strip()),
+                "initial_ir_ref": request.initial_ir_ref,
+                "model": request.model,
+                "max_iterations": request.max_iterations,
+                "background": request.background,
+            },
+            ensure_ascii=True,
+        ),
     )
     await event_bus.publish(run_id, {"event_type": "run_started", "run": entry})
 

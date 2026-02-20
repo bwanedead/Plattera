@@ -79,7 +79,74 @@ def next_step_json_schema() -> dict[str, object]:
     """Schema used in OpenAI structured output requests."""
 
     schema = NextStepProposal.model_json_schema()
-    if isinstance(schema, dict):
-        schema["additionalProperties"] = False
-    return schema
+    if not isinstance(schema, dict):
+        return {"type": "object", "properties": {}, "required": [], "additionalProperties": False}
+    return _normalize_openai_strict_schema(schema)
 
+
+def _normalize_openai_strict_schema(schema: dict[str, Any]) -> dict[str, object]:
+    normalized = _deep_clone(schema)
+    normalized = _inline_root_ref(normalized)
+    _enforce_closed_objects(normalized)
+    return normalized
+
+
+def _inline_root_ref(schema: dict[str, Any]) -> dict[str, Any]:
+    ref = schema.get("$ref")
+    if not isinstance(ref, str):
+        return schema
+    target = _resolve_local_ref(schema, ref)
+    if not isinstance(target, dict):
+        return schema
+
+    inlined = _deep_clone(target)
+    for key, value in schema.items():
+        if key in {"$ref", "$defs", "definitions"}:
+            continue
+        inlined[key] = _deep_clone(value)
+    if "$defs" in schema:
+        inlined["$defs"] = _deep_clone(schema["$defs"])
+    if "definitions" in schema:
+        inlined["definitions"] = _deep_clone(schema["definitions"])
+    return inlined
+
+
+def _resolve_local_ref(root: dict[str, Any], ref: str) -> dict[str, Any] | None:
+    if not ref.startswith("#/"):
+        return None
+    current: Any = root
+    for part in ref[2:].split("/"):
+        token = part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(current, dict) or token not in current:
+            return None
+        current = current[token]
+    return current if isinstance(current, dict) else None
+
+
+def _enforce_closed_objects(node: Any) -> None:
+    if isinstance(node, dict):
+        if _node_is_object_schema(node):
+            node["additionalProperties"] = False
+        for value in node.values():
+            _enforce_closed_objects(value)
+        return
+    if isinstance(node, list):
+        for item in node:
+            _enforce_closed_objects(item)
+
+
+def _node_is_object_schema(node: dict[str, Any]) -> bool:
+    node_type = node.get("type")
+    if node_type == "object":
+        return True
+    if isinstance(node_type, list):
+        return "object" in node_type
+    return False
+
+
+def _deep_clone(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _deep_clone(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_deep_clone(v) for v in value]
+    return value

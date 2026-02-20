@@ -332,6 +332,10 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   const handleModelChange = useCallback((model: string) => {
     updateState({ selectedModel: model });
   }, [updateState]);
+  
+  const handleAgentLoopModelChange = useCallback((model: string) => {
+    updateState({ agentLoopModel: model } as any);
+  }, [updateState]);
 
   // Synchronize edit buffer with latest sections
   useEffect(() => {
@@ -466,7 +470,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                 success: true,
                 structured_data: structuredData,
                 original_text: textToProcess,
-                model_used: state.selectedModel,
+                model_used: (state as any).agentLoopModel || 'gpt-5.2',
                 metadata: {
                   ...(structuredData?.metadata || {}),
                   dossierId: String(effectiveDossierId),
@@ -508,7 +512,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
         agentLoopStatusMessage: 'Run still in progress. Click "Keep Polling" to continue.',
       } as any);
     },
-    [updateState, state.selectedModel]
+    [updateState, (state as any).agentLoopModel]
   );
 
   const handleStartTextToSchema = useCallback(async (directText?: string) => {
@@ -574,7 +578,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
         const start = await startAgentLoopRun({
           dossier_id: isVirtualDossier ? undefined : effectiveDossierId,
           text: isVirtualDossier ? textToProcess : undefined,
-          model: state.selectedModel || 'gpt-5-mini',
+          model: (state as any).agentLoopModel || 'gpt-5.2',
           max_iterations: 12,
           background: true,
         });
@@ -697,7 +701,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
         );
       } catch {}
     }
-  }, [state.finalDraftText, state.selectedModel, state.engine, updateState, selectedFinalizedId, state, pollAgentLoopRun]);
+  }, [state.finalDraftText, state.selectedModel, (state as any).agentLoopModel, state.engine, updateState, selectedFinalizedId, state, pollAgentLoopRun]);
 
   const handleResumeAgentLoopPolling = useCallback(async () => {
     const runId = (state as any)?.agentLoopRunId as string | null | undefined;
@@ -960,12 +964,14 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             finalDraftMetadata={state.finalDraftMetadata}
             engine={(state as any).engine || 'legacy'}
             selectedModel={state.selectedModel}
+            agentLoopModel={(state as any).agentLoopModel || 'gpt-5.2'}
             availableModels={availableModels}
             isProcessing={state.isProcessing}
             agentLoopRunStatus={(state as any).agentLoopRunStatus}
             agentLoopStatusMessage={(state as any).agentLoopStatusMessage}
             onEngineChange={(engine) => updateState({ engine } as any)}
             onModelChange={handleModelChange}
+            onAgentLoopModelChange={handleAgentLoopModelChange}
             onStartProcessing={handleStartTextToSchema} // Now accepts optional text parameter
             onResumePolling={handleResumeAgentLoopPolling}
             finalizedDossiers={finalizedList}

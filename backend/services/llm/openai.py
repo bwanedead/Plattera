@@ -186,6 +186,16 @@ class OpenAIService(LLMService):
             "verification_required": False,
             "api_model_name": "gpt-5-mini"
         },
+        "gpt-5.2": {
+            "name": "GPT-5.2",
+            "provider": "openai",
+            "cost_tier": "standard",
+            "capabilities": ["text"],
+            "description": "Controller default model for agent-loop step proposals",
+            "verification_required": False,
+            "api_model_name": "gpt-5.2",
+            "default_max_tokens": 16000
+        },
         "gpt-5-nano": {
             "name": "GPT-5 Nano",
             "provider": "openai",
@@ -616,7 +626,7 @@ class OpenAIService(LLMService):
             
             # Validate model name for GPT-5 series
             if api_model_name.startswith('gpt-5'):
-                assert api_model_name in {"gpt-5", "gpt-5-mini", "gpt-5-nano"}, f"Invalid GPT-5 model: {api_model_name}"
+                assert api_model_name in {"gpt-5", "gpt-5.2", "gpt-5-mini", "gpt-5-nano"}, f"Invalid GPT-5 model: {api_model_name}"
             
             # Use provided schema or load default fallback (GENERIC)
             if schema:

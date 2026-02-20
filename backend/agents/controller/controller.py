@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from dataclasses import dataclass
@@ -34,6 +35,9 @@ _MAX_CONTROLLER_INPUT_BYTES = 4096
 _MAX_EVENTS = 200
 _MAX_EVENT_CHARS = 2000
 _MAX_TOTAL_BYTES = 262144
+_MAX_ERROR_CHARS = 1000
+
+logger = logging.getLogger(__name__)
 
 
 class NextStepLLMClient(Protocol):
@@ -107,8 +111,40 @@ def run_controller_loop(
     if started.dashboard is None or session_id is None:
         raise ControllerLoopError("kernel_start_session_missing_dashboard_or_session")
 
-    iterations = 0
     bootstrap_context = _build_bootstrap_context(start_request)
+    run_header = {
+        "request_id": start_request.request_id,
+        "session_id": session_id,
+        "run_artifact_ref": started.run_artifact_ref,
+        "model": model,
+        "tool_menu": started.tool_menu,
+        "budgets": start_request.budgets.model_dump(mode="json"),
+        "dossier_id": start_request.dossier_id,
+        "source_entry_ref": start_request.source_entry_ref,
+        "bootstrap_context": bootstrap_context,
+    }
+    _append_event(
+        transcript,
+        event_type="run_header",
+        detail="controller_run_started",
+        payload=run_header,
+    )
+    _log_controller_event(
+        "controller_run_started",
+        {
+            "request_id": start_request.request_id,
+            "session_id": session_id,
+            "run_artifact_ref": started.run_artifact_ref,
+            "model": model,
+            "tool_menu": started.tool_menu,
+            "budgets": start_request.budgets.model_dump(mode="json"),
+            "dossier_id": start_request.dossier_id,
+            "source_entry_ref": start_request.source_entry_ref,
+            "deed_text_artifact_ref": bootstrap_context.get("deed_text_artifact_ref"),
+        },
+    )
+
+    iterations = 0
     while iterations < max_iterations:
         iterations += 1
         observation = {
@@ -194,8 +230,10 @@ def run_controller_loop(
             event_type="kernel_step_result",
             detail=step_result.execution_state.value,
             payload={
+                "iteration": iterations,
                 "execution_state": step_result.execution_state.value,
                 "action_type": proposal.action_type.value,
+                "idempotency_key": proposal.idempotency_key,
                 "refusal": (
                     step_result.refusal.model_dump(mode="json")
                     if step_result.refusal is not None
@@ -206,6 +244,30 @@ def run_controller_loop(
                     if step_result.terminal is not None
                     else None
                 ),
+                "dashboard_failure_classification": (
+                    step_result.dashboard.failure_classification.model_dump(mode="json")
+                    if step_result.dashboard is not None
+                    else {}
+                ),
+                "latest_refs": _latest_refs_summary(step_result.dashboard.model_dump(mode="json")),
+            },
+        )
+        _log_controller_event(
+            "kernel_step_result",
+            {
+                "iteration": iterations,
+                "session_id": session_id,
+                "action_type": proposal.action_type.value,
+                "idempotency_key": proposal.idempotency_key,
+                "execution_state": step_result.execution_state.value,
+                "kernel_refusal_reason_code": (
+                    step_result.refusal.reason_code if step_result.refusal is not None else None
+                ),
+                "terminal_stop_reason": (
+                    step_result.terminal.stop_reason.value if step_result.terminal is not None else None
+                ),
+                "dashboard_reason_code": step_result.dashboard.failure_classification.reason_code,
+                "latest_refs": _latest_refs_summary(step_result.dashboard.model_dump(mode="json")),
             },
         )
 
@@ -282,50 +344,56 @@ def _propose_next_step(
         f"Observation JSON: {json.dumps(observation, sort_keys=True)}"
     )
     first = llm_client.propose_next_step(model=model, schema=schema, prompt=prompt)
-    proposal = _coerce_proposal(first)
+    proposal, parse_error = _coerce_proposal(first)
     if proposal is not None:
         return proposal
+    first_failure = _proposal_failure_payload(first, attempt="first", parse_error=parse_error)
     _append_event(
         transcript,
         event_type="controller_parse_failed",
         detail="first_parse_or_validation_failed",
-        payload={"error": str(first.get("error", ""))[:256]},
+        payload=first_failure,
     )
+    _log_controller_event("controller_parse_failed", first_failure)
 
     repair_prompt = (
         "Your prior output failed schema validation. Return ONLY valid JSON "
         "for NextStepProposal with no markdown."
     )
     second = llm_client.propose_next_step(model=model, schema=schema, prompt=repair_prompt)
-    proposal = _coerce_proposal(second)
+    proposal, parse_error = _coerce_proposal(second)
     if proposal is not None:
         return proposal
+    second_failure = _proposal_failure_payload(second, attempt="repair", parse_error=parse_error)
     _append_event(
         transcript,
         event_type="controller_parse_failed",
         detail="repair_parse_or_validation_failed",
-        payload={"error": str(second.get("error", ""))[:256]},
+        payload=second_failure,
     )
+    _log_controller_event("controller_parse_failed", second_failure)
     return None
 
 
-def _coerce_proposal(raw: dict[str, object]) -> NextStepProposal | None:
+def _coerce_proposal(raw: dict[str, object]) -> tuple[NextStepProposal | None, str | None]:
     structured = raw.get("structured_data")
     if isinstance(structured, dict):
         try:
-            return NextStepProposal.model_validate(structured)
-        except Exception:
-            return None
+            return NextStepProposal.model_validate(structured), None
+        except Exception as exc:
+            return None, f"schema_validation_failed:{type(exc).__name__}"
     text = raw.get("text")
     if not isinstance(text, str):
-        return None
+        return None, "response_missing_text"
     try:
         parsed = json.loads(text)
         if not isinstance(parsed, dict):
-            return None
-        return NextStepProposal.model_validate(parsed)
-    except Exception:
-        return None
+            return None, "json_not_object"
+        return NextStepProposal.model_validate(parsed), None
+    except json.JSONDecodeError as exc:
+        return None, f"json_parse_failed:{exc.msg}"
+    except Exception as exc:
+        return None, f"schema_validation_failed:{type(exc).__name__}"
 
 
 def _validate_controller_inputs(inputs: dict[str, object]) -> KernelRefusal | None:
@@ -394,7 +462,7 @@ def _append_event(
     event = {
         "event_type": event_type[:64],
         "detail": bounded_detail,
-        "payload": payload,
+        "payload": _bound_payload(payload),
         "timestamp_epoch_seconds": int(time()),
     }
     events.append(event)
@@ -427,6 +495,73 @@ def _bounded_text(value: str, max_chars: int) -> str:
     if len(value) <= max_chars:
         return value
     return f"{value[: max_chars - 14]}...[truncated]"
+
+
+def _bound_payload(value: object, *, max_items: int = 24) -> object:
+    if isinstance(value, str):
+        return _bounded_text(value, _MAX_EVENT_CHARS)
+    if isinstance(value, list):
+        trimmed = value[:max_items]
+        return [_bound_payload(item, max_items=max_items) for item in trimmed]
+    if isinstance(value, dict):
+        out: dict[str, object] = {}
+        count = 0
+        for key, item in value.items():
+            if count >= max_items:
+                out["__truncated__"] = True
+                break
+            out[str(key)[:96]] = _bound_payload(item, max_items=max_items)
+            count += 1
+        return out
+    return value
+
+
+def _proposal_failure_payload(raw: dict[str, object], *, attempt: str, parse_error: str | None) -> dict[str, object]:
+    payload = {
+        "attempt": attempt,
+        "error": _bounded_text(str(raw.get("error", "")), _MAX_ERROR_CHARS),
+        "parse_error": _bounded_text(parse_error or "", _MAX_ERROR_CHARS),
+    }
+    openai_fields = {
+        "http_status": raw.get("http_status"),
+        "openai_request_id": raw.get("openai_request_id"),
+        "error_type": raw.get("error_type"),
+        "error_message": raw.get("error_message"),
+        "error_param": raw.get("error_param"),
+        "error_code": raw.get("error_code"),
+        "api_model": raw.get("api_model"),
+        "request_flags": raw.get("request_flags"),
+    }
+    cleaned = {k: v for k, v in openai_fields.items() if v not in (None, "", {}, [])}
+    if cleaned:
+        payload["openai_error"] = _bound_payload(cleaned)
+    return payload
+
+
+def _latest_refs_summary(dashboard: dict[str, object]) -> dict[str, object]:
+    latest_refs = dashboard.get("latest_refs")
+    if not isinstance(latest_refs, dict):
+        return {}
+    summary: dict[str, object] = {}
+    for key, value in latest_refs.items():
+        if isinstance(value, dict):
+            artifact_path = value.get("artifact_path")
+            if isinstance(artifact_path, str) and artifact_path:
+                summary[key] = artifact_path
+    return summary
+
+
+def _log_controller_event(event_type: str, payload: dict[str, object]) -> None:
+    try:
+        bounded = _bound_payload(payload)
+        if not isinstance(bounded, dict):
+            bounded = {"payload": bounded}
+        logger.info(
+            "controller_event %s",
+            json.dumps({"event_type": event_type, **bounded}, ensure_ascii=True),
+        )
+    except Exception:
+        logger.info("controller_event %s", event_type)
 
 
 def _encoded_size_bytes(events: list[dict[str, object]]) -> int:

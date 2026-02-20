@@ -257,6 +257,18 @@ Forces valid JSON output without strict schema validation.
 
 **Structured Outputs** guarantee that model responses conform to your JSON schema. This is the **preferred approach** for reliable, typed responses.
 
+### Strict mode requirements (read this before shipping)
+
+When using `response_format.type = "json_schema"` with `"strict": true`, OpenAI validates your schema server-side. If your schema violates their strict requirements, the API call fails with `400 Bad Request`.
+
+In practice, treat these as invariants:
+- **Every object schema must include** `"additionalProperties": false` (root and nested objects).
+- **Root schema must be an object schema** (`type: "object"`, `properties`, `required`, `additionalProperties: false`). Beware `$ref`-wrapped roots from schema generators.
+- **Avoid free-form dictionaries** (`dict[str, object]`) in strict schemas; prefer discriminated unions / per-action input models.
+
+Local repo guidance (kept close to this config doc):
+- `backend/services/llm/STRUCTURED_OUTPUTS_JSON_SCHEMA_STRICT.md`
+
 **Supported Models:**
 - `gpt-4o-2024-08-06` and later
 - `gpt-4-turbo-2024-04-09` and later
