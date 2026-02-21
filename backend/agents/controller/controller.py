@@ -28,7 +28,12 @@ from agent_kernel.models import (
 )
 from agent_kernel.session import KernelSessionManager
 
-from .contracts import NextStepProposal, next_step_json_schema
+from .contracts import (
+    KernelStepProposal,
+    coerce_action_type,
+    kernel_step_tool_schema,
+    validate_action_args,
+)
 from .retrieval_intents import classify_retrieval_degradation, map_retrieval_intent_to_inputs
 
 _MAX_CONTROLLER_INPUT_BYTES = 4096
@@ -41,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 
 class NextStepLLMClient(Protocol):
-    """Strict-JSON LLM interface for controller step proposals."""
+    """LLM interface for proposing one controller step."""
 
     def propose_next_step(
         self,
@@ -164,7 +169,23 @@ def run_controller_loop(
         if proposal is None:
             break
 
-        if proposal.action_type.value not in started.tool_menu:
+        action_type = coerce_action_type(proposal.action_type)
+        if action_type is None:
+            refusal = KernelRefusal(
+                reason_code="unknown_action_type",
+                missing_inputs=["action_type"],
+                retryable=True,
+            )
+            last_refusal = refusal
+            _append_event(
+                transcript,
+                event_type="controller_refusal",
+                detail=refusal.reason_code,
+                payload={"action_type": proposal.action_type},
+            )
+            continue
+
+        if action_type.value not in started.tool_menu:
             refusal = KernelRefusal(
                 reason_code="action_not_in_tool_menu",
                 missing_inputs=["action_type"],
@@ -175,11 +196,12 @@ def run_controller_loop(
                 transcript,
                 event_type="controller_refusal",
                 detail=refusal.reason_code,
-                payload={"action_type": proposal.action_type.value},
+                payload={"action_type": action_type.value},
             )
             continue
 
-        payload_refusal = _validate_controller_inputs(proposal.inputs)
+        proposal_inputs = dict(proposal.args)
+        payload_refusal = _validate_controller_inputs(proposal_inputs)
         if payload_refusal is not None:
             last_refusal = payload_refusal
             _append_event(
@@ -190,7 +212,26 @@ def run_controller_loop(
             )
             continue
 
-        if proposal.action_type == ActionType.DECLARE_DONE and proposal.declare_done is None:
+        cleaned_inputs, args_reason, args_missing = validate_action_args(
+            action_type=action_type,
+            args=proposal_inputs,
+        )
+        if cleaned_inputs is None:
+            refusal = KernelRefusal(
+                reason_code=args_reason or f"{action_type.value}_inputs_invalid",
+                missing_inputs=args_missing,
+                retryable=True,
+            )
+            last_refusal = refusal
+            _append_event(
+                transcript,
+                event_type="controller_refusal",
+                detail=refusal.reason_code,
+                payload={"refusal": refusal.model_dump(mode="json")},
+            )
+            continue
+
+        if action_type == ActionType.DECLARE_DONE and proposal.declare_done is None:
             refusal = KernelRefusal(
                 reason_code="declare_done_justification_missing",
                 missing_inputs=["declare_done"],
@@ -205,8 +246,8 @@ def run_controller_loop(
             )
             continue
 
-        step_inputs = dict(proposal.inputs)
-        if proposal.action_type == ActionType.RETRIEVE_EVIDENCE and proposal.retrieval_intent is not None:
+        step_inputs = cleaned_inputs
+        if action_type == ActionType.RETRIEVE_EVIDENCE and proposal.retrieval_intent is not None:
             query = str(step_inputs.get("query", "")).strip()
             if query:
                 step_inputs = map_retrieval_intent_to_inputs(
@@ -216,7 +257,7 @@ def run_controller_loop(
         step_request = KernelStepRequest(
             session_id=session_id,
             idempotency_key=proposal.idempotency_key,
-            action_type=proposal.action_type,
+            action_type=action_type,
             inputs=step_inputs,
             semantic_ready=proposal.semantic_ready,
             notes=proposal.notes,
@@ -232,7 +273,7 @@ def run_controller_loop(
             payload={
                 "iteration": iterations,
                 "execution_state": step_result.execution_state.value,
-                "action_type": proposal.action_type.value,
+                "action_type": action_type.value,
                 "idempotency_key": proposal.idempotency_key,
                 "refusal": (
                     step_result.refusal.model_dump(mode="json")
@@ -257,7 +298,7 @@ def run_controller_loop(
             {
                 "iteration": iterations,
                 "session_id": session_id,
-                "action_type": proposal.action_type.value,
+                "action_type": action_type.value,
                 "idempotency_key": proposal.idempotency_key,
                 "execution_state": step_result.execution_state.value,
                 "kernel_refusal_reason_code": (
@@ -271,7 +312,7 @@ def run_controller_loop(
             },
         )
 
-        if proposal.action_type == ActionType.RETRIEVE_EVIDENCE:
+        if action_type == ActionType.RETRIEVE_EVIDENCE:
             reason_code = (
                 step_result.dashboard.failure_classification.reason_code
                 or (step_result.refusal.reason_code if step_result.refusal is not None else None)
@@ -336,10 +377,10 @@ def _propose_next_step(
     model: str,
     observation: dict[str, object],
     transcript: list[dict[str, object]],
-) -> NextStepProposal | None:
-    schema = next_step_json_schema()
+) -> KernelStepProposal | None:
+    schema = kernel_step_tool_schema()
     prompt = (
-        "Return JSON only. Propose exactly one next kernel step. "
+        "Propose exactly one next kernel step by calling the `kernel_step` tool. "
         "Respect tool_menu and refs-not-blobs. "
         f"Observation JSON: {json.dumps(observation, sort_keys=True)}"
     )
@@ -357,8 +398,10 @@ def _propose_next_step(
     _log_controller_event("controller_parse_failed", first_failure)
 
     repair_prompt = (
-        "Your prior output failed schema validation. Return ONLY valid JSON "
-        "for NextStepProposal with no markdown."
+        "Your prior proposal was invalid. Call `kernel_step` once using this shape: "
+        '{"action_type":"...", "args":{}, "idempotency_key":"...", "why":"..."} '
+        "Use only actions in tool_menu and include missing required fields. "
+        f"Prior parse error: {parse_error or 'unknown'}."
     )
     second = llm_client.propose_next_step(model=model, schema=schema, prompt=repair_prompt)
     proposal, parse_error = _coerce_proposal(second)
@@ -375,13 +418,21 @@ def _propose_next_step(
     return None
 
 
-def _coerce_proposal(raw: dict[str, object]) -> tuple[NextStepProposal | None, str | None]:
+def _coerce_proposal(raw: dict[str, object]) -> tuple[KernelStepProposal | None, str | None]:
     structured = raw.get("structured_data")
     if isinstance(structured, dict):
         try:
-            return NextStepProposal.model_validate(structured), None
+            validated = KernelStepProposal.model_validate(structured)
+            return validated, None
         except Exception as exc:
-            return None, f"schema_validation_failed:{type(exc).__name__}"
+            try:
+                legacy = structured.get("proposal")
+                if isinstance(legacy, dict):
+                    validated = KernelStepProposal.model_validate(legacy)
+                    return validated, None
+                return None, f"schema_validation_failed:{type(exc).__name__}"
+            except Exception:
+                return None, f"schema_validation_failed:{type(exc).__name__}"
     text = raw.get("text")
     if not isinstance(text, str):
         return None, "response_missing_text"
@@ -389,7 +440,15 @@ def _coerce_proposal(raw: dict[str, object]) -> tuple[NextStepProposal | None, s
         parsed = json.loads(text)
         if not isinstance(parsed, dict):
             return None, "json_not_object"
-        return NextStepProposal.model_validate(parsed), None
+        try:
+            validated = KernelStepProposal.model_validate(parsed)
+            return validated, None
+        except Exception:
+            legacy = parsed.get("proposal")
+            if isinstance(legacy, dict):
+                validated = KernelStepProposal.model_validate(legacy)
+                return validated, None
+            return None, "schema_validation_failed:ValidationError"
     except json.JSONDecodeError as exc:
         return None, f"json_parse_failed:{exc.msg}"
     except Exception as exc:
@@ -410,7 +469,23 @@ def _validate_controller_inputs(inputs: dict[str, object]) -> KernelRefusal | No
             retryable=False,
             blocked_by_invariant=True,
         )
+    if _contains_excessive_depth(inputs):
+        return KernelRefusal(
+            reason_code="controller_inputs_depth_exceeded",
+            retryable=False,
+            blocked_by_invariant=True,
+        )
     return None
+
+
+def _contains_excessive_depth(value: object, *, depth: int = 0, max_depth: int = 8) -> bool:
+    if depth > max_depth:
+        return True
+    if isinstance(value, dict):
+        return any(_contains_excessive_depth(v, depth=depth + 1, max_depth=max_depth) for v in value.values())
+    if isinstance(value, list):
+        return any(_contains_excessive_depth(v, depth=depth + 1, max_depth=max_depth) for v in value)
+    return False
 
 
 def _build_bootstrap_context(start_request: KernelSessionStartRequest) -> dict[str, object]:

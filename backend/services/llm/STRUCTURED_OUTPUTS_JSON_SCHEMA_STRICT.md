@@ -37,6 +37,25 @@ These are the rules that routinely trigger OpenAI `400 invalid_request_error` wh
 - You must set `"additionalProperties": false` at the **root object** and for **all nested objects** that can appear in output.
 - Do **not** assume that setting it once at the root is enough.
 
+### 1.5) `required` must exist and include every property key for object schemas
+- For each object schema node:
+  - `"required"` must be present,
+  - and it must include every key in `"properties"`.
+- `"required"` must not include keys that are not in `"properties"` (OpenAI will reject with `Extra required key '...' supplied`).
+- Optional fields should be represented as **required-but-nullable** (for example `type: ["string", "null"]` or `anyOf` with `null`), not by omitting the field from `required`.
+
+Example:
+```json
+{
+  "type": "object",
+  "properties": {
+    "ir_ref": { "type": ["string", "null"] }
+  },
+  "required": ["ir_ref"],
+  "additionalProperties": false
+}
+```
+
 ### 2) Root schema must be an object schema (no `$ref` wrapper as the “root”)
 Pydantic v2 sometimes emits a top-level schema shaped like:
 
@@ -58,6 +77,7 @@ If your generator produces `$ref` at the root, **deref or inline** the reference
 Fields like `dict[str, object]`, “map of arbitrary keys”, or “JSON blob” designs are fundamentally in tension with strict-mode schemas, because:
 - strict-mode wants closed-world objects (`additionalProperties: false`)
 - unbounded dicts imply open-world objects (`additionalProperties: true` or absent)
+- in practice this can surface as `required/properties` mismatches (for example `Extra required key ...`) when OpenAI rejects/normalizes unsupported property shapes.
 
 If you need action-specific inputs, prefer a **discriminated union** (one input model per action type) rather than `dict[str, object]`.
 
@@ -76,6 +96,7 @@ In Pydantic v2, set `extra="forbid"` (or equivalent config) on models used for s
 Perform a deterministic normalization step that:
 - dereferences root `$ref` into an object root (if present)
 - recursively sets `additionalProperties: false` on every schema node with `"type": "object"`
+- recursively ensures object schemas define `required`, and when `properties` exists, `required` equals `list(properties.keys())`
 - (optionally) asserts the schema contains no unsupported constructs for your use case
 
 ### C) Add a “schema compliance” unit test
@@ -97,4 +118,3 @@ If you hit a 400 schema error:
 - OpenAI Structured Outputs guide: `https://platform.openai.com/docs/guides/structured-outputs#supported-schemas`
 - OpenAI cookbook intro: `https://cookbook.openai.com/examples/structured_outputs_intro`
 - Community thread (exact error class): `https://community.openai.com/t/schema-additionalproperties-must-be-false-when-strict-is-true/929996`
-

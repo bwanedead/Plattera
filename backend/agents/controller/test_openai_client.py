@@ -14,9 +14,10 @@ class _FakeChatCompletions:
     def __init__(self, response: Any = None, error: Exception | None = None) -> None:
         self._response = response
         self._error = error
+        self.last_kwargs: dict[str, Any] | None = None
 
     def create(self, **kwargs) -> Any:
-        del kwargs
+        self.last_kwargs = kwargs
         if self._error is not None:
             raise self._error
         return self._response
@@ -44,21 +45,39 @@ class _FakeService:
 
 def test_openai_next_step_client_returns_structured_data_on_success() -> None:
     completion = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content='{"action_type":"declare_done","idempotency_key":"k1","inputs":{},"why":"x","declare_done":{"artifact_refs":{},"evidence_links":[],"accepted_deviations":[]}}'))],
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=None,
+                    tool_calls=[
+                        SimpleNamespace(
+                            function=SimpleNamespace(
+                                name="kernel_step",
+                                arguments='{"action_type":"declare_done","idempotency_key":"k1","args":{},"why":"x","declare_done":{"artifact_refs":{},"evidence_links":[],"accepted_deviations":[]}}',
+                            )
+                        )
+                    ],
+                )
+            )
+        ],
         usage=SimpleNamespace(total_tokens=42),
     )
-    service = _FakeService(available=True, client=_FakeOpenAIClient(response=completion))
+    fake_client = _FakeOpenAIClient(response=completion)
+    service = _FakeService(available=True, client=fake_client)
     client = OpenAINextStepClient(service=service)
 
     result = client.propose_next_step(
         model="gpt-5-mini",
-        schema={"type": "object", "properties": {}, "required": []},
+        schema={"type": "function", "function": {"name": "kernel_step", "parameters": {"type": "object"}}},
         prompt="propose step",
     )
 
     assert result["success"] is True
     assert result["structured_data"]["idempotency_key"] == "k1"
     assert result["tokens_used"] == 42
+    sent = fake_client.chat.completions.last_kwargs
+    assert isinstance(sent, dict)
+    assert sent.get("tool_choice") == {"type": "function", "function": {"name": "kernel_step"}}
 
 
 def test_openai_next_step_client_reports_unavailable_service() -> None:
@@ -67,7 +86,7 @@ def test_openai_next_step_client_reports_unavailable_service() -> None:
 
     result = client.propose_next_step(
         model="gpt-5-mini",
-        schema={"type": "object", "properties": {}, "required": []},
+        schema={"type": "function", "function": {"name": "kernel_step", "parameters": {"type": "object"}}},
         prompt="propose step",
     )
 
@@ -84,7 +103,7 @@ def test_openai_next_step_client_reports_runtime_failure() -> None:
 
     result = client.propose_next_step(
         model="gpt-5-mini",
-        schema={"type": "object", "properties": {}, "required": []},
+        schema={"type": "function", "function": {"name": "kernel_step", "parameters": {"type": "object"}}},
         prompt="propose step",
     )
 
@@ -93,3 +112,21 @@ def test_openai_next_step_client_reports_runtime_failure() -> None:
     assert result["model"] == "gpt-5-mini"
     assert result["api_model"] == "gpt-5-mini"
     assert "request_flags" in result
+
+
+def test_openai_next_step_client_reports_missing_kernel_step_tool_call() -> None:
+    completion = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[]))],
+        usage=SimpleNamespace(total_tokens=7),
+    )
+    service = _FakeService(available=True, client=_FakeOpenAIClient(response=completion))
+    client = OpenAINextStepClient(service=service)
+
+    result = client.propose_next_step(
+        model="gpt-5-mini",
+        schema={"type": "function", "function": {"name": "kernel_step", "parameters": {"type": "object"}}},
+        prompt="propose step",
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "openai_missing_kernel_step_tool_call"

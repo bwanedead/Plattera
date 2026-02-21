@@ -2,13 +2,13 @@
 
 ## What this is
 - Thin controller runtime over `KernelSessionManager.start_session()` + `step()`.
-- LLM proposes one `NextStepProposal` at a time; kernel remains one-action executor.
+- LLM proposes one `kernel_step` tool call at a time; kernel remains one-action executor.
 - Persists bounded controller transcripts as artifact refs.
 
 ## Main modules
-- `contracts.py`: strict proposal schema + retrieval intent enums.
+- `contracts.py`: minimal proposal contract + local per-action validators.
 - `controller.py`: loop runtime, refusal handling, transcript boundedness.
-- `openai_client.py`: OpenAI structured-output adapter for next-step proposals.
+- `openai_client.py`: OpenAI tool-calling adapter with `json_object` fallback.
 - `retrieval_intents.py`: deterministic intent -> query-pack + degradation mapping.
 - `cli.py`: backend hello-loop runner.
 

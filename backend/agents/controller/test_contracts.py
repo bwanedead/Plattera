@@ -2,59 +2,73 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
+from backend.agent_kernel.models import ActionType
 from backend.agents.controller.contracts import (
-    _node_is_object_schema,
-    _normalize_openai_strict_schema,
-    next_step_json_schema,
+    KernelStepProposal,
+    coerce_action_type,
+    kernel_step_tool_schema,
+    validate_action_args,
 )
 
 
-def _iter_schema_nodes(node: Any):
-    if isinstance(node, dict):
-        yield node
-        for value in node.values():
-            yield from _iter_schema_nodes(value)
-    elif isinstance(node, list):
-        for value in node:
-            yield from _iter_schema_nodes(value)
+def test_kernel_step_tool_schema_has_required_minimal_fields() -> None:
+    schema = kernel_step_tool_schema()
+    function = schema.get("function")
+    assert isinstance(function, dict)
+    params = function.get("parameters")
+    assert isinstance(params, dict)
+    required = params.get("required")
+    assert required == ["action_type", "args", "idempotency_key", "why"]
 
 
-def test_next_step_json_schema_root_is_object_without_top_level_ref() -> None:
-    schema = next_step_json_schema()
-    assert "$ref" not in schema
-    assert schema.get("type") == "object"
-    assert schema.get("additionalProperties") is False
-
-
-def test_next_step_json_schema_all_object_nodes_are_closed() -> None:
-    schema = next_step_json_schema()
-    object_nodes = [
-        node
-        for node in _iter_schema_nodes(schema)
-        if isinstance(node, dict) and _node_is_object_schema(node)
-    ]
-    assert object_nodes, "expected at least one object schema node"
-    assert all(node.get("additionalProperties") is False for node in object_nodes)
-
-
-def test_normalizer_closes_nullable_object_type_lists() -> None:
-    schema = {
-        "type": "object",
-        "properties": {
-            "maybe_obj": {
-                "type": ["object", "null"],
-                "properties": {
-                    "x": {"type": "string"},
-                },
-            }
-        },
-        "required": [],
+def test_kernel_step_proposal_requires_declare_done_justification() -> None:
+    bad = {
+        "action_type": "declare_done",
+        "idempotency_key": "k1",
+        "why": "done",
+        "args": {},
     }
-    normalized = _normalize_openai_strict_schema(schema)
-    maybe_obj = normalized["properties"]["maybe_obj"]
-    assert isinstance(maybe_obj, dict)
-    assert maybe_obj.get("additionalProperties") is False
+    try:
+        KernelStepProposal.model_validate(bad)
+    except Exception as exc:
+        assert "declare_done_justification_required" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_coerce_action_type_returns_none_for_unknown_value() -> None:
+    assert coerce_action_type("not_a_real_action") is None
+    assert coerce_action_type("compile") == ActionType.COMPILE
+
+
+def test_validate_action_args_compile_requires_ir_ref() -> None:
+    cleaned, reason_code, missing = validate_action_args(
+        action_type=ActionType.COMPILE,
+        args={},
+    )
+    assert cleaned is None
+    assert reason_code == "compile_requires_ir_artifact_ref_or_updated_ir_artifact_ref_or_ir_artifact_path"
+    assert missing == []
+
+
+def test_validate_action_args_retrieve_evidence_requires_query() -> None:
+    cleaned, reason_code, missing = validate_action_args(
+        action_type=ActionType.RETRIEVE_EVIDENCE,
+        args={},
+    )
+    assert cleaned is None
+    assert reason_code == "retrieve_evidence_inputs_invalid"
+    assert missing == ["query"]
+
+
+def test_validate_action_args_returns_cleaned_payload() -> None:
+    cleaned, reason_code, missing = validate_action_args(
+        action_type=ActionType.HYDRATE_DEED,
+        args={"dossier_id": "abc", "source_entry_ref": None},
+    )
+    assert reason_code is None
+    assert missing == []
+    assert cleaned == {"dossier_id": "abc"}

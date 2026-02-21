@@ -263,11 +263,17 @@ When using `response_format.type = "json_schema"` with `"strict": true`, OpenAI 
 
 In practice, treat these as invariants:
 - **Every object schema must include** `"additionalProperties": false` (root and nested objects).
+- **Every object schema must include `required`, and it must list every key in `properties`**. Model optionality with nullable types (for example `type: ["string", "null"]`), not by omitting keys from `required`.
+- **`required` must exactly equal `properties` keys** (no missing keys and no extra keys).
 - **Root schema must be an object schema** (`type: "object"`, `properties`, `required`, `additionalProperties: false`). Beware `$ref`-wrapped roots from schema generators.
 - **Avoid free-form dictionaries** (`dict[str, object]`) in strict schemas; prefer discriminated unions / per-action input models.
 
 Local repo guidance (kept close to this config doc):
 - `backend/services/llm/STRUCTURED_OUTPUTS_JSON_SCHEMA_STRICT.md`
+
+Controller protocol note:
+- For dynamic agent-loop step proposals, prefer tool calling (`tools` + forced `tool_choice`) over strict JSON-schema unions.
+- Keep strict `json_schema` for stable extraction/classification contracts, not evolving multi-action controller protocols.
 
 **Supported Models:**
 - `gpt-4o-2024-08-06` and later

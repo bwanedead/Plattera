@@ -119,14 +119,14 @@ def test_controller_retries_once_on_json_parse_failure_and_then_executes() -> No
                 "structured_data": {
                     "action_type": "declare_done",
                     "idempotency_key": "k1",
-                    "inputs": {},
+                    "args": {},
                     "why": "claimability should pass now",
                     "declare_done": {
                         "artifact_refs": {"ir_ref": "artifacts/ir/ir-001.json"},
                         "evidence_links": [],
                         "accepted_deviations": [],
                     },
-                }
+                },
             },
         ]
     )
@@ -178,27 +178,27 @@ def test_controller_passes_kernel_refusal_through_to_transcript() -> None:
                 "structured_data": {
                     "action_type": "declare_done",
                     "idempotency_key": "k1",
-                    "inputs": {},
+                    "args": {},
                     "why": "try declare done",
                     "declare_done": {
                         "artifact_refs": {"ir_ref": "artifacts/ir/ir-001.json"},
                         "evidence_links": [],
                         "accepted_deviations": [],
                     },
-                }
+                },
             },
             {
                 "structured_data": {
                     "action_type": "declare_done",
                     "idempotency_key": "k2",
-                    "inputs": {},
+                    "args": {},
                     "why": "retry declare done",
                     "declare_done": {
                         "artifact_refs": {"ir_ref": "artifacts/ir/ir-001.json"},
                         "evidence_links": [],
                         "accepted_deviations": [],
                     },
-                }
+                },
             },
         ]
     )
@@ -273,7 +273,7 @@ def test_controller_rejects_action_not_in_tool_menu_and_semantic_ready_is_audit_
                 "structured_data": {
                     "action_type": "compile",
                     "idempotency_key": "k1",
-                    "inputs": {},
+                    "args": {},
                     "why": "not allowed in this menu",
                     "semantic_ready": True,
                 }
@@ -318,3 +318,84 @@ def test_append_event_enforces_event_caps_and_truncation_markers() -> None:
     assert events[0]["event_type"] == "transcript_truncated"
     assert str(events[-1]["detail"]).endswith("...[truncated]")
 
+
+def test_controller_refuses_retrieve_evidence_missing_query_before_kernel_call() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {
+                "structured_data": {
+                    "action_type": "retrieve_evidence",
+                    "idempotency_key": "k1",
+                    "args": {},
+                    "why": "retrieve without query",
+                }
+            }
+        ]
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.RETRIEVE_EVIDENCE.value],
+            dashboard=_dashboard(),
+            budgets_remaining=_dashboard().budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[],
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=1,
+    )
+
+    assert result.terminal.terminal_outcome == TerminalOutcomeKind.FAILED
+    assert len(manager.step_calls) == 0
+    transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
+    refusal_events = [e for e in transcript["events"] if e["event_type"] == "controller_refusal"]
+    assert refusal_events
+    assert refusal_events[0]["detail"] == "retrieve_evidence_inputs_invalid"
+
+
+def test_controller_refuses_too_deep_args_before_kernel_call() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {
+                "structured_data": {
+                    "action_type": "open_artifact",
+                    "idempotency_key": "k1",
+                    "args": {"artifact_ref": "a", "junk": {"a": {"b": {"c": {"d": {"e": {"f": {"g": {"h": {"i": 1}}}}}}}}}},
+                    "why": "too deep",
+                }
+            }
+        ]
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.OPEN_ARTIFACT.value],
+            dashboard=_dashboard(),
+            budgets_remaining=_dashboard().budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[],
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=1,
+    )
+
+    assert result.terminal.terminal_outcome == TerminalOutcomeKind.FAILED
+    assert len(manager.step_calls) == 0
+    transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
+    refusal_events = [e for e in transcript["events"] if e["event_type"] == "controller_refusal"]
+    assert refusal_events
+    assert refusal_events[0]["detail"] == "controller_inputs_depth_exceeded"

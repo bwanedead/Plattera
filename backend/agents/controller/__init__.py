@@ -9,7 +9,7 @@ from .controller import (
 from .contracts import (
     ControllerEvent,
     DeclareDoneJustification,
-    NextStepProposal,
+    KernelStepProposal,
     RetrievalIntent,
 )
 from .openai_client import OpenAINextStepClient
@@ -21,7 +21,7 @@ __all__ = [
     "DeclareDoneJustification",
     "NextStepLLMClient",
     "OpenAINextStepClient",
-    "NextStepProposal",
+    "KernelStepProposal",
     "RetrievalIntent",
     "run_controller_loop",
 ]

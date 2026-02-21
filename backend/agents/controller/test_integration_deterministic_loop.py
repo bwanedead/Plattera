@@ -52,20 +52,20 @@ class _SequenceLLM:
                 "structured_data": {
                     "action_type": "declare_done",
                     "idempotency_key": "k-001",
-                    "inputs": {},
+                    "args": {},
                     "why": "attempt done early",
                     "declare_done": {
                         "artifact_refs": {"ir_ref": "ir://placeholder"},
                         "evidence_links": [],
                         "accepted_deviations": [],
                     },
-                }
+                },
             },
             {
                 "structured_data": {
                     "action_type": "compile",
                     "idempotency_key": "k-002",
-                    "inputs": {},
+                    "args": {"ir_artifact_ref": "ir://placeholder"},
                     "why": "compile now",
                 }
             },
@@ -73,7 +73,7 @@ class _SequenceLLM:
                 "structured_data": {
                     "action_type": "judge",
                     "idempotency_key": "k-003",
-                    "inputs": {},
+                    "args": {"ir_artifact_ref": "ir://placeholder"},
                     "why": "judge now",
                 }
             },
@@ -81,7 +81,7 @@ class _SequenceLLM:
                 "structured_data": {
                     "action_type": "declare_done",
                     "idempotency_key": "k-004",
-                    "inputs": {},
+                    "args": {},
                     "why": "declare done after gates",
                     "declare_done": {
                         "artifact_refs": {
@@ -92,7 +92,7 @@ class _SequenceLLM:
                         "evidence_links": [],
                         "accepted_deviations": [],
                     },
-                }
+                },
             },
         ]
         self._i = 0
@@ -150,4 +150,3 @@ def test_deterministic_controller_loop_reaches_success_with_refusal_then_compile
             assert "executed" in states
         finally:
             legacy_paths.dossiers_root = original  # type: ignore[assignment]
-

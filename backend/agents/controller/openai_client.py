@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Protocol
 
 from services.llm.openai import OpenAIService
@@ -22,7 +23,7 @@ class _OpenAIServiceLike(Protocol):
 
 
 class OpenAINextStepClient(NextStepLLMClient):
-    """Strict JSON-schema step proposal client using OpenAI chat completions."""
+    """Tool-calling step proposal client using OpenAI chat completions."""
 
     def __init__(self, service: _OpenAIServiceLike | None = None) -> None:
         self._service = service or OpenAIService()
@@ -49,27 +50,26 @@ class OpenAINextStepClient(NextStepLLMClient):
             }
 
         api_model = self._resolve_api_model_name(model)
+        mode = os.getenv("AGENT_CONTROLLER_LLM_MODE", "tool_call").strip().lower()
         params: dict[str, Any] = {
             "model": api_model,
             "messages": [
                 {
                     "role": "developer",
                     "content": (
-                        "Return exactly one JSON object matching the provided schema. "
-                        "No markdown and no extra prose."
+                        "You are a kernel step proposer. Return exactly one next step. "
+                        "Prefer a single kernel_step tool call with minimal bounded args."
                     ),
                 },
                 {"role": "user", "content": prompt},
             ],
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "next_step_proposal",
-                    "schema": schema,
-                    "strict": True,
-                },
-            },
         }
+        if mode == "json_object":
+            params["response_format"] = {"type": "json_object"}
+        else:
+            params["tools"] = [schema]
+            params["tool_choice"] = {"type": "function", "function": {"name": "kernel_step"}}
+            params["parallel_tool_calls"] = False
         if "gpt-5" in api_model or "o4-mini" in api_model:
             params["max_completion_tokens"] = int(self._default_max_tokens(model))
             if "gpt-5" in api_model:
@@ -81,28 +81,52 @@ class OpenAINextStepClient(NextStepLLMClient):
         try:
             completion = client.chat.completions.create(**params)
             message = completion.choices[0].message if completion.choices else None
+            parsed: dict[str, object] | None = None
             content = message.content if message is not None else None
-            if not isinstance(content, str) or not content.strip():
-                return {
-                    "success": False,
-                    "error": "openai_empty_response",
-                    "model": model,
-                }
-            parsed = json.loads(content)
-            if not isinstance(parsed, dict):
-                return {
-                    "success": False,
-                    "error": "openai_non_object_json",
-                    "text": content,
-                    "model": model,
-                }
+
+            tool_calls = getattr(message, "tool_calls", None) if message is not None else None
+            if isinstance(tool_calls, list):
+                for tool_call in tool_calls:
+                    function = getattr(tool_call, "function", None)
+                    if function is None or getattr(function, "name", None) != "kernel_step":
+                        continue
+                    raw_args = getattr(function, "arguments", None)
+                    if isinstance(raw_args, str) and raw_args.strip():
+                        parsed_args = json.loads(raw_args)
+                        if isinstance(parsed_args, dict):
+                            parsed = parsed_args
+                            break
+                if parsed is None and mode != "json_object":
+                    return {
+                        "success": False,
+                        "error": "openai_missing_kernel_step_tool_call",
+                        "model": model,
+                        "api_model": api_model,
+                    }
+
+            if parsed is None:
+                if not isinstance(content, str) or not content.strip():
+                    return {
+                        "success": False,
+                        "error": "openai_empty_response",
+                        "model": model,
+                    }
+                parsed_any = json.loads(content)
+                if not isinstance(parsed_any, dict):
+                    return {
+                        "success": False,
+                        "error": "openai_non_object_json",
+                        "text": content,
+                        "model": model,
+                    }
+                parsed = parsed_any
             total_tokens = 0
             if getattr(completion, "usage", None) is not None:
                 total_tokens = int(getattr(completion.usage, "total_tokens", 0) or 0)
             return {
                 "success": True,
                 "structured_data": parsed,
-                "text": content,
+                "text": content if isinstance(content, str) else "",
                 "tokens_used": total_tokens,
                 "model": model,
             }
@@ -194,7 +218,15 @@ class OpenAINextStepClient(NextStepLLMClient):
             error_message = str(exc)
 
         request_flags: dict[str, object] = {
-            "json_schema": bool(params.get("response_format")),
+            "json_schema": bool(
+                isinstance(params.get("response_format"), dict)
+                and params.get("response_format", {}).get("type") == "json_schema"
+            ),
+            "json_object": bool(
+                isinstance(params.get("response_format"), dict)
+                and params.get("response_format", {}).get("type") == "json_object"
+            ),
+            "tool_calling": bool(params.get("tools")),
             "reasoning_effort": params.get("reasoning_effort"),
             "max_completion_tokens": params.get("max_completion_tokens"),
             "max_tokens": params.get("max_tokens"),

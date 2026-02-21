@@ -1,11 +1,11 @@
-"""Controller-side contracts for strict LLM step proposals."""
+"""Controller-side contracts and local validation for tool-call step proposals."""
 
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Mapping
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from agent_kernel.models import ActionType
 
@@ -50,103 +50,264 @@ class DeclareDoneJustification(BaseModel):
     accepted_deviations: list[AcceptedDeviation] = Field(default_factory=list, max_length=20)
 
 
-class NextStepProposal(BaseModel):
-    action_type: ActionType
-    idempotency_key: str = Field(..., min_length=1, max_length=128)
-    inputs: dict[str, object] = Field(default_factory=dict)
-    why: str = Field(..., min_length=1, max_length=500)
-    retrieval_intent: RetrievalIntent | None = None
-    declare_done: DeclareDoneJustification | None = None
-    notes: str | None = Field(default=None, max_length=500)
-    semantic_ready: bool | None = None
-
-    @model_validator(mode="after")
-    def _validate_cross_fields(self) -> "NextStepProposal":
-        if self.action_type == ActionType.RETRIEVE_EVIDENCE and self.retrieval_intent is None:
-            raise ValueError("retrieval_intent_required_for_retrieve_evidence")
-        if self.action_type == ActionType.DECLARE_DONE and self.declare_done is None:
-            raise ValueError("declare_done_justification_required")
-        return self
-
-
 class ControllerEvent(BaseModel):
     event_type: str = Field(..., min_length=1, max_length=64)
     detail: str = Field(default="", max_length=2000)
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
-def next_step_json_schema() -> dict[str, object]:
-    """Schema used in OpenAI structured output requests."""
+class KernelStepProposal(BaseModel):
+    action_type: str = Field(..., min_length=1, max_length=64)
+    args: dict[str, Any] = Field(default_factory=dict)
+    idempotency_key: str = Field(..., min_length=1, max_length=128)
+    why: str = Field(..., min_length=1, max_length=500)
+    semantic_ready: bool | None = None
+    notes: str | None = Field(default=None, max_length=500)
+    retrieval_intent: RetrievalIntent | None = None
+    declare_done: DeclareDoneJustification | None = None
 
-    schema = NextStepProposal.model_json_schema()
-    if not isinstance(schema, dict):
-        return {"type": "object", "properties": {}, "required": [], "additionalProperties": False}
-    return _normalize_openai_strict_schema(schema)
+    @field_validator("action_type")
+    @classmethod
+    def _normalize_action_type(cls, value: str) -> str:
+        return value.strip().lower()
 
-
-def _normalize_openai_strict_schema(schema: dict[str, Any]) -> dict[str, object]:
-    normalized = _deep_clone(schema)
-    normalized = _inline_root_ref(normalized)
-    _enforce_closed_objects(normalized)
-    return normalized
-
-
-def _inline_root_ref(schema: dict[str, Any]) -> dict[str, Any]:
-    ref = schema.get("$ref")
-    if not isinstance(ref, str):
-        return schema
-    target = _resolve_local_ref(schema, ref)
-    if not isinstance(target, dict):
-        return schema
-
-    inlined = _deep_clone(target)
-    for key, value in schema.items():
-        if key in {"$ref", "$defs", "definitions"}:
-            continue
-        inlined[key] = _deep_clone(value)
-    if "$defs" in schema:
-        inlined["$defs"] = _deep_clone(schema["$defs"])
-    if "definitions" in schema:
-        inlined["definitions"] = _deep_clone(schema["definitions"])
-    return inlined
+    @model_validator(mode="after")
+    def _validate_cross_fields(self) -> "KernelStepProposal":
+        if self.action_type == ActionType.DECLARE_DONE.value and self.declare_done is None:
+            raise ValueError("declare_done_justification_required")
+        return self
 
 
-def _resolve_local_ref(root: dict[str, Any], ref: str) -> dict[str, Any] | None:
-    if not ref.startswith("#/"):
+class _EmptyArgs(BaseModel):
+    pass
+
+
+class _SetGraphRequirementsArgs(BaseModel):
+    ir_artifact_ref: str | None = Field(default=None, max_length=512)
+    updated_ir_artifact_ref: str | None = Field(default=None, max_length=512)
+    global_placement_required: bool | None = None
+
+
+class _HydrateDeedArgs(BaseModel):
+    dossier_id: str | None = Field(default=None, max_length=128)
+    source_entry_ref: str | None = Field(default=None, max_length=256)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_HydrateDeedArgs":
+        if not self.dossier_id and not self.source_entry_ref:
+            raise ValueError("hydrate_deed_requires_dossier_id_or_source_entry_ref")
+        return self
+
+
+class _OpenArtifactArgs(BaseModel):
+    artifact_ref: str | None = Field(default=None, max_length=512)
+    artifact_path: str | None = Field(default=None, max_length=512)
+    corpus_entry_ref: str | None = Field(default=None, max_length=256)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_OpenArtifactArgs":
+        if not self.artifact_ref and not self.artifact_path and not self.corpus_entry_ref:
+            raise ValueError("open_artifact_requires_artifact_or_corpus_ref")
+        return self
+
+
+class _DraftIRArgs(BaseModel):
+    dossier_id: str | None = Field(default=None, max_length=128)
+    deed_artifact_ref: str | None = Field(default=None, max_length=512)
+    hydrated_deed_artifact_ref: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_DraftIRArgs":
+        if not self.dossier_id:
+            raise ValueError("draft_ir_requires_dossier_id")
+        return self
+
+
+class _RetrievalRoutingFilters(BaseModel):
+    artifact_type: str | None = Field(default=None, max_length=128)
+
+
+class _RetrievalRouting(BaseModel):
+    lanes: list[str] | None = Field(default=None, max_length=8)
+    view: str | None = Field(default=None, max_length=64)
+    filters: _RetrievalRoutingFilters | None = None
+
+
+class _RetrievalOptions(BaseModel):
+    limit: int | None = Field(default=None, ge=1, le=100)
+
+
+class _RetrieveEvidenceArgs(BaseModel):
+    query: str = Field(..., min_length=1, max_length=512)
+    routing: _RetrievalRouting | None = None
+    options: _RetrievalOptions | None = None
+
+
+class _CompileArgs(BaseModel):
+    ir_artifact_ref: str | None = Field(default=None, max_length=512)
+    updated_ir_artifact_ref: str | None = Field(default=None, max_length=512)
+    ir_artifact_path: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_CompileArgs":
+        if not self.ir_artifact_ref and not self.updated_ir_artifact_ref and not self.ir_artifact_path:
+            raise ValueError("compile_requires_ir_artifact_ref_or_updated_ir_artifact_ref_or_ir_artifact_path")
+        return self
+
+
+class _JudgeArgs(BaseModel):
+    ir_artifact_ref: str | None = Field(default=None, max_length=512)
+    updated_ir_artifact_ref: str | None = Field(default=None, max_length=512)
+    ir_artifact_path: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_JudgeArgs":
+        if not self.ir_artifact_ref and not self.updated_ir_artifact_ref and not self.ir_artifact_path:
+            raise ValueError("judge_requires_ir_artifact_ref_or_updated_ir_artifact_ref_or_ir_artifact_path")
+        return self
+
+
+class _BundleArgs(BaseModel):
+    ir_artifact_ref: str | None = Field(default=None, max_length=512)
+    updated_ir_artifact_ref: str | None = Field(default=None, max_length=512)
+    ir_artifact_path: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_BundleArgs":
+        if not self.ir_artifact_ref and not self.updated_ir_artifact_ref and not self.ir_artifact_path:
+            raise ValueError("bundle_requires_ir_artifact_ref_or_updated_ir_artifact_ref_or_ir_artifact_path")
+        return self
+
+
+class _GeoreferenceArgs(BaseModel):
+    bundle_artifact_ref: str | None = Field(default=None, max_length=512)
+    ir_artifact_ref: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_GeoreferenceArgs":
+        if not self.bundle_artifact_ref and not self.ir_artifact_ref:
+            raise ValueError("georeference_requires_bundle_artifact_ref_or_ir_artifact_ref")
+        return self
+
+
+class _ValidateArgs(BaseModel):
+    georef_artifact_ref: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_ValidateArgs":
+        if not self.georef_artifact_ref:
+            raise ValueError("validate_requires_georef_artifact_ref")
+        return self
+
+
+class _ProposePatchArgs(BaseModel):
+    ir_artifact_ref: str | None = Field(default=None, max_length=512)
+    retrieval_artifact_ref: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_ProposePatchArgs":
+        if not self.ir_artifact_ref:
+            raise ValueError("propose_patch_requires_ir_artifact_ref")
+        return self
+
+
+class _SummarizeStatusArgs(BaseModel):
+    run_artifact_ref: str | None = Field(default=None, max_length=512)
+    transcript_artifact_ref: str | None = Field(default=None, max_length=512)
+
+
+_ACTION_ARG_MODELS: dict[ActionType, type[BaseModel]] = {
+    ActionType.SET_GRAPH_REQUIREMENTS: _SetGraphRequirementsArgs,
+    ActionType.HYDRATE_DEED: _HydrateDeedArgs,
+    ActionType.OPEN_ARTIFACT: _OpenArtifactArgs,
+    ActionType.DRAFT_IR: _DraftIRArgs,
+    ActionType.DECLARE_DONE: _EmptyArgs,
+    ActionType.RETRIEVE_EVIDENCE: _RetrieveEvidenceArgs,
+    ActionType.COMPILE: _CompileArgs,
+    ActionType.JUDGE: _JudgeArgs,
+    ActionType.BUNDLE: _BundleArgs,
+    ActionType.GEOREFERENCE: _GeoreferenceArgs,
+    ActionType.VALIDATE: _ValidateArgs,
+    ActionType.PROPOSE_PATCH: _ProposePatchArgs,
+    ActionType.SUMMARIZE_STATUS: _SummarizeStatusArgs,
+}
+
+
+def coerce_action_type(action_type: str) -> ActionType | None:
+    try:
+        return ActionType(action_type)
+    except Exception:
         return None
-    current: Any = root
-    for part in ref[2:].split("/"):
-        token = part.replace("~1", "/").replace("~0", "~")
-        if not isinstance(current, dict) or token not in current:
-            return None
-        current = current[token]
-    return current if isinstance(current, dict) else None
 
 
-def _enforce_closed_objects(node: Any) -> None:
-    if isinstance(node, dict):
-        if _node_is_object_schema(node):
-            node["additionalProperties"] = False
-        for value in node.values():
-            _enforce_closed_objects(value)
-        return
-    if isinstance(node, list):
-        for item in node:
-            _enforce_closed_objects(item)
+def validate_action_args(
+    *,
+    action_type: ActionType,
+    args: Mapping[str, Any],
+) -> tuple[dict[str, Any] | None, str | None, list[str]]:
+    model_cls = _ACTION_ARG_MODELS.get(action_type)
+    if model_cls is None:
+        return dict(args), None, []
+    try:
+        validated = model_cls.model_validate(dict(args))
+        return validated.model_dump(mode="json", exclude_none=True), None, []
+    except ValidationError as exc:
+        reason_code = _extract_reason_code(exc, default=f"{action_type.value}_inputs_invalid")
+        missing_inputs = _extract_missing_inputs(exc)
+        return None, reason_code, missing_inputs
 
 
-def _node_is_object_schema(node: dict[str, Any]) -> bool:
-    node_type = node.get("type")
-    if node_type == "object":
-        return True
-    if isinstance(node_type, list):
-        return "object" in node_type
-    return False
+def _extract_reason_code(exc: ValidationError, *, default: str) -> str:
+    for err in exc.errors():
+        msg = err.get("msg")
+        if isinstance(msg, str) and msg.startswith("Value error, "):
+            value = msg.replace("Value error, ", "", 1).strip()
+            if value:
+                return value
+    return default
 
 
-def _deep_clone(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {k: _deep_clone(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_deep_clone(v) for v in value]
-    return value
+def _extract_missing_inputs(exc: ValidationError) -> list[str]:
+    missing: list[str] = []
+    for err in exc.errors():
+        if str(err.get("type", "")).endswith("missing"):
+            loc = err.get("loc")
+            if isinstance(loc, tuple) and loc:
+                field = loc[-1]
+                if isinstance(field, str) and field not in missing:
+                    missing.append(field)
+    return missing
+
+
+def kernel_step_tool_schema() -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": "kernel_step",
+            "description": "Propose exactly one next kernel action.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action_type": {"type": "string", "description": "Kernel action type."},
+                    "args": {"type": "object", "description": "Action args, preferably artifact refs."},
+                    "idempotency_key": {
+                        "type": "string",
+                        "description": "Stable key for dedupe/retry discipline.",
+                    },
+                    "why": {"type": "string", "description": "Short rationale for this move."},
+                    "semantic_ready": {"type": "boolean"},
+                    "notes": {"type": "string"},
+                    "retrieval_intent": {
+                        "type": "string",
+                        "enum": [intent.value for intent in RetrievalIntent],
+                    },
+                    "declare_done": {
+                        "type": "object",
+                        "description": "Optional DECLARE_DONE justification payload.",
+                    },
+                },
+                "required": ["action_type", "args", "idempotency_key", "why"],
+                "additionalProperties": False,
+            },
+        },
+    }
