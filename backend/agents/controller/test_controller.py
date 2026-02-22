@@ -77,6 +77,7 @@ class _FakeSessionManager:
                 "action_type": request.action_type.value,
                 "semantic_ready": request.semantic_ready,
                 "idempotency_key": request.idempotency_key,
+                "inputs": dict(request.inputs),
             }
         )
         idx = min(len(self.step_calls) - 1, len(self._step_results) - 1)
@@ -450,14 +451,17 @@ def test_context_packet_trace_is_bounded() -> None:
         dashboard=_dashboard().model_dump(mode="json"),
         transcript=events,
         last_refusal=None,
+        last_refusal_action_type_raw=None,
         last_step_result=None,
         run_summary_ref=None,
         run_summary_excerpt=None,
         phase_hint="verify",
+        recent_digest_memory=[],
     )
     recent = packet.get("recent_trace")
     assert isinstance(recent, list)
     assert len(recent) <= 8
+    assert isinstance(packet.get("tool_cheatsheet"), list)
 
 
 def test_context_packet_preserves_full_deed_text_and_fix_skeleton_uses_live_deed_ref() -> None:
@@ -474,10 +478,12 @@ def test_context_packet_preserves_full_deed_text_and_fix_skeleton_uses_live_deed
         dashboard=_dashboard().model_dump(mode="json"),
         transcript=[],
         last_refusal=None,
+        last_refusal_action_type_raw=None,
         last_step_result=None,
         run_summary_ref=None,
         run_summary_excerpt=None,
         phase_hint="bootstrap",
+        recent_digest_memory=[],
     )
     inputs = packet.get("inputs")
     assert isinstance(inputs, dict)
@@ -582,16 +588,19 @@ def test_context_packet_last_refusal_includes_rejected_graph_repair_refs() -> No
         dashboard=_dashboard().model_dump(mode="json"),
         transcript=[],
         last_refusal=refusal,
+        last_refusal_action_type_raw=ActionType.DRAFT_IR.value,
         last_step_result=step_result,
         run_summary_ref=None,
         run_summary_excerpt=None,
         phase_hint="author_ir",
+        recent_digest_memory=[],
     )
     last_refusal_payload = packet.get("last_refusal")
     assert isinstance(last_refusal_payload, dict)
     assert last_refusal_payload["reason_code"] == "draft_ir_graph_validation_failed"
     assert last_refusal_payload["rejected_graph_artifact_ref"]["artifact_path"] == "artifacts/rejected/r1.json"
     assert isinstance(last_refusal_payload["rejected_graph_summary"], dict)
+    assert "how_to" in last_refusal_payload
 
 
 def test_draft_ir_with_deed_text_artifact_ref_reaches_kernel_step() -> None:
@@ -646,6 +655,74 @@ def test_draft_ir_with_deed_text_artifact_ref_reaches_kernel_step() -> None:
     assert result.terminal.terminal_outcome == TerminalOutcomeKind.SUCCESS
     assert manager.step_calls
     assert manager.step_calls[0]["action_type"] == ActionType.DRAFT_IR.value
+
+
+def test_open_artifact_empty_args_are_autofilled_from_deed_ref() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {
+                "structured_data": {
+                    "action_type": "open_artifact",
+                    "idempotency_key": "k1",
+                    "args": {},
+                    "why": "open deed artifact",
+                }
+            }
+        ]
+    )
+    terminal = TerminalOutcome(
+        terminal_outcome=TerminalOutcomeKind.SUCCESS,
+        stop_reason=StopReason.COMPLETED,
+        success=True,
+        reason_code="done",
+    )
+    step_result = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="ctl-any",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-001"},
+        refusal=None,
+        dashboard=_dashboard(),
+        terminal=terminal,
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.OPEN_ARTIFACT.value],
+            dashboard=_dashboard(),
+            budgets_remaining=_dashboard().budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[step_result],
+    )
+    start_request = _start_request().model_copy(
+        update={
+            "initial_ir_ref": None,
+            "dossier_id": "D1",
+            "source_entry_ref": "final:D1",
+            "initial_graph_json": {
+                "graph_id": "g1",
+                "nodes": [],
+                "edges": [],
+                "metadata": {
+                    "deed_text_artifact_ref": "artifacts/deed/d1.json",
+                    "deed_text_excerpt": "excerpt",
+                },
+            },
+        }
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=start_request,
+        max_iterations=2,
+    )
+    assert result.terminal.terminal_outcome == TerminalOutcomeKind.SUCCESS
+    assert manager.step_calls
+    assert manager.step_calls[0]["inputs"]["artifact_ref"] == "artifacts/deed/d1.json"
 
 
 def test_safe_artifact_hint_blocks_out_of_root_and_large_file() -> None:

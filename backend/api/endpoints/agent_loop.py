@@ -19,7 +19,7 @@ from agent_kernel.models import KernelBudgets, KernelGoal, KernelSessionStartReq
 from agent_kernel.session import KernelSessionManager
 from agent_kernel.tooling import CorpusArtifactOpener
 from agents.controller.controller import run_controller_loop
-from agents.controller.openai_client import OpenAINextStepClient
+from agents.controller.openai_client import OpenAIIterationDigestClient, OpenAINextStepClient
 from agents.controller.bootstrap import (
     hydrate_and_persist_finalized_dossier_text,
     persist_deed_text_artifact,
@@ -132,10 +132,12 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
         persistence = RunArtifactPersistenceService()
         session_manager = KernelSessionManager(persistence_service=persistence)
         llm_client = OpenAINextStepClient()
+        digest_client = OpenAIIterationDigestClient()
         start_request = _build_start_request(run_id, request)
         result = run_controller_loop(
             session_manager=session_manager,
             llm_client=llm_client,
+            digest_client=digest_client,
             start_request=start_request,
             model=request.model,
             max_iterations=request.max_iterations,

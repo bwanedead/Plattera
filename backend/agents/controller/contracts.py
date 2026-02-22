@@ -320,3 +320,131 @@ def kernel_step_tool_schema() -> dict[str, Any]:
             },
         },
     }
+
+
+_TOOL_REQUIRED_FIELDS: dict[ActionType, list[str]] = {
+    ActionType.OPEN_ARTIFACT: ["artifact_ref | artifact_path | corpus_entry_ref"],
+    ActionType.HYDRATE_DEED: ["dossier_id | source_entry_ref"],
+    ActionType.DRAFT_IR: [
+        "dossier_id",
+        "deed_text_artifact_ref | deed_artifact_ref | hydrated_deed_artifact_ref | graph",
+    ],
+    ActionType.RETRIEVE_EVIDENCE: ["query"],
+    ActionType.COMPILE: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
+    ActionType.JUDGE: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
+    ActionType.BUNDLE: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
+    ActionType.GEOREFERENCE: ["bundle_artifact_ref | ir_artifact_ref"],
+    ActionType.VALIDATE: ["georef_artifact_ref"],
+    ActionType.PROPOSE_PATCH: ["ir_artifact_ref"],
+}
+
+
+def tool_cheatsheet_entries(
+    *,
+    tool_menu: list[str],
+    context_inputs: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for raw in tool_menu:
+        action = coerce_action_type(str(raw))
+        if action is None:
+            continue
+        how_to = action_how_to_guide(action_type=action, reason_code=None, context_inputs=context_inputs)
+        entries.append(
+            {
+                "action_type": action.value,
+                "required_fields": how_to["required_fields"],
+                "minimal_working_example": how_to["minimal_working_example"],
+                "common_mistakes": how_to["common_mistakes"],
+            }
+        )
+    return entries
+
+
+def action_how_to_guide(
+    *,
+    action_type: ActionType | str,
+    reason_code: str | None,
+    context_inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    action = action_type if isinstance(action_type, ActionType) else coerce_action_type(str(action_type))
+    if action is None:
+        return {
+            "required_fields": ["action_type"],
+            "minimal_working_example": {"action_type": "unknown", "args": {}},
+            "common_mistakes": ["Use only actions present in tool_menu."],
+        }
+    example_args = _example_args_for_action(action=action, context_inputs=context_inputs)
+    required_fields = list(_TOOL_REQUIRED_FIELDS.get(action, []))
+    common_mistakes = _common_mistakes_for_action(action, reason_code=reason_code)
+    return {
+        "required_fields": required_fields,
+        "minimal_working_example": {
+            "action_type": action.value,
+            "args": example_args,
+        },
+        "common_mistakes": common_mistakes[:2],
+    }
+
+
+def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str, Any]) -> dict[str, Any]:
+    dossier_id = _ctx_str(context_inputs.get("dossier_id")) or "<inputs.dossier_id>"
+    deed_ref = _ctx_str(context_inputs.get("deed_text_artifact_ref")) or "<inputs.deed_text_artifact_ref>"
+    source_entry_ref = _ctx_str(context_inputs.get("source_entry_ref")) or "<inputs.source_entry_ref>"
+    initial_ir_ref = _ctx_str(context_inputs.get("initial_ir_ref"))
+    latest_ir_ref = _ctx_str(context_inputs.get("latest_ir_ref"))
+    ir_ref = latest_ir_ref or initial_ir_ref or "<ir-artifact-ref>"
+    if action == ActionType.OPEN_ARTIFACT:
+        return {"artifact_ref": deed_ref}
+    if action == ActionType.HYDRATE_DEED:
+        return {"dossier_id": dossier_id, "source_entry_ref": source_entry_ref}
+    if action == ActionType.DRAFT_IR:
+        return {"dossier_id": dossier_id, "deed_text_artifact_ref": deed_ref}
+    if action == ActionType.RETRIEVE_EVIDENCE:
+        return {"query": "<what you need to find>"}
+    if action in {ActionType.COMPILE, ActionType.JUDGE, ActionType.BUNDLE}:
+        return {"ir_artifact_ref": ir_ref}
+    if action == ActionType.GEOREFERENCE:
+        return {"bundle_artifact_ref": "<bundle-artifact-ref>"}
+    if action == ActionType.VALIDATE:
+        return {"georef_artifact_ref": "<georef-artifact-ref>"}
+    if action == ActionType.PROPOSE_PATCH:
+        return {"ir_artifact_ref": ir_ref}
+    return {}
+
+
+def _common_mistakes_for_action(action: ActionType, *, reason_code: str | None) -> list[str]:
+    generic = [
+        "Do not leave args empty when the tool requires fields.",
+        "Prefer artifact refs from Context Packet inputs/progress, not inline blobs.",
+    ]
+    if action == ActionType.OPEN_ARTIFACT:
+        return [
+            "OPEN_ARTIFACT needs artifact_ref, artifact_path, or corpus_entry_ref.",
+            "If inputs.deed_text_artifact_ref exists, use it directly as artifact_ref.",
+        ]
+    if action == ActionType.DRAFT_IR:
+        return [
+            "DRAFT_IR requires dossier_id plus a deed ref (or an inline graph).",
+            "Use inputs.dossier_id and inputs.deed_text_artifact_ref when present.",
+        ]
+    if action in {ActionType.COMPILE, ActionType.JUDGE, ActionType.BUNDLE}:
+        return [
+            "Physics tools require an IR artifact ref/path.",
+            "Use progress.latest_refs.ir_ref after a successful DRAFT_IR or IR update.",
+        ]
+    if action == ActionType.RETRIEVE_EVIDENCE:
+        return [
+            "RETRIEVE_EVIDENCE requires a non-empty query string.",
+            "Use retrieval only when it helps resolve a concrete gap or ambiguity.",
+        ]
+    if reason_code and "action_not_in_tool_menu" in reason_code:
+        return ["Only choose actions currently listed in tool_menu."]
+    return generic
+
+
+def _ctx_str(raw: Any) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    value = raw.strip()
+    return value if value else None

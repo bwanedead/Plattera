@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 from services.llm.openai import OpenAIService
 
-from .controller import NextStepLLMClient
+from .controller import IterationDigestClient, NextStepLLMClient
 
 logger = logging.getLogger(__name__)
 _MAX_ERROR_MESSAGE_CHARS = 1000
@@ -271,3 +271,61 @@ class OpenAINextStepClient(NextStepLLMClient):
             "api_model": api_model,
             "request_flags": request_flags,
         }
+
+
+class OpenAIIterationDigestClient(IterationDigestClient):
+    """Cheap JSON-mode summarizer for bounded iteration digests (GPT-5 mini by default)."""
+
+    def __init__(self, service: _OpenAIServiceLike | None = None) -> None:
+        self._service = service or OpenAIService()
+
+    def summarize_iteration_digest(
+        self,
+        *,
+        payload: dict[str, object],
+        model: str = "gpt-5-mini",
+    ) -> dict[str, object]:
+        if not self._service.is_available() or getattr(self._service, "client", None) is None:
+            return {"success": False, "error": "openai_service_unavailable"}
+        client = self._service.client
+        api_model = self._resolve_api_model_name(model)
+        prompt = (
+            "Return a compact JSON iteration digest only. "
+            "Keep it under ~2KB. Keys: iter,result,proposed,failure,correction,progress,notes. "
+            "notes max 3 short strings. "
+            f"Input JSON: {json.dumps(payload, ensure_ascii=True, sort_keys=True)}"
+        )
+        params: dict[str, Any] = {
+            "model": api_model,
+            "messages": [
+                {"role": "developer", "content": "Summarize controller iteration outcomes into a tiny JSON digest."},
+                {"role": "user", "content": prompt},
+            ],
+            "response_format": {"type": "json_object"},
+        }
+        if "gpt-5" in api_model:
+            params["max_completion_tokens"] = 800
+            params["reasoning_effort"] = "low"
+        else:
+            params["max_tokens"] = 800
+            params["temperature"] = 0
+        try:
+            completion = client.chat.completions.create(**params)
+            message = completion.choices[0].message if completion.choices else None
+            content = message.content if message is not None else None
+            if not isinstance(content, str) or not content.strip():
+                return {"success": False, "error": "empty_digest_response"}
+            parsed = json.loads(content)
+            if not isinstance(parsed, dict):
+                return {"success": False, "error": "digest_not_json_object"}
+            return {"success": True, "digest": parsed}
+        except Exception as exc:
+            logger.warning("openai_iteration_digest_failed %s", type(exc).__name__)
+            return {"success": False, "error": "openai_iteration_digest_failed"}
+
+    def _resolve_api_model_name(self, model: str) -> str:
+        model_info = self._service.models.get(model, {})
+        api_name = model_info.get("api_model_name")
+        if isinstance(api_name, str) and api_name:
+            return api_name
+        return model

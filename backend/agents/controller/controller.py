@@ -31,10 +31,13 @@ from agent_kernel.session import KernelSessionManager
 
 from .contracts import (
     KernelStepProposal,
+    action_how_to_guide,
     coerce_action_type,
     kernel_step_tool_schema,
+    tool_cheatsheet_entries,
     validate_action_args,
 )
+from .digests import build_fallback_iteration_digest, persist_iteration_digest
 from .retrieval_intents import classify_retrieval_degradation, map_retrieval_intent_to_inputs
 
 _MAX_CONTROLLER_INPUT_BYTES = 4096
@@ -66,6 +69,17 @@ class NextStepLLMClient(Protocol):
     ) -> dict[str, object]: ...
 
 
+class IterationDigestClient(Protocol):
+    """Cheap summarizer interface for compact per-iteration digest memory."""
+
+    def summarize_iteration_digest(
+        self,
+        *,
+        payload: dict[str, object],
+        model: str = "gpt-5-mini",
+    ) -> dict[str, object]: ...
+
+
 class ControllerLoopError(RuntimeError):
     """Raised when controller runtime invariants are violated."""
 
@@ -87,6 +101,7 @@ def run_controller_loop(
     start_request: KernelSessionStartRequest,
     model: str = "gpt-5-mini",
     max_iterations: int = 20,
+    digest_client: IterationDigestClient | None = None,
 ) -> ControllerRunResult:
     started = session_manager.start_session(start_request)
     transcript: list[dict[str, object]] = []
@@ -166,6 +181,8 @@ def run_controller_loop(
     executed_steps = 0
     phase_hint = "bootstrap"
     last_summary_phase = phase_hint
+    recent_digest_memory: list[dict[str, object]] = []
+    last_refusal_action_type_raw: str | None = None
     while iterations < max_iterations:
         iterations += 1
         context_packet = _build_context_packet(
@@ -175,10 +192,12 @@ def run_controller_loop(
             dashboard=started.dashboard.model_dump(mode="json"),
             transcript=transcript,
             last_refusal=last_refusal,
+            last_refusal_action_type_raw=last_refusal_action_type_raw,
             last_step_result=last_result,
             run_summary_ref=run_summary_ref,
             run_summary_excerpt=run_summary_excerpt,
             phase_hint=phase_hint,
+            recent_digest_memory=recent_digest_memory,
         )
         proposal = _propose_next_step(
             llm_client=llm_client,
@@ -216,6 +235,7 @@ def run_controller_loop(
                 retryable=True,
             )
             last_refusal = refusal
+            last_refusal_action_type_raw = proposal.action_type
             _append_event(
                 transcript,
                 event_type="controller_refusal",
@@ -226,6 +246,11 @@ def run_controller_loop(
                         reason_code=refusal.reason_code,
                         action_type_raw=proposal.action_type,
                         bootstrap_context=bootstrap_context,
+                    ),
+                    "how_to": action_how_to_guide(
+                        action_type=proposal.action_type,
+                        reason_code=refusal.reason_code,
+                        context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
                     ),
                 },
             )
@@ -268,6 +293,18 @@ def run_controller_loop(
                     bootstrap_context=bootstrap_context,
                     iterations=iterations,
                 )
+            recent_digest_memory = _maybe_create_iteration_digest(
+                digest_client=digest_client,
+                request_id=start_request.request_id,
+                session_id=session_id,
+                iteration=iterations,
+                context_packet=context_packet,
+                phase_hint=phase_hint,
+                proposal=proposal,
+                outcome_kind="controller_refusal",
+                outcome_payload={"reason_code": refusal.reason_code, "missing_inputs": refusal.missing_inputs},
+                recent_digest_memory=recent_digest_memory,
+            )
             continue
 
         if action_type.value not in started.tool_menu:
@@ -277,6 +314,7 @@ def run_controller_loop(
                 retryable=False,
             )
             last_refusal = refusal
+            last_refusal_action_type_raw = action_type.value
             _append_event(
                 transcript,
                 event_type="controller_refusal",
@@ -287,6 +325,11 @@ def run_controller_loop(
                         reason_code=refusal.reason_code,
                         action_type_raw=action_type.value,
                         bootstrap_context=bootstrap_context,
+                    ),
+                    "how_to": action_how_to_guide(
+                        action_type=action_type,
+                        reason_code=refusal.reason_code,
+                        context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
                     ),
                 },
             )
@@ -329,12 +372,47 @@ def run_controller_loop(
                     bootstrap_context=bootstrap_context,
                     iterations=iterations,
                 )
+            recent_digest_memory = _maybe_create_iteration_digest(
+                digest_client=digest_client,
+                request_id=start_request.request_id,
+                session_id=session_id,
+                iteration=iterations,
+                context_packet=context_packet,
+                phase_hint=phase_hint,
+                proposal=proposal,
+                outcome_kind="controller_refusal",
+                outcome_payload={"reason_code": refusal.reason_code, "missing_inputs": refusal.missing_inputs},
+                recent_digest_memory=recent_digest_memory,
+            )
             continue
 
         proposal_inputs = dict(proposal.args)
+        proposal_inputs, autofill_applied = _autofill_known_args(
+            action_type=action_type,
+            args=proposal_inputs,
+            bootstrap_context=bootstrap_context,
+            dashboard=started.dashboard.model_dump(mode="json"),
+        )
+        if autofill_applied:
+            _append_event(
+                transcript,
+                event_type="controller_autofill",
+                detail=action_type.value,
+                payload={"action_type": action_type.value, "filled": sorted(autofill_applied), "args": proposal_inputs},
+            )
+            _log_controller_event(
+                "controller_autofill",
+                {
+                    "iteration": iterations,
+                    "action_type": action_type.value,
+                    "filled": sorted(autofill_applied),
+                    "arg_keys": sorted(proposal_inputs.keys()),
+                },
+            )
         payload_refusal = _validate_controller_inputs(proposal_inputs)
         if payload_refusal is not None:
             last_refusal = payload_refusal
+            last_refusal_action_type_raw = action_type.value
             _append_event(
                 transcript,
                 event_type="controller_refusal",
@@ -345,6 +423,11 @@ def run_controller_loop(
                         reason_code=payload_refusal.reason_code,
                         action_type_raw=action_type.value,
                         bootstrap_context=bootstrap_context,
+                    ),
+                    "how_to": action_how_to_guide(
+                        action_type=action_type,
+                        reason_code=payload_refusal.reason_code,
+                        context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
                     ),
                 },
             )
@@ -387,6 +470,18 @@ def run_controller_loop(
                     bootstrap_context=bootstrap_context,
                     iterations=iterations,
                 )
+            recent_digest_memory = _maybe_create_iteration_digest(
+                digest_client=digest_client,
+                request_id=start_request.request_id,
+                session_id=session_id,
+                iteration=iterations,
+                context_packet=context_packet,
+                phase_hint=phase_hint,
+                proposal=proposal,
+                outcome_kind="controller_refusal",
+                outcome_payload={"reason_code": payload_refusal.reason_code, "missing_inputs": payload_refusal.missing_inputs},
+                recent_digest_memory=recent_digest_memory,
+            )
             continue
 
         cleaned_inputs, args_reason, args_missing = validate_action_args(
@@ -400,6 +495,7 @@ def run_controller_loop(
                 retryable=True,
             )
             last_refusal = refusal
+            last_refusal_action_type_raw = action_type.value
             _append_event(
                 transcript,
                 event_type="controller_refusal",
@@ -410,6 +506,11 @@ def run_controller_loop(
                         reason_code=refusal.reason_code,
                         action_type_raw=action_type.value,
                         bootstrap_context=bootstrap_context,
+                    ),
+                    "how_to": action_how_to_guide(
+                        action_type=action_type,
+                        reason_code=refusal.reason_code,
+                        context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
                     ),
                 },
             )
@@ -452,6 +553,18 @@ def run_controller_loop(
                     bootstrap_context=bootstrap_context,
                     iterations=iterations,
                 )
+            recent_digest_memory = _maybe_create_iteration_digest(
+                digest_client=digest_client,
+                request_id=start_request.request_id,
+                session_id=session_id,
+                iteration=iterations,
+                context_packet=context_packet,
+                phase_hint=phase_hint,
+                proposal=proposal,
+                outcome_kind="controller_refusal",
+                outcome_payload={"reason_code": refusal.reason_code, "missing_inputs": refusal.missing_inputs},
+                recent_digest_memory=recent_digest_memory,
+            )
             continue
 
         if action_type == ActionType.DECLARE_DONE and proposal.declare_done is None:
@@ -461,6 +574,7 @@ def run_controller_loop(
                 retryable=True,
             )
             last_refusal = refusal
+            last_refusal_action_type_raw = action_type.value
             _append_event(
                 transcript,
                 event_type="controller_refusal",
@@ -471,6 +585,11 @@ def run_controller_loop(
                         reason_code=refusal.reason_code,
                         action_type_raw=action_type.value,
                         bootstrap_context=bootstrap_context,
+                    ),
+                    "how_to": action_how_to_guide(
+                        action_type=action_type,
+                        reason_code=refusal.reason_code,
+                        context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
                     ),
                 },
             )
@@ -513,6 +632,18 @@ def run_controller_loop(
                     bootstrap_context=bootstrap_context,
                     iterations=iterations,
                 )
+            recent_digest_memory = _maybe_create_iteration_digest(
+                digest_client=digest_client,
+                request_id=start_request.request_id,
+                session_id=session_id,
+                iteration=iterations,
+                context_packet=context_packet,
+                phase_hint=phase_hint,
+                proposal=proposal,
+                outcome_kind="controller_refusal",
+                outcome_payload={"reason_code": refusal.reason_code, "missing_inputs": refusal.missing_inputs},
+                recent_digest_memory=recent_digest_memory,
+            )
             continue
 
         step_inputs = cleaned_inputs
@@ -541,6 +672,7 @@ def run_controller_loop(
         last_result = step_result
         started.dashboard = step_result.dashboard
         last_refusal = step_result.refusal
+        last_refusal_action_type_raw = action_type.value if step_result.refusal is not None else None
         _append_event(
             transcript,
             event_type="kernel_step_result",
@@ -630,6 +762,32 @@ def run_controller_loop(
                     bootstrap_context=bootstrap_context,
                     iterations=iterations,
                 )
+        recent_digest_memory = _maybe_create_iteration_digest(
+            digest_client=digest_client,
+            request_id=start_request.request_id,
+            session_id=session_id,
+            iteration=iterations,
+            context_packet=context_packet,
+            phase_hint=phase_hint,
+            proposal=proposal,
+            outcome_kind=(
+                "kernel_refusal" if step_result.refusal is not None else "executed"
+                if step_result.execution_state == StepExecutionState.EXECUTED
+                else "deduped"
+            ),
+            outcome_payload={
+                "execution_state": step_result.execution_state.value,
+                "reason_code": (
+                    step_result.refusal.reason_code
+                    if step_result.refusal is not None
+                    else (step_result.terminal.reason_code if step_result.terminal is not None else None)
+                ),
+                "missing_inputs": step_result.refusal.missing_inputs if step_result.refusal is not None else [],
+                "latest_refs": _latest_refs_summary(step_result.dashboard.model_dump(mode="json")),
+            },
+            recent_digest_memory=recent_digest_memory,
+            executed_steps=executed_steps,
+        )
 
         if executed_steps > 0 and executed_steps % _RUN_SUMMARY_EVERY_EXECUTED_STEPS == 0:
             run_summary_ref, run_summary_excerpt = _persist_run_summary(
@@ -887,10 +1045,12 @@ def _build_context_packet(
     dashboard: dict[str, object],
     transcript: list[dict[str, object]],
     last_refusal: KernelRefusal | None,
+    last_refusal_action_type_raw: str | None,
     last_step_result: KernelStepResult | None,
     run_summary_ref: str | None,
     run_summary_excerpt: str | None,
     phase_hint: str,
+    recent_digest_memory: list[dict[str, object]],
 ) -> dict[str, object]:
     latest_refs = _latest_refs_summary(dashboard)
     recent_trace = _extract_recent_trace(transcript)
@@ -900,27 +1060,33 @@ def _build_context_packet(
         "gap_summary": _compact_gap_summary(dashboard.get("gap_summary")),
         "claimability": dashboard.get("claimability", {}),
     }
+    packet_inputs = {
+        "dossier_id": bootstrap_context.get("dossier_id"),
+        "source_entry_ref": bootstrap_context.get("source_entry_ref"),
+        "deed_text_excerpt": bootstrap_context.get("deed_text_excerpt"),
+        "deed_text_artifact_ref": bootstrap_context.get("deed_text_artifact_ref"),
+        "deed_text_full": bootstrap_context.get("deed_text_full"),
+        "initial_ir_ref": bootstrap_context.get("initial_ir_ref"),
+        "latest_ir_ref": latest_refs.get("ir_ref"),
+    }
     packet = {
         "session_id": session_id,
         "tool_menu": tool_menu,
-        "inputs": {
-            "dossier_id": bootstrap_context.get("dossier_id"),
-            "source_entry_ref": bootstrap_context.get("source_entry_ref"),
-            "deed_text_excerpt": bootstrap_context.get("deed_text_excerpt"),
-            "deed_text_artifact_ref": bootstrap_context.get("deed_text_artifact_ref"),
-            "deed_text_full": bootstrap_context.get("deed_text_full"),
-            "initial_ir_ref": bootstrap_context.get("initial_ir_ref"),
-        },
+        "inputs": packet_inputs,
         "progress": progress,
         "working_memory": {
             "phase_hint": phase_hint,
             "plan_bullets": _phase_plan_bullets(phase_hint),
         },
+        "memory": _digest_memory_payload(recent_digest_memory),
+        "tool_cheatsheet": tool_cheatsheet_entries(tool_menu=tool_menu, context_inputs=packet_inputs),
         "recent_trace": recent_trace,
         "last_refusal": _last_refusal_payload(
             last_refusal,
+            last_refusal_action_type_raw=last_refusal_action_type_raw,
             last_step_result=last_step_result,
             bootstrap_context=bootstrap_context,
+            context_inputs=packet_inputs,
         ),
         "artifacts_inline": _inline_artifact_hints(latest_refs, bootstrap_context=bootstrap_context),
         "run_summary": {
@@ -1018,16 +1184,26 @@ def _phase_plan_bullets(phase_hint: str) -> list[str]:
 def _last_refusal_payload(
     last_refusal: KernelRefusal | None,
     *,
+    last_refusal_action_type_raw: str | None,
     last_step_result: KernelStepResult | None,
     bootstrap_context: dict[str, object] | None,
+    context_inputs: dict[str, object],
 ) -> dict[str, object] | None:
     if last_refusal is None:
         return None
-    action_type_raw = "hydrate_deed" if "deed" in ",".join(last_refusal.missing_inputs).lower() else "open_artifact"
+    action_type_raw = (
+        last_refusal_action_type_raw
+        or ("hydrate_deed" if "deed" in ",".join(last_refusal.missing_inputs).lower() else "open_artifact")
+    )
     payload = last_refusal.model_dump(mode="json")
     rejected_meta = _extract_rejected_graph_refusal_meta(last_step_result)
     if rejected_meta:
         payload.update(rejected_meta)
+    payload["how_to"] = action_how_to_guide(
+        action_type=action_type_raw,
+        reason_code=last_refusal.reason_code,
+        context_inputs=context_inputs,
+    )
     payload["fix"] = _build_fix_skeleton(
         reason_code=last_refusal.reason_code,
         action_type_raw=action_type_raw,
@@ -1063,6 +1239,21 @@ def _extract_rejected_graph_refusal_meta(
     if out:
         return out
     return None
+
+
+def _digest_memory_payload(recent_digest_memory: list[dict[str, object]]) -> dict[str, object]:
+    if not recent_digest_memory:
+        return {
+            "last_digest_ref": None,
+            "last_digest_excerpt": None,
+            "recent_digests_excerpts": [],
+        }
+    last = recent_digest_memory[-1]
+    return {
+        "last_digest_ref": last.get("digest_ref"),
+        "last_digest_excerpt": last.get("digest_excerpt"),
+        "recent_digests_excerpts": [d.get("digest_excerpt") for d in recent_digest_memory[-5:] if d.get("digest_excerpt")],
+    }
 
 
 def _inline_artifact_hints(
@@ -1214,6 +1405,128 @@ def _build_fix_skeleton(
         "reason_code": reason_code,
     }
     return skeleton
+
+
+def _autofill_known_args(
+    *,
+    action_type: ActionType,
+    args: dict[str, object],
+    bootstrap_context: dict[str, object],
+    dashboard: dict[str, object],
+) -> tuple[dict[str, object], set[str]]:
+    filled: set[str] = set()
+    updated = dict(args)
+    deed_ref = _read_str(bootstrap_context.get("deed_text_artifact_ref"))
+    dossier_id = _read_str(bootstrap_context.get("dossier_id"))
+    source_entry_ref = _read_str(bootstrap_context.get("source_entry_ref"))
+    latest_refs = _latest_refs_summary(dashboard)
+    ir_ref = _read_str(latest_refs.get("ir_ref")) or _read_str(bootstrap_context.get("initial_ir_ref"))
+
+    if action_type == ActionType.OPEN_ARTIFACT:
+        has_any = any(_read_str(updated.get(k)) for k in ("artifact_ref", "artifact_path", "corpus_entry_ref"))
+        if not has_any:
+            if deed_ref:
+                updated["artifact_ref"] = deed_ref
+                filled.add("artifact_ref")
+            elif source_entry_ref:
+                updated["corpus_entry_ref"] = source_entry_ref
+                filled.add("corpus_entry_ref")
+
+    if action_type == ActionType.DRAFT_IR:
+        if not _read_str(updated.get("dossier_id")) and dossier_id:
+            updated["dossier_id"] = dossier_id
+            filled.add("dossier_id")
+        has_deed = any(
+            _read_str(updated.get(k))
+            for k in ("deed_text_artifact_ref", "deed_artifact_ref", "hydrated_deed_artifact_ref")
+        )
+        if not has_deed and "graph" not in updated and deed_ref:
+            updated["deed_text_artifact_ref"] = deed_ref
+            filled.add("deed_text_artifact_ref")
+
+    if action_type in {ActionType.COMPILE, ActionType.JUDGE, ActionType.BUNDLE}:
+        has_ir = any(_read_str(updated.get(k)) for k in ("ir_artifact_ref", "updated_ir_artifact_ref", "ir_artifact_path"))
+        if not has_ir and ir_ref:
+            updated["ir_artifact_ref"] = ir_ref
+            filled.add("ir_artifact_ref")
+
+    return updated, filled
+
+
+def _maybe_create_iteration_digest(
+    *,
+    digest_client: IterationDigestClient | None,
+    request_id: str,
+    session_id: str,
+    iteration: int,
+    context_packet: dict[str, object],
+    phase_hint: str,
+    proposal: KernelStepProposal,
+    outcome_kind: str,
+    outcome_payload: dict[str, object],
+    recent_digest_memory: list[dict[str, object]],
+    executed_steps: int = 0,
+) -> list[dict[str, object]]:
+    if not _should_emit_iteration_digest(outcome_kind=outcome_kind, executed_steps=executed_steps):
+        return recent_digest_memory
+    digest_seed = {
+        "iter": iteration,
+        "phase_hint": phase_hint,
+        "context_inputs": context_packet.get("inputs", {}),
+        "progress": (context_packet.get("progress") if isinstance(context_packet.get("progress"), dict) else {}),
+        "proposal": {
+            "action_type": proposal.action_type,
+            "args": proposal.args,
+            "why": proposal.why,
+        },
+        "outcome": {"kind": outcome_kind, **outcome_payload},
+    }
+    digest_payload: dict[str, object] | None = None
+    if digest_client is not None:
+        try:
+            digest_result = digest_client.summarize_iteration_digest(payload=digest_seed, model="gpt-5-mini")
+            candidate = digest_result.get("digest") if isinstance(digest_result, dict) else None
+            if isinstance(candidate, dict):
+                digest_payload = candidate
+        except Exception:
+            digest_payload = None
+    if digest_payload is None:
+        digest_payload = build_fallback_iteration_digest(seed=digest_seed)
+    digest_ref, digest_excerpt = persist_iteration_digest(
+        request_id=request_id,
+        session_id=session_id,
+        iteration=iteration,
+        digest=digest_payload,
+    )
+    _log_controller_event(
+        "iteration_digest_created",
+        {
+            "iteration": iteration,
+            "digest_ref": digest_ref,
+            "digest_excerpt": digest_excerpt,
+            "result": digest_payload.get("result") if isinstance(digest_payload, dict) else None,
+        },
+    )
+    updated = list(recent_digest_memory)
+    updated.append({"iter": iteration, "digest_ref": digest_ref, "digest_excerpt": digest_excerpt})
+    return updated[-8:]
+
+
+def _should_emit_iteration_digest(*, outcome_kind: str, executed_steps: int) -> bool:
+    if executed_steps == 0:
+        return True
+    if outcome_kind in {"controller_refusal", "kernel_refusal"}:
+        return True
+    if outcome_kind == "executed" and executed_steps % 3 == 0:
+        return True
+    return False
+
+
+def _read_str(raw: object) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    v = raw.strip()
+    return v if v else None
 
 
 def _compute_controller_idempotency_key(
