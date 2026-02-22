@@ -93,13 +93,44 @@ def test_draft_ir_proposer_persists_stub_artifact_ref() -> None:
         legacy_paths.dossiers_root = _patched_root  # type: ignore[assignment]
         try:
             proposer = DraftIRFilesystemProposer()
-            ref = proposer.draft_ir({"dossier_id": "D_DRAFT"})
+            ref = proposer.draft_ir(
+                {
+                    "dossier_id": "D_DRAFT",
+                    "deed_text_artifact_ref": "artifacts/deed/draft_seed.json",
+                }
+            )
 
             payload = json.loads(Path(ref.artifact_path).read_text(encoding="utf-8"))
             assert payload["artifact_type"] == "ir_draft_stub"
             assert payload["dossier_id"] == "D_DRAFT"
             assert "graph" in payload
             assert str(payload["graph"].get("graph_id", "")).startswith("graph_draft_")
+            assert payload["source_artifact_ref"]["artifact_path"] == "artifacts/deed/draft_seed.json"
+        finally:
+            legacy_paths.dossiers_root = original_legacy_dossiers_root  # type: ignore[assignment]
+
+
+def test_draft_ir_proposer_uses_inline_graph_when_provided() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        original_legacy_dossiers_root = legacy_paths.dossiers_root
+
+        def _patched_root() -> Path:
+            return root / "dossiers_data"
+
+        legacy_paths.dossiers_root = _patched_root  # type: ignore[assignment]
+        try:
+            proposer = DraftIRFilesystemProposer()
+            inline_graph = {
+                "graph_id": "inline_1",
+                "nodes": [{"id": "start", "kind": "point", "geometry": {"type": "Point", "coordinates": [0.0, 0.0]}}],
+                "edges": [],
+                "metadata": {"source": "unit-test"},
+            }
+            ref = proposer.draft_ir({"dossier_id": "D_DRAFT", "graph": inline_graph})
+            payload = json.loads(Path(ref.artifact_path).read_text(encoding="utf-8"))
+            assert payload["graph"]["graph_id"] == "inline_1"
+            assert len(payload["graph"]["nodes"]) == 1
         finally:
             legacy_paths.dossiers_root = original_legacy_dossiers_root  # type: ignore[assignment]
 

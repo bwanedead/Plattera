@@ -96,7 +96,10 @@ class DraftIRFilesystemProposer:
 
     def draft_ir(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         dossier_id = _read_str(inputs.get("dossier_id")) or "unknown"
+        inline_graph = inputs.get("graph") if isinstance(inputs.get("graph"), dict) else None
         source_ref = _coerce_artifact_ref(inputs.get("hydrated_deed_artifact_ref"))
+        if source_ref is None:
+            source_ref = _coerce_artifact_ref(inputs.get("deed_text_artifact_ref"))
         if source_ref is None:
             source_ref = _coerce_artifact_ref(inputs.get("deed_artifact_ref"))
 
@@ -105,15 +108,19 @@ class DraftIRFilesystemProposer:
             "created_at": datetime.now(timezone.utc).isoformat(),
             "dossier_id": dossier_id,
             "source_artifact_ref": source_ref.model_dump(mode="json") if source_ref is not None else None,
-            "graph": {
-                "graph_id": f"graph_draft_{uuid4().hex[:12]}",
-                "metadata": {
-                    "drafted_by": "kernel_step_tool_stub",
-                    "dossier_id": dossier_id,
-                },
-                "nodes": [],
-                "edges": [],
-            },
+            "graph": (
+                inline_graph
+                if inline_graph is not None
+                else {
+                    "graph_id": f"graph_draft_{uuid4().hex[:12]}",
+                    "metadata": {
+                        "drafted_by": "kernel_step_tool_stub",
+                        "dossier_id": dossier_id,
+                    },
+                    "nodes": [],
+                    "edges": [],
+                }
+            ),
         }
         return _persist_json_artifact(
             category="ir_drafts",

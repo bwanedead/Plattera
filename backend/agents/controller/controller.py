@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import tempfile
@@ -41,6 +42,14 @@ _MAX_EVENTS = 200
 _MAX_EVENT_CHARS = 2000
 _MAX_TOTAL_BYTES = 262144
 _MAX_ERROR_CHARS = 1000
+_MAX_TRACE_ITEMS = 8
+_MAX_PLAN_BULLETS = 8
+_MAX_GAP_KINDS = 8
+_MAX_REASON_CODES = 8
+_MAX_REFUSAL_STREAK = 3
+_RUN_SUMMARY_EVERY_EXECUTED_STEPS = 5
+_MAX_HINT_FILE_BYTES = 65536
+_MAX_HINT_READ_BYTES = 32768
 
 logger = logging.getLogger(__name__)
 
@@ -150,20 +159,30 @@ def run_controller_loop(
     )
 
     iterations = 0
+    run_summary_ref: str | None = None
+    run_summary_excerpt: str | None = None
+    refusal_streak = 0
+    previous_refusal_signature: str | None = None
+    executed_steps = 0
+    phase_hint = "bootstrap"
+    last_summary_phase = phase_hint
     while iterations < max_iterations:
         iterations += 1
-        observation = {
-            "session_id": session_id,
-            "tool_menu": started.tool_menu,
-            "dashboard": started.dashboard.model_dump(mode="json"),
-            "bootstrap_context": bootstrap_context,
-            "last_refusal": last_refusal.model_dump(mode="json") if last_refusal is not None else None,
-            "last_step": last_result.step_record if last_result is not None else None,
-        }
+        context_packet = _build_context_packet(
+            session_id=session_id,
+            tool_menu=started.tool_menu,
+            bootstrap_context=bootstrap_context,
+            dashboard=started.dashboard.model_dump(mode="json"),
+            transcript=transcript,
+            last_refusal=last_refusal,
+            run_summary_ref=run_summary_ref,
+            run_summary_excerpt=run_summary_excerpt,
+            phase_hint=phase_hint,
+        )
         proposal = _propose_next_step(
             llm_client=llm_client,
             model=model,
-            observation=observation,
+            observation=context_packet,
             transcript=transcript,
         )
         if proposal is None:
@@ -181,8 +200,42 @@ def run_controller_loop(
                 transcript,
                 event_type="controller_refusal",
                 detail=refusal.reason_code,
-                payload={"action_type": proposal.action_type},
+                payload={
+                    "action_type": proposal.action_type,
+                    "fix": _build_fix_skeleton(
+                        reason_code=refusal.reason_code,
+                        action_type_raw=proposal.action_type,
+                    ),
+                },
             )
+            refusal_streak, previous_refusal_signature = _update_refusal_streak(
+                refusal_streak=refusal_streak,
+                previous_signature=previous_refusal_signature,
+                reason_code=refusal.reason_code,
+                action_type=proposal.action_type,
+                args=proposal.args,
+            )
+            if refusal_streak >= 2:
+                run_summary_ref, run_summary_excerpt = _persist_run_summary(
+                    request_id=start_request.request_id,
+                    session_id=session_id,
+                    phase_hint=phase_hint,
+                    dashboard=started.dashboard.model_dump(mode="json"),
+                    last_refusal=refusal.model_dump(mode="json"),
+                    transcript=transcript,
+                )
+            if refusal_streak >= _MAX_REFUSAL_STREAK:
+                return _build_no_progress_result(
+                    start_request=start_request,
+                    session_id=session_id,
+                    run_artifact_ref=started.run_artifact_ref,
+                    dashboard=started.dashboard.model_dump(mode="json"),
+                    transcript=transcript,
+                    reason_code=refusal.reason_code,
+                    action_type=proposal.action_type,
+                    bootstrap_context=bootstrap_context,
+                    iterations=iterations,
+                )
             continue
 
         if action_type.value not in started.tool_menu:
@@ -196,8 +249,42 @@ def run_controller_loop(
                 transcript,
                 event_type="controller_refusal",
                 detail=refusal.reason_code,
-                payload={"action_type": action_type.value},
+                payload={
+                    "action_type": action_type.value,
+                    "fix": _build_fix_skeleton(
+                        reason_code=refusal.reason_code,
+                        action_type_raw=action_type.value,
+                    ),
+                },
             )
+            refusal_streak, previous_refusal_signature = _update_refusal_streak(
+                refusal_streak=refusal_streak,
+                previous_signature=previous_refusal_signature,
+                reason_code=refusal.reason_code,
+                action_type=action_type.value,
+                args=proposal.args,
+            )
+            if refusal_streak >= 2:
+                run_summary_ref, run_summary_excerpt = _persist_run_summary(
+                    request_id=start_request.request_id,
+                    session_id=session_id,
+                    phase_hint=phase_hint,
+                    dashboard=started.dashboard.model_dump(mode="json"),
+                    last_refusal=refusal.model_dump(mode="json"),
+                    transcript=transcript,
+                )
+            if refusal_streak >= _MAX_REFUSAL_STREAK:
+                return _build_no_progress_result(
+                    start_request=start_request,
+                    session_id=session_id,
+                    run_artifact_ref=started.run_artifact_ref,
+                    dashboard=started.dashboard.model_dump(mode="json"),
+                    transcript=transcript,
+                    reason_code=refusal.reason_code,
+                    action_type=action_type.value,
+                    bootstrap_context=bootstrap_context,
+                    iterations=iterations,
+                )
             continue
 
         proposal_inputs = dict(proposal.args)
@@ -208,8 +295,42 @@ def run_controller_loop(
                 transcript,
                 event_type="controller_refusal",
                 detail=payload_refusal.reason_code,
-                payload={"refusal": payload_refusal.model_dump(mode="json")},
+                payload={
+                    "refusal": payload_refusal.model_dump(mode="json"),
+                    "fix": _build_fix_skeleton(
+                        reason_code=payload_refusal.reason_code,
+                        action_type_raw=action_type.value,
+                    ),
+                },
             )
+            refusal_streak, previous_refusal_signature = _update_refusal_streak(
+                refusal_streak=refusal_streak,
+                previous_signature=previous_refusal_signature,
+                reason_code=payload_refusal.reason_code,
+                action_type=action_type.value,
+                args=proposal_inputs,
+            )
+            if refusal_streak >= 2:
+                run_summary_ref, run_summary_excerpt = _persist_run_summary(
+                    request_id=start_request.request_id,
+                    session_id=session_id,
+                    phase_hint=phase_hint,
+                    dashboard=started.dashboard.model_dump(mode="json"),
+                    last_refusal=payload_refusal.model_dump(mode="json"),
+                    transcript=transcript,
+                )
+            if refusal_streak >= _MAX_REFUSAL_STREAK:
+                return _build_no_progress_result(
+                    start_request=start_request,
+                    session_id=session_id,
+                    run_artifact_ref=started.run_artifact_ref,
+                    dashboard=started.dashboard.model_dump(mode="json"),
+                    transcript=transcript,
+                    reason_code=payload_refusal.reason_code,
+                    action_type=action_type.value,
+                    bootstrap_context=bootstrap_context,
+                    iterations=iterations,
+                )
             continue
 
         cleaned_inputs, args_reason, args_missing = validate_action_args(
@@ -227,8 +348,42 @@ def run_controller_loop(
                 transcript,
                 event_type="controller_refusal",
                 detail=refusal.reason_code,
-                payload={"refusal": refusal.model_dump(mode="json")},
+                payload={
+                    "refusal": refusal.model_dump(mode="json"),
+                    "fix": _build_fix_skeleton(
+                        reason_code=refusal.reason_code,
+                        action_type_raw=action_type.value,
+                    ),
+                },
             )
+            refusal_streak, previous_refusal_signature = _update_refusal_streak(
+                refusal_streak=refusal_streak,
+                previous_signature=previous_refusal_signature,
+                reason_code=refusal.reason_code,
+                action_type=action_type.value,
+                args=proposal_inputs,
+            )
+            if refusal_streak >= 2:
+                run_summary_ref, run_summary_excerpt = _persist_run_summary(
+                    request_id=start_request.request_id,
+                    session_id=session_id,
+                    phase_hint=phase_hint,
+                    dashboard=started.dashboard.model_dump(mode="json"),
+                    last_refusal=refusal.model_dump(mode="json"),
+                    transcript=transcript,
+                )
+            if refusal_streak >= _MAX_REFUSAL_STREAK:
+                return _build_no_progress_result(
+                    start_request=start_request,
+                    session_id=session_id,
+                    run_artifact_ref=started.run_artifact_ref,
+                    dashboard=started.dashboard.model_dump(mode="json"),
+                    transcript=transcript,
+                    reason_code=refusal.reason_code,
+                    action_type=action_type.value,
+                    bootstrap_context=bootstrap_context,
+                    iterations=iterations,
+                )
             continue
 
         if action_type == ActionType.DECLARE_DONE and proposal.declare_done is None:
@@ -242,8 +397,42 @@ def run_controller_loop(
                 transcript,
                 event_type="controller_refusal",
                 detail=refusal.reason_code,
-                payload={"refusal": refusal.model_dump(mode="json")},
+                payload={
+                    "refusal": refusal.model_dump(mode="json"),
+                    "fix": _build_fix_skeleton(
+                        reason_code=refusal.reason_code,
+                        action_type_raw=action_type.value,
+                    ),
+                },
             )
+            refusal_streak, previous_refusal_signature = _update_refusal_streak(
+                refusal_streak=refusal_streak,
+                previous_signature=previous_refusal_signature,
+                reason_code=refusal.reason_code,
+                action_type=action_type.value,
+                args=cleaned_inputs,
+            )
+            if refusal_streak >= 2:
+                run_summary_ref, run_summary_excerpt = _persist_run_summary(
+                    request_id=start_request.request_id,
+                    session_id=session_id,
+                    phase_hint=phase_hint,
+                    dashboard=started.dashboard.model_dump(mode="json"),
+                    last_refusal=refusal.model_dump(mode="json"),
+                    transcript=transcript,
+                )
+            if refusal_streak >= _MAX_REFUSAL_STREAK:
+                return _build_no_progress_result(
+                    start_request=start_request,
+                    session_id=session_id,
+                    run_artifact_ref=started.run_artifact_ref,
+                    dashboard=started.dashboard.model_dump(mode="json"),
+                    transcript=transcript,
+                    reason_code=refusal.reason_code,
+                    action_type=action_type.value,
+                    bootstrap_context=bootstrap_context,
+                    iterations=iterations,
+                )
             continue
 
         step_inputs = cleaned_inputs
@@ -254,9 +443,15 @@ def run_controller_loop(
                     intent=proposal.retrieval_intent,
                     query=query,
                 )
+        computed_idempotency_key = _compute_controller_idempotency_key(
+            session_id=session_id,
+            iteration=iterations,
+            action_type=action_type.value,
+            inputs=step_inputs,
+        )
         step_request = KernelStepRequest(
             session_id=session_id,
-            idempotency_key=proposal.idempotency_key,
+            idempotency_key=computed_idempotency_key,
             action_type=action_type,
             inputs=step_inputs,
             semantic_ready=proposal.semantic_ready,
@@ -274,7 +469,7 @@ def run_controller_loop(
                 "iteration": iterations,
                 "execution_state": step_result.execution_state.value,
                 "action_type": action_type.value,
-                "idempotency_key": proposal.idempotency_key,
+                "idempotency_key": computed_idempotency_key,
                 "refusal": (
                     step_result.refusal.model_dump(mode="json")
                     if step_result.refusal is not None
@@ -299,7 +494,7 @@ def run_controller_loop(
                 "iteration": iterations,
                 "session_id": session_id,
                 "action_type": action_type.value,
-                "idempotency_key": proposal.idempotency_key,
+                "idempotency_key": computed_idempotency_key,
                 "execution_state": step_result.execution_state.value,
                 "kernel_refusal_reason_code": (
                     step_result.refusal.reason_code if step_result.refusal is not None else None
@@ -311,6 +506,60 @@ def run_controller_loop(
                 "latest_refs": _latest_refs_summary(step_result.dashboard.model_dump(mode="json")),
             },
         )
+        phase_hint = _infer_phase_hint(step_result.dashboard.model_dump(mode="json"))
+        if phase_hint != last_summary_phase:
+            run_summary_ref, run_summary_excerpt = _persist_run_summary(
+                request_id=start_request.request_id,
+                session_id=session_id,
+                phase_hint=phase_hint,
+                dashboard=step_result.dashboard.model_dump(mode="json"),
+                last_refusal=last_refusal.model_dump(mode="json") if last_refusal is not None else None,
+                transcript=transcript,
+            )
+            last_summary_phase = phase_hint
+        if step_result.execution_state == StepExecutionState.EXECUTED:
+            refusal_streak = 0
+            previous_refusal_signature = None
+            executed_steps += 1
+        elif step_result.refusal is not None:
+            refusal_streak, previous_refusal_signature = _update_refusal_streak(
+                refusal_streak=refusal_streak,
+                previous_signature=previous_refusal_signature,
+                reason_code=step_result.refusal.reason_code,
+                action_type=action_type.value,
+                args=step_inputs,
+            )
+            if refusal_streak >= 2:
+                run_summary_ref, run_summary_excerpt = _persist_run_summary(
+                    request_id=start_request.request_id,
+                    session_id=session_id,
+                    phase_hint=phase_hint,
+                    dashboard=step_result.dashboard.model_dump(mode="json"),
+                    last_refusal=step_result.refusal.model_dump(mode="json"),
+                    transcript=transcript,
+                )
+            if refusal_streak >= _MAX_REFUSAL_STREAK:
+                return _build_no_progress_result(
+                    start_request=start_request,
+                    session_id=session_id,
+                    run_artifact_ref=started.run_artifact_ref,
+                    dashboard=step_result.dashboard.model_dump(mode="json"),
+                    transcript=transcript,
+                    reason_code=step_result.refusal.reason_code,
+                    action_type=action_type.value,
+                    bootstrap_context=bootstrap_context,
+                    iterations=iterations,
+                )
+
+        if executed_steps > 0 and executed_steps % _RUN_SUMMARY_EVERY_EXECUTED_STEPS == 0:
+            run_summary_ref, run_summary_excerpt = _persist_run_summary(
+                request_id=start_request.request_id,
+                session_id=session_id,
+                phase_hint=phase_hint,
+                dashboard=step_result.dashboard.model_dump(mode="json"),
+                last_refusal=last_refusal.model_dump(mode="json") if last_refusal is not None else None,
+                transcript=transcript,
+            )
 
         if action_type == ActionType.RETRIEVE_EVIDENCE:
             reason_code = (
@@ -381,8 +630,8 @@ def _propose_next_step(
     schema = kernel_step_tool_schema()
     prompt = (
         "Propose exactly one next kernel step by calling the `kernel_step` tool. "
-        "Respect tool_menu and refs-not-blobs. "
-        f"Observation JSON: {json.dumps(observation, sort_keys=True)}"
+        "Respect tool_menu and refs-not-blobs. Use the Context Packet below. "
+        f"ContextPacket JSON: {json.dumps(observation, sort_keys=True)}"
     )
     first = llm_client.propose_next_step(model=model, schema=schema, prompt=prompt)
     proposal, parse_error = _coerce_proposal(first)
@@ -400,7 +649,7 @@ def _propose_next_step(
     repair_prompt = (
         "Your prior proposal was invalid. Call `kernel_step` once using this shape: "
         '{"action_type":"...", "args":{}, "idempotency_key":"...", "why":"..."} '
-        "Use only actions in tool_menu and include missing required fields. "
+        "Use only actions in tool_menu and include missing required fields from last_refusal.fix.required_fields. "
         f"Prior parse error: {parse_error or 'unknown'}."
     )
     second = llm_client.propose_next_step(model=model, schema=schema, prompt=repair_prompt)
@@ -524,6 +773,441 @@ def _contains_large_geometry(value: object, parent_key: str = "") -> bool:
             if _contains_large_geometry(nested, parent_key):
                 return True
     return False
+
+
+def _build_context_packet(
+    *,
+    session_id: str,
+    tool_menu: list[str],
+    bootstrap_context: dict[str, object],
+    dashboard: dict[str, object],
+    transcript: list[dict[str, object]],
+    last_refusal: KernelRefusal | None,
+    run_summary_ref: str | None,
+    run_summary_excerpt: str | None,
+    phase_hint: str,
+) -> dict[str, object]:
+    latest_refs = _latest_refs_summary(dashboard)
+    recent_trace = _extract_recent_trace(transcript)
+    progress = {
+        "latest_refs": latest_refs,
+        "budgets_remaining": dashboard.get("budgets_remaining", {}),
+        "gap_summary": _compact_gap_summary(dashboard.get("gap_summary")),
+        "claimability": dashboard.get("claimability", {}),
+    }
+    packet = {
+        "session_id": session_id,
+        "tool_menu": tool_menu,
+        "inputs": {
+            "dossier_id": bootstrap_context.get("dossier_id"),
+            "source_entry_ref": bootstrap_context.get("source_entry_ref"),
+            "deed_text_excerpt": bootstrap_context.get("deed_text_excerpt"),
+            "deed_text_artifact_ref": bootstrap_context.get("deed_text_artifact_ref"),
+            "initial_ir_ref": bootstrap_context.get("initial_ir_ref"),
+        },
+        "progress": progress,
+        "working_memory": {
+            "phase_hint": phase_hint,
+            "plan_bullets": _phase_plan_bullets(phase_hint),
+        },
+        "recent_trace": recent_trace,
+        "last_refusal": _last_refusal_payload(last_refusal),
+        "artifacts_inline": _inline_artifact_hints(latest_refs, bootstrap_context=bootstrap_context),
+        "run_summary": {
+            "run_summary_ref": run_summary_ref,
+            "excerpt": run_summary_excerpt,
+        },
+    }
+    return _bound_payload(packet, max_items=24) if isinstance(packet, dict) else packet
+
+
+def _compact_gap_summary(gap_summary: object) -> dict[str, object]:
+    if not isinstance(gap_summary, dict):
+        return {}
+    top_gap_kinds = gap_summary.get("top_gap_kinds")
+    top_reason_codes = gap_summary.get("top_reason_codes")
+    counts = gap_summary.get("gap_counts_by_kind")
+    return {
+        "top_gap_kinds": top_gap_kinds[:_MAX_GAP_KINDS] if isinstance(top_gap_kinds, list) else [],
+        "top_reason_codes": top_reason_codes[:_MAX_REASON_CODES] if isinstance(top_reason_codes, list) else [],
+        "gap_counts_by_kind": counts if isinstance(counts, dict) else {},
+    }
+
+
+def _extract_recent_trace(transcript: list[dict[str, object]]) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    for event in reversed(transcript):
+        et = str(event.get("event_type", ""))
+        if et not in {"kernel_step_result", "controller_refusal", "controller_parse_failed"}:
+            continue
+        payload = event.get("payload")
+        out.append(
+            {
+                "event_type": et,
+                "detail": str(event.get("detail", ""))[:120],
+                "action_type": payload.get("action_type") if isinstance(payload, dict) else None,
+                "reason_code": _extract_reason_code_from_payload(payload),
+            }
+        )
+        if len(out) >= _MAX_TRACE_ITEMS:
+            break
+    out.reverse()
+    return out
+
+
+def _extract_reason_code_from_payload(payload: object) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    refusal = payload.get("refusal")
+    if isinstance(refusal, dict):
+        reason = refusal.get("reason_code")
+        if isinstance(reason, str):
+            return reason
+    reason = payload.get("reason_code")
+    if isinstance(reason, str):
+        return reason
+    return None
+
+
+def _phase_plan_bullets(phase_hint: str) -> list[str]:
+    plans: dict[str, list[str]] = {
+        "bootstrap": [
+            "If deed text ref is missing, hydrate deed first.",
+            "Draft minimal FeatureGraph IR from deed.",
+            "Compile, then judge for gap diagnosis.",
+            "Bundle after IR stabilizes.",
+        ],
+        "author_ir": [
+            "Produce or update IR with minimal valid graph structure.",
+            "Prefer refs to prior artifacts, avoid blob payloads.",
+            "Compile after each meaningful IR change.",
+        ],
+        "verify": [
+            "Judge latest IR for gaps.",
+            "Patch or re-draft only to address explicit gaps.",
+            "Bundle once compile/judge are present.",
+        ],
+        "declare_candidate": [
+            "Ensure compile/judge/bundle refs are available.",
+            "Provide semantic justification with evidence links and assumptions.",
+            "Attempt DECLARE_DONE when claimability is ready.",
+        ],
+    }
+    selected = plans.get(phase_hint, plans["bootstrap"])
+    return selected[:_MAX_PLAN_BULLETS]
+
+
+def _last_refusal_payload(last_refusal: KernelRefusal | None) -> dict[str, object] | None:
+    if last_refusal is None:
+        return None
+    action_type_raw = "hydrate_deed" if "deed" in ",".join(last_refusal.missing_inputs).lower() else "open_artifact"
+    payload = last_refusal.model_dump(mode="json")
+    payload["fix"] = _build_fix_skeleton(
+        reason_code=last_refusal.reason_code,
+        action_type_raw=action_type_raw,
+    )
+    return payload
+
+
+def _inline_artifact_hints(
+    latest_refs: dict[str, object],
+    *,
+    bootstrap_context: dict[str, object],
+) -> dict[str, object]:
+    hints: dict[str, object] = {}
+    ir_ref = latest_refs.get("ir_ref")
+    if isinstance(ir_ref, str):
+        hints["ir_hint"] = _safe_artifact_hint(ir_ref, kind="ir")
+    judge_ref = latest_refs.get("judge_ref")
+    if isinstance(judge_ref, str):
+        hints["judge_hint"] = _safe_artifact_hint(judge_ref, kind="judge")
+    deed_ref = latest_refs.get("deed_text_artifact_ref")
+    if not isinstance(deed_ref, str):
+        deed_ref = bootstrap_context.get("deed_text_artifact_ref")
+    if isinstance(deed_ref, str):
+        hints["deed_hint"] = _safe_artifact_hint(deed_ref, kind="deed")
+    return hints
+
+
+def _safe_artifact_hint(path_value: str, *, kind: str) -> dict[str, object]:
+    try:
+        path = Path(path_value).resolve()
+        root = agent_kernel_artifacts_root().resolve()
+        if path != root and root not in path.parents:
+            return {"kind": kind, "status": "blocked_path"}
+    except Exception:
+        return {"kind": kind, "status": "blocked_path"}
+    if not path.exists():
+        return {"kind": kind, "status": "missing"}
+    try:
+        size = path.stat().st_size
+    except Exception:
+        return {"kind": kind, "status": "unreadable"}
+    if size > _MAX_HINT_FILE_BYTES:
+        return {"kind": kind, "status": "too_large"}
+    try:
+        with path.open("rb") as f:
+            raw_bytes = f.read(_MAX_HINT_READ_BYTES + 1)
+    except Exception:
+        return {"kind": kind, "status": "unreadable"}
+    if len(raw_bytes) > _MAX_HINT_READ_BYTES:
+        return {"kind": kind, "status": "too_large"}
+    try:
+        raw = raw_bytes.decode("utf-8")
+    except Exception:
+        return {"kind": kind, "status": "unreadable"}
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return {"kind": kind, "status": "text", "excerpt": _bounded_text(raw, 256)}
+    if kind == "judge" and isinstance(payload, dict):
+        report = payload.get("report")
+        if isinstance(report, dict):
+            gaps = report.get("gaps")
+            if isinstance(gaps, list):
+                top = []
+                for gap in gaps[:3]:
+                    if isinstance(gap, dict):
+                        top.append(
+                            {
+                                "kind": gap.get("kind"),
+                                "reason_code": gap.get("reason_code"),
+                                "node_id": gap.get("node_id"),
+                            }
+                        )
+                return {"kind": kind, "status": "ok", "top_gaps": top}
+    if kind == "ir" and isinstance(payload, dict):
+        graph = payload.get("graph") if isinstance(payload.get("graph"), dict) else payload
+        if isinstance(graph, dict):
+            nodes = graph.get("nodes")
+            node_preview = []
+            if isinstance(nodes, list):
+                for node in nodes[:3]:
+                    if isinstance(node, dict):
+                        node_preview.append(
+                            {
+                                "id": node.get("id"),
+                                "label": node.get("label"),
+                                "kind": node.get("kind"),
+                            }
+                        )
+            return {
+                "kind": kind,
+                "status": "ok",
+                "graph_id": graph.get("graph_id"),
+                "node_count": len(nodes) if isinstance(nodes, list) else 0,
+                "node_preview": node_preview,
+            }
+    if kind == "deed" and isinstance(payload, dict):
+        text = payload.get("text")
+        if isinstance(text, str):
+            return {"kind": kind, "status": "ok", "excerpt": _bounded_text(" ".join(text.split()), 320)}
+    return {"kind": kind, "status": "ok"}
+
+
+def _build_fix_skeleton(*, reason_code: str, action_type_raw: str) -> dict[str, object]:
+    action = action_type_raw.strip().lower()
+    args: dict[str, object] = {}
+    required_fields: list[str] = []
+    if action == ActionType.OPEN_ARTIFACT.value:
+        required_fields = ["artifact_ref | artifact_path | corpus_entry_ref"]
+        args = {"artifact_ref": "<artifact-path-or-ref>"}
+    elif action == ActionType.HYDRATE_DEED.value:
+        required_fields = ["dossier_id | source_entry_ref"]
+        args = {"dossier_id": "<dossier-id>"}
+    elif action == ActionType.RETRIEVE_EVIDENCE.value:
+        required_fields = ["query"]
+        args = {"query": "<what you need to find>"}
+    elif action in {ActionType.COMPILE.value, ActionType.JUDGE.value, ActionType.BUNDLE.value}:
+        required_fields = ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"]
+        args = {"ir_artifact_ref": "<ir-artifact-ref>"}
+    elif action == ActionType.DRAFT_IR.value:
+        required_fields = [
+            "dossier_id",
+            "deed_text_artifact_ref | deed_artifact_ref | hydrated_deed_artifact_ref | graph",
+        ]
+        args = {
+            "dossier_id": "<dossier-id>",
+            "deed_text_artifact_ref": "<deed-text-artifact-ref>",
+        }
+    elif action == ActionType.DECLARE_DONE.value:
+        required_fields = ["declare_done"]
+        args = {}
+    skeleton = {
+        "kernel_step": {
+            "action_type": action,
+            "args": args,
+            "idempotency_key": "<controller-computed>",
+            "why": "corrective retry after refusal",
+        },
+        "required_fields": required_fields,
+        "reason_code": reason_code,
+    }
+    return skeleton
+
+
+def _compute_controller_idempotency_key(
+    *,
+    session_id: str,
+    iteration: int,
+    action_type: str,
+    inputs: dict[str, object],
+) -> str:
+    normalized = json.dumps(inputs, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(
+        f"{session_id}|{iteration}|{action_type}|{normalized}".encode("utf-8")
+    ).hexdigest()[:24]
+    return f"ctl-{digest}"
+
+
+def _update_refusal_streak(
+    *,
+    refusal_streak: int,
+    previous_signature: str | None,
+    reason_code: str,
+    action_type: str,
+    args: dict[str, object],
+) -> tuple[int, str]:
+    key_signature = _refusal_signature(reason_code=reason_code, action_type=action_type, args=args)
+    if previous_signature == key_signature:
+        return refusal_streak + 1, key_signature
+    return 1, key_signature
+
+
+def _refusal_signature(*, reason_code: str, action_type: str, args: dict[str, object]) -> str:
+    arg_keys = sorted(args.keys())
+    material = _material_change_fingerprint(action_type=action_type, args=args)
+    return f"{reason_code}|{action_type}|{','.join(arg_keys)}|{material}"
+
+
+def _material_change_fingerprint(*, action_type: str, args: dict[str, object]) -> str:
+    action = action_type.strip().lower()
+    if action == ActionType.RETRIEVE_EVIDENCE.value:
+        query = _normalize_for_fingerprint(args.get("query"))
+        if query:
+            return f"query:{hashlib.sha256(query.encode('utf-8')).hexdigest()[:12]}"
+    if action == ActionType.OPEN_ARTIFACT.value:
+        ref_value = (
+            _normalize_for_fingerprint(args.get("artifact_ref"))
+            or _normalize_for_fingerprint(args.get("artifact_path"))
+            or _normalize_for_fingerprint(args.get("corpus_entry_ref"))
+        )
+        if ref_value:
+            return f"ref:{hashlib.sha256(ref_value.encode('utf-8')).hexdigest()[:12]}"
+    return "static"
+
+
+def _normalize_for_fingerprint(raw: object) -> str:
+    if not isinstance(raw, str):
+        return ""
+    return " ".join(raw.split()).strip()[:256]
+
+
+def _infer_phase_hint(dashboard: dict[str, object]) -> str:
+    latest_refs = _latest_refs_summary(dashboard)
+    claimability = dashboard.get("claimability")
+    claimable_ready = False
+    if isinstance(claimability, dict):
+        claimable_ready = bool(claimability.get("claimable_ready"))
+    if claimable_ready:
+        return "declare_candidate"
+    if not latest_refs.get("ir_ref"):
+        return "author_ir"
+    if not latest_refs.get("compile_ref") or not latest_refs.get("judge_ref"):
+        return "verify"
+    return "declare_candidate"
+
+
+def _persist_run_summary(
+    *,
+    request_id: str,
+    session_id: str,
+    phase_hint: str,
+    dashboard: dict[str, object],
+    last_refusal: dict[str, object] | None,
+    transcript: list[dict[str, object]],
+) -> tuple[str, str]:
+    root = agent_kernel_artifacts_root() / "controller_summaries" / request_id
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{session_id.replace(':', '_')}_{uuid4().hex[:8]}.json"
+    summary = {
+        "phase_hint": phase_hint,
+        "latest_refs": _latest_refs_summary(dashboard),
+        "claimability": dashboard.get("claimability"),
+        "failure_classification": dashboard.get("failure_classification"),
+        "last_refusal": last_refusal,
+        "recent_trace": _extract_recent_trace(transcript),
+        "created_at_epoch_seconds": int(time()),
+    }
+    fd, tmp_path = tempfile.mkstemp(prefix="controller_summary_", suffix=".json", dir=str(root))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.replace(tmp_path, str(path))
+        except PermissionError:
+            with path.open("w", encoding="utf-8") as f:
+                json.dump(summary, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+    finally:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+    excerpt = _bounded_text(
+        f"phase={phase_hint}; refs={','.join(summary['latest_refs'].keys())}; "
+        f"claimable={bool((summary.get('claimability') or {}).get('claimable_ready'))}",
+        240,
+    )
+    return str(path), excerpt
+
+
+def _build_no_progress_result(
+    *,
+    start_request: KernelSessionStartRequest,
+    session_id: str,
+    run_artifact_ref: str | None,
+    dashboard: dict[str, object],
+    transcript: list[dict[str, object]],
+    reason_code: str,
+    action_type: str,
+    bootstrap_context: dict[str, object],
+    iterations: int,
+) -> ControllerRunResult:
+    _append_event(
+        transcript,
+        event_type="controller_no_progress_stop",
+        detail=reason_code,
+        payload={
+            "reason_code": reason_code,
+            "fix": _build_fix_skeleton(reason_code=reason_code, action_type_raw=action_type),
+            "deed_text_artifact_ref": bootstrap_context.get("deed_text_artifact_ref"),
+            "deed_text_excerpt": bootstrap_context.get("deed_text_excerpt"),
+        },
+    )
+    terminal = TerminalOutcome(
+        terminal_outcome=TerminalOutcomeKind.FAILED,
+        stop_reason=StopReason.NO_PROGRESS,
+        success=False,
+        reason_code=f"controller_no_progress:{reason_code}",
+    )
+    transcript_ref = _persist_controller_transcript(
+        request_id=start_request.request_id,
+        session_id=session_id,
+        transcript={"events": transcript},
+    )
+    return ControllerRunResult(
+        terminal=terminal,
+        last_dashboard=dashboard,
+        transcript_artifact_ref=transcript_ref,
+        session_id=session_id,
+        run_artifact_ref=run_artifact_ref,
+        iterations=iterations,
+    )
 
 
 def _append_event(

@@ -11,6 +11,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from config.paths import agent_kernel_artifacts_root
+from corpus.types import CorpusEntryKind, CorpusEntryRef, CorpusView
+from corpus.virtual_provider import VirtualCorpusProvider
 
 
 @dataclass(frozen=True)
@@ -51,3 +53,29 @@ def persist_deed_text_artifact(*, request_id: str, deed_text: str, dossier_id: s
             pass
     return DeedTextArtifact(artifact_path=str(path), excerpt=deed_text[:1000])
 
+
+def hydrate_and_persist_finalized_dossier_text(
+    *,
+    request_id: str,
+    dossier_id: str,
+    provider: VirtualCorpusProvider | None = None,
+) -> DeedTextArtifact | None:
+    corpus = provider or VirtualCorpusProvider()
+    ref = CorpusEntryRef(
+        view=CorpusView.FINALIZED,
+        entry_id=f"final:{dossier_id}",
+        kind=CorpusEntryKind.FINALIZED_DOSSIER_TEXT,
+        dossier_id=dossier_id,
+    )
+    entry = corpus.hydrate_entry(ref)
+    text = (entry.text or "").strip()
+    if not text:
+        return None
+    provenance_error = str((entry.provenance or {}).get("error") or "").strip()
+    if provenance_error:
+        return None
+    return persist_deed_text_artifact(
+        request_id=request_id,
+        deed_text=text,
+        dossier_id=dossier_id,
+    )

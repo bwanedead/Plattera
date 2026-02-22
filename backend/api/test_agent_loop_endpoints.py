@@ -12,6 +12,7 @@ from fastapi import HTTPException
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api.endpoints import agent_loop
+from agents.controller.bootstrap import DeedTextArtifact
 from services.agent_loop.run_registry_service import AgentLoopRunRegistryService
 
 
@@ -137,3 +138,25 @@ def test_events_endpoint_receives_run_started_event() -> None:
             await stream.aclose()
 
         asyncio.run(_case())
+
+
+def test_build_start_request_dossier_bootstrap_includes_deed_ref_and_excerpt(monkeypatch) -> None:
+    def _fake_hydrate(*, request_id: str, dossier_id: str):
+        del request_id, dossier_id
+        return DeedTextArtifact(
+            artifact_path="artifacts/deed/d1.json",
+            excerpt="Deed excerpt for bootstrap",
+        )
+
+    monkeypatch.setattr(
+        agent_loop,
+        "hydrate_and_persist_finalized_dossier_text",
+        _fake_hydrate,
+    )
+    req = agent_loop.AgentLoopRunRequest(dossier_id="D1", background=False)
+    start = agent_loop._build_start_request("run_x", req)  # type: ignore[attr-defined]
+    assert isinstance(start.initial_graph_json, dict)
+    metadata = start.initial_graph_json.get("metadata")
+    assert isinstance(metadata, dict)
+    assert metadata.get("deed_text_artifact_ref") == "artifacts/deed/d1.json"
+    assert metadata.get("deed_text_excerpt") == "Deed excerpt for bootstrap"

@@ -113,13 +113,22 @@ class _OpenArtifactArgs(BaseModel):
 
 class _DraftIRArgs(BaseModel):
     dossier_id: str | None = Field(default=None, max_length=128)
+    deed_text_artifact_ref: str | None = Field(default=None, max_length=512)
     deed_artifact_ref: str | None = Field(default=None, max_length=512)
     hydrated_deed_artifact_ref: str | None = Field(default=None, max_length=512)
+    graph: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def _validate_minimum_inputs(self) -> "_DraftIRArgs":
         if not self.dossier_id:
             raise ValueError("draft_ir_requires_dossier_id")
+        if (
+            not self.deed_text_artifact_ref
+            and not self.deed_artifact_ref
+            and not self.hydrated_deed_artifact_ref
+            and self.graph is None
+        ):
+            raise ValueError("draft_ir_requires_deed_text_artifact_ref_or_deed_artifact_ref_or_hydrated_deed_artifact_ref_or_graph")
         return self
 
 

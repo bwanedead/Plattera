@@ -13,6 +13,32 @@ from .controller import NextStepLLMClient
 
 logger = logging.getLogger(__name__)
 _MAX_ERROR_MESSAGE_CHARS = 1000
+_MISSION_PREFIX = (
+    "Mission: convert deed context into a FeatureGraph IR, then run deterministic physics gates "
+    "(compile, judge, bundle) and only attempt DECLARE_DONE when claimability is likely ready.\n"
+    "Protocol: output exactly one next step via tool call `kernel_step`. Never output prose.\n"
+    "Tool discipline:\n"
+    "- HYDRATE_DEED: use when deed text ref/excerpt is missing.\n"
+    "- OPEN_ARTIFACT: requires one of artifact_ref | artifact_path | corpus_entry_ref.\n"
+    "- DRAFT_IR: draft minimal valid graph first; iterate based on judge gaps.\n"
+    "- RETRIEVE_EVIDENCE: optional; requires a non-empty query.\n"
+    "- COMPILE/JUDGE: run after IR changes to get deterministic feedback.\n"
+    "- BUNDLE: run after compile/judge when preparing completion package.\n"
+    "Done semantics: kernel claimability indicates structural readiness; you are semantic arbiter. "
+    "DECLARE_DONE must include concise justification with artifact refs and evidence/assumptions.\n"
+    "Refs-not-blobs: prefer artifact refs, avoid large inline payloads.\n"
+    "FeatureGraph IR cheatsheet (v0):\n"
+    "- Shape: {graph_id, nodes[], edges[], metadata{}}.\n"
+    "- Node shape: {id, kind, label?, metadata?, one-of: geometry | op_expr | feature_ref}.\n"
+    "- kind vocabulary: point, curve, region, frame, constraint, annotation, unknown.\n"
+    "- Rule: node content is mutually exclusive (geometry XOR op_expr XOR feature_ref).\n"
+    "- Edges: {source_id, target_id, edge_type?}; edge IDs must reference existing nodes.\n"
+    "- Prefer op_expr over large coordinate blobs when possible.\n"
+    "Micro example 1:\n"
+    '{"graph_id":"g_min_1","nodes":[{"id":"start","kind":"point","geometry":{"type":"Point","coordinates":[0.0,0.0]}},{"id":"boundary_curve","kind":"curve","geometry":{"type":"LineString","coordinates":[[0.0,0.0],[100.0,0.0]]}}],"edges":[{"source_id":"start","target_id":"boundary_curve","edge_type":"anchored_to"}],"metadata":{"source":"deed"}}\n'
+    "Micro example 2:\n"
+    '{"graph_id":"g_min_2","nodes":[{"id":"boundary_curve","kind":"curve","geometry":{"type":"LineString","coordinates":[[0.0,0.0],[10.0,0.0],[10.0,10.0],[0.0,10.0],[0.0,0.0]]}},{"id":"parcel_region","kind":"region","op_expr":{"op_name":"Close","operands":["boundary_curve"]}}],"edges":[{"source_id":"boundary_curve","target_id":"parcel_region","edge_type":"depends_on"}],"metadata":{"source":"deed"}}'
+)
 
 
 class _OpenAIServiceLike(Protocol):
@@ -56,10 +82,7 @@ class OpenAINextStepClient(NextStepLLMClient):
             "messages": [
                 {
                     "role": "developer",
-                    "content": (
-                        "You are a kernel step proposer. Return exactly one next step. "
-                        "Prefer a single kernel_step tool call with minimal bounded args."
-                    ),
+                    "content": _MISSION_PREFIX,
                 },
                 {"role": "user", "content": prompt},
             ],

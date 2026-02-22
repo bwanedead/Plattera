@@ -20,7 +20,10 @@ from agent_kernel.session import KernelSessionManager
 from agent_kernel.tooling import CorpusArtifactOpener
 from agents.controller.controller import run_controller_loop
 from agents.controller.openai_client import OpenAINextStepClient
-from agents.controller.bootstrap import persist_deed_text_artifact
+from agents.controller.bootstrap import (
+    hydrate_and_persist_finalized_dossier_text,
+    persist_deed_text_artifact,
+)
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from services.agent_loop.event_bus import event_bus
 from services.agent_loop.run_registry_service import AgentLoopRunRegistryService
@@ -49,22 +52,39 @@ class AgentLoopRunRequest(BaseModel):
 def _build_start_request(run_id: str, request: AgentLoopRunRequest) -> KernelSessionStartRequest:
     request_id = f"agent-loop-{run_id}"
     initial_graph_json = None
+    bootstrap_metadata: dict[str, Any] = {
+        "source": "agent_loop_api_bootstrap",
+        "dossier_id": request.dossier_id,
+    }
     if request.text and request.text.strip():
         deed_artifact = persist_deed_text_artifact(
             request_id=request_id,
             deed_text=request.text.strip(),
             dossier_id=request.dossier_id,
         )
+        bootstrap_metadata["source"] = "agent_loop_api_text_bootstrap"
+        bootstrap_metadata["deed_text_excerpt"] = deed_artifact.excerpt
+        bootstrap_metadata["deed_text_artifact_ref"] = deed_artifact.artifact_path
+    elif request.dossier_id:
+        deed_artifact = hydrate_and_persist_finalized_dossier_text(
+            request_id=request_id,
+            dossier_id=request.dossier_id,
+        )
+        if deed_artifact is not None:
+            bootstrap_metadata["source"] = "agent_loop_api_dossier_bootstrap"
+            bootstrap_metadata["deed_text_excerpt"] = deed_artifact.excerpt
+            bootstrap_metadata["deed_text_artifact_ref"] = deed_artifact.artifact_path
+        else:
+            bootstrap_metadata["bootstrap_note"] = (
+                "dossier_deed_text_hydration_failed; suggested_first_move=hydrate_deed"
+            )
+
+    if bootstrap_metadata:
         initial_graph_json = {
             "graph_id": f"graph_{request_id}",
             "nodes": [],
             "edges": [],
-            "metadata": {
-                "source": "agent_loop_api_text_bootstrap",
-                "dossier_id": request.dossier_id,
-                "deed_text_excerpt": deed_artifact.excerpt,
-                "deed_text_artifact_ref": deed_artifact.artifact_path,
-            },
+            "metadata": bootstrap_metadata,
         }
     return KernelSessionStartRequest(
         request_id=request_id,
