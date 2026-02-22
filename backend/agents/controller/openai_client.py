@@ -20,6 +20,8 @@ _MISSION_PREFIX = (
     "Tool discipline:\n"
     "- HYDRATE_DEED: use when deed text ref/excerpt is missing.\n"
     "- OPEN_ARTIFACT: requires one of artifact_ref | artifact_path | corpus_entry_ref.\n"
+    "- If inputs.deed_text_artifact_ref exists and you need the deed text, call OPEN_ARTIFACT with "
+    "{artifact_ref: inputs.deed_text_artifact_ref}.\n"
     "- DRAFT_IR: draft minimal valid graph first; iterate based on judge gaps.\n"
     "- RETRIEVE_EVIDENCE: optional; requires a non-empty query.\n"
     "- COMPILE/JUDGE: run after IR changes to get deterministic feedback.\n"

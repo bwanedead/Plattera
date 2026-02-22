@@ -13,7 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api.endpoints import agent_loop
 from agents.controller.bootstrap import DeedTextArtifact
+from config.paths import dossiers_views_root
 from services.agent_loop.run_registry_service import AgentLoopRunRegistryService
+import config.paths as legacy_paths
 
 
 def _reset_registry(tmp_state_dir: Path) -> None:
@@ -160,3 +162,55 @@ def test_build_start_request_dossier_bootstrap_includes_deed_ref_and_excerpt(mon
     assert isinstance(metadata, dict)
     assert metadata.get("deed_text_artifact_ref") == "artifacts/deed/d1.json"
     assert metadata.get("deed_text_excerpt") == "Deed excerpt for bootstrap"
+
+
+def test_direct_text_run_creates_real_dossier_and_finalized_snapshot(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _reset_registry(root / "state")
+        original_legacy_dossiers_root = legacy_paths.dossiers_root
+
+        def _patched_root() -> Path:
+            return root / "dossiers_data"
+
+        class _ImmediateThread:
+            def __init__(self, target, args, daemon) -> None:
+                self._target = target
+                self._args = args
+                self._daemon = daemon
+
+            def start(self) -> None:
+                self._target(*self._args)
+
+        def _fake_execute(run_id: str, request: Any) -> None:
+            del request
+            agent_loop._run_registry.update_run(run_id=run_id, patch={"status": "completed"})  # type: ignore[attr-defined]
+
+        legacy_paths.dossiers_root = _patched_root  # type: ignore[assignment]
+        monkeypatch.setattr(agent_loop, "Thread", _ImmediateThread)
+        monkeypatch.setattr(agent_loop, "_execute_run", _fake_execute)
+        try:
+            start = asyncio.run(
+                agent_loop.start_agent_loop_run(
+                    agent_loop.AgentLoopRunRequest(
+                        text="Direct text deed body for finalized snapshot.",
+                        background=True,
+                    )
+                )
+            )
+            dossier_id = str(start.get("dossier_id") or "")
+            assert dossier_id
+            final_path = dossiers_views_root() / dossier_id / "final" / "dossier_final.json"
+            assert final_path.exists()
+            payload = json.loads(final_path.read_text(encoding="utf-8"))
+            assert payload["dossier_id"] == dossier_id
+            assert payload["stitched_text"].startswith("Direct text deed body")
+
+            hydrated = agent_loop.hydrate_and_persist_finalized_dossier_text(  # type: ignore[attr-defined]
+                request_id="req_direct_text_hydrate",
+                dossier_id=dossier_id,
+            )
+            assert hydrated is not None
+            assert hydrated.excerpt.startswith("Direct text deed body")
+        finally:
+            legacy_paths.dossiers_root = original_legacy_dossiers_root  # type: ignore[assignment]

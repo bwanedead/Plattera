@@ -582,6 +582,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
           max_iterations: 12,
           background: true,
         });
+        const resolvedAgentLoopDossierId = String(start.dossier_id || effectiveDossierId);
         updateState({
           agentLoopRunId: start.run_id,
           agentLoopRunStatus: start.status,
@@ -589,12 +590,16 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
           agentLoopRunArtifactRef: null,
           agentLoopTranscriptArtifactRef: null,
           agentLoopIrArtifactRef: null,
-          agentLoopDossierId: String(effectiveDossierId),
+          agentLoopDossierId: resolvedAgentLoopDossierId,
+          finalDraftMetadata: {
+            ...(state.finalDraftMetadata || {}),
+            dossierId: resolvedAgentLoopDossierId,
+          },
           agentLoopStatusMessage: 'Run started. Polling status...',
         } as any);
         await pollAgentLoopRun(start.run_id, {
           textToProcess,
-          effectiveDossierId,
+          effectiveDossierId: resolvedAgentLoopDossierId,
           shouldSelectJson: true,
         });
         return;

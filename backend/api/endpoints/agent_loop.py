@@ -27,6 +27,8 @@ from agents.controller.bootstrap import (
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from services.agent_loop.event_bus import event_bus
 from services.agent_loop.run_registry_service import AgentLoopRunRegistryService
+from services.dossier.management_service import DossierManagementService
+from services.dossier.finalized_snapshot_service import FinalizedSnapshotService
 from config.paths import agent_kernel_artifacts_root
 
 router = APIRouter()
@@ -34,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 _run_registry = AgentLoopRunRegistryService()
 _artifact_opener = CorpusArtifactOpener()
+_dossier_manager = DossierManagementService()
+_finalized_snapshot_service = FinalizedSnapshotService()
 _MAX_ARTIFACT_JSON_BYTES = 262144
 _MAX_LOG_ERROR_CHARS = 1000
 
@@ -107,6 +111,22 @@ def _build_start_request(run_id: str, request: AgentLoopRunRequest) -> KernelSes
     )
 
 
+def _ensure_text_run_has_real_dossier(request: AgentLoopRunRequest) -> AgentLoopRunRequest:
+    if request.dossier_id or not (request.text and request.text.strip()):
+        return request
+    text = request.text.strip()
+    title_seed = " ".join(text.split())[:72]
+    title = title_seed or "Direct Text Agent Loop Run"
+    dossier = _dossier_manager.create_dossier(title=title)
+    _finalized_snapshot_service.write_finalized_snapshot(
+        dossier_id=str(dossier.id),
+        stitched_text=text,
+        dossier_title=dossier.title,
+        metadata={"source": "agent_loop_direct_text_bootstrap"},
+    )
+    return request.model_copy(update={"dossier_id": str(dossier.id)})
+
+
 def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
     try:
         persistence = RunArtifactPersistenceService()
@@ -176,6 +196,7 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
 async def start_agent_loop_run(request: AgentLoopRunRequest) -> dict[str, Any]:
     if not request.initial_ir_ref and not request.text and not request.dossier_id:
         raise HTTPException(status_code=400, detail="one_of_dossier_id_or_text_or_initial_ir_ref_required")
+    request = _ensure_text_run_has_real_dossier(request)
     run_id = f"run_{int(time())}_{uuid4().hex[:8]}"
     entry = _run_registry.create_run(
         run_id=run_id,
@@ -206,7 +227,7 @@ async def start_agent_loop_run(request: AgentLoopRunRequest) -> dict[str, Any]:
     if request.background:
         thread = Thread(target=_execute_run, args=(run_id, request), daemon=True)
         thread.start()
-        return {"run_id": run_id, "status": "running"}
+        return {"run_id": run_id, "status": "running", "dossier_id": request.dossier_id}
 
     _execute_run(run_id, request)
     run = _run_registry.get_run(run_id)

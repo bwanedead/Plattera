@@ -14,6 +14,7 @@ from backend.agent_kernel.actions import (
     ActionExecutorDeps,
     Bundler,
     Compiler,
+    DraftIRProposer,
     Judge,
     Validator,
 )
@@ -28,6 +29,7 @@ from backend.agent_kernel.models import (
 )
 from backend.agent_kernel.run_artifact import ArtifactRef, RunArtifact, ValidationInline
 from backend.agent_kernel.session import KernelSessionManager
+from backend.agent_kernel import session as kernel_session_module
 
 
 class _DeterministicServices(Compiler, Judge, Bundler, Validator):
@@ -46,6 +48,24 @@ class _DeterministicServices(Compiler, Judge, Bundler, Validator):
     def validate(self, inputs: Mapping[str, Any]) -> ValidationInline:
         del inputs
         return ValidationInline(passed=True, reason_code="ok", checks={})
+
+
+class _RefusingDraftIR(DraftIRProposer):
+    def draft_ir(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
+        del inputs
+        return {
+            "artifact_ref": None,
+            "reason_codes": ["draft_ir_graph_validation_failed"],
+            "kernel_refusal": {
+                "reason_code": "draft_ir_graph_validation_failed",
+                "missing_inputs": [],
+                "retryable": True,
+                "blocked_by_budget": False,
+                "blocked_by_invariant": False,
+            },
+            "rejected_graph_artifact_ref": {"artifact_path": "artifacts/rejected/rejected-001.json"},
+            "rejected_graph_summary": {"status": "invalid", "error": "bad graph"},
+        }
 
 
 class _InMemorySessionPersistence:
@@ -280,3 +300,91 @@ def test_declare_done_refuses_until_claimability_is_satisfied_then_succeeds() ->
     assert accepted.execution_state == StepExecutionState.EXECUTED
     assert accepted.terminal is not None
     assert accepted.terminal.stop_reason == StopReason.COMPLETED
+
+
+def test_declare_done_acceptance_marks_final_feature_graph_pointers(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+    original = kernel_session_module.FeatureGraphPersistenceService.mark_final_pointers_from_paths
+
+    def _spy(self, *, ir_artifact_path: str | None, bundle_artifact_path: str | None = None):  # type: ignore[override]
+        calls.append(
+            {
+                "ir_artifact_path": ir_artifact_path,
+                "bundle_artifact_path": bundle_artifact_path,
+            }
+        )
+        return {"success": True, "written": ["final_ir.json"]}
+
+    monkeypatch.setattr(kernel_session_module.FeatureGraphPersistenceService, "mark_final_pointers_from_paths", _spy)
+    try:
+        manager, _ = _session_manager()
+        started = manager.start_session(_start_request())
+        assert started.session_id is not None
+        manager.step(
+            KernelStepRequest(
+                session_id=started.session_id,
+                idempotency_key="k-c1",
+                action_type=ActionType.COMPILE,
+                inputs={},
+            )
+        )
+        manager.step(
+            KernelStepRequest(
+                session_id=started.session_id,
+                idempotency_key="k-j1",
+                action_type=ActionType.JUDGE,
+                inputs={},
+            )
+        )
+        accepted = manager.step(
+            KernelStepRequest(
+                session_id=started.session_id,
+                idempotency_key="k-d1",
+                action_type=ActionType.DECLARE_DONE,
+                inputs={},
+            )
+        )
+        assert accepted.execution_state == StepExecutionState.EXECUTED
+        assert calls, "expected final pointer write attempt"
+        assert isinstance(calls[0]["ir_artifact_path"], str)
+    finally:
+        monkeypatch.setattr(
+            kernel_session_module.FeatureGraphPersistenceService,
+            "mark_final_pointers_from_paths",
+            original,
+        )
+
+
+def test_step_surfaces_tool_level_kernel_refusal_and_preserves_repair_outputs() -> None:
+    services = _DeterministicServices()
+    executor = ActionExecutor(
+        deps=ActionExecutorDeps(
+            draft_ir_proposer=_RefusingDraftIR(),
+            compiler=services,
+            judge=services,
+            bundler=services,
+            validator=services,
+        )
+    )
+    persistence = _InMemorySessionPersistence()
+    manager = KernelSessionManager(action_executor=executor, persistence_service=persistence)
+    started = manager.start_session(_start_request())
+    assert started.session_id is not None
+
+    result = manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-draft-refuse",
+            action_type=ActionType.DRAFT_IR,
+            inputs={"dossier_id": "D1"},
+        )
+    )
+
+    assert result.execution_state == StepExecutionState.REFUSED
+    assert result.refusal is not None
+    assert result.refusal.reason_code == "draft_ir_graph_validation_failed"
+    assert result.step_record is not None
+    outputs_inline = result.step_record.get("outputs_inline")
+    assert isinstance(outputs_inline, dict)
+    assert "rejected_graph_artifact_ref" in outputs_inline
+    assert result.dashboard.latest_refs.ir_ref is not None  # initial_ir_ref remains intact

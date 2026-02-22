@@ -11,6 +11,7 @@ export interface AgentLoopRunRequest {
 export interface AgentLoopRunStartResponse {
   run_id: string;
   status: string;
+  dossier_id?: string | null;
 }
 
 export interface AgentLoopRunSnapshot {

@@ -113,26 +113,51 @@ def test_draft_ir_proposer_persists_stub_artifact_ref() -> None:
 def test_draft_ir_proposer_uses_inline_graph_when_provided() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        original_legacy_dossiers_root = legacy_paths.dossiers_root
+        fg_persistence = FeatureGraphPersistenceService(
+            root=root / "dossiers_data" / "artifacts" / "feature_graphs",
+            state_dir=root / "dossiers_data" / "state",
+        )
+        proposer = DraftIRFilesystemProposer(persistence=fg_persistence)
+        inline_graph = {
+            "graph_id": "inline_1",
+            "nodes": [{"id": "start", "kind": "point", "geometry": {"type": "Point", "coordinates": [0.0, 0.0]}}],
+            "edges": [],
+            "metadata": {"source": "unit-test", "dossier_id": "D_DRAFT"},
+        }
+        result = proposer.draft_ir({"dossier_id": "D_DRAFT", "graph": inline_graph})
+        artifact_ref = ArtifactRef.model_validate(result["artifact_ref"])
+        payload = json.loads(Path(artifact_ref.artifact_path).read_text(encoding="utf-8"))
+        assert payload["artifact_type"] == "ir"
+        assert payload["graph"]["graph_id"] == "inline_1"
+        assert len(payload["graph"]["nodes"]) == 1
+        latest_pointer = root / "dossiers_data" / "artifacts" / "feature_graphs" / "D_DRAFT" / "latest_ir.json"
+        assert latest_pointer.exists()
 
-        def _patched_root() -> Path:
-            return root / "dossiers_data"
 
-        legacy_paths.dossiers_root = _patched_root  # type: ignore[assignment]
-        try:
-            proposer = DraftIRFilesystemProposer()
-            inline_graph = {
-                "graph_id": "inline_1",
-                "nodes": [{"id": "start", "kind": "point", "geometry": {"type": "Point", "coordinates": [0.0, 0.0]}}],
-                "edges": [],
-                "metadata": {"source": "unit-test"},
-            }
-            ref = proposer.draft_ir({"dossier_id": "D_DRAFT", "graph": inline_graph})
-            payload = json.loads(Path(ref.artifact_path).read_text(encoding="utf-8"))
-            assert payload["graph"]["graph_id"] == "inline_1"
-            assert len(payload["graph"]["nodes"]) == 1
-        finally:
-            legacy_paths.dossiers_root = original_legacy_dossiers_root  # type: ignore[assignment]
+def test_draft_ir_invalid_inline_graph_returns_repairable_refusal_and_does_not_update_latest_pointer() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        fg_persistence = FeatureGraphPersistenceService(
+            root=root / "dossiers_data" / "artifacts" / "feature_graphs",
+            state_dir=root / "dossiers_data" / "state",
+        )
+        proposer = DraftIRFilesystemProposer(persistence=fg_persistence)
+        invalid_graph = {
+            "graph_id": "broken",
+            "nodes": [{"id": "n1"}],  # missing kind
+            "edges": [],
+            "metadata": {"dossier_id": "D_BAD"},
+        }
+        result = proposer.draft_ir({"dossier_id": "D_BAD", "graph": invalid_graph})
+
+        assert "draft_ir_graph_validation_failed" in result["reason_codes"]
+        assert result["artifact_ref"] is None
+        assert result["kernel_refusal"]["reason_code"] == "draft_ir_graph_validation_failed"
+        rejected_ref = ArtifactRef.model_validate(result["rejected_graph_artifact_ref"])
+        assert Path(rejected_ref.artifact_path).exists()
+        assert isinstance(result["rejected_graph_summary"], dict)
+        latest_pointer = root / "dossiers_data" / "artifacts" / "feature_graphs" / "D_BAD" / "latest_ir.json"
+        assert not latest_pointer.exists()
 
 
 def test_feature_graph_compiler_and_judge_tools_persist_artifact_refs() -> None:

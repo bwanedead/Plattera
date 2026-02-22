@@ -31,6 +31,7 @@ from backend.agent_kernel.models import (
 from backend.agents.controller.controller import (
     _append_event,
     _build_context_packet,
+    _build_fix_skeleton,
     _compute_controller_idempotency_key,
     _safe_artifact_hint,
     run_controller_loop,
@@ -449,6 +450,7 @@ def test_context_packet_trace_is_bounded() -> None:
         dashboard=_dashboard().model_dump(mode="json"),
         transcript=events,
         last_refusal=None,
+        last_step_result=None,
         run_summary_ref=None,
         run_summary_excerpt=None,
         phase_hint="verify",
@@ -456,6 +458,37 @@ def test_context_packet_trace_is_bounded() -> None:
     recent = packet.get("recent_trace")
     assert isinstance(recent, list)
     assert len(recent) <= 8
+
+
+def test_context_packet_preserves_full_deed_text_and_fix_skeleton_uses_live_deed_ref() -> None:
+    full_text = "LOT 1 " * 2000
+    packet = _build_context_packet(
+        session_id="s1",
+        tool_menu=[ActionType.OPEN_ARTIFACT.value],
+        bootstrap_context={
+            "dossier_id": "D1",
+            "deed_text_excerpt": "LOT 1",
+            "deed_text_artifact_ref": "artifacts/deed/full.json",
+            "deed_text_full": full_text,
+        },
+        dashboard=_dashboard().model_dump(mode="json"),
+        transcript=[],
+        last_refusal=None,
+        last_step_result=None,
+        run_summary_ref=None,
+        run_summary_excerpt=None,
+        phase_hint="bootstrap",
+    )
+    inputs = packet.get("inputs")
+    assert isinstance(inputs, dict)
+    assert inputs.get("deed_text_full") == full_text
+
+    fix = _build_fix_skeleton(
+        reason_code="open_artifact_requires_artifact_or_corpus_ref",
+        action_type_raw=ActionType.OPEN_ARTIFACT.value,
+        bootstrap_context={"deed_text_artifact_ref": "artifacts/deed/full.json"},
+    )
+    assert fix["kernel_step"]["args"]["artifact_ref"] == "artifacts/deed/full.json"
 
 
 def test_no_progress_brake_triggers_on_repeated_same_refusal() -> None:
@@ -516,6 +549,49 @@ def test_no_progress_brake_does_not_trigger_for_retrieve_with_changed_queries() 
     )
     assert result.terminal.stop_reason != StopReason.NO_PROGRESS
     assert result.terminal.reason_code == "controller_iterations_exhausted_or_parse_failed"
+
+
+def test_context_packet_last_refusal_includes_rejected_graph_repair_refs() -> None:
+    refusal = KernelRefusal(
+        reason_code="draft_ir_graph_validation_failed",
+        missing_inputs=[],
+        retryable=True,
+        blocked_by_budget=False,
+        blocked_by_invariant=False,
+    )
+    step_result = KernelStepResult(
+        session_id="s1",
+        idempotency_key="k1",
+        execution_state=StepExecutionState.REFUSED,
+        step_record={
+            "step_id": "step-001",
+            "outputs_inline": {
+                "kernel_refusal": refusal.model_dump(mode="json"),
+                "rejected_graph_artifact_ref": {"artifact_path": "artifacts/rejected/r1.json"},
+                "rejected_graph_summary": {"status": "invalid", "node_count": 1},
+            },
+        },
+        refusal=refusal,
+        dashboard=_dashboard(),
+        terminal=None,
+    )
+    packet = _build_context_packet(
+        session_id="s1",
+        tool_menu=[ActionType.DRAFT_IR.value],
+        bootstrap_context={"dossier_id": "D1"},
+        dashboard=_dashboard().model_dump(mode="json"),
+        transcript=[],
+        last_refusal=refusal,
+        last_step_result=step_result,
+        run_summary_ref=None,
+        run_summary_excerpt=None,
+        phase_hint="author_ir",
+    )
+    last_refusal_payload = packet.get("last_refusal")
+    assert isinstance(last_refusal_payload, dict)
+    assert last_refusal_payload["reason_code"] == "draft_ir_graph_validation_failed"
+    assert last_refusal_payload["rejected_graph_artifact_ref"]["artifact_path"] == "artifacts/rejected/r1.json"
+    assert isinstance(last_refusal_payload["rejected_graph_summary"], dict)
 
 
 def test_draft_ir_with_deed_text_artifact_ref_reaches_kernel_step() -> None:

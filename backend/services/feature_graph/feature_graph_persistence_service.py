@@ -30,6 +30,16 @@ from feature_graph.artifacts import (
 
 
 ArtifactType = Literal["ir", "compile", "judge", "bundle"]
+_LATEST_POINTER_NAMES: dict[str, str] = {
+    "ir": "latest_ir.json",
+    "compile": "latest_compile.json",
+    "judge": "latest_judge.json",
+    "bundle": "latest_bundle.json",
+}
+_FINAL_POINTER_NAMES: dict[str, str] = {
+    "ir": "final_ir.json",
+    "bundle": "final_bundle.json",
+}
 
 
 class FeatureGraphPersistenceService:
@@ -90,6 +100,44 @@ class FeatureGraphPersistenceService:
         except Exception:
             return None
         return None
+
+    def _write_pointer(
+        self,
+        *,
+        dossier_id: str,
+        pointer_filename: str,
+        artifact_id: str,
+        artifact_type: str,
+        artifact_path: Path,
+    ) -> None:
+        pointer_path = self._artifacts_root / str(dossier_id) / pointer_filename
+        payload = {
+            "dossier_id": str(dossier_id),
+            "artifact_id": str(artifact_id),
+            "artifact_type": str(artifact_type),
+            "artifact_path": str(artifact_path),
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+        }
+        self._atomic_write(pointer_path, payload)
+
+    def _update_latest_pointer(
+        self,
+        *,
+        dossier_id: str,
+        artifact_type: str,
+        artifact_id: str,
+        artifact_path: Path,
+    ) -> None:
+        pointer_name = _LATEST_POINTER_NAMES.get(str(artifact_type))
+        if pointer_name is None:
+            return
+        self._write_pointer(
+            dossier_id=dossier_id,
+            pointer_filename=pointer_name,
+            artifact_id=artifact_id,
+            artifact_type=artifact_type,
+            artifact_path=artifact_path,
+        )
 
     def _update_index(
         self,
@@ -189,6 +237,12 @@ class FeatureGraphPersistenceService:
 
         # Atomic write
         self._atomic_write(artifact_path, artifact_dict)
+        self._update_latest_pointer(
+            dossier_id=str(dossier_id),
+            artifact_type=str(artifact_type),
+            artifact_id=str(artifact_id),
+            artifact_path=artifact_path,
+        )
 
         # Update index
         self._update_index(
@@ -204,6 +258,69 @@ class FeatureGraphPersistenceService:
             "artifact_id": artifact_id,
             "path": str(artifact_path),
         }
+
+    def mark_final_pointer(
+        self,
+        *,
+        dossier_id: str,
+        artifact_type: Literal["ir", "bundle"],
+        artifact_path: str,
+        artifact_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        pointer_name = _FINAL_POINTER_NAMES.get(str(artifact_type))
+        if pointer_name is None:
+            raise ValueError(f"unsupported_final_pointer_type:{artifact_type}")
+        path = Path(artifact_path)
+        if not artifact_id:
+            artifact_id = path.stem
+        self._write_pointer(
+            dossier_id=str(dossier_id),
+            pointer_filename=pointer_name,
+            artifact_id=str(artifact_id),
+            artifact_type=str(artifact_type),
+            artifact_path=path,
+        )
+        return {"success": True, "pointer": str(self._artifacts_root / str(dossier_id) / pointer_name)}
+
+    def mark_final_pointers_from_paths(
+        self,
+        *,
+        ir_artifact_path: Optional[str],
+        bundle_artifact_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        written: list[str] = []
+        dossier_id = None
+        if ir_artifact_path:
+            dossier_id = self._dossier_id_from_artifact_path(ir_artifact_path)
+            if dossier_id:
+                self.mark_final_pointer(
+                    dossier_id=dossier_id,
+                    artifact_type="ir",
+                    artifact_path=ir_artifact_path,
+                )
+                written.append("final_ir.json")
+        if bundle_artifact_path and dossier_id:
+            self.mark_final_pointer(
+                dossier_id=dossier_id,
+                artifact_type="bundle",
+                artifact_path=bundle_artifact_path,
+            )
+            written.append("final_bundle.json")
+        return {"success": bool(written), "dossier_id": dossier_id, "written": written}
+
+    def _dossier_id_from_artifact_path(self, artifact_path: str) -> Optional[str]:
+        try:
+            path = Path(artifact_path).resolve()
+            root = self._artifacts_root.resolve()
+        except Exception:
+            return None
+        if root not in path.parents:
+            return None
+        rel = path.relative_to(root)
+        parts = rel.parts
+        if not parts:
+            return None
+        return str(parts[0])
 
     def get_artifact(
         self, dossier_id: str, artifact_id: str

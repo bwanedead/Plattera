@@ -14,7 +14,7 @@ from uuid import uuid4
 from config.paths import agent_kernel_artifacts_root
 from corpus.types import CorpusEntryKind, CorpusEntryRef, CorpusView
 from corpus.virtual_provider import VirtualCorpusProvider
-from feature_graph.artifacts import create_compile_artifact, create_judge_artifact
+from feature_graph.artifacts import create_compile_artifact, create_ir_artifact, create_judge_artifact
 from feature_graph.bundle import bundle_feature_graph
 from feature_graph.compiler import compile_graph
 from feature_graph.judge import judge_graph
@@ -94,7 +94,9 @@ class CorpusArtifactOpener:
 class DraftIRFilesystemProposer:
     """Persist deterministic draft-IR stubs as durable artifact refs."""
 
-    def draft_ir(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    persistence: FeatureGraphPersistenceService = field(default_factory=FeatureGraphPersistenceService)
+
+    def draft_ir(self, inputs: Mapping[str, Any]) -> Any:
         dossier_id = _read_str(inputs.get("dossier_id")) or "unknown"
         inline_graph = inputs.get("graph") if isinstance(inputs.get("graph"), dict) else None
         source_ref = _coerce_artifact_ref(inputs.get("hydrated_deed_artifact_ref"))
@@ -102,6 +104,46 @@ class DraftIRFilesystemProposer:
             source_ref = _coerce_artifact_ref(inputs.get("deed_text_artifact_ref"))
         if source_ref is None:
             source_ref = _coerce_artifact_ref(inputs.get("deed_artifact_ref"))
+        if inline_graph is not None:
+            try:
+                graph = FeatureGraph.model_validate(inline_graph)
+            except Exception as exc:
+                rejected_ref = _persist_json_artifact(
+                    category="rejected_ir_graphs",
+                    dossier_id=dossier_id,
+                    payload={
+                        "artifact_type": "rejected_ir_graph",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "dossier_id": dossier_id,
+                        "validation_error": str(exc)[:1000],
+                        "graph": inline_graph,
+                    },
+                )
+                return {
+                    "artifact_ref": None,
+                    "reason_codes": ["draft_ir_graph_validation_failed"],
+                    "kernel_refusal": {
+                        "reason_code": "draft_ir_graph_validation_failed",
+                        "retryable": True,
+                        "missing_inputs": [],
+                        "blocked_by_budget": False,
+                        "blocked_by_invariant": False,
+                    },
+                    "rejected_graph_artifact_ref": rejected_ref.model_dump(mode="json"),
+                    "rejected_graph_summary": _summarize_rejected_graph(inline_graph, error=str(exc)),
+                }
+            artifact_id = f"ir_{graph.graph_id}_{uuid4().hex[:8]}"
+            ir_artifact = create_ir_artifact(
+                artifact_id=artifact_id,
+                graph=graph,
+                created_by="agent_kernel",
+                source_document_id=dossier_id,
+            )
+            saved = self.persistence.save_artifact(artifact=ir_artifact, dossier_id=dossier_id)
+            return {
+                "artifact_ref": ArtifactRef(artifact_path=str(saved["path"])),
+                "reason_codes": ["ir_drafted", "ir_inline_graph_validated"],
+            }
 
         payload = {
             "artifact_type": "ir_draft_stub",
@@ -542,6 +584,18 @@ def _summarize_path(path: Path) -> str:
 def _summarize_text(text: str) -> str:
     compact = " ".join((text or "").split())
     return compact[:512]
+
+
+def _summarize_rejected_graph(graph: dict[str, Any], *, error: str) -> dict[str, Any]:
+    nodes = graph.get("nodes")
+    edges = graph.get("edges")
+    graph_id = graph.get("graph_id")
+    return {
+        "graph_id": str(graph_id)[:120] if graph_id is not None else None,
+        "node_count": len(nodes) if isinstance(nodes, list) else 0,
+        "edge_count": len(edges) if isinstance(edges, list) else 0,
+        "error": _summarize_text(error),
+    }
 
 
 def _read_str(raw: Any) -> str | None:

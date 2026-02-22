@@ -39,6 +39,7 @@ from .tooling import (
     FeatureGraphJudgeTool,
     RetrievalEvidenceTool,
 )
+from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
 _MAX_INPUT_BYTES = 4096
 _MAX_INITIAL_GRAPH_JSON_BYTES = 262144
@@ -267,6 +268,34 @@ class KernelSessionManager:
             inputs=request.inputs,
         )
         run_artifact.steps.append(step)
+        tool_refusal = _extract_tool_refusal(step)
+        if tool_refusal is not None:
+            self._record_idempotency_entry(
+                run_artifact=run_artifact,
+                request=request,
+                fingerprint=fingerprint,
+                step=step,
+                refusal=tool_refusal,
+                terminal=None,
+                budgets=budgets,
+            )
+            self._persist(run_artifact)
+            dashboard = _build_dashboard(
+                run_artifact=run_artifact,
+                budgets=budgets,
+                semantic_ready=request.semantic_ready,
+                last_refusal=tool_refusal,
+                failure_reason=None,
+                failure_code=tool_refusal.reason_code,
+            )
+            return KernelStepResult(
+                session_id=request.session_id,
+                idempotency_key=request.idempotency_key,
+                execution_state=StepExecutionState.REFUSED,
+                step_record=step.model_dump(mode="json"),
+                refusal=tool_refusal,
+                dashboard=dashboard,
+            )
         _update_latest_refs(run_artifact, step)
         self._record_idempotency_entry(
             run_artifact=run_artifact,
@@ -370,6 +399,7 @@ class KernelSessionManager:
             terminal=terminal,
             budgets=budgets,
         )
+        _mark_final_feature_graph_pointers(run_artifact)
         self._persist(run_artifact)
         dashboard = _build_dashboard(
             run_artifact=run_artifact,
@@ -753,6 +783,37 @@ def _lookup_step(run_artifact: RunArtifact, step_id: str) -> StepRecord | None:
         if step.step_id == step_id:
             return step
     return None
+
+
+def _extract_tool_refusal(step: StepRecord) -> KernelRefusal | None:
+    if not isinstance(step.outputs_inline, dict):
+        return None
+    raw_refusal = step.outputs_inline.get("kernel_refusal")
+    if not isinstance(raw_refusal, dict):
+        return None
+    try:
+        return KernelRefusal.model_validate(raw_refusal)
+    except Exception:
+        return None
+
+
+def _mark_final_feature_graph_pointers(run_artifact: RunArtifact) -> None:
+    ir_path = run_artifact.ir_artifact_ref.artifact_path if run_artifact.ir_artifact_ref is not None else None
+    bundle_path = (
+        run_artifact.bundle_artifact_ref.artifact_path
+        if run_artifact.bundle_artifact_ref is not None
+        else None
+    )
+    if not ir_path:
+        return
+    try:
+        FeatureGraphPersistenceService().mark_final_pointers_from_paths(
+            ir_artifact_path=ir_path,
+            bundle_artifact_path=bundle_path,
+        )
+    except Exception:
+        # Final pointer writes are best-effort and must not invalidate successful terminal completion.
+        return
 
 
 def _dump_ref(ref: ArtifactRef | None) -> dict[str, object] | None:

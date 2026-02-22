@@ -274,7 +274,7 @@ class ActionExecutor:
             )
 
         raw_result = execute_fn(inputs)
-        artifact_ref, reason_codes = _coerce_artifact_action_result(
+        artifact_ref, reason_codes, outputs_inline = _coerce_artifact_action_result(
             raw_result=raw_result,
             default_reason_code=reason_code,
         )
@@ -287,6 +287,7 @@ class ActionExecutor:
             inputs=dict(inputs),
             outputs=outputs,
             reason_codes=reason_codes,
+            outputs_inline=outputs_inline,
         )
 
     def _execute_validate(self, step_id: str, inputs: Mapping[str, Any]) -> StepRecord:
@@ -413,19 +414,25 @@ def _coerce_artifact_action_result(
     *,
     raw_result: Any,
     default_reason_code: str,
-) -> tuple[ArtifactRef | None, list[str]]:
-    if isinstance(raw_result, ArtifactRef):
-        return raw_result, [default_reason_code]
+) -> tuple[ArtifactRef | None, list[str], dict[str, Any] | None]:
     if isinstance(raw_result, dict):
         raw_ref = raw_result.get("artifact_ref")
         artifact_ref = _coerce_artifact_ref(raw_ref)
         raw_reason_codes = raw_result.get("reason_codes")
+        reason_codes = [default_reason_code]
         if isinstance(raw_reason_codes, list):
-            reason_codes = [str(code) for code in raw_reason_codes if str(code)]
-            if reason_codes:
-                return artifact_ref, reason_codes
-        return artifact_ref, [default_reason_code]
-    return None, [default_reason_code]
+            coerced = [str(code) for code in raw_reason_codes if str(code)]
+            if coerced:
+                reason_codes = coerced
+        outputs_inline = {
+            str(k): v
+            for k, v in raw_result.items()
+            if k not in {"artifact_ref", "reason_codes"}
+        } or None
+        return artifact_ref, reason_codes, outputs_inline
+    if isinstance(raw_result, ArtifactRef):
+        return raw_result, [default_reason_code], None
+    return None, [default_reason_code], None
 
 
 def _coerce_artifact_ref(raw_ref: Any) -> ArtifactRef | None:
