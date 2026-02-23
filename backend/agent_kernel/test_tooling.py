@@ -15,11 +15,13 @@ from backend.agent_kernel.run_artifact import ArtifactRef
 from backend.agent_kernel.tooling import (
     CorpusArtifactOpener,
     CorpusDeedHydrator,
+    DeedSpanIndexUpserterTool,
     DraftIRFilesystemProposer,
     FeatureGraphBundlerTool,
     FeatureGraphCompilerTool,
     FeatureGraphJudgeTool,
     RetrievalEvidenceTool,
+    TextSpanOpenerTool,
 )
 from backend.retrieval.evidence.models import RetrievalResult
 from backend.services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
@@ -230,3 +232,182 @@ def test_retrieval_tool_maps_semantic_worker_reason_codes() -> None:
     artifact_ref = ArtifactRef.model_validate(result["artifact_ref"])
     assert result["reason_codes"] == ["semantic_worker_in_backoff"]
     assert Path(artifact_ref.artifact_path).exists()
+
+
+def test_span_index_upsert_and_open_text_spans_returns_bounded_verbatim_text() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        original_legacy_dossiers_root = legacy_paths.dossiers_root
+
+        def _patched_root() -> Path:
+            return root / "dossiers_data"
+
+        legacy_paths.dossiers_root = _patched_root  # type: ignore[assignment]
+        try:
+            deed_text = (
+                "Preamble text. BEGINNING AT the northeast corner of Lot 1; "
+                "thence South 100 feet; thence West 50 feet; POINT OF BEGINNING. Closing text."
+            )
+            deed_ref = ArtifactRef(
+                artifact_path=str(
+                    (root / "dossiers_data" / "artifacts" / "agent_kernel" / "manual_deed.json")
+                )
+            )
+            Path(deed_ref.artifact_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(deed_ref.artifact_path).write_text(
+                json.dumps({"artifact_type": "deed_text", "dossier_id": "D_SPAN", "text": deed_text}),
+                encoding="utf-8",
+            )
+            fp = {
+                "sha256_12": __import__("hashlib").sha256(deed_text.encode("utf-8")).hexdigest()[:12],
+                "length_chars": len(deed_text),
+            }
+            upserter = DeedSpanIndexUpserterTool()
+            upsert = upserter.upsert_deed_span_index(
+                {
+                    "dossier_id": "D_SPAN",
+                    "deed_text_artifact_ref": deed_ref.model_dump(mode="json"),
+                    "deed_fingerprint": fp,
+                    "upserts": [
+                        {
+                            "span_id": "calls_01",
+                            "kind": "metes_bounds_calls",
+                            "labels": ["calls"],
+                            "status": "proposed",
+                            "start_char": deed_text.index("BEGINNING AT"),
+                            "end_char": deed_text.index("POINT OF BEGINNING") + len("POINT OF BEGINNING"),
+                            "agent_intent": {"intended_verbatim_text": "BEGINNING AT ... POINT OF BEGINNING"},
+                        }
+                    ],
+                }
+            )
+            index_ref = ArtifactRef.model_validate(upsert["artifact_ref"])
+            assert "deed_span_index_saved" in upsert["reason_codes"]
+            assert Path(index_ref.artifact_path).exists()
+
+            opener = TextSpanOpenerTool()
+            opened = opener.open_text_spans(
+                {
+                    "deed_text_artifact_ref": deed_ref.model_dump(mode="json"),
+                    "deed_span_index_ref": index_ref.model_dump(mode="json"),
+                    "span_ids": ["calls_01"],
+                    "max_chars_per_span": 200,
+                    "max_total_chars": 400,
+                    "include_context_chars": 0,
+                }
+            )
+            assert opened["reason_codes"] == ["spans_opened"]
+            spans = opened["spans"]
+            assert isinstance(spans, list) and len(spans) == 1
+            assert "BEGINNING AT" in spans[0]["text"]
+            assert "POINT OF BEGINNING" in spans[0]["text"]
+            assert spans[0]["fingerprint_ok"] is True
+        finally:
+            legacy_paths.dossiers_root = original_legacy_dossiers_root  # type: ignore[assignment]
+
+
+def test_open_text_spans_invalid_range_and_fingerprint_mismatch_refuse() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        original_legacy_dossiers_root = legacy_paths.dossiers_root
+
+        def _patched_root() -> Path:
+            return root / "dossiers_data"
+
+        legacy_paths.dossiers_root = _patched_root  # type: ignore[assignment]
+        try:
+            deed_text = "Short deed text for span testing."
+            deed_path = root / "dossiers_data" / "artifacts" / "agent_kernel" / "deed.json"
+            deed_path.parent.mkdir(parents=True, exist_ok=True)
+            deed_path.write_text(json.dumps({"artifact_type": "deed_text", "text": deed_text}), encoding="utf-8")
+            deed_ref = ArtifactRef(artifact_path=str(deed_path))
+
+            opener = TextSpanOpenerTool()
+            invalid = opener.open_text_spans(
+                {
+                    "deed_text_artifact_ref": deed_ref.model_dump(mode="json"),
+                    "spans": [{"start_char": 10, "end_char": 5}],
+                }
+            )
+            assert invalid["kernel_refusal"]["reason_code"] == "open_text_spans_invalid_range"
+
+            bad_index_path = root / "dossiers_data" / "artifacts" / "agent_kernel" / "bad_index.json"
+            bad_index_path.write_text(
+                json.dumps(
+                    {
+                        "artifact_type": "deed_span_index",
+                        "deed_fingerprint": {"sha256_12": "deadbeefdead", "length_chars": 999},
+                        "spans": [{"span_id": "s1", "start_char": 0, "end_char": 5}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            mismatch = opener.open_text_spans(
+                {
+                    "deed_text_artifact_ref": deed_ref.model_dump(mode="json"),
+                    "deed_span_index_ref": {"artifact_path": str(bad_index_path)},
+                    "span_ids": ["s1"],
+                }
+            )
+            assert mismatch["kernel_refusal"]["reason_code"] == "open_text_spans_fingerprint_mismatch"
+        finally:
+            legacy_paths.dossiers_root = original_legacy_dossiers_root  # type: ignore[assignment]
+
+
+def test_open_text_spans_anchors_happy_not_found_and_ambiguous() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        original_legacy_dossiers_root = legacy_paths.dossiers_root
+
+        def _patched_root() -> Path:
+            return root / "dossiers_data"
+
+        legacy_paths.dossiers_root = _patched_root  # type: ignore[assignment]
+        try:
+            deed_text = (
+                "Recital. BEGINNING AT stone marker A; thence east 10 feet; POINT OF BEGINNING. "
+                "Other text. BEGINNING AT stone marker B; thence west 20 feet; POINT OF BEGINNING."
+            )
+            deed_path = root / "dossiers_data" / "artifacts" / "agent_kernel" / "deed_anchor.json"
+            deed_path.parent.mkdir(parents=True, exist_ok=True)
+            deed_path.write_text(json.dumps({"artifact_type": "deed_text", "text": deed_text}), encoding="utf-8")
+            deed_ref = ArtifactRef(artifact_path=str(deed_path))
+            opener = TextSpanOpenerTool()
+
+            ok = opener.open_text_spans(
+                {
+                    "deed_text_artifact_ref": deed_ref.model_dump(mode="json"),
+                    "anchors": [
+                        {
+                            "span_id": "calls_01",
+                            "start_anchor": "BEGINNING AT stone marker A",
+                            "end_anchor": "POINT OF BEGINNING",
+                        }
+                    ],
+                    "include_context_chars": 0,
+                }
+            )
+            assert ok["reason_codes"] == ["spans_opened"]
+            assert "stone marker A" in ok["spans"][0]["text"]
+            assert "stone marker B" not in ok["spans"][0]["text"]
+            assert ok["spans"][0]["start_char"] < ok["spans"][0]["end_char"]
+
+            not_found = opener.open_text_spans(
+                {
+                    "deed_text_artifact_ref": deed_ref.model_dump(mode="json"),
+                    "anchors": [{"start_anchor": "NO SUCH START", "end_anchor": "POINT OF BEGINNING"}],
+                }
+            )
+            assert not_found["kernel_refusal"]["reason_code"] == "open_text_spans_anchor_not_found"
+
+            ambiguous = opener.open_text_spans(
+                {
+                    "deed_text_artifact_ref": deed_ref.model_dump(mode="json"),
+                    "anchors": [{"start_anchor": "BEGINNING AT", "end_anchor": "POINT OF BEGINNING"}],
+                }
+            )
+            assert ambiguous["kernel_refusal"]["reason_code"] == "open_text_spans_anchor_ambiguous"
+            assert isinstance(ambiguous.get("candidates"), list)
+            assert ambiguous["candidates"], "expected candidate previews"
+        finally:
+            legacy_paths.dossiers_root = original_legacy_dossiers_root  # type: ignore[assignment]

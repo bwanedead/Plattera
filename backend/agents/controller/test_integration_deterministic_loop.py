@@ -97,8 +97,16 @@ class _SequenceLLM:
         ]
         self._i = 0
 
-    def propose_next_step(self, *, model: str, schema: dict[str, object], prompt: str) -> dict[str, object]:
-        del model, schema, prompt
+    def propose_next_step(
+        self,
+        *,
+        model: str,
+        tools: list[object],
+        tool_choice_name: str,
+        developer_message: str,
+        user_message: str,
+    ) -> dict[str, object]:
+        del model, tools, tool_choice_name, developer_message, user_message
         idx = min(self._i, len(self._responses) - 1)
         self._i += 1
         return self._responses[idx]

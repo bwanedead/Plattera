@@ -9,16 +9,15 @@ from backend.agent_kernel.models import ActionType
 from backend.agents.controller.contracts import (
     KernelStepProposal,
     coerce_action_type,
-    kernel_step_tool_schema,
+    kernel_step_tool_spec,
     validate_action_args,
 )
 
 
-def test_kernel_step_tool_schema_has_required_minimal_fields() -> None:
-    schema = kernel_step_tool_schema()
-    function = schema.get("function")
-    assert isinstance(function, dict)
-    params = function.get("parameters")
+def test_kernel_step_tool_spec_has_required_minimal_fields() -> None:
+    spec = kernel_step_tool_spec()
+    assert spec.name == "kernel_step"
+    params = spec.parameters_schema
     assert isinstance(params, dict)
     required = params.get("required")
     assert required == ["action_type", "args", "idempotency_key", "why"]

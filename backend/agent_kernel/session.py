@@ -32,7 +32,13 @@ from .models import (
     TerminalOutcomeKind,
 )
 from .run_artifact import ArtifactRef, RunArtifact, StepRecord
-from .tooling import CorpusArtifactOpener, CorpusDeedHydrator, DraftIRFilesystemProposer
+from .tooling import (
+    CorpusArtifactOpener,
+    CorpusDeedHydrator,
+    DeedSpanIndexUpserterTool,
+    DraftIRFilesystemProposer,
+    TextSpanOpenerTool,
+)
 from .tooling import (
     FeatureGraphBundlerTool,
     FeatureGraphCompilerTool,
@@ -68,7 +74,9 @@ class KernelSessionManager:
             deps=ActionExecutorDeps(
                 deed_hydrator=CorpusDeedHydrator(),
                 artifact_opener=CorpusArtifactOpener(),
+                text_span_opener=TextSpanOpenerTool(),
                 draft_ir_proposer=DraftIRFilesystemProposer(),
+                deed_span_index_upserter=DeedSpanIndexUpserterTool(),
                 evidence_retriever=RetrievalEvidenceTool(),
                 compiler=FeatureGraphCompilerTool(),
                 judge=FeatureGraphJudgeTool(),
@@ -621,6 +629,7 @@ def _build_dashboard(
         georef_ref=_dump_ref(run_artifact.georeference_artifact_ref),
         validate_ref=_latest_validate_ref(run_artifact),
         retrieval_ref=_dump_ref(run_artifact.retrieval_artifact_ref),
+        deed_span_index_ref=_dump_ref(run_artifact.deed_span_index_artifact_ref),
     )
 
     gap_counts: dict[str, int] = {}
@@ -689,6 +698,8 @@ def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord) -> None:
         run_artifact.ir_artifact_ref = _extract_ref(step.outputs, "ir_artifact_ref") or run_artifact.ir_artifact_ref
     if step.action == ActionType.RETRIEVE_EVIDENCE:
         run_artifact.retrieval_artifact_ref = _extract_ref(step.outputs, "retrieval_artifact_ref")
+    if step.action == ActionType.UPSERT_DEED_SPAN_INDEX:
+        run_artifact.deed_span_index_artifact_ref = _extract_ref(step.outputs, "deed_span_index_ref")
     if step.action == ActionType.COMPILE:
         run_artifact.compile_artifact_ref = _extract_ref(step.outputs, "compile_artifact_ref")
     if step.action == ActionType.JUDGE:

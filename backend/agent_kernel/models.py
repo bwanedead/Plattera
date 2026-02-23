@@ -43,6 +43,7 @@ class ActionType(str, Enum):
     SET_GRAPH_REQUIREMENTS = "set_graph_requirements"
     HYDRATE_DEED = "hydrate_deed"
     OPEN_ARTIFACT = "open_artifact"
+    OPEN_TEXT_SPANS = "open_text_spans"
     DRAFT_IR = "draft_ir"
     DECLARE_DONE = "declare_done"
     RETRIEVE_EVIDENCE = "retrieve_evidence"
@@ -53,6 +54,7 @@ class ActionType(str, Enum):
     VALIDATE = "validate"
     PROPOSE_PATCH = "propose_patch"
     SUMMARIZE_STATUS = "summarize_status"
+    UPSERT_DEED_SPAN_INDEX = "upsert_deed_span_index"
 
 
 class KernelGoal(BaseModel):
@@ -147,6 +149,7 @@ class KernelLatestRefs(BaseModel):
     georef_ref: Optional[dict[str, object]] = None
     validate_ref: Optional[dict[str, object]] = None
     retrieval_ref: Optional[dict[str, object]] = None
+    deed_span_index_ref: Optional[dict[str, object]] = None
 
 
 class KernelGapSummary(BaseModel):

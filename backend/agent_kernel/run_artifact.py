@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from .models import ActionType
 
-_MAX_INLINE_JSON_BYTES = 4096
+_MAX_INLINE_JSON_BYTES = 16384
 _GEOMETRY_KEYS = {"geometry", "coordinates", "rings", "vertices", "polygon"}
 _MAX_GEOMETRY_POINTS = 64
 
@@ -76,6 +76,7 @@ class RunArtifact(BaseModel):
     bundle_artifact_ref: Optional[ArtifactRef] = None
     georeference_artifact_ref: Optional[ArtifactRef] = None
     retrieval_artifact_ref: Optional[ArtifactRef] = None
+    deed_span_index_artifact_ref: Optional[ArtifactRef] = None
     idempotency_ledger: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     steps: List[StepRecord] = Field(default_factory=list)
 

@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from agent_kernel.models import ActionType
+from .tool_specs import ToolSpec
 
 
 class RetrievalIntent(str, Enum):
@@ -56,6 +57,18 @@ class ControllerEvent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class IterationSummary(BaseModel):
+    action: str | None = Field(default=None, max_length=64)
+    intent: str | None = Field(default=None, max_length=240)
+    expected_observation: str | None = Field(default=None, max_length=240)
+    actual_observation: str | None = Field(default=None, max_length=240)
+    state_delta: dict[str, Any] | None = None
+    open_issues: list[str] | None = Field(default=None, max_length=5)
+    next_move: dict[str, Any] | None = None
+    confidence: str | float | None = None
+    do_not_repeat: str | None = Field(default=None, max_length=240)
+
+
 class KernelStepProposal(BaseModel):
     action_type: str = Field(..., min_length=1, max_length=64)
     args: dict[str, Any] = Field(default_factory=dict)
@@ -65,6 +78,7 @@ class KernelStepProposal(BaseModel):
     notes: str | None = Field(default=None, max_length=500)
     retrieval_intent: RetrievalIntent | None = None
     declare_done: DeclareDoneJustification | None = None
+    iteration_summary: Any | None = None
 
     @field_validator("action_type")
     @classmethod
@@ -130,6 +144,85 @@ class _DraftIRArgs(BaseModel):
         ):
             raise ValueError("draft_ir_requires_deed_text_artifact_ref_or_deed_artifact_ref_or_hydrated_deed_artifact_ref_or_graph")
         return self
+
+
+class _OpenTextSpansRawRange(BaseModel):
+    span_id: str | None = Field(default=None, max_length=128)
+    start_char: int = Field(..., ge=0)
+    end_char: int = Field(..., ge=1)
+
+
+class _OpenTextSpansAnchorSpec(BaseModel):
+    span_id: str | None = Field(default=None, max_length=128)
+    start_anchor: str = Field(..., min_length=1, max_length=200)
+    end_anchor: str = Field(..., min_length=1, max_length=200)
+    occurrence: int | None = Field(default=None, ge=1, le=50)
+
+
+class _OpenTextSpansArgs(BaseModel):
+    deed_text_artifact_ref: str | None = Field(default=None, max_length=512)
+    deed_span_index_ref: str | None = Field(default=None, max_length=512)
+    span_ids: list[str] | None = Field(default=None, max_length=20)
+    spans: list[_OpenTextSpansRawRange] | None = Field(default=None, max_length=20)
+    anchors: list[_OpenTextSpansAnchorSpec] | None = Field(default=None, max_length=10)
+    max_chars_per_span: int | None = Field(default=None, ge=1, le=5000)
+    max_total_chars: int | None = Field(default=None, ge=1, le=10000)
+    include_context_chars: int | None = Field(default=None, ge=0, le=500)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_OpenTextSpansArgs":
+        if not self.deed_text_artifact_ref:
+            raise ValueError("open_text_spans_missing_deed_ref")
+        has_ids = bool(self.span_ids)
+        has_spans = bool(self.spans)
+        has_anchors = bool(self.anchors)
+        if has_ids and not self.deed_span_index_ref:
+            raise ValueError("open_text_spans_missing_span_index_ref")
+        modes = sum(1 for v in (has_ids, has_spans, has_anchors) if v)
+        if modes == 0:
+            raise ValueError("open_text_spans_requires_span_ids_or_spans_or_anchors")
+        if modes > 1:
+            raise ValueError("open_text_spans_requires_exactly_one_request_mode")
+        return self
+
+
+class _DeedFingerprintArgs(BaseModel):
+    sha256_12: str = Field(..., min_length=12, max_length=12)
+    length_chars: int = Field(..., ge=0)
+
+
+class _DeedSpanAnchorArgs(BaseModel):
+    start_snippet: str | None = Field(default=None, max_length=200)
+    end_snippet: str | None = Field(default=None, max_length=200)
+
+
+class _DeedSpanAgentIntentArgs(BaseModel):
+    intended_verbatim_text: str | None = Field(default=None, max_length=2000)
+
+
+class _DeedSpanUpsertArgs(BaseModel):
+    span_id: str = Field(..., min_length=1, max_length=128)
+    kind: str = Field(..., min_length=1, max_length=64)
+    labels: list[str] = Field(default_factory=list, max_length=8)
+    status: str = Field(..., min_length=1, max_length=32)
+    start_char: int = Field(..., ge=0)
+    end_char: int = Field(..., ge=1)
+    anchor: _DeedSpanAnchorArgs | None = None
+    agent_intent: _DeedSpanAgentIntentArgs | None = None
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> "_DeedSpanUpsertArgs":
+        if self.end_char <= self.start_char:
+            raise ValueError("upsert_deed_span_index_invalid_span")
+        return self
+
+
+class _UpsertDeedSpanIndexArgs(BaseModel):
+    deed_span_index_ref: str | None = Field(default=None, max_length=512)
+    deed_text_artifact_ref: str = Field(..., min_length=1, max_length=512)
+    deed_fingerprint: _DeedFingerprintArgs
+    upserts: list[_DeedSpanUpsertArgs] = Field(..., min_length=1, max_length=20)
+    dossier_id: str | None = Field(default=None, max_length=128)
 
 
 class _RetrievalRoutingFilters(BaseModel):
@@ -229,6 +322,7 @@ _ACTION_ARG_MODELS: dict[ActionType, type[BaseModel]] = {
     ActionType.SET_GRAPH_REQUIREMENTS: _SetGraphRequirementsArgs,
     ActionType.HYDRATE_DEED: _HydrateDeedArgs,
     ActionType.OPEN_ARTIFACT: _OpenArtifactArgs,
+    ActionType.OPEN_TEXT_SPANS: _OpenTextSpansArgs,
     ActionType.DRAFT_IR: _DraftIRArgs,
     ActionType.DECLARE_DONE: _EmptyArgs,
     ActionType.RETRIEVE_EVIDENCE: _RetrieveEvidenceArgs,
@@ -239,6 +333,7 @@ _ACTION_ARG_MODELS: dict[ActionType, type[BaseModel]] = {
     ActionType.VALIDATE: _ValidateArgs,
     ActionType.PROPOSE_PATCH: _ProposePatchArgs,
     ActionType.SUMMARIZE_STATUS: _SummarizeStatusArgs,
+    ActionType.UPSERT_DEED_SPAN_INDEX: _UpsertDeedSpanIndexArgs,
 }
 
 
@@ -288,42 +383,44 @@ def _extract_missing_inputs(exc: ValidationError) -> list[str]:
     return missing
 
 
-def kernel_step_tool_schema() -> dict[str, Any]:
-    return {
-        "type": "function",
-        "function": {
-            "name": "kernel_step",
-            "description": "Propose exactly one next kernel action.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action_type": {"type": "string", "description": "Kernel action type."},
-                    "args": {"type": "object", "description": "Action args, preferably artifact refs."},
-                    "idempotency_key": {
-                        "type": "string",
-                        "description": "Stable key for dedupe/retry discipline.",
-                    },
-                    "why": {"type": "string", "description": "Short rationale for this move."},
-                    "semantic_ready": {"type": "boolean"},
-                    "notes": {"type": "string"},
-                    "retrieval_intent": {
-                        "type": "string",
-                        "enum": [intent.value for intent in RetrievalIntent],
-                    },
-                    "declare_done": {
-                        "type": "object",
-                        "description": "Optional DECLARE_DONE justification payload.",
-                    },
+def kernel_step_tool_spec() -> ToolSpec:
+    return ToolSpec(
+        name="kernel_step",
+        description="Propose exactly one next kernel action.",
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "action_type": {"type": "string", "description": "Kernel action type."},
+                "args": {"type": "object", "description": "Action args, preferably artifact refs."},
+                "idempotency_key": {
+                    "type": "string",
+                    "description": "Stable key for dedupe/retry discipline.",
                 },
-                "required": ["action_type", "args", "idempotency_key", "why"],
-                "additionalProperties": False,
+                "why": {"type": "string", "description": "Short rationale for this move."},
+                "semantic_ready": {"type": "boolean"},
+                "notes": {"type": "string"},
+                "retrieval_intent": {
+                    "type": "string",
+                    "enum": [intent.value for intent in RetrievalIntent],
+                },
+                "declare_done": {
+                    "type": "object",
+                    "description": "Optional DECLARE_DONE justification payload.",
+                },
+                "iteration_summary": {
+                    "type": "object",
+                    "description": "Optional delta-only summary for this iteration (continuity memory only).",
+                },
             },
+            "required": ["action_type", "args", "idempotency_key", "why"],
+            "additionalProperties": False,
         },
-    }
+    )
 
 
 _TOOL_REQUIRED_FIELDS: dict[ActionType, list[str]] = {
     ActionType.OPEN_ARTIFACT: ["artifact_ref | artifact_path | corpus_entry_ref"],
+    ActionType.OPEN_TEXT_SPANS: ["deed_text_artifact_ref", "span_ids+deed_span_index_ref OR spans[] OR anchors[]"],
     ActionType.HYDRATE_DEED: ["dossier_id | source_entry_ref"],
     ActionType.DRAFT_IR: [
         "dossier_id",
@@ -336,6 +433,7 @@ _TOOL_REQUIRED_FIELDS: dict[ActionType, list[str]] = {
     ActionType.GEOREFERENCE: ["bundle_artifact_ref | ir_artifact_ref"],
     ActionType.VALIDATE: ["georef_artifact_ref"],
     ActionType.PROPOSE_PATCH: ["ir_artifact_ref"],
+    ActionType.UPSERT_DEED_SPAN_INDEX: ["deed_text_artifact_ref", "deed_fingerprint", "upserts[]"],
 }
 
 
@@ -356,6 +454,7 @@ def tool_cheatsheet_entries(
                 "required_fields": how_to["required_fields"],
                 "minimal_working_example": how_to["minimal_working_example"],
                 "common_mistakes": how_to["common_mistakes"],
+                "iteration_summary_note": how_to.get("iteration_summary_note"),
             }
         )
     return entries
@@ -384,6 +483,10 @@ def action_how_to_guide(
             "args": example_args,
         },
         "common_mistakes": common_mistakes[:2],
+        "iteration_summary_note": (
+            "Optional Memory Docket v0: delta-only this-iteration notes; do not recap memory.run_summary_log "
+            "or paste deed text."
+        ),
     }
 
 
@@ -396,6 +499,24 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
     ir_ref = latest_ir_ref or initial_ir_ref or "<ir-artifact-ref>"
     if action == ActionType.OPEN_ARTIFACT:
         return {"artifact_ref": deed_ref}
+    if action == ActionType.OPEN_TEXT_SPANS:
+        index_ref = _ctx_str(context_inputs.get("deed_span_index_ref")) or "<memory.deed_span_index_ref>"
+        if _ctx_str(context_inputs.get("deed_span_index_ref")):
+            return {
+                "deed_text_artifact_ref": deed_ref,
+                "deed_span_index_ref": index_ref,
+                "span_ids": ["calls_01"],
+            }
+        return {
+            "deed_text_artifact_ref": deed_ref,
+            "anchors": [
+                {
+                    "span_id": "calls_01",
+                    "start_anchor": "BEGINNING AT",
+                    "end_anchor": "POINT OF BEGINNING",
+                }
+            ],
+        }
     if action == ActionType.HYDRATE_DEED:
         return {"dossier_id": dossier_id, "source_entry_ref": source_entry_ref}
     if action == ActionType.DRAFT_IR:
@@ -410,6 +531,22 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
         return {"georef_artifact_ref": "<georef-artifact-ref>"}
     if action == ActionType.PROPOSE_PATCH:
         return {"ir_artifact_ref": ir_ref}
+    if action == ActionType.UPSERT_DEED_SPAN_INDEX:
+        return {
+            "deed_text_artifact_ref": deed_ref,
+            "deed_fingerprint": {"sha256_12": "<sha256_12>", "length_chars": 0},
+            "upserts": [
+                {
+                    "span_id": "calls_01",
+                    "kind": "metes_bounds_calls",
+                    "labels": ["calls"],
+                    "status": "proposed",
+                    "start_char": 0,
+                    "end_char": 120,
+                    "agent_intent": {"intended_verbatim_text": "<bounded expected text>"},
+                }
+            ],
+        }
     return {}
 
 
@@ -420,8 +557,13 @@ def _common_mistakes_for_action(action: ActionType, *, reason_code: str | None) 
     ]
     if action == ActionType.OPEN_ARTIFACT:
         return [
-            "OPEN_ARTIFACT needs artifact_ref, artifact_path, or corpus_entry_ref.",
-            "If inputs.deed_text_artifact_ref exists, use it directly as artifact_ref.",
+            "OPEN_ARTIFACT is for bounded summaries/debug inspection, not verbatim deed recall.",
+            "For verbatim deed text, prefer OPEN_TEXT_SPANS.",
+        ]
+    if action == ActionType.OPEN_TEXT_SPANS:
+        return [
+            "OPEN_TEXT_SPANS is the canonical verbatim deed recall tool; OPEN_ARTIFACT is summary/debug only.",
+            "Use anchors[] to capture a span first, then span_ids + deed_span_index_ref for repeat verification.",
         ]
     if action == ActionType.DRAFT_IR:
         return [
@@ -437,6 +579,11 @@ def _common_mistakes_for_action(action: ActionType, *, reason_code: str | None) 
         return [
             "RETRIEVE_EVIDENCE requires a non-empty query string.",
             "Use retrieval only when it helps resolve a concrete gap or ambiguity.",
+        ]
+    if action == ActionType.UPSERT_DEED_SPAN_INDEX:
+        return [
+            "UPSERT_DEED_SPAN_INDEX requires deed_fingerprint and at least one valid span upsert.",
+            "Include bounded agent_intent.intended_verbatim_text to support verification loops.",
         ]
     if reason_code and "action_not_in_tool_menu" in reason_code:
         return ["Only choose actions currently listed in tool_menu."]

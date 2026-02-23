@@ -10,7 +10,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 from uuid import uuid4
 
 from config.paths import agent_kernel_artifacts_root
@@ -33,12 +33,13 @@ from .contracts import (
     KernelStepProposal,
     action_how_to_guide,
     coerce_action_type,
-    kernel_step_tool_schema,
+    kernel_step_tool_spec,
     tool_cheatsheet_entries,
     validate_action_args,
 )
-from .digests import build_fallback_iteration_digest, persist_iteration_digest
+from .prompting import build_developer_message, build_repair_user_message, build_user_message
 from .retrieval_intents import classify_retrieval_degradation, map_retrieval_intent_to_inputs
+from .tool_specs import ToolSpec
 
 _MAX_CONTROLLER_INPUT_BYTES = 4096
 _MAX_EVENTS = 200
@@ -53,6 +54,8 @@ _MAX_REFUSAL_STREAK = 3
 _RUN_SUMMARY_EVERY_EXECUTED_STEPS = 5
 _MAX_HINT_FILE_BYTES = 65536
 _MAX_HINT_READ_BYTES = 32768
+_RUN_SUMMARY_LOG_MAX_BYTES = 24576
+_RUN_SUMMARY_LOG_MAX_ENTRIES = 40
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +67,10 @@ class NextStepLLMClient(Protocol):
         self,
         *,
         model: str,
-        schema: dict[str, object],
-        prompt: str,
+        tools: list[ToolSpec],
+        tool_choice_name: str,
+        developer_message: str,
+        user_message: str,
     ) -> dict[str, object]: ...
 
 
@@ -392,6 +397,7 @@ def run_controller_loop(
             args=proposal_inputs,
             bootstrap_context=bootstrap_context,
             dashboard=started.dashboard.model_dump(mode="json"),
+            context_packet=context_packet,
         )
         if autofill_applied:
             _append_event(
@@ -783,6 +789,7 @@ def run_controller_loop(
                     else (step_result.terminal.reason_code if step_result.terminal is not None else None)
                 ),
                 "missing_inputs": step_result.refusal.missing_inputs if step_result.refusal is not None else [],
+                "step_record": step_result.step_record if isinstance(step_result.step_record, dict) else None,
                 "latest_refs": _latest_refs_summary(step_result.dashboard.model_dump(mode="json")),
             },
             recent_digest_memory=recent_digest_memory,
@@ -865,13 +872,14 @@ def _propose_next_step(
     observation: dict[str, object],
     transcript: list[dict[str, object]],
 ) -> KernelStepProposal | None:
-    schema = kernel_step_tool_schema()
-    prompt = (
-        "Propose exactly one next kernel step by calling the `kernel_step` tool. "
-        "Respect tool_menu and refs-not-blobs. Use the Context Packet below. "
-        f"ContextPacket JSON: {json.dumps(observation, sort_keys=True)}"
+    tool_spec = kernel_step_tool_spec()
+    first = llm_client.propose_next_step(
+        model=model,
+        tools=[tool_spec],
+        tool_choice_name=tool_spec.name,
+        developer_message=build_developer_message(),
+        user_message=build_user_message(context_packet=observation),
     )
-    first = llm_client.propose_next_step(model=model, schema=schema, prompt=prompt)
     proposal, parse_error = _coerce_proposal(first)
     if proposal is not None:
         return proposal
@@ -884,13 +892,13 @@ def _propose_next_step(
     )
     _log_controller_event("controller_parse_failed", first_failure)
 
-    repair_prompt = (
-        "Your prior proposal was invalid. Call `kernel_step` once using this shape: "
-        '{"action_type":"...", "args":{}, "idempotency_key":"...", "why":"..."} '
-        "Use only actions in tool_menu and include missing required fields from last_refusal.fix.required_fields. "
-        f"Prior parse error: {parse_error or 'unknown'}."
+    second = llm_client.propose_next_step(
+        model=model,
+        tools=[tool_spec],
+        tool_choice_name=tool_spec.name,
+        developer_message=build_developer_message(),
+        user_message=build_repair_user_message(parse_error=parse_error),
     )
-    second = llm_client.propose_next_step(model=model, schema=schema, prompt=repair_prompt)
     proposal, parse_error = _coerce_proposal(second)
     if proposal is not None:
         return proposal
@@ -994,6 +1002,7 @@ def _build_bootstrap_context(start_request: KernelSessionStartRequest) -> dict[s
     deed_text_full = _read_deed_text_from_artifact_ref(context.get("deed_text_artifact_ref"))
     if deed_text_full is not None:
         context["deed_text_full"] = deed_text_full
+        context["deed_fingerprint"] = _controller_deed_fingerprint(deed_text_full)
     return context
 
 
@@ -1016,6 +1025,13 @@ def _read_deed_text_from_artifact_ref(raw_ref: object) -> str | None:
     except Exception:
         return None
     return None
+
+
+def _controller_deed_fingerprint(text: str) -> dict[str, object]:
+    return {
+        "sha256_12": hashlib.sha256(text.encode("utf-8")).hexdigest()[:12],
+        "length_chars": len(text),
+    }
 
 
 def _contains_large_geometry(value: object, parent_key: str = "") -> bool:
@@ -1066,9 +1082,15 @@ def _build_context_packet(
         "deed_text_excerpt": bootstrap_context.get("deed_text_excerpt"),
         "deed_text_artifact_ref": bootstrap_context.get("deed_text_artifact_ref"),
         "deed_text_full": bootstrap_context.get("deed_text_full"),
+        "deed_fingerprint": bootstrap_context.get("deed_fingerprint"),
         "initial_ir_ref": bootstrap_context.get("initial_ir_ref"),
         "latest_ir_ref": latest_refs.get("ir_ref"),
+        "deed_span_index_ref": latest_refs.get("deed_span_index_ref"),
     }
+    memory_payload = _digest_memory_payload(recent_digest_memory)
+    latest_span_memory = _latest_span_memory_from_step(last_step_result)
+    if isinstance(latest_span_memory, dict):
+        memory_payload.update({k: v for k, v in latest_span_memory.items() if v not in (None, [], "")})
     packet = {
         "session_id": session_id,
         "tool_menu": tool_menu,
@@ -1078,7 +1100,7 @@ def _build_context_packet(
             "phase_hint": phase_hint,
             "plan_bullets": _phase_plan_bullets(phase_hint),
         },
-        "memory": _digest_memory_payload(recent_digest_memory),
+        "memory": memory_payload,
         "tool_cheatsheet": tool_cheatsheet_entries(tool_menu=tool_menu, context_inputs=packet_inputs),
         "recent_trace": recent_trace,
         "last_refusal": _last_refusal_payload(
@@ -1103,6 +1125,24 @@ def _build_context_packet(
         if isinstance(inputs, dict) and isinstance(deed_text_full, str):
             inputs["deed_text_full"] = deed_text_full
     return bounded
+
+
+def _latest_span_memory_from_step(last_step_result: KernelStepResult | None) -> dict[str, object] | None:
+    if last_step_result is None or not isinstance(last_step_result.step_record, dict):
+        return None
+    out: dict[str, object] = {}
+    outputs = last_step_result.step_record.get("outputs")
+    if isinstance(outputs, dict):
+        raw_ref = outputs.get("deed_span_index_ref")
+        if isinstance(raw_ref, dict):
+            artifact_path = raw_ref.get("artifact_path")
+            if isinstance(artifact_path, str):
+                out["deed_span_index_ref"] = artifact_path
+    outputs_inline = last_step_result.step_record.get("outputs_inline")
+    if isinstance(outputs_inline, dict):
+        if isinstance(outputs_inline.get("span_catalog_excerpt"), list):
+            out["deed_span_catalog_excerpt"] = outputs_inline.get("span_catalog_excerpt")
+    return out or None
 
 
 def _compact_gap_summary(gap_summary: object) -> dict[str, object]:
@@ -1247,12 +1287,18 @@ def _digest_memory_payload(recent_digest_memory: list[dict[str, object]]) -> dic
             "last_digest_ref": None,
             "last_digest_excerpt": None,
             "recent_digests_excerpts": [],
+            "deed_span_index_ref": None,
+            "deed_span_catalog_excerpt": None,
+            "run_summary_log": [],
         }
     last = recent_digest_memory[-1]
     return {
         "last_digest_ref": last.get("digest_ref"),
         "last_digest_excerpt": last.get("digest_excerpt"),
         "recent_digests_excerpts": [d.get("digest_excerpt") for d in recent_digest_memory[-5:] if d.get("digest_excerpt")],
+        "deed_span_index_ref": last.get("deed_span_index_ref"),
+        "deed_span_catalog_excerpt": last.get("deed_span_catalog_excerpt"),
+        "run_summary_log": [entry.get("run_summary_entry") for entry in recent_digest_memory if isinstance(entry.get("run_summary_entry"), dict)],
     }
 
 
@@ -1413,14 +1459,22 @@ def _autofill_known_args(
     args: dict[str, object],
     bootstrap_context: dict[str, object],
     dashboard: dict[str, object],
+    context_packet: dict[str, object] | None = None,
 ) -> tuple[dict[str, object], set[str]]:
     filled: set[str] = set()
     updated = dict(args)
     deed_ref = _read_str(bootstrap_context.get("deed_text_artifact_ref"))
+    deed_fingerprint = (
+        bootstrap_context.get("deed_fingerprint")
+        if isinstance(bootstrap_context.get("deed_fingerprint"), dict)
+        else None
+    )
     dossier_id = _read_str(bootstrap_context.get("dossier_id"))
     source_entry_ref = _read_str(bootstrap_context.get("source_entry_ref"))
     latest_refs = _latest_refs_summary(dashboard)
     ir_ref = _read_str(latest_refs.get("ir_ref")) or _read_str(bootstrap_context.get("initial_ir_ref"))
+    memory = context_packet.get("memory") if isinstance(context_packet, dict) and isinstance(context_packet.get("memory"), dict) else {}
+    deed_span_index_ref = _read_str(latest_refs.get("deed_span_index_ref")) or _read_str(memory.get("deed_span_index_ref"))
 
     if action_type == ActionType.OPEN_ARTIFACT:
         has_any = any(_read_str(updated.get(k)) for k in ("artifact_ref", "artifact_path", "corpus_entry_ref"))
@@ -1431,6 +1485,15 @@ def _autofill_known_args(
             elif source_entry_ref:
                 updated["corpus_entry_ref"] = source_entry_ref
                 filled.add("corpus_entry_ref")
+
+    if action_type == ActionType.OPEN_TEXT_SPANS:
+        if not _read_str(updated.get("deed_text_artifact_ref")) and deed_ref:
+            updated["deed_text_artifact_ref"] = deed_ref
+            filled.add("deed_text_artifact_ref")
+        if isinstance(updated.get("span_ids"), list) and updated.get("span_ids"):
+            if not _read_str(updated.get("deed_span_index_ref")) and deed_span_index_ref:
+                updated["deed_span_index_ref"] = deed_span_index_ref
+                filled.add("deed_span_index_ref")
 
     if action_type == ActionType.DRAFT_IR:
         if not _read_str(updated.get("dossier_id")) and dossier_id:
@@ -1443,6 +1506,14 @@ def _autofill_known_args(
         if not has_deed and "graph" not in updated and deed_ref:
             updated["deed_text_artifact_ref"] = deed_ref
             filled.add("deed_text_artifact_ref")
+
+    if action_type == ActionType.UPSERT_DEED_SPAN_INDEX:
+        if not _read_str(updated.get("deed_text_artifact_ref")) and deed_ref:
+            updated["deed_text_artifact_ref"] = deed_ref
+            filled.add("deed_text_artifact_ref")
+        if "deed_fingerprint" not in updated and isinstance(deed_fingerprint, dict):
+            updated["deed_fingerprint"] = deed_fingerprint
+            filled.add("deed_fingerprint")
 
     if action_type in {ActionType.COMPILE, ActionType.JUDGE, ActionType.BUNDLE}:
         has_ir = any(_read_str(updated.get(k)) for k in ("ir_artifact_ref", "updated_ir_artifact_ref", "ir_artifact_path"))
@@ -1469,47 +1540,56 @@ def _maybe_create_iteration_digest(
 ) -> list[dict[str, object]]:
     if not _should_emit_iteration_digest(outcome_kind=outcome_kind, executed_steps=executed_steps):
         return recent_digest_memory
-    digest_seed = {
-        "iter": iteration,
-        "phase_hint": phase_hint,
-        "context_inputs": context_packet.get("inputs", {}),
-        "progress": (context_packet.get("progress") if isinstance(context_packet.get("progress"), dict) else {}),
-        "proposal": {
-            "action_type": proposal.action_type,
-            "args": proposal.args,
-            "why": proposal.why,
-        },
-        "outcome": {"kind": outcome_kind, **outcome_payload},
-    }
-    digest_payload: dict[str, object] | None = None
-    if digest_client is not None:
-        try:
-            digest_result = digest_client.summarize_iteration_digest(payload=digest_seed, model="gpt-5-mini")
-            candidate = digest_result.get("digest") if isinstance(digest_result, dict) else None
-            if isinstance(candidate, dict):
-                digest_payload = candidate
-        except Exception:
-            digest_payload = None
-    if digest_payload is None:
-        digest_payload = build_fallback_iteration_digest(seed=digest_seed)
-    digest_ref, digest_excerpt = persist_iteration_digest(
-        request_id=request_id,
-        session_id=session_id,
+    del digest_client, request_id, session_id  # disabled for single-pipe mode; deterministic fallback only
+    run_summary_entry = _build_run_summary_entry(
         iteration=iteration,
-        digest=digest_payload,
-    )
-    _log_controller_event(
-        "iteration_digest_created",
-        {
-            "iteration": iteration,
-            "digest_ref": digest_ref,
-            "digest_excerpt": digest_excerpt,
-            "result": digest_payload.get("result") if isinstance(digest_payload, dict) else None,
-        },
+        phase_hint=phase_hint,
+        proposal=proposal,
+        outcome_kind=outcome_kind,
+        outcome_payload=outcome_payload,
     )
     updated = list(recent_digest_memory)
-    updated.append({"iter": iteration, "digest_ref": digest_ref, "digest_excerpt": digest_excerpt})
-    return updated[-8:]
+    deed_span_index_ref = None
+    deed_span_catalog_excerpt = None
+    progress = context_packet.get("progress")
+    if isinstance(progress, dict):
+        latest_refs = progress.get("latest_refs")
+        if isinstance(latest_refs, dict):
+            deed_span_index_ref = latest_refs.get("deed_span_index_ref")
+    step_record = outcome_payload.get("step_record")
+    if isinstance(step_record, dict):
+        outputs_inline = step_record.get("outputs_inline")
+        if isinstance(outputs_inline, dict):
+            if deed_span_index_ref is None:
+                raw_ref = outputs_inline.get("deed_span_index_ref")
+                if isinstance(raw_ref, dict):
+                    deed_span_index_ref = raw_ref.get("artifact_path")
+            if isinstance(outputs_inline.get("span_catalog_excerpt"), list):
+                deed_span_catalog_excerpt = outputs_inline.get("span_catalog_excerpt")
+    if isinstance(outcome_payload.get("latest_refs"), dict):
+        deed_span_index_ref = outcome_payload["latest_refs"].get("deed_span_index_ref") or deed_span_index_ref
+    updated.append(
+        {
+            "iter": iteration,
+            "digest_ref": None,
+            "digest_excerpt": _run_summary_entry_excerpt(run_summary_entry),
+            "deed_span_index_ref": deed_span_index_ref,
+            "deed_span_catalog_excerpt": deed_span_catalog_excerpt,
+            "run_summary_entry": run_summary_entry,
+        }
+    )
+    bounded = _bound_run_summary_memory(updated)
+    _log_controller_event(
+        "iteration_summary_appended",
+        {
+            "iteration": iteration,
+            "source": run_summary_entry.get("source"),
+            "action": run_summary_entry.get("action"),
+            "outcome_kind": outcome_kind,
+            "run_summary_log_entries": len([e for e in bounded if isinstance(e.get("run_summary_entry"), dict)]),
+        },
+    )
+    return bounded
 
 
 def _should_emit_iteration_digest(*, outcome_kind: str, executed_steps: int) -> bool:
@@ -1520,6 +1600,266 @@ def _should_emit_iteration_digest(*, outcome_kind: str, executed_steps: int) -> 
     if outcome_kind == "executed" and executed_steps % 3 == 0:
         return True
     return False
+
+
+def _build_run_summary_entry(
+    *,
+    iteration: int,
+    phase_hint: str,
+    proposal: KernelStepProposal,
+    outcome_kind: str,
+    outcome_payload: dict[str, object],
+) -> dict[str, object]:
+    if proposal.iteration_summary is not None:
+        summary = _normalize_iteration_summary_payload(proposal.iteration_summary)
+        if summary:
+            return {"iter": iteration, "source": "agent", **summary}
+    return {
+        "iter": iteration,
+        "source": "fallback",
+        **_fallback_iteration_summary(
+            phase_hint=phase_hint,
+            proposal=proposal,
+            outcome_kind=outcome_kind,
+            outcome_payload=outcome_payload,
+        ),
+    }
+
+
+def _normalize_iteration_summary_payload(summary: object) -> dict[str, object] | None:
+    if summary is None:
+        return None
+    if isinstance(summary, dict):
+        return _normalize_docket_dict(summary)
+    if isinstance(summary, str):
+        out = {
+            "actual_observation": _bounded_docket_text(summary, 200),
+            "confidence": "low",
+            "state_delta": {"summary_payload_type": "string"},
+        }
+        return _finalize_docket_summary(out)
+    if isinstance(summary, list):
+        items: list[str] = []
+        for item in summary[:4]:
+            items.append(_bounded_docket_text(item if isinstance(item, str) else repr(item), 120))
+        out = {
+            "actual_observation": "iteration_summary_non_object_received",
+            "open_issues": items[:4],
+            "confidence": "low",
+            "state_delta": {"summary_payload_type": "list"},
+        }
+        return _finalize_docket_summary(out)
+    out = {
+        "actual_observation": "iteration_summary_non_object_received",
+        "do_not_repeat": _bounded_docket_text(repr(summary), 160),
+        "confidence": "low",
+        "state_delta": {"summary_payload_type": type(summary).__name__},
+    }
+    return _finalize_docket_summary(out)
+
+
+def _normalize_docket_dict(raw: Mapping[str, object]) -> dict[str, object] | None:
+    out: dict[str, object] = {}
+    for key in (
+        "action",
+        "intent",
+        "expected_observation",
+        "actual_observation",
+        "do_not_repeat",
+    ):
+        value = raw.get(key)
+        if value is None:
+            continue
+        text = _bounded_docket_text(value if isinstance(value, str) else repr(value), 200 if key != "action" else 120)
+        if text:
+            out[key] = text
+
+    open_issues = raw.get("open_issues")
+    if isinstance(open_issues, list):
+        issues: list[str] = []
+        for item in open_issues[:6]:
+            issues.append(_bounded_docket_text(item if isinstance(item, str) else repr(item), 120))
+        if issues:
+            out["open_issues"] = issues
+    elif isinstance(open_issues, str):
+        issue = _bounded_docket_text(open_issues, 120)
+        if issue:
+            out["open_issues"] = [issue]
+
+    confidence = raw.get("confidence")
+    if isinstance(confidence, (int, float)):
+        out["confidence"] = max(0.0, min(1.0, float(confidence)))
+    elif isinstance(confidence, str):
+        bounded_conf = _bounded_docket_text(confidence, 40)
+        if bounded_conf:
+            out["confidence"] = bounded_conf
+
+    next_move = raw.get("next_move")
+    if isinstance(next_move, dict):
+        next_action = next_move.get("action_type")
+        next_why = next_move.get("why")
+        next_out: dict[str, object] = {}
+        if isinstance(next_action, str) and next_action.strip():
+            next_out["action_type"] = _bounded_docket_text(next_action, 64)
+        if next_why is not None:
+            next_out["why"] = _bounded_docket_text(next_why if isinstance(next_why, str) else repr(next_why), 160)
+        if next_out:
+            out["next_move"] = next_out
+
+    state_delta = raw.get("state_delta")
+    if isinstance(state_delta, dict):
+        out["state_delta"] = _normalize_docket_state_delta(state_delta)
+
+    if not out:
+        out = {
+            "actual_observation": "iteration_summary_empty_or_unusable",
+            "confidence": "low",
+            "state_delta": {"summary_payload_type": "object"},
+        }
+    return _finalize_docket_summary(out)
+
+
+def _normalize_docket_state_delta(raw: Mapping[str, object]) -> dict[str, object]:
+    out: dict[str, object] = {}
+    new_refs = raw.get("new_refs")
+    if isinstance(new_refs, list):
+        refs: list[str] = []
+        for item in new_refs[:6]:
+            refs.append(_bounded_docket_text(item if isinstance(item, str) else repr(item), 80))
+        if refs:
+            out["new_refs"] = refs
+    gap_change = raw.get("gap_change")
+    if gap_change is not None:
+        out["gap_change"] = _bounded_docket_text(gap_change if isinstance(gap_change, str) else repr(gap_change), 120)
+    phase_hint = raw.get("phase_hint")
+    if phase_hint is not None:
+        out["phase_hint"] = _bounded_docket_text(phase_hint if isinstance(phase_hint, str) else repr(phase_hint), 64)
+    arg_keys = raw.get("arg_keys")
+    if isinstance(arg_keys, list):
+        keys: list[str] = []
+        for item in arg_keys[:8]:
+            keys.append(_bounded_docket_text(item if isinstance(item, str) else repr(item), 48))
+        if keys:
+            out["arg_keys"] = keys
+    if not out:
+        out = {"summary_delta": "none"}
+    return _bound_payload(out, max_items=8)
+
+
+def _finalize_docket_summary(out: dict[str, object]) -> dict[str, object] | None:
+    encoded = json.dumps(out, ensure_ascii=True).encode("utf-8")
+    if len(encoded) > 2048:
+        return {"truncated": True}
+    return out
+
+
+def _bounded_docket_text(text: str, max_chars: int) -> str:
+    bounded = _bounded_text(text, max_chars)
+    if _looks_like_global_recap(bounded):
+        bounded = _bounded_text(bounded, min(max_chars, 120))
+    if "deed text" in bounded.lower():
+        bounded = _bounded_text(bounded, min(max_chars, 120))
+    return bounded
+
+
+def _fallback_iteration_summary(
+    *,
+    phase_hint: str,
+    proposal: KernelStepProposal,
+    outcome_kind: str,
+    outcome_payload: dict[str, object],
+) -> dict[str, object]:
+    reason_code = outcome_payload.get("reason_code")
+    missing_inputs = outcome_payload.get("missing_inputs")
+    latest_refs = outcome_payload.get("latest_refs") if isinstance(outcome_payload.get("latest_refs"), dict) else {}
+    new_refs = [k for k, v in latest_refs.items() if isinstance(v, str) and v][:4]
+    actual_observation = _fallback_actual_observation(outcome_kind=outcome_kind, reason_code=reason_code)
+    entry: dict[str, object] = {
+        "action": _bounded_text(f"propose:{proposal.action_type}; observed_last:{actual_observation}", 120),
+        "intent": _bounded_text(proposal.why, 160),
+        "actual_observation": actual_observation,
+        "expected_observation": _fallback_expected_observation(proposal=proposal, outcome_kind=outcome_kind),
+        "state_delta": {"phase_hint": phase_hint, "arg_keys": sorted(proposal.args.keys())},
+        "open_issues": [],
+        "next_move": {"action_type": proposal.action_type, "why": "retry with corrected args or use a different tool based on latest state"},
+        "confidence": "low",
+    }
+    if outcome_kind in {"controller_refusal", "kernel_refusal"}:
+        if isinstance(missing_inputs, list) and missing_inputs:
+            entry["open_issues"] = [str(v)[:160] for v in missing_inputs[:3]]
+            entry["expected_observation"] = _bounded_text(
+                f"if corrected {proposal.action_type} executes, next state should clear refusal:{reason_code or 'unknown'}",
+                200,
+            )
+        entry["do_not_repeat"] = "Do not resend identical args after the same refusal without adding required fields."
+    elif outcome_kind == "executed":
+        entry["actual_observation"] = "latest kernel step executed"
+        entry["state_delta"] = {"phase_hint": phase_hint, "new_refs": new_refs, "gap_change": "unknown_or_unchanged"}
+        entry["confidence"] = "med"
+    else:
+        entry["actual_observation"] = _bounded_text(str(outcome_kind), 160)
+    finalized = _normalize_docket_dict(entry)
+    return finalized or {"actual_observation": "fallback_summary_unavailable", "confidence": "low"}
+
+
+def _fallback_actual_observation(*, outcome_kind: str, reason_code: object) -> str:
+    if outcome_kind in {"controller_refusal", "kernel_refusal"}:
+        return _bounded_text(f"refused({reason_code or 'unknown'})", 160)
+    if outcome_kind == "executed":
+        return "executed"
+    if outcome_kind == "parse_failed":
+        return "parse_failed"
+    return _bounded_text(str(outcome_kind), 160)
+
+
+def _fallback_expected_observation(*, proposal: KernelStepProposal, outcome_kind: str) -> str:
+    if outcome_kind in {"controller_refusal", "kernel_refusal"}:
+        return _bounded_text(f"next iteration should observe {proposal.action_type} execution if args are corrected", 200)
+    if outcome_kind == "executed":
+        return _bounded_text(
+            f"next iteration should observe updated refs/gaps after {proposal.action_type}",
+            200,
+        )
+    return _bounded_text(f"next iteration should observe a clearer outcome for {proposal.action_type}", 200)
+
+
+def _run_summary_entry_excerpt(entry: dict[str, object]) -> str:
+    return _bounded_text(
+        f"iter={entry.get('iter')}; source={entry.get('source')}; action={entry.get('action')}; obs={entry.get('actual_observation')}",
+        220,
+    )
+
+
+def _bound_run_summary_memory(entries: list[dict[str, object]]) -> list[dict[str, object]]:
+    bounded = list(entries[-_RUN_SUMMARY_LOG_MAX_ENTRIES:])
+    while bounded and _run_summary_memory_bytes(bounded) > _RUN_SUMMARY_LOG_MAX_BYTES:
+        bounded.pop(0)
+    if _run_summary_memory_bytes(bounded) <= _RUN_SUMMARY_LOG_MAX_BYTES:
+        return bounded
+    # Aggressive truncation fallback
+    for item in bounded:
+        summary = item.get("run_summary_entry")
+        if isinstance(summary, dict):
+            for key, value in list(summary.items()):
+                if isinstance(value, str):
+                    summary[key] = _bounded_text(value, 80)
+                elif isinstance(value, list):
+                    summary[key] = [str(v)[:80] for v in value[:2]]
+                elif isinstance(value, dict):
+                    summary[key] = _bound_payload(value, max_items=4)
+    while bounded and _run_summary_memory_bytes(bounded) > _RUN_SUMMARY_LOG_MAX_BYTES:
+        bounded.pop(0)
+    return bounded
+
+
+def _run_summary_memory_bytes(entries: list[dict[str, object]]) -> int:
+    payload = [e.get("run_summary_entry") for e in entries if isinstance(e.get("run_summary_entry"), dict)]
+    return len(json.dumps(payload, ensure_ascii=True).encode("utf-8"))
+
+
+def _looks_like_global_recap(text: str) -> bool:
+    lower = text.lower()
+    return len(text) > 140 and any(token in lower for token in ("so far", "previously", "earlier steps", "history"))
 
 
 def _read_str(raw: object) -> str | None:

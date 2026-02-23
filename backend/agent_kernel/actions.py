@@ -28,6 +28,18 @@ class ArtifactOpener(Protocol):
     def open_artifact(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
 
+class TextSpanOpener(Protocol):
+    """Explicit interface for OPEN_TEXT_SPANS deterministic verbatim extraction."""
+
+    def open_text_spans(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
+class DeedSpanIndexUpserter(Protocol):
+    """Explicit interface for UPSERT_DEED_SPAN_INDEX artifact persistence."""
+
+    def upsert_deed_span_index(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
 class DraftIRProposer(Protocol):
     """Explicit interface for DRAFT_IR action execution."""
 
@@ -82,7 +94,9 @@ class ActionExecutorDeps:
 
     deed_hydrator: DeedHydrator | None = None
     artifact_opener: ArtifactOpener | None = None
+    text_span_opener: TextSpanOpener | None = None
     draft_ir_proposer: DraftIRProposer | None = None
+    deed_span_index_upserter: DeedSpanIndexUpserter | None = None
     evidence_retriever: EvidenceRetriever | None = None
     compiler: Compiler | None = None
     judge: Judge | None = None
@@ -106,6 +120,8 @@ class ActionExecutor:
             actions.append(ActionType.HYDRATE_DEED)
         if self._deps.artifact_opener is not None or allow_stubbed:
             actions.append(ActionType.OPEN_ARTIFACT)
+        if self._deps.text_span_opener is not None or allow_stubbed:
+            actions.append(ActionType.OPEN_TEXT_SPANS)
         if self._deps.draft_ir_proposer is not None or allow_stubbed:
             actions.append(ActionType.DRAFT_IR)
         if self._deps.evidence_retriever is not None or allow_stubbed:
@@ -124,6 +140,8 @@ class ActionExecutor:
             actions.append(ActionType.PROPOSE_PATCH)
         if self._deps.status_summarizer is not None or allow_stubbed:
             actions.append(ActionType.SUMMARIZE_STATUS)
+        if self._deps.deed_span_index_upserter is not None or allow_stubbed:
+            actions.append(ActionType.UPSERT_DEED_SPAN_INDEX)
         return tuple(actions)
 
     def execute(self, step_id: str, action: ActionType, inputs: Mapping[str, Any]) -> StepRecord:
@@ -143,6 +161,20 @@ class ActionExecutor:
             )
         if action == ActionType.OPEN_ARTIFACT:
             return self._execute_open_artifact(step_id=step_id, inputs=inputs)
+        if action == ActionType.OPEN_TEXT_SPANS:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="opened_text_spans_ref",
+                reason_code="spans_opened",
+                missing_reason="missing_text_span_opener_interface",
+                execute_fn=(
+                    self._deps.text_span_opener.open_text_spans
+                    if self._deps.text_span_opener is not None
+                    else None
+                ),
+                inputs=inputs,
+            )
         if action == ActionType.DRAFT_IR:
             return self._execute_artifact_action(
                 step_id=step_id,
@@ -221,6 +253,20 @@ class ActionExecutor:
             return self._execute_propose_patch(step_id=step_id, inputs=inputs)
         if action == ActionType.SUMMARIZE_STATUS:
             return self._execute_summarize_status(step_id=step_id, inputs=inputs)
+        if action == ActionType.UPSERT_DEED_SPAN_INDEX:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="deed_span_index_ref",
+                reason_code="deed_span_index_saved",
+                missing_reason="missing_deed_span_index_upserter_interface",
+                execute_fn=(
+                    self._deps.deed_span_index_upserter.upsert_deed_span_index
+                    if self._deps.deed_span_index_upserter is not None
+                    else None
+                ),
+                inputs=inputs,
+            )
 
         return StepRecord(step_id=step_id, action=action, inputs=dict(inputs), reason_codes=["unsupported_action"])
 

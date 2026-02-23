@@ -8,6 +8,15 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.controller.openai_client import OpenAINextStepClient
+from backend.agents.controller.tool_specs import ToolSpec
+
+
+def _kernel_step_tool() -> ToolSpec:
+    return ToolSpec(
+        name="kernel_step",
+        description="Propose exactly one next kernel action.",
+        parameters_schema={"type": "object"},
+    )
 
 
 class _FakeChatCompletions:
@@ -68,8 +77,10 @@ def test_openai_next_step_client_returns_structured_data_on_success() -> None:
 
     result = client.propose_next_step(
         model="gpt-5-mini",
-        schema={"type": "function", "function": {"name": "kernel_step", "parameters": {"type": "object"}}},
-        prompt="propose step",
+        tools=[_kernel_step_tool()],
+        tool_choice_name="kernel_step",
+        developer_message="DEV MSG",
+        user_message="USER MSG",
     )
 
     assert result["success"] is True
@@ -78,6 +89,17 @@ def test_openai_next_step_client_returns_structured_data_on_success() -> None:
     sent = fake_client.chat.completions.last_kwargs
     assert isinstance(sent, dict)
     assert sent.get("tool_choice") == {"type": "function", "function": {"name": "kernel_step"}}
+    tools = sent.get("tools")
+    assert isinstance(tools, list)
+    assert tools[0]["type"] == "function"
+    assert tools[0]["function"]["name"] == "kernel_step"
+    assert tools[0]["function"]["parameters"] == {"type": "object"}
+    messages = sent.get("messages")
+    assert isinstance(messages, list)
+    assert messages[0]["role"] == "developer"
+    assert messages[0]["content"] == "DEV MSG"
+    assert messages[1]["role"] == "user"
+    assert messages[1]["content"] == "USER MSG"
 
 
 def test_openai_next_step_client_reports_unavailable_service() -> None:
@@ -86,8 +108,10 @@ def test_openai_next_step_client_reports_unavailable_service() -> None:
 
     result = client.propose_next_step(
         model="gpt-5-mini",
-        schema={"type": "function", "function": {"name": "kernel_step", "parameters": {"type": "object"}}},
-        prompt="propose step",
+        tools=[_kernel_step_tool()],
+        tool_choice_name="kernel_step",
+        developer_message="DEV",
+        user_message="USER",
     )
 
     assert result["success"] is False
@@ -103,8 +127,10 @@ def test_openai_next_step_client_reports_runtime_failure() -> None:
 
     result = client.propose_next_step(
         model="gpt-5-mini",
-        schema={"type": "function", "function": {"name": "kernel_step", "parameters": {"type": "object"}}},
-        prompt="propose step",
+        tools=[_kernel_step_tool()],
+        tool_choice_name="kernel_step",
+        developer_message="DEV",
+        user_message="USER",
     )
 
     assert result["success"] is False
@@ -124,8 +150,10 @@ def test_openai_next_step_client_reports_missing_kernel_step_tool_call() -> None
 
     result = client.propose_next_step(
         model="gpt-5-mini",
-        schema={"type": "function", "function": {"name": "kernel_step", "parameters": {"type": "object"}}},
-        prompt="propose step",
+        tools=[_kernel_step_tool()],
+        tool_choice_name="kernel_step",
+        developer_message="DEV",
+        user_message="USER",
     )
 
     assert result["success"] is False

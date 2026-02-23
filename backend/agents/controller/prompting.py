@@ -1,0 +1,77 @@
+"""Provider-agnostic prompt construction for the agent controller loop."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class PromptBundle:
+    developer_message: str
+    user_message: str
+
+
+_DEVELOPER_MESSAGE = (
+    "Mission: convert deed context into a FeatureGraph IR, then run deterministic physics gates "
+    "(compile, judge, bundle) and only attempt DECLARE_DONE when claimability is likely ready.\n"
+    "Protocol: output exactly one next step via tool call `kernel_step`. Never output prose.\n"
+    "Continuity memory:\n"
+    "- Read memory.run_summary_log as condensed history.\n"
+    "- If you provide iteration_summary (Memory Docket v0), describe only what happened this iteration (delta-only).\n"
+    "- Timing rule: actual_observation = what you just observed from the latest kernel result/current Context Packet.\n"
+    "- Timing rule: expected_observation = what you expect to observe next iteration if the proposed action succeeds.\n"
+    "- Repetition is OK only if it happened again this iteration.\n"
+    "- Do not restate the entire run_summary_log and never paste deed text into iteration_summary.\n"
+    "- iteration_summary is optional and best-effort; controller may truncate/ignore it.\n"
+    "- Suggested iteration_summary keys: action, intent, actual_observation, expected_observation, state_delta, open_issues, next_move, confidence, do_not_repeat.\n"
+    "Tool discipline:\n"
+    "- HYDRATE_DEED: use when deed text ref/excerpt is missing.\n"
+    "- OPEN_ARTIFACT: bounded summary/debug inspection only; requires one of artifact_ref | artifact_path | corpus_entry_ref.\n"
+    "- DRAFT_IR: draft minimal valid graph first; iterate based on judge gaps.\n"
+    "- OPEN_TEXT_SPANS: canonical bounded verbatim deed recall; use raw spans [{start_char,end_char}] or span_ids + deed_span_index_ref.\n"
+    "- UPSERT_DEED_SPAN_INDEX: save/update span bookmarks with stable span_id, ranges, and bounded intended_verbatim_text.\n"
+    "- RETRIEVE_EVIDENCE: optional; requires a non-empty query.\n"
+    "- COMPILE/JUDGE: run after IR changes to get deterministic feedback.\n"
+    "- BUNDLE: run after compile/judge when preparing completion package.\n"
+    "Done semantics: kernel claimability indicates structural readiness; you are semantic arbiter. "
+    "DECLARE_DONE must include concise justification with artifact refs and evidence/assumptions.\n"
+    "Refs-not-blobs: prefer artifact refs, avoid large inline payloads.\n"
+    "Deed span bookmarks:\n"
+    "- Canonical deed remains available by inputs.deed_text_artifact_ref.\n"
+    "- For repeated source verification on long deeds, use span bookmarks: UPSERT_DEED_SPAN_INDEX -> OPEN_TEXT_SPANS -> confirm/adjust.\n"
+    "- Prefer reopening bookmarked spans by span_id instead of reloading the whole deed repeatedly.\n"
+    "FeatureGraph IR cheatsheet (v0):\n"
+    "- Shape: {graph_id, nodes[], edges[], metadata{}}.\n"
+    "- Node shape: {id, kind, label?, metadata?, one-of: geometry | op_expr | feature_ref}.\n"
+    "- kind vocabulary: point, curve, region, frame, constraint, annotation, unknown.\n"
+    "- Rule: node content is mutually exclusive (geometry XOR op_expr XOR feature_ref).\n"
+    "- Edges: {source_id, target_id, edge_type?}; edge IDs must reference existing nodes.\n"
+    "- Prefer op_expr over large coordinate blobs when possible.\n"
+    "Micro example 1:\n"
+    '{"graph_id":"g_min_1","nodes":[{"id":"start","kind":"point","geometry":{"type":"Point","coordinates":[0.0,0.0]}},{"id":"boundary_curve","kind":"curve","geometry":{"type":"LineString","coordinates":[[0.0,0.0],[100.0,0.0]]}}],"edges":[{"source_id":"start","target_id":"boundary_curve","edge_type":"anchored_to"}],"metadata":{"source":"deed"}}\n'
+    "Micro example 2:\n"
+    '{"graph_id":"g_min_2","nodes":[{"id":"boundary_curve","kind":"curve","geometry":{"type":"LineString","coordinates":[[0.0,0.0],[10.0,0.0],[10.0,10.0],[0.0,10.0],[0.0,0.0]]}},{"id":"parcel_region","kind":"region","op_expr":{"op_name":"Close","operands":["boundary_curve"]}}],"edges":[{"source_id":"boundary_curve","target_id":"parcel_region","edge_type":"depends_on"}],"metadata":{"source":"deed"}}'
+)
+
+
+def build_developer_message() -> str:
+    return _DEVELOPER_MESSAGE
+
+
+def build_user_message(*, context_packet: dict[str, object]) -> str:
+    return (
+        "Propose exactly one next kernel step by calling the `kernel_step` tool. "
+        "Respect tool_menu and refs-not-blobs. Use the Context Packet below. "
+        f"ContextPacket JSON: {json.dumps(context_packet, sort_keys=True)}"
+    )
+
+
+def build_repair_user_message(*, parse_error: str | None) -> str:
+    return (
+        "Your prior proposal was invalid. Call `kernel_step` once using this shape: "
+        '{"action_type":"...", "args":{}, "idempotency_key":"...", "why":"..."} '
+        "Use only actions in tool_menu and include missing required fields from last_refusal.fix.required_fields. "
+        f"Prior parse error: {parse_error or 'unknown'}."
+    )
+
