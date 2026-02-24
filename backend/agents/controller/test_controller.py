@@ -36,6 +36,7 @@ from backend.agents.controller.controller import (
     _build_context_packet,
     _build_fix_skeleton,
     _compute_controller_idempotency_key,
+    _controller_proposal_log_payload,
     _safe_artifact_hint,
     run_controller_loop,
 )
@@ -674,6 +675,14 @@ def test_draft_ir_with_deed_text_artifact_ref_reaches_kernel_step() -> None:
                     "args": {
                         "dossier_id": "D1",
                         "deed_text_artifact_ref": "artifacts/deed/d1.json",
+                        "graph": {
+                            "graph_id": "g_draft_001",
+                            "nodes": [
+                                {"id": "n1", "kind": "point", "geometry": {"type": "Point", "coordinates": [0, 0]}}
+                            ],
+                            "edges": [],
+                            "metadata": {"source": "deed"},
+                        },
                     },
                     "why": "draft from bootstrapped deed ref",
                 }
@@ -716,6 +725,7 @@ def test_draft_ir_with_deed_text_artifact_ref_reaches_kernel_step() -> None:
     assert result.terminal.terminal_outcome == TerminalOutcomeKind.SUCCESS
     assert manager.step_calls
     assert manager.step_calls[0]["action_type"] == ActionType.DRAFT_IR.value
+    assert isinstance(manager.step_calls[0]["inputs"].get("graph"), dict)
 
 
 def test_open_artifact_empty_args_are_autofilled_from_deed_ref() -> None:
@@ -784,6 +794,24 @@ def test_open_artifact_empty_args_are_autofilled_from_deed_ref() -> None:
     assert result.terminal.terminal_outcome == TerminalOutcomeKind.SUCCESS
     assert manager.step_calls
     assert manager.step_calls[0]["inputs"]["artifact_ref"] == "artifacts/deed/d1.json"
+
+
+def test_open_artifact_empty_args_prefers_judge_then_compile_then_ir_before_deed() -> None:
+    filled, fields = _autofill_known_args(
+        action_type=ActionType.OPEN_ARTIFACT,
+        args={},
+        bootstrap_context={"deed_text_artifact_ref": "artifacts/deed/d1.json"},
+        dashboard={
+            "latest_refs": {
+                "judge_ref": {"artifact_path": "artifacts/judge/j1.json"},
+                "compile_ref": {"artifact_path": "artifacts/compile/c1.json"},
+                "ir_ref": {"artifact_path": "artifacts/ir/i1.json"},
+            }
+        },
+        context_packet={"memory": {}},
+    )
+    assert "artifact_ref" in fields
+    assert filled["artifact_ref"] == "artifacts/judge/j1.json"
 
 
 def test_open_text_spans_autofill_supplies_deed_ref_and_span_index_ref() -> None:
@@ -1006,6 +1034,20 @@ def test_agent_iteration_summary_open_issues_string_is_coerced_to_list() -> None
     assert issues == ["need deed_text_artifact_ref"]
 
 
+def test_controller_proposal_log_payload_includes_iteration_summary_excerpt() -> None:
+    payload = _controller_proposal_log_payload(
+        iteration=2,
+        action_type="open_text_spans",
+        args={"deed_text_artifact_ref": "artifacts/deed/d1.json", "anchors": [{"start_anchor": "BEGINNING AT", "end_anchor": "POINT OF BEGINNING"}]},
+        why="open deed calls",
+        iteration_summary={
+            "actual_observation": "refused(open_text_spans_requires_span_ids_or_spans_or_anchors)",
+            "expected_observation": "next iteration should observe span text after anchor request succeeds",
+        },
+    )
+    assert isinstance(payload.get("iteration_summary_excerpt"), str)
+
+
 def test_iteration_summary_does_not_affect_step_inputs_or_idempotency() -> None:
     llm = _FakeLLM(
         responses=[
@@ -1013,7 +1055,16 @@ def test_iteration_summary_does_not_affect_step_inputs_or_idempotency() -> None:
                 "structured_data": {
                     "action_type": "draft_ir",
                     "idempotency_key": "k1",
-                    "args": {"dossier_id": "D1", "deed_text_artifact_ref": "artifacts/deed/d1.json"},
+                    "args": {
+                        "dossier_id": "D1",
+                        "deed_text_artifact_ref": "artifacts/deed/d1.json",
+                        "graph": {
+                            "graph_id": "g1",
+                            "nodes": [{"id": "n1", "kind": "point", "geometry": {"type": "Point", "coordinates": [0, 0]}}],
+                            "edges": [],
+                            "metadata": {"source": "deed"},
+                        },
+                    },
                     "why": "draft",
                     "iteration_summary": {
                         "action": "draft_ir",
@@ -1059,7 +1110,9 @@ def test_iteration_summary_does_not_affect_step_inputs_or_idempotency() -> None:
         max_iterations=2,
     )
     assert result.terminal.terminal_outcome == TerminalOutcomeKind.SUCCESS
-    assert manager.step_calls[0]["inputs"] == {"dossier_id": "D1", "deed_text_artifact_ref": "artifacts/deed/d1.json"}
+    assert manager.step_calls[0]["inputs"]["dossier_id"] == "D1"
+    assert manager.step_calls[0]["inputs"]["deed_text_artifact_ref"] == "artifacts/deed/d1.json"
+    assert isinstance(manager.step_calls[0]["inputs"]["graph"], dict)
     assert manager.step_calls[0]["idempotency_key"].startswith("ctl-")
 
 

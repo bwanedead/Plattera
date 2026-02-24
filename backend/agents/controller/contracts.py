@@ -136,13 +136,8 @@ class _DraftIRArgs(BaseModel):
     def _validate_minimum_inputs(self) -> "_DraftIRArgs":
         if not self.dossier_id:
             raise ValueError("draft_ir_requires_dossier_id")
-        if (
-            not self.deed_text_artifact_ref
-            and not self.deed_artifact_ref
-            and not self.hydrated_deed_artifact_ref
-            and self.graph is None
-        ):
-            raise ValueError("draft_ir_requires_deed_text_artifact_ref_or_deed_artifact_ref_or_hydrated_deed_artifact_ref_or_graph")
+        if self.graph is None:
+            raise ValueError("draft_ir_requires_graph")
         return self
 
 
@@ -424,7 +419,8 @@ _TOOL_REQUIRED_FIELDS: dict[ActionType, list[str]] = {
     ActionType.HYDRATE_DEED: ["dossier_id | source_entry_ref"],
     ActionType.DRAFT_IR: [
         "dossier_id",
-        "deed_text_artifact_ref | deed_artifact_ref | hydrated_deed_artifact_ref | graph",
+        "graph",
+        "deed_text_artifact_ref (recommended provenance)",
     ],
     ActionType.RETRIEVE_EVIDENCE: ["query"],
     ActionType.COMPILE: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
@@ -520,7 +516,22 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
     if action == ActionType.HYDRATE_DEED:
         return {"dossier_id": dossier_id, "source_entry_ref": source_entry_ref}
     if action == ActionType.DRAFT_IR:
-        return {"dossier_id": dossier_id, "deed_text_artifact_ref": deed_ref}
+        return {
+            "dossier_id": dossier_id,
+            "deed_text_artifact_ref": deed_ref,
+            "graph": {
+                "graph_id": "g_min_draft_001",
+                "nodes": [
+                    {
+                        "id": "start_point",
+                        "kind": "point",
+                        "geometry": {"type": "Point", "coordinates": [0.0, 0.0]},
+                    }
+                ],
+                "edges": [],
+                "metadata": {"source": "deed"},
+            },
+        }
     if action == ActionType.RETRIEVE_EVIDENCE:
         return {"query": "<what you need to find>"}
     if action in {ActionType.COMPILE, ActionType.JUDGE, ActionType.BUNDLE}:
@@ -567,8 +578,8 @@ def _common_mistakes_for_action(action: ActionType, *, reason_code: str | None) 
         ]
     if action == ActionType.DRAFT_IR:
         return [
-            "DRAFT_IR requires dossier_id plus a deed ref (or an inline graph).",
-            "Use inputs.dossier_id and inputs.deed_text_artifact_ref when present.",
+            "DRAFT_IR must include args.graph (FeatureGraph JSON); deed refs are provenance, not auto-drafting inputs.",
+            "Minimum viable graph: graph_id + at least one node + metadata.source='deed'.",
         ]
     if action in {ActionType.COMPILE, ActionType.JUDGE, ActionType.BUNDLE}:
         return [

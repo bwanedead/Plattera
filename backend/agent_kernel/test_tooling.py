@@ -162,6 +162,32 @@ def test_draft_ir_invalid_inline_graph_returns_repairable_refusal_and_does_not_u
         assert not latest_pointer.exists()
 
 
+def test_draft_ir_empty_inline_graph_returns_repairable_refusal_and_does_not_update_latest_pointer() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        fg_persistence = FeatureGraphPersistenceService(
+            root=root / "dossiers_data" / "artifacts" / "feature_graphs",
+            state_dir=root / "dossiers_data" / "state",
+        )
+        proposer = DraftIRFilesystemProposer(persistence=fg_persistence)
+        empty_graph = {
+            "graph_id": "empty_graph",
+            "nodes": [],
+            "edges": [],
+            "metadata": {"dossier_id": "D_EMPTY", "source": "unit-test"},
+        }
+        result = proposer.draft_ir({"dossier_id": "D_EMPTY", "graph": empty_graph})
+
+        assert "draft_ir_graph_empty" in result["reason_codes"]
+        assert result["artifact_ref"] is None
+        assert result["kernel_refusal"]["reason_code"] == "draft_ir_graph_empty"
+        assert result["kernel_refusal"]["missing_inputs"] == ["graph.nodes[0]"]
+        rejected_ref = ArtifactRef.model_validate(result["rejected_graph_artifact_ref"])
+        assert Path(rejected_ref.artifact_path).exists()
+        latest_pointer = root / "dossiers_data" / "artifacts" / "feature_graphs" / "D_EMPTY" / "latest_ir.json"
+        assert not latest_pointer.exists()
+
+
 def test_feature_graph_compiler_and_judge_tools_persist_artifact_refs() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)

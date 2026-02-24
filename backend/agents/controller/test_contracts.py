@@ -73,7 +73,7 @@ def test_validate_action_args_returns_cleaned_payload() -> None:
     assert cleaned == {"dossier_id": "abc"}
 
 
-def test_validate_action_args_draft_ir_accepts_bootstrap_deed_ref() -> None:
+def test_validate_action_args_draft_ir_requires_graph_even_with_deed_ref() -> None:
     cleaned, reason_code, missing = validate_action_args(
         action_type=ActionType.DRAFT_IR,
         args={
@@ -81,19 +81,21 @@ def test_validate_action_args_draft_ir_accepts_bootstrap_deed_ref() -> None:
             "deed_text_artifact_ref": "artifacts/deed/d1.json",
         },
     )
+    assert cleaned is None
+    assert reason_code == "draft_ir_requires_graph"
+    assert missing == []
+
+
+def test_validate_action_args_draft_ir_accepts_graph() -> None:
+    cleaned, reason_code, missing = validate_action_args(
+        action_type=ActionType.DRAFT_IR,
+        args={
+            "dossier_id": "D1",
+            "deed_text_artifact_ref": "artifacts/deed/d1.json",
+            "graph": {"graph_id": "g1", "nodes": [{"id": "n1", "kind": "point", "geometry": {"type": "Point", "coordinates": [0, 0]}}], "edges": [], "metadata": {"source": "deed"}},
+        },
+    )
     assert reason_code is None
     assert missing == []
     assert isinstance(cleaned, dict)
-    assert cleaned.get("deed_text_artifact_ref") == "artifacts/deed/d1.json"
-
-
-def test_validate_action_args_draft_ir_requires_some_deed_input_or_graph() -> None:
-    cleaned, reason_code, missing = validate_action_args(
-        action_type=ActionType.DRAFT_IR,
-        args={"dossier_id": "D1"},
-    )
-    assert cleaned is None
-    assert reason_code == (
-        "draft_ir_requires_deed_text_artifact_ref_or_deed_artifact_ref_or_hydrated_deed_artifact_ref_or_graph"
-    )
-    assert missing == []
+    assert isinstance(cleaned.get("graph"), dict)

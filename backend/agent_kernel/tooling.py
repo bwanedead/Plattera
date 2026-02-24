@@ -271,6 +271,31 @@ class DraftIRFilesystemProposer:
                     "rejected_graph_artifact_ref": rejected_ref.model_dump(mode="json"),
                     "rejected_graph_summary": _summarize_rejected_graph(inline_graph, error=str(exc)),
                 }
+            if not graph.nodes:
+                rejected_ref = _persist_json_artifact(
+                    category="rejected_ir_graphs",
+                    dossier_id=dossier_id,
+                    payload={
+                        "artifact_type": "rejected_ir_graph",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "dossier_id": dossier_id,
+                        "validation_error": "draft_ir_graph_empty",
+                        "graph": inline_graph,
+                    },
+                )
+                return {
+                    "artifact_ref": None,
+                    "reason_codes": ["draft_ir_graph_empty"],
+                    "kernel_refusal": {
+                        "reason_code": "draft_ir_graph_empty",
+                        "retryable": True,
+                        "missing_inputs": ["graph.nodes[0]"],
+                        "blocked_by_budget": False,
+                        "blocked_by_invariant": False,
+                    },
+                    "rejected_graph_artifact_ref": rejected_ref.model_dump(mode="json"),
+                    "rejected_graph_summary": _summarize_rejected_graph(inline_graph, error="draft_ir_graph_empty"),
+                }
             artifact_id = f"ir_{graph.graph_id}_{uuid4().hex[:8]}"
             ir_artifact = create_ir_artifact(
                 artifact_id=artifact_id,

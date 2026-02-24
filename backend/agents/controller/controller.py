@@ -220,6 +220,11 @@ def run_controller_loop(
                 "action_type": proposal.action_type,
                 "args": proposal.args,
                 "why": proposal.why,
+                "iteration_summary_excerpt": _run_summary_entry_excerpt(
+                    _normalize_iteration_summary_payload(proposal.iteration_summary) or {"actual_observation": "missing"}
+                )
+                if proposal.iteration_summary is not None
+                else None,
             },
         )
         _log_controller_event(
@@ -229,6 +234,7 @@ def run_controller_loop(
                 action_type=proposal.action_type,
                 args=proposal.args,
                 why=proposal.why,
+                iteration_summary=proposal.iteration_summary,
             ),
         )
 
@@ -268,6 +274,7 @@ def run_controller_loop(
                     args=proposal.args,
                     missing_inputs=refusal.missing_inputs,
                     retryable=refusal.retryable,
+                    iteration_summary=proposal.iteration_summary,
                 ),
             )
             refusal_streak, previous_refusal_signature = _update_refusal_streak(
@@ -347,6 +354,7 @@ def run_controller_loop(
                     args=proposal.args,
                     missing_inputs=refusal.missing_inputs,
                     retryable=refusal.retryable,
+                    iteration_summary=proposal.iteration_summary,
                 ),
             )
             refusal_streak, previous_refusal_signature = _update_refusal_streak(
@@ -446,6 +454,7 @@ def run_controller_loop(
                     args=proposal_inputs,
                     missing_inputs=payload_refusal.missing_inputs,
                     retryable=payload_refusal.retryable,
+                    iteration_summary=proposal.iteration_summary,
                 ),
             )
             refusal_streak, previous_refusal_signature = _update_refusal_streak(
@@ -529,6 +538,7 @@ def run_controller_loop(
                     args=proposal_inputs,
                     missing_inputs=refusal.missing_inputs,
                     retryable=refusal.retryable,
+                    iteration_summary=proposal.iteration_summary,
                 ),
             )
             refusal_streak, previous_refusal_signature = _update_refusal_streak(
@@ -608,6 +618,7 @@ def run_controller_loop(
                     args=cleaned_inputs,
                     missing_inputs=refusal.missing_inputs,
                     retryable=refusal.retryable,
+                    iteration_summary=proposal.iteration_summary,
                 ),
             )
             refusal_streak, previous_refusal_signature = _update_refusal_streak(
@@ -724,6 +735,45 @@ def run_controller_loop(
                 "latest_refs": _latest_refs_summary(step_result.dashboard.model_dump(mode="json")),
             },
         )
+        quality_refusal = _quality_gate_refusal_for_step_result(
+            action_type=action_type,
+            step_result=step_result,
+            bootstrap_context=bootstrap_context,
+        )
+        if quality_refusal is not None:
+            last_refusal = quality_refusal["refusal"]
+            last_refusal_action_type_raw = action_type.value
+            _append_event(
+                transcript,
+                event_type="controller_refusal",
+                detail=last_refusal.reason_code,
+                payload={
+                    "refusal": last_refusal.model_dump(mode="json"),
+                    "fix": _build_fix_skeleton(
+                        reason_code=last_refusal.reason_code,
+                        action_type_raw=action_type.value,
+                        bootstrap_context=bootstrap_context,
+                    ),
+                    "how_to": action_how_to_guide(
+                        action_type=action_type,
+                        reason_code=last_refusal.reason_code,
+                        context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
+                    ),
+                    "quality_gate": quality_refusal.get("quality_gate"),
+                },
+            )
+            _log_controller_event(
+                "controller_refusal",
+                _controller_refusal_log_payload(
+                    iteration=iterations,
+                    reason_code=last_refusal.reason_code,
+                    action_type=action_type.value,
+                    args=step_inputs,
+                    missing_inputs=last_refusal.missing_inputs,
+                    retryable=last_refusal.retryable,
+                    iteration_summary=proposal.iteration_summary,
+                ),
+            )
         phase_hint = _infer_phase_hint(step_result.dashboard.model_dump(mode="json"))
         if phase_hint != last_summary_phase:
             run_summary_ref, run_summary_excerpt = _persist_run_summary(
@@ -735,15 +785,20 @@ def run_controller_loop(
                 transcript=transcript,
             )
             last_summary_phase = phase_hint
-        if step_result.execution_state == StepExecutionState.EXECUTED:
+        if step_result.execution_state == StepExecutionState.EXECUTED and quality_refusal is None:
             refusal_streak = 0
             previous_refusal_signature = None
             executed_steps += 1
-        elif step_result.refusal is not None:
+        elif step_result.refusal is not None or quality_refusal is not None:
+            active_refusal = step_result.refusal or (quality_refusal.get("refusal") if isinstance(quality_refusal, dict) else None)
+            if not isinstance(active_refusal, KernelRefusal):
+                active_refusal = None
+            if active_refusal is None:
+                active_refusal = KernelRefusal(reason_code="controller_quality_gate_failed", retryable=True)
             refusal_streak, previous_refusal_signature = _update_refusal_streak(
                 refusal_streak=refusal_streak,
                 previous_signature=previous_refusal_signature,
-                reason_code=step_result.refusal.reason_code,
+                reason_code=active_refusal.reason_code,
                 action_type=action_type.value,
                 args=step_inputs,
             )
@@ -753,7 +808,7 @@ def run_controller_loop(
                     session_id=session_id,
                     phase_hint=phase_hint,
                     dashboard=step_result.dashboard.model_dump(mode="json"),
-                    last_refusal=step_result.refusal.model_dump(mode="json"),
+                    last_refusal=active_refusal.model_dump(mode="json"),
                     transcript=transcript,
                 )
             if refusal_streak >= _MAX_REFUSAL_STREAK:
@@ -763,7 +818,7 @@ def run_controller_loop(
                     run_artifact_ref=started.run_artifact_ref,
                     dashboard=step_result.dashboard.model_dump(mode="json"),
                     transcript=transcript,
-                    reason_code=step_result.refusal.reason_code,
+                    reason_code=active_refusal.reason_code,
                     action_type=action_type.value,
                     bootstrap_context=bootstrap_context,
                     iterations=iterations,
@@ -777,18 +832,22 @@ def run_controller_loop(
             phase_hint=phase_hint,
             proposal=proposal,
             outcome_kind=(
-                "kernel_refusal" if step_result.refusal is not None else "executed"
+                "controller_refusal" if quality_refusal is not None else "kernel_refusal" if step_result.refusal is not None else "executed"
                 if step_result.execution_state == StepExecutionState.EXECUTED
                 else "deduped"
             ),
             outcome_payload={
                 "execution_state": step_result.execution_state.value,
                 "reason_code": (
-                    step_result.refusal.reason_code
-                    if step_result.refusal is not None
-                    else (step_result.terminal.reason_code if step_result.terminal is not None else None)
+                    (quality_refusal["refusal"].reason_code if quality_refusal is not None else None)
+                    or (step_result.refusal.reason_code if step_result.refusal is not None else None)
+                    or (step_result.terminal.reason_code if step_result.terminal is not None else None)
                 ),
-                "missing_inputs": step_result.refusal.missing_inputs if step_result.refusal is not None else [],
+                "missing_inputs": (
+                    quality_refusal["refusal"].missing_inputs
+                    if quality_refusal is not None
+                    else (step_result.refusal.missing_inputs if step_result.refusal is not None else [])
+                ),
                 "step_record": step_result.step_record if isinstance(step_result.step_record, dict) else None,
                 "latest_refs": _latest_refs_summary(step_result.dashboard.model_dump(mode="json")),
             },
@@ -1099,6 +1158,7 @@ def _build_context_packet(
         "working_memory": {
             "phase_hint": phase_hint,
             "plan_bullets": _phase_plan_bullets(phase_hint),
+            "anchor_templates": _anchor_templates_for_deed(bootstrap_context),
         },
         "memory": memory_payload,
         "tool_cheatsheet": tool_cheatsheet_entries(tool_menu=tool_menu, context_inputs=packet_inputs),
@@ -1118,6 +1178,16 @@ def _build_context_packet(
     }
     if not isinstance(packet, dict):
         return packet
+    artifacts_inline = packet.get("artifacts_inline")
+    progress_payload = packet.get("progress")
+    if isinstance(artifacts_inline, dict) and isinstance(progress_payload, dict):
+        ir_hint = artifacts_inline.get("ir_hint")
+        if isinstance(ir_hint, dict):
+            progress_payload["ir_health"] = _ir_health_from_hint(ir_hint, latest_refs.get("ir_ref"))
+        judge_hint = artifacts_inline.get("judge_hint")
+        if isinstance(judge_hint, dict):
+            progress_payload["judge_report_excerpt"] = _judge_excerpt_from_hint(judge_hint)
+        progress_payload["recommended_next"] = _recommended_next_moves(progress_payload)
     bounded = _bound_payload(packet, max_items=24)
     if isinstance(bounded, dict):
         deed_text_full = bootstrap_context.get("deed_text_full")
@@ -1357,6 +1427,7 @@ def _safe_artifact_hint(path_value: str, *, kind: str) -> dict[str, object]:
         report = payload.get("report")
         if isinstance(report, dict):
             gaps = report.get("gaps")
+            warnings = report.get("warnings")
             if isinstance(gaps, list):
                 top = []
                 for gap in gaps[:3]:
@@ -1368,7 +1439,12 @@ def _safe_artifact_hint(path_value: str, *, kind: str) -> dict[str, object]:
                                 "node_id": gap.get("node_id"),
                             }
                         )
-                return {"kind": kind, "status": "ok", "top_gaps": top}
+                return {
+                    "kind": kind,
+                    "status": "ok",
+                    "top_gaps": top,
+                    "warnings": [str(w)[:160] for w in warnings[:3]] if isinstance(warnings, list) else [],
+                }
     if kind == "ir" and isinstance(payload, dict):
         graph = payload.get("graph") if isinstance(payload.get("graph"), dict) else payload
         if isinstance(graph, dict):
@@ -1427,7 +1503,8 @@ def _build_fix_skeleton(
     elif action == ActionType.DRAFT_IR.value:
         required_fields = [
             "dossier_id",
-            "deed_text_artifact_ref | deed_artifact_ref | hydrated_deed_artifact_ref | graph",
+            "graph",
+            "deed_text_artifact_ref (recommended provenance)",
         ]
         args = {
             "dossier_id": (
@@ -1436,6 +1513,12 @@ def _build_fix_skeleton(
                 else "<dossier-id>"
             ),
             "deed_text_artifact_ref": deed_ref or "<deed-text-artifact-ref>",
+            "graph": {
+                "graph_id": "g_min_draft_001",
+                "nodes": [{"id": "start_point", "kind": "point", "geometry": {"type": "Point", "coordinates": [0.0, 0.0]}}],
+                "edges": [],
+                "metadata": {"source": "deed"},
+            },
         }
     elif action == ActionType.DECLARE_DONE.value:
         required_fields = ["declare_done"]
@@ -1479,8 +1562,14 @@ def _autofill_known_args(
     if action_type == ActionType.OPEN_ARTIFACT:
         has_any = any(_read_str(updated.get(k)) for k in ("artifact_ref", "artifact_path", "corpus_entry_ref"))
         if not has_any:
-            if deed_ref:
-                updated["artifact_ref"] = deed_ref
+            preferred_open_ref = (
+                _read_str(latest_refs.get("judge_ref"))
+                or _read_str(latest_refs.get("compile_ref"))
+                or _read_str(latest_refs.get("ir_ref"))
+                or deed_ref
+            )
+            if preferred_open_ref:
+                updated["artifact_ref"] = preferred_open_ref
                 filled.add("artifact_ref")
             elif source_entry_ref:
                 updated["corpus_entry_ref"] = source_entry_ref
@@ -2166,13 +2255,16 @@ def _controller_proposal_log_payload(
     action_type: str,
     args: dict[str, object],
     why: str,
+    iteration_summary: object | None = None,
 ) -> dict[str, object]:
+    normalized_summary = _normalize_iteration_summary_payload(iteration_summary) if iteration_summary is not None else None
     return {
         "iteration": iteration,
         "action_type": action_type,
         "arg_keys": sorted(args.keys()),
         "args_material_fingerprint": _material_change_fingerprint(action_type=action_type, args=args),
         "why": _bounded_text(why, 160),
+        "iteration_summary_excerpt": _run_summary_entry_excerpt(normalized_summary) if isinstance(normalized_summary, dict) else None,
     }
 
 
@@ -2184,7 +2276,9 @@ def _controller_refusal_log_payload(
     args: dict[str, object],
     missing_inputs: list[str],
     retryable: bool,
+    iteration_summary: object | None = None,
 ) -> dict[str, object]:
+    normalized_summary = _normalize_iteration_summary_payload(iteration_summary) if iteration_summary is not None else None
     return {
         "iteration": iteration,
         "reason_code": reason_code,
@@ -2193,6 +2287,93 @@ def _controller_refusal_log_payload(
         "args_material_fingerprint": _material_change_fingerprint(action_type=action_type, args=args),
         "missing_inputs": missing_inputs[:8],
         "retryable": retryable,
+        "iteration_summary_excerpt": _run_summary_entry_excerpt(normalized_summary) if isinstance(normalized_summary, dict) else None,
+    }
+
+
+def _ir_health_from_hint(ir_hint: dict[str, object], ir_ref: object) -> dict[str, object]:
+    node_count = ir_hint.get("node_count")
+    is_stub = bool(isinstance(node_count, int) and node_count == 0)
+    return {
+        "node_count": node_count if isinstance(node_count, int) else None,
+        "edge_count": None,
+        "is_stub": is_stub,
+        "last_ir_artifact_ref": ir_ref if isinstance(ir_ref, str) else None,
+    }
+
+
+def _judge_excerpt_from_hint(judge_hint: dict[str, object]) -> dict[str, object]:
+    out: dict[str, object] = {"top_gaps": [], "warnings": []}
+    top_gaps = judge_hint.get("top_gaps")
+    if isinstance(top_gaps, list):
+        out["top_gaps"] = _bound_payload(top_gaps, max_items=4)
+    warnings = judge_hint.get("warnings")
+    if isinstance(warnings, list):
+        out["warnings"] = [str(w)[:160] for w in warnings[:3]]
+    return out
+
+
+def _recommended_next_moves(progress_payload: dict[str, object]) -> list[str]:
+    latest_refs = progress_payload.get("latest_refs")
+    if not isinstance(latest_refs, dict):
+        return []
+    ir_health = progress_payload.get("ir_health")
+    if isinstance(ir_health, dict) and ir_health.get("is_stub") is True:
+        return [
+            "draft_ir with args.graph (non-empty FeatureGraph) before compile/judge",
+            "use open_text_spans to extract deed calls, then encode nodes/op_expr",
+        ]
+    if latest_refs.get("judge_ref"):
+        return ["inspect judge_report_excerpt/top gaps, then revise IR graph", "compile/judge after IR changes"]
+    if latest_refs.get("ir_ref"):
+        return ["run compile then judge on latest ir_ref"]
+    return ["draft_ir with args.graph (non-empty FeatureGraph)"]
+
+
+def _anchor_templates_for_deed(bootstrap_context: dict[str, object]) -> list[dict[str, str]]:
+    if not isinstance(bootstrap_context.get("deed_text_excerpt"), str):
+        return []
+    return [
+        {"label": "metes_bounds_calls", "start_anchor": "BEGINNING AT", "end_anchor": "POINT OF BEGINNING"},
+        {"label": "metes_bounds_calls_alt", "start_anchor": "Beginning at", "end_anchor": "point of beginning"},
+        {"label": "exception_clause", "start_anchor": "EXCEPTING", "end_anchor": "TOGETHER WITH"},
+    ]
+
+
+def _quality_gate_refusal_for_step_result(
+    *,
+    action_type: ActionType,
+    step_result: KernelStepResult,
+    bootstrap_context: dict[str, object],
+) -> dict[str, object] | None:
+    if action_type != ActionType.DRAFT_IR:
+        return None
+    if step_result.execution_state != StepExecutionState.EXECUTED or step_result.refusal is not None:
+        return None
+    latest_refs = _latest_refs_summary(step_result.dashboard.model_dump(mode="json"))
+    ir_ref = latest_refs.get("ir_ref")
+    if not isinstance(ir_ref, str) or not ir_ref:
+        return None
+    ir_hint = _safe_artifact_hint(ir_ref, kind="ir")
+    if not isinstance(ir_hint, dict):
+        return None
+    node_count = ir_hint.get("node_count")
+    if not isinstance(node_count, int) or node_count > 0:
+        return None
+    refusal = KernelRefusal(
+        reason_code="draft_ir_graph_empty",
+        missing_inputs=["graph.nodes[0]"],
+        retryable=True,
+    )
+    return {
+        "refusal": refusal,
+        "quality_gate": {
+            "kind": "ir_health",
+            "reason_code": "draft_ir_graph_empty",
+            "ir_ref": ir_ref,
+            "ir_hint": _bound_payload(ir_hint, max_items=8),
+            "message": "draft_ir produced an empty graph; next attempt must include args.graph with at least one node",
+        },
     }
 
 
