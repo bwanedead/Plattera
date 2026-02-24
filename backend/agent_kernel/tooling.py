@@ -84,11 +84,15 @@ class CorpusArtifactOpener:
         if not path.exists():
             return {"reason_codes": ["artifact_open_not_found"], "summary": ""}
         summary = _summarize_path(path)
-        return {
+        result: dict[str, Any] = {
             "reason_codes": ["artifact_opened"],
             "summary": summary,
             "artifact_ref": artifact_ref,
         }
+        repair_view = _repair_view_for_json_artifact(path)
+        if isinstance(repair_view, dict):
+            result["repair_view"] = repair_view
+        return result
 
 
 @dataclass
@@ -1020,6 +1024,114 @@ def _summarize_path(path: Path) -> str:
         return "json_value_loaded"
     except Exception:
         return _summarize_text(raw)
+
+
+def _repair_view_for_json_artifact(path: Path) -> dict[str, Any] | None:
+    try:
+        raw = path.read_text(encoding="utf-8")
+        payload = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    artifact_type = str(payload.get("artifact_type") or "").strip().lower()
+    if artifact_type == "judge":
+        graph_id = payload.get("graph_id")
+        report = payload.get("report")
+        if not isinstance(report, dict):
+            return None
+        gaps = report.get("gaps")
+        warnings = report.get("warnings")
+        return {
+            "artifact_type": "judge",
+            "graph_id": graph_id if isinstance(graph_id, str) else None,
+            "top_gaps": _bounded_gap_repair_view(gaps, max_items=5),
+            "warnings": _bounded_warnings_view(warnings, max_items=3),
+        }
+    if artifact_type == "compile":
+        graph_id = payload.get("graph_id")
+        return {
+            "artifact_type": "compile",
+            "graph_id": graph_id if isinstance(graph_id, str) else None,
+            "top_gaps": _bounded_gap_repair_view(payload.get("gaps"), max_items=5),
+            "warnings": _bounded_warnings_view(payload.get("warnings"), max_items=3),
+        }
+    return None
+
+
+def _bounded_gap_repair_view(raw_gaps: Any, *, max_items: int) -> list[dict[str, Any]]:
+    if not isinstance(raw_gaps, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for gap in raw_gaps[:max_items]:
+        if not isinstance(gap, dict):
+            continue
+        op_value = gap.get("operation") or gap.get("op_name") or gap.get("operation_name")
+        feature_id = gap.get("feature_id") or gap.get("node_id")
+        item = {
+            "kind": gap.get("kind"),
+            "operation": str(op_value)[:120] if op_value is not None else None,
+            "feature_id": str(feature_id)[:120] if feature_id is not None else None,
+            "severity": gap.get("severity"),
+            "message": _summarize_text(str(gap.get("message") or ""))[:240],
+        }
+        guidance = _gap_rewrite_guidance(gap)
+        if guidance:
+            item.update(guidance)
+        out.append(item)
+    return out
+
+
+def _bounded_warnings_view(raw_warnings: Any, *, max_items: int) -> list[str]:
+    if not isinstance(raw_warnings, list):
+        return []
+    return [_summarize_text(str(item or ""))[:200] for item in raw_warnings[:max_items]]
+
+
+def _gap_rewrite_guidance(gap: Mapping[str, Any]) -> dict[str, Any]:
+    kind = str(gap.get("kind") or "").strip().lower()
+    reason_code = str(gap.get("reason_code") or "").strip().lower()
+    operation = str(
+        gap.get("operation") or gap.get("op_name") or gap.get("operation_name") or ""
+    ).strip()
+    message = str(gap.get("message") or "").strip()
+
+    if kind == "unsupported_operation":
+        op_key = operation.lower()
+        if op_key == "traverse":
+            return {
+                "suggested_replacement_ops": ["LineStep", "Close"],
+                "rewrite_hint": (
+                    "Replace Traverse with a chain of LineStep ops (bearing+distance) and "
+                    "use Close after the boundary path is constructed."
+                )[:240],
+            }
+        if op_key == "pointfromreference":
+            return {
+                "suggested_replacement_ops": ["FeatureRef", "Annotation"],
+                "rewrite_hint": (
+                    "Do not treat PointFromReference as computable geometry. Represent it as a "
+                    "semantic anchor/annotation with deed citation and defer spatial resolution."
+                )[:240],
+            }
+        if operation:
+            return {
+                "suggested_replacement_ops": ["LineStep", "Close"],
+                "rewrite_hint": (
+                    f"Operation '{operation}' is unsupported. Rewrite using supported core ops "
+                    "where possible (often LineStep chain + Close) or encode as semantic annotation."
+                )[:240],
+            }
+
+    if "precondition" in kind or "precondition" in reason_code or "precondition" in message.lower():
+        return {
+            "rewrite_hint": (
+                "Fix upstream unsupported or invalid operands first, then re-run compile/judge "
+                "before using dependent ops."
+            )[:240],
+        }
+
+    return {}
 
 
 def _summarize_text(text: str) -> str:

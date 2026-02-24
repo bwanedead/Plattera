@@ -186,6 +186,157 @@ def test_controller_retries_once_on_json_parse_failure_and_then_executes() -> No
     assert any(event["event_type"] == "controller_parse_failed" for event in transcript["events"])
 
 
+def test_controller_parse_failure_payload_includes_bounded_raw_diagnostics() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {
+                "error": "schema_validation_failed",
+                "structured_data": {"foo": "bar", "nested": {"x": 1}},
+                "text": '{"foo":"bar"}',
+                "tool_calls_seen": ["draft_ir"],
+            },
+            {
+                "structured_data": {
+                    "action_type": "declare_done",
+                    "idempotency_key": "k1",
+                    "args": {},
+                    "why": "claimability should pass now",
+                    "declare_done": {
+                        "artifact_refs": {"ir_ref": "artifacts/ir/ir-001.json"},
+                        "evidence_links": [],
+                        "accepted_deviations": [],
+                    },
+                }
+            },
+        ]
+    )
+    terminal = TerminalOutcome(
+        terminal_outcome=TerminalOutcomeKind.SUCCESS,
+        stop_reason=StopReason.COMPLETED,
+        success=True,
+        reason_code="declare_done_accepted",
+    )
+    step_result = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="k1",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-001"},
+        refusal=None,
+        dashboard=_dashboard(),
+        terminal=terminal,
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.DECLARE_DONE.value],
+            dashboard=_dashboard(),
+            budgets_remaining=_dashboard().budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[step_result],
+    )
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=2,
+    )
+    transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
+    parse_events = [e for e in transcript["events"] if e["event_type"] == "controller_parse_failed"]
+    assert parse_events
+    payload = parse_events[0]["payload"]
+    assert payload["structured_data_keys"] == ["foo", "nested"]
+    assert "structured_data_excerpt" in payload
+    assert payload["tool_calls_seen"] == ["draft_ir"]
+
+
+def test_parse_failure_triggers_one_step_controller_resync_open_artifact() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {"text": "{bad json", "error": "invalid_json"},
+            {"text": "{still bad", "error": "invalid_json"},
+        ]
+    )
+    dash = _dashboard()
+    dash.latest_refs = KernelLatestRefs(judge_ref={"artifact_path": "artifacts/feature_graphs/judge_1.json"})
+    step_result = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="k1",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-open"},
+        refusal=None,
+        dashboard=dash,
+        terminal=None,
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.OPEN_ARTIFACT.value],
+            dashboard=dash,
+            budgets_remaining=dash.budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[step_result],
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=1,
+    )
+
+    assert manager.step_calls
+    assert manager.step_calls[0]["action_type"] == ActionType.OPEN_ARTIFACT.value
+    assert manager.step_calls[0]["inputs"]["artifact_ref"] == "artifacts/feature_graphs/judge_1.json"
+    transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
+    assert any(event["event_type"] == "controller_parse_fail_resync" for event in transcript["events"])
+
+
+def test_safe_artifact_hint_allows_feature_graph_judge_artifacts_and_surfaces_top_gaps() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        original_legacy_dossiers_root = legacy_paths.dossiers_root
+
+        def _patched_root() -> Path:
+            return root / "dossiers_data"
+
+        legacy_paths.dossiers_root = _patched_root  # type: ignore[assignment]
+        try:
+            judge_path = _patched_root() / "artifacts" / "feature_graphs" / "D1" / "judge_1.json"
+            judge_path.parent.mkdir(parents=True, exist_ok=True)
+            judge_path.write_text(
+                json.dumps(
+                    {
+                        "artifact_type": "judge",
+                        "graph_id": "g1",
+                        "report": {
+                            "gaps": [
+                                {
+                                    "kind": "unsupported_operation",
+                                    "operation_name": "Traverse",
+                                    "feature_id": "curve_1",
+                                    "message": "Operation not found",
+                                }
+                            ],
+                            "warnings": ["w1"],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            hint = _safe_artifact_hint(str(judge_path), kind="judge")
+            assert hint["status"] == "ok"
+            assert isinstance(hint.get("top_gaps"), list) and hint["top_gaps"]
+            assert hint["top_gaps"][0]["operation"] == "Traverse"
+        finally:
+            legacy_paths.dossiers_root = original_legacy_dossiers_root  # type: ignore[assignment]
+
+
 def test_controller_passes_kernel_refusal_through_to_transcript() -> None:
     llm = _FakeLLM(
         responses=[

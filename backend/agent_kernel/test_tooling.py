@@ -84,6 +84,43 @@ def test_open_artifact_summarizes_referenced_json_file() -> None:
         assert str(result["summary"]).startswith("json_keys=")
 
 
+def test_open_artifact_returns_repair_view_for_judge_artifact() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "judge.json"
+        _write_json(
+            path,
+            {
+                "artifact_type": "judge",
+                "graph_id": "g_j1",
+                "report": {
+                    "gaps": [
+                        {
+                            "kind": "unsupported_operation",
+                            "operation_name": "Traverse",
+                            "feature_id": "curve_1",
+                            "severity": "error",
+                            "message": "Operation 'Traverse' not found in registry",
+                        }
+                    ],
+                    "warnings": ["Judge warning 1", "Judge warning 2"],
+                },
+            },
+        )
+        opener = CorpusArtifactOpener()
+        result = opener.open_artifact({"artifact_ref": {"artifact_path": str(path)}})
+
+        assert result["reason_codes"] == ["artifact_opened"]
+        repair_view = result.get("repair_view")
+        assert isinstance(repair_view, dict)
+        assert repair_view["artifact_type"] == "judge"
+        top_gaps = repair_view.get("top_gaps")
+        assert isinstance(top_gaps, list) and top_gaps
+        assert top_gaps[0]["operation"] == "Traverse"
+        assert top_gaps[0]["feature_id"] == "curve_1"
+        assert top_gaps[0]["suggested_replacement_ops"] == ["LineStep", "Close"]
+        assert "LineStep" in str(top_gaps[0]["rewrite_hint"])
+
+
 def test_draft_ir_proposer_persists_stub_artifact_ref() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)

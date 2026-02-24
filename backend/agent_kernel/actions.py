@@ -426,6 +426,10 @@ class ActionExecutor:
         summary = payload.get("summary")
         if isinstance(summary, str):
             outputs_inline = {"summary": summary[:512]}
+        repair_view = payload.get("repair_view")
+        if isinstance(repair_view, dict):
+            outputs_inline = outputs_inline or {}
+            outputs_inline["repair_view"] = repair_view
         return StepRecord(
             step_id=step_id,
             action=ActionType.OPEN_ARTIFACT,

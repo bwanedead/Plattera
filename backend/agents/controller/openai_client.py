@@ -88,6 +88,7 @@ class OpenAINextStepClient(NextStepLLMClient):
             content = message.content if message is not None else None
 
             tool_calls = getattr(message, "tool_calls", None) if message is not None else None
+            tool_calls_seen: list[str] = []
             if isinstance(tool_calls, list):
                 allowed_tool_names = {tool.name for tool in tools}
                 for tool_call in tool_calls:
@@ -95,6 +96,7 @@ class OpenAINextStepClient(NextStepLLMClient):
                     tool_name = getattr(function, "name", None) if function is not None else None
                     if function is None or not isinstance(tool_name, str):
                         continue
+                    tool_calls_seen.append(tool_name)
                     if tool_choice_name and tool_name != tool_choice_name:
                         continue
                     if allowed_tool_names and tool_name not in allowed_tool_names:
@@ -111,6 +113,7 @@ class OpenAINextStepClient(NextStepLLMClient):
                         "error": "openai_missing_kernel_step_tool_call",
                         "model": model,
                         "api_model": api_model,
+                        "tool_calls_seen": tool_calls_seen,
                     }
 
             if parsed is None:
@@ -127,6 +130,7 @@ class OpenAINextStepClient(NextStepLLMClient):
                         "error": "openai_non_object_json",
                         "text": content,
                         "model": model,
+                        "tool_calls_seen": tool_calls_seen,
                     }
                 parsed = parsed_any
             total_tokens = 0
@@ -138,6 +142,7 @@ class OpenAINextStepClient(NextStepLLMClient):
                 "text": content if isinstance(content, str) else "",
                 "tokens_used": total_tokens,
                 "model": model,
+                "tool_calls_seen": tool_calls_seen,
             }
         except Exception as exc:
             error_payload = self._extract_openai_error_payload(
