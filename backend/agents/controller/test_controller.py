@@ -186,6 +186,65 @@ def test_controller_retries_once_on_json_parse_failure_and_then_executes() -> No
     assert any(event["event_type"] == "controller_parse_failed" for event in transcript["events"])
 
 
+def test_non_string_notes_do_not_poison_valid_action_proposal() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {
+                "structured_data": {
+                    "action_type": "declare_done",
+                    "idempotency_key": "k1",
+                    "args": {},
+                    "why": "claimability should pass now",
+                    "notes": {"unexpected": ["shape", 1]},
+                    "declare_done": {
+                        "artifact_refs": {"ir_ref": "artifacts/ir/ir-001.json"},
+                        "evidence_links": [],
+                        "accepted_deviations": [],
+                    },
+                }
+            }
+        ]
+    )
+    terminal = TerminalOutcome(
+        terminal_outcome=TerminalOutcomeKind.SUCCESS,
+        stop_reason=StopReason.COMPLETED,
+        success=True,
+        reason_code="declare_done_accepted",
+    )
+    step_result = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="k1",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-001"},
+        refusal=None,
+        dashboard=_dashboard(),
+        terminal=terminal,
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.DECLARE_DONE.value],
+            dashboard=_dashboard(),
+            budgets_remaining=_dashboard().budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[step_result],
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=1,
+    )
+
+    assert result.terminal.terminal_outcome == TerminalOutcomeKind.SUCCESS
+    transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
+    assert not any(event["event_type"] == "controller_parse_failed" for event in transcript["events"])
+
+
 def test_controller_parse_failure_payload_includes_bounded_raw_diagnostics() -> None:
     llm = _FakeLLM(
         responses=[

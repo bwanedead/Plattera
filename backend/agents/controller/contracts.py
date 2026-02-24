@@ -75,7 +75,7 @@ class KernelStepProposal(BaseModel):
     idempotency_key: str = Field(..., min_length=1, max_length=128)
     why: str = Field(..., min_length=1, max_length=500)
     semantic_ready: bool | None = None
-    notes: str | None = Field(default=None, max_length=500)
+    notes: Any | None = None
     retrieval_intent: RetrievalIntent | None = None
     declare_done: DeclareDoneJustification | None = None
     iteration_summary: Any | None = None

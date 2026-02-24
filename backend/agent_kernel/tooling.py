@@ -1114,6 +1114,22 @@ def _gap_rewrite_guidance(gap: Mapping[str, Any]) -> dict[str, Any]:
                     "semantic anchor/annotation with deed citation and defer spatial resolution."
                 )[:240],
             }
+        if op_key == "tiedpoint":
+            return {
+                "suggested_replacement_ops": ["Point", "Annotation"],
+                "rewrite_hint": (
+                    "Replace TiedPoint with direct Point geometry (schematic/local) and store tie "
+                    "description details as annotation/metadata with deed citation."
+                )[:240],
+            }
+        if op_key == "coursetraverse":
+            return {
+                "suggested_replacement_ops": ["LineString", "Annotation"],
+                "rewrite_hint": (
+                    "Replace CourseTraverse with direct LineString geometry (schematic) and keep "
+                    "the course/bearing-distance sequence in metadata/annotation until Traverse lowering exists."
+                )[:240],
+            }
         if operation:
             return {
                 "suggested_replacement_ops": ["LineStep", "Close"],

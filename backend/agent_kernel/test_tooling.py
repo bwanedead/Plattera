@@ -121,6 +121,47 @@ def test_open_artifact_returns_repair_view_for_judge_artifact() -> None:
         assert "LineStep" in str(top_gaps[0]["rewrite_hint"])
 
 
+def test_open_artifact_repair_view_includes_tiedpoint_and_coursetraverse_rewrite_hints() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "judge_ops.json"
+        _write_json(
+            path,
+            {
+                "artifact_type": "judge",
+                "graph_id": "g_ops",
+                "report": {
+                    "gaps": [
+                        {
+                            "kind": "unsupported_operation",
+                            "operation_name": "TiedPoint",
+                            "node_id": "pob_tie",
+                            "message": "Operation 'TiedPoint' not found in registry",
+                        },
+                        {
+                            "kind": "unsupported_operation",
+                            "operation_name": "CourseTraverse",
+                            "node_id": "parcel1_traverse",
+                            "message": "Operation 'CourseTraverse' not found in registry",
+                        },
+                    ],
+                    "warnings": [],
+                },
+            },
+        )
+        opener = CorpusArtifactOpener()
+        result = opener.open_artifact({"artifact_ref": {"artifact_path": str(path)}})
+        repair_view = result.get("repair_view")
+        assert isinstance(repair_view, dict)
+        top_gaps = repair_view.get("top_gaps")
+        assert isinstance(top_gaps, list) and len(top_gaps) >= 2
+        tiedpoint = next(item for item in top_gaps if item.get("operation") == "TiedPoint")
+        coursetraverse = next(item for item in top_gaps if item.get("operation") == "CourseTraverse")
+        assert tiedpoint["suggested_replacement_ops"] == ["Point", "Annotation"]
+        assert "Point geometry" in str(tiedpoint["rewrite_hint"])
+        assert coursetraverse["suggested_replacement_ops"] == ["LineString", "Annotation"]
+        assert "LineString geometry" in str(coursetraverse["rewrite_hint"])
+
+
 def test_draft_ir_proposer_persists_stub_artifact_ref() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)

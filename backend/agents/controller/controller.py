@@ -774,7 +774,7 @@ def run_controller_loop(
             action_type=action_type,
             inputs=step_inputs,
             semantic_ready=proposal.semantic_ready,
-            notes=proposal.notes,
+            notes=_normalize_controller_notes(proposal.notes),
         )
         step_result = session_manager.step(step_request)
         last_result = step_result
@@ -1151,13 +1151,13 @@ def _coerce_proposal(raw: dict[str, object]) -> tuple[KernelStepProposal | None,
     structured = raw.get("structured_data")
     if isinstance(structured, dict):
         try:
-            validated = KernelStepProposal.model_validate(structured)
+            validated = KernelStepProposal.model_validate(_sanitize_raw_proposal_payload(structured))
             return validated, None
         except Exception as exc:
             try:
                 legacy = structured.get("proposal")
                 if isinstance(legacy, dict):
-                    validated = KernelStepProposal.model_validate(legacy)
+                    validated = KernelStepProposal.model_validate(_sanitize_raw_proposal_payload(legacy))
                     return validated, None
                 return None, f"schema_validation_failed:{type(exc).__name__}"
             except Exception:
@@ -1170,18 +1170,43 @@ def _coerce_proposal(raw: dict[str, object]) -> tuple[KernelStepProposal | None,
         if not isinstance(parsed, dict):
             return None, "json_not_object"
         try:
-            validated = KernelStepProposal.model_validate(parsed)
+            validated = KernelStepProposal.model_validate(_sanitize_raw_proposal_payload(parsed))
             return validated, None
         except Exception:
             legacy = parsed.get("proposal")
             if isinstance(legacy, dict):
-                validated = KernelStepProposal.model_validate(legacy)
+                validated = KernelStepProposal.model_validate(_sanitize_raw_proposal_payload(legacy))
                 return validated, None
             return None, "schema_validation_failed:ValidationError"
     except json.JSONDecodeError as exc:
         return None, f"json_parse_failed:{exc.msg}"
     except Exception as exc:
         return None, f"schema_validation_failed:{type(exc).__name__}"
+
+
+def _sanitize_raw_proposal_payload(raw_payload: dict[str, object]) -> dict[str, object]:
+    candidate = dict(raw_payload)
+    why_value = candidate.get("why")
+    if isinstance(why_value, str) and len(why_value) > 500:
+        candidate["why"] = why_value[:500]
+    notes_value = candidate.get("notes")
+    if isinstance(notes_value, str) and len(notes_value) > 2000:
+        candidate["notes"] = notes_value[:2000]
+    return candidate
+
+
+def _normalize_controller_notes(value: object | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        return text[:500] if text else None
+    try:
+        rendered = json.dumps(_bound_payload(value), ensure_ascii=True, sort_keys=True)
+    except Exception:
+        rendered = str(value)
+    rendered = rendered.strip()
+    return rendered[:500] if rendered else None
 
 
 def _validate_controller_inputs(inputs: dict[str, object]) -> KernelRefusal | None:
