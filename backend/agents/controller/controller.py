@@ -7,10 +7,11 @@ import hashlib
 import logging
 import os
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
-from typing import Any, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 from uuid import uuid4
 
 from config.paths import agent_kernel_artifacts_root, dossiers_feature_graphs_artifacts_root
@@ -63,6 +64,21 @@ _RUN_SUMMARY_LOG_MAX_BYTES = 24576
 _RUN_SUMMARY_LOG_MAX_ENTRIES = 40
 
 logger = logging.getLogger(__name__)
+_TRANSCRIPT_EVENT_HOOK = threading.local()
+
+
+def set_transcript_event_hook(callback: Callable[[dict[str, object]], None] | None) -> object | None:
+    previous = getattr(_TRANSCRIPT_EVENT_HOOK, "callback", None)
+    _TRANSCRIPT_EVENT_HOOK.callback = callback
+    return previous
+
+
+def restore_transcript_event_hook(previous: object | None) -> None:
+    if previous is None:
+        if hasattr(_TRANSCRIPT_EVENT_HOOK, "callback"):
+            delattr(_TRANSCRIPT_EVENT_HOOK, "callback")
+        return
+    _TRANSCRIPT_EVENT_HOOK.callback = previous
 
 
 class NextStepLLMClient(Protocol):
@@ -195,6 +211,8 @@ def run_controller_loop(
     pending_refusal_repair: dict[str, object] | None = None
     last_refusal_action_type_raw: str | None = None
     parse_resync_last_iteration = False
+    repeated_inspection_ref: str | None = None
+    repeated_inspection_count = 0
     while iterations < max_iterations:
         iterations += 1
         context_packet = _build_context_packet(
@@ -755,6 +773,70 @@ def run_controller_loop(
             continue
 
         step_inputs = cleaned_inputs
+        inspection_refusal = _inspection_thrash_refusal(
+            action_type=action_type,
+            step_inputs=step_inputs,
+            repeated_inspection_ref=repeated_inspection_ref,
+            repeated_inspection_count=repeated_inspection_count,
+        )
+        if inspection_refusal is not None:
+            refusal, repeat_ref = inspection_refusal
+            last_refusal = refusal
+            last_refusal_action_type_raw = action_type.value
+            repeated_inspection_ref = repeat_ref
+            repeated_inspection_count = (repeated_inspection_count + 1) if repeat_ref else 0
+            dashboard_json = started.dashboard.model_dump(mode="json")
+            next_action = _inspection_thrash_suggested_next_action(dashboard_json)
+            progress_payload = {
+                "latest_refs": _latest_refs_summary(dashboard_json),
+                "gap_summary": _compact_gap_summary(dashboard_json.get("gap_summary")),
+                "claimability": dashboard_json.get("claimability", {}),
+            }
+            _append_event(
+                transcript,
+                event_type="controller_refusal",
+                detail=refusal.reason_code,
+                payload={
+                    "refusal": refusal.model_dump(mode="json"),
+                    "fix": _build_fix_skeleton(
+                        reason_code=refusal.reason_code,
+                        action_type_raw=(next_action or action_type.value),
+                        bootstrap_context=bootstrap_context,
+                    ),
+                    "how_to": action_how_to_guide(
+                        action_type=(next_action or action_type),
+                        reason_code=refusal.reason_code,
+                        context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
+                    ),
+                    "inspection_ref": repeat_ref,
+                    "next_actions": _recommended_next_moves(progress_payload),
+                },
+            )
+            _log_controller_event(
+                "controller_refusal",
+                _controller_refusal_log_payload(
+                    iteration=iterations,
+                    reason_code=refusal.reason_code,
+                    action_type=action_type.value,
+                    args=step_inputs,
+                    missing_inputs=refusal.missing_inputs,
+                    retryable=refusal.retryable,
+                    iteration_summary=proposal.iteration_summary,
+                ),
+            )
+            recent_digest_memory = _maybe_create_iteration_digest(
+                digest_client=digest_client,
+                request_id=start_request.request_id,
+                session_id=session_id,
+                iteration=iterations,
+                context_packet=context_packet,
+                phase_hint=phase_hint,
+                proposal=proposal,
+                outcome_kind="controller_refusal",
+                outcome_payload={"reason_code": refusal.reason_code, "missing_inputs": refusal.missing_inputs},
+                recent_digest_memory=recent_digest_memory,
+            )
+            continue
         if action_type == ActionType.RETRIEVE_EVIDENCE and proposal.retrieval_intent is not None:
             query = str(step_inputs.get("query", "")).strip()
             if query:
@@ -777,6 +859,16 @@ def run_controller_loop(
             notes=_normalize_controller_notes(proposal.notes),
         )
         step_result = session_manager.step(step_request)
+        if action_type == ActionType.OPEN_ARTIFACT:
+            opened_ref = _read_str(step_inputs.get("artifact_ref")) or _read_str(step_inputs.get("artifact_path"))
+            if opened_ref and opened_ref == repeated_inspection_ref:
+                repeated_inspection_count += 1
+            else:
+                repeated_inspection_ref = opened_ref
+                repeated_inspection_count = 1 if opened_ref else 0
+        else:
+            repeated_inspection_ref = None
+            repeated_inspection_count = 0
         last_result = step_result
         started.dashboard = step_result.dashboard
         last_refusal = step_result.refusal
@@ -2360,6 +2452,12 @@ def _append_event(
         "timestamp_epoch_seconds": int(time()),
     }
     events.append(event)
+    callback = getattr(_TRANSCRIPT_EVENT_HOOK, "callback", None)
+    if callable(callback):
+        try:
+            callback(dict(event))
+        except Exception:
+            logger.debug("controller transcript event hook failed", exc_info=True)
     if len(events) > _MAX_EVENTS:
         dropped = len(events) - _MAX_EVENTS
         del events[:dropped]
@@ -2549,17 +2647,73 @@ def _recommended_next_moves(progress_payload: dict[str, object]) -> list[str]:
     latest_refs = progress_payload.get("latest_refs")
     if not isinstance(latest_refs, dict):
         return []
+    claimability = progress_payload.get("claimability")
+    if latest_refs.get("ir_ref") and not latest_refs.get("compile_ref"):
+        return ["run compile on latest ir_ref before more inspection", "then judge to refresh actionable gaps"]
+    if latest_refs.get("compile_ref") and not latest_refs.get("judge_ref"):
+        return ["run judge on latest compile/ir state to refresh gaps", "inspect judge repair_view/top gaps after judge"]
     ir_health = progress_payload.get("ir_health")
     if isinstance(ir_health, dict) and ir_health.get("is_stub") is True:
         return [
             "draft_ir with graph (non-empty FeatureGraph) before compile/judge",
             "use open_text_spans to extract deed calls, then encode nodes/op_expr",
         ]
+    gap_summary = progress_payload.get("gap_summary")
+    if latest_refs.get("judge_ref") and isinstance(gap_summary, dict):
+        counts = gap_summary.get("gap_counts_by_kind")
+        total_gaps = 0
+        if isinstance(counts, dict):
+            for value in counts.values():
+                try:
+                    total_gaps += int(value)
+                except Exception:
+                    continue
+        if total_gaps == 0:
+            if latest_refs.get("bundle_ref"):
+                return ["declare_done with justification if semantics are satisfied"]
+            return ["bundle latest graph artifacts, then consider declare_done"]
     if latest_refs.get("judge_ref"):
-        return ["inspect judge_report_excerpt/top gaps, then revise IR graph", "compile/judge after IR changes"]
+        return ["inspect judge_report_excerpt/top gaps, then revise IR graph", "compile and judge immediately after each IR change"]
     if latest_refs.get("ir_ref"):
         return ["run compile then judge on latest ir_ref"]
     return ["draft_ir with graph (non-empty FeatureGraph)"]
+
+
+def _inspection_thrash_refusal(
+    *,
+    action_type: ActionType,
+    step_inputs: dict[str, object],
+    repeated_inspection_ref: str | None,
+    repeated_inspection_count: int,
+) -> tuple[KernelRefusal, str] | None:
+    if action_type != ActionType.OPEN_ARTIFACT:
+        return None
+    artifact_ref = _read_str(step_inputs.get("artifact_ref")) or _read_str(step_inputs.get("artifact_path"))
+    if not artifact_ref:
+        return None
+    if artifact_ref != repeated_inspection_ref:
+        return None
+    if repeated_inspection_count < 2:
+        return None
+    return (
+        KernelRefusal(
+            reason_code="repeated_inspection_no_progress",
+            missing_inputs=[],
+            retryable=True,
+        ),
+        artifact_ref,
+    )
+
+
+def _inspection_thrash_suggested_next_action(dashboard: dict[str, object]) -> ActionType | None:
+    latest_refs = _latest_refs_summary(dashboard)
+    if latest_refs.get("ir_ref") and not latest_refs.get("compile_ref"):
+        return ActionType.COMPILE
+    if latest_refs.get("compile_ref") and not latest_refs.get("judge_ref"):
+        return ActionType.JUDGE
+    if latest_refs.get("judge_ref"):
+        return ActionType.DRAFT_IR
+    return None
 
 
 def _build_parse_failure_resync_proposal(

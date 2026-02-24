@@ -1024,6 +1024,59 @@ def test_open_artifact_empty_args_prefers_judge_then_compile_then_ir_before_deed
     assert filled["artifact_ref"] == "artifacts/judge/j1.json"
 
 
+def test_repeated_open_artifact_same_ref_triggers_inspection_thrash_brake() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {"structured_data": {"action_type": "open_artifact", "idempotency_key": "k1", "args": {"artifact_ref": "artifacts/judge/j1.json"}, "why": "inspect"}},
+            {"structured_data": {"action_type": "open_artifact", "idempotency_key": "k2", "args": {"artifact_ref": "artifacts/judge/j1.json"}, "why": "inspect again"}},
+            {"structured_data": {"action_type": "open_artifact", "idempotency_key": "k3", "args": {"artifact_ref": "artifacts/judge/j1.json"}, "why": "inspect again"}},
+        ]
+    )
+    dash = _dashboard()
+    dash.latest_refs = KernelLatestRefs(
+        ir_ref={"artifact_path": "artifacts/ir/ir-001.json"},
+        judge_ref={"artifact_path": "artifacts/judge/j1.json"},
+    )
+    step_result = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="k-open",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-open"},
+        refusal=None,
+        dashboard=dash,
+        terminal=None,
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.OPEN_ARTIFACT.value],
+            dashboard=dash,
+            budgets_remaining=dash.budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[step_result, step_result, step_result],
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=3,
+    )
+
+    assert len(manager.step_calls) == 2
+    transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
+    assert any(
+        e.get("event_type") == "controller_refusal"
+        and isinstance(e.get("payload"), dict)
+        and isinstance(e.get("payload", {}).get("refusal"), dict)
+        and e.get("payload", {}).get("refusal", {}).get("reason_code") == "repeated_inspection_no_progress"
+        for e in transcript["events"]
+    )
+
+
 def test_open_text_spans_autofill_supplies_deed_ref_and_span_index_ref() -> None:
     filled, fields = _autofill_known_args(
         action_type=ActionType.OPEN_TEXT_SPANS,

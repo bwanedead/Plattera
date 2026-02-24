@@ -214,3 +214,33 @@ def test_direct_text_run_creates_real_dossier_and_finalized_snapshot(monkeypatch
             assert hydrated.excerpt.startswith("Direct text deed body")
         finally:
             legacy_paths.dossiers_root = original_legacy_dossiers_root  # type: ignore[assignment]
+
+
+def test_agent_tape_event_formatter_emits_compact_kernel_step_status() -> None:
+    event = {
+        "event_type": "kernel_step_result",
+        "detail": "executed",
+        "timestamp_epoch_seconds": 123,
+        "payload": {
+            "iteration": 4,
+            "execution_state": "executed",
+            "action_type": "judge",
+            "dashboard_failure_classification": {"reason_code": None},
+            "latest_refs": {
+                "judge_ref": "artifacts/feature_graphs/D1/judge.json",
+                "compile_ref": "artifacts/feature_graphs/D1/compile.json",
+            },
+        },
+    }
+    out = agent_loop._agent_tape_event_from_transcript_event(  # type: ignore[attr-defined]
+        run_id="run_1",
+        event=event,
+        seq=7,
+    )
+    assert isinstance(out, dict)
+    assert out["event_type"] == "agent_tape_update"
+    status = out["status"]
+    assert status["iteration"] == 4
+    assert status["action_type"] == "judge"
+    assert status["outcome"] == "executed"
+    assert "Updated refs:" in str(status["line2"])

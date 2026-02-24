@@ -27,7 +27,7 @@ from backend.agent_kernel.models import (
     StepExecutionState,
     StopReason,
 )
-from backend.agent_kernel.run_artifact import ArtifactRef, RunArtifact, ValidationInline
+from backend.agent_kernel.run_artifact import ArtifactRef, RunArtifact, StepRecord, ValidationInline
 from backend.agent_kernel.session import KernelSessionManager
 from backend.agent_kernel import session as kernel_session_module
 
@@ -65,6 +65,15 @@ class _RefusingDraftIR(DraftIRProposer):
             },
             "rejected_graph_artifact_ref": {"artifact_path": "artifacts/rejected/rejected-001.json"},
             "rejected_graph_summary": {"status": "invalid", "error": "bad graph"},
+        }
+
+
+class _DraftIRV2(DraftIRProposer):
+    def draft_ir(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
+        del inputs
+        return {
+            "artifact_ref": {"artifact_path": "artifacts/ir/ir-002.json"},
+            "reason_codes": ["ir_drafted"],
         }
 
 
@@ -254,6 +263,94 @@ def test_step_idempotency_dedupes_and_payload_mismatch_refuses() -> None:
     assert mismatched.execution_state == StepExecutionState.REFUSED
     assert mismatched.refusal is not None
     assert mismatched.refusal.reason_code == "idempotency_key_payload_mismatch"
+
+
+def test_update_latest_refs_clears_derived_refs_when_draft_ir_updates_ir_ref() -> None:
+    run_artifact = RunArtifact(
+        run_id="run-001",
+        request_id="req-001",
+        ir_artifact_ref=ArtifactRef(artifact_path="artifacts/ir/ir-v1.json"),
+        compile_artifact_ref=ArtifactRef(artifact_path="artifacts/compile/c-v1.json"),
+        judge_artifact_ref=ArtifactRef(artifact_path="artifacts/judge/j-v1.json"),
+        bundle_artifact_ref=ArtifactRef(artifact_path="artifacts/bundle/b-v1.json"),
+        georeference_artifact_ref=ArtifactRef(artifact_path="artifacts/georef/g-v1.json"),
+    )
+    step = StepRecord(
+        step_id="step-draft-002",
+        action=ActionType.DRAFT_IR,
+        outputs={"ir_artifact_ref": {"artifact_path": "artifacts/ir/ir-v2.json"}},
+        reason_codes=["ir_drafted"],
+    )
+
+    kernel_session_module._update_latest_refs(run_artifact, step)
+
+    assert run_artifact.ir_artifact_ref is not None
+    assert run_artifact.ir_artifact_ref.artifact_path == "artifacts/ir/ir-v2.json"
+    assert run_artifact.compile_artifact_ref is None
+    assert run_artifact.judge_artifact_ref is None
+    assert run_artifact.bundle_artifact_ref is None
+    assert run_artifact.georeference_artifact_ref is None
+
+
+def test_dashboard_latest_refs_clear_stale_compile_judge_bundle_after_new_draft_ir() -> None:
+    services = _DeterministicServices()
+    executor = ActionExecutor(
+        deps=ActionExecutorDeps(
+            compiler=services,
+            judge=services,
+            bundler=services,
+            validator=services,
+            draft_ir_proposer=_DraftIRV2(),
+        )
+    )
+    persistence = _InMemorySessionPersistence()
+    manager = KernelSessionManager(action_executor=executor, persistence_service=persistence)
+    started = manager.start_session(_start_request())
+    assert started.session_id is not None
+
+    compile_step = manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-compile",
+            action_type=ActionType.COMPILE,
+            inputs={},
+        )
+    )
+    judge_step = manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-judge",
+            action_type=ActionType.JUDGE,
+            inputs={},
+        )
+    )
+    bundle_step = manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-bundle",
+            action_type=ActionType.BUNDLE,
+            inputs={},
+        )
+    )
+    assert compile_step.dashboard.latest_refs.compile_ref is not None
+    assert judge_step.dashboard.latest_refs.judge_ref is not None
+    assert bundle_step.dashboard.latest_refs.bundle_ref is not None
+
+    draft_step = manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-draft",
+            action_type=ActionType.DRAFT_IR,
+            inputs={"dossier_id": "D1", "graph": {"graph_id": "g1", "nodes": [{"id": "n1", "kind": "point"}], "edges": [], "metadata": {}}},
+        )
+    )
+
+    latest_refs = draft_step.dashboard.latest_refs
+    assert latest_refs.ir_ref is not None
+    assert latest_refs.ir_ref.get("artifact_path") == "artifacts/ir/ir-002.json"
+    assert latest_refs.compile_ref is None
+    assert latest_refs.judge_ref is None
+    assert latest_refs.bundle_ref is None
 
 
 def test_declare_done_refuses_until_claimability_is_satisfied_then_succeeds() -> None:

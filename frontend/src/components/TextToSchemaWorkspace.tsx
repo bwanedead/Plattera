@@ -3,7 +3,14 @@ import { Allotment } from "allotment";
 import { AnimatedBorder } from './AnimatedBorder';
 import { useTextToSchemaState, useWorkspaceNavigation } from '../hooks/useWorkspaceState';
 import { convertTextToSchema, getTextToSchemaModels, getSchema } from '../services/textToSchemaApi';
-import { getAgentLoopArtifactJson, getAgentLoopRun, startAgentLoopRun } from '../services/agentLoopApi';
+import {
+  getAgentLoopArtifactJson,
+  getAgentLoopEventsUrl,
+  getAgentLoopRun,
+  startAgentLoopRun,
+  type AgentTapeEvent,
+  type AgentTapeStatus,
+} from '../services/agentLoopApi';
 import { finalizedApi } from '../services/dossier/finalizedApi';
 import { saveSchemaForDossier } from '../services/textToSchemaApi';
 import { saveDossierEditAPI } from '../services/imageProcessingApi';
@@ -54,6 +61,9 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   // "View" interactions surface clearly in the UI (not just devtools).
   const [schemaLoadState, setSchemaLoadState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [schemaLoadError, setSchemaLoadError] = useState<string | null>(null);
+  const [agentTapeEvents, setAgentTapeEvents] = useState<AgentTapeEvent[]>([]);
+  const [agentTapeLiveStatus, setAgentTapeLiveStatus] = useState<AgentTapeStatus | null>(null);
+  const [agentTapeStreamConnected, setAgentTapeStreamConnected] = useState(false);
 
   // Measurement/debug refs for Allotment container
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -182,6 +192,47 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
       cancelled = true;
     };
   }, [layoutKey]);
+
+  useEffect(() => {
+    const runId = String((state as any)?.agentLoopRunId || '').trim();
+    const engine = (state as any)?.engine || 'legacy';
+    if (engine !== 'agent_loop' || !runId) {
+      setAgentTapeStreamConnected(false);
+      return;
+    }
+    if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
+      setAgentTapeStreamConnected(false);
+      return;
+    }
+
+    let closed = false;
+    const es = new EventSource(getAgentLoopEventsUrl(runId));
+
+    es.onopen = () => setAgentTapeStreamConnected(true);
+    es.onerror = () => {
+      if (!closed) setAgentTapeStreamConnected(false);
+    };
+    es.onmessage = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.data || '{}') as AgentTapeEvent;
+        if (!parsed || parsed.event_type !== 'agent_tape_update') return;
+        if (parsed.status) setAgentTapeLiveStatus(parsed.status);
+        setAgentTapeEvents((prev) => {
+          const incomingSeq = typeof parsed.seq === 'number' ? parsed.seq : null;
+          const deduped = incomingSeq == null ? prev : prev.filter((item) => item.seq !== incomingSeq);
+          return [parsed, ...deduped].slice(0, 20);
+        });
+      } catch {
+        // Ignore malformed SSE payloads; polling still updates status snapshots.
+      }
+    };
+
+    return () => {
+      closed = true;
+      setAgentTapeStreamConnected(false);
+      try { es.close(); } catch {}
+    };
+  }, [(state as any)?.agentLoopRunId, (state as any)?.engine]);
 
   // Set active workspace when component mounts
   useEffect(() => {
@@ -438,6 +489,17 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
               ? `Polling run status... (${attempts}/${AGENT_LOOP_MAX_POLLS})`
               : null,
         } as any);
+        if (snapshot.live_status) {
+          setAgentTapeLiveStatus(snapshot.live_status as AgentTapeStatus);
+        }
+        if (snapshot.last_agent_tape_event) {
+          const tapeEvent = snapshot.last_agent_tape_event as AgentTapeEvent;
+          setAgentTapeEvents((prev) => {
+            const incomingSeq = typeof tapeEvent.seq === 'number' ? tapeEvent.seq : null;
+            const deduped = incomingSeq == null ? prev : prev.filter((item) => item.seq !== incomingSeq);
+            return [tapeEvent, ...deduped].slice(0, 20);
+          });
+        }
 
         if (snapshot.status === 'completed' || snapshot.status === 'failed') {
           const terminalReason = snapshot?.terminal?.reason_code || snapshot?.error || null;
@@ -597,6 +659,9 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
           },
           agentLoopStatusMessage: 'Run started. Polling status...',
         } as any);
+        setAgentTapeEvents([]);
+        setAgentTapeLiveStatus(null);
+        setAgentTapeStreamConnected(false);
         await pollAgentLoopRun(start.run_id, {
           textToProcess,
           effectiveDossierId: resolvedAgentLoopDossierId,
@@ -974,6 +1039,10 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             isProcessing={state.isProcessing}
             agentLoopRunStatus={(state as any).agentLoopRunStatus}
             agentLoopStatusMessage={(state as any).agentLoopStatusMessage}
+            agentLoopRunId={(state as any).agentLoopRunId || null}
+            agentLoopLiveStatus={agentTapeLiveStatus}
+            agentLoopTapeEvents={agentTapeEvents}
+            agentLoopStreamConnected={agentTapeStreamConnected}
             onEngineChange={(engine) => updateState({ engine } as any)}
             onModelChange={handleModelChange}
             onAgentLoopModelChange={handleAgentLoopModelChange}

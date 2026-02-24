@@ -695,7 +695,19 @@ def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord) -> None:
     if step.action == ActionType.SET_GRAPH_REQUIREMENTS:
         run_artifact.ir_artifact_ref = _extract_ref(step.outputs, "ir_artifact_ref") or run_artifact.ir_artifact_ref
     if step.action == ActionType.DRAFT_IR:
-        run_artifact.ir_artifact_ref = _extract_ref(step.outputs, "ir_artifact_ref") or run_artifact.ir_artifact_ref
+        previous_ir_ref = run_artifact.ir_artifact_ref
+        next_ir_ref = _extract_ref(step.outputs, "ir_artifact_ref")
+        if next_ir_ref is not None:
+            ir_changed = (
+                previous_ir_ref is None
+                or previous_ir_ref.artifact_path != next_ir_ref.artifact_path
+            )
+            run_artifact.ir_artifact_ref = next_ir_ref
+            if ir_changed:
+                run_artifact.compile_artifact_ref = None
+                run_artifact.judge_artifact_ref = None
+                run_artifact.bundle_artifact_ref = None
+                run_artifact.georeference_artifact_ref = None
     if step.action == ActionType.RETRIEVE_EVIDENCE:
         run_artifact.retrieval_artifact_ref = _extract_ref(step.outputs, "retrieval_artifact_ref")
     if step.action == ActionType.UPSERT_DEED_SPAN_INDEX:

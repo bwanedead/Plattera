@@ -18,7 +18,11 @@ from pydantic import BaseModel, Field
 from agent_kernel.models import KernelBudgets, KernelGoal, KernelSessionStartRequest
 from agent_kernel.session import KernelSessionManager
 from agent_kernel.tooling import CorpusArtifactOpener
-from agents.controller.controller import run_controller_loop
+from agents.controller.controller import (
+    restore_transcript_event_hook,
+    run_controller_loop,
+    set_transcript_event_hook,
+)
 from agents.controller.openai_client import OpenAINextStepClient
 from agents.controller.bootstrap import (
     hydrate_and_persist_finalized_dossier_text,
@@ -133,13 +137,30 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
         session_manager = KernelSessionManager(persistence_service=persistence)
         llm_client = OpenAINextStepClient()
         start_request = _build_start_request(run_id, request)
-        result = run_controller_loop(
-            session_manager=session_manager,
-            llm_client=llm_client,
-            start_request=start_request,
-            model=request.model,
-            max_iterations=request.max_iterations,
-        )
+        seq_state = {"seq": 0}
+
+        def _on_controller_event(event: dict[str, object]) -> None:
+            tape_event = _agent_tape_event_from_transcript_event(run_id=run_id, event=event, seq=seq_state["seq"])
+            seq_state["seq"] += 1
+            if tape_event is None:
+                return
+            event_bus.publish_sync(run_id, tape_event)
+            _run_registry.update_run(
+                run_id=run_id,
+                patch={"live_status": tape_event.get("status"), "last_agent_tape_event": tape_event},
+            )
+
+        previous_hook = set_transcript_event_hook(_on_controller_event)
+        try:
+            result = run_controller_loop(
+                session_manager=session_manager,
+                llm_client=llm_client,
+                start_request=start_request,
+                model=request.model,
+                max_iterations=request.max_iterations,
+            )
+        finally:
+            restore_transcript_event_hook(previous_hook)
         patch = {
             "status": "completed",
             "session_id": result.session_id,
@@ -313,3 +334,162 @@ def _resolve_agent_kernel_artifact_path(artifact_ref: str) -> Path | None:
     if path == root or root in path.parents:
         return path
     return None
+
+
+def _agent_tape_event_from_transcript_event(*, run_id: str, event: dict[str, object], seq: int) -> dict[str, Any] | None:
+    event_type = str(event.get("event_type") or "")
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    ts = event.get("timestamp_epoch_seconds")
+    iteration = payload.get("iteration")
+
+    def _status_obj(
+        *,
+        stage: str,
+        action_type: str | None = None,
+        outcome: str | None = None,
+        line1: str,
+        line2: str | None = None,
+        reason_code: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "event_type": "agent_tape_update",
+            "run_id": run_id,
+            "seq": seq,
+            "timestamp_epoch_seconds": ts,
+            "source_event_type": event_type,
+            "status": {
+                "iteration": iteration if isinstance(iteration, int) else None,
+                "stage": stage,
+                "phase": _agent_tape_phase(
+                    stage=stage,
+                    action_type=action_type,
+                    outcome=outcome,
+                    reason_code=reason_code,
+                ),
+                "action_type": action_type,
+                "outcome": outcome,
+                "reason_code": reason_code,
+                "line1": line1[:200],
+                "line2": (line2[:240] if isinstance(line2, str) else None),
+            },
+        }
+
+    if event_type == "agent_proposed_step":
+        action_type = str(payload.get("action_type") or "")
+        why = str(payload.get("why") or "")
+        summary_excerpt = payload.get("iteration_summary_excerpt")
+        line2 = str(summary_excerpt) if isinstance(summary_excerpt, str) and summary_excerpt else why
+        return _status_obj(
+            stage="proposed",
+            action_type=action_type or None,
+            outcome="proposed",
+            line1=f"Proposed {action_type or 'step'}",
+            line2=line2,
+        )
+    if event_type == "controller_autofill":
+        action_type = str(payload.get("action_type") or "")
+        filled = payload.get("filled")
+        filled_text = ", ".join(str(v) for v in filled[:5]) if isinstance(filled, list) else ""
+        return _status_obj(
+            stage="validating",
+            action_type=action_type or None,
+            outcome="autofill",
+            line1=f"Controller autofilled {action_type or 'step'}",
+            line2=filled_text or None,
+        )
+    if event_type == "controller_refusal":
+        action_type = str(payload.get("action_type") or "")
+        refusal = payload.get("refusal") if isinstance(payload.get("refusal"), dict) else {}
+        reason_code = str((refusal or {}).get("reason_code") or event.get("detail") or "")
+        how_to = payload.get("how_to") if isinstance(payload.get("how_to"), dict) else {}
+        line2 = None
+        if isinstance(how_to.get("minimal_working_example"), dict):
+            line2 = "Use tool_cheatsheet minimal_working_example (see transcript)"
+        return _status_obj(
+            stage="refused",
+            action_type=action_type or None,
+            outcome="controller_refusal",
+            reason_code=reason_code or None,
+            line1=f"Controller refused {action_type or 'step'}: {reason_code or 'invalid request'}",
+            line2=line2,
+        )
+    if event_type == "controller_parse_failed":
+        parse_error = str(payload.get("parse_error") or "")
+        attempt = str(payload.get("attempt") or "")
+        return _status_obj(
+            stage="parse_failed",
+            outcome="parse_failed",
+            reason_code=parse_error or None,
+            line1=f"Proposal parse failed ({attempt or 'attempt'})",
+            line2=parse_error or str(payload.get('error') or '')[:200] or None,
+        )
+    if event_type == "controller_parse_fail_resync":
+        action_type = str(payload.get("action_type") or "")
+        return _status_obj(
+            stage="resync",
+            action_type=action_type or None,
+            outcome="controller_resync",
+            line1=f"Controller resync: {action_type or 'open_artifact'}",
+            line2=str(payload.get("why") or "") or None,
+        )
+    if event_type == "kernel_step_result":
+        action_type = str(payload.get("action_type") or "")
+        execution_state = str(payload.get("execution_state") or event.get("detail") or "")
+        refusal = payload.get("refusal") if isinstance(payload.get("refusal"), dict) else {}
+        terminal = payload.get("terminal") if isinstance(payload.get("terminal"), dict) else {}
+        dash_fc = payload.get("dashboard_failure_classification") if isinstance(payload.get("dashboard_failure_classification"), dict) else {}
+        latest_refs = payload.get("latest_refs") if isinstance(payload.get("latest_refs"), dict) else {}
+        reason_code = str(
+            (refusal or {}).get("reason_code")
+            or (terminal or {}).get("reason_code")
+            or (dash_fc or {}).get("reason_code")
+            or ""
+        )
+        ref_keys = [k for k, v in latest_refs.items() if isinstance(v, str) and v][:4]
+        line2 = f"Updated refs: {', '.join(ref_keys)}" if ref_keys else None
+        return _status_obj(
+            stage="executing",
+            action_type=action_type or None,
+            outcome=execution_state or None,
+            reason_code=reason_code or None,
+            line1=f"{action_type or 'step'} -> {execution_state or 'completed'}",
+            line2=line2,
+        )
+    if event_type == "controller_no_progress_stop":
+        return _status_obj(
+            stage="stopped",
+            outcome="no_progress",
+            reason_code=str(payload.get("reason_code") or event.get("detail") or "") or None,
+            line1="Controller stopped: no-progress safety brake",
+            line2=str(payload.get("reason_code") or "") or None,
+        )
+    return None
+
+
+def _agent_tape_phase(
+    *,
+    stage: str,
+    action_type: str | None,
+    outcome: str | None,
+    reason_code: str | None,
+) -> str:
+    stage_l = (stage or "").lower()
+    action_l = (action_type or "").lower()
+    outcome_l = (outcome or "").lower()
+    reason_l = (reason_code or "").lower()
+
+    if stage_l in {"stopped"} or "no_progress" in reason_l:
+        return "stopped"
+    if stage_l in {"parse_failed", "resync"}:
+        return "recovering"
+    if stage_l in {"refused"} or "refusal" in outcome_l:
+        return "repairing"
+    if action_l in {"draft_ir", "propose_patch", "set_graph_requirements"}:
+        return "drafting"
+    if action_l in {"compile", "judge", "bundle", "validate", "georeference", "declare_done"}:
+        return "verifying"
+    if action_l in {"open_artifact", "open_text_spans", "hydrate_deed", "retrieve_evidence", "upsert_deed_span_index"}:
+        return "diagnosing"
+    if stage_l in {"proposed", "validating", "executing"}:
+        return "working"
+    return "working"

@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { ParcelTracerLoader } from '../image-processing/ParcelTracerLoader';
+import type { AgentTapeEvent, AgentTapeStatus } from '../../services/agentLoopApi';
 
 type InputMode = 'finalized' | 'direct-input';
 
@@ -13,6 +14,10 @@ interface TextToSchemaControlPanelProps {
   isProcessing: boolean;
   agentLoopRunStatus?: string | null;
   agentLoopStatusMessage?: string | null;
+  agentLoopRunId?: string | null;
+  agentLoopLiveStatus?: AgentTapeStatus | null;
+  agentLoopTapeEvents?: AgentTapeEvent[];
+  agentLoopStreamConnected?: boolean;
   onEngineChange: (engine: 'legacy' | 'agent_loop') => void;
   onModelChange: (model: string) => void;
   onAgentLoopModelChange: (model: string) => void;
@@ -34,6 +39,10 @@ export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> =
   isProcessing,
   agentLoopRunStatus,
   agentLoopStatusMessage,
+  agentLoopRunId,
+  agentLoopLiveStatus,
+  agentLoopTapeEvents = [],
+  agentLoopStreamConnected = false,
   onEngineChange,
   onModelChange,
   onAgentLoopModelChange,
@@ -46,6 +55,7 @@ export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> =
 }) => {
   const [inputMode, setInputMode] = useState<InputMode>('finalized');
   const [directText, setDirectText] = useState('');
+  const tapeEvents = Array.isArray(agentLoopTapeEvents) ? agentLoopTapeEvents : [];
 
   // Ensure we have a valid string for final draft
   const finalText = typeof finalDraftText === 'string' ? finalDraftText : String(finalDraftText || '');
@@ -275,6 +285,141 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
           )}
         </div>
       )}
+      {engine === 'agent_loop' && (agentLoopRunId || tapeEvents.length > 0 || agentLoopLiveStatus) && (
+        <div
+          style={{
+            marginTop: 10,
+            border: '1px solid rgba(120,120,120,0.35)',
+            borderRadius: 10,
+            padding: 10,
+            background: 'linear-gradient(180deg, rgba(18,20,24,0.92), rgba(12,13,16,0.95))',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.3, opacity: 0.95 }}>Agent Loop Activity</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 999,
+                  display: 'inline-block',
+                  background: agentLoopStreamConnected ? '#27c36f' : '#f0b23f',
+                  boxShadow: agentLoopStreamConnected ? '0 0 8px rgba(39,195,111,0.6)' : '0 0 8px rgba(240,178,63,0.35)',
+                }}
+              />
+              <span style={{ fontSize: 11, opacity: 0.8 }}>
+                {agentLoopStreamConnected ? 'Live stream' : 'Polling fallback'}
+              </span>
+            </div>
+          </div>
+
+          {agentLoopLiveStatus && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: '8px 9px',
+                borderRadius: 8,
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(255,255,255,0.02)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+                {agentLoopLiveStatus.stage && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.5,
+                      padding: '2px 6px',
+                      borderRadius: 999,
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                    }}
+                  >
+                    {agentLoopLiveStatus.stage}
+                  </span>
+                )}
+                {agentLoopLiveStatus.phase && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.45,
+                      padding: '2px 6px',
+                      borderRadius: 999,
+                      background: 'rgba(54, 129, 255, 0.12)',
+                      border: '1px solid rgba(54, 129, 255, 0.22)',
+                      color: 'rgba(180, 214, 255, 0.95)',
+                    }}
+                  >
+                    {agentLoopLiveStatus.phase}
+                  </span>
+                )}
+                {typeof agentLoopLiveStatus.iteration === 'number' && (
+                  <span style={{ fontSize: 11, opacity: 0.8 }}>iter {agentLoopLiveStatus.iteration}</span>
+                )}
+                {agentLoopLiveStatus.action_type && (
+                  <span style={{ fontSize: 11, opacity: 0.9 }}>{agentLoopLiveStatus.action_type}</span>
+                )}
+              </div>
+              {agentLoopLiveStatus.line1 && (
+                <div style={{ fontSize: 12, lineHeight: 1.35, fontWeight: 600 }}>
+                  {agentLoopLiveStatus.line1}
+                </div>
+              )}
+              {agentLoopLiveStatus.line2 && (
+                <div style={{ marginTop: 3, fontSize: 11, lineHeight: 1.35, opacity: 0.82 }}>
+                  {agentLoopLiveStatus.line2}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tapeEvents.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {tapeEvents.slice(0, 5).map((evt, idx) => {
+                const status = evt.status || {};
+                const key = `${evt.seq ?? 'na'}-${idx}`;
+                return (
+                  <div
+                    key={key}
+                    style={{
+                      borderRadius: 7,
+                      padding: '6px 8px',
+                      background: 'rgba(255,255,255,0.018)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {typeof status.iteration === 'number' && (
+                        <span style={{ fontSize: 10, opacity: 0.75 }}>#{status.iteration}</span>
+                      )}
+                      {status.stage && (
+                        <span style={{ fontSize: 10, opacity: 0.8, textTransform: 'uppercase' }}>{status.stage}</span>
+                      )}
+                      {status.phase && (
+                        <span style={{ fontSize: 10, opacity: 0.78, textTransform: 'uppercase' }}>{status.phase}</span>
+                      )}
+                      {status.action_type && (
+                        <span style={{ fontSize: 10, opacity: 0.9 }}>{status.action_type}</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, lineHeight: 1.3, marginTop: 2 }}>
+                      {status.line1 || 'Agent event'}
+                    </div>
+                    {status.line2 && (
+                      <div style={{ fontSize: 10, lineHeight: 1.25, opacity: 0.76, marginTop: 2 }}>
+                        {status.line2}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
-}; 
+};

@@ -26,6 +26,28 @@ export interface AgentLoopRunSnapshot {
   terminal?: any;
   dashboard?: any;
   error?: string | null;
+  live_status?: AgentTapeStatus | null;
+  last_agent_tape_event?: AgentTapeEvent | null;
+}
+
+export interface AgentTapeStatus {
+  iteration?: number | null;
+  stage?: string | null;
+  phase?: string | null;
+  action_type?: string | null;
+  outcome?: string | null;
+  reason_code?: string | null;
+  line1?: string | null;
+  line2?: string | null;
+}
+
+export interface AgentTapeEvent {
+  event_type: 'agent_tape_update' | string;
+  run_id?: string;
+  seq?: number;
+  timestamp_epoch_seconds?: number;
+  source_event_type?: string;
+  status?: AgentTapeStatus | null;
 }
 
 const API_BASE = (typeof process !== 'undefined' && process.env && (process.env.NEXT_PUBLIC_API_BASE as string)) || 'http://127.0.0.1:8000';
@@ -72,4 +94,8 @@ export const getAgentLoopArtifactJson = async (artifactRef: string): Promise<{ a
     throw new Error(`Agent loop artifact json failed (${response.status})`);
   }
   return response.json();
+};
+
+export const getAgentLoopEventsUrl = (runId: string): string => {
+  return `${API_BASE_URL}/events/${encodeURIComponent(runId)}`;
 };
