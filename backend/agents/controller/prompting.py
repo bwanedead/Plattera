@@ -15,7 +15,7 @@ class PromptBundle:
 _DEVELOPER_MESSAGE = (
     "Mission: convert deed context into a FeatureGraph IR, then run deterministic physics gates "
     "(compile, judge, bundle) and only attempt DECLARE_DONE when claimability is likely ready.\n"
-    "Protocol: output exactly one next step via tool call `kernel_step`. Never output prose.\n"
+    "Protocol: call exactly one tool from the provided tools list. Never output prose.\n"
     "Continuity memory:\n"
     "- Read memory.run_summary_log as condensed history.\n"
     "- If you provide iteration_summary (Memory Docket v0), describe only what happened this iteration (delta-only).\n"
@@ -28,7 +28,7 @@ _DEVELOPER_MESSAGE = (
     "Tool discipline:\n"
     "- HYDRATE_DEED: use when deed text ref/excerpt is missing.\n"
     "- OPEN_ARTIFACT: bounded summary/debug inspection only; requires one of artifact_ref | artifact_path | corpus_entry_ref.\n"
-    "- DRAFT_IR: always include args.graph (FeatureGraph JSON); deed refs are provenance only. Draft minimal valid graph first, then iterate based on judge gaps.\n"
+    "- DRAFT_IR: always include graph (top-level tool parameter, FeatureGraph JSON); deed refs are provenance only. Draft minimal valid graph first, then iterate based on judge gaps.\n"
     "- OPEN_TEXT_SPANS: canonical bounded verbatim deed recall; use raw spans [{start_char,end_char}] or span_ids + deed_span_index_ref.\n"
     "- UPSERT_DEED_SPAN_INDEX: save/update span bookmarks with stable span_id, ranges, and bounded intended_verbatim_text.\n"
     "- RETRIEVE_EVIDENCE: optional; requires a non-empty query.\n"
@@ -61,7 +61,8 @@ def build_developer_message() -> str:
 
 def build_user_message(*, context_packet: dict[str, object]) -> str:
     return (
-        "Propose exactly one next kernel step by calling the `kernel_step` tool. "
+        "Call exactly one tool from the provided tools list. "
+        "Use top-level tool parameters (do not wrap fields in a `kernel_step` envelope or nested `args`). "
         "Respect tool_menu and refs-not-blobs. Use the Context Packet below. "
         f"ContextPacket JSON: {json.dumps(context_packet, sort_keys=True)}"
     )
@@ -69,9 +70,24 @@ def build_user_message(*, context_packet: dict[str, object]) -> str:
 
 def build_repair_user_message(*, parse_error: str | None) -> str:
     return (
-        "Your prior proposal was invalid. Call `kernel_step` once using this shape: "
-        '{"action_type":"...", "args":{}, "idempotency_key":"...", "why":"..."} '
-        "Use only actions in tool_menu and include missing required fields from last_refusal.fix.required_fields. "
+        "Your prior proposal was invalid. Call exactly one provided tool using its top-level parameters (no `kernel_step` envelope). "
+        "Use only the provided repair tool and follow last_refusal.fix.required_fields exactly. "
         "Use tool_cheatsheet[].minimal_working_example as the canonical repair skeleton and fill placeholders. "
         f"Prior parse error: {parse_error or 'unknown'}."
+    )
+
+
+def build_refusal_repair_user_message(
+    *,
+    reason_code: str,
+    required_fields: list[str],
+    minimal_working_example: dict[str, object] | None,
+) -> str:
+    return (
+        "Retryable refusal repair. Call exactly one tool and repair the previous refusal.\n"
+        "Copy the minimal working example args verbatim first, then only fill placeholders.\n"
+        f"Refusal reason_code: {reason_code}\n"
+        f"Required fields: {json.dumps(required_fields, ensure_ascii=True)}\n"
+        f"Minimal working example: {json.dumps(minimal_working_example or {}, ensure_ascii=True)}\n"
+        "Do not return empty args. Do not change to a different tool unless the example requires it."
     )

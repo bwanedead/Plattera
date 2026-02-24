@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from backend.agent_kernel.models import ActionType
 from backend.agents.controller.contracts import (
     KernelStepProposal,
+    action_tool_specs_for_menu,
     coerce_action_type,
     kernel_step_tool_spec,
     validate_action_args,
@@ -21,6 +22,19 @@ def test_kernel_step_tool_spec_has_required_minimal_fields() -> None:
     assert isinstance(params, dict)
     required = params.get("required")
     assert required == ["action_type", "args", "idempotency_key", "why"]
+
+
+def test_action_tool_specs_for_menu_draft_ir_requires_graph() -> None:
+    specs = action_tool_specs_for_menu([ActionType.DRAFT_IR.value])
+    assert len(specs) == 1
+    spec = specs[0]
+    assert spec.name == ActionType.DRAFT_IR.value
+    params = spec.parameters_schema
+    assert isinstance(params, dict)
+    required = params.get("required")
+    assert isinstance(required, list)
+    assert "dossier_id" in required
+    assert "graph" in required
 
 
 def test_kernel_step_proposal_requires_declare_done_justification() -> None:

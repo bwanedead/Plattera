@@ -31,13 +31,18 @@ from agent_kernel.session import KernelSessionManager
 
 from .contracts import (
     KernelStepProposal,
+    action_tool_specs_for_menu,
     action_how_to_guide,
     coerce_action_type,
-    kernel_step_tool_spec,
     tool_cheatsheet_entries,
     validate_action_args,
 )
-from .prompting import build_developer_message, build_repair_user_message, build_user_message
+from .prompting import (
+    build_developer_message,
+    build_refusal_repair_user_message,
+    build_repair_user_message,
+    build_user_message,
+)
 from .retrieval_intents import classify_retrieval_degradation, map_retrieval_intent_to_inputs
 from .tool_specs import ToolSpec
 
@@ -68,7 +73,7 @@ class NextStepLLMClient(Protocol):
         *,
         model: str,
         tools: list[ToolSpec],
-        tool_choice_name: str,
+        tool_choice_name: str | None,
         developer_message: str,
         user_message: str,
     ) -> dict[str, object]: ...
@@ -187,6 +192,7 @@ def run_controller_loop(
     phase_hint = "bootstrap"
     last_summary_phase = phase_hint
     recent_digest_memory: list[dict[str, object]] = []
+    pending_refusal_repair: dict[str, object] | None = None
     last_refusal_action_type_raw: str | None = None
     while iterations < max_iterations:
         iterations += 1
@@ -204,12 +210,23 @@ def run_controller_loop(
             phase_hint=phase_hint,
             recent_digest_memory=recent_digest_memory,
         )
-        proposal = _propose_next_step(
-            llm_client=llm_client,
-            model=model,
-            observation=context_packet,
-            transcript=transcript,
-        )
+        used_refusal_repair_prompt = pending_refusal_repair is not None
+        if pending_refusal_repair is not None:
+            proposal = _propose_refusal_repair_step(
+                llm_client=llm_client,
+                model=model,
+                observation=context_packet,
+                transcript=transcript,
+                repair_request=pending_refusal_repair,
+            )
+            pending_refusal_repair = None
+        else:
+            proposal = _propose_next_step(
+                llm_client=llm_client,
+                model=model,
+                observation=context_packet,
+                transcript=transcript,
+            )
         if proposal is None:
             break
         _append_event(
@@ -277,6 +294,13 @@ def run_controller_loop(
                     iteration_summary=proposal.iteration_summary,
                 ),
             )
+            if not used_refusal_repair_prompt and refusal.retryable:
+                pending_refusal_repair = _refusal_repair_request(
+                    action_type_raw=proposal.action_type,
+                    refusal=refusal,
+                    bootstrap_context=bootstrap_context,
+                    context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
+                )
             refusal_streak, previous_refusal_signature = _update_refusal_streak(
                 refusal_streak=refusal_streak,
                 previous_signature=previous_refusal_signature,
@@ -357,6 +381,13 @@ def run_controller_loop(
                     iteration_summary=proposal.iteration_summary,
                 ),
             )
+            if not used_refusal_repair_prompt and refusal.retryable:
+                pending_refusal_repair = _refusal_repair_request(
+                    action_type_raw=action_type.value,
+                    refusal=refusal,
+                    bootstrap_context=bootstrap_context,
+                    context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
+                )
             refusal_streak, previous_refusal_signature = _update_refusal_streak(
                 refusal_streak=refusal_streak,
                 previous_signature=previous_refusal_signature,
@@ -457,6 +488,13 @@ def run_controller_loop(
                     iteration_summary=proposal.iteration_summary,
                 ),
             )
+            if not used_refusal_repair_prompt and payload_refusal.retryable:
+                pending_refusal_repair = _refusal_repair_request(
+                    action_type_raw=action_type.value,
+                    refusal=payload_refusal,
+                    bootstrap_context=bootstrap_context,
+                    context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
+                )
             refusal_streak, previous_refusal_signature = _update_refusal_streak(
                 refusal_streak=refusal_streak,
                 previous_signature=previous_refusal_signature,
@@ -541,6 +579,13 @@ def run_controller_loop(
                     iteration_summary=proposal.iteration_summary,
                 ),
             )
+            if not used_refusal_repair_prompt and refusal.retryable:
+                pending_refusal_repair = _refusal_repair_request(
+                    action_type_raw=action_type.value,
+                    refusal=refusal,
+                    bootstrap_context=bootstrap_context,
+                    context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
+                )
             refusal_streak, previous_refusal_signature = _update_refusal_streak(
                 refusal_streak=refusal_streak,
                 previous_signature=previous_refusal_signature,
@@ -621,6 +666,13 @@ def run_controller_loop(
                     iteration_summary=proposal.iteration_summary,
                 ),
             )
+            if not used_refusal_repair_prompt and refusal.retryable:
+                pending_refusal_repair = _refusal_repair_request(
+                    action_type_raw=action_type.value,
+                    refusal=refusal,
+                    bootstrap_context=bootstrap_context,
+                    context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
+                )
             refusal_streak, previous_refusal_signature = _update_refusal_streak(
                 refusal_streak=refusal_streak,
                 previous_signature=previous_refusal_signature,
@@ -774,6 +826,13 @@ def run_controller_loop(
                     iteration_summary=proposal.iteration_summary,
                 ),
             )
+            if not used_refusal_repair_prompt and last_refusal.retryable:
+                pending_refusal_repair = _refusal_repair_request(
+                    action_type_raw=action_type.value,
+                    refusal=last_refusal,
+                    bootstrap_context=bootstrap_context,
+                    context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
+                )
         phase_hint = _infer_phase_hint(step_result.dashboard.model_dump(mode="json"))
         if phase_hint != last_summary_phase:
             run_summary_ref, run_summary_excerpt = _persist_run_summary(
@@ -931,11 +990,14 @@ def _propose_next_step(
     observation: dict[str, object],
     transcript: list[dict[str, object]],
 ) -> KernelStepProposal | None:
-    tool_spec = kernel_step_tool_spec()
+    tool_menu = observation.get("tool_menu")
+    tool_specs = action_tool_specs_for_menu(tool_menu if isinstance(tool_menu, list) else [])
+    if not tool_specs:
+        tool_specs = []
     first = llm_client.propose_next_step(
         model=model,
-        tools=[tool_spec],
-        tool_choice_name=tool_spec.name,
+        tools=tool_specs,
+        tool_choice_name=None,
         developer_message=build_developer_message(),
         user_message=build_user_message(context_packet=observation),
     )
@@ -953,8 +1015,8 @@ def _propose_next_step(
 
     second = llm_client.propose_next_step(
         model=model,
-        tools=[tool_spec],
-        tool_choice_name=tool_spec.name,
+        tools=tool_specs,
+        tool_choice_name=None,
         developer_message=build_developer_message(),
         user_message=build_repair_user_message(parse_error=parse_error),
     )
@@ -970,6 +1032,80 @@ def _propose_next_step(
     )
     _log_controller_event("controller_parse_failed", second_failure)
     return None
+
+
+def _propose_refusal_repair_step(
+    *,
+    llm_client: NextStepLLMClient,
+    model: str,
+    observation: dict[str, object],
+    transcript: list[dict[str, object]],
+    repair_request: dict[str, object],
+) -> KernelStepProposal | None:
+    tool_menu = observation.get("tool_menu")
+    available_specs = action_tool_specs_for_menu(tool_menu if isinstance(tool_menu, list) else [])
+    action_type_raw = _read_str(repair_request.get("action_type"))
+    forced_specs = [spec for spec in available_specs if action_type_raw and spec.name == action_type_raw]
+    tools = forced_specs or available_specs
+    if not tools:
+        return None
+    minimal_example = repair_request.get("minimal_working_example")
+    first = llm_client.propose_next_step(
+        model=model,
+        tools=tools,
+        tool_choice_name=tools[0].name if len(tools) == 1 else action_type_raw,
+        developer_message=build_developer_message(),
+        user_message=build_refusal_repair_user_message(
+            reason_code=str(repair_request.get("reason_code") or "unknown_refusal"),
+            required_fields=[str(v) for v in (repair_request.get("required_fields") or []) if isinstance(v, str)],
+            minimal_working_example=minimal_example if isinstance(minimal_example, dict) else None,
+        ),
+    )
+    proposal, parse_error = _coerce_proposal(first)
+    if proposal is not None:
+        return proposal
+    failure = _proposal_failure_payload(first, attempt="refusal_repair", parse_error=parse_error)
+    _append_event(
+        transcript,
+        event_type="controller_parse_failed",
+        detail="refusal_repair_parse_or_validation_failed",
+        payload=failure,
+    )
+    _log_controller_event("controller_parse_failed", failure)
+    return None
+
+
+def _refusal_repair_request(
+    *,
+    action_type_raw: str,
+    refusal: KernelRefusal,
+    bootstrap_context: dict[str, object],
+    context_inputs: dict[str, object],
+ ) -> dict[str, object] | None:
+    if coerce_action_type(action_type_raw) is None:
+        return None
+    how_to = action_how_to_guide(
+        action_type=action_type_raw,
+        reason_code=refusal.reason_code,
+        context_inputs=context_inputs,
+    )
+    fix = _build_fix_skeleton(
+        reason_code=refusal.reason_code,
+        action_type_raw=action_type_raw,
+        bootstrap_context=bootstrap_context,
+    )
+    kernel_step = fix.get("kernel_step")
+    minimal = how_to.get("minimal_working_example")
+    if isinstance(kernel_step, dict):
+        ks_args = kernel_step.get("args")
+        if isinstance(ks_args, dict):
+            minimal = ks_args
+    return {
+        "action_type": action_type_raw,
+        "reason_code": refusal.reason_code,
+        "required_fields": how_to.get("required_fields") if isinstance(how_to.get("required_fields"), list) else [],
+        "minimal_working_example": minimal if isinstance(minimal, dict) else None,
+    }
 
 
 def _coerce_proposal(raw: dict[str, object]) -> tuple[KernelStepProposal | None, str | None]:
@@ -2320,14 +2456,14 @@ def _recommended_next_moves(progress_payload: dict[str, object]) -> list[str]:
     ir_health = progress_payload.get("ir_health")
     if isinstance(ir_health, dict) and ir_health.get("is_stub") is True:
         return [
-            "draft_ir with args.graph (non-empty FeatureGraph) before compile/judge",
+            "draft_ir with graph (non-empty FeatureGraph) before compile/judge",
             "use open_text_spans to extract deed calls, then encode nodes/op_expr",
         ]
     if latest_refs.get("judge_ref"):
         return ["inspect judge_report_excerpt/top gaps, then revise IR graph", "compile/judge after IR changes"]
     if latest_refs.get("ir_ref"):
         return ["run compile then judge on latest ir_ref"]
-    return ["draft_ir with args.graph (non-empty FeatureGraph)"]
+    return ["draft_ir with graph (non-empty FeatureGraph)"]
 
 
 def _anchor_templates_for_deed(bootstrap_context: dict[str, object]) -> list[dict[str, str]]:
@@ -2372,7 +2508,7 @@ def _quality_gate_refusal_for_step_result(
             "reason_code": "draft_ir_graph_empty",
             "ir_ref": ir_ref,
             "ir_hint": _bound_payload(ir_hint, max_items=8),
-            "message": "draft_ir produced an empty graph; next attempt must include args.graph with at least one node",
+            "message": "draft_ir produced an empty graph; next attempt must include graph with at least one node",
         },
     }
 

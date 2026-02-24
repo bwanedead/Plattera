@@ -158,3 +158,47 @@ def test_openai_next_step_client_reports_missing_kernel_step_tool_call() -> None
 
     assert result["success"] is False
     assert result["error"] == "openai_missing_kernel_step_tool_call"
+
+
+def test_openai_next_step_client_maps_action_tool_call_to_kernel_step_payload() -> None:
+    completion = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=None,
+                    tool_calls=[
+                        SimpleNamespace(
+                            function=SimpleNamespace(
+                                name="draft_ir",
+                                arguments='{"dossier_id":"D1","graph":{"graph_id":"g1","nodes":[{"id":"n1","kind":"point","geometry":{"type":"Point","coordinates":[0,0]}}],"edges":[],"metadata":{"source":"deed"}},"why":"draft now"}',
+                            )
+                        )
+                    ],
+                )
+            )
+        ],
+        usage=SimpleNamespace(total_tokens=12),
+    )
+    service = _FakeService(available=True, client=_FakeOpenAIClient(response=completion))
+    client = OpenAINextStepClient(service=service)
+
+    result = client.propose_next_step(
+        model="gpt-5-mini",
+        tools=[
+            ToolSpec(
+                name="draft_ir",
+                description="draft_ir",
+                parameters_schema={"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+            )
+        ],
+        tool_choice_name=None,
+        developer_message="DEV",
+        user_message="USER",
+    )
+
+    assert result["success"] is True
+    payload = result["structured_data"]
+    assert payload["action_type"] == "draft_ir"
+    assert isinstance(payload["args"], dict)
+    assert payload["args"]["dossier_id"] == "D1"
+    assert isinstance(payload["args"]["graph"], dict)

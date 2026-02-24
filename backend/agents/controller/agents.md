@@ -4,11 +4,11 @@
 - Folder: `backend/agents/controller/`
 - Purpose:
   - Controller loop that proposes `KernelStepRequest` actions via an LLM.
-  - OpenAI tool-calling (`kernel_step`) with local validation and kernel refusal feedback.
+  - Provider-adapted tool-calling (per-action tools) with local validation and kernel refusal feedback.
 
 ## Contracts & invariants
 - **No strict JSON-schema unions for step proposals**: controller proposals use tool calling or `json_object` fallback.
-- **One proposal per iteration**: exactly one `kernel_step` call (or one JSON object in fallback mode).
+- **One proposal per iteration**: exactly one tool call from the provided tool list (or one JSON object in fallback mode).
 - **Local validation is authoritative at controller boundary**: minimal contract parse, tool-menu gating, bounded args, per-action required fields.
 - **Kernel remains source of truth**: controller never substitutes actions; kernel refusal payloads pass through unchanged.
 - **Preserve observability**: keep `openai_next_step_error {...}` and `controller_parse_failed` payloads stable and bounded.
@@ -18,7 +18,7 @@
   - Improve prompt quality and refusal handling.
   - Expand per-action validators and deterministic repair behavior.
 - Do not change casually:
-  - `kernel_step` function name/shape without updating controller tests/docs.
+  - Controller proposal mapping (tool-name + top-level params -> local `KernelStepProposal`) without updating tests/docs.
   - Error payload fields used by logs/transcripts.
 
 ## Commands

@@ -34,7 +34,7 @@ class OpenAINextStepClient(NextStepLLMClient):
         *,
         model: str,
         tools: list[ToolSpec],
-        tool_choice_name: str,
+        tool_choice_name: str | None,
         developer_message: str,
         user_message: str,
     ) -> dict[str, object]:
@@ -68,7 +68,10 @@ class OpenAINextStepClient(NextStepLLMClient):
             params["response_format"] = {"type": "json_object"}
         else:
             params["tools"] = [self._to_openai_tool(tool) for tool in tools]
-            params["tool_choice"] = {"type": "function", "function": {"name": tool_choice_name}}
+            if tool_choice_name:
+                params["tool_choice"] = {"type": "function", "function": {"name": tool_choice_name}}
+            else:
+                params["tool_choice"] = "required"
             params["parallel_tool_calls"] = False
         if "gpt-5" in api_model or "o4-mini" in api_model:
             params["max_completion_tokens"] = int(self._default_max_tokens(model))
@@ -86,15 +89,21 @@ class OpenAINextStepClient(NextStepLLMClient):
 
             tool_calls = getattr(message, "tool_calls", None) if message is not None else None
             if isinstance(tool_calls, list):
+                allowed_tool_names = {tool.name for tool in tools}
                 for tool_call in tool_calls:
                     function = getattr(tool_call, "function", None)
-                    if function is None or getattr(function, "name", None) != tool_choice_name:
+                    tool_name = getattr(function, "name", None) if function is not None else None
+                    if function is None or not isinstance(tool_name, str):
+                        continue
+                    if tool_choice_name and tool_name != tool_choice_name:
+                        continue
+                    if allowed_tool_names and tool_name not in allowed_tool_names:
                         continue
                     raw_args = getattr(function, "arguments", None)
                     if isinstance(raw_args, str) and raw_args.strip():
                         parsed_args = json.loads(raw_args)
                         if isinstance(parsed_args, dict):
-                            parsed = parsed_args
+                            parsed = self._tool_call_to_kernel_step_payload(tool_name=tool_name, parsed_args=parsed_args)
                             break
                 if parsed is None and mode != "json_object":
                     return {
@@ -170,6 +179,32 @@ class OpenAINextStepClient(NextStepLLMClient):
                 "parameters": tool.parameters_schema,
             },
         }
+
+    def _tool_call_to_kernel_step_payload(
+        self,
+        *,
+        tool_name: str,
+        parsed_args: dict[str, object],
+    ) -> dict[str, object]:
+        if tool_name == "kernel_step":
+            return parsed_args
+        common_keys = {"why", "semantic_ready", "notes", "retrieval_intent", "declare_done", "iteration_summary", "idempotency_key"}
+        payload: dict[str, object] = {
+            "action_type": tool_name,
+            "args": {},
+            "why": str(parsed_args.get("why") or f"{tool_name}"),
+            "idempotency_key": str(parsed_args.get("idempotency_key") or f"toolcall-{tool_name}"),
+        }
+        for key in ("semantic_ready", "notes", "retrieval_intent", "declare_done", "iteration_summary"):
+            if key in parsed_args:
+                payload[key] = parsed_args[key]
+        args: dict[str, object] = {}
+        for key, value in parsed_args.items():
+            if key in common_keys:
+                continue
+            args[key] = value
+        payload["args"] = args
+        return payload
 
     def _extract_openai_error_payload(
         self,

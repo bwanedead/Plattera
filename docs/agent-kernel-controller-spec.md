@@ -52,37 +52,40 @@ recoverable via deterministic refusals and feedback, not to hard-fail at the API
 
 Therefore:
 - We keep **strictness inside our code** (Pydantic validation + tool/menu gating + kernel refusals).
-- We keep the **LLM boundary minimal and stable** (one tool call with bounded args).
+- We keep the **LLM boundary minimal and stable** (exactly one tool call per iteration with bounded args).
 
-### 2.2 End-state interface: single tool call (`kernel_step`)
-The controller requests that the model propose exactly one next kernel step by calling a single tool/function.
-This keeps the interface tiny, avoids JSON Schema unions, and leverages model training around tool calling.
+### 2.2 End-state interface: exactly one tool call (per-action tools)
+The controller requests that the model propose exactly one next kernel step by calling exactly one tool from the provided tool list.
+Each tool maps to a kernel action (e.g. `draft_ir`, `compile`, `judge`, `open_text_spans`) and uses top-level tool parameters.
 
-Tool/function name: `kernel_step`
+Per-tool arguments (controller-owned contracts):
+- Action-specific top-level parameters (bounded; refs-not-blobs; validated locally per action)
+- Common optional top-level metadata may be accepted by the adapter/model contract:
+  - `why`
+  - `semantic_ready`
+  - `notes`
+  - `retrieval_intent`
+  - `iteration_summary`
 
-Arguments (controller-owned contract):
-- `action_type` (required): string enum matching kernel `ActionType`
-- `args` (required): object (bounded; refs-not-blobs; validated locally per action)
-- `idempotency_key` (required): string (controller may generate if missing)
-- `why` (required): short string (bounded; primarily for transcript/debug)
-- `semantic_ready` (optional): bool
-- `notes` (optional): short string (bounded)
+Adapter mapping:
+- Controller/provider adapter maps `{tool_name, tool_args}` into the local proposal shape:
+  - `{ action_type, args, idempotency_key, why, ... }`
 
-**Important:** we do NOT attempt to encode per-action argument typing into the OpenAI schema. We validate per-action args locally.
+**Important:** we do NOT rely on provider-side strict structured outputs for agent correctness. Per-action validation remains local.
 
 ### 2.3 Fallback transport (allowed): JSON-only message (`json_object`)
 If tool calling is temporarily unavailable for a target model/runtime, the controller may fall back to JSON mode:
 - `response_format: { "type": "json_object" }`
 - developer instruction: “Return exactly one JSON object; no markdown; no extra text.”
 
-The JSON object must match the same minimal contract as the tool call: `{ action_type, args, idempotency_key, why, ... }`.
+The JSON object must match the controller’s minimal local proposal contract: `{ action_type, args, idempotency_key, why, ... }`.
 
 ---
 
 ## 3) Controller invariants (must enforce)
 
 The controller MUST require the LLM to output exactly one next-step proposal per iteration, either as:
-- a single tool call to `kernel_step` (preferred), or
+- a single tool call to one of the provided per-action tools (preferred), or
 - a single JSON object in `json_object` mode (fallback).
 
 ### 3.1 Tool existence + menu enforcement
@@ -124,7 +127,7 @@ Optional (v0.1): artifact “freshness” requirement that judge/compile occur a
 
 ## 4) Retrieval intent mapping (deterministic)
 
-Controller maps a high-level retrieval intent → a deterministic query-pack used in `kernel_step.args` for `RETRIEVE_EVIDENCE`.
+Controller maps a high-level retrieval intent → a deterministic query-pack used in local proposal `args` for `RETRIEVE_EVIDENCE`.
 
 ### 4.1 Query-pack shape (inputs)
 - `query: str`
@@ -146,7 +149,7 @@ This must be surfaced to the agent via observation and stable reason codes.
 ### 5.1 System/developer prompt goals
 - Explain: agent chooses one next action only.
 - Explain: kernel can refuse; refusals are data; do not argue with refusals.
-- Require: output exactly one `kernel_step` tool call (or one JSON object in fallback mode).
+- Require: output exactly one provided tool call (or one JSON object in fallback mode).
 - Provide: tool_menu + dashboard + a compact working set, not raw blobs.
 
 ### 5.2 Plan cadence
@@ -178,9 +181,9 @@ Files to change:
 Changes:
 - Stop using `response_format: { type: "json_schema", strict: true }` for controller proposals.
 - Prefer tool calling:
-  - define a single tool/function `kernel_step` with minimal args described in §2.2
+  - define provider-neutral per-action tool specs and adapt them per provider
   - request exactly one tool call per step
-  - parse tool-call arguments as JSON and validate locally
+  - parse `{tool_name, tool_args}` and map to local proposal shape, then validate locally
 - If tool calling is unavailable in a target environment, fall back to:
   - `response_format: { "type": "json_object" }` with the same minimal contract
 

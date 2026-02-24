@@ -1048,6 +1048,75 @@ def test_controller_proposal_log_payload_includes_iteration_summary_excerpt() ->
     assert isinstance(payload.get("iteration_summary_excerpt"), str)
 
 
+def test_retryable_controller_refusal_triggers_repair_prompt_and_avoids_repeating_empty_draft_ir() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {
+                "structured_data": {
+                    "action_type": "draft_ir",
+                    "idempotency_key": "k1",
+                    "args": {},
+                    "why": "draft",
+                }
+            },
+            {
+                "structured_data": {
+                    "action_type": "draft_ir",
+                    "idempotency_key": "k2",
+                    "args": {
+                        "dossier_id": "D1",
+                        "deed_text_artifact_ref": "artifacts/deed/d1.json",
+                        "graph": {
+                            "graph_id": "g_fix",
+                            "nodes": [{"id": "n1", "kind": "point", "geometry": {"type": "Point", "coordinates": [0, 0]}}],
+                            "edges": [],
+                            "metadata": {"source": "deed"},
+                        },
+                    },
+                    "why": "repair using graph",
+                }
+            },
+        ]
+    )
+    terminal = TerminalOutcome(
+        terminal_outcome=TerminalOutcomeKind.SUCCESS,
+        stop_reason=StopReason.COMPLETED,
+        success=True,
+        reason_code="done",
+    )
+    step_result = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="ctl-any",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-001"},
+        refusal=None,
+        dashboard=_dashboard(),
+        terminal=terminal,
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.DRAFT_IR.value],
+            dashboard=_dashboard(),
+            budgets_remaining=_dashboard().budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[step_result],
+    )
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=4,
+    )
+    assert result.terminal.terminal_outcome == TerminalOutcomeKind.SUCCESS
+    assert manager.step_calls
+    assert manager.step_calls[0]["action_type"] == ActionType.DRAFT_IR.value
+    assert "graph" in manager.step_calls[0]["inputs"]
+
+
 def test_iteration_summary_does_not_affect_step_inputs_or_idempotency() -> None:
     llm = _FakeLLM(
         responses=[

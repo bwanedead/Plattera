@@ -2,7 +2,7 @@
 
 ## What this is
 - Thin controller runtime over `KernelSessionManager.start_session()` + `step()`.
-- LLM proposes one `kernel_step` tool call at a time; kernel remains one-action executor.
+- LLM proposes one tool call per iteration from the controller-provided action tool list; kernel remains one-action executor.
 - Persists bounded controller transcripts as artifact refs.
 
 ## Main modules

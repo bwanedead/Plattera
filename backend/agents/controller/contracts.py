@@ -413,6 +413,99 @@ def kernel_step_tool_spec() -> ToolSpec:
     )
 
 
+def action_tool_specs_for_menu(tool_menu: list[str]) -> list[ToolSpec]:
+    specs: list[ToolSpec] = []
+    for raw in tool_menu:
+        action = coerce_action_type(str(raw))
+        if action is None:
+            continue
+        specs.append(_tool_spec_for_action(action))
+    return specs
+
+
+def _tool_spec_for_action(action: ActionType) -> ToolSpec:
+    arg_model = _ACTION_ARG_MODELS.get(action)
+    args_schema = _pydantic_args_schema(arg_model) if arg_model is not None else {"type": "object"}
+    how_to = action_how_to_guide(action_type=action, reason_code=None, context_inputs={})
+    props: dict[str, Any] = {}
+    required: list[str] = []
+    if isinstance(args_schema, dict):
+        props.update(dict(args_schema.get("properties") or {}))
+        raw_required = args_schema.get("required")
+        if isinstance(raw_required, list):
+            required.extend([str(v) for v in raw_required if isinstance(v, str)])
+    required.extend(_TOOL_SCHEMA_REQUIRED_KEYS.get(action, []))
+    props["why"] = {"type": "string", "description": "Short rationale for this move."}
+    props["semantic_ready"] = {"type": "boolean"}
+    props["notes"] = {"type": "string"}
+    if action == ActionType.RETRIEVE_EVIDENCE:
+        props["retrieval_intent"] = {"type": "string", "enum": [intent.value for intent in RetrievalIntent]}
+    if action == ActionType.DECLARE_DONE:
+        props["declare_done"] = {"type": "object", "description": "DECLARE_DONE justification payload."}
+        required.append("declare_done")
+    props["iteration_summary"] = {
+        "type": "object",
+        "description": "Optional Memory Docket v0 (delta-only summary; continuity only).",
+    }
+    description = (
+        f"{action.value}: {how_to['iteration_summary_note']} "
+        f"Required fields: {', '.join(how_to['required_fields']) if how_to['required_fields'] else 'none'}."
+    )
+    parameters_schema: dict[str, object] = {
+        "type": "object",
+        "properties": props,
+        "required": sorted(set(required)),
+        "additionalProperties": False,
+    }
+    return ToolSpec(
+        name=action.value,
+        description=description[:600],
+        parameters_schema=parameters_schema,
+    )
+
+
+def _pydantic_args_schema(model_cls: type[BaseModel] | None) -> dict[str, Any]:
+    if model_cls is None:
+        return {"type": "object", "properties": {}, "required": []}
+    schema = model_cls.model_json_schema()
+    if not isinstance(schema, dict):
+        return {"type": "object", "properties": {}, "required": []}
+    return _inline_local_refs(schema)
+
+
+def _inline_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
+    root = dict(schema)
+    defs = root.pop("$defs", {})
+
+    def _walk(node: object) -> object:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                key = ref.split("/")[-1]
+                target = defs.get(key)
+                if isinstance(target, dict):
+                    merged = dict(target)
+                    merged.update({k: v for k, v in node.items() if k != "$ref"})
+                    return _walk(merged)
+            out: dict[str, object] = {}
+            for k, v in node.items():
+                if k in {"title", "default"}:
+                    continue
+                out[k] = _walk(v)
+            return out
+        if isinstance(node, list):
+            return [_walk(v) for v in node]
+        return node
+
+    walked = _walk(root)
+    if isinstance(walked, dict):
+        walked.setdefault("type", "object")
+        walked.setdefault("properties", {})
+        walked.setdefault("required", [])
+        return walked
+    return {"type": "object", "properties": {}, "required": []}
+
+
 _TOOL_REQUIRED_FIELDS: dict[ActionType, list[str]] = {
     ActionType.OPEN_ARTIFACT: ["artifact_ref | artifact_path | corpus_entry_ref"],
     ActionType.OPEN_TEXT_SPANS: ["deed_text_artifact_ref", "span_ids+deed_span_index_ref OR spans[] OR anchors[]"],
@@ -430,6 +523,13 @@ _TOOL_REQUIRED_FIELDS: dict[ActionType, list[str]] = {
     ActionType.VALIDATE: ["georef_artifact_ref"],
     ActionType.PROPOSE_PATCH: ["ir_artifact_ref"],
     ActionType.UPSERT_DEED_SPAN_INDEX: ["deed_text_artifact_ref", "deed_fingerprint", "upserts[]"],
+}
+
+_TOOL_SCHEMA_REQUIRED_KEYS: dict[ActionType, list[str]] = {
+    ActionType.DRAFT_IR: ["dossier_id", "graph"],
+    ActionType.OPEN_TEXT_SPANS: ["deed_text_artifact_ref"],
+    ActionType.UPSERT_DEED_SPAN_INDEX: ["deed_text_artifact_ref", "deed_fingerprint", "upserts"],
+    ActionType.RETRIEVE_EVIDENCE: ["query"],
 }
 
 
@@ -466,7 +566,7 @@ def action_how_to_guide(
     if action is None:
         return {
             "required_fields": ["action_type"],
-            "minimal_working_example": {"action_type": "unknown", "args": {}},
+            "minimal_working_example": {},
             "common_mistakes": ["Use only actions present in tool_menu."],
         }
     example_args = _example_args_for_action(action=action, context_inputs=context_inputs)
@@ -474,10 +574,7 @@ def action_how_to_guide(
     common_mistakes = _common_mistakes_for_action(action, reason_code=reason_code)
     return {
         "required_fields": required_fields,
-        "minimal_working_example": {
-            "action_type": action.value,
-            "args": example_args,
-        },
+        "minimal_working_example": example_args,
         "common_mistakes": common_mistakes[:2],
         "iteration_summary_note": (
             "Optional Memory Docket v0: delta-only this-iteration notes; do not recap memory.run_summary_log "
@@ -578,7 +675,7 @@ def _common_mistakes_for_action(action: ActionType, *, reason_code: str | None) 
         ]
     if action == ActionType.DRAFT_IR:
         return [
-            "DRAFT_IR must include args.graph (FeatureGraph JSON); deed refs are provenance, not auto-drafting inputs.",
+            "DRAFT_IR must include graph (top-level tool parameter, FeatureGraph JSON); deed refs are provenance, not auto-drafting inputs.",
             "Minimum viable graph: graph_id + at least one node + metadata.source='deed'.",
         ]
     if action in {ActionType.COMPILE, ActionType.JUDGE, ActionType.BUNDLE}:
