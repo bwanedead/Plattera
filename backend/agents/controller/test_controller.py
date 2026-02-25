@@ -245,6 +245,74 @@ def test_non_string_notes_do_not_poison_valid_action_proposal() -> None:
     assert not any(event["event_type"] == "controller_parse_failed" for event in transcript["events"])
 
 
+def test_declare_done_missing_payload_autofills_and_executes() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {
+                "structured_data": {
+                    "action_type": "declare_done",
+                    "idempotency_key": "k1",
+                    "args": {},
+                    "why": "compile, judge, and bundle are present so try completion",
+                }
+            }
+        ]
+    )
+    dashboard = _dashboard()
+    dashboard.latest_refs = KernelLatestRefs(
+        ir_ref={"artifact_path": "artifacts/feature_graphs/D1/ir.json"},
+        compile_ref={"artifact_path": "artifacts/feature_graphs/D1/compile.json"},
+        judge_ref={"artifact_path": "artifacts/feature_graphs/D1/judge.json"},
+        bundle_ref={"artifact_path": "artifacts/feature_graphs/D1/bundle.json"},
+    )
+    dashboard.claimability = KernelClaimabilityStatus(claimable_ready=True, missing_claimability=[])
+    terminal = TerminalOutcome(
+        terminal_outcome=TerminalOutcomeKind.SUCCESS,
+        stop_reason=StopReason.COMPLETED,
+        success=True,
+        reason_code="declare_done_accepted",
+    )
+    step_result = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="ctl-any",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-001"},
+        refusal=None,
+        dashboard=dashboard,
+        terminal=terminal,
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.DECLARE_DONE.value],
+            dashboard=dashboard,
+            budgets_remaining=dashboard.budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[step_result],
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=2,
+    )
+
+    assert result.terminal.terminal_outcome == TerminalOutcomeKind.SUCCESS
+    assert len(manager.step_calls) == 1
+    transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
+    assert not any(event["event_type"] == "controller_parse_failed" for event in transcript["events"])
+    assert not any(
+        event["event_type"] == "controller_refusal"
+        and isinstance(event.get("payload"), dict)
+        and event["payload"].get("refusal", {}).get("reason_code") == "declare_done_justification_missing"
+        for event in transcript["events"]
+    )
+
+
 def test_controller_parse_failure_payload_includes_bounded_raw_diagnostics() -> None:
     llm = _FakeLLM(
         responses=[

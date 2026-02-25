@@ -85,13 +85,6 @@ class KernelStepProposal(BaseModel):
     def _normalize_action_type(cls, value: str) -> str:
         return value.strip().lower()
 
-    @model_validator(mode="after")
-    def _validate_cross_fields(self) -> "KernelStepProposal":
-        if self.action_type == ActionType.DECLARE_DONE.value and self.declare_done is None:
-            raise ValueError("declare_done_justification_required")
-        return self
-
-
 class _EmptyArgs(BaseModel):
     pass
 
@@ -519,6 +512,7 @@ _TOOL_REQUIRED_FIELDS: dict[ActionType, list[str]] = {
     ActionType.COMPILE: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
     ActionType.JUDGE: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
     ActionType.BUNDLE: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
+    ActionType.DECLARE_DONE: ["declare_done (artifact_refs + evidence_links + accepted_deviations)"],
     ActionType.GEOREFERENCE: ["bundle_artifact_ref | ir_artifact_ref"],
     ActionType.VALIDATE: ["georef_artifact_ref"],
     ActionType.PROPOSE_PATCH: ["ir_artifact_ref"],
@@ -562,7 +556,11 @@ def action_how_to_guide(
     reason_code: str | None,
     context_inputs: Mapping[str, Any],
 ) -> dict[str, Any]:
-    action = action_type if isinstance(action_type, ActionType) else coerce_action_type(str(action_type))
+    if isinstance(action_type, ActionType):
+        action = action_type
+    else:
+        raw_action = getattr(action_type, "value", action_type)
+        action = coerce_action_type(str(raw_action))
     if action is None:
         return {
             "required_fields": ["action_type"],
@@ -633,6 +631,19 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
         return {"query": "<what you need to find>"}
     if action in {ActionType.COMPILE, ActionType.JUDGE, ActionType.BUNDLE}:
         return {"ir_artifact_ref": ir_ref}
+    if action == ActionType.DECLARE_DONE:
+        return {
+            "declare_done": {
+                "artifact_refs": {
+                    "ir_ref": ir_ref,
+                    "compile_ref": "<latest compile ref>",
+                    "judge_ref": "<latest judge ref>",
+                    "bundle_ref": "<latest bundle ref>",
+                },
+                "evidence_links": [],
+                "accepted_deviations": [],
+            }
+        }
     if action == ActionType.GEOREFERENCE:
         return {"bundle_artifact_ref": "<bundle-artifact-ref>"}
     if action == ActionType.VALIDATE:
@@ -677,6 +688,11 @@ def _common_mistakes_for_action(action: ActionType, *, reason_code: str | None) 
         return [
             "DRAFT_IR must include graph (top-level tool parameter, FeatureGraph JSON); deed refs are provenance, not auto-drafting inputs.",
             "Minimum viable graph: graph_id + at least one node + metadata.source='deed'.",
+        ]
+    if action == ActionType.DECLARE_DONE:
+        return [
+            "DECLARE_DONE requires top-level declare_done payload; do not leave it empty.",
+            "If claimability looks ready, include artifact_refs from progress.latest_refs plus empty evidence_links/accepted_deviations if unsure.",
         ]
     if action in {ActionType.COMPILE, ActionType.JUDGE, ActionType.BUNDLE}:
         return [

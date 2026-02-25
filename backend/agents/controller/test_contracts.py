@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from backend.agent_kernel.models import ActionType
 from backend.agents.controller.contracts import (
     KernelStepProposal,
+    action_how_to_guide,
     action_tool_specs_for_menu,
     coerce_action_type,
     kernel_step_tool_spec,
@@ -37,19 +38,32 @@ def test_action_tool_specs_for_menu_draft_ir_requires_graph() -> None:
     assert "graph" in required
 
 
-def test_kernel_step_proposal_requires_declare_done_justification() -> None:
-    bad = {
+def test_kernel_step_proposal_allows_missing_declare_done_for_controller_refusal_path() -> None:
+    payload = {
         "action_type": "declare_done",
         "idempotency_key": "k1",
         "why": "done",
         "args": {},
     }
-    try:
-        KernelStepProposal.model_validate(bad)
-    except Exception as exc:
-        assert "declare_done_justification_required" in str(exc)
-    else:
-        raise AssertionError("expected validation error")
+    proposal = KernelStepProposal.model_validate(payload)
+    assert proposal.action_type == "declare_done"
+    assert proposal.declare_done is None
+
+
+def test_action_how_to_guide_declare_done_has_concrete_minimal_example() -> None:
+    guide = action_how_to_guide(
+        action_type=ActionType.DECLARE_DONE,
+        reason_code=None,
+        context_inputs={
+            "latest_ir_ref": "artifacts/ir/ir-001.json",
+        },
+    )
+    example = guide["minimal_working_example"]
+    assert isinstance(example, dict)
+    assert "declare_done" in example
+    dd = example["declare_done"]
+    assert isinstance(dd, dict)
+    assert isinstance(dd.get("artifact_refs"), dict)
 
 
 def test_coerce_action_type_returns_none_for_unknown_value() -> None:

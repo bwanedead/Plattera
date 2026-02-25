@@ -32,6 +32,7 @@ from agent_kernel.models import (
 from agent_kernel.session import KernelSessionManager
 
 from .contracts import (
+    DeclareDoneJustification,
     KernelStepProposal,
     action_tool_specs_for_menu,
     action_how_to_guide,
@@ -685,6 +686,13 @@ def run_controller_loop(
                 recent_digest_memory=recent_digest_memory,
             )
             continue
+
+        if action_type == ActionType.DECLARE_DONE and proposal.declare_done is None:
+            autofilled_declare_done = _autofill_declare_done_justification(
+                dashboard=started.dashboard.model_dump(mode="json"),
+            )
+            if autofilled_declare_done is not None:
+                proposal.declare_done = autofilled_declare_done
 
         if action_type == ActionType.DECLARE_DONE and proposal.declare_done is None:
             refusal = KernelRefusal(
@@ -1850,6 +1858,17 @@ def _build_fix_skeleton(
         "required_fields": required_fields,
         "reason_code": reason_code,
     }
+    if action == ActionType.DECLARE_DONE.value:
+        skeleton["kernel_step"]["declare_done"] = {
+            "artifact_refs": {
+                "ir_ref": "<latest ir ref>",
+                "compile_ref": "<latest compile ref>",
+                "judge_ref": "<latest judge ref>",
+                "bundle_ref": "<latest bundle ref>",
+            },
+            "evidence_links": [],
+            "accepted_deviations": [],
+        }
     return skeleton
 
 
@@ -1928,6 +1947,31 @@ def _autofill_known_args(
             filled.add("ir_artifact_ref")
 
     return updated, filled
+
+
+def _autofill_declare_done_justification(*, dashboard: dict[str, object]) -> DeclareDoneJustification | None:
+    latest_refs = _latest_refs_summary(dashboard)
+    if not isinstance(latest_refs, dict):
+        return None
+    if not any(_read_str(latest_refs.get(k)) for k in ("ir_ref", "compile_ref", "judge_ref", "bundle_ref")):
+        return None
+    payload = {
+        "artifact_refs": {
+            "ir_ref": _read_str(latest_refs.get("ir_ref")),
+            "compile_ref": _read_str(latest_refs.get("compile_ref")),
+            "judge_ref": _read_str(latest_refs.get("judge_ref")),
+            "bundle_ref": _read_str(latest_refs.get("bundle_ref")),
+            "georef_ref": _read_str(latest_refs.get("georef_ref")),
+            "validate_ref": _read_str(latest_refs.get("validate_ref")),
+            "render_ref": _read_str(latest_refs.get("render_ref")),
+        },
+        "evidence_links": [],
+        "accepted_deviations": [],
+    }
+    try:
+        return DeclareDoneJustification.model_validate(payload)
+    except Exception:
+        return None
 
 
 def _maybe_create_iteration_digest(
