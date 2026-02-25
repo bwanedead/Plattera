@@ -42,7 +42,9 @@ from .tooling import (
 from .tooling import (
     FeatureGraphBundlerTool,
     FeatureGraphCompilerTool,
+    FeatureGraphGeoreferenceTool,
     FeatureGraphJudgeTool,
+    FeatureGraphValidateTool,
     RetrievalEvidenceTool,
 )
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
@@ -81,6 +83,8 @@ class KernelSessionManager:
                 compiler=FeatureGraphCompilerTool(),
                 judge=FeatureGraphJudgeTool(),
                 bundler=FeatureGraphBundlerTool(),
+                georeferencer=FeatureGraphGeoreferenceTool(),
+                validator=FeatureGraphValidateTool(),
             )
         )
         self._persistence_service = persistence_service
@@ -708,6 +712,7 @@ def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord) -> None:
                 run_artifact.judge_artifact_ref = None
                 run_artifact.bundle_artifact_ref = None
                 run_artifact.georeference_artifact_ref = None
+                run_artifact.validate_artifact_ref = None
     if step.action == ActionType.RETRIEVE_EVIDENCE:
         run_artifact.retrieval_artifact_ref = _extract_ref(step.outputs, "retrieval_artifact_ref")
     if step.action == ActionType.UPSERT_DEED_SPAN_INDEX:
@@ -720,6 +725,9 @@ def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord) -> None:
         run_artifact.bundle_artifact_ref = _extract_ref(step.outputs, "bundle_artifact_ref")
     if step.action == ActionType.GEOREFERENCE:
         run_artifact.georeference_artifact_ref = _extract_ref(step.outputs, "georeference_artifact_ref")
+        run_artifact.validate_artifact_ref = None
+    if step.action == ActionType.VALIDATE:
+        run_artifact.validate_artifact_ref = _extract_ref(step.outputs, "validate_artifact_ref")
 
 
 def _extract_ref(outputs: dict[str, object], key: str) -> ArtifactRef | None:
@@ -732,6 +740,8 @@ def _extract_ref(outputs: dict[str, object], key: str) -> ArtifactRef | None:
 
 
 def _latest_validate_ref(run_artifact: RunArtifact) -> dict[str, object] | None:
+    if run_artifact.validate_artifact_ref is not None:
+        return _dump_ref(run_artifact.validate_artifact_ref)
     for step in reversed(run_artifact.steps):
         if step.action != ActionType.VALIDATE:
             continue

@@ -33,7 +33,7 @@ from services.agent_loop.event_bus import event_bus
 from services.agent_loop.run_registry_service import AgentLoopRunRegistryService
 from services.dossier.management_service import DossierManagementService
 from services.dossier.finalized_snapshot_service import FinalizedSnapshotService
-from config.paths import agent_kernel_artifacts_root
+from config.paths import agent_kernel_artifacts_root, dossiers_feature_graphs_artifacts_root
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -285,9 +285,9 @@ async def open_agent_loop_artifact(artifact_ref: str = Query(..., min_length=1))
 
 @router.get("/artifact/json")
 async def get_agent_loop_artifact_json(artifact_ref: str = Query(..., min_length=1)) -> dict[str, Any]:
-    safe_path = _resolve_agent_kernel_artifact_path(artifact_ref)
+    safe_path = _resolve_agent_loop_artifact_path(artifact_ref)
     if safe_path is None:
-        raise HTTPException(status_code=400, detail="artifact_ref_outside_agent_kernel_root")
+        raise HTTPException(status_code=400, detail="artifact_ref_outside_allowed_roots")
     if not safe_path.exists():
         raise HTTPException(status_code=404, detail="artifact_not_found")
     try:
@@ -325,14 +325,23 @@ async def stream_agent_loop_events(run_id: str):
     return StreamingResponse(_sse_stream(run_id, q), media_type="text/event-stream")
 
 
-def _resolve_agent_kernel_artifact_path(artifact_ref: str) -> Path | None:
+def _resolve_agent_loop_artifact_path(artifact_ref: str) -> Path | None:
     try:
-        root = agent_kernel_artifacts_root().resolve()
         path = Path(artifact_ref).resolve()
     except Exception:
         return None
-    if path == root or root in path.parents:
-        return path
+    roots: list[Path] = []
+    try:
+        roots.append(agent_kernel_artifacts_root().resolve())
+    except Exception:
+        pass
+    try:
+        roots.append(dossiers_feature_graphs_artifacts_root().resolve())
+    except Exception:
+        pass
+    for root in roots:
+        if path == root or root in path.parents:
+            return path
     return None
 
 
@@ -350,7 +359,9 @@ def _agent_tape_event_from_transcript_event(*, run_id: str, event: dict[str, obj
         line1: str,
         line2: str | None = None,
         reason_code: str | None = None,
+        artifact_refs: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        display_delta = payload.get("display_delta")
         return {
             "event_type": "agent_tape_update",
             "run_id": run_id,
@@ -369,6 +380,18 @@ def _agent_tape_event_from_transcript_event(*, run_id: str, event: dict[str, obj
                 "action_type": action_type,
                 "outcome": outcome,
                 "reason_code": reason_code,
+                "status_chip": _agent_tape_status_chip(
+                    stage=stage,
+                    action_type=action_type,
+                    outcome=outcome,
+                    reason_code=reason_code,
+                ),
+                "display_delta": (
+                    str(display_delta)[:220]
+                    if isinstance(display_delta, str) and display_delta.strip()
+                    else None
+                ),
+                "artifact_refs": artifact_refs or None,
                 "line1": line1[:200],
                 "line2": (line2[:240] if isinstance(line2, str) else None),
             },
@@ -447,6 +470,7 @@ def _agent_tape_event_from_transcript_event(*, run_id: str, event: dict[str, obj
         )
         ref_keys = [k for k, v in latest_refs.items() if isinstance(v, str) and v][:4]
         line2 = f"Updated refs: {', '.join(ref_keys)}" if ref_keys else None
+        artifact_refs = {k: v for k, v in latest_refs.items() if isinstance(v, str) and v}
         return _status_obj(
             stage="executing",
             action_type=action_type or None,
@@ -454,6 +478,7 @@ def _agent_tape_event_from_transcript_event(*, run_id: str, event: dict[str, obj
             reason_code=reason_code or None,
             line1=f"{action_type or 'step'} -> {execution_state or 'completed'}",
             line2=line2,
+            artifact_refs=artifact_refs or None,
         )
     if event_type == "controller_no_progress_stop":
         return _status_obj(
@@ -493,3 +518,44 @@ def _agent_tape_phase(
     if stage_l in {"proposed", "validating", "executing"}:
         return "working"
     return "working"
+
+
+def _agent_tape_status_chip(
+    *,
+    stage: str,
+    action_type: str | None,
+    outcome: str | None,
+    reason_code: str | None,
+) -> str:
+    stage_l = (stage or "").lower()
+    action_l = (action_type or "").lower()
+    outcome_l = (outcome or "").lower()
+    reason_l = (reason_code or "").lower()
+
+    if "declare_done" in action_l and outcome_l in {"executed", "completed"}:
+        return "Done"
+    if stage_l == "stopped" or "no_progress" in reason_l:
+        return "Stopped"
+    if stage_l in {"parse_failed", "resync"}:
+        return "Recovering"
+    if stage_l == "refused":
+        return "Needs input"
+    if action_l in {"hydrate_deed", "open_artifact", "open_text_spans"}:
+        return "Reading deed"
+    if action_l == "retrieve_evidence":
+        return "Researching"
+    if action_l in {"draft_ir", "propose_patch", "set_graph_requirements"}:
+        return "Drafting"
+    if action_l in {"compile", "judge"}:
+        return "Checking"
+    if action_l == "bundle":
+        return "Packaging"
+    if action_l == "georeference":
+        return "Mapping"
+    if action_l == "validate":
+        return "Validating"
+    if action_l == "declare_done":
+        return "Final review"
+    if stage_l in {"proposed", "validating", "executing"}:
+        return "Working"
+    return "Working"

@@ -37,6 +37,9 @@ export interface AgentTapeStatus {
   action_type?: string | null;
   outcome?: string | null;
   reason_code?: string | null;
+  status_chip?: string | null;
+  display_delta?: string | null;
+  artifact_refs?: Record<string, string> | null;
   line1?: string | null;
   line2?: string | null;
 }

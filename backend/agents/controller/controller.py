@@ -64,6 +64,7 @@ _MAX_HINT_FILE_BYTES = 65536
 _MAX_HINT_READ_BYTES = 32768
 _RUN_SUMMARY_LOG_MAX_BYTES = 24576
 _RUN_SUMMARY_LOG_MAX_ENTRIES = 40
+_MAX_DISPLAY_DELTA_CHARS = 220
 
 logger = logging.getLogger(__name__)
 _TRANSCRIPT_EVENT_HOOK = threading.local()
@@ -132,6 +133,8 @@ def run_controller_loop(
     digest_client: IterationDigestClient | None = None,
 ) -> ControllerRunResult:
     started = session_manager.start_session(start_request)
+    _TRANSCRIPT_EVENT_HOOK.last_display_delta_fingerprint = None
+    _TRANSCRIPT_EVENT_HOOK.recent_display_delta_fingerprints = []
     transcript: list[dict[str, object]] = []
     last_refusal: KernelRefusal | None = None
     last_result: KernelStepResult | None = None
@@ -294,6 +297,7 @@ def run_controller_loop(
                 "action_type": proposal.action_type,
                 "args": proposal.args,
                 "why": proposal.why,
+                "display_delta": proposal.display_delta,
                 "proposal_source": proposal_source,
                 "iteration_summary_excerpt": _run_summary_entry_excerpt(
                     _normalize_iteration_summary_payload(proposal.iteration_summary) or {"actual_observation": "missing"}
@@ -1287,12 +1291,84 @@ def _coerce_proposal(raw: dict[str, object]) -> tuple[KernelStepProposal | None,
 
 def _sanitize_raw_proposal_payload(raw_payload: dict[str, object]) -> dict[str, object]:
     candidate = dict(raw_payload)
+    candidate = _normalize_declare_done_candidate_payload(candidate)
     why_value = candidate.get("why")
     if isinstance(why_value, str) and len(why_value) > 500:
         candidate["why"] = why_value[:500]
     notes_value = candidate.get("notes")
     if isinstance(notes_value, str) and len(notes_value) > 2000:
         candidate["notes"] = notes_value[:2000]
+    return candidate
+
+
+def _normalize_declare_done_candidate_payload(candidate: dict[str, object]) -> dict[str, object]:
+    action_type = str(candidate.get("action_type") or "").strip().lower()
+    if action_type != ActionType.DECLARE_DONE.value:
+        return candidate
+    raw = candidate.get("declare_done")
+    if not isinstance(raw, dict):
+        return candidate
+    normalized = dict(raw)
+
+    raw_refs = normalized.get("artifact_refs")
+    if isinstance(raw_refs, dict):
+        alias_map = {
+            "ir_artifact_ref": "ir_ref",
+            "compile_artifact_ref": "compile_ref",
+            "judge_artifact_ref": "judge_ref",
+            "bundle_artifact_ref": "bundle_ref",
+            "georeference_artifact_ref": "georef_ref",
+            "georef_artifact_ref": "georef_ref",
+            "validation_artifact_ref": "validate_ref",
+            "validate_artifact_ref": "validate_ref",
+        }
+        refs_out: dict[str, object] = {}
+        for key, value in raw_refs.items():
+            k = str(key)
+            canonical = alias_map.get(k, k)
+            if canonical in {"ir_ref", "compile_ref", "judge_ref", "bundle_ref", "georef_ref", "validate_ref", "render_ref"}:
+                refs_out[canonical] = value
+        normalized["artifact_refs"] = refs_out
+
+    raw_evidence = normalized.get("evidence_links")
+    if isinstance(raw_evidence, list):
+        fixed_links: list[dict[str, object]] = []
+        for item in raw_evidence[:20]:
+            if not isinstance(item, dict):
+                continue
+            source_raw = str(item.get("source") or "DEED").strip().upper()
+            source = source_raw if source_raw in {"DEED", "RAG"} else "DEED"
+            ref = item.get("ref")
+            if ref is None:
+                ref = item.get("artifact_ref")
+            if ref is None:
+                ref = item.get("reference")
+            claim = item.get("claim")
+            if claim is None:
+                claim = item.get("description")
+            if claim is None:
+                claim = item.get("reason")
+            ref_text = _read_str(ref)
+            claim_text = _read_str(claim)
+            if not ref_text or not claim_text:
+                continue
+            fixed_links.append({"source": source, "ref": ref_text, "claim": claim_text[:200]})
+        normalized["evidence_links"] = fixed_links
+
+    raw_deviations = normalized.get("accepted_deviations")
+    if isinstance(raw_deviations, list):
+        fixed_devs: list[dict[str, object]] = []
+        for item in raw_deviations[:20]:
+            if not isinstance(item, dict):
+                continue
+            kind = _read_str(item.get("kind")) or _read_str(item.get("type"))
+            reason = _read_str(item.get("reason")) or _read_str(item.get("description"))
+            if not kind or not reason:
+                continue
+            fixed_devs.append({"kind": kind[:64], "reason": reason[:200]})
+        normalized["accepted_deviations"] = fixed_devs
+
+    candidate["declare_done"] = normalized
     return candidate
 
 
@@ -1489,6 +1565,13 @@ def _build_context_packet(
         judge_hint = artifacts_inline.get("judge_hint")
         if isinstance(judge_hint, dict):
             progress_payload["judge_report_excerpt"] = _judge_excerpt_from_hint(judge_hint)
+        georef_hint = artifacts_inline.get("georef_hint")
+        validate_hint = artifacts_inline.get("validate_hint")
+        if isinstance(georef_hint, dict) or isinstance(validate_hint, dict):
+            progress_payload["map_sanity_excerpt"] = _map_sanity_excerpt_from_hints(
+                georef_hint if isinstance(georef_hint, dict) else None,
+                validate_hint if isinstance(validate_hint, dict) else None,
+            )
         progress_payload["recommended_next"] = _recommended_next_moves(progress_payload)
     bounded = _bound_payload(packet, max_items=24)
     if isinstance(bounded, dict):
@@ -1705,6 +1788,12 @@ def _inline_artifact_hints(
         deed_ref = bootstrap_context.get("deed_text_artifact_ref")
     if isinstance(deed_ref, str):
         hints["deed_hint"] = _safe_artifact_hint(deed_ref, kind="deed")
+    georef_ref = latest_refs.get("georef_ref")
+    if isinstance(georef_ref, str):
+        hints["georef_hint"] = _safe_artifact_hint(georef_ref, kind="georef")
+    validate_ref = latest_refs.get("validate_ref")
+    if isinstance(validate_ref, str):
+        hints["validate_hint"] = _safe_artifact_hint(validate_ref, kind="validate")
     return hints
 
 
@@ -1796,6 +1885,32 @@ def _safe_artifact_hint(path_value: str, *, kind: str) -> dict[str, object]:
         text = payload.get("text")
         if isinstance(text, str):
             return {"kind": kind, "status": "ok", "excerpt": _bounded_text(" ".join(text.split()), 320)}
+    if kind == "georef" and isinstance(payload, dict):
+        bounds = payload.get("geographic_polygon", {}).get("bounds") if isinstance(payload.get("geographic_polygon"), dict) else None
+        pob = payload.get("anchor_info", {}).get("pob_coordinates") if isinstance(payload.get("anchor_info"), dict) else None
+        coords = payload.get("geographic_polygon", {}).get("coordinates") if isinstance(payload.get("geographic_polygon"), dict) else None
+        vertex_count = 0
+        if isinstance(coords, list) and coords and isinstance(coords[0], list):
+            vertex_count = len(coords[0])
+        return {
+            "kind": kind,
+            "status": "ok",
+            "success": bool(payload.get("success")),
+            "bounds": bounds if isinstance(bounds, dict) else None,
+            "pob": pob if isinstance(pob, dict) else None,
+            "vertex_count": vertex_count,
+            "plss_state": ((payload.get("plss_anchor") or {}).get("state") if isinstance(payload.get("plss_anchor"), dict) else None),
+        }
+    if kind == "validate" and isinstance(payload, dict):
+        return {
+            "kind": kind,
+            "status": "ok",
+            "passed": bool(payload.get("passed")),
+            "reason_code": payload.get("reason_code"),
+            "overall_accuracy": payload.get("overall_accuracy"),
+            "top_issues": [str(v)[:160] for v in (payload.get("top_issues") or [])[:3]] if isinstance(payload.get("top_issues"), list) else [],
+            "bounds": payload.get("bounds") if isinstance(payload.get("bounds"), dict) else None,
+        }
     return {"kind": kind, "status": "ok"}
 
 
@@ -1945,6 +2060,24 @@ def _autofill_known_args(
         if not has_ir and ir_ref:
             updated["ir_artifact_ref"] = ir_ref
             filled.add("ir_artifact_ref")
+
+    if action_type == ActionType.GEOREFERENCE:
+        if not _read_str(updated.get("bundle_artifact_ref")):
+            bundle_ref = _read_str(latest_refs.get("bundle_ref"))
+            if bundle_ref:
+                updated["bundle_artifact_ref"] = bundle_ref
+                filled.add("bundle_artifact_ref")
+        has_any = any(_read_str(updated.get(k)) for k in ("bundle_artifact_ref", "ir_artifact_ref"))
+        if not has_any and ir_ref:
+            updated["ir_artifact_ref"] = ir_ref
+            filled.add("ir_artifact_ref")
+
+    if action_type == ActionType.VALIDATE:
+        if not _read_str(updated.get("georef_artifact_ref")):
+            georef_ref = _read_str(latest_refs.get("georef_ref"))
+            if georef_ref:
+                updated["georef_artifact_ref"] = georef_ref
+                filled.add("georef_artifact_ref")
 
     return updated, filled
 
@@ -2505,6 +2638,11 @@ def _append_event(
     payload: dict[str, object],
 ) -> None:
     bounded_detail = _bounded_text(detail, _MAX_EVENT_CHARS)
+    payload = _prepare_event_payload_for_transcript(
+        event_type=event_type,
+        detail=bounded_detail,
+        payload=payload,
+    )
     event = {
         "event_type": event_type[:64],
         "detail": bounded_detail,
@@ -2541,6 +2679,119 @@ def _append_event(
         }
         if not events or events[0].get("event_type") != "transcript_truncated":
             events.insert(0, marker)
+
+
+def _prepare_event_payload_for_transcript(
+    *,
+    event_type: str,
+    detail: str,
+    payload: dict[str, object],
+) -> dict[str, object]:
+    out = dict(payload)
+    candidate = out.get("display_delta")
+    if event_type == "controller_refusal" and candidate is None:
+        candidate = _synth_controller_refusal_display_delta(payload=out, detail=detail)
+    elif event_type == "kernel_step_result" and candidate is None:
+        candidate = _synth_kernel_step_result_display_delta(payload=out, detail=detail)
+    display_delta = _sanitize_and_dedupe_display_delta(candidate)
+    if display_delta is None:
+        out.pop("display_delta", None)
+    else:
+        out["display_delta"] = display_delta
+    return out
+
+
+def _sanitize_and_dedupe_display_delta(raw_value: object) -> str | None:
+    text = _sanitize_display_delta(raw_value)
+    if not text:
+        return None
+    fingerprint = _display_delta_fingerprint(text)
+    recent = getattr(_TRANSCRIPT_EVENT_HOOK, "recent_display_delta_fingerprints", None)
+    if not isinstance(recent, list):
+        recent = []
+    for prev in recent:
+        if not isinstance(prev, str) or not prev:
+            continue
+        if fingerprint == prev or fingerprint.startswith(prev) or prev.startswith(fingerprint):
+            return None
+    recent = [*recent, fingerprint][-8:]
+    _TRANSCRIPT_EVENT_HOOK.recent_display_delta_fingerprints = recent
+    _TRANSCRIPT_EVENT_HOOK.last_display_delta_fingerprint = fingerprint
+    return text
+
+
+def _sanitize_display_delta(raw_value: object) -> str | None:
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, str):
+        text = raw_value
+    elif isinstance(raw_value, (dict, list)):
+        try:
+            text = json.dumps(_bound_payload(raw_value, max_items=8), ensure_ascii=True, separators=(",", ":"))
+        except Exception:
+            text = repr(raw_value)
+    elif isinstance(raw_value, (int, float, bool)):
+        text = str(raw_value)
+    else:
+        text = repr(raw_value)
+    text = " ".join(text.replace("\r", "\n").splitlines()[:1]).strip()
+    text = " ".join(text.split())
+    if not text:
+        return None
+    sentence_enders = [idx for idx, ch in enumerate(text) if ch in ".!?"]
+    if len(sentence_enders) >= 2:
+        text = text[: sentence_enders[0] + 1].strip()
+    return _bounded_text(text, _MAX_DISPLAY_DELTA_CHARS)
+
+
+def _display_delta_fingerprint(text: str) -> str:
+    normalized = " ".join(text.lower().split())
+    normalized = normalized.strip(" \t\r\n.,;:!?-")
+    return normalized[:_MAX_DISPLAY_DELTA_CHARS]
+
+
+def _synth_controller_refusal_display_delta(*, payload: Mapping[str, object], detail: str) -> str | None:
+    action_type = _read_str(payload.get("action_type")) or "step"
+    refusal = payload.get("refusal")
+    reason_code = None
+    if isinstance(refusal, dict):
+        reason_code = _read_str(refusal.get("reason_code"))
+    if reason_code and "repeated_inspection_no_progress" in reason_code:
+        return "I stopped repeating the same inspection and need a different next move."
+    if action_type == ActionType.DRAFT_IR.value:
+        return "The draft needs a more complete graph update before it can continue."
+    if action_type in {ActionType.COMPILE.value, ActionType.JUDGE.value, ActionType.BUNDLE.value}:
+        return "This check could not run yet because a required graph artifact is missing."
+    if action_type in {ActionType.GEOREFERENCE.value, ActionType.VALIDATE.value}:
+        return "This mapping check needs the prior output artifact before it can continue."
+    if "action_not_in_tool_menu" in (reason_code or detail):
+        return "I need to choose a step that is currently allowed in this run."
+    return "I need to fix the next step details before it can run."
+
+
+def _synth_kernel_step_result_display_delta(*, payload: Mapping[str, object], detail: str) -> str | None:
+    action_type = _read_str(payload.get("action_type")) or "step"
+    execution_state = _read_str(payload.get("execution_state")) or detail or "completed"
+    refusal = payload.get("refusal")
+    if isinstance(refusal, dict) and _read_str(refusal.get("reason_code")):
+        return "That step did not complete, so I need to repair the plan and try again."
+    if execution_state == StepExecutionState.DEDUPED.value:
+        return "That step was already applied, so I am moving on without changing outputs."
+    if action_type == ActionType.DRAFT_IR.value:
+        return "I updated the deed graph draft so the next checks can measure gaps."
+    if action_type in {ActionType.COMPILE.value, ActionType.JUDGE.value}:
+        return "I refreshed the current checks so the next move can use the latest gaps."
+    if action_type == ActionType.BUNDLE.value:
+        return "I packaged the current graph outputs for downstream mapping and review."
+    if action_type == ActionType.GEOREFERENCE.value:
+        return "I mapped the current parcel output into a georeferenced result."
+    if action_type == ActionType.VALIDATE.value:
+        return "I ran a validation pass on the mapped output and recorded the result."
+    if action_type == ActionType.DECLARE_DONE.value:
+        return "I finished the current deed run and recorded the completion decision."
+    if action_type in {ActionType.OPEN_TEXT_SPANS.value, ActionType.OPEN_ARTIFACT.value, ActionType.HYDRATE_DEED.value}:
+        return "I refreshed the deed source context so the next step can use verified details."
+    return "I completed the current step and refreshed the latest run outputs."
 
 
 def _bounded_text(value: str, max_chars: int) -> str:
@@ -2729,14 +2980,44 @@ def _recommended_next_moves(progress_payload: dict[str, object]) -> list[str]:
                 except Exception:
                     continue
         if total_gaps == 0:
+            claimability = progress_payload.get("claimability")
+            missing_claimability = (
+                claimability.get("missing_claimability")
+                if isinstance(claimability, dict) and isinstance(claimability.get("missing_claimability"), list)
+                else []
+            )
+            if latest_refs.get("bundle_ref") and latest_refs.get("georef_ref") and latest_refs.get("validate_ref"):
+                return ["declare_done with justification if semantics are satisfied"]
+            if latest_refs.get("bundle_ref") and ("has_georef" in missing_claimability or "validation_passed" in missing_claimability):
+                return ["run georeference on latest bundle, then validate", "declare_done only after georef/validate claimability clears"]
+            if latest_refs.get("bundle_ref") and not latest_refs.get("georef_ref"):
+                return ["run georeference on latest bundle", "then validate and consider declare_done"]
+            if latest_refs.get("georef_ref") and not latest_refs.get("validate_ref"):
+                return ["run validate on latest georef_ref", "then consider declare_done if claimability clears"]
             if latest_refs.get("bundle_ref"):
                 return ["declare_done with justification if semantics are satisfied"]
-            return ["bundle latest graph artifacts, then consider declare_done"]
+            return ["bundle latest graph artifacts, then georeference/validate if required"]
     if latest_refs.get("judge_ref"):
         return ["inspect judge_report_excerpt/top gaps, then revise IR graph", "compile and judge immediately after each IR change"]
     if latest_refs.get("ir_ref"):
         return ["run compile then judge on latest ir_ref"]
     return ["draft_ir with graph (non-empty FeatureGraph)"]
+
+
+def _map_sanity_excerpt_from_hints(
+    georef_hint: dict[str, object] | None,
+    validate_hint: dict[str, object] | None,
+) -> dict[str, object]:
+    out: dict[str, object] = {}
+    if isinstance(georef_hint, dict):
+        for key in ("success", "bounds", "pob", "vertex_count", "plss_state"):
+            if key in georef_hint:
+                out[key] = georef_hint.get(key)
+    if isinstance(validate_hint, dict):
+        for key in ("passed", "reason_code", "overall_accuracy", "top_issues"):
+            if key in validate_hint:
+                out[f"validate_{key}" if key not in {"passed", "top_issues"} else ("validate_passed" if key == "passed" else "validate_top_issues")] = validate_hint.get(key)
+    return out
 
 
 def _inspection_thrash_refusal(

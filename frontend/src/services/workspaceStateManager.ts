@@ -33,6 +33,8 @@ export interface TextToSchemaState {
   agentLoopRunArtifactRef?: string | null;
   agentLoopTranscriptArtifactRef?: string | null;
   agentLoopIrArtifactRef?: string | null;
+  agentLoopGeorefArtifactRef?: string | null;
+  agentLoopValidateArtifactRef?: string | null;
   agentLoopDossierId?: string | null;
   agentLoopStatusMessage?: string | null;
   selectedFinalizedDossierId?: string | null;
@@ -75,6 +77,8 @@ const defaultTextToSchemaState: TextToSchemaState = {
   agentLoopRunArtifactRef: null,
   agentLoopTranscriptArtifactRef: null,
   agentLoopIrArtifactRef: null,
+  agentLoopGeorefArtifactRef: null,
+  agentLoopValidateArtifactRef: null,
   agentLoopDossierId: null,
   agentLoopStatusMessage: null,
   selectedFinalizedDossierId: null,

@@ -68,6 +68,9 @@ export const MapWorkspace: React.FC<MapWorkspaceProps> = ({
       if (initialParcels && initialParcels.length > 0) {
         const polygon = initialParcels[0];
         console.log('🔍 Using georeferenced polygon data:', polygon);
+        if (typeof polygon?.plss_anchor?.state === 'string' && polygon.plss_anchor.state.trim()) {
+          stateName = polygon.plss_anchor.state.trim();
+        }
         
         if (polygon?.anchor_info?.pob_coordinates) {
           const pob = polygon.anchor_info.pob_coordinates;

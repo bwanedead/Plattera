@@ -24,6 +24,7 @@ import { SchemaTab, TextToSchemaResult } from '../types/textToSchema';
 import { SchemaManager } from './schema/SchemaManager';
 import { StableAllotmentContainer } from './layout/StableAllotmentContainer';
 import { schemaApi } from '../services/schema/schemaApi';
+import { MapWorkspace } from './mapping/MapWorkspace';
 
 interface TextToSchemaWorkspaceProps {
   onExit: () => void;
@@ -64,6 +65,9 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   const [agentTapeEvents, setAgentTapeEvents] = useState<AgentTapeEvent[]>([]);
   const [agentTapeLiveStatus, setAgentTapeLiveStatus] = useState<AgentTapeStatus | null>(null);
   const [agentTapeStreamConnected, setAgentTapeStreamConnected] = useState(false);
+  const [agentLoopMapParcel, setAgentLoopMapParcel] = useState<any | null>(null);
+  const [agentLoopMapSchemaData, setAgentLoopMapSchemaData] = useState<any | null>(null);
+  const [showAgentLoopMap, setShowAgentLoopMap] = useState(false);
 
   // Measurement/debug refs for Allotment container
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -505,6 +509,10 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
           const terminalReason = snapshot?.terminal?.reason_code || snapshot?.error || null;
           let irArtifactRef: string | null =
             snapshot?.dashboard?.latest_refs?.ir_ref?.artifact_path || null;
+          const georefArtifactRef: string | null =
+            snapshot?.dashboard?.latest_refs?.georef_ref?.artifact_path || null;
+          const validateArtifactRef: string | null =
+            snapshot?.dashboard?.latest_refs?.validate_ref?.artifact_path || null;
           if (!irArtifactRef && snapshot?.run_artifact_ref) {
             try {
               const runArtifact = await getAgentLoopArtifactJson(snapshot.run_artifact_ref);
@@ -519,6 +527,13 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
               irPayload = irArtifact?.json || null;
             } catch {}
           }
+          let georefPayload: any = null;
+          if (georefArtifactRef && !String(georefArtifactRef).startsWith('inline://')) {
+            try {
+              const georefArtifact = await getAgentLoopArtifactJson(georefArtifactRef);
+              georefPayload = georefArtifact?.json || null;
+            } catch {}
+          }
 
           if (snapshot.status === 'completed' && irPayload) {
             const structuredData = irPayload;
@@ -527,6 +542,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
               agentLoopRunStatus: snapshot.status,
               agentLoopStatusMessage: `Run completed: ${snapshot?.terminal?.terminal_outcome || 'completed'}`,
               agentLoopIrArtifactRef: irArtifactRef,
+              agentLoopGeorefArtifactRef: georefArtifactRef,
+              agentLoopValidateArtifactRef: validateArtifactRef,
               agentLoopDossierId: String(effectiveDossierId),
               schemaResults: {
                 success: true,
@@ -542,6 +559,15 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                 },
               },
             } as any);
+            if (georefPayload && georefPayload?.success !== false && georefPayload?.geographic_polygon) {
+              setAgentLoopMapParcel(georefPayload);
+              const schemaLike = {
+                metadata: { dossierId: String(effectiveDossierId) },
+                descriptions: [{ plss: { state: georefPayload?.plss_anchor?.state || 'Wyoming' } }],
+              };
+              setAgentLoopMapSchemaData(schemaLike);
+              setShowAgentLoopMap(true);
+            }
             if (shouldSelectJson) setSelectedTab('json');
           } else {
             updateState({
@@ -552,6 +578,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
                   ? `Run failed: ${terminalReason || 'unknown'}`
                   : 'Run completed but no IR artifact found',
               agentLoopIrArtifactRef: irArtifactRef,
+              agentLoopGeorefArtifactRef: georefArtifactRef,
+              agentLoopValidateArtifactRef: validateArtifactRef,
               agentLoopDossierId: String(effectiveDossierId),
               schemaResults: {
                 success: false,
@@ -642,6 +670,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
           text: isVirtualDossier ? textToProcess : undefined,
           model: (state as any).agentLoopModel || 'gpt-5.2',
           max_iterations: 12,
+          requires_global_placement: true,
           background: true,
         });
         const resolvedAgentLoopDossierId = String(start.dossier_id || effectiveDossierId);
@@ -652,6 +681,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
           agentLoopRunArtifactRef: null,
           agentLoopTranscriptArtifactRef: null,
           agentLoopIrArtifactRef: null,
+          agentLoopGeorefArtifactRef: null,
+          agentLoopValidateArtifactRef: null,
           agentLoopDossierId: resolvedAgentLoopDossierId,
           finalDraftMetadata: {
             ...(state.finalDraftMetadata || {}),
@@ -662,6 +693,9 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
         setAgentTapeEvents([]);
         setAgentTapeLiveStatus(null);
         setAgentTapeStreamConnected(false);
+        setAgentLoopMapParcel(null);
+        setAgentLoopMapSchemaData(null);
+        setShowAgentLoopMap(false);
         await pollAgentLoopRun(start.run_id, {
           textToProcess,
           effectiveDossierId: resolvedAgentLoopDossierId,
@@ -1271,6 +1305,60 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
         );
         }}
       </StableAllotmentContainer>
+      {showAgentLoopMap && agentLoopMapParcel && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.55)',
+            zIndex: 2000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => setShowAgentLoopMap(false)}
+        >
+          <div
+            style={{
+              width: 'min(1400px, 96vw)',
+              height: 'min(900px, 92vh)',
+              background: '#0b0f14',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 10,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '10px 12px',
+                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                color: '#e5e7eb',
+                background: '#111827',
+              }}
+            >
+              <div style={{ fontSize: 13 }}>
+                Agent Loop Map Output
+              </div>
+              <button onClick={() => setShowAgentLoopMap(false)}>Close</button>
+            </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <MapWorkspace
+                standalone
+                initialParcels={[agentLoopMapParcel]}
+                schemaData={agentLoopMapSchemaData || undefined}
+                className="w-full h-full"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

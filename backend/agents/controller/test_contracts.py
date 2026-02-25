@@ -23,6 +23,9 @@ def test_kernel_step_tool_spec_has_required_minimal_fields() -> None:
     assert isinstance(params, dict)
     required = params.get("required")
     assert required == ["action_type", "args", "idempotency_key", "why"]
+    props = params.get("properties")
+    assert isinstance(props, dict)
+    assert "display_delta" in props
 
 
 def test_action_tool_specs_for_menu_draft_ir_requires_graph() -> None:
@@ -48,6 +51,19 @@ def test_kernel_step_proposal_allows_missing_declare_done_for_controller_refusal
     proposal = KernelStepProposal.model_validate(payload)
     assert proposal.action_type == "declare_done"
     assert proposal.declare_done is None
+
+
+def test_kernel_step_proposal_allows_untrusted_display_delta_any_shape() -> None:
+    proposal = KernelStepProposal.model_validate(
+        {
+            "action_type": "open_artifact",
+            "idempotency_key": "k1",
+            "why": "inspect",
+            "args": {"artifact_ref": "artifacts/deed/d1.json"},
+            "display_delta": {"weird": ["shape", 1]},
+        }
+    )
+    assert isinstance(proposal.display_delta, dict)
 
 
 def test_action_how_to_guide_declare_done_has_concrete_minimal_example() -> None:

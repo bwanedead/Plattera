@@ -22,7 +22,7 @@
     "typescript": "^5.0.2"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3011",
     "build": "next build",
     "start": "next start",
     "tauri": "tauri",

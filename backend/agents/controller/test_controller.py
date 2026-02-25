@@ -1595,3 +1595,242 @@ def test_safe_artifact_hint_blocks_out_of_root_and_large_file() -> None:
             assert hint["status"] == "too_large"
         finally:
             legacy_paths.dossiers_root = original  # type: ignore[assignment]
+
+
+def test_display_delta_missing_does_not_change_execution() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {
+                "structured_data": {
+                    "action_type": "open_artifact",
+                    "idempotency_key": "k1",
+                    "args": {"artifact_ref": "artifacts/deed/d1.json"},
+                    "why": "inspect deed summary",
+                }
+            }
+        ]
+    )
+    terminal = TerminalOutcome(
+        terminal_outcome=TerminalOutcomeKind.SUCCESS,
+        stop_reason=StopReason.COMPLETED,
+        success=True,
+        reason_code="done",
+    )
+    step_result = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="ctl-any",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-001"},
+        refusal=None,
+        dashboard=_dashboard(),
+        terminal=terminal,
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.OPEN_ARTIFACT.value],
+            dashboard=_dashboard(),
+            budgets_remaining=_dashboard().budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[step_result],
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=2,
+    )
+
+    assert result.terminal.terminal_outcome == TerminalOutcomeKind.SUCCESS
+    assert manager.step_calls[0]["inputs"] == {"artifact_ref": "artifacts/deed/d1.json"}
+    assert manager.step_calls[0]["idempotency_key"].startswith("ctl-")
+
+
+def test_malformed_display_delta_does_not_break_parse_and_is_stringified_in_transcript() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {
+                "structured_data": {
+                    "action_type": "open_artifact",
+                    "idempotency_key": "k1",
+                    "args": {"artifact_ref": "artifacts/deed/d1.json"},
+                    "why": "inspect deed summary",
+                    "display_delta": {"kind": "judge_update", "items": ["gap", 1]},
+                }
+            }
+        ]
+    )
+    terminal = TerminalOutcome(
+        terminal_outcome=TerminalOutcomeKind.SUCCESS,
+        stop_reason=StopReason.COMPLETED,
+        success=True,
+        reason_code="done",
+    )
+    step_result = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="ctl-any",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-001"},
+        refusal=None,
+        dashboard=_dashboard(),
+        terminal=terminal,
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.OPEN_ARTIFACT.value],
+            dashboard=_dashboard(),
+            budgets_remaining=_dashboard().budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[step_result],
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=2,
+    )
+
+    transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
+    proposed = next(e for e in transcript["events"] if e["event_type"] == "agent_proposed_step")
+    assert not any(e["event_type"] == "controller_parse_failed" for e in transcript["events"])
+    assert isinstance(proposed["payload"].get("display_delta"), str)
+
+
+def test_display_delta_long_value_is_truncated() -> None:
+    long_delta = "I am reviewing the deed calls and rebuilding the parcel draft after a new gap surfaced. " * 6
+    llm = _FakeLLM(
+        responses=[
+            {
+                "structured_data": {
+                    "action_type": "open_artifact",
+                    "idempotency_key": "k1",
+                    "args": {"artifact_ref": "artifacts/deed/d1.json"},
+                    "why": "inspect deed summary",
+                    "display_delta": long_delta,
+                }
+            }
+        ]
+    )
+    terminal = TerminalOutcome(
+        terminal_outcome=TerminalOutcomeKind.SUCCESS,
+        stop_reason=StopReason.COMPLETED,
+        success=True,
+        reason_code="done",
+    )
+    step_result = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="ctl-any",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-001"},
+        refusal=None,
+        dashboard=_dashboard(),
+        terminal=terminal,
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.OPEN_ARTIFACT.value],
+            dashboard=_dashboard(),
+            budgets_remaining=_dashboard().budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[step_result],
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=2,
+    )
+    transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
+    proposed = next(e for e in transcript["events"] if e["event_type"] == "agent_proposed_step")
+    display_delta = proposed["payload"].get("display_delta")
+    assert isinstance(display_delta, str)
+    assert len(display_delta) <= 220
+
+
+def test_repeated_identical_display_delta_is_deduped() -> None:
+    same_delta = "I am checking the latest graph gaps before revising the parcel draft."
+    llm = _FakeLLM(
+        responses=[
+            {
+                "structured_data": {
+                    "action_type": "open_artifact",
+                    "idempotency_key": "k1",
+                    "args": {"artifact_ref": "artifacts/judge/j1.json"},
+                    "why": "inspect judge",
+                    "display_delta": same_delta,
+                }
+            },
+            {
+                "structured_data": {
+                    "action_type": "open_artifact",
+                    "idempotency_key": "k2",
+                    "args": {"artifact_ref": "artifacts/judge/j2.json"},
+                    "why": "inspect judge again",
+                    "display_delta": same_delta,
+                }
+            },
+        ]
+    )
+    step_result_1 = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="ctl-1",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-001"},
+        refusal=None,
+        dashboard=_dashboard(),
+        terminal=None,
+    )
+    terminal = TerminalOutcome(
+        terminal_outcome=TerminalOutcomeKind.SUCCESS,
+        stop_reason=StopReason.COMPLETED,
+        success=True,
+        reason_code="done",
+    )
+    step_result_2 = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="ctl-2",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-002"},
+        refusal=None,
+        dashboard=_dashboard(),
+        terminal=terminal,
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.OPEN_ARTIFACT.value],
+            dashboard=_dashboard(),
+            budgets_remaining=_dashboard().budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[step_result_1, step_result_2],
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=3,
+    )
+
+    transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
+    proposed_events = [e for e in transcript["events"] if e["event_type"] == "agent_proposed_step"]
+    assert len(proposed_events) >= 2
+    assert proposed_events[0]["payload"].get("display_delta") == same_delta
+    assert proposed_events[1]["payload"].get("display_delta") in (None, "")

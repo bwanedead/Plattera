@@ -24,7 +24,7 @@ from retrieval.engine.retrieval_engine import RetrievalEngine
 from retrieval.filters.models import RetrievalFilters
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
-from .run_artifact import ArtifactRef
+from .run_artifact import ArtifactRef, ValidationInline
 
 
 @dataclass
@@ -428,6 +428,173 @@ class FeatureGraphBundlerTool:
 
 
 @dataclass
+class FeatureGraphGeoreferenceTool:
+    """Adapt FeatureGraph artifacts into georeference service requests and persist raw results."""
+
+    def georeference(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
+        graph, graph_source, reason_codes = _load_feature_graph_for_georeference(inputs)
+        if graph is None:
+            return {"artifact_ref": None, "reason_codes": reason_codes}
+
+        local_coordinates = _extract_primary_local_polygon_vertices(graph)
+        if local_coordinates is None:
+            return _tool_refusal_result("georef_missing_local_polygon_geometry")
+
+        plss_anchor = _extract_plss_anchor(graph)
+        if plss_anchor is None:
+            return _tool_refusal_result("georef_missing_plss_anchor")
+
+        options = _extract_georeference_options(graph=graph)
+        georef_request: dict[str, Any] = {
+            "local_coordinates": local_coordinates,
+            "plss_anchor": plss_anchor,
+            "options": options,
+        }
+        tie_to_corner = _extract_tie_to_corner(graph)
+        if isinstance(tie_to_corner, dict) and tie_to_corner:
+            georef_request["starting_point"] = {"tie_to_corner": tie_to_corner}
+
+        try:
+            from pipelines.mapping.georeference.georeference_service import GeoreferenceService
+        except Exception as exc:
+            return {
+                "artifact_ref": None,
+                "reason_codes": ["georef_service_import_failed"],
+                "error": str(exc)[:300],
+            }
+
+        service = GeoreferenceService()
+        result = service.georeference_polygon(georef_request)
+        if not isinstance(result, dict):
+            return _tool_refusal_result("georef_invalid_service_response")
+
+        if not bool(result.get("success")):
+            error_text = _read_str(result.get("error")) or "unknown_georef_error"
+            payload = _tool_refusal_result("georef_service_failed")
+            payload["error"] = error_text[:300]
+            return payload
+        if not isinstance(result.get("plss_anchor"), dict):
+            result["plss_anchor"] = dict(plss_anchor)
+
+        dossier_id = _resolve_georeference_dossier_id(inputs=inputs, graph=graph, source_ref=graph_source)
+        artifact_ref = _persist_json_artifact(category="georeference", dossier_id=dossier_id, payload=result)
+        return {"artifact_ref": artifact_ref, "reason_codes": ["georeferenced"]}
+
+
+@dataclass
+class FeatureGraphValidateTool:
+    """Validate georeferenced polygons and persist durable validation artifacts."""
+
+    def validate(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
+        georef_ref = _coerce_artifact_ref(inputs.get("georef_artifact_ref"))
+        if georef_ref is None:
+            georef_ref = _coerce_artifact_ref(inputs.get("georeference_artifact_ref"))
+        if georef_ref is None:
+            return {
+                "validation_result": ValidationInline(
+                    passed=False,
+                    reason_code="validate_missing_georef_artifact_ref",
+                    checks={},
+                ),
+                "reason_codes": ["validate_missing_georef_artifact_ref"],
+            }
+
+        georef_payload = _read_json_dict(Path(georef_ref.artifact_path))
+        if georef_payload is None:
+            return {
+                "validation_result": ValidationInline(
+                    passed=False,
+                    reason_code="validate_georef_artifact_invalid_json",
+                    checks={},
+                ),
+                "reason_codes": ["validate_georef_artifact_invalid_json"],
+            }
+
+        plss_anchor = georef_payload.get("plss_anchor")
+        if not isinstance(plss_anchor, dict):
+            plss_anchor = _extract_plss_anchor_from_georef_payload(georef_payload)
+        geographic_polygon = georef_payload.get("geographic_polygon")
+        if not isinstance(plss_anchor, dict) or not isinstance(geographic_polygon, dict):
+            return {
+                "validation_result": ValidationInline(
+                    passed=False,
+                    reason_code="validate_missing_plss_or_polygon",
+                    checks={},
+                ),
+                "reason_codes": ["validate_missing_plss_or_polygon"],
+            }
+
+        try:
+            from pipelines.mapping.georeference.validator import validate_polygon_against_plss
+        except Exception as exc:
+            return {
+                "validation_result": ValidationInline(
+                    passed=False,
+                    reason_code="validate_service_import_failed",
+                    checks={},
+                ),
+                "reason_codes": ["validate_service_import_failed"],
+                "error": str(exc)[:300],
+            }
+
+        validator_result = validate_polygon_against_plss(plss_anchor, geographic_polygon)
+        if not isinstance(validator_result, dict):
+            validator_result = {
+                "success": False,
+                "error": "validator_returned_non_object",
+                "issues": ["validator_returned_non_object"],
+            }
+
+        passed = bool(validator_result.get("success")) and not bool(validator_result.get("issues"))
+        top_issues = [str(item)[:200] for item in (validator_result.get("issues") or []) if str(item)][:3]
+        bounds = geographic_polygon.get("bounds") if isinstance(geographic_polygon.get("bounds"), dict) else None
+        checks = validator_result.get("validation_checks") if isinstance(validator_result.get("validation_checks"), dict) else {}
+        metrics = validator_result.get("accuracy_metrics") if isinstance(validator_result.get("accuracy_metrics"), dict) else {}
+        validation_payload = {
+            "artifact_type": "georef_validation",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "passed": passed,
+            "reason_code": "validation_passed" if passed else "validation_failed",
+            "georef_artifact_ref": georef_ref.model_dump(mode="json"),
+            "plss_anchor": plss_anchor,
+            "anchor_used": georef_payload.get("anchor_info"),
+            "bounds": bounds,
+            "top_issues": top_issues,
+            "overall_accuracy": validator_result.get("overall_accuracy"),
+            "accuracy_metrics": metrics,
+            "validation_checks_excerpt": _bounded_validate_checks(checks),
+            "validator_result": validator_result,
+        }
+        dossier_id = _infer_dossier_id_for_agent_kernel_artifact(georef_ref.artifact_path) or "unknown"
+        artifact_ref = _persist_json_artifact(
+            category="georeference_validation",
+            dossier_id=dossier_id,
+            payload=validation_payload,
+        )
+        inline = ValidationInline(
+            passed=passed,
+            reason_code=("validation_passed" if passed else "validation_failed"),
+            checks={
+                "overall_accuracy": validator_result.get("overall_accuracy"),
+                "top_issues": top_issues,
+                "bounds": bounds,
+                "passed_checks": metrics.get("passed_checks") if isinstance(metrics, dict) else None,
+                "total_checks": metrics.get("total_checks") if isinstance(metrics, dict) else None,
+            },
+        )
+        return {
+            "artifact_ref": artifact_ref,
+            "reason_codes": [inline.reason_code or ("validation_passed" if passed else "validation_failed")],
+            "validation_result": inline.model_dump(mode="json"),
+            "validate_summary": {
+                "passed": passed,
+                "overall_accuracy": validator_result.get("overall_accuracy"),
+                "top_issues": top_issues,
+            },
+        }
+
+
+@dataclass
 class RetrievalEvidenceTool:
     """Execute retrieval query packs and persist deterministic retrieval artifacts."""
 
@@ -533,6 +700,200 @@ def _parse_corpus_entry_ref(raw: Any) -> CorpusEntryRef | None:
                 dossier_id=dossier_id,
             )
     return None
+
+
+def _load_feature_graph_for_georeference(
+    inputs: Mapping[str, Any],
+) -> tuple[FeatureGraph | None, ArtifactRef | None, list[str]]:
+    bundle_ref = _coerce_artifact_ref(inputs.get("bundle_artifact_ref"))
+    if bundle_ref is not None:
+        payload = _read_json_dict(Path(bundle_ref.artifact_path))
+        if payload is None:
+            return None, None, ["bundle_artifact_invalid_json"]
+        graph_candidate = payload.get("target_graph")
+        if not isinstance(graph_candidate, dict):
+            return None, None, ["bundle_artifact_missing_target_graph"]
+        try:
+            return FeatureGraph.model_validate(graph_candidate), bundle_ref, []
+        except Exception:
+            return None, None, ["bundle_target_graph_validation_failed"]
+
+    graph, reason_codes = _load_feature_graph_from_inputs(inputs)
+    ir_ref = _coerce_artifact_ref(inputs.get("ir_artifact_ref")) or _coerce_artifact_ref(inputs.get("updated_ir_artifact_ref"))
+    return graph, ir_ref, reason_codes
+
+
+def _extract_primary_local_polygon_vertices(graph: FeatureGraph) -> list[dict[str, float]] | None:
+    candidate_nodes = list(graph.nodes)
+    candidate_nodes.sort(
+        key=lambda node: (
+            not bool(isinstance(node.metadata, dict) and node.metadata.get("primary") is True),
+            0 if str(node.kind.value) == "region" else 1,
+            str(node.id),
+        )
+    )
+    for node in candidate_nodes:
+        geometry = node.geometry if isinstance(node.geometry, dict) else None
+        if geometry is None:
+            continue
+        if node.kind.value == "region" and str(geometry.get("type")) == "Polygon":
+            ring = _extract_polygon_ring(geometry)
+            if ring is not None:
+                return [{"x": float(x), "y": float(y)} for x, y in ring]
+        if node.kind.value == "curve" and str(geometry.get("type")) == "LineString":
+            line = _extract_linestring_points(geometry)
+            if line is not None and _ring_is_closed(line):
+                normalized = _strip_duplicate_closing_vertex(line)
+                return [{"x": float(x), "y": float(y)} for x, y in normalized]
+    return None
+
+
+def _extract_polygon_ring(geometry: Mapping[str, Any]) -> list[tuple[float, float]] | None:
+    coords = geometry.get("coordinates")
+    if not isinstance(coords, list) or not coords:
+        return None
+    first_ring = coords[0]
+    if not isinstance(first_ring, list) or len(first_ring) < 3:
+        return None
+    points = _coerce_xy_points(first_ring)
+    if points is None or len(points) < 3:
+        return None
+    points = _strip_duplicate_closing_vertex(points)
+    return points if len(points) >= 3 else None
+
+
+def _extract_linestring_points(geometry: Mapping[str, Any]) -> list[tuple[float, float]] | None:
+    coords = geometry.get("coordinates")
+    if not isinstance(coords, list) or len(coords) < 4:
+        return None
+    return _coerce_xy_points(coords)
+
+
+def _coerce_xy_points(raw_points: list[Any]) -> list[tuple[float, float]] | None:
+    out: list[tuple[float, float]] = []
+    for item in raw_points:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            return None
+        try:
+            x = float(item[0])
+            y = float(item[1])
+        except Exception:
+            return None
+        out.append((x, y))
+    return out
+
+
+def _ring_is_closed(points: list[tuple[float, float]]) -> bool:
+    if len(points) < 4:
+        return False
+    first = points[0]
+    last = points[-1]
+    return abs(first[0] - last[0]) < 1e-9 and abs(first[1] - last[1]) < 1e-9
+
+
+def _strip_duplicate_closing_vertex(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    if len(points) >= 2 and abs(points[0][0] - points[-1][0]) < 1e-9 and abs(points[0][1] - points[-1][1]) < 1e-9:
+        return points[:-1]
+    return points
+
+
+def _extract_plss_anchor(graph: FeatureGraph) -> dict[str, Any] | None:
+    for node in graph.nodes:
+        if node.kind.value != "frame":
+            continue
+        metadata = node.metadata if isinstance(node.metadata, dict) else {}
+        candidate = metadata.get("plss_anchor")
+        if isinstance(candidate, dict) and _plss_anchor_has_required_fields(candidate):
+            return dict(candidate)
+    graph_candidate = (graph.metadata or {}).get("plss_anchor")
+    if isinstance(graph_candidate, dict) and _plss_anchor_has_required_fields(graph_candidate):
+        return dict(graph_candidate)
+    return None
+
+
+def _plss_anchor_has_required_fields(anchor: Mapping[str, Any]) -> bool:
+    required = (
+        "state",
+        "township_number",
+        "township_direction",
+        "range_number",
+        "range_direction",
+        "section_number",
+    )
+    return all(anchor.get(key) is not None for key in required)
+
+
+def _extract_tie_to_corner(graph: FeatureGraph) -> dict[str, Any] | None:
+    for node in graph.nodes:
+        if node.kind.value != "point":
+            continue
+        metadata = node.metadata if isinstance(node.metadata, dict) else {}
+        if str(metadata.get("role") or "").strip().lower() != "pob":
+            continue
+        tie = metadata.get("tie_to_corner")
+        if isinstance(tie, dict):
+            return dict(tie)
+    graph_meta = graph.metadata or {}
+    starting_point = graph_meta.get("starting_point")
+    if isinstance(starting_point, dict) and isinstance(starting_point.get("tie_to_corner"), dict):
+        return dict(starting_point["tie_to_corner"])
+    tie = graph_meta.get("tie_to_corner")
+    if isinstance(tie, dict):
+        return dict(tie)
+    return None
+
+
+def _extract_georeference_options(*, graph: FeatureGraph) -> dict[str, Any]:
+    local_units = "feet"
+    screen_coords_y_down = False
+    for node in graph.nodes:
+        metadata = node.metadata if isinstance(node.metadata, dict) else {}
+        if metadata.get("local_units") is not None:
+            local_units = str(metadata.get("local_units") or "feet")
+        if isinstance(metadata.get("screen_coords_y_down"), bool):
+            screen_coords_y_down = bool(metadata.get("screen_coords_y_down"))
+    graph_meta = graph.metadata or {}
+    if graph_meta.get("local_units") is not None:
+        local_units = str(graph_meta.get("local_units") or local_units)
+    if isinstance(graph_meta.get("screen_coords_y_down"), bool):
+        screen_coords_y_down = bool(graph_meta.get("screen_coords_y_down"))
+    return {"local_units": local_units, "screen_coords_y_down": screen_coords_y_down}
+
+
+def _resolve_georeference_dossier_id(
+    *,
+    inputs: Mapping[str, Any],
+    graph: FeatureGraph,
+    source_ref: ArtifactRef | None,
+) -> str:
+    dossier_id = _resolve_dossier_id(inputs, graph)
+    if dossier_id and dossier_id != "unknown":
+        return dossier_id
+    if source_ref is not None:
+        inferred = _infer_dossier_id_from_feature_graph_artifact_path(source_ref.artifact_path)
+        if inferred:
+            return inferred
+    return "unknown"
+
+
+def _extract_plss_anchor_from_georef_payload(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    if isinstance(payload.get("plss_anchor"), dict):
+        return dict(payload["plss_anchor"])
+    request = payload.get("request")
+    if isinstance(request, dict) and isinstance(request.get("plss_anchor"), dict):
+        return dict(request["plss_anchor"])
+    return None
+
+
+def _bounded_validate_checks(checks: Mapping[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key in list(checks.keys())[:12]:
+        value = checks.get(key)
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            out[str(key)] = value
+        else:
+            out[str(key)] = _summarize_text(str(value))[:120]
+    return out
 
 
 def _tool_refusal_result(reason_code: str, *, missing_inputs: list[str] | None = None) -> dict[str, Any]:
@@ -974,6 +1335,25 @@ def _infer_dossier_id_from_feature_graph_artifact_path(path_value: str) -> str |
         return None
     candidate = str(rel.parts[0]).strip()
     return candidate or None
+
+
+def _infer_dossier_id_for_agent_kernel_artifact(path_value: str) -> str | None:
+    try:
+        path = Path(path_value).resolve()
+        root = agent_kernel_artifacts_root().resolve()
+    except Exception:
+        return None
+    if path == root or root not in path.parents:
+        return None
+    try:
+        rel = path.relative_to(root)
+    except Exception:
+        return None
+    parts = list(rel.parts)
+    if len(parts) >= 4 and parts[0] == "tool_outputs":
+        candidate = str(parts[2]).strip()
+        return candidate or None
+    return None
 
 
 def _infer_parent_artifact_ids(inputs: Mapping[str, Any]) -> list[str]:

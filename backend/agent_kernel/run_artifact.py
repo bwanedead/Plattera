@@ -75,6 +75,7 @@ class RunArtifact(BaseModel):
     judge_artifact_ref: Optional[ArtifactRef] = None
     bundle_artifact_ref: Optional[ArtifactRef] = None
     georeference_artifact_ref: Optional[ArtifactRef] = None
+    validate_artifact_ref: Optional[ArtifactRef] = None
     retrieval_artifact_ref: Optional[ArtifactRef] = None
     deed_span_index_artifact_ref: Optional[ArtifactRef] = None
     idempotency_ledger: Dict[str, Dict[str, Any]] = Field(default_factory=dict)

@@ -193,14 +193,23 @@ class OpenAINextStepClient(NextStepLLMClient):
     ) -> dict[str, object]:
         if tool_name == "kernel_step":
             return parsed_args
-        common_keys = {"why", "semantic_ready", "notes", "retrieval_intent", "declare_done", "iteration_summary", "idempotency_key"}
+        common_keys = {
+            "why",
+            "display_delta",
+            "semantic_ready",
+            "notes",
+            "retrieval_intent",
+            "declare_done",
+            "iteration_summary",
+            "idempotency_key",
+        }
         payload: dict[str, object] = {
             "action_type": tool_name,
             "args": {},
             "why": str(parsed_args.get("why") or f"{tool_name}"),
             "idempotency_key": str(parsed_args.get("idempotency_key") or f"toolcall-{tool_name}"),
         }
-        for key in ("semantic_ready", "notes", "retrieval_intent", "declare_done", "iteration_summary"):
+        for key in ("display_delta", "semantic_ready", "notes", "retrieval_intent", "declare_done", "iteration_summary"):
             if key in parsed_args:
                 payload[key] = parsed_args[key]
         args: dict[str, object] = {}

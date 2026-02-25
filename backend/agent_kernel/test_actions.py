@@ -164,6 +164,36 @@ def test_validate_returns_inline_validation_result_only() -> None:
     assert "validation_artifact_ref" not in step.outputs
 
 
+def test_validate_accepts_validator_payload_with_persisted_artifact_ref() -> None:
+    class _ValidatorWithArtifact(Validator):
+        def validate(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+            del inputs
+            return {
+                "artifact_ref": {"artifact_path": "artifacts/validate/validate-001.json"},
+                "reason_codes": ["validation_failed"],
+                "validation_result": {
+                    "passed": False,
+                    "reason_code": "validation_failed",
+                    "checks": {"top_issues": ["outside section"]},
+                },
+                "validate_summary": {"passed": False},
+            }
+
+    executor = ActionExecutor(deps=ActionExecutorDeps(validator=_ValidatorWithArtifact()))
+    step = executor.execute(
+        step_id="validate-with-artifact",
+        action=ActionType.VALIDATE,
+        inputs={"georef_artifact_ref": "artifacts/georef/georef-001.json"},
+    )
+
+    assert step.validation_result is not None
+    assert step.validation_result.passed is False
+    assert step.outputs["validation_ref"] == "inline"
+    assert step.outputs["validate_artifact_ref"]["artifact_path"] == "artifacts/validate/validate-001.json"
+    assert step.reason_codes == ["validation_failed"]
+    assert step.outputs_inline == {"validate_summary": {"passed": False}}
+
+
 def test_llm_actions_are_stubbed_with_explicit_interfaces() -> None:
     executor = ActionExecutor(deps=ActionExecutorDeps())
 

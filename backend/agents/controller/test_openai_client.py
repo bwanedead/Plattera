@@ -170,7 +170,7 @@ def test_openai_next_step_client_maps_action_tool_call_to_kernel_step_payload() 
                         SimpleNamespace(
                             function=SimpleNamespace(
                                 name="draft_ir",
-                                arguments='{"dossier_id":"D1","graph":{"graph_id":"g1","nodes":[{"id":"n1","kind":"point","geometry":{"type":"Point","coordinates":[0,0]}}],"edges":[],"metadata":{"source":"deed"}},"why":"draft now"}',
+                                arguments='{"dossier_id":"D1","graph":{"graph_id":"g1","nodes":[{"id":"n1","kind":"point","geometry":{"type":"Point","coordinates":[0,0]}}],"edges":[],"metadata":{"source":"deed"}},"why":"draft now","display_delta":"Starting a first parcel draft from the deed calls."}',
                             )
                         )
                     ],
@@ -202,3 +202,4 @@ def test_openai_next_step_client_maps_action_tool_call_to_kernel_step_payload() 
     assert isinstance(payload["args"], dict)
     assert payload["args"]["dossier_id"] == "D1"
     assert isinstance(payload["args"]["graph"], dict)
+    assert payload["display_delta"] == "Starting a first parcel draft from the deed calls."

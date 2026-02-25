@@ -73,7 +73,7 @@ class Georeferencer(Protocol):
 class Validator(Protocol):
     """Explicit interface for VALIDATE action execution."""
 
-    def validate(self, inputs: Mapping[str, Any]) -> ValidationInline: ...
+    def validate(self, inputs: Mapping[str, Any]) -> Any: ...
 
 
 class PatchProposer(Protocol):
@@ -343,18 +343,61 @@ class ActionExecutor:
                 reason_code="missing_validator_interface",
                 checks={},
             )
+            validate_artifact_ref = None
+            reason_codes = [validation_result.reason_code or "validation_failed"]
+            outputs_inline = None
         else:
-            validation_result = self._deps.validator.validate(inputs)
+            raw_result = self._deps.validator.validate(inputs)
+            validate_artifact_ref = None
+            outputs_inline = None
+            reason_codes = None
+            if isinstance(raw_result, ValidationInline):
+                validation_result = raw_result
+            elif isinstance(raw_result, dict):
+                raw_validation = raw_result.get("validation_result")
+                if isinstance(raw_validation, ValidationInline):
+                    validation_result = raw_validation
+                elif isinstance(raw_validation, dict):
+                    validation_result = ValidationInline.model_validate(raw_validation)
+                else:
+                    validation_result = ValidationInline(
+                        passed=bool(raw_result.get("passed", False)),
+                        reason_code=str(raw_result.get("reason_code") or "validation_failed"),
+                        checks={},
+                    )
+                validate_artifact_ref = _coerce_artifact_ref(raw_result.get("artifact_ref"))
+                raw_reason_codes = raw_result.get("reason_codes")
+                if isinstance(raw_reason_codes, list):
+                    reason_codes = [str(code) for code in raw_reason_codes if str(code)]
+                outputs_inline = {
+                    str(k): v
+                    for k, v in raw_result.items()
+                    if k not in {"artifact_ref", "reason_codes", "validation_result"}
+                } or None
+            else:
+                validation_result = ValidationInline(
+                    passed=False,
+                    reason_code="validator_return_invalid",
+                    checks={},
+                )
+            if reason_codes is None:
+                reason_codes = []
 
         reason_code = validation_result.reason_code or (
             "validation_passed" if validation_result.passed else "validation_failed"
         )
+        if not reason_codes:
+            reason_codes = [reason_code]
+        outputs: dict[str, Any] = {"validation_ref": "inline"}
+        if validate_artifact_ref is not None:
+            outputs["validate_artifact_ref"] = validate_artifact_ref.model_dump(mode="json")
         return StepRecord(
             step_id=step_id,
             action=ActionType.VALIDATE,
             inputs=dict(inputs),
-            outputs={"validation_ref": "inline"},
-            reason_codes=[reason_code],
+            outputs=outputs,
+            reason_codes=reason_codes,
+            outputs_inline=outputs_inline,
             validation_result=validation_result,
         )
 

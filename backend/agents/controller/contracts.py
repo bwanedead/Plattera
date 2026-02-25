@@ -74,6 +74,7 @@ class KernelStepProposal(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
     idempotency_key: str = Field(..., min_length=1, max_length=128)
     why: str = Field(..., min_length=1, max_length=500)
+    display_delta: Any | None = None
     semantic_ready: bool | None = None
     notes: Any | None = None
     retrieval_intent: RetrievalIntent | None = None
@@ -282,6 +283,13 @@ class _GeoreferenceArgs(BaseModel):
 
 class _ValidateArgs(BaseModel):
     georef_artifact_ref: str | None = Field(default=None, max_length=512)
+    georeference_artifact_ref: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def _normalize_aliases(self) -> "_ValidateArgs":
+        if not self.georef_artifact_ref and self.georeference_artifact_ref:
+            self.georef_artifact_ref = self.georeference_artifact_ref
+        return self
 
     @model_validator(mode="after")
     def _validate_minimum_inputs(self) -> "_ValidateArgs":
@@ -385,6 +393,10 @@ def kernel_step_tool_spec() -> ToolSpec:
                     "description": "Stable key for dedupe/retry discipline.",
                 },
                 "why": {"type": "string", "description": "Short rationale for this move."},
+                "display_delta": {
+                    "type": "string",
+                    "description": "Optional user-facing one-line progress update (plain language, bounded).",
+                },
                 "semantic_ready": {"type": "boolean"},
                 "notes": {"type": "string"},
                 "retrieval_intent": {
@@ -429,6 +441,10 @@ def _tool_spec_for_action(action: ActionType) -> ToolSpec:
             required.extend([str(v) for v in raw_required if isinstance(v, str)])
     required.extend(_TOOL_SCHEMA_REQUIRED_KEYS.get(action, []))
     props["why"] = {"type": "string", "description": "Short rationale for this move."}
+    props["display_delta"] = {
+        "type": "string",
+        "description": "Optional user-facing one-line progress update (plain language, bounded).",
+    }
     props["semantic_ready"] = {"type": "boolean"}
     props["notes"] = {"type": "string"}
     if action == ActionType.RETRIEVE_EVIDENCE:
