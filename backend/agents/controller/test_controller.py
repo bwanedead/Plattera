@@ -37,6 +37,8 @@ from backend.agents.controller.controller import (
     _build_fix_skeleton,
     _compute_controller_idempotency_key,
     _controller_proposal_log_payload,
+    _ir_health_from_hint,
+    _recommended_next_moves,
     _safe_artifact_hint,
     run_controller_loop,
 )
@@ -1139,7 +1141,7 @@ def test_repeated_open_artifact_same_ref_triggers_inspection_thrash_brake() -> N
         max_iterations=3,
     )
 
-    assert len(manager.step_calls) == 2
+    assert len(manager.step_calls) == 1
     transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
     assert any(
         e.get("event_type") == "controller_refusal"
@@ -1166,6 +1168,107 @@ def test_open_text_spans_autofill_supplies_deed_ref_and_span_index_ref() -> None
     assert "deed_span_index_ref" in fields
     assert filled["deed_text_artifact_ref"] == "artifacts/deed/d1.json"
     assert filled["deed_span_index_ref"] == "artifacts/spans/index.json"
+
+
+def test_recommended_next_prefers_ir_update_when_global_placement_missing_and_no_structured_anchor() -> None:
+    progress = {
+        "latest_refs": {
+            "ir_ref": "artifacts/ir/ir-001.json",
+            "compile_ref": "artifacts/compile/c-001.json",
+            "judge_ref": "artifacts/judge/j-001.json",
+            "bundle_ref": "artifacts/bundle/b-001.json",
+        },
+        "gap_summary": {"gap_counts_by_kind": {}},
+        "claimability": {
+            "claimable_ready": False,
+            "missing_claimability": ["has_georef", "validation_passed"],
+        },
+        "ir_health": {"is_stub": False, "has_structured_plss_anchor": False},
+    }
+
+    recs = _recommended_next_moves(progress)
+
+    joined = " | ".join(recs).lower()
+    assert "plss_anchor" in joined
+    assert "re-bundle" in joined
+    assert "georeference" in joined
+    assert "open_artifact" not in joined
+
+
+def test_safe_artifact_hint_ir_requires_full_plss_anchor_fields() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        original = legacy_paths.dossiers_root
+
+        def _patched_root() -> Path:
+            return root / "dossiers_data"
+
+        legacy_paths.dossiers_root = _patched_root  # type: ignore[assignment]
+        try:
+            fg_dir = _patched_root() / "artifacts" / "feature_graphs" / "D_TEST"
+            fg_dir.mkdir(parents=True, exist_ok=True)
+
+            incomplete = fg_dir / "ir_incomplete.json"
+            incomplete.write_text(
+                json.dumps(
+                    {
+                        "artifact_type": "ir",
+                        "graph": {
+                            "graph_id": "g1",
+                            "nodes": [
+                                {
+                                    "id": "frame1",
+                                    "kind": "frame",
+                                    "metadata": {"plss_anchor": {"state": "Wyoming", "township_number": 14}},
+                                }
+                            ],
+                            "edges": [],
+                            "metadata": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            complete = fg_dir / "ir_complete.json"
+            complete.write_text(
+                json.dumps(
+                    {
+                        "artifact_type": "ir",
+                        "graph": {
+                            "graph_id": "g2",
+                            "nodes": [
+                                {
+                                    "id": "frame1",
+                                    "kind": "frame",
+                                    "metadata": {
+                                        "plss_anchor": {
+                                            "state": "Wyoming",
+                                            "township_number": 14,
+                                            "township_direction": "N",
+                                            "range_number": 75,
+                                            "range_direction": "W",
+                                            "section_number": 2,
+                                        }
+                                    },
+                                }
+                            ],
+                            "edges": [],
+                            "metadata": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            incomplete_hint = _safe_artifact_hint(str(incomplete), kind="ir")
+            complete_hint = _safe_artifact_hint(str(complete), kind="ir")
+            assert incomplete_hint.get("has_structured_plss_anchor") is False
+            assert complete_hint.get("has_structured_plss_anchor") is True
+
+            health = _ir_health_from_hint(complete_hint, str(complete))
+            assert health["has_structured_plss_anchor"] is True
+        finally:
+            legacy_paths.dossiers_root = original  # type: ignore[assignment]
 
 
 def test_upsert_deed_span_index_autofill_supplies_deed_fingerprint() -> None:

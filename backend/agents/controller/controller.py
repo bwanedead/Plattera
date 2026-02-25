@@ -1864,6 +1864,10 @@ def _safe_artifact_hint(path_value: str, *, kind: str) -> dict[str, object]:
         if isinstance(graph, dict):
             nodes = graph.get("nodes")
             node_preview = []
+            has_structured_plss_anchor = False
+            graph_meta = graph.get("metadata")
+            if isinstance(graph_meta, dict) and _controller_ir_has_required_plss_anchor(graph_meta.get("plss_anchor")):
+                has_structured_plss_anchor = True
             if isinstance(nodes, list):
                 for node in nodes[:3]:
                     if isinstance(node, dict):
@@ -1874,12 +1878,23 @@ def _safe_artifact_hint(path_value: str, *, kind: str) -> dict[str, object]:
                                 "kind": node.get("kind"),
                             }
                         )
+                if not has_structured_plss_anchor:
+                    for node in nodes:
+                        if not isinstance(node, dict):
+                            continue
+                        if str(node.get("kind") or "").strip().lower() != "frame":
+                            continue
+                        metadata = node.get("metadata")
+                        if isinstance(metadata, dict) and _controller_ir_has_required_plss_anchor(metadata.get("plss_anchor")):
+                            has_structured_plss_anchor = True
+                            break
             return {
                 "kind": kind,
                 "status": "ok",
                 "graph_id": graph.get("graph_id"),
                 "node_count": len(nodes) if isinstance(nodes, list) else 0,
                 "node_preview": node_preview,
+                "has_structured_plss_anchor": has_structured_plss_anchor,
             }
     if kind == "deed" and isinstance(payload, dict):
         text = payload.get("text")
@@ -2935,12 +2950,28 @@ def _controller_refusal_log_payload(
 def _ir_health_from_hint(ir_hint: dict[str, object], ir_ref: object) -> dict[str, object]:
     node_count = ir_hint.get("node_count")
     is_stub = bool(isinstance(node_count, int) and node_count == 0)
+    has_structured_plss_anchor = bool(ir_hint.get("has_structured_plss_anchor") is True)
     return {
         "node_count": node_count if isinstance(node_count, int) else None,
         "edge_count": None,
         "is_stub": is_stub,
+        "has_structured_plss_anchor": has_structured_plss_anchor,
         "last_ir_artifact_ref": ir_ref if isinstance(ir_ref, str) else None,
     }
+
+
+def _controller_ir_has_required_plss_anchor(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    required = (
+        "state",
+        "township_number",
+        "township_direction",
+        "range_number",
+        "range_direction",
+        "section_number",
+    )
+    return all(value.get(k) is not None for k in required)
 
 
 def _judge_excerpt_from_hint(judge_hint: dict[str, object]) -> dict[str, object]:
@@ -2986,8 +3017,21 @@ def _recommended_next_moves(progress_payload: dict[str, object]) -> list[str]:
                 if isinstance(claimability, dict) and isinstance(claimability.get("missing_claimability"), list)
                 else []
             )
+            ir_health = progress_payload.get("ir_health")
+            has_structured_plss_anchor = bool(
+                isinstance(ir_health, dict) and ir_health.get("has_structured_plss_anchor") is True
+            )
             if latest_refs.get("bundle_ref") and latest_refs.get("georef_ref") and latest_refs.get("validate_ref"):
                 return ["declare_done with justification if semantics are satisfied"]
+            if (
+                latest_refs.get("bundle_ref")
+                and ("has_georef" in missing_claimability)
+                and not has_structured_plss_anchor
+            ):
+                return [
+                    "draft_ir update: add structured plss_anchor to FRAME.metadata.plss_anchor or graph.metadata.plss_anchor",
+                    "re-bundle, then georeference and validate",
+                ]
             if latest_refs.get("bundle_ref") and ("has_georef" in missing_claimability or "validation_passed" in missing_claimability):
                 return ["run georeference on latest bundle, then validate", "declare_done only after georef/validate claimability clears"]
             if latest_refs.get("bundle_ref") and not latest_refs.get("georef_ref"):
@@ -3034,7 +3078,7 @@ def _inspection_thrash_refusal(
         return None
     if artifact_ref != repeated_inspection_ref:
         return None
-    if repeated_inspection_count < 2:
+    if repeated_inspection_count < 1:
         return None
     return (
         KernelRefusal(

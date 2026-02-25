@@ -442,7 +442,7 @@ class FeatureGraphGeoreferenceTool:
 
         plss_anchor = _extract_plss_anchor(graph)
         if plss_anchor is None:
-            return _tool_refusal_result("georef_missing_plss_anchor")
+            return _tool_refusal_result("georef_missing_plss_anchor", missing_inputs=["plss_anchor"])
 
         options = _extract_georeference_options(graph=graph)
         georef_request: dict[str, Any] = {
