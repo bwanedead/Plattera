@@ -211,6 +211,33 @@ TRAVERSE_CONSTRAINT_STEP = OperationDef(
     supported=False
 )
 
+TRAVERSE_COURSE_TRAVERSE = OperationDef(
+    name="CourseTraverse",
+    category=OperationCategory.TRAVERSE,
+    description="Sequence of bearing/distance course calls compiled into a schematic LineString",
+    parameters=[
+        ParameterSpec(
+            name="courses",
+            param_type="array",
+            required=True,
+            description="Ordered list of course objects with bearing/distance (numeric or raw)"
+        )
+    ],
+    min_operands=0,
+    max_operands=1,
+    supported=True,
+)
+
+TRAVERSE_TIED_POINT = OperationDef(
+    name="TiedPoint",
+    category=OperationCategory.TRAVERSE,
+    description="Schematic point anchored by descriptive tie metadata (not globally resolved)",
+    parameters=[],
+    min_operands=0,
+    max_operands=1,
+    supported=True,
+)
+
 # ============================================================================
 # DERIVE OPERATIONS
 # ============================================================================
@@ -349,6 +376,16 @@ BOOLEAN_UNION = OperationDef(
     supported=False
 )
 
+BOOLEAN_COLLECTION = OperationDef(
+    name="Collection",
+    category=OperationCategory.BOOLEAN,
+    description="Semantic grouping of features without geometric boolean computation",
+    parameters=[],
+    min_operands=1,
+    max_operands=None,
+    supported=True,
+)
+
 BOOLEAN_INTERSECTION = OperationDef(
     name="Intersection",
     category=OperationCategory.BOOLEAN,
@@ -389,6 +426,8 @@ OPERATION_REGISTRY: Dict[str, OperationDef] = {
     "LineStep": TRAVERSE_LINE_STEP,
     "CurveStep": TRAVERSE_CURVE_STEP,
     "ConstraintStep": TRAVERSE_CONSTRAINT_STEP,
+    "CourseTraverse": TRAVERSE_COURSE_TRAVERSE,
+    "TiedPoint": TRAVERSE_TIED_POINT,
 
     # Derive operations
     "Close": DERIVE_CLOSE,
@@ -403,6 +442,7 @@ OPERATION_REGISTRY: Dict[str, OperationDef] = {
 
     # Boolean operations
     "Union": BOOLEAN_UNION,
+    "Collection": BOOLEAN_COLLECTION,
     "Intersection": BOOLEAN_INTERSECTION,
     "Difference": BOOLEAN_DIFFERENCE,
     "SymmetricDifference": BOOLEAN_SYMMETRIC_DIFFERENCE,

@@ -162,6 +162,46 @@ def test_open_artifact_repair_view_includes_tiedpoint_and_coursetraverse_rewrite
         assert "LineString geometry" in str(coursetraverse["rewrite_hint"])
 
 
+def test_open_artifact_repair_view_includes_metesbounds_and_union_rewrite_hints() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "judge_metes_union.json"
+        _write_json(
+            path,
+            {
+                "artifact_type": "judge",
+                "graph_id": "g_mu",
+                "report": {
+                    "gaps": [
+                        {
+                            "kind": "unsupported_operation",
+                            "operation_name": "MetesBounds",
+                            "node_id": "parcel_calls",
+                            "message": "Operation 'MetesBounds' not found in registry",
+                        },
+                        {
+                            "kind": "unsupported_operation",
+                            "operation_name": "Union",
+                            "node_id": "parcel_group",
+                            "message": "Operation 'Union' not yet implemented in compiler",
+                        },
+                    ],
+                    "warnings": [],
+                },
+            },
+        )
+        result = CorpusArtifactOpener().open_artifact({"artifact_ref": {"artifact_path": str(path)}})
+        repair_view = result.get("repair_view")
+        assert isinstance(repair_view, dict)
+        top_gaps = repair_view.get("top_gaps")
+        assert isinstance(top_gaps, list)
+        metes = next(item for item in top_gaps if item.get("operation") == "MetesBounds")
+        union = next(item for item in top_gaps if item.get("operation") == "Union")
+        assert metes["suggested_replacement_ops"] == ["CourseTraverse", "Close", "Annotation"]
+        assert "CourseTraverse.params.courses" in str(metes["rewrite_hint"])
+        assert union["suggested_replacement_ops"] == ["Collection", "Annotation"]
+        assert "Do not use geometric Union yet" in str(union["rewrite_hint"])
+
+
 def test_draft_ir_proposer_persists_stub_artifact_ref() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -290,6 +330,49 @@ def test_feature_graph_compiler_and_judge_tools_persist_artifact_refs() -> None:
         assert "judged" in judge_result["reason_codes"]
         assert Path(compile_ref.artifact_path).exists()
         assert Path(judge_ref.artifact_path).exists()
+
+
+def test_feature_graph_compiler_and_judge_infer_dossier_id_from_ir_ref_path() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        dossiers_root = root / "dossiers_data"
+        fg_root = dossiers_root / "artifacts" / "feature_graphs"
+        fg_persistence = FeatureGraphPersistenceService(
+            root=fg_root,
+            state_dir=dossiers_root / "state",
+        )
+        compiler = FeatureGraphCompilerTool(persistence=fg_persistence)
+        judge = FeatureGraphJudgeTool(persistence=fg_persistence)
+        ir_path = fg_root / "D_INFER" / "ir_g_infer_abcd1234.json"
+        _write_json(
+            ir_path,
+            {
+                "artifact_type": "ir",
+                "artifact_id": "ir_g_infer_abcd1234",
+                "graph": {
+                    "graph_id": "g_infer",
+                    "nodes": [{"id": "n1", "kind": "point", "geometry": {"type": "Point", "coordinates": [0, 0]}}],
+                    "edges": [],
+                    "metadata": {},
+                },
+            },
+        )
+        original_legacy_dossiers_root = legacy_paths.dossiers_root
+
+        def _patched_root() -> Path:
+            return dossiers_root
+
+        legacy_paths.dossiers_root = _patched_root  # type: ignore[assignment]
+        try:
+            compile_result = compiler.compile({"ir_artifact_ref": {"artifact_path": str(ir_path)}})
+            judge_result = judge.judge({"ir_artifact_ref": {"artifact_path": str(ir_path)}})
+        finally:
+            legacy_paths.dossiers_root = original_legacy_dossiers_root  # type: ignore[assignment]
+
+        compile_ref = ArtifactRef.model_validate(compile_result["artifact_ref"])
+        judge_ref = ArtifactRef.model_validate(judge_result["artifact_ref"])
+        assert "\\feature_graphs\\D_INFER\\" in str(compile_ref.artifact_path)
+        assert "\\feature_graphs\\D_INFER\\" in str(judge_ref.artifact_path)
 
 
 def test_feature_graph_bundler_tool_persists_bundle_artifact_ref() -> None:
@@ -513,5 +596,29 @@ def test_open_text_spans_anchors_happy_not_found_and_ambiguous() -> None:
             assert ambiguous["kernel_refusal"]["reason_code"] == "open_text_spans_anchor_ambiguous"
             assert isinstance(ambiguous.get("candidates"), list)
             assert ambiguous["candidates"], "expected candidate previews"
+
+            partial = opener.open_text_spans(
+                {
+                    "deed_text_artifact_ref": deed_ref.model_dump(mode="json"),
+                    "anchors": [
+                        {
+                            "span_id": "parcel1",
+                            "start_anchor": "BEGINNING AT stone marker A",
+                            "end_anchor": "POINT OF BEGINNING",
+                        },
+                        {
+                            "span_id": "parcel_missing",
+                            "start_anchor": "NO SUCH START",
+                            "end_anchor": "POINT OF BEGINNING",
+                        },
+                    ],
+                    "include_context_chars": 0,
+                }
+            )
+            assert partial["reason_codes"] == ["spans_opened_partial"]
+            assert len(partial["spans"]) == 1
+            assert partial["spans"][0]["span_id"] == "parcel1"
+            assert isinstance(partial.get("not_found"), list) and partial["not_found"]
+            assert partial["not_found"][0]["reason_code"] == "open_text_spans_anchor_not_found"
         finally:
             legacy_paths.dossiers_root = original_legacy_dossiers_root  # type: ignore[assignment]

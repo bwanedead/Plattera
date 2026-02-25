@@ -679,6 +679,11 @@ def test_context_packet_trace_is_bounded() -> None:
     assert isinstance(recent, list)
     assert len(recent) <= 8
     assert isinstance(packet.get("tool_cheatsheet"), list)
+    ir_ops_menu = packet.get("ir_ops_menu")
+    assert isinstance(ir_ops_menu, dict)
+    assert isinstance(ir_ops_menu.get("supported_compilable_ops"), list)
+    assert "LineStep" in ir_ops_menu.get("supported_compilable_ops", [])
+    assert isinstance(ir_ops_menu.get("authoring_rules"), list)
 
 
 def test_kernel_step_tool_spec_includes_iteration_summary_property() -> None:

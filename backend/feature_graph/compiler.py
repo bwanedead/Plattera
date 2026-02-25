@@ -376,6 +376,175 @@ def compile_close(
     }
 
 
+def _compiled_point_from_operand(
+    operand_id: str,
+    compiled_features: Dict[str, Any],
+) -> Tuple[float, float] | None:
+    operand_data = compiled_features.get(operand_id)
+    if not isinstance(operand_data, dict):
+        return None
+    geom = operand_data.get("geometry")
+    if not isinstance(geom, dict):
+        return None
+    if geom.get("type") == "Point":
+        coords = geom.get("coordinates")
+        if isinstance(coords, list) and len(coords) >= 2:
+            try:
+                return (float(coords[0]), float(coords[1]))
+            except (TypeError, ValueError):
+                return None
+    end_point = operand_data.get("end_point")
+    if isinstance(end_point, list) and len(end_point) >= 2:
+        try:
+            return (float(end_point[0]), float(end_point[1]))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def compile_tied_point(
+    node: FeatureNode,
+    op_expr: OpExpr,
+    compiled_features: Dict[str, Any],
+    result: CompileResult,
+) -> Optional[Dict[str, Any]]:
+    origin = (0.0, 0.0)
+    if op_expr.operands:
+        operand = op_expr.operands[0]
+        if isinstance(operand, str):
+            derived = _compiled_point_from_operand(operand, compiled_features)
+            if derived is not None:
+                origin = derived
+    result.add_warning(
+        f"TiedPoint '{node.id}' compiled as schematic point (tie not globally resolved)"
+    )
+    return {
+        "geometry": {"type": "Point", "coordinates": [origin[0], origin[1]]},
+        "source": "schematic_tied_point",
+        "schematic": True,
+        "tie_details": dict(op_expr.params or {}),
+    }
+
+
+def compile_course_traverse(
+    node: FeatureNode,
+    op_expr: OpExpr,
+    compiled_features: Dict[str, Any],
+    previous_point: Optional[Tuple[float, float]],
+    result: CompileResult,
+) -> Optional[Dict[str, Any]]:
+    courses = op_expr.params.get("courses")
+    if not isinstance(courses, list) or not courses:
+        result.add_gap(missing_parameter_gap(
+            feature_id=node.id,
+            operation="CourseTraverse",
+            parameter_name="courses",
+            metadata={"reason": "courses list is required"},
+        ))
+        return None
+
+    start_point = previous_point
+    if start_point is None and op_expr.operands:
+        operand = op_expr.operands[0]
+        if isinstance(operand, str):
+            start_point = _compiled_point_from_operand(operand, compiled_features)
+    if start_point is None:
+        start_point = (0.0, 0.0)
+
+    coords: List[List[float]] = [[float(start_point[0]), float(start_point[1])]]
+    current = (float(start_point[0]), float(start_point[1]))
+    normalized_courses: list[dict[str, Any]] = []
+
+    for idx, raw_course in enumerate(courses):
+        if not isinstance(raw_course, dict):
+            result.add_gap(missing_parameter_gap(
+                feature_id=node.id,
+                operation="CourseTraverse",
+                parameter_name=f"courses[{idx}]",
+                metadata={"reason": "course entry must be an object"},
+            ))
+            return None
+        bearing = raw_course.get("bearing")
+        distance = raw_course.get("distance")
+        bearing_raw = raw_course.get("bearing_raw")
+        distance_raw = raw_course.get("distance_raw")
+        if bearing is None:
+            result.add_gap(missing_parameter_gap(
+                feature_id=node.id,
+                operation="CourseTraverse",
+                parameter_name=f"courses[{idx}].bearing",
+                metadata={"bearing_raw": bearing_raw, "reason": "numeric bearing required"},
+            ))
+            return None
+        if distance is None:
+            result.add_gap(missing_parameter_gap(
+                feature_id=node.id,
+                operation="CourseTraverse",
+                parameter_name=f"courses[{idx}].distance",
+                metadata={"distance_raw": distance_raw, "reason": "numeric distance required"},
+            ))
+            return None
+        try:
+            bearing_val = float(bearing) % 360.0
+            distance_val = float(distance)
+        except (TypeError, ValueError) as exc:
+            result.add_gap(missing_parameter_gap(
+                feature_id=node.id,
+                operation="CourseTraverse",
+                parameter_name=f"courses[{idx}]",
+                metadata={"error": str(exc), "reason": "bearing/distance must be numeric"},
+            ))
+            return None
+        current = compute_endpoint(current[0], current[1], bearing_val, distance_val)
+        coords.append([float(current[0]), float(current[1])])
+        normalized_courses.append(
+            {
+                "bearing": bearing_val,
+                "distance": distance_val,
+                "bearing_raw": bearing_raw,
+                "distance_raw": distance_raw,
+            }
+        )
+
+    return {
+        "geometry": {"type": "LineString", "coordinates": coords},
+        "start_point": coords[0],
+        "end_point": coords[-1],
+        "source": "computed_course_traverse",
+        "schematic": True,
+        "course_count": len(normalized_courses),
+        "courses": normalized_courses,
+    }
+
+
+def compile_collection(
+    node: FeatureNode,
+    op_expr: OpExpr,
+    graph: FeatureGraph,
+    compiled_features: Dict[str, Any],
+    result: CompileResult,
+) -> Optional[Dict[str, Any]]:
+    del graph, result
+    members: list[dict[str, Any]] = []
+    for operand in op_expr.operands:
+        if not isinstance(operand, str):
+            continue
+        member = {"feature_id": operand, "compiled": operand in compiled_features}
+        if operand in compiled_features:
+            compiled = compiled_features.get(operand)
+            if isinstance(compiled, dict):
+                geom = compiled.get("geometry")
+                if isinstance(geom, dict):
+                    member["geometry_type"] = geom.get("type")
+        members.append(member)
+    return {
+        "source": "semantic_group",
+        "group_kind": "collection",
+        "members": members,
+        "schematic": True,
+    }
+
+
 # ============================================================================
 # MAIN COMPILER
 # ============================================================================
@@ -423,8 +592,14 @@ def compile_node(
     # Dispatch to operation-specific compiler
     if op_name == "LineStep":
         return compile_line_step(node, op_expr, previous_point, result)
+    elif op_name == "CourseTraverse":
+        return compile_course_traverse(node, op_expr, compiled_features, previous_point, result)
+    elif op_name == "TiedPoint":
+        return compile_tied_point(node, op_expr, compiled_features, result)
     elif op_name == "Close":
         return compile_close(node, op_expr, graph, compiled_features, result)
+    elif op_name == "Collection":
+        return compile_collection(node, op_expr, graph, compiled_features, result)
     else:
         # Registered as supported but no compiler implementation (should not happen)
         result.add_gap(unsupported_operation_gap(

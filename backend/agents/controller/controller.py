@@ -15,6 +15,7 @@ from typing import Any, Callable, Mapping, Protocol
 from uuid import uuid4
 
 from config.paths import agent_kernel_artifacts_root, dossiers_feature_graphs_artifacts_root
+from feature_graph.operations import get_supported_operations, get_unsupported_operations
 
 from agent_kernel.models import (
     ActionType,
@@ -1445,6 +1446,7 @@ def _build_context_packet(
     packet = {
         "session_id": session_id,
         "tool_menu": tool_menu,
+        "ir_ops_menu": _ir_ops_menu_payload(),
         "inputs": packet_inputs,
         "progress": progress,
         "working_memory": {
@@ -1505,6 +1507,20 @@ def _latest_span_memory_from_step(last_step_result: KernelStepResult | None) -> 
         if isinstance(outputs_inline.get("span_catalog_excerpt"), list):
             out["deed_span_catalog_excerpt"] = outputs_inline.get("span_catalog_excerpt")
     return out or None
+
+
+def _ir_ops_menu_payload() -> dict[str, object]:
+    supported = sorted(get_supported_operations())
+    unsupported = sorted(get_unsupported_operations())
+    tempting = [name for name in unsupported if name in {"Union", "Intersection", "Difference", "Buffer", "Offset"}]
+    return {
+        "supported_compilable_ops": supported[:24],
+        "registered_but_not_compilable_ops": tempting[:12],
+        "authoring_rules": [
+            "Do not invent op names.",
+            "If an op is not compilable, encode deed meaning as direct geometry plus annotation metadata.",
+        ],
+    }
 
 
 def _compact_gap_summary(gap_summary: object) -> dict[str, object]:

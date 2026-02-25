@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
-from config.paths import agent_kernel_artifacts_root
+from config.paths import agent_kernel_artifacts_root, dossiers_feature_graphs_artifacts_root
 from corpus.types import CorpusEntryKind, CorpusEntryRef, CorpusView
 from corpus.virtual_provider import VirtualCorpusProvider
 from feature_graph.artifacts import create_compile_artifact, create_ir_artifact, create_judge_artifact
@@ -114,7 +114,7 @@ class TextSpanOpenerTool:
         max_total_chars = _bounded_int(inputs.get("max_total_chars"), default=8000, minimum=1, maximum=10000)
         include_context_chars = _bounded_int(inputs.get("include_context_chars"), default=120, minimum=0, maximum=500)
 
-        requested_spans, failure = _resolve_requested_text_spans(inputs=inputs, deed_text=text)
+        requested_spans, failure, partial_failures = _resolve_requested_text_spans(inputs=inputs, deed_text=text)
         if failure is not None:
             return failure
         out_spans: list[dict[str, Any]] = []
@@ -144,7 +144,11 @@ class TextSpanOpenerTool:
                     "fingerprint_ok": bool(item.get("fingerprint_ok", True)),
                 }
             )
-        return {"artifact_ref": None, "reason_codes": ["spans_opened"], "spans": out_spans}
+        result: dict[str, Any] = {"artifact_ref": None, "reason_codes": ["spans_opened"], "spans": out_spans}
+        if partial_failures:
+            result["not_found"] = partial_failures[:5]
+            result["reason_codes"] = ["spans_opened_partial"]
+        return result
 
 
 @dataclass
@@ -576,17 +580,21 @@ def _load_span_index(raw_ref: Any) -> dict[str, Any] | None:
     return _read_json_dict(Path(ref.artifact_path))
 
 
-def _resolve_requested_text_spans(*, inputs: Mapping[str, Any], deed_text: str) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+def _resolve_requested_text_spans(
+    *,
+    inputs: Mapping[str, Any],
+    deed_text: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, list[dict[str, Any]]]:
     raw_spans = inputs.get("spans")
     if isinstance(raw_spans, list):
         items: list[dict[str, Any]] = []
         for raw in raw_spans:
             if not isinstance(raw, dict):
-                return [], _tool_refusal_result("open_text_spans_invalid_range")
+                return [], _tool_refusal_result("open_text_spans_invalid_range"), []
             start_char = raw.get("start_char")
             end_char = raw.get("end_char")
             if not isinstance(start_char, int) or not isinstance(end_char, int):
-                return [], _tool_refusal_result("open_text_spans_invalid_range")
+                return [], _tool_refusal_result("open_text_spans_invalid_range"), []
             items.append(
                 {
                     "span_id": _read_str(raw.get("span_id")),
@@ -595,7 +603,7 @@ def _resolve_requested_text_spans(*, inputs: Mapping[str, Any], deed_text: str) 
                     "fingerprint_ok": True,
                 }
             )
-        return items, None
+        return items, None, []
 
     raw_anchors = inputs.get("anchors")
     if isinstance(raw_anchors, list) and raw_anchors:
@@ -603,16 +611,16 @@ def _resolve_requested_text_spans(*, inputs: Mapping[str, Any], deed_text: str) 
 
     raw_span_ids = inputs.get("span_ids")
     if not isinstance(raw_span_ids, list) or not raw_span_ids:
-        return [], _tool_refusal_result("open_text_spans_invalid_range")
+        return [], _tool_refusal_result("open_text_spans_invalid_range"), []
     index = _load_span_index(inputs.get("deed_span_index_ref"))
     if not isinstance(index, dict):
-        return [], _tool_refusal_result("open_text_spans_invalid_range")
+        return [], _tool_refusal_result("open_text_spans_invalid_range"), []
     deed_fp = index.get("deed_fingerprint")
     if not isinstance(deed_fp, dict) or not _fingerprint_matches_dict(expected=deed_fp, actual=_deed_fingerprint(deed_text)):
-        return [], _tool_refusal_result("open_text_spans_fingerprint_mismatch")
+        return [], _tool_refusal_result("open_text_spans_fingerprint_mismatch"), []
     spans = index.get("spans")
     if not isinstance(spans, list):
-        return [], _tool_refusal_result("open_text_spans_invalid_range")
+        return [], _tool_refusal_result("open_text_spans_invalid_range"), []
     span_map = {}
     for span in spans:
         if isinstance(span, dict):
@@ -624,11 +632,11 @@ def _resolve_requested_text_spans(*, inputs: Mapping[str, Any], deed_text: str) 
         sid = _read_str(raw_id)
         span = span_map.get(sid or "")
         if sid is None or not isinstance(span, dict):
-            return [], _tool_refusal_result("open_text_spans_invalid_range")
+            return [], _tool_refusal_result("open_text_spans_invalid_range"), []
         start_char = span.get("start_char")
         end_char = span.get("end_char")
         if not isinstance(start_char, int) or not isinstance(end_char, int):
-            return [], _tool_refusal_result("open_text_spans_invalid_range")
+            return [], _tool_refusal_result("open_text_spans_invalid_range"), []
         items.append(
             {
                 "span_id": sid,
@@ -637,70 +645,92 @@ def _resolve_requested_text_spans(*, inputs: Mapping[str, Any], deed_text: str) 
                 "fingerprint_ok": True,
             }
         )
-    return items, None
+    return items, None, []
 
 
 def _resolve_anchor_requested_spans(
     *,
     raw_anchors: list[Any],
     deed_text: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, list[dict[str, Any]]]:
+    # Returns (resolved_items, fatal_failure, partial_failures)
     normalized_text, norm_to_orig = _normalize_text_with_index_map(deed_text)
     items: list[dict[str, Any]] = []
+    partial_failures: list[dict[str, Any]] = []
     for raw in raw_anchors:
         if not isinstance(raw, dict):
-            return [], _tool_refusal_result("open_text_spans_anchor_not_found")
+            partial_failures.append({"reason_code": "open_text_spans_anchor_not_found"})
+            continue
+        span_id = _read_str(raw.get("span_id"))
         start_anchor_raw = _read_str(raw.get("start_anchor"))
         end_anchor_raw = _read_str(raw.get("end_anchor"))
         if not start_anchor_raw or not end_anchor_raw:
-            return [], _tool_refusal_result("open_text_spans_anchor_not_found")
+            partial_failures.append({"span_id": span_id, "reason_code": "open_text_spans_anchor_not_found"})
+            continue
         start_anchor = _normalize_text_simple(start_anchor_raw)
         end_anchor = _normalize_text_simple(end_anchor_raw)
         if not start_anchor or not end_anchor:
-            return [], _tool_refusal_result("open_text_spans_anchor_not_found")
+            partial_failures.append({"span_id": span_id, "reason_code": "open_text_spans_anchor_not_found"})
+            continue
         occurrence = raw.get("occurrence")
         start_matches = _find_all_occurrences(normalized_text, start_anchor)
         if not start_matches:
-            return [], _tool_refusal_result("open_text_spans_anchor_not_found")
+            partial_failures.append({"span_id": span_id, "reason_code": "open_text_spans_anchor_not_found"})
+            continue
         selected_start_match = None
         if isinstance(occurrence, int):
             idx = occurrence - 1
             if idx < 0 or idx >= len(start_matches):
-                return [], _tool_refusal_result("open_text_spans_anchor_not_found")
+                partial_failures.append({"span_id": span_id, "reason_code": "open_text_spans_anchor_not_found"})
+                continue
             selected_start_match = start_matches[idx]
         elif len(start_matches) == 1:
             selected_start_match = start_matches[0]
         else:
-            return [], _tool_refusal_with_candidates(
+            candidate_failure = _tool_refusal_with_candidates(
                 "open_text_spans_anchor_ambiguous",
                 normalized_text=normalized_text,
                 norm_to_orig=norm_to_orig,
                 matches=start_matches,
                 match_len=len(start_anchor),
             )
+            candidate_failure["span_id"] = span_id
+            partial_failures.append(candidate_failure)
+            continue
         assert selected_start_match is not None
 
         end_matches = _find_all_occurrences(normalized_text, end_anchor)
         end_after = [m for m in end_matches if m >= selected_start_match]
         if not end_after:
-            return [], _tool_refusal_result("open_text_spans_anchor_not_found")
+            partial_failures.append({"span_id": span_id, "reason_code": "open_text_spans_anchor_not_found"})
+            continue
         selected_end_match = end_after[0]
         if selected_end_match < selected_start_match:
-            return [], _tool_refusal_result("open_text_spans_anchor_invalid_order")
+            partial_failures.append({"span_id": span_id, "reason_code": "open_text_spans_anchor_invalid_order"})
+            continue
 
         start_char = _norm_pos_to_orig_start(norm_to_orig, selected_start_match)
         end_char_exclusive = _norm_pos_to_orig_end_exclusive(norm_to_orig, selected_end_match + len(end_anchor) - 1)
         if start_char is None or end_char_exclusive is None or end_char_exclusive <= start_char:
-            return [], _tool_refusal_result("open_text_spans_anchor_invalid_order")
+            partial_failures.append({"span_id": span_id, "reason_code": "open_text_spans_anchor_invalid_order"})
+            continue
         items.append(
             {
-                "span_id": _read_str(raw.get("span_id")),
+                "span_id": span_id,
                 "start_char": start_char,
                 "end_char": end_char_exclusive,
                 "fingerprint_ok": True,
             }
         )
-    return items, None
+    if items:
+        return items, None, partial_failures
+    if partial_failures:
+        first = partial_failures[0]
+        if isinstance(first, dict) and "kernel_refusal" in first:
+            return [], first, partial_failures
+        reason_code = _read_str(first.get("reason_code")) if isinstance(first, dict) else None
+        return [], _tool_refusal_result(reason_code or "open_text_spans_anchor_not_found"), partial_failures
+    return [], _tool_refusal_result("open_text_spans_anchor_not_found"), partial_failures
 
 
 def _tool_refusal_with_candidates(
@@ -908,10 +938,42 @@ def _resolve_dossier_id(inputs: Mapping[str, Any], graph: FeatureGraph) -> str:
     dossier_id = _read_str(inputs.get("dossier_id"))
     if dossier_id:
         return dossier_id
+    inferred_from_ref = _infer_dossier_id_from_ir_ref_inputs(inputs)
+    if inferred_from_ref:
+        return inferred_from_ref
     graph_dossier = _read_str((graph.metadata or {}).get("dossier_id"))
     if graph_dossier:
         return graph_dossier
     return "unknown"
+
+
+def _infer_dossier_id_from_ir_ref_inputs(inputs: Mapping[str, Any]) -> str | None:
+    for key in ("ir_artifact_ref", "updated_ir_artifact_ref", "ir_artifact_path"):
+        ref = _coerce_artifact_ref(inputs.get(key))
+        if ref is None:
+            continue
+        dossier_id = _infer_dossier_id_from_feature_graph_artifact_path(ref.artifact_path)
+        if dossier_id:
+            return dossier_id
+    return None
+
+
+def _infer_dossier_id_from_feature_graph_artifact_path(path_value: str) -> str | None:
+    try:
+        path = Path(path_value).resolve()
+        root = dossiers_feature_graphs_artifacts_root().resolve()
+    except Exception:
+        return None
+    if path == root or root not in path.parents:
+        return None
+    try:
+        rel = path.relative_to(root)
+    except Exception:
+        return None
+    if not rel.parts:
+        return None
+    candidate = str(rel.parts[0]).strip()
+    return candidate or None
 
 
 def _infer_parent_artifact_ids(inputs: Mapping[str, Any]) -> list[str]:
@@ -1128,6 +1190,22 @@ def _gap_rewrite_guidance(gap: Mapping[str, Any]) -> dict[str, Any]:
                 "rewrite_hint": (
                     "Replace CourseTraverse with direct LineString geometry (schematic) and keep "
                     "the course/bearing-distance sequence in metadata/annotation until Traverse lowering exists."
+                )[:240],
+            }
+        if op_key == "metesbounds":
+            return {
+                "suggested_replacement_ops": ["CourseTraverse", "Close", "Annotation"],
+                "rewrite_hint": (
+                    "Represent metes-and-bounds as CourseTraverse.params.courses (bearing/distance list), "
+                    "then Close the resulting curve; keep narrative details in annotation metadata."
+                )[:240],
+            }
+        if op_key == "union":
+            return {
+                "suggested_replacement_ops": ["Collection", "Annotation"],
+                "rewrite_hint": (
+                    "Do not use geometric Union yet. Use Collection for semantic parcel grouping "
+                    "or annotate grouping intent until boolean geometry support is implemented."
                 )[:240],
             }
         if operation:

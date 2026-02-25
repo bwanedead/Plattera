@@ -42,6 +42,8 @@ _DEVELOPER_MESSAGE = (
     "- For repeated source verification on long deeds, use span bookmarks: UPSERT_DEED_SPAN_INDEX -> OPEN_TEXT_SPANS -> confirm/adjust.\n"
     "- Prefer reopening bookmarked spans by span_id instead of reloading the whole deed repeatedly.\n"
     "FeatureGraph IR cheatsheet (v0):\n"
+    "- Use ContextPacket.ir_ops_menu.supported_compilable_ops as the current allowed op vocabulary for compilable op_expr authoring.\n"
+    "- If an operation is registered but not compilable yet, prefer direct geometry + annotation metadata over invented ops.\n"
     "- Shape: {graph_id, nodes[], edges[], metadata{}}.\n"
     "- Node shape: {id, kind, label?, metadata?, one-of: geometry | op_expr | feature_ref}.\n"
     "- kind vocabulary: point, curve, region, frame, constraint, annotation, unknown.\n"
