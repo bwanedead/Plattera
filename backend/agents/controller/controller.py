@@ -1975,6 +1975,41 @@ def _build_fix_skeleton(
                 "metadata": {"source": "deed"},
             },
         }
+        if reason_code == "georef_missing_plss_anchor":
+            required_fields.append("graph.metadata.plss_anchor OR FRAME.metadata.plss_anchor (canonical field name: plss_anchor)")
+            args["graph"] = {
+                "graph_id": "g_add_plss_anchor_fix_001",
+                "nodes": [
+                    {
+                        "id": "local_frame",
+                        "kind": "frame",
+                        "metadata": {
+                            "plss_anchor": {
+                                "state": "Wyoming",
+                                "township_number": 14,
+                                "township_direction": "N",
+                                "range_number": 75,
+                                "range_direction": "W",
+                                "section_number": 2,
+                                "principal_meridian": "Sixth Principal Meridian",
+                            }
+                        },
+                    }
+                ],
+                "edges": [],
+                "metadata": {
+                    "source": "deed",
+                    "plss_anchor": {
+                        "state": "Wyoming",
+                        "township_number": 14,
+                        "township_direction": "N",
+                        "range_number": 75,
+                        "range_direction": "W",
+                        "section_number": 2,
+                    },
+                    "authoring_note": "Use canonical field name plss_anchor (NOT plss) for georeference compatibility.",
+                },
+            }
     elif action == ActionType.DECLARE_DONE.value:
         required_fields = ["declare_done"]
         args = {}

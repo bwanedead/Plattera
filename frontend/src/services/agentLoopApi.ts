@@ -63,7 +63,6 @@ export const startAgentLoopRun = async (request: AgentLoopRunRequest): Promise<A
     body: JSON.stringify({
       background: true,
       model: 'gpt-5.2',
-      max_iterations: 12,
       ...request,
     }),
   });

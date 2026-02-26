@@ -51,7 +51,7 @@ class AgentLoopRunRequest(BaseModel):
     text: Optional[str] = None
     initial_ir_ref: Optional[str] = None
     model: str = "gpt-5.2"
-    max_iterations: int = Field(default=12, ge=1, le=100)
+    max_iterations: Optional[int] = Field(default=None, ge=1, le=200)
     requires_global_placement: bool = False
     render_required: bool = False
     background: bool = True
@@ -137,6 +137,7 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
         session_manager = KernelSessionManager(persistence_service=persistence)
         llm_client = OpenAINextStepClient()
         start_request = _build_start_request(run_id, request)
+        effective_max_iterations = _resolve_max_iterations(request=request, start_request=start_request)
         seq_state = {"seq": 0}
 
         def _on_controller_event(event: dict[str, object]) -> None:
@@ -157,7 +158,7 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
                 llm_client=llm_client,
                 start_request=start_request,
                 model=request.model,
-                max_iterations=request.max_iterations,
+                max_iterations=effective_max_iterations,
             )
         finally:
             restore_transcript_event_hook(previous_hook)
@@ -177,7 +178,7 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
                     "run_id": run_id,
                     "status": "completed",
                     "model": request.model,
-                    "max_iterations": request.max_iterations,
+                    "max_iterations": effective_max_iterations,
                     "session_id": result.session_id,
                     "run_artifact_ref": result.run_artifact_ref,
                     "transcript_artifact_ref": result.transcript_artifact_ref,
@@ -198,7 +199,7 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
                     "run_id": run_id,
                     "status": "failed",
                     "model": request.model,
-                    "max_iterations": request.max_iterations,
+                    "max_iterations": effective_max_iterations if 'effective_max_iterations' in locals() else request.max_iterations,
                     "error_type": type(exc).__name__,
                     "error_message": str(exc)[:_MAX_LOG_ERROR_CHARS],
                     "run_artifact_ref": snapshot.get("run_artifact_ref"),
@@ -213,18 +214,39 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
             event_bus.publish_sync(run_id, {"event_type": "run_failed", "run": updated})
 
 
+def _resolve_max_iterations(
+    *,
+    request: AgentLoopRunRequest,
+    start_request: KernelSessionStartRequest,
+) -> int:
+    if isinstance(request.max_iterations, int):
+        return request.max_iterations
+    try:
+        max_steps = int(start_request.budgets.max_steps)
+    except Exception:
+        max_steps = 30
+    # Budgeted-convergence default: enough headroom for repair/gate loops while
+    # still bounded by wall-time/step budgets and controller no-progress brakes.
+    auto = max_steps * 3
+    return max(30, min(auto, 200))
+
+
 @router.post("/run")
 async def start_agent_loop_run(request: AgentLoopRunRequest) -> dict[str, Any]:
     if not request.initial_ir_ref and not request.text and not request.dossier_id:
         raise HTTPException(status_code=400, detail="one_of_dossier_id_or_text_or_initial_ir_ref_required")
     request = _ensure_text_run_has_real_dossier(request)
     run_id = f"run_{int(time())}_{uuid4().hex[:8]}"
+    start_request_preview = _build_start_request(run_id, request)
+    effective_max_iterations = _resolve_max_iterations(request=request, start_request=start_request_preview)
     entry = _run_registry.create_run(
         run_id=run_id,
         request={
             "request_id": f"agent-loop-{run_id}",
             "dossier_id": request.dossier_id,
             "model": request.model,
+            "requested_max_iterations": request.max_iterations,
+            "effective_max_iterations": effective_max_iterations,
         },
     )
     logger.info(
@@ -237,7 +259,8 @@ async def start_agent_loop_run(request: AgentLoopRunRequest) -> dict[str, Any]:
                 "has_text_input": bool(request.text and request.text.strip()),
                 "initial_ir_ref": request.initial_ir_ref,
                 "model": request.model,
-                "max_iterations": request.max_iterations,
+                "requested_max_iterations": request.max_iterations,
+                "effective_max_iterations": effective_max_iterations,
                 "background": request.background,
             },
             ensure_ascii=True,

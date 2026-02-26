@@ -27,6 +27,8 @@ class AgentLoopRunRegistryService:
             "request_id": request.get("request_id"),
             "dossier_id": request.get("dossier_id"),
             "model": request.get("model"),
+            "requested_max_iterations": request.get("requested_max_iterations"),
+            "effective_max_iterations": request.get("effective_max_iterations"),
             "status": "running",
             "created_at": now,
             "updated_at": now,
@@ -108,4 +110,3 @@ class AgentLoopRunRegistryService:
                     os.remove(tmp_path)
             except Exception:
                 pass
-

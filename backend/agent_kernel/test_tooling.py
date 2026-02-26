@@ -395,6 +395,43 @@ def test_feature_graph_bundler_tool_persists_bundle_artifact_ref() -> None:
         assert Path(bundle_ref.artifact_path).exists()
 
 
+def test_extract_plss_anchor_accepts_alt_plss_shape_and_normalizes() -> None:
+    from backend.agent_kernel.tooling import _extract_plss_anchor
+    from backend.feature_graph.models import FeatureGraph
+
+    graph = FeatureGraph.model_validate(
+        {
+            "graph_id": "g_plss_alt",
+            "nodes": [
+                {
+                    "id": "local_frame",
+                    "kind": "frame",
+                    "metadata": {
+                        "plss": {
+                            "principal_meridian": "Sixth Principal Meridian",
+                            "township": {"number": 14, "direction": "N"},
+                            "range": {"number": 75, "direction": "W"},
+                            "section": 2,
+                        },
+                        "jurisdiction": {"state": "Wyoming", "county": "Albany"},
+                    },
+                }
+            ],
+            "edges": [],
+            "metadata": {},
+        }
+    )
+
+    anchor = _extract_plss_anchor(graph)
+    assert isinstance(anchor, dict)
+    assert anchor["state"] == "Wyoming"
+    assert anchor["township_number"] == 14
+    assert anchor["township_direction"] == "N"
+    assert anchor["range_number"] == 75
+    assert anchor["range_direction"] == "W"
+    assert anchor["section_number"] == 2
+
+
 class _FakeRetrievalEngine:
     def __init__(self, debug: dict[str, object]) -> None:
         self._debug = debug

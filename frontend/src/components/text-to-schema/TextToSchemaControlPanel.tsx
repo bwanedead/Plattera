@@ -57,6 +57,7 @@ export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> =
   const [directText, setDirectText] = useState('');
   const [agentActivityDebug, setAgentActivityDebug] = useState(false);
   const tapeEvents = Array.isArray(agentLoopTapeEvents) ? agentLoopTapeEvents : [];
+  const hasAgentTapePanel = engine === 'agent_loop' && (!!agentLoopRunId || tapeEvents.length > 0 || !!agentLoopLiveStatus);
 
   // Ensure we have a valid string for final draft
   const finalText = typeof finalDraftText === 'string' ? finalDraftText : String(finalDraftText || '');
@@ -128,6 +129,42 @@ export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> =
     if (typeof status.iteration === 'number') return `Step ${status.iteration}`;
     return null;
   };
+  const eventPriority = (evt: AgentTapeEvent): number => {
+    const t = String(evt.source_event_type || '').toLowerCase();
+    if (t === 'kernel_step_result') return 5;
+    if (t === 'controller_refusal') return 5;
+    if (t === 'controller_no_progress_stop') return 5;
+    if (t === 'controller_parse_failed') return 4;
+    if (t === 'controller_parse_fail_resync') return 4;
+    if (t === 'agent_proposed_step') return 2;
+    if (t === 'controller_autofill') return 1;
+    return 3;
+  };
+  const chooseBetterIterationEvent = (a: AgentTapeEvent, b: AgentTapeEvent): AgentTapeEvent => {
+    const pa = eventPriority(a);
+    const pb = eventPriority(b);
+    if (pa !== pb) return pa > pb ? a : b;
+    const sa = typeof a.seq === 'number' ? a.seq : -1;
+    const sb = typeof b.seq === 'number' ? b.seq : -1;
+    if (sa !== sb) return sa > sb ? a : b;
+    const ta = typeof a.timestamp_epoch_seconds === 'number' ? a.timestamp_epoch_seconds : -1;
+    const tb = typeof b.timestamp_epoch_seconds === 'number' ? b.timestamp_epoch_seconds : -1;
+    return ta >= tb ? a : b;
+  };
+  const liveIteration = typeof agentLoopLiveStatus?.iteration === 'number' ? agentLoopLiveStatus.iteration : null;
+  const tapeIterationCards = (() => {
+    const byIteration = new Map<number, AgentTapeEvent>();
+    for (const evt of tapeEvents) {
+      const status = evt.status || {};
+      const iter = typeof status.iteration === 'number' ? status.iteration : null;
+      if (iter == null) continue;
+      if (liveIteration != null && iter === liveIteration) continue; // live card owns current iteration
+      const existing = byIteration.get(iter);
+      byIteration.set(iter, existing ? chooseBetterIterationEvent(existing, evt) : evt);
+    }
+    return Array.from(byIteration.values())
+      .sort((a, b) => (typeof b.seq === 'number' ? b.seq : -1) - (typeof a.seq === 'number' ? a.seq : -1));
+  })();
   const formatTapeTime = (epochSeconds?: number) => {
     if (typeof epochSeconds !== 'number' || !Number.isFinite(epochSeconds)) return null;
     try {
@@ -320,7 +357,7 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
       </button>
 
       {/* Processing Status */}
-      {isProcessing && (
+      {isProcessing && !(engine === 'agent_loop' && hasAgentTapePanel) && (
         <div className="processing-status">
           <div className="status-message">
             {engine === 'agent_loop'
@@ -335,7 +372,7 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
           </div>
         </div>
       )}
-      {!isProcessing && engine === 'agent_loop' && agentLoopRunStatus && (
+      {!isProcessing && engine === 'agent_loop' && agentLoopRunStatus && !hasAgentTapePanel && (
         <div className="processing-status">
           <div className="status-message">Agent Loop Status: {agentLoopRunStatus}</div>
           {agentLoopStatusMessage && <div className="status-details">{agentLoopStatusMessage}</div>}
@@ -350,18 +387,27 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
           )}
         </div>
       )}
-      {engine === 'agent_loop' && (agentLoopRunId || tapeEvents.length > 0 || agentLoopLiveStatus) && (
+      {hasAgentTapePanel && (
         <div
           style={{
-            marginTop: 10,
-            border: '1px solid rgba(120,120,120,0.35)',
-            borderRadius: 10,
-            padding: 10,
-            background: 'linear-gradient(180deg, rgba(18,20,24,0.92), rgba(12,13,16,0.95))',
+            marginTop: 12,
+            border: '1px solid rgba(76, 195, 255, 0.22)',
+            borderRadius: 12,
+            padding: 12,
+            background: 'linear-gradient(180deg, rgba(16,20,27,0.98), rgba(10,12,16,0.98))',
+            boxShadow: '0 12px 30px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.03)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.3, opacity: 0.95 }}>Agent Loop Activity</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.3, opacity: 0.95 }}>Agent Loop Activity</div>
+              {agentLoopRunStatus && (
+                <div style={{ fontSize: 10, opacity: 0.68 }}>
+                  {String(agentLoopRunStatus).toUpperCase()}
+                  {agentLoopStatusMessage && !agentLoopStreamConnected ? ` • ${agentLoopStatusMessage}` : ''}
+                </div>
+              )}
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <button
                 type="button"
@@ -377,7 +423,7 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
                 }}
                 title={agentActivityDebug ? 'Switch to Standard activity view' : 'Show debug event details'}
               >
-                {agentActivityDebug ? 'Debug' : 'Standard'}
+                View: {agentActivityDebug ? 'Debug' : 'Standard'}
               </button>
               <span
                 style={{
@@ -399,12 +445,15 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
             <div
               style={{
                 marginTop: 8,
-                padding: '8px 9px',
+                padding: '10px 10px',
                 borderRadius: 8,
-                border: '1px solid rgba(255,255,255,0.08)',
-                background: 'rgba(255,255,255,0.02)',
+                border: '1px solid rgba(76, 195, 255, 0.14)',
+                background: 'linear-gradient(180deg, rgba(76, 195, 255, 0.05), rgba(255,255,255,0.015))',
               }}
             >
+              <div style={{ fontSize: 10, letterSpacing: 0.35, textTransform: 'uppercase', opacity: 0.65, marginBottom: 4 }}>
+                Current Step
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
                 {agentLoopLiveStatus.status_chip && (
                   <span
@@ -478,9 +527,22 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
             </div>
           )}
 
-          {tapeEvents.length > 0 && (
+          {tapeIterationCards.length > 0 && (
             <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {tapeEvents.slice(0, 5).map((evt, idx) => {
+              <div style={{ fontSize: 10, letterSpacing: 0.35, textTransform: 'uppercase', opacity: 0.62 }}>
+                Step History ({tapeIterationCards.length})
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  maxHeight: 320,
+                  overflowY: 'auto',
+                  paddingRight: 2,
+                }}
+              >
+              {tapeIterationCards.map((evt, idx) => {
                 const status = evt.status || {};
                 const key = `${evt.seq ?? 'na'}-${idx}`;
                 const tsLabel = formatTapeTime(evt.timestamp_epoch_seconds);
@@ -569,6 +631,7 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
                   </div>
                 );
               })}
+              </div>
             </div>
           )}
         </div>

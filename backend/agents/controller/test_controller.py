@@ -1195,6 +1195,22 @@ def test_recommended_next_prefers_ir_update_when_global_placement_missing_and_no
     assert "open_artifact" not in joined
 
 
+def test_build_fix_skeleton_georef_missing_plss_anchor_uses_canonical_plss_anchor_example() -> None:
+    fix = _build_fix_skeleton(
+        reason_code="georef_missing_plss_anchor",
+        action_type_raw=ActionType.DRAFT_IR.value,
+        bootstrap_context={"dossier_id": "D1", "deed_text_artifact_ref": "artifacts/deed/d1.json"},
+    )
+    graph = (((fix.get("kernel_step") or {}).get("args") or {}).get("graph") if isinstance((fix.get("kernel_step") or {}).get("args"), dict) else None)
+    assert isinstance(graph, dict)
+    graph_meta = graph.get("metadata")
+    assert isinstance(graph_meta, dict)
+    assert "plss_anchor" in graph_meta
+    assert "plss" not in graph_meta or isinstance(graph_meta.get("plss_anchor"), dict)
+    note = str(graph_meta.get("authoring_note") or "").lower()
+    assert "plss_anchor" in note and "not plss" in note
+
+
 def test_safe_artifact_hint_ir_requires_full_plss_anchor_fields() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)

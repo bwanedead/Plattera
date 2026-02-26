@@ -805,9 +805,15 @@ def _extract_plss_anchor(graph: FeatureGraph) -> dict[str, Any] | None:
         candidate = metadata.get("plss_anchor")
         if isinstance(candidate, dict) and _plss_anchor_has_required_fields(candidate):
             return dict(candidate)
+        normalized = _normalize_alt_plss_anchor_shape(metadata)
+        if normalized is not None:
+            return normalized
     graph_candidate = (graph.metadata or {}).get("plss_anchor")
     if isinstance(graph_candidate, dict) and _plss_anchor_has_required_fields(graph_candidate):
         return dict(graph_candidate)
+    normalized_graph = _normalize_alt_plss_anchor_shape(graph.metadata or {})
+    if normalized_graph is not None:
+        return normalized_graph
     return None
 
 
@@ -821,6 +827,27 @@ def _plss_anchor_has_required_fields(anchor: Mapping[str, Any]) -> bool:
         "section_number",
     )
     return all(anchor.get(key) is not None for key in required)
+
+
+def _normalize_alt_plss_anchor_shape(metadata: Mapping[str, Any]) -> dict[str, Any] | None:
+    # Accept a common almost-correct model output shape:
+    # metadata.plss + metadata.jurisdiction.state -> canonical plss_anchor.
+    plss = metadata.get("plss")
+    if not isinstance(plss, dict):
+        return None
+    jurisdiction = metadata.get("jurisdiction") if isinstance(metadata.get("jurisdiction"), dict) else {}
+    township = plss.get("township") if isinstance(plss.get("township"), dict) else {}
+    range_obj = plss.get("range") if isinstance(plss.get("range"), dict) else {}
+    anchor = {
+        "state": jurisdiction.get("state"),
+        "township_number": township.get("number"),
+        "township_direction": township.get("direction"),
+        "range_number": range_obj.get("number"),
+        "range_direction": range_obj.get("direction"),
+        "section_number": plss.get("section"),
+        "principal_meridian": plss.get("principal_meridian"),
+    }
+    return anchor if _plss_anchor_has_required_fields(anchor) else None
 
 
 def _extract_tie_to_corner(graph: FeatureGraph) -> dict[str, Any] | None:
