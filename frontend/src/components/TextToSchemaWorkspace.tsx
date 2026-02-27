@@ -670,6 +670,7 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
           text: isVirtualDossier ? textToProcess : undefined,
           model: (state as any).agentLoopModel || 'gpt-5.2',
           requires_global_placement: true,
+          render_required: true,
           background: true,
         });
         const resolvedAgentLoopDossierId = String(start.dossier_id || effectiveDossierId);

@@ -40,8 +40,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--model", default="gpt-5.2")
     parser.add_argument("--max-iterations", type=int, default=None)
-    parser.add_argument("--global-placement", action="store_true", dest="requires_global_placement")
-    parser.add_argument("--render-required", action="store_true")
+    gp_group = parser.add_mutually_exclusive_group(required=False)
+    gp_group.add_argument("--global-placement", action="store_true", dest="requires_global_placement")
+    gp_group.add_argument("--no-global-placement", action="store_false", dest="requires_global_placement")
+    rr_group = parser.add_mutually_exclusive_group(required=False)
+    rr_group.add_argument("--render-required", action="store_true", dest="render_required")
+    rr_group.add_argument("--no-render-required", action="store_false", dest="render_required")
+    parser.set_defaults(requires_global_placement=None, render_required=None)
     parser.add_argument("--poll-interval", type=float, default=0.5)
     parser.add_argument("--no-live", action="store_true", help="Disable live agent tape output.")
     parser.add_argument(
@@ -95,15 +100,21 @@ async def _run_cli_async(args: argparse.Namespace, *, out: TextIO, err: TextIO) 
             "Provide one of --dossier-id, --finalized-title, --right-of-way, --text-file, --text, or --initial-ir-ref."
         )
 
+    request_kwargs: dict[str, Any] = {
+        "dossier_id": dossier_id,
+        "text": text,
+        "initial_ir_ref": args.initial_ir_ref,
+        "model": args.model,
+        "max_iterations": args.max_iterations,
+        "background": True,
+    }
+    if isinstance(args.requires_global_placement, bool):
+        request_kwargs["requires_global_placement"] = args.requires_global_placement
+    if isinstance(args.render_required, bool):
+        request_kwargs["render_required"] = args.render_required
+
     request = agent_loop.AgentLoopRunRequest(
-        dossier_id=dossier_id,
-        text=text,
-        initial_ir_ref=args.initial_ir_ref,
-        model=args.model,
-        max_iterations=args.max_iterations,
-        requires_global_placement=bool(args.requires_global_placement),
-        render_required=bool(args.render_required),
-        background=True,
+        **request_kwargs,
     )
 
     start = await agent_loop.start_agent_loop_run(request)

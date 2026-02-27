@@ -52,8 +52,8 @@ class AgentLoopRunRequest(BaseModel):
     initial_ir_ref: Optional[str] = None
     model: str = "gpt-5.2"
     max_iterations: Optional[int] = Field(default=None, ge=1, le=200)
-    requires_global_placement: bool = False
-    render_required: bool = False
+    requires_global_placement: bool = True
+    render_required: bool = True
     background: bool = True
 
 
