@@ -16,6 +16,9 @@
 - Controller tests: `.venv\scripts\activate.ps1; pytest backend/agents/controller -q`
 - CLI run (from `backend/`):
   `..\.venv\scripts\activate.ps1; python -m agents.controller.cli --dossier-id <ID> --model gpt-5-mini`
+- UI-parity agent-loop CLI (from `backend/`):
+  `..\.venv\scripts\activate.ps1; python -m api.agent_loop_cli --dossier-id <ID>`
+  or `..\.venv\scripts\activate.ps1; python -m api.agent_loop_cli --text-file <path-to-deed.txt>`
 
 ## Invariants
 - No controller autopilot sequences inside one step.

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 import logging
+import builtins
 import math
 
 from .pob_resolver import POBResolver
@@ -15,6 +16,31 @@ from .validator import ProfessionalGeoreferenceValidator
 from pipelines.mapping.projection.pipeline import ProjectionPipeline
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_debug_print(*args, **kwargs) -> None:
+    try:
+        builtins.print(*args, **kwargs)
+        return
+    except UnicodeEncodeError:
+        try:
+            safe_args = [
+                str(arg).encode("ascii", "backslashreplace").decode("ascii")
+                for arg in args
+            ]
+            builtins.print(*safe_args, **kwargs)
+            return
+        except Exception:
+            pass
+    except Exception:
+        pass
+    try:
+        logger.debug("GeoreferenceService debug print suppressed: %s", " ".join(str(arg) for arg in args)[:500])
+    except Exception:
+        pass
+
+
+print = _safe_debug_print  # type: ignore[assignment]
 
 
 class GeoreferenceService:

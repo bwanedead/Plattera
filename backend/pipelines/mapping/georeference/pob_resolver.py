@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 import logging
+import builtins
 
 from pipelines.mapping.plss.section_index import SectionIndex
 from pipelines.mapping.plss.plss_joiner import PLSSJoiner
@@ -19,6 +20,40 @@ from shapely.geometry import LineString, Point
 from math import atan2, degrees, hypot, sqrt
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_debug_print(*args, **kwargs) -> None:
+    """
+    Best-effort debug print that won't crash georeference on Windows code pages.
+
+    This module has many legacy debug `print()` calls (including emoji markers).
+    In some terminal/codepage contexts those prints raise UnicodeEncodeError and
+    abort georeference entirely. We preserve the debug output but fall back to an
+    ASCII-safe rendering when needed.
+    """
+    try:
+        builtins.print(*args, **kwargs)
+        return
+    except UnicodeEncodeError:
+        try:
+            safe_args = [
+                str(arg).encode("ascii", "backslashreplace").decode("ascii")
+                for arg in args
+            ]
+            builtins.print(*safe_args, **kwargs)
+            return
+        except Exception:
+            pass
+    except Exception:
+        pass
+    try:
+        logger.debug("POBResolver debug print suppressed: %s", " ".join(str(arg) for arg in args)[:500])
+    except Exception:
+        pass
+
+
+# Route local legacy debug prints through a Unicode-safe wrapper.
+print = _safe_debug_print  # type: ignore[assignment]
 
 
 class POBResolver:

@@ -9,6 +9,9 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Dict, Any, List
 import logging
+import hashlib
+from pathlib import Path
+import sys
 
 import time
 from utils.health_monitor import check_health as hm_check
@@ -38,6 +41,64 @@ class CleanupResponse(BaseModel):
     memory_after_mb: float
     memory_freed_mb: float
     errors: List[str] = []
+
+
+def _file_identity(path: Path) -> Dict[str, Any]:
+    out: Dict[str, Any] = {"path": str(path)}
+    try:
+        resolved = path.resolve()
+        out["resolved_path"] = str(resolved)
+    except Exception:
+        resolved = path
+    if not resolved.exists():
+        out["exists"] = False
+        return out
+    out["exists"] = True
+    try:
+        raw = resolved.read_bytes()
+        out["sha256"] = hashlib.sha256(raw).hexdigest()
+        out["size_bytes"] = len(raw)
+    except Exception as exc:
+        out["read_error"] = str(exc)[:200]
+    try:
+        stat = resolved.stat()
+        out["mtime_epoch_seconds"] = int(stat.st_mtime)
+    except Exception:
+        pass
+    return out
+
+
+@router.get("/runtime-identity")
+async def runtime_identity() -> Dict[str, Any]:
+    """
+    Runtime identity probe for proving UI and CLI are using the same backend code.
+    """
+    try:
+        from api.endpoints import agent_loop as agent_loop_endpoint
+        from agents.controller import controller as controller_module
+        from agent_kernel import tooling as tooling_module
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"runtime_identity_import_failed:{type(exc).__name__}:{exc}")
+
+    root = Path(__file__).resolve().parents[2]
+    files = {
+        "system_endpoint": Path(__file__),
+        "agent_loop_endpoint": Path(agent_loop_endpoint.__file__),
+        "controller_module": Path(controller_module.__file__),
+        "tooling_module": Path(tooling_module.__file__),
+    }
+
+    return {
+        "status": "success",
+        "process": {
+            "pid": os.getpid(),
+            "cwd": str(Path.cwd()),
+            "python_executable": sys.executable,
+            "platform": sys.platform,
+        },
+        "repo_root_guess": str(root),
+        "files": {name: _file_identity(path) for name, path in files.items()},
+    }
 
 
 _LAST_HEALTH_LOG_TS: float = 0.0

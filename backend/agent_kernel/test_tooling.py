@@ -202,6 +202,54 @@ def test_open_artifact_repair_view_includes_metesbounds_and_union_rewrite_hints(
         assert "Do not use geometric Union yet" in str(union["rewrite_hint"])
 
 
+def test_open_artifact_returns_ir_georef_readiness_repair_view() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "ir.json"
+        _write_json(
+            path,
+            {
+                "artifact_type": "ir",
+                "graph": {
+                    "graph_id": "g_ir_repair",
+                    "nodes": [
+                        {
+                            "id": "plss_frame",
+                            "kind": "frame",
+                            "metadata": {
+                                "plss": {
+                                    "state": "Wyoming",
+                                    "township": {"number": 14, "direction": "N"},
+                                    "range": {"number": 75, "direction": "W"},
+                                    "section": 2,
+                                }
+                            },
+                        },
+                        {
+                            "id": "parcel_region",
+                            "kind": "region",
+                            "geometry": {
+                                "type": "Polygon",
+                                "coordinates": [[[0, 0], [10, 0], [10, 5], [0, 0]]],
+                            },
+                            "metadata": {"primary": True},
+                        },
+                    ],
+                    "edges": [],
+                    "metadata": {},
+                },
+            },
+        )
+        result = CorpusArtifactOpener().open_artifact({"artifact_ref": {"artifact_path": str(path)}})
+        repair_view = result.get("repair_view")
+        assert isinstance(repair_view, dict)
+        assert repair_view["artifact_type"] == "ir"
+        georef = repair_view.get("georef_readiness")
+        assert isinstance(georef, dict)
+        assert georef["local_polygon_detected"] is True
+        assert georef["plss_anchor_detected"] is True
+        assert isinstance(georef.get("plss_candidates"), list)
+
+
 def test_draft_ir_proposer_persists_stub_artifact_ref() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -430,6 +478,335 @@ def test_extract_plss_anchor_accepts_alt_plss_shape_and_normalizes() -> None:
     assert anchor["range_number"] == 75
     assert anchor["range_direction"] == "W"
     assert anchor["section_number"] == 2
+
+
+def test_extract_plss_anchor_accepts_agent_style_plss_with_state_inside_plss_block() -> None:
+    from backend.agent_kernel.tooling import _extract_plss_anchor
+    from backend.feature_graph.models import FeatureGraph
+
+    graph = FeatureGraph.model_validate(
+        {
+            "graph_id": "g_plss_agent_style",
+            "nodes": [
+                {
+                    "id": "plss_frame",
+                    "kind": "frame",
+                    "metadata": {
+                        "frame_type": "plss",
+                        "plss": {
+                            "principal_meridian": "Sixth Principal Meridian",
+                            "state": "Wyoming",
+                            "county": "Albany",
+                            "township": {"number": 14, "direction": "N"},
+                            "range": {"number": 75, "direction": "W"},
+                            "section": 2,
+                            "aliquot": "SW1/4 of NW1/4",
+                        },
+                    },
+                }
+            ],
+            "edges": [],
+            "metadata": {},
+        }
+    )
+
+    anchor = _extract_plss_anchor(graph)
+    assert isinstance(anchor, dict)
+    assert anchor["state"] == "Wyoming"
+    assert anchor["township_number"] == 14
+    assert anchor["township_direction"] == "N"
+    assert anchor["range_number"] == 75
+    assert anchor["range_direction"] == "W"
+    assert anchor["section_number"] == 2
+    assert anchor["principal_meridian"] == "Sixth Principal Meridian"
+
+
+def test_extract_plss_anchor_accepts_annotation_compact_plss_strings() -> None:
+    from backend.agent_kernel.tooling import _extract_plss_anchor
+    from backend.feature_graph.models import FeatureGraph
+
+    graph = FeatureGraph.model_validate(
+        {
+            "graph_id": "g_plss_annotation_compact",
+            "nodes": [
+                {
+                    "id": "plss_note",
+                    "kind": "annotation",
+                    "metadata": {
+                        "plss": {
+                            "section": "2",
+                            "township": "14N",
+                            "range": "75W",
+                            "principal_meridian": "6th",
+                        },
+                        "state": "WY",
+                        "county": "Albany",
+                    },
+                }
+            ],
+            "edges": [],
+            "metadata": {},
+        }
+    )
+
+    anchor = _extract_plss_anchor(graph)
+    assert isinstance(anchor, dict)
+    assert anchor["state"] == "Wyoming"
+    assert anchor["township_number"] == 14
+    assert anchor["township_direction"] == "N"
+    assert anchor["range_number"] == 75
+    assert anchor["range_direction"] == "W"
+    assert anchor["section_number"] == 2
+
+
+def test_graph_mapping_quality_diagnostics_detects_placeholder_partial_and_explicit_tie() -> None:
+    from backend.agent_kernel.tooling import _graph_mapping_quality_diagnostics
+    from backend.feature_graph.models import FeatureGraph
+
+    graph = FeatureGraph.model_validate(
+        {
+            "graph_id": "g_quality",
+            "nodes": [
+                {
+                    "id": "pob1",
+                    "kind": "point",
+                    "metadata": {"note": "Tie to NW corner of Section 2, local placeholder POB for sketch"},
+                },
+                {
+                    "id": "boundary1",
+                    "kind": "curve",
+                    "label": "Parcel boundary (placeholder geometry)",
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[0, 0], [10, 0], [5, 5], [0, 0]],
+                    },
+                    "metadata": {"geometry_note": "placeholder partial sketch, not yet constructed as true traverse"},
+                },
+                {
+                    "id": "parcel2_stub",
+                    "kind": "annotation",
+                    "metadata": {"note": "Parcel 2 stub; deed text truncated in provided excerpt"},
+                },
+            ],
+            "edges": [],
+            "metadata": {"intent": "Bootstrap placeholder for partial deed"},
+        }
+    )
+
+    diag = _graph_mapping_quality_diagnostics(graph, tie_to_corner=None)
+
+    assert diag["placeholder_geometry_detected"] is True
+    assert diag["partial_plot_markers_detected"] is True
+    assert diag["partial_non_annotation_markers_detected"] is True
+    assert diag["explicit_tie_reference_detected"] is True
+    assert diag["tie_to_corner_provided"] is False
+    assert "boundary1" in diag["placeholder_nodes"]
+    assert "parcel2_stub" in diag["partial_annotation_stub_nodes"]
+
+
+def test_extract_tie_to_corner_accepts_point_of_beginning_alias_and_normalizes_keys() -> None:
+    from backend.agent_kernel.tooling import _extract_tie_to_corner
+    from backend.feature_graph.models import FeatureGraph
+
+    graph = FeatureGraph.model_validate(
+        {
+            "graph_id": "g_tie_alias",
+            "nodes": [
+                {
+                    "id": "pob_anchor",
+                    "kind": "point",
+                    "metadata": {
+                        "role": "point_of_beginning",
+                        "tie_to_corner": {
+                            "corner": "NW corner",
+                            "bearing": "N 4° 00' W.",
+                            "distance": {"value": "1638", "units": "feet"},
+                            "direction_mode": "corner from pob",
+                            "snap_to_boundary": False,
+                        },
+                    },
+                }
+            ],
+            "edges": [],
+            "metadata": {},
+        }
+    )
+
+    tie = _extract_tie_to_corner(graph)
+    assert isinstance(tie, dict)
+    assert tie["corner_label"] == "NW corner"
+    assert tie["bearing_raw"] == "N 4° 00' W."
+    assert tie["distance_value"] == 1638
+    assert tie["distance_units"] == "feet"
+    assert tie["tie_direction"] == "corner_bears_from_pob"
+    assert tie["project_to_boundary"] is False
+
+
+def test_extract_tie_to_corner_accepts_graph_starting_point_nested_pob_tie_alias() -> None:
+    from backend.agent_kernel.tooling import _extract_tie_to_corner
+    from backend.feature_graph.models import FeatureGraph
+
+    graph = FeatureGraph.model_validate(
+        {
+            "graph_id": "g_tie_graph_meta",
+            "nodes": [],
+            "edges": [],
+            "metadata": {
+                "starting_point": {
+                    "pob": {
+                        "tie": {
+                            "corner_label": "NW corner Sec 2",
+                            "bearing_raw": "S 89°30' E",
+                            "distance_ft": 50,
+                            "tieDirection": "pob from corner",
+                        }
+                    }
+                }
+            },
+        }
+    )
+
+    tie = _extract_tie_to_corner(graph)
+    assert isinstance(tie, dict)
+    assert tie["corner_label"] == "NW corner Sec 2"
+    assert tie["bearing_raw"] == "S 89°30' E"
+    assert tie["distance_value"] == 50
+    assert tie["distance_units"] == "feet"
+    assert tie["tie_direction"] == "pob_bears_from_corner"
+
+
+def test_extract_primary_local_polygon_vertices_skips_partial_marked_geometry() -> None:
+    from backend.agent_kernel.tooling import _extract_primary_local_polygon_vertices
+    from backend.feature_graph.models import FeatureGraph
+
+    graph = FeatureGraph.model_validate(
+        {
+            "graph_id": "g_complete_only",
+            "nodes": [
+                {
+                    "id": "parcel2_partial",
+                    "kind": "region",
+                    "label": "Parcel 2 partial",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[[0, 0], [10, 0], [0, 10], [0, 0]]],
+                    },
+                    "metadata": {"primary": True},
+                },
+                {
+                    "id": "parcel1_complete",
+                    "kind": "region",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[[0, 0], [20, 0], [5, 15], [0, 0]]],
+                    },
+                },
+            ],
+            "edges": [],
+            "metadata": {},
+        }
+    )
+
+    coords = _extract_primary_local_polygon_vertices(graph)
+    assert isinstance(coords, list)
+    assert len(coords) == 3
+    assert coords[1]["x"] == 20.0
+    assert coords[2]["y"] == 15.0
+
+
+def test_mapping_quality_issues_flags_placeholder_and_unresolved_tie() -> None:
+    from backend.agent_kernel.tooling import _mapping_quality_issues_from_georef_payload
+
+    issues = _mapping_quality_issues_from_georef_payload(
+        {
+            "anchor_info": {"pob_method": "section_centroid"},
+            "agent_kernel_quality": {
+                "placeholder_geometry_detected": True,
+                "placeholder_nodes": ["boundary_parcel1"],
+                "partial_plot_markers_detected": True,
+                "partial_marker_nodes": ["parcel2_stub"],
+                "explicit_tie_reference_detected": True,
+                "explicit_tie_reference_nodes": ["pob_parcel1"],
+                "tie_to_corner_provided": False,
+            },
+        }
+    )
+
+    joined = " | ".join(issues)
+    assert "agent_kernel_placeholder_geometry_detected" in joined
+    assert "agent_kernel_unresolved_tie_to_corner_reference" in joined
+    assert "agent_kernel_section_centroid_anchor_fallback" in joined
+    assert "agent_kernel_partial_plot_markers_present" not in joined
+
+
+def test_graph_metadata_partial_note_is_not_treated_as_non_annotation_partial_marker() -> None:
+    from backend.agent_kernel.tooling import _graph_mapping_quality_diagnostics
+    from backend.feature_graph.models import FeatureGraph
+
+    graph = FeatureGraph.model_validate(
+        {
+            "graph_id": "g_graph_meta_partial",
+            "nodes": [
+                {
+                    "id": "parcel2_unmapped_annotation",
+                    "kind": "annotation",
+                    "metadata": {"note": "Parcel 2 incomplete/truncated in excerpt"},
+                }
+            ],
+            "edges": [],
+            "metadata": {"description_note": "Partial deed excerpt; map only fully stated parcel."},
+        }
+    )
+
+    diag = _graph_mapping_quality_diagnostics(graph, tie_to_corner=None)
+    assert diag["partial_plot_markers_detected"] is True
+    assert diag["partial_non_annotation_markers_detected"] is False
+    assert "<graph.metadata:description_note>" in diag["partial_annotation_stub_nodes"]
+
+
+def test_validator_allows_tie_anchored_override_for_centroid_proximity_only_issues() -> None:
+    from backend.agent_kernel.tooling import _validator_allows_tie_anchored_override
+
+    georef_payload = {
+        "anchor_info": {"pob_method": "corner_with_tie_geodesic"},
+        "agent_kernel_quality": {"tie_to_corner_provided": True},
+    }
+    validator_result = {
+        "success": False,
+        "issues": ["Polygon centroid 0.8km from section center (tolerance: 0.8km)"],
+        "validation_checks": {
+            "centroid_within_section_tolerance": False,
+            "vertices_near_section": False,
+            "latitude_precision_ok": True,
+        },
+    }
+
+    assert _validator_allows_tie_anchored_override(
+        georef_payload=georef_payload,
+        validator_result=validator_result,
+    ) is True
+
+
+def test_validator_does_not_override_tie_when_non_centroid_issue_present() -> None:
+    from backend.agent_kernel.tooling import _validator_allows_tie_anchored_override
+
+    georef_payload = {
+        "anchor_info": {"pob_method": "corner_with_tie_geodesic"},
+        "agent_kernel_quality": {"tie_to_corner_provided": True},
+    }
+    validator_result = {
+        "success": False,
+        "issues": ["polygon_self_intersection_detected"],
+        "validation_checks": {
+            "centroid_within_section_tolerance": False,
+            "polygon_valid": False,
+        },
+    }
+
+    assert _validator_allows_tie_anchored_override(
+        georef_payload=georef_payload,
+        validator_result=validator_result,
+    ) is False
 
 
 class _FakeRetrievalEngine:

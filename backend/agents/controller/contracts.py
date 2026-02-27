@@ -298,6 +298,25 @@ class _ValidateArgs(BaseModel):
         return self
 
 
+class _RenderArgs(BaseModel):
+    georef_artifact_ref: str | None = Field(default=None, max_length=512)
+    georeference_artifact_ref: str | None = Field(default=None, max_length=512)
+    width: int | None = Field(default=None, ge=128, le=2400)
+    height: int | None = Field(default=None, ge=128, le=2400)
+
+    @model_validator(mode="after")
+    def _normalize_aliases(self) -> "_RenderArgs":
+        if not self.georef_artifact_ref and self.georeference_artifact_ref:
+            self.georef_artifact_ref = self.georeference_artifact_ref
+        return self
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_RenderArgs":
+        if not self.georef_artifact_ref:
+            raise ValueError("render_requires_georef_artifact_ref")
+        return self
+
+
 class _ProposePatchArgs(BaseModel):
     ir_artifact_ref: str | None = Field(default=None, max_length=512)
     retrieval_artifact_ref: str | None = Field(default=None, max_length=512)
@@ -327,6 +346,7 @@ _ACTION_ARG_MODELS: dict[ActionType, type[BaseModel]] = {
     ActionType.BUNDLE: _BundleArgs,
     ActionType.GEOREFERENCE: _GeoreferenceArgs,
     ActionType.VALIDATE: _ValidateArgs,
+    ActionType.RENDER: _RenderArgs,
     ActionType.PROPOSE_PATCH: _ProposePatchArgs,
     ActionType.SUMMARIZE_STATUS: _SummarizeStatusArgs,
     ActionType.UPSERT_DEED_SPAN_INDEX: _UpsertDeedSpanIndexArgs,
@@ -531,6 +551,7 @@ _TOOL_REQUIRED_FIELDS: dict[ActionType, list[str]] = {
     ActionType.DECLARE_DONE: ["declare_done (artifact_refs + evidence_links + accepted_deviations)"],
     ActionType.GEOREFERENCE: ["bundle_artifact_ref | ir_artifact_ref"],
     ActionType.VALIDATE: ["georef_artifact_ref"],
+    ActionType.RENDER: ["georef_artifact_ref"],
     ActionType.PROPOSE_PATCH: ["ir_artifact_ref"],
     ActionType.UPSERT_DEED_SPAN_INDEX: ["deed_text_artifact_ref", "deed_fingerprint", "upserts[]"],
 }
@@ -540,6 +561,7 @@ _TOOL_SCHEMA_REQUIRED_KEYS: dict[ActionType, list[str]] = {
     ActionType.OPEN_TEXT_SPANS: ["deed_text_artifact_ref"],
     ActionType.UPSERT_DEED_SPAN_INDEX: ["deed_text_artifact_ref", "deed_fingerprint", "upserts"],
     ActionType.RETRIEVE_EVIDENCE: ["query"],
+    ActionType.RENDER: ["georef_artifact_ref"],
 }
 
 
@@ -634,12 +656,58 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
                 "graph_id": "g_min_draft_001",
                 "nodes": [
                     {
-                        "id": "start_point",
+                        "id": "plss_frame",
+                        "kind": "frame",
+                        "metadata": {
+                            "plss_anchor": {
+                                "state": "Wyoming",
+                                "township_number": 14,
+                                "township_direction": "N",
+                                "range_number": 75,
+                                "range_direction": "W",
+                                "section_number": 2,
+                                "principal_meridian": "Sixth Principal Meridian",
+                            }
+                        },
+                    },
+                    {
+                        "id": "pob_point",
                         "kind": "point",
                         "geometry": {"type": "Point", "coordinates": [0.0, 0.0]},
+                        "metadata": {
+                            "role": "pob",
+                            "tie_to_corner": {
+                                "corner_label": "NW corner Sec 2",
+                                "bearing_raw": "N 4° 00' W.",
+                                "distance_value": 1638,
+                                "distance_units": "feet",
+                                "tie_direction": "corner_bears_from_pob",
+                            },
+                        },
+                    },
+                    {
+                        "id": "parcel1_boundary",
+                        "kind": "curve",
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": [[0.0, 0.0], [120.0, 0.0], [40.0, 80.0], [0.0, 0.0]],
+                        },
+                    },
+                    {
+                        "id": "parcel1_region",
+                        "kind": "region",
+                        "op_expr": {"op_name": "Close", "operands": ["parcel1_boundary"]},
+                    },
+                    {
+                        "id": "parcel2_stub",
+                        "kind": "annotation",
+                        "metadata": {"note": "Parcel 2 incomplete/truncated in deed excerpt; preserve as stub until fully stated."},
                     }
                 ],
-                "edges": [],
+                "edges": [
+                    {"source_id": "pob_point", "target_id": "parcel1_boundary", "edge_type": "anchored_to"},
+                    {"source_id": "parcel1_boundary", "target_id": "parcel1_region", "edge_type": "depends_on"},
+                ],
                 "metadata": {"source": "deed"},
             },
         }
@@ -664,6 +732,8 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
         return {"bundle_artifact_ref": "<bundle-artifact-ref>"}
     if action == ActionType.VALIDATE:
         return {"georef_artifact_ref": "<georef-artifact-ref>"}
+    if action == ActionType.RENDER:
+        return {"georef_artifact_ref": "<georef-artifact-ref>", "width": 900, "height": 700}
     if action == ActionType.PROPOSE_PATCH:
         return {"ir_artifact_ref": ir_ref}
     if action == ActionType.UPSERT_DEED_SPAN_INDEX:
@@ -704,6 +774,9 @@ def _common_mistakes_for_action(action: ActionType, *, reason_code: str | None) 
         return [
             "DRAFT_IR must include graph (top-level tool parameter, FeatureGraph JSON); deed refs are provenance, not auto-drafting inputs.",
             "Minimum viable graph: graph_id + at least one node + metadata.source='deed'.",
+            "For georeference readiness, prefer a frame node with metadata.plss_anchor (flat canonical keys) plus explicit local Polygon/closed LineString geometry.",
+            "If deed ties the POB to a PLSS corner/line, encode point.metadata.role='pob' + point.metadata.tie_to_corner using canonical keys (corner_label, bearing_raw, distance_value, distance_units, tie_direction).",
+            "For partial deeds, include only fully stated parcel geometry and keep incomplete parcels as annotation stubs (do not fabricate their boundaries).",
         ]
     if action == ActionType.DECLARE_DONE:
         return [
@@ -714,6 +787,11 @@ def _common_mistakes_for_action(action: ActionType, *, reason_code: str | None) 
         return [
             "Physics tools require an IR artifact ref/path.",
             "Use progress.latest_refs.ir_ref after a successful DRAFT_IR or IR update.",
+        ]
+    if action == ActionType.RENDER:
+        return [
+            "RENDER requires a georeference artifact ref (not IR/bundle refs).",
+            "Use progress.latest_refs.georef_ref after successful GEOREFERENCE.",
         ]
     if action == ActionType.RETRIEVE_EVIDENCE:
         return [

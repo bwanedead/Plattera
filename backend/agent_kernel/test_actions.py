@@ -21,6 +21,7 @@ from backend.agent_kernel.actions import (
     Georeferencer,
     Judge,
     PatchProposer,
+    Renderer,
     StatusSummarizer,
     Validator,
 )
@@ -38,6 +39,7 @@ class _DeterministicServices(
     Bundler,
     Georeferencer,
     Validator,
+    Renderer,
     PatchProposer,
     StatusSummarizer,
 ):
@@ -77,6 +79,10 @@ class _DeterministicServices(
         del inputs
         return ValidationInline(passed=True, reason_code="ok", checks={"error_count": 0})
 
+    def render(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+        del inputs
+        return ArtifactRef(artifact_path="artifacts/render/render-001.json")
+
     def propose_patch(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
         del inputs
         return {"patch": "noop"}
@@ -98,6 +104,7 @@ def _build_executor() -> ActionExecutor:
         bundler=services,
         georeferencer=services,
         validator=services,
+        renderer=services,
         patch_proposer=services,
         status_summarizer=services,
     )
@@ -117,6 +124,7 @@ def test_executor_supports_required_deterministic_actions() -> None:
         ActionType.BUNDLE,
         ActionType.GEOREFERENCE,
         ActionType.VALIDATE,
+        ActionType.RENDER,
     )
 
     for index, action in enumerate(actions, start=1):

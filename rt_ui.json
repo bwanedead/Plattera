@@ -1,0 +1,44 @@
+{
+  "status": "success",
+  "process": {
+    "pid": 9860,
+    "cwd": "C:\\projects\\Plattera\\backend",
+    "python_executable": "C:\\projects\\Plattera\\.venv\\Scripts\\python.exe",
+    "platform": "win32"
+  },
+  "repo_root_guess": "C:\\projects\\Plattera\\backend",
+  "files": {
+    "system_endpoint": {
+      "path": "C:\\projects\\Plattera\\backend\\api\\endpoints\\system.py",
+      "resolved_path": "C:\\projects\\Plattera\\backend\\api\\endpoints\\system.py",
+      "exists": true,
+      "sha256": "a23165aebbe50c38e73a962b09725e2e93d1f6fb256f5df67f7ea9acad55b24f",
+      "size_bytes": 10531,
+      "mtime_epoch_seconds": 1772150455
+    },
+    "agent_loop_endpoint": {
+      "path": "C:\\projects\\Plattera\\backend\\api\\endpoints\\agent_loop.py",
+      "resolved_path": "C:\\projects\\Plattera\\backend\\api\\endpoints\\agent_loop.py",
+      "exists": true,
+      "sha256": "9ba51270348908af7bc6321786099c7262e83b2843bda6056a16bf16b8d27e30",
+      "size_bytes": 23683,
+      "mtime_epoch_seconds": 1772064954
+    },
+    "controller_module": {
+      "path": "C:\\projects\\Plattera\\backend\\agents\\controller\\controller.py",
+      "resolved_path": "C:\\projects\\Plattera\\backend\\agents\\controller\\controller.py",
+      "exists": true,
+      "sha256": "e8d6002cfe85e5e7b0a70c2a154d2b9e2f9f85ac2f072d6ef3b0e1ad2694db11",
+      "size_bytes": 163925,
+      "mtime_epoch_seconds": 1772148921
+    },
+    "tooling_module": {
+      "path": "C:\\projects\\Plattera\\backend\\agent_kernel\\tooling.py",
+      "resolved_path": "C:\\projects\\Plattera\\backend\\agent_kernel\\tooling.py",
+      "exists": true,
+      "sha256": "7387b567354339d9e34e3459128025f6f4b4c776a84a8375cdb9e1cc90e1d02b",
+      "size_bytes": 100014,
+      "mtime_epoch_seconds": 1772147871
+    }
+  }
+}

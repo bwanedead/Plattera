@@ -52,6 +52,7 @@ class ActionType(str, Enum):
     BUNDLE = "bundle"
     GEOREFERENCE = "georeference"
     VALIDATE = "validate"
+    RENDER = "render"
     PROPOSE_PATCH = "propose_patch"
     SUMMARIZE_STATUS = "summarize_status"
     UPSERT_DEED_SPAN_INDEX = "upsert_deed_span_index"
@@ -148,6 +149,7 @@ class KernelLatestRefs(BaseModel):
     bundle_ref: Optional[dict[str, object]] = None
     georef_ref: Optional[dict[str, object]] = None
     validate_ref: Optional[dict[str, object]] = None
+    render_ref: Optional[dict[str, object]] = None
     retrieval_ref: Optional[dict[str, object]] = None
     deed_span_index_ref: Optional[dict[str, object]] = None
 

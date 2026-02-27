@@ -16,6 +16,7 @@ from backend.agent_kernel.actions import (
     Compiler,
     DraftIRProposer,
     Judge,
+    Renderer,
     Validator,
 )
 from backend.agent_kernel.models import (
@@ -32,7 +33,7 @@ from backend.agent_kernel.session import KernelSessionManager
 from backend.agent_kernel import session as kernel_session_module
 
 
-class _DeterministicServices(Compiler, Judge, Bundler, Validator):
+class _DeterministicServices(Compiler, Judge, Bundler, Validator, Renderer):
     def compile(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/compile/compile-001.json")
@@ -48,6 +49,10 @@ class _DeterministicServices(Compiler, Judge, Bundler, Validator):
     def validate(self, inputs: Mapping[str, Any]) -> ValidationInline:
         del inputs
         return ValidationInline(passed=True, reason_code="ok", checks={})
+
+    def render(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+        del inputs
+        return ArtifactRef(artifact_path="artifacts/render/render-001.json")
 
 
 class _RefusingDraftIR(DraftIRProposer):
@@ -113,6 +118,7 @@ def _session_manager() -> tuple[KernelSessionManager, _InMemorySessionPersistenc
             judge=services,
             bundler=services,
             validator=services,
+            renderer=services,
         )
     )
     persistence = _InMemorySessionPersistence()
@@ -138,6 +144,7 @@ def test_start_session_initializes_without_running_tools() -> None:
     assert len(result.tool_menu) > 0
     assert ActionType.COMPILE.value in result.tool_menu
     assert ActionType.DECLARE_DONE.value in result.tool_menu
+    assert ActionType.RENDER.value in result.tool_menu
     assert result.dashboard is not None
 
 
@@ -183,6 +190,7 @@ def test_start_session_tool_menu_is_capability_aware_for_default_manager() -> No
     assert ActionType.RETRIEVE_EVIDENCE.value in result.tool_menu
     assert ActionType.COMPILE.value in result.tool_menu
     assert ActionType.JUDGE.value in result.tool_menu
+    assert ActionType.RENDER.value in result.tool_menu
     assert ActionType.DECLARE_DONE.value in result.tool_menu
 
 
@@ -397,6 +405,68 @@ def test_declare_done_refuses_until_claimability_is_satisfied_then_succeeds() ->
     assert accepted.execution_state == StepExecutionState.EXECUTED
     assert accepted.terminal is not None
     assert accepted.terminal.stop_reason == StopReason.COMPLETED
+
+
+def test_declare_done_requires_render_when_goal_render_required() -> None:
+    manager, _ = _session_manager()
+    started = manager.start_session(
+        _start_request().model_copy(
+            update={
+                "goal": KernelGoal(
+                    requires_global_placement=False,
+                    render_required=True,
+                    objective="session test render",
+                )
+            }
+        )
+    )
+    assert started.session_id is not None
+
+    manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-r-c",
+            action_type=ActionType.COMPILE,
+            inputs={},
+        )
+    )
+    manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-r-j",
+            action_type=ActionType.JUDGE,
+            inputs={},
+        )
+    )
+    refused = manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-r-d0",
+            action_type=ActionType.DECLARE_DONE,
+            inputs={},
+        )
+    )
+    assert refused.execution_state == StepExecutionState.REFUSED
+    assert refused.refusal is not None
+    assert "has_render" in refused.refusal.missing_inputs
+
+    manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-r-render",
+            action_type=ActionType.RENDER,
+            inputs={"georef_artifact_ref": "artifacts/georef/g-001.json"},
+        )
+    )
+    accepted = manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-r-d1",
+            action_type=ActionType.DECLARE_DONE,
+            inputs={},
+        )
+    )
+    assert accepted.execution_state == StepExecutionState.EXECUTED
 
 
 def test_declare_done_acceptance_marks_final_feature_graph_pointers(monkeypatch) -> None:

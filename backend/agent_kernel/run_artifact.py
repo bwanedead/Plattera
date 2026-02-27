@@ -68,6 +68,7 @@ class RunArtifact(BaseModel):
     request_id: str = Field(..., min_length=1)
     session_id: Optional[str] = None
     requires_global_placement: bool = False
+    render_required: bool = False
     created_at_epoch_seconds: Optional[int] = None
     session_budgets: Dict[str, int] = Field(default_factory=dict)
     ir_artifact_ref: Optional[ArtifactRef] = None
@@ -76,6 +77,7 @@ class RunArtifact(BaseModel):
     bundle_artifact_ref: Optional[ArtifactRef] = None
     georeference_artifact_ref: Optional[ArtifactRef] = None
     validate_artifact_ref: Optional[ArtifactRef] = None
+    render_artifact_ref: Optional[ArtifactRef] = None
     retrieval_artifact_ref: Optional[ArtifactRef] = None
     deed_span_index_artifact_ref: Optional[ArtifactRef] = None
     idempotency_ledger: Dict[str, Dict[str, Any]] = Field(default_factory=dict)

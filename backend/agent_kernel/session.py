@@ -43,6 +43,7 @@ from .tooling import (
     FeatureGraphBundlerTool,
     FeatureGraphCompilerTool,
     FeatureGraphGeoreferenceTool,
+    FeatureGraphRenderTool,
     FeatureGraphJudgeTool,
     FeatureGraphValidateTool,
     RetrievalEvidenceTool,
@@ -85,6 +86,7 @@ class KernelSessionManager:
                 bundler=FeatureGraphBundlerTool(),
                 georeferencer=FeatureGraphGeoreferenceTool(),
                 validator=FeatureGraphValidateTool(),
+                renderer=FeatureGraphRenderTool(),
             )
         )
         self._persistence_service = persistence_service
@@ -122,6 +124,7 @@ class KernelSessionManager:
             request_id=request.request_id,
             session_id=session_id,
             requires_global_placement=request.goal.requires_global_placement,
+            render_required=request.goal.render_required,
             created_at_epoch_seconds=int(time()),
             session_budgets=request.budgets.model_dump(mode="json"),
             ir_artifact_ref=(
@@ -346,6 +349,7 @@ class KernelSessionManager:
         claimable_ready, missing = evaluate_claimability(
             run_artifact=run_artifact,
             requires_global_placement=run_artifact.requires_global_placement,
+            render_required=run_artifact.render_required,
         )
         step_id = f"step-{len(run_artifact.steps) + 1:03d}"
         if not claimable_ready:
@@ -632,6 +636,7 @@ def _build_dashboard(
         bundle_ref=_dump_ref(run_artifact.bundle_artifact_ref),
         georef_ref=_dump_ref(run_artifact.georeference_artifact_ref),
         validate_ref=_latest_validate_ref(run_artifact),
+        render_ref=_dump_ref(run_artifact.render_artifact_ref),
         retrieval_ref=_dump_ref(run_artifact.retrieval_artifact_ref),
         deed_span_index_ref=_dump_ref(run_artifact.deed_span_index_artifact_ref),
     )
@@ -645,6 +650,7 @@ def _build_dashboard(
     claimable_ready, missing_claimability = evaluate_claimability(
         run_artifact=run_artifact,
         requires_global_placement=run_artifact.requires_global_placement,
+        render_required=run_artifact.render_required,
     )
     budgets_remaining = _compute_budgets_remaining(run_artifact, budgets)
     return KernelDashboard(
@@ -713,6 +719,7 @@ def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord) -> None:
                 run_artifact.bundle_artifact_ref = None
                 run_artifact.georeference_artifact_ref = None
                 run_artifact.validate_artifact_ref = None
+                run_artifact.render_artifact_ref = None
     if step.action == ActionType.RETRIEVE_EVIDENCE:
         run_artifact.retrieval_artifact_ref = _extract_ref(step.outputs, "retrieval_artifact_ref")
     if step.action == ActionType.UPSERT_DEED_SPAN_INDEX:
@@ -726,8 +733,11 @@ def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord) -> None:
     if step.action == ActionType.GEOREFERENCE:
         run_artifact.georeference_artifact_ref = _extract_ref(step.outputs, "georeference_artifact_ref")
         run_artifact.validate_artifact_ref = None
+        run_artifact.render_artifact_ref = None
     if step.action == ActionType.VALIDATE:
         run_artifact.validate_artifact_ref = _extract_ref(step.outputs, "validate_artifact_ref")
+    if step.action == ActionType.RENDER:
+        run_artifact.render_artifact_ref = _extract_ref(step.outputs, "render_artifact_ref")
 
 
 def _extract_ref(outputs: dict[str, object], key: str) -> ArtifactRef | None:

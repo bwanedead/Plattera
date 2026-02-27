@@ -39,7 +39,10 @@ from backend.agents.controller.controller import (
     _controller_proposal_log_payload,
     _ir_health_from_hint,
     _recommended_next_moves,
+    _refusal_repair_request,
     _safe_artifact_hint,
+    _semantic_span_repair_signature_for_context,
+    _semantic_span_repair_thrash_refusal,
     run_controller_loop,
 )
 from backend.agents.controller.contracts import KernelStepProposal, kernel_step_tool_spec
@@ -1152,6 +1155,221 @@ def test_repeated_open_artifact_same_ref_triggers_inspection_thrash_brake() -> N
     )
 
 
+def test_repeated_open_text_spans_same_args_triggers_span_thrash_brake() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {
+                "structured_data": {
+                    "action_type": "open_text_spans",
+                    "idempotency_key": "k1",
+                    "args": {
+                        "deed_text_artifact_ref": "artifacts/deed/d1.json",
+                        "anchors": [{"start_anchor": "BEGINNING AT", "end_anchor": "POINT OF BEGINNING"}],
+                    },
+                    "why": "read tie language",
+                }
+            },
+            {
+                "structured_data": {
+                    "action_type": "open_text_spans",
+                    "idempotency_key": "k2",
+                    "args": {
+                        "deed_text_artifact_ref": "artifacts/deed/d1.json",
+                        "anchors": [{"start_anchor": "BEGINNING AT", "end_anchor": "POINT OF BEGINNING"}],
+                    },
+                    "why": "read again",
+                }
+            },
+            {
+                "structured_data": {
+                    "action_type": "open_text_spans",
+                    "idempotency_key": "k3",
+                    "args": {
+                        "deed_text_artifact_ref": "artifacts/deed/d1.json",
+                        "anchors": [{"start_anchor": "BEGINNING AT", "end_anchor": "POINT OF BEGINNING"}],
+                    },
+                    "why": "read again",
+                }
+            },
+        ]
+    )
+    dash = _dashboard()
+    dash.latest_refs = KernelLatestRefs(
+        ir_ref={"artifact_path": "artifacts/ir/ir-001.json"},
+        judge_ref={"artifact_path": "artifacts/judge/j1.json"},
+    )
+    step_result = KernelStepResult(
+        session_id="controller-req-001::run-001",
+        idempotency_key="k-open-spans",
+        execution_state=StepExecutionState.EXECUTED,
+        step_record={"step_id": "step-open-spans"},
+        refusal=None,
+        dashboard=dash,
+        terminal=None,
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.OPEN_TEXT_SPANS.value],
+            dashboard=dash,
+            budgets_remaining=dash.budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[step_result, step_result, step_result],
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=3,
+    )
+
+    assert len(manager.step_calls) == 1
+    transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
+    assert any(
+        e.get("event_type") == "controller_refusal"
+        and isinstance(e.get("payload"), dict)
+        and isinstance(e.get("payload", {}).get("refusal"), dict)
+        and e.get("payload", {}).get("refusal", {}).get("reason_code") == "repeated_span_open_no_progress"
+        for e in transcript["events"]
+    )
+
+
+def test_semantic_span_repair_signature_detects_centroid_tie_loop_context() -> None:
+    sig = _semantic_span_repair_signature_for_context(
+        {
+            "progress": {
+                "latest_refs": {
+                    "ir_ref": "artifacts/ir/i1.json",
+                    "validate_ref": "artifacts/validate/v1.json",
+                    "deed_span_index_ref": None,
+                },
+                "map_sanity_excerpt": {
+                    "validate_top_issues": [
+                        "agent_kernel_section_centroid_anchor_fallback",
+                        "agent_kernel_unresolved_tie_to_corner_reference",
+                    ]
+                },
+            }
+        }
+    )
+    assert isinstance(sig, str)
+    assert "section_centroid_anchor_fallback" in sig
+    assert "unresolved_tie_to_corner" in sig
+
+
+def test_semantic_span_repair_thrash_refusal_triggers_after_repeated_reads() -> None:
+    context_packet = {
+        "progress": {
+            "latest_refs": {
+                "ir_ref": "artifacts/ir/i1.json",
+                "validate_ref": "artifacts/validate/v1.json",
+            },
+            "map_sanity_excerpt": {
+                "validate_top_issues": [
+                    "agent_kernel_section_centroid_anchor_fallback",
+                    "agent_kernel_unresolved_tie_to_corner_reference",
+                ]
+            },
+        }
+    }
+    sig = _semantic_span_repair_signature_for_context(context_packet)
+    assert isinstance(sig, str)
+    refusal = _semantic_span_repair_thrash_refusal(
+        action_type=ActionType.OPEN_TEXT_SPANS,
+        context_packet=context_packet,
+        repeated_signature=sig,
+        repeated_count=2,
+    )
+    assert refusal is not None
+    assert refusal[0].reason_code == "semantic_repair_span_loop_no_progress"
+
+
+def test_refusal_repair_request_overrides_semantic_span_loop_to_draft_ir() -> None:
+    req = _refusal_repair_request(
+        action_type_raw=ActionType.OPEN_TEXT_SPANS.value,
+        refusal=KernelRefusal(reason_code="semantic_repair_span_loop_no_progress", retryable=True),
+        bootstrap_context={"dossier_id": "D1", "deed_text_artifact_ref": "artifacts/deed/d1.json"},
+        context_inputs={
+            "dossier_id": "D1",
+            "deed_text_artifact_ref": "artifacts/deed/d1.json",
+            "deed_span_index_ref": None,
+        },
+    )
+    assert isinstance(req, dict)
+    assert req.get("action_type") == ActionType.DRAFT_IR.value
+    example = req.get("minimal_working_example")
+    assert isinstance(example, dict)
+    assert isinstance(example.get("graph"), dict)
+
+
+def test_redundant_compile_is_refused_before_kernel_step() -> None:
+    llm = _FakeLLM(
+        responses=[
+            {
+                "structured_data": {
+                    "action_type": "compile",
+                    "idempotency_key": "k1",
+                    "args": {"ir_artifact_ref": "artifacts/ir/ir-001.json"},
+                    "why": "compile again",
+                }
+            }
+        ]
+    )
+    dash = _dashboard()
+    dash.latest_refs = KernelLatestRefs(
+        ir_ref={"artifact_path": "artifacts/ir/ir-001.json"},
+        compile_ref={"artifact_path": "artifacts/compile/c-001.json"},
+    )
+    terminal = TerminalOutcome(
+        terminal_outcome=TerminalOutcomeKind.FAILED,
+        stop_reason=StopReason.BUDGET_EXCEEDED,
+        success=False,
+        reason_code="controller_iterations_exhausted_or_parse_failed",
+    )
+    manager = _FakeSessionManager(
+        start_result=KernelSessionStartResult(
+            session_id="controller-req-001::run-001",
+            run_id="run-001",
+            run_artifact_ref="in-memory://run-001",
+            tool_menu=[ActionType.COMPILE.value],
+            dashboard=dash,
+            budgets_remaining=dash.budgets_remaining,
+            refusal=None,
+        ),
+        step_results=[
+            KernelStepResult(
+                session_id="controller-req-001::run-001",
+                idempotency_key="unused",
+                execution_state=StepExecutionState.EXECUTED,
+                step_record={"step_id": "step-001"},
+                refusal=None,
+                dashboard=dash,
+                terminal=terminal,
+            )
+        ],
+    )
+
+    result = run_controller_loop(
+        session_manager=manager,  # type: ignore[arg-type]
+        llm_client=llm,  # type: ignore[arg-type]
+        start_request=_start_request(),
+        max_iterations=1,
+    )
+
+    assert len(manager.step_calls) == 0
+    transcript = json.loads(Path(result.transcript_artifact_ref).read_text(encoding="utf-8"))
+    assert any(
+        e.get("event_type") == "controller_refusal"
+        and isinstance(e.get("payload"), dict)
+        and e.get("payload", {}).get("refusal", {}).get("reason_code") == "compile_already_current"
+        for e in transcript["events"]
+    )
+
+
 def test_open_text_spans_autofill_supplies_deed_ref_and_span_index_ref() -> None:
     filled, fields = _autofill_known_args(
         action_type=ActionType.OPEN_TEXT_SPANS,
@@ -1193,6 +1411,52 @@ def test_recommended_next_prefers_ir_update_when_global_placement_missing_and_no
     assert "re-bundle" in joined
     assert "georeference" in joined
     assert "open_artifact" not in joined
+
+
+def test_recommended_next_prefers_draft_ir_before_compile_when_ir_is_stub() -> None:
+    progress = {
+        "latest_refs": {"ir_ref": "artifacts/ir/ir-stub.json"},
+        "ir_health": {"is_stub": True, "has_structured_plss_anchor": False, "has_local_polygon_geometry": False},
+    }
+
+    recs = _recommended_next_moves(progress)
+
+    assert recs
+    assert recs[0].lower().startswith("draft_ir")
+
+
+def test_recommended_next_prefers_polygon_repair_when_georef_missing_and_anchor_present() -> None:
+    progress = {
+        "latest_refs": {
+            "ir_ref": "artifacts/ir/ir-001.json",
+            "compile_ref": "artifacts/compile/c-001.json",
+            "judge_ref": "artifacts/judge/j-001.json",
+            "bundle_ref": "artifacts/bundle/b-001.json",
+        },
+        "gap_summary": {"gap_counts_by_kind": {}},
+        "claimability": {"claimable_ready": False, "missing_claimability": ["has_georef", "validation_passed"]},
+        "ir_health": {"is_stub": False, "has_structured_plss_anchor": True, "has_local_polygon_geometry": False},
+    }
+
+    recs = _recommended_next_moves(progress)
+
+    joined = " | ".join(recs).lower()
+    assert "polygon" in joined
+    assert "re-bundle" in joined
+    assert "georeference" in joined
+
+
+def test_recommended_next_prefers_tie_repair_on_centroid_fallback_issue() -> None:
+    progress = {
+        "latest_refs": {"georef_ref": "artifacts/georef/g-001.json", "validate_ref": "artifacts/validate/v-001.json"},
+        "map_sanity_excerpt": {
+            "validate_top_issues": ["agent_kernel_section_centroid_anchor_fallback"],
+        },
+    }
+    recs = _recommended_next_moves(progress)
+    joined = " | ".join(recs).lower()
+    assert "tie_to_corner" in joined or "tie" in joined
+    assert "centroid fallback" in joined
 
 
 def test_build_fix_skeleton_georef_missing_plss_anchor_uses_canonical_plss_anchor_example() -> None:
@@ -1283,6 +1547,95 @@ def test_safe_artifact_hint_ir_requires_full_plss_anchor_fields() -> None:
 
             health = _ir_health_from_hint(complete_hint, str(complete))
             assert health["has_structured_plss_anchor"] is True
+        finally:
+            legacy_paths.dossiers_root = original  # type: ignore[assignment]
+
+
+def test_safe_artifact_hint_ir_detects_local_polygon_geometry() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        original = legacy_paths.dossiers_root
+
+        def _patched_root() -> Path:
+            return root / "dossiers_data"
+
+        legacy_paths.dossiers_root = _patched_root  # type: ignore[assignment]
+        try:
+            fg_dir = _patched_root() / "artifacts" / "feature_graphs" / "D_TEST"
+            fg_dir.mkdir(parents=True, exist_ok=True)
+            ir_file = fg_dir / "ir_polygon.json"
+            ir_file.write_text(
+                json.dumps(
+                    {
+                        "artifact_type": "ir",
+                        "graph": {
+                            "graph_id": "g-poly",
+                            "nodes": [
+                                {
+                                    "id": "parcel1",
+                                    "kind": "region",
+                                    "geometry": {
+                                        "type": "Polygon",
+                                        "coordinates": [[[0, 0], [10, 0], [10, 5], [0, 0]]],
+                                    },
+                                }
+                            ],
+                            "edges": [],
+                            "metadata": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            hint = _safe_artifact_hint(str(ir_file), kind="ir")
+            assert hint.get("has_local_polygon_geometry") is True
+            health = _ir_health_from_hint(hint, str(ir_file))
+            assert health["has_local_polygon_geometry"] is True
+        finally:
+            legacy_paths.dossiers_root = original  # type: ignore[assignment]
+
+
+def test_safe_artifact_hint_ir_includes_parcel_audit() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        original = legacy_paths.dossiers_root
+
+        def _patched_root() -> Path:
+            return root / "dossiers_data"
+
+        legacy_paths.dossiers_root = _patched_root  # type: ignore[assignment]
+        try:
+            fg_dir = _patched_root() / "artifacts" / "feature_graphs" / "D_TEST"
+            fg_dir.mkdir(parents=True, exist_ok=True)
+            ir_file = fg_dir / "ir_parcel_audit.json"
+            ir_file.write_text(
+                json.dumps(
+                    {
+                        "artifact_type": "ir",
+                        "graph": {
+                            "graph_id": "g-audit",
+                            "nodes": [
+                                {"id": "parcel1", "kind": "region", "metadata": {}},
+                                {
+                                    "id": "parcel2_stub",
+                                    "kind": "annotation",
+                                    "metadata": {"note": "Parcel 2 stub; incomplete/truncated"},
+                                },
+                            ],
+                            "edges": [],
+                            "metadata": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            hint = _safe_artifact_hint(str(ir_file), kind="ir")
+            parcel_audit = hint.get("parcel_audit")
+            assert isinstance(parcel_audit, dict)
+            assert parcel_audit.get("complete_region_count") == 1
+            assert parcel_audit.get("partial_annotation_stub_count") == 1
+            health = _ir_health_from_hint(hint, str(ir_file))
+            assert isinstance(health.get("parcel_audit"), dict)
         finally:
             legacy_paths.dossiers_root = original  # type: ignore[assignment]
 

@@ -218,6 +218,10 @@ def run_controller_loop(
     parse_resync_last_iteration = False
     repeated_inspection_ref: str | None = None
     repeated_inspection_count = 0
+    repeated_span_open_signature: str | None = None
+    repeated_span_open_count = 0
+    semantic_span_repair_signature: str | None = None
+    semantic_span_repair_count = 0
     while iterations < max_iterations:
         iterations += 1
         context_packet = _build_context_packet(
@@ -850,6 +854,190 @@ def run_controller_loop(
                 recent_digest_memory=recent_digest_memory,
             )
             continue
+        span_open_refusal = _span_open_thrash_refusal(
+            action_type=action_type,
+            step_inputs=step_inputs,
+            repeated_signature=repeated_span_open_signature,
+            repeated_count=repeated_span_open_count,
+        )
+        if span_open_refusal is not None:
+            refusal, repeat_signature = span_open_refusal
+            last_refusal = refusal
+            last_refusal_action_type_raw = action_type.value
+            repeated_span_open_signature = repeat_signature
+            repeated_span_open_count = (repeated_span_open_count + 1) if repeat_signature else 0
+            dashboard_json = started.dashboard.model_dump(mode="json")
+            progress_payload = {
+                "latest_refs": _latest_refs_summary(dashboard_json),
+                "gap_summary": _compact_gap_summary(dashboard_json.get("gap_summary")),
+                "claimability": dashboard_json.get("claimability", {}),
+            }
+            next_action = _span_open_thrash_suggested_next_action(dashboard_json)
+            _append_event(
+                transcript,
+                event_type="controller_refusal",
+                detail=refusal.reason_code,
+                payload={
+                    "refusal": refusal.model_dump(mode="json"),
+                    "fix": _build_fix_skeleton(
+                        reason_code=refusal.reason_code,
+                        action_type_raw=(next_action or ActionType.DRAFT_IR).value,
+                        bootstrap_context=bootstrap_context,
+                    ),
+                    "how_to": action_how_to_guide(
+                        action_type=(next_action or ActionType.DRAFT_IR),
+                        reason_code=refusal.reason_code,
+                        context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
+                    ),
+                    "next_actions": _recommended_next_moves(progress_payload),
+                },
+            )
+            _log_controller_event(
+                "controller_refusal",
+                _controller_refusal_log_payload(
+                    iteration=iterations,
+                    reason_code=refusal.reason_code,
+                    action_type=action_type.value,
+                    args=step_inputs,
+                    missing_inputs=refusal.missing_inputs,
+                    retryable=refusal.retryable,
+                    iteration_summary=proposal.iteration_summary,
+                ),
+            )
+            recent_digest_memory = _maybe_create_iteration_digest(
+                digest_client=digest_client,
+                request_id=start_request.request_id,
+                session_id=session_id,
+                iteration=iterations,
+                context_packet=context_packet,
+                phase_hint=phase_hint,
+                proposal=proposal,
+                outcome_kind="controller_refusal",
+                outcome_payload={"reason_code": refusal.reason_code, "missing_inputs": refusal.missing_inputs},
+                recent_digest_memory=recent_digest_memory,
+            )
+            continue
+        semantic_span_refusal = _semantic_span_repair_thrash_refusal(
+            action_type=action_type,
+            context_packet=context_packet,
+            repeated_signature=semantic_span_repair_signature,
+            repeated_count=semantic_span_repair_count,
+        )
+        if semantic_span_refusal is not None:
+            refusal, repeat_signature = semantic_span_refusal
+            last_refusal = refusal
+            last_refusal_action_type_raw = action_type.value
+            semantic_span_repair_signature = repeat_signature
+            semantic_span_repair_count = (semantic_span_repair_count + 1) if repeat_signature else 0
+            dashboard_json = started.dashboard.model_dump(mode="json")
+            progress_payload = {
+                "latest_refs": _latest_refs_summary(dashboard_json),
+                "gap_summary": _compact_gap_summary(dashboard_json.get("gap_summary")),
+                "claimability": dashboard_json.get("claimability", {}),
+            }
+            next_action = _semantic_span_repair_thrash_suggested_next_action(dashboard_json)
+            _append_event(
+                transcript,
+                event_type="controller_refusal",
+                detail=refusal.reason_code,
+                payload={
+                    "refusal": refusal.model_dump(mode="json"),
+                    "fix": _build_fix_skeleton(
+                        reason_code=refusal.reason_code,
+                        action_type_raw=(next_action or ActionType.DRAFT_IR).value,
+                        bootstrap_context=bootstrap_context,
+                    ),
+                    "how_to": action_how_to_guide(
+                        action_type=(next_action or ActionType.DRAFT_IR),
+                        reason_code=refusal.reason_code,
+                        context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
+                    ),
+                    "next_actions": _recommended_next_moves(progress_payload),
+                },
+            )
+            _log_controller_event(
+                "controller_refusal",
+                _controller_refusal_log_payload(
+                    iteration=iterations,
+                    reason_code=refusal.reason_code,
+                    action_type=action_type.value,
+                    args=step_inputs,
+                    missing_inputs=refusal.missing_inputs,
+                    retryable=refusal.retryable,
+                    iteration_summary=proposal.iteration_summary,
+                ),
+            )
+            recent_digest_memory = _maybe_create_iteration_digest(
+                digest_client=digest_client,
+                request_id=start_request.request_id,
+                session_id=session_id,
+                iteration=iterations,
+                context_packet=context_packet,
+                phase_hint=phase_hint,
+                proposal=proposal,
+                outcome_kind="controller_refusal",
+                outcome_payload={"reason_code": refusal.reason_code, "missing_inputs": refusal.missing_inputs},
+                recent_digest_memory=recent_digest_memory,
+            )
+            continue
+        dashboard_json = started.dashboard.model_dump(mode="json")
+        redundant_step_refusal = _redundant_deterministic_step_refusal(
+            action_type=action_type,
+            dashboard=dashboard_json,
+        )
+        if redundant_step_refusal is not None:
+            refusal, suggested_action = redundant_step_refusal
+            last_refusal = refusal
+            last_refusal_action_type_raw = action_type.value
+            progress_payload = {
+                "latest_refs": _latest_refs_summary(dashboard_json),
+                "gap_summary": _compact_gap_summary(dashboard_json.get("gap_summary")),
+                "claimability": dashboard_json.get("claimability", {}),
+            }
+            _append_event(
+                transcript,
+                event_type="controller_refusal",
+                detail=refusal.reason_code,
+                payload={
+                    "refusal": refusal.model_dump(mode="json"),
+                    "fix": _build_fix_skeleton(
+                        reason_code=refusal.reason_code,
+                        action_type_raw=(suggested_action or action_type).value,
+                        bootstrap_context=bootstrap_context,
+                    ),
+                    "how_to": action_how_to_guide(
+                        action_type=(suggested_action or action_type),
+                        reason_code=refusal.reason_code,
+                        context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
+                    ),
+                    "next_actions": _recommended_next_moves(progress_payload),
+                },
+            )
+            _log_controller_event(
+                "controller_refusal",
+                _controller_refusal_log_payload(
+                    iteration=iterations,
+                    reason_code=refusal.reason_code,
+                    action_type=action_type.value,
+                    args=step_inputs,
+                    missing_inputs=refusal.missing_inputs,
+                    retryable=refusal.retryable,
+                    iteration_summary=proposal.iteration_summary,
+                ),
+            )
+            recent_digest_memory = _maybe_create_iteration_digest(
+                digest_client=digest_client,
+                request_id=start_request.request_id,
+                session_id=session_id,
+                iteration=iterations,
+                context_packet=context_packet,
+                phase_hint=phase_hint,
+                proposal=proposal,
+                outcome_kind="controller_refusal",
+                outcome_payload={"reason_code": refusal.reason_code, "missing_inputs": refusal.missing_inputs},
+                recent_digest_memory=recent_digest_memory,
+            )
+            continue
         if action_type == ActionType.RETRIEVE_EVIDENCE and proposal.retrieval_intent is not None:
             query = str(step_inputs.get("query", "")).strip()
             if query:
@@ -882,6 +1070,24 @@ def run_controller_loop(
         else:
             repeated_inspection_ref = None
             repeated_inspection_count = 0
+        if action_type == ActionType.OPEN_TEXT_SPANS:
+            span_sig = _open_text_spans_signature(step_inputs)
+            if span_sig and span_sig == repeated_span_open_signature:
+                repeated_span_open_count += 1
+            else:
+                repeated_span_open_signature = span_sig
+                repeated_span_open_count = 1 if span_sig else 0
+            semantic_sig = _semantic_span_repair_signature_for_context(context_packet)
+            if semantic_sig and semantic_sig == semantic_span_repair_signature:
+                semantic_span_repair_count += 1
+            else:
+                semantic_span_repair_signature = semantic_sig
+                semantic_span_repair_count = 1 if semantic_sig else 0
+        else:
+            repeated_span_open_signature = None
+            repeated_span_open_count = 0
+            semantic_span_repair_signature = None
+            semantic_span_repair_count = 0
         last_result = step_result
         started.dashboard = step_result.dashboard
         last_refusal = step_result.refusal
@@ -1228,14 +1434,19 @@ def _refusal_repair_request(
  ) -> dict[str, object] | None:
     if coerce_action_type(action_type_raw) is None:
         return None
+    resolved_action_type_raw = _override_refusal_repair_action_type(
+        reason_code=refusal.reason_code,
+        action_type_raw=action_type_raw,
+        context_inputs=context_inputs,
+    )
     how_to = action_how_to_guide(
-        action_type=action_type_raw,
+        action_type=resolved_action_type_raw,
         reason_code=refusal.reason_code,
         context_inputs=context_inputs,
     )
     fix = _build_fix_skeleton(
         reason_code=refusal.reason_code,
-        action_type_raw=action_type_raw,
+        action_type_raw=resolved_action_type_raw,
         bootstrap_context=bootstrap_context,
     )
     kernel_step = fix.get("kernel_step")
@@ -1245,11 +1456,28 @@ def _refusal_repair_request(
         if isinstance(ks_args, dict):
             minimal = ks_args
     return {
-        "action_type": action_type_raw,
+        "action_type": resolved_action_type_raw,
         "reason_code": refusal.reason_code,
         "required_fields": how_to.get("required_fields") if isinstance(how_to.get("required_fields"), list) else [],
         "minimal_working_example": minimal if isinstance(minimal, dict) else None,
     }
+
+
+def _override_refusal_repair_action_type(
+    *,
+    reason_code: str,
+    action_type_raw: str,
+    context_inputs: Mapping[str, object],
+) -> str:
+    normalized = str(reason_code or "").strip().lower()
+    if normalized == "semantic_repair_span_loop_no_progress":
+        return ActionType.DRAFT_IR.value
+    if normalized == "repeated_span_open_no_progress":
+        has_span_index = bool(_read_str(context_inputs.get("deed_span_index_ref")))
+        return (ActionType.DRAFT_IR.value if has_span_index else ActionType.UPSERT_DEED_SPAN_INDEX.value)
+    if normalized == "repeated_inspection_no_progress":
+        return ActionType.DRAFT_IR.value
+    return action_type_raw
 
 
 def _coerce_proposal(raw: dict[str, object]) -> tuple[KernelStepProposal | None, str | None]:
@@ -1321,6 +1549,7 @@ def _normalize_declare_done_candidate_payload(candidate: dict[str, object]) -> d
             "georef_artifact_ref": "georef_ref",
             "validation_artifact_ref": "validate_ref",
             "validate_artifact_ref": "validate_ref",
+            "render_artifact_ref": "render_ref",
         }
         refs_out: dict[str, object] = {}
         for key, value in raw_refs.items():
@@ -1537,6 +1766,7 @@ def _build_context_packet(
             "phase_hint": phase_hint,
             "plan_bullets": _phase_plan_bullets(phase_hint),
             "anchor_templates": _anchor_templates_for_deed(bootstrap_context),
+            "semantic_sanity_checklist": _semantic_sanity_checklist(),
         },
         "memory": memory_payload,
         "tool_cheatsheet": tool_cheatsheet_entries(tool_menu=tool_menu, context_inputs=packet_inputs),
@@ -1667,7 +1897,7 @@ def _phase_plan_bullets(phase_hint: str) -> list[str]:
         "bootstrap": [
             "If deed text ref is missing, hydrate deed first.",
             "Draft minimal FeatureGraph IR from deed.",
-            "Compile, then judge for gap diagnosis.",
+            "Compile, then judge for gap diagnosis after IR is non-stub.",
             "Bundle after IR stabilizes.",
         ],
         "author_ir": [
@@ -1688,6 +1918,18 @@ def _phase_plan_bullets(phase_hint: str) -> list[str]:
     }
     selected = plans.get(phase_hint, plans["bootstrap"])
     return selected[:_MAX_PLAN_BULLETS]
+
+
+def _semantic_sanity_checklist() -> list[str]:
+    return [
+        "Prioritize faithful deed semantics over convenient but inaccurate graph structure; do not invent substitute geometry just to satisfy a gate.",
+        "Before declare_done: ask if IR/map is a faithful semantic representation of the deed, not just structurally valid.",
+        "If a deed-faithful detail is partially unsupported, preserve it explicitly in IR geometry/annotations/provenance and keep iterating instead of simplifying it away.",
+        "Do not accept placeholder/sketch geometry as final mapped output.",
+        "If deed ties POB to a corner/line and georef used centroid fallback, treat map as non-final and repair tie encoding.",
+        "For partial deeds: map only fully stated parcels; keep incomplete parcels as explicit stubs/annotations, not fabricated geometry.",
+        "If plotted shape looks implausible for the deed calls (e.g., wrong topology/triangle vs quadrilateral), reopen deed spans and revise IR.",
+    ]
 
 
 def _last_refusal_payload(
@@ -1794,6 +2036,9 @@ def _inline_artifact_hints(
     validate_ref = latest_refs.get("validate_ref")
     if isinstance(validate_ref, str):
         hints["validate_hint"] = _safe_artifact_hint(validate_ref, kind="validate")
+    render_ref = latest_refs.get("render_ref")
+    if isinstance(render_ref, str):
+        hints["render_hint"] = _safe_artifact_hint(render_ref, kind="render")
     return hints
 
 
@@ -1865,6 +2110,8 @@ def _safe_artifact_hint(path_value: str, *, kind: str) -> dict[str, object]:
             nodes = graph.get("nodes")
             node_preview = []
             has_structured_plss_anchor = False
+            has_local_polygon_geometry = False
+            parcel_audit = {"complete_region_count": 0, "partial_annotation_stub_count": 0}
             graph_meta = graph.get("metadata")
             if isinstance(graph_meta, dict) and _controller_ir_has_required_plss_anchor(graph_meta.get("plss_anchor")):
                 has_structured_plss_anchor = True
@@ -1878,6 +2125,8 @@ def _safe_artifact_hint(path_value: str, *, kind: str) -> dict[str, object]:
                                 "kind": node.get("kind"),
                             }
                         )
+                has_local_polygon_geometry = _controller_ir_has_local_polygon_geometry(nodes)
+                parcel_audit = _controller_ir_parcel_audit(nodes)
                 if not has_structured_plss_anchor:
                     for node in nodes:
                         if not isinstance(node, dict):
@@ -1895,6 +2144,8 @@ def _safe_artifact_hint(path_value: str, *, kind: str) -> dict[str, object]:
                 "node_count": len(nodes) if isinstance(nodes, list) else 0,
                 "node_preview": node_preview,
                 "has_structured_plss_anchor": has_structured_plss_anchor,
+                "has_local_polygon_geometry": has_local_polygon_geometry,
+                "parcel_audit": parcel_audit,
             }
     if kind == "deed" and isinstance(payload, dict):
         text = payload.get("text")
@@ -1903,18 +2154,24 @@ def _safe_artifact_hint(path_value: str, *, kind: str) -> dict[str, object]:
     if kind == "georef" and isinstance(payload, dict):
         bounds = payload.get("geographic_polygon", {}).get("bounds") if isinstance(payload.get("geographic_polygon"), dict) else None
         pob = payload.get("anchor_info", {}).get("pob_coordinates") if isinstance(payload.get("anchor_info"), dict) else None
+        pob_method = payload.get("anchor_info", {}).get("pob_method") if isinstance(payload.get("anchor_info"), dict) else None
         coords = payload.get("geographic_polygon", {}).get("coordinates") if isinstance(payload.get("geographic_polygon"), dict) else None
         vertex_count = 0
         if isinstance(coords, list) and coords and isinstance(coords[0], list):
             vertex_count = len(coords[0])
+        quality = payload.get("agent_kernel_quality") if isinstance(payload.get("agent_kernel_quality"), dict) else {}
         return {
             "kind": kind,
             "status": "ok",
             "success": bool(payload.get("success")),
             "bounds": bounds if isinstance(bounds, dict) else None,
             "pob": pob if isinstance(pob, dict) else None,
+            "pob_method": pob_method if isinstance(pob_method, str) else None,
             "vertex_count": vertex_count,
             "plss_state": ((payload.get("plss_anchor") or {}).get("state") if isinstance(payload.get("plss_anchor"), dict) else None),
+            "placeholder_geometry_detected": bool(isinstance(quality, dict) and quality.get("placeholder_geometry_detected") is True),
+            "explicit_tie_reference_detected": bool(isinstance(quality, dict) and quality.get("explicit_tie_reference_detected") is True),
+            "tie_to_corner_provided": bool(isinstance(quality, dict) and quality.get("tie_to_corner_provided") is True),
         }
     if kind == "validate" and isinstance(payload, dict):
         return {
@@ -1924,6 +2181,18 @@ def _safe_artifact_hint(path_value: str, *, kind: str) -> dict[str, object]:
             "reason_code": payload.get("reason_code"),
             "overall_accuracy": payload.get("overall_accuracy"),
             "top_issues": [str(v)[:160] for v in (payload.get("top_issues") or [])[:3]] if isinstance(payload.get("top_issues"), list) else [],
+            "bounds": payload.get("bounds") if isinstance(payload.get("bounds"), dict) else None,
+        }
+    if kind == "render" and isinstance(payload, dict):
+        svg_ref = payload.get("svg_artifact_ref")
+        svg_path = svg_ref.get("artifact_path") if isinstance(svg_ref, dict) else None
+        return {
+            "kind": kind,
+            "status": "ok",
+            "width": payload.get("width"),
+            "height": payload.get("height"),
+            "vertex_count": payload.get("vertex_count"),
+            "svg_artifact_path": svg_path if isinstance(svg_path, str) else None,
             "bounds": payload.get("bounds") if isinstance(payload.get("bounds"), dict) else None,
         }
     return {"kind": kind, "status": "ok"}
@@ -2123,6 +2392,12 @@ def _autofill_known_args(
             filled.add("ir_artifact_ref")
 
     if action_type == ActionType.VALIDATE:
+        if not _read_str(updated.get("georef_artifact_ref")):
+            georef_ref = _read_str(latest_refs.get("georef_ref"))
+            if georef_ref:
+                updated["georef_artifact_ref"] = georef_ref
+                filled.add("georef_artifact_ref")
+    if action_type == ActionType.RENDER:
         if not _read_str(updated.get("georef_artifact_ref")):
             georef_ref = _read_str(latest_refs.get("georef_ref"))
             if georef_ref:
@@ -2808,11 +3083,15 @@ def _synth_controller_refusal_display_delta(*, payload: Mapping[str, object], de
         reason_code = _read_str(refusal.get("reason_code"))
     if reason_code and "repeated_inspection_no_progress" in reason_code:
         return "I stopped repeating the same inspection and need a different next move."
+    if reason_code and "repeated_span_open_no_progress" in reason_code:
+        return "I stopped reopening the same deed span and need to update the draft or indexing next."
+    if reason_code and "semantic_repair_span_loop_no_progress" in reason_code:
+        return "I have enough repeated deed excerpts for this repair and need to revise the draft instead of rereading."
     if action_type == ActionType.DRAFT_IR.value:
         return "The draft needs a more complete graph update before it can continue."
     if action_type in {ActionType.COMPILE.value, ActionType.JUDGE.value, ActionType.BUNDLE.value}:
         return "This check could not run yet because a required graph artifact is missing."
-    if action_type in {ActionType.GEOREFERENCE.value, ActionType.VALIDATE.value}:
+    if action_type in {ActionType.GEOREFERENCE.value, ActionType.VALIDATE.value, ActionType.RENDER.value}:
         return "This mapping check needs the prior output artifact before it can continue."
     if "action_not_in_tool_menu" in (reason_code or detail):
         return "I need to choose a step that is currently allowed in this run."
@@ -2837,6 +3116,8 @@ def _synth_kernel_step_result_display_delta(*, payload: Mapping[str, object], de
         return "I mapped the current parcel output into a georeferenced result."
     if action_type == ActionType.VALIDATE.value:
         return "I ran a validation pass on the mapped output and recorded the result."
+    if action_type == ActionType.RENDER.value:
+        return "I rendered a map preview artifact for visual review of the mapped output."
     if action_type == ActionType.DECLARE_DONE.value:
         return "I finished the current deed run and recorded the completion decision."
     if action_type in {ActionType.OPEN_TEXT_SPANS.value, ActionType.OPEN_ARTIFACT.value, ActionType.HYDRATE_DEED.value}:
@@ -2986,13 +3267,76 @@ def _ir_health_from_hint(ir_hint: dict[str, object], ir_ref: object) -> dict[str
     node_count = ir_hint.get("node_count")
     is_stub = bool(isinstance(node_count, int) and node_count == 0)
     has_structured_plss_anchor = bool(ir_hint.get("has_structured_plss_anchor") is True)
+    has_local_polygon_geometry = bool(ir_hint.get("has_local_polygon_geometry") is True)
+    parcel_audit = ir_hint.get("parcel_audit") if isinstance(ir_hint.get("parcel_audit"), dict) else {}
     return {
         "node_count": node_count if isinstance(node_count, int) else None,
         "edge_count": None,
         "is_stub": is_stub,
         "has_structured_plss_anchor": has_structured_plss_anchor,
+        "has_local_polygon_geometry": has_local_polygon_geometry,
+        "parcel_audit": parcel_audit,
         "last_ir_artifact_ref": ir_ref if isinstance(ir_ref, str) else None,
     }
+
+
+def _controller_ir_parcel_audit(nodes: object) -> dict[str, int]:
+    if not isinstance(nodes, list):
+        return {"complete_region_count": 0, "partial_annotation_stub_count": 0}
+    complete_regions = 0
+    partial_annotation_stubs = 0
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        kind = str(node.get("kind") or "").strip().lower()
+        label = str(node.get("label") or "").lower()
+        meta = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+        texts: list[str] = [label]
+        for value in meta.values():
+            if isinstance(value, str):
+                texts.append(value.lower())
+            elif isinstance(value, list):
+                texts.extend(str(item).lower() for item in value if isinstance(item, str))
+        joined = " ".join(texts)
+        if kind == "region":
+            complete_regions += 1
+        if kind == "annotation" and any(tok in joined for tok in ("parcel", "stub", "truncated", "partial", "incomplete")):
+            partial_annotation_stubs += 1
+    return {
+        "complete_region_count": complete_regions,
+        "partial_annotation_stub_count": partial_annotation_stubs,
+    }
+
+
+def _controller_ir_has_local_polygon_geometry(nodes: object) -> bool:
+    if not isinstance(nodes, list):
+        return False
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        kind = str(node.get("kind") or "").strip().lower()
+        geometry = node.get("geometry")
+        if not isinstance(geometry, dict):
+            continue
+        gtype = str(geometry.get("type") or "").strip()
+        if kind == "region" and gtype == "Polygon":
+            coords = geometry.get("coordinates")
+            if isinstance(coords, list) and coords and isinstance(coords[0], list) and len(coords[0]) >= 4:
+                return True
+        if kind == "curve" and gtype == "LineString":
+            coords = geometry.get("coordinates")
+            if (
+                isinstance(coords, list)
+                and len(coords) >= 4
+                and isinstance(coords[0], list)
+                and isinstance(coords[-1], list)
+                and len(coords[0]) >= 2
+                and len(coords[-1]) >= 2
+                and coords[0][0] == coords[-1][0]
+                and coords[0][1] == coords[-1][1]
+            ):
+                return True
+    return False
 
 
 def _controller_ir_has_required_plss_anchor(value: object) -> bool:
@@ -3024,17 +3368,35 @@ def _recommended_next_moves(progress_payload: dict[str, object]) -> list[str]:
     latest_refs = progress_payload.get("latest_refs")
     if not isinstance(latest_refs, dict):
         return []
-    claimability = progress_payload.get("claimability")
-    if latest_refs.get("ir_ref") and not latest_refs.get("compile_ref"):
-        return ["run compile on latest ir_ref before more inspection", "then judge to refresh actionable gaps"]
-    if latest_refs.get("compile_ref") and not latest_refs.get("judge_ref"):
-        return ["run judge on latest compile/ir state to refresh gaps", "inspect judge repair_view/top gaps after judge"]
+    map_sanity = progress_payload.get("map_sanity_excerpt")
+    if isinstance(map_sanity, dict):
+        validate_top_issues = map_sanity.get("validate_top_issues")
+        issues = [str(v).lower() for v in validate_top_issues] if isinstance(validate_top_issues, list) else []
+        if any("section_centroid_anchor_fallback" in item for item in issues):
+            return [
+                "open_text_spans for the deed's POB tie language and encode an explicit tie_to_corner instead of centroid fallback",
+                "re-georeference, validate, and render after replacing centroid fallback anchoring",
+            ]
+        if any("placeholder_geometry" in item for item in issues):
+            return [
+                "draft_ir update: replace placeholder parcel geometry with deed-faithful traverse/closed boundary before georeference",
+                "re-compile, judge, bundle, georeference, validate, render",
+            ]
+        if any("unresolved_tie_to_corner" in item for item in issues):
+            return [
+                "open_text_spans for tie-to-corner language and encode tie_to_corner on the mapped parcel/POB metadata",
+                "re-georeference, validate, and render after tie is explicit",
+            ]
     ir_health = progress_payload.get("ir_health")
     if isinstance(ir_health, dict) and ir_health.get("is_stub") is True:
         return [
             "draft_ir with graph (non-empty FeatureGraph) before compile/judge",
             "use open_text_spans to extract deed calls, then encode nodes/op_expr",
         ]
+    if latest_refs.get("ir_ref") and not latest_refs.get("compile_ref"):
+        return ["run compile on latest ir_ref before more inspection", "then judge to refresh actionable gaps"]
+    if latest_refs.get("compile_ref") and not latest_refs.get("judge_ref"):
+        return ["run judge on latest compile/ir state to refresh gaps", "inspect judge repair_view/top gaps after judge"]
     gap_summary = progress_payload.get("gap_summary")
     if latest_refs.get("judge_ref") and isinstance(gap_summary, dict):
         counts = gap_summary.get("gap_counts_by_kind")
@@ -3056,8 +3418,22 @@ def _recommended_next_moves(progress_payload: dict[str, object]) -> list[str]:
             has_structured_plss_anchor = bool(
                 isinstance(ir_health, dict) and ir_health.get("has_structured_plss_anchor") is True
             )
+            local_polygon_missing_known = bool(
+                isinstance(ir_health, dict) and ir_health.get("has_local_polygon_geometry") is False
+            )
             if latest_refs.get("bundle_ref") and latest_refs.get("georef_ref") and latest_refs.get("validate_ref"):
+                if "has_render" in missing_claimability and not latest_refs.get("render_ref"):
+                    return ["run render on latest georef_ref to produce a visual map preview", "then declare_done if claimability clears"]
                 return ["declare_done with justification if semantics are satisfied"]
+            if (
+                latest_refs.get("bundle_ref")
+                and ("has_georef" in missing_claimability)
+                and local_polygon_missing_known
+            ):
+                return [
+                    "draft_ir update: add explicit local parcel polygon geometry (region Polygon or closed LineString ring)",
+                    "re-bundle, then georeference and validate",
+                ]
             if (
                 latest_refs.get("bundle_ref")
                 and ("has_georef" in missing_claimability)
@@ -3073,6 +3449,8 @@ def _recommended_next_moves(progress_payload: dict[str, object]) -> list[str]:
                 return ["run georeference on latest bundle", "then validate and consider declare_done"]
             if latest_refs.get("georef_ref") and not latest_refs.get("validate_ref"):
                 return ["run validate on latest georef_ref", "then consider declare_done if claimability clears"]
+            if latest_refs.get("georef_ref") and latest_refs.get("validate_ref") and ("has_render" in missing_claimability):
+                return ["run render on latest georef_ref", "then consider declare_done if claimability clears"]
             if latest_refs.get("bundle_ref"):
                 return ["declare_done with justification if semantics are satisfied"]
             return ["bundle latest graph artifacts, then georeference/validate if required"]
@@ -3089,7 +3467,17 @@ def _map_sanity_excerpt_from_hints(
 ) -> dict[str, object]:
     out: dict[str, object] = {}
     if isinstance(georef_hint, dict):
-        for key in ("success", "bounds", "pob", "vertex_count", "plss_state"):
+        for key in (
+            "success",
+            "bounds",
+            "pob",
+            "pob_method",
+            "vertex_count",
+            "plss_state",
+            "placeholder_geometry_detected",
+            "explicit_tie_reference_detected",
+            "tie_to_corner_provided",
+        ):
             if key in georef_hint:
                 out[key] = georef_hint.get(key)
     if isinstance(validate_hint, dict):
@@ -3125,6 +3513,146 @@ def _inspection_thrash_refusal(
     )
 
 
+def _span_open_thrash_refusal(
+    *,
+    action_type: ActionType,
+    step_inputs: dict[str, object],
+    repeated_signature: str | None,
+    repeated_count: int,
+) -> tuple[KernelRefusal, str] | None:
+    if action_type != ActionType.OPEN_TEXT_SPANS:
+        return None
+    signature = _open_text_spans_signature(step_inputs)
+    if not signature:
+        return None
+    if signature != repeated_signature:
+        return None
+    if repeated_count < 1:
+        return None
+    return (
+        KernelRefusal(
+            reason_code="repeated_span_open_no_progress",
+            missing_inputs=[],
+            retryable=True,
+        ),
+        signature,
+    )
+
+
+def _semantic_span_repair_signature_for_context(context_packet: Mapping[str, object]) -> str | None:
+    progress = context_packet.get("progress")
+    if not isinstance(progress, Mapping):
+        return None
+    latest_refs = progress.get("latest_refs")
+    if not isinstance(latest_refs, Mapping):
+        return None
+    ir_ref = _read_str(latest_refs.get("ir_ref"))
+    validate_ref = _read_str(latest_refs.get("validate_ref"))
+    if not ir_ref or not validate_ref:
+        return None
+    map_sanity = progress.get("map_sanity_excerpt")
+    if not isinstance(map_sanity, Mapping):
+        return None
+    raw_issues = map_sanity.get("validate_top_issues")
+    if not isinstance(raw_issues, list):
+        return None
+    issues = sorted(
+        {
+            str(item).strip().lower()
+            for item in raw_issues
+            if isinstance(item, str)
+            and (
+                "section_centroid_anchor_fallback" in item.lower()
+                or "unresolved_tie_to_corner" in item.lower()
+            )
+        }
+    )
+    if not issues:
+        return None
+    deed_span_index_ref = _read_str(latest_refs.get("deed_span_index_ref"))
+    payload = {"ir_ref": ir_ref, "validate_ref": validate_ref, "issues": issues, "deed_span_index_ref": deed_span_index_ref}
+    try:
+        return json.dumps(payload, sort_keys=True, ensure_ascii=True)
+    except Exception:
+        return str(payload)
+
+
+def _semantic_span_repair_thrash_refusal(
+    *,
+    action_type: ActionType,
+    context_packet: Mapping[str, object],
+    repeated_signature: str | None,
+    repeated_count: int,
+) -> tuple[KernelRefusal, str] | None:
+    if action_type != ActionType.OPEN_TEXT_SPANS:
+        return None
+    signature = _semantic_span_repair_signature_for_context(context_packet)
+    if not signature or signature != repeated_signature:
+        return None
+    if repeated_count < 2:
+        return None
+    return (
+        KernelRefusal(
+            reason_code="semantic_repair_span_loop_no_progress",
+            missing_inputs=[],
+            retryable=True,
+        ),
+        signature,
+    )
+
+
+def _open_text_spans_signature(step_inputs: Mapping[str, object]) -> str | None:
+    sig_payload: dict[str, object] = {}
+    for key in (
+        "deed_text_artifact_ref",
+        "artifact_ref",
+        "deed_span_index_ref",
+        "start_char",
+        "end_char",
+        "max_chars",
+        "span_ids",
+        "spans",
+        "anchors",
+    ):
+        if key in step_inputs:
+            sig_payload[key] = step_inputs.get(key)
+    if not sig_payload:
+        return None
+    try:
+        return json.dumps(sig_payload, sort_keys=True, ensure_ascii=True)
+    except Exception:
+        return str(sig_payload)
+
+
+def _redundant_deterministic_step_refusal(
+    *,
+    action_type: ActionType,
+    dashboard: dict[str, object],
+) -> tuple[KernelRefusal, ActionType | None] | None:
+    latest_refs = _latest_refs_summary(dashboard)
+    if action_type == ActionType.COMPILE and latest_refs.get("compile_ref"):
+        next_action = ActionType.JUDGE if not latest_refs.get("judge_ref") else None
+        return (
+            KernelRefusal(
+                reason_code="compile_already_current",
+                missing_inputs=[],
+                retryable=True,
+            ),
+            next_action,
+        )
+    if action_type == ActionType.JUDGE and latest_refs.get("judge_ref"):
+        next_action = ActionType.BUNDLE if not latest_refs.get("bundle_ref") else None
+        return (
+            KernelRefusal(
+                reason_code="judge_already_current",
+                missing_inputs=[],
+                retryable=True,
+            ),
+            next_action,
+        )
+    return None
+
+
 def _inspection_thrash_suggested_next_action(dashboard: dict[str, object]) -> ActionType | None:
     latest_refs = _latest_refs_summary(dashboard)
     if latest_refs.get("ir_ref") and not latest_refs.get("compile_ref"):
@@ -3134,6 +3662,22 @@ def _inspection_thrash_suggested_next_action(dashboard: dict[str, object]) -> Ac
     if latest_refs.get("judge_ref"):
         return ActionType.DRAFT_IR
     return None
+
+
+def _semantic_span_repair_thrash_suggested_next_action(dashboard: dict[str, object]) -> ActionType | None:
+    latest_refs = _latest_refs_summary(dashboard)
+    if not latest_refs.get("deed_span_index_ref"):
+        return ActionType.UPSERT_DEED_SPAN_INDEX
+    return ActionType.DRAFT_IR
+
+
+def _span_open_thrash_suggested_next_action(dashboard: dict[str, object]) -> ActionType | None:
+    latest_refs = _latest_refs_summary(dashboard)
+    if not latest_refs.get("deed_span_index_ref"):
+        return ActionType.UPSERT_DEED_SPAN_INDEX
+    if latest_refs.get("ir_ref"):
+        return ActionType.DRAFT_IR
+    return ActionType.OPEN_ARTIFACT
 
 
 def _build_parse_failure_resync_proposal(

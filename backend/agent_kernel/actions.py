@@ -76,6 +76,12 @@ class Validator(Protocol):
     def validate(self, inputs: Mapping[str, Any]) -> Any: ...
 
 
+class Renderer(Protocol):
+    """Explicit interface for RENDER action execution."""
+
+    def render(self, inputs: Mapping[str, Any]) -> Any: ...
+
+
 class PatchProposer(Protocol):
     """Explicit interface stub for PROPOSE_PATCH."""
 
@@ -103,6 +109,7 @@ class ActionExecutorDeps:
     bundler: Bundler | None = None
     georeferencer: Georeferencer | None = None
     validator: Validator | None = None
+    renderer: Renderer | None = None
     patch_proposer: PatchProposer | None = None
     status_summarizer: StatusSummarizer | None = None
 
@@ -136,6 +143,8 @@ class ActionExecutor:
             actions.append(ActionType.GEOREFERENCE)
         if self._deps.validator is not None or allow_stubbed:
             actions.append(ActionType.VALIDATE)
+        if self._deps.renderer is not None or allow_stubbed:
+            actions.append(ActionType.RENDER)
         if self._deps.patch_proposer is not None or allow_stubbed:
             actions.append(ActionType.PROPOSE_PATCH)
         if self._deps.status_summarizer is not None or allow_stubbed:
@@ -249,6 +258,16 @@ class ActionExecutor:
             )
         if action == ActionType.VALIDATE:
             return self._execute_validate(step_id=step_id, inputs=inputs)
+        if action == ActionType.RENDER:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="render_artifact_ref",
+                reason_code="rendered",
+                missing_reason="missing_renderer_interface",
+                execute_fn=self._deps.renderer.render if self._deps.renderer is not None else None,
+                inputs=inputs,
+            )
         if action == ActionType.PROPOSE_PATCH:
             return self._execute_propose_patch(step_id=step_id, inputs=inputs)
         if action == ActionType.SUMMARIZE_STATUS:

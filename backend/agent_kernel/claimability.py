@@ -9,12 +9,14 @@ GATE_HAS_COMPILE = "has_compile"
 GATE_HAS_JUDGE = "has_judge"
 GATE_HAS_GEOREF = "has_georef"
 GATE_VALIDATION_PASSED = "validation_passed"
+GATE_HAS_RENDER = "has_render"
 
 
 def evaluate_claimability(
     *,
     run_artifact: RunArtifact,
     requires_global_placement: bool,
+    render_required: bool = False,
 ) -> tuple[bool, list[str]]:
     missing: list[str] = []
     if run_artifact.ir_artifact_ref is None:
@@ -29,6 +31,8 @@ def evaluate_claimability(
             missing.append(GATE_HAS_GEOREF)
         if not _latest_validation_passed(run_artifact):
             missing.append(GATE_VALIDATION_PASSED)
+    if render_required and run_artifact.render_artifact_ref is None:
+        missing.append(GATE_HAS_RENDER)
     return len(missing) == 0, missing
 
 
