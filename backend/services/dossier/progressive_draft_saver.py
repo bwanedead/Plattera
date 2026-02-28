@@ -159,13 +159,17 @@ class ProgressiveDraftSaver:
             }
 
         # Add metadata
+        meta = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+        json_meta = meta.get("json_extraction") if isinstance(meta.get("json_extraction"), dict) else {}
+        extraction_mode_used = json_meta.get("mode") or meta.get("extraction_mode") or "unknown"
         content.update({
             "_draft_index": draft_index,
             "_created_at": datetime.now().isoformat(),
             "_status": "completed" if success else "failed",
             "_model_used": result.get("model_used"),
             "_tokens_used": result.get("tokens_used"),
-            "_processing_time": result.get("processing_time")
+            "_processing_time": result.get("processing_time"),
+            "_extraction_mode_used": extraction_mode_used,
         })
 
         return content

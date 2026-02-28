@@ -26,7 +26,7 @@ async def enqueue_image_to_text_jobs(
     files: List[UploadFile] = File(...),
     # processing parameters
     model: str = Form("gpt-4o"),
-    extraction_mode: str = Form("legal_document_json"),
+    extraction_mode: str = Form("legal_document_json_relaxed"),
     contrast: str = Form("2.0"),
     sharpness: str = Form("2.0"),
     brightness: str = Form("1.5"),

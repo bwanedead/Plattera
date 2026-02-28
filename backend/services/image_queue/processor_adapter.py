@@ -17,7 +17,7 @@ class ImageToTextProcessorAdapter:
         pipeline = ImageToTextPipeline()
 
         model = job.get("model", "gpt-4o")
-        extraction_mode = job.get("extraction_mode", "legal_document_json")
+        extraction_mode = job.get("extraction_mode", "legal_document_json_relaxed")
         enhancement_settings = job.get("enhancement_settings") or {}
         redundancy_count = int(job.get("redundancy_count") or 1)
         consensus_strategy = job.get("consensus_strategy", "sequential")
@@ -102,6 +102,7 @@ class ImageToTextProcessorAdapter:
                                     "_status": "processing",
                                     "_draft_index": i - 1,
                                     "_created_at": _dt.now().isoformat(),
+                                    "_extraction_mode_used": extraction_mode,
                                 }, _f, indent=2, ensure_ascii=False)
                 except Exception:
                     pass
@@ -162,5 +163,3 @@ class ImageToTextProcessorAdapter:
             pass
 
         return result
-
-

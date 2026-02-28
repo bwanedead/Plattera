@@ -141,6 +141,7 @@ class ImageToTextQueueService:
                     content['_status'] = 'completed'
                     content['_draft_index'] = 0
                     content['_created_at'] = content.get('_created_at') or _dt.now().isoformat()
+                    content['_extraction_mode_used'] = str((job or {}).get("extraction_mode") or "unknown")
 
                     # Write v1 and base files
                     v1_path = drafts_dir / f"{transcription_id}_v1.json"
@@ -250,7 +251,7 @@ class ImageToTextQueueService:
                         provenance = create_transcription_provenance(
                             file_path=(job or {}).get('source_path'),
                             model=model or "gpt-4o",
-                            extraction_mode=extraction_mode or "legal_document_json",
+                            extraction_mode=extraction_mode or "legal_document_json_relaxed",
                             result=result if isinstance(result, dict) else {},
                             transcription_id=str(transcription_id),
                             enhancement_settings=enhancement_settings or {},
@@ -346,5 +347,3 @@ def get_queue_service() -> ImageToTextQueueService:
         processor = ImageToTextProcessorAdapter()
         _queue_singleton = ImageToTextQueueService(store=store, processor=processor)
     return _queue_singleton
-
-

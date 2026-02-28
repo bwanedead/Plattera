@@ -78,6 +78,25 @@ SECTIONING RULES:
 Transcribe this legal document image into the JSON format above. Focus on accuracy and preserve all names, dates, property descriptions, and legal language.
 """
 
+# JSON structured transcription (LEGAL relaxed JSON-object mode)
+LEGAL_DOCUMENT_JSON_RELAXED = """
+Transcribe this legal document image and return ONLY a JSON object.
+
+Required keys:
+{
+  "documentId": "<string>",
+  "sections": [
+    {"id": <int>, "body": "<string>"}
+  ]
+}
+
+Rules:
+1. Use section ids as consecutive integers starting at 1.
+2. Include headers/titles inside section 1 body; do not create header-only sections.
+3. Preserve legal wording, bearings, distances, numbers, and line breaks exactly.
+4. Do not include extra keys outside documentId and sections.
+"""
+
 # Generic document transcription (structured JSON, no internal sectioning of main text)
 GENERIC_DOCUMENT_JSON = """
 You are an expert transcriptionist. Output ONLY valid JSON exactly matching the schema below. Do not wrap in markdown or add any other text.
@@ -121,11 +140,13 @@ def get_image_to_text_prompt(extraction_mode: str, model: str = None) -> str:
         
     Available modes:
         - legal_document_json: Structured JSON transcription (sectioned legal deeds)
+        - legal_document_json_relaxed: Structured JSON object mode + local validation/repair
         - generic_document_json: Structured JSON transcription (verbatim mainText + sideTexts)
     """
     
     prompts = {
         "legal_document_json": LEGAL_DOCUMENT_JSON,
+        "legal_document_json_relaxed": LEGAL_DOCUMENT_JSON_RELAXED,
         "generic_document_json": GENERIC_DOCUMENT_JSON
     }
     
@@ -139,9 +160,9 @@ def get_available_extraction_modes() -> dict:
         dict: Dictionary of mode_id -> {name, description}
     """
     return {
-        "legal_document_json": {
-            "name": "Legal Document JSON",
-            "description": "Structured JSON transcription for legal deeds (sections)"
+        "legal_document_json_relaxed": {
+            "name": "Legal Document JSON (Relaxed)",
+            "description": "JSON object mode with local validation and repair for legal deeds"
         },
         "generic_document_json": {
             "name": "Generic Document JSON",

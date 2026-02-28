@@ -455,36 +455,40 @@ class OpenAIService(LLMService):
                 
                 # CRITICAL: Add structured JSON response format for JSON extraction mode
                 json_mode = kwargs.get("json_mode", False)
-                if json_mode:
-                    completion_params["response_format"] = {
-                        "type": "json_schema",
-                        "json_schema": {
-                            "name": "document_transcription",
-                            "schema": {
-                                "type": "object",
-                                "properties": {
-                                    "documentId": {"type": "string"},
-                                    "sections": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "id": {"type": "integer"},
-                                                "body": {"type": "string"}
-                                            },
-                                            "required": ["id", "body"],
-                                            "additionalProperties": False
+                json_mode_kind = "strict" if json_mode is True else str(json_mode or "").strip().lower()
+                if json_mode_kind in {"strict", "relaxed"}:
+                    if json_mode_kind == "strict":
+                        completion_params["response_format"] = {
+                            "type": "json_schema",
+                            "json_schema": {
+                                "name": "document_transcription",
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "documentId": {"type": "string"},
+                                        "sections": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "id": {"type": "integer"},
+                                                    "body": {"type": "string"}
+                                                },
+                                                "required": ["id", "body"],
+                                                "additionalProperties": False
+                                            }
                                         }
-                                    }
+                                    },
+                                    "required": ["documentId", "sections"],
+                                    "additionalProperties": False
                                 },
-                                "required": ["documentId", "sections"],
-                                "additionalProperties": False
-                            },
-                            "strict": True
+                                "strict": True
+                            }
                         }
-                    }
+                    else:
+                        completion_params["response_format"] = {"type": "json_object"}
                     if attempt == 0:
-                        logger.debug(f"📋 Using structured JSON output mode{ctx}")
+                        logger.debug(f"📋 Using JSON output mode={json_mode_kind}{ctx}")
                 
                 # CRITICAL: Make OpenAI API call
                 logger.info(f"📡 Sending API request (attempt {attempt + 1}/{max_retries})...{ctx}")
@@ -612,6 +616,10 @@ class OpenAIService(LLMService):
                 "confidence_score": 1.0,  # OpenAI doesn't provide confidence scores
                 "metadata": {
                     "provider": "openai",
+                    "finish_reason": result.get("finish_reason"),
+                    "usage": result.get("usage"),
+                    "char_count": result.get("char_count"),
+                    "word_count": result.get("word_count"),
                     **kwargs
                 }
             }

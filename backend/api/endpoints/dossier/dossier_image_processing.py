@@ -46,7 +46,7 @@ router = APIRouter()
 class DossierProcessRequest(BaseModel):
     """Request model for dossier processing"""
     model: str = "gpt-4o"
-    extraction_mode: str = "legal_document_json"
+    extraction_mode: str = "legal_document_json_relaxed"
     cleanup_after: str = "true"
     flow_to: Optional[str] = None
     parcel_id: Optional[str] = None
@@ -73,7 +73,7 @@ async def process_with_dossier_association(
     transcription_id: Optional[str] = Form(None),
     # Processing parameters
     model: str = Form("gpt-4o"),
-    extraction_mode: str = Form("legal_document_json"),
+    extraction_mode: str = Form("legal_document_json_relaxed"),
     cleanup_after: str = Form("true"),
     flow_to: Optional[str] = Form(None),
     parcel_id: Optional[str] = Form(None),
@@ -284,7 +284,8 @@ async def process_with_dossier_association(
                             "_placeholder": True,
                             "_status": "processing",
                             "_draft_index": i - 1,
-                            "_created_at": _dt.now().isoformat()
+                            "_created_at": _dt.now().isoformat(),
+                            "_extraction_mode_used": extraction_mode,
                         }, _f, indent=2, ensure_ascii=False)
             logger.info(f"VISIBILITY_PRIME dossier={dossier_id} transcription={transcription_id} placeholders={redundancy_count}")
         except Exception as pre_placeholder_err:
@@ -609,6 +610,7 @@ async def _handle_dossier_association(
                 content.pop('_placeholder', None)
                 content['_status'] = 'completed'
                 content['_draft_index'] = 0
+                content['_extraction_mode_used'] = extraction_mode
 
                 with open(v1_path, 'w', encoding='utf-8') as vf:
                     _json.dump(content, vf, indent=2, ensure_ascii=False)

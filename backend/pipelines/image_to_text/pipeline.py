@@ -69,7 +69,7 @@ SAFETY RULES:
 
 DEFAULT MODES:
 =============
-- Default extraction_mode: "legal_document_json" (structured output)
+- Default extraction_mode: "legal_document_json_relaxed" (structured output, local validation/repair)
 - Default model: "gpt-4o" (balanced speed/quality)
 - JSON mode auto-enables redundancy for better consensus analysis
 """
@@ -79,10 +79,30 @@ import base64
 from pathlib import Path
 import logging
 from typing import Tuple, Dict, Any, Optional, Union
+import json
+from pydantic import BaseModel, Field, ValidationError
 from pipelines.image_to_text.image_processor import enhance_for_character_recognition
 from pipelines.image_to_text.redundancy import RedundancyProcessor
+from transcription_edit_loop.contracts import (
+    EditLoopStartRequestV0,
+    TranscriptionEditRunRequestV0,
+)
+from transcription_edit_loop.run_service import TranscriptionEditRunService
+from transcription_edit_loop.persistence import TranscriptionEditPersistenceService
 
 logger = logging.getLogger(__name__)
+
+_LEGAL_JSON_MODES = {"legal_document_json", "legal_document_json_relaxed"}
+
+
+class _LegalSectionV0(BaseModel):
+    id: int = Field(..., ge=1)
+    body: str
+
+
+class _LegalDocumentV0(BaseModel):
+    documentId: str = Field(..., min_length=1)
+    sections: list[_LegalSectionV0] = Field(..., min_length=1)
 
 class ImageToTextPipeline:
     """
@@ -96,8 +116,10 @@ class ImageToTextPipeline:
         self.registry = get_registry()
         # Initialize redundancy processor
         self.redundancy_processor = RedundancyProcessor()
+        self.transcription_edit_run_service = TranscriptionEditRunService()
+        self.transcription_edit_persistence = TranscriptionEditPersistenceService()
     
-    def process(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document_json", enhancement_settings: dict = None) -> dict:
+    def process(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document_json_relaxed", enhancement_settings: dict = None) -> dict:
         """
         Process an image to extract text
         
@@ -155,7 +177,7 @@ class ImageToTextPipeline:
             if hasattr(service, 'process_image_with_text'):
                 # LLM service (OpenAI)
                 # Pass JSON mode flag for structured response
-                json_mode = extraction_mode == "legal_document_json"
+                json_mode = self._json_mode_kind(extraction_mode)
                 result = service.process_image_with_text(
                     image_data=image_data,    # CRITICAL: base64 string
                     prompt=prompt,
@@ -171,6 +193,13 @@ class ImageToTextPipeline:
                     "success": False,
                     "error": f"Service {service.__class__.__name__} doesn't support image processing"
                 }
+
+            result = self._postprocess_legal_json_result(
+                result=result,
+                extraction_mode=extraction_mode,
+                model=model,
+                context={"pipeline_method": "process"},
+            )
             
             # CRITICAL: Standardize the response
             # This ensures consistent format for frontend
@@ -207,6 +236,184 @@ class ImageToTextPipeline:
             return self.registry.ocr_services.get(service_name)
         
         return None
+
+    def _json_mode_kind(self, extraction_mode: str) -> Union[str, bool]:
+        if extraction_mode == "legal_document_json":
+            return "strict"
+        if extraction_mode == "legal_document_json_relaxed":
+            return "relaxed"
+        return False
+
+    def _is_relaxed_legal_json_mode(self, extraction_mode: str) -> bool:
+        return extraction_mode == "legal_document_json_relaxed"
+
+    def _postprocess_legal_json_result(
+        self,
+        *,
+        result: dict,
+        extraction_mode: str,
+        model: str,
+        context: dict[str, Any] | None = None,
+    ) -> dict:
+        if extraction_mode not in _LEGAL_JSON_MODES:
+            return result
+        if not result.get("success", False):
+            return result
+
+        context = context or {}
+        metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+        extracted_text = result.get("extracted_text")
+        if not isinstance(extracted_text, str) or not extracted_text.strip():
+            return result
+
+        validated = self._validate_legal_document_json_payload(extracted_text)
+        validation_passed = bool(validated is not None)
+        repair_invoked = False
+        repair_snapshot_ref = None
+        raw_output_ref = None
+
+        if validation_passed:
+            normalized_payload = validated
+        elif self._is_relaxed_legal_json_mode(extraction_mode):
+            repair_invoked = True
+            raw_output_ref = self._persist_relaxed_raw_output_for_postmortem(
+                raw_output=extracted_text,
+                model=model,
+                context=context,
+            )
+            normalized_payload, repair_snapshot_ref = self._repair_relaxed_json_with_edit_loop(
+                raw_output=extracted_text,
+                context=context,
+            )
+        else:
+            normalized_payload = None
+
+        if isinstance(normalized_payload, dict):
+            result["extracted_text"] = json.dumps(normalized_payload, ensure_ascii=False)
+        elif self._is_relaxed_legal_json_mode(extraction_mode):
+            result["success"] = False
+            result["error"] = "relaxed_json_validation_and_repair_failed"
+            metadata.setdefault("json_extraction", {})
+            metadata["json_extraction"].update(
+                {
+                    "mode": self._json_mode_kind(extraction_mode),
+                    "validation_passed": validation_passed,
+                    "repair_invoked": repair_invoked,
+                    "repair_snapshot_ref": repair_snapshot_ref,
+                    "raw_output_ref": raw_output_ref,
+                }
+            )
+            result["metadata"] = metadata
+            return result
+
+        metadata.setdefault("json_extraction", {})
+        metadata["json_extraction"].update(
+            {
+                "mode": self._json_mode_kind(extraction_mode),
+                "validation_passed": validation_passed,
+                "repair_invoked": repair_invoked,
+                "repair_snapshot_ref": repair_snapshot_ref,
+                "raw_output_ref": raw_output_ref,
+            }
+        )
+        result["metadata"] = metadata
+        logger.info(
+            "json_extraction_outcome %s",
+            json.dumps(
+                {
+                    "mode": metadata["json_extraction"].get("mode"),
+                    "model": model,
+                    "validation_passed": validation_passed,
+                    "repair_invoked": repair_invoked,
+                    "repair_snapshot_ref": repair_snapshot_ref,
+                    "raw_output_ref": raw_output_ref,
+                    "tokens_used": result.get("tokens_used"),
+                    "finish_reason": metadata.get("finish_reason"),
+                },
+                ensure_ascii=False,
+            ),
+        )
+        return result
+
+    def _validate_legal_document_json_payload(self, payload_text: str) -> dict[str, Any] | None:
+        try:
+            payload = json.loads(payload_text)
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        try:
+            validated = _LegalDocumentV0.model_validate(payload)
+        except ValidationError:
+            return None
+        normalized_sections = [
+            {"id": idx + 1, "body": str(section.body)}
+            for idx, section in enumerate(validated.sections)
+            if str(section.body).strip()
+        ]
+        if not normalized_sections:
+            return None
+        return {
+            "documentId": str(validated.documentId),
+            "sections": normalized_sections,
+        }
+
+    def _persist_relaxed_raw_output_for_postmortem(
+        self,
+        *,
+        raw_output: str,
+        model: str,
+        context: dict[str, Any],
+    ) -> str | None:
+        try:
+            dossier_id = str(context.get("dossier_id") or "adhoc")
+            return self.transcription_edit_persistence.save_raw_model_output(
+                dossier_id=dossier_id,
+                payload={
+                    "artifact_type": "relaxed_json_raw_output",
+                    "model": model,
+                    "context": context,
+                    "raw_output": raw_output,
+                },
+            )
+        except Exception:
+            return None
+
+    def _repair_relaxed_json_with_edit_loop(
+        self,
+        *,
+        raw_output: str,
+        context: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        try:
+            dossier_id = context.get("dossier_id")
+            request = TranscriptionEditRunRequestV0(
+                start=EditLoopStartRequestV0(
+                    dossier_id=str(dossier_id) if dossier_id else None,
+                    source_text=raw_output,
+                    mode="repair",
+                ),
+                plan=None,
+                promote_for_mapping=False,
+            )
+            snapshot = self.transcription_edit_run_service.run(request)
+            artifact_ref = snapshot.source_transcript_ref
+            payload = json.loads(Path(artifact_ref).read_text(encoding="utf-8"))
+            sections_raw = payload.get("sections", []) if isinstance(payload, dict) else []
+            sections: list[dict[str, Any]] = []
+            for idx, section in enumerate(sections_raw):
+                if not isinstance(section, dict):
+                    continue
+                body = section.get("body")
+                if not isinstance(body, str) or not body.strip():
+                    continue
+                sections.append({"id": idx + 1, "body": body})
+            if not sections:
+                return None, artifact_ref
+            normalized = {"documentId": "repaired", "sections": sections}
+            return normalized, artifact_ref
+        except Exception:
+            return None, None
     
     def _prepare_image(self, image_path: str, enhancement_settings: dict = None) -> Tuple[str, str]:
         """Enhanced with bulletproof error handling"""
@@ -303,7 +510,7 @@ class ImageToTextPipeline:
         from prompts.image_to_text import get_available_extraction_modes
         return get_available_extraction_modes()
     
-    def process_with_redundancy(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document_json",
+    def process_with_redundancy(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document_json_relaxed",
                                enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = "sequential",
                                dossier_id: str = None, transcription_id: str = None, run_context: str = "solo") -> dict:
         """
@@ -364,8 +571,8 @@ class ImageToTextPipeline:
                 logger.info(f"⚠️ PROGRESSIVE SAVING DISABLED: dossier_id={dossier_id}, transcription_id={transcription_id}")
 
             # Delegate to redundancy processor
-            json_mode = extraction_mode == "legal_document_json"
-            return self.redundancy_processor.process(
+            json_mode = self._json_mode_kind(extraction_mode)
+            result = self.redundancy_processor.process(
                 service=service,
                 image_data=image_data,
                 image_format=image_format,
@@ -377,6 +584,17 @@ class ImageToTextPipeline:
                 dossier_id=dossier_id,
                 transcription_id=transcription_id,
                 run_context=run_context
+            )
+            return self._postprocess_legal_json_result(
+                result=result,
+                extraction_mode=extraction_mode,
+                model=model,
+                context={
+                    "pipeline_method": "process_with_redundancy",
+                    "run_context": run_context,
+                    "dossier_id": dossier_id,
+                    "transcription_id": transcription_id,
+                },
             )
 
         except Exception as e:

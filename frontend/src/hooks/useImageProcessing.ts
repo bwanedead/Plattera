@@ -26,7 +26,7 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
   const [availableModels, setAvailableModels] = useState<Record<string, any>>({});
   const [availableExtractionModes, setAvailableExtractionModes] = useState<Record<string, {name: string, description: string}>>({});
   const [selectedModel, setSelectedModel] = useState('gpt-o4-mini');
-  const [extractionMode, setExtractionMode] = useState('legal_document_json');
+  const [extractionMode, setExtractionMode] = useState('legal_document_json_relaxed');
   const [loadingModes, setLoadingModes] = useState(true);
   const [enhancementSettings, setEnhancementSettings] = useState<EnhancementSettings>({
     contrast: 2.0,
@@ -56,7 +56,7 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
 
   // Dynamic redundancy defaults based on extraction mode
   const getRedundancyDefaults = (mode: string): RedundancySettings => {
-    if (mode === 'legal_document_json') {
+    if (mode === 'legal_document_json' || mode === 'legal_document_json_relaxed') {
       return {
         enabled: true,
         count: 3,
@@ -321,7 +321,7 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
       } catch (error) {
         console.warn('Failed to load extraction modes from API, using defaults:', error)
         setAvailableExtractionModes({
-          'legal_document_json': { name: 'Legal Document JSON', description: 'Structured JSON format' },
+          'legal_document_json_relaxed': { name: 'Legal Document JSON (Relaxed)', description: 'Structured JSON + local validation/repair' },
           'generic_document_json': { name: 'Generic Document JSON', description: 'Verbatim mainText + sideTexts' }
         })
       } finally {

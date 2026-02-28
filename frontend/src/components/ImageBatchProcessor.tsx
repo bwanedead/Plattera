@@ -35,7 +35,7 @@ const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({
   const [processing, setProcessing] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [selectedModel, setSelectedModel] = useState('gpt-4o')
-  const [extractionMode, setExtractionMode] = useState('legal_document_json')
+  const [extractionMode, setExtractionMode] = useState('legal_document_json_relaxed')
   const [availableModels, setAvailableModels] = useState<Record<string, ModelInfo>>({})
   const [availableExtractionModes, setAvailableExtractionModes] = useState<Record<string, {name: string, description: string}>>({})
   const [loadingModels, setLoadingModels] = useState(true)
@@ -104,7 +104,7 @@ const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({
           'legal_document_plain': { name: 'Legal Document Plain', description: 'Plain legal document transcription' },
           'legal_document_sectioned': { name: 'Legal Document Sectioned', description: 'With section markers' },
           'ultra_precise_legal': { name: 'Ultra Precise Legal', description: 'Maximum accuracy' },
-          'legal_document_json': { name: 'Legal Document JSON', description: 'Structured JSON format' }
+          'legal_document_json_relaxed': { name: 'Legal Document JSON (Relaxed)', description: 'Structured JSON + local validation/repair' }
         })
       } finally {
         setLoadingModes(false)

@@ -99,7 +99,7 @@ async def process_content(
     file: UploadFile = File(...),
     content_type: str = Form(...),  # "image-to-text", "text-to-schema", etc.
     model: str = Form("gpt-4o"),
-    extraction_mode: str = Form("legal_document_json"),
+    extraction_mode: str = Form("legal_document_json_relaxed"),
     cleanup_after: str = Form("true"),
     flow_to: str = Form(None),
     parcel_id: str = Form(None),
@@ -390,6 +390,8 @@ async def _process_image_to_text(
                                         raw = parsed
                             except Exception:
                                 pass
+                            if isinstance(raw, dict):
+                                raw["_extraction_mode_used"] = extraction_mode
                             json.dump(raw, f, indent=2, ensure_ascii=False)
                         logger.info(f"💾 Persisted transcription JSON: {out_file}")
 
@@ -449,6 +451,8 @@ async def _process_image_to_text(
                                                 to_write = raw
                                         except Exception:
                                             to_write = raw
+                                    if isinstance(to_write, dict):
+                                        to_write["_extraction_mode_used"] = extraction_mode
                                     with open(version_file, 'w', encoding='utf-8') as vf:
                                         json.dump(to_write, vf, indent=2, ensure_ascii=False)
                                     logger.info(f"💾 Persisted draft JSON: {version_file}")
@@ -711,6 +715,7 @@ async def get_processing_types():
                     "supported_files": ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp"],
                     "extraction_modes": {
                         "legal_document_json": {"name": "Legal Document JSON", "description": "Structured JSON for legal deeds"},
+                        "legal_document_json_relaxed": {"name": "Legal Document JSON (Relaxed)", "description": "JSON object mode with local validation/repair"},
                         "generic_document_json": {"name": "Generic Document JSON", "description": "Verbatim mainText + sideTexts"}
                     }
                 }
@@ -723,7 +728,7 @@ async def test_process(
     file: UploadFile = File(...),
     content_type: str = Form(...),
     model: str = Form("gpt-4o"),
-    extraction_mode: str = Form("legal_document_json"),
+    extraction_mode: str = Form("legal_document_json_relaxed"),
     cleanup_after: str = Form("true")
 ):
     """Test endpoint to debug 422 issues"""
@@ -752,7 +757,7 @@ async def test_process(
     file: UploadFile = File(...),
     content_type: str = Form(...),
     model: str = Form("gpt-4o"),
-    extraction_mode: str = Form("legal_document_json"),
+    extraction_mode: str = Form("legal_document_json_relaxed"),
     cleanup_after: str = Form("true")
 ):
     """Test endpoint to debug 422 issues"""
