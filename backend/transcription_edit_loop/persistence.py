@@ -75,6 +75,11 @@ class TranscriptionEditPersistenceService:
         self._atomic_write(path, payload)
         return str(path)
 
+    def save_json_extraction_metric(self, *, dossier_id: str, payload: dict[str, Any]) -> str:
+        path = self._new_artifact_path(dossier_id, "json_extraction_metric")
+        self._atomic_write(path, payload)
+        return str(path)
+
     def write_latest_transcript_for_mapping(
         self,
         *,

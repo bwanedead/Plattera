@@ -76,10 +76,12 @@ DEFAULT MODES:
 from services.registry import get_registry
 from prompts.image_to_text import get_image_to_text_prompt
 import base64
+import os
 from pathlib import Path
 import logging
 from typing import Tuple, Dict, Any, Optional, Union
 import json
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field, ValidationError
 from pipelines.image_to_text.image_processor import enhance_for_character_recognition
 from pipelines.image_to_text.redundancy import RedundancyProcessor
@@ -142,6 +144,7 @@ class ImageToTextPipeline:
         5. Standardize response format
         """
         try:
+            extraction_mode = self._effective_extraction_mode(extraction_mode)
             # CRITICAL: Get the appropriate service for this model
             # This routing is essential for multi-service support
             service = self._get_service_for_model(model)
@@ -244,6 +247,13 @@ class ImageToTextPipeline:
             return "relaxed"
         return False
 
+    def _effective_extraction_mode(self, extraction_mode: str) -> str:
+        force_strict = str(os.getenv("PLATTERA_IMAGE_TO_TEXT_FORCE_STRICT_JSON", "")).strip().lower()
+        if force_strict in {"1", "true", "yes", "on"} and extraction_mode == "legal_document_json_relaxed":
+            logger.warning("⚠️ Internal override enabled: forcing strict JSON extraction mode")
+            return "legal_document_json"
+        return extraction_mode
+
     def _is_relaxed_legal_json_mode(self, extraction_mode: str) -> bool:
         return extraction_mode == "legal_document_json_relaxed"
 
@@ -303,6 +313,16 @@ class ImageToTextPipeline:
                     "raw_output_ref": raw_output_ref,
                 }
             )
+            self._persist_json_extraction_metric(
+                extraction_mode=extraction_mode,
+                model=model,
+                validation_passed=validation_passed,
+                repair_invoked=repair_invoked,
+                recovered=False,
+                repair_snapshot_ref=repair_snapshot_ref,
+                raw_output_ref=raw_output_ref,
+                context=context,
+            )
             result["metadata"] = metadata
             return result
 
@@ -315,6 +335,16 @@ class ImageToTextPipeline:
                 "repair_snapshot_ref": repair_snapshot_ref,
                 "raw_output_ref": raw_output_ref,
             }
+        )
+        self._persist_json_extraction_metric(
+            extraction_mode=extraction_mode,
+            model=model,
+            validation_passed=validation_passed,
+            repair_invoked=repair_invoked,
+            recovered=isinstance(normalized_payload, dict),
+            repair_snapshot_ref=repair_snapshot_ref,
+            raw_output_ref=raw_output_ref,
+            context=context,
         )
         result["metadata"] = metadata
         logger.info(
@@ -334,6 +364,41 @@ class ImageToTextPipeline:
             ),
         )
         return result
+
+    def _persist_json_extraction_metric(
+        self,
+        *,
+        extraction_mode: str,
+        model: str,
+        validation_passed: bool,
+        repair_invoked: bool,
+        recovered: bool,
+        repair_snapshot_ref: str | None,
+        raw_output_ref: str | None,
+        context: dict[str, Any],
+    ) -> None:
+        try:
+            mode = self._json_mode_kind(extraction_mode)
+            if mode not in {"relaxed", "strict"}:
+                return
+            dossier_id = str(context.get("dossier_id") or "adhoc")
+            self.transcription_edit_persistence.save_json_extraction_metric(
+                dossier_id=dossier_id,
+                payload={
+                    "artifact_type": "json_extraction_metric_v1",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "mode": mode,
+                    "model": model,
+                    "validation_passed": bool(validation_passed),
+                    "repair_invoked": bool(repair_invoked),
+                    "recovered": bool(recovered),
+                    "repair_snapshot_ref": repair_snapshot_ref,
+                    "raw_output_ref": raw_output_ref,
+                    "context": context,
+                },
+            )
+        except Exception:
+            pass
 
     def _validate_legal_document_json_payload(self, payload_text: str) -> dict[str, Any] | None:
         try:
@@ -530,6 +595,7 @@ class ImageToTextPipeline:
             transcription_id: Optional transcription ID for progressive saving
         """
         try:
+            extraction_mode = self._effective_extraction_mode(extraction_mode)
             # Handle single redundancy by falling back to original method
             if redundancy_count <= 1:
                 return self.process(image_path, model, extraction_mode, enhancement_settings)

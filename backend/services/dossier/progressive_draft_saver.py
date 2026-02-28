@@ -170,6 +170,10 @@ class ProgressiveDraftSaver:
             "_tokens_used": result.get("tokens_used"),
             "_processing_time": result.get("processing_time"),
             "_extraction_mode_used": extraction_mode_used,
+            "_json_validation_passed": bool(json_meta.get("validation_passed")) if json_meta else None,
+            "_json_repair_invoked": bool(json_meta.get("repair_invoked")) if json_meta else None,
+            "_json_repair_snapshot_ref": json_meta.get("repair_snapshot_ref") if json_meta else None,
+            "_json_raw_output_ref": json_meta.get("raw_output_ref") if json_meta else None,
         })
 
         return content

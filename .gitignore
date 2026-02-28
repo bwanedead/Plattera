@@ -207,6 +207,9 @@ pids
 tmp/
 temp/
 
+# Practice deeds working folder
+practice_deeds/
+
 # Environment variables (API keys, etc.)
 .env
 .env.*

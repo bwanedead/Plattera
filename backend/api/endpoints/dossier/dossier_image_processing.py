@@ -611,6 +611,13 @@ async def _handle_dossier_association(
                 content['_status'] = 'completed'
                 content['_draft_index'] = 0
                 content['_extraction_mode_used'] = extraction_mode
+                _jx = (result or {}).get("metadata", {}).get("json_extraction", {}) if isinstance((result or {}).get("metadata"), dict) else {}
+                if isinstance(_jx, dict):
+                    content["_json_validation_passed"] = bool(_jx.get("validation_passed"))
+                    content["_json_repair_invoked"] = bool(_jx.get("repair_invoked"))
+                    content["_json_repair_snapshot_ref"] = _jx.get("repair_snapshot_ref")
+                    content["_json_raw_output_ref"] = _jx.get("raw_output_ref")
+                content["_model_used"] = model
 
                 with open(v1_path, 'w', encoding='utf-8') as vf:
                     _json.dump(content, vf, indent=2, ensure_ascii=False)

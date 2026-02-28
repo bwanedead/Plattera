@@ -142,6 +142,13 @@ class ImageToTextQueueService:
                     content['_draft_index'] = 0
                     content['_created_at'] = content.get('_created_at') or _dt.now().isoformat()
                     content['_extraction_mode_used'] = str((job or {}).get("extraction_mode") or "unknown")
+                    content['_model_used'] = str((job or {}).get("model") or "unknown")
+                    _jx = (result or {}).get("metadata", {}).get("json_extraction", {}) if isinstance((result or {}).get("metadata"), dict) else {}
+                    if isinstance(_jx, dict):
+                        content["_json_validation_passed"] = bool(_jx.get("validation_passed"))
+                        content["_json_repair_invoked"] = bool(_jx.get("repair_invoked"))
+                        content["_json_repair_snapshot_ref"] = _jx.get("repair_snapshot_ref")
+                        content["_json_raw_output_ref"] = _jx.get("raw_output_ref")
 
                     # Write v1 and base files
                     v1_path = drafts_dir / f"{transcription_id}_v1.json"

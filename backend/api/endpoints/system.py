@@ -266,7 +266,7 @@ async def get_processing_types():
             "image-to-text": {
                 "description": "Extract text from images using OCR and LLM processing",
                 "models": ["gpt-4o", "gpt-4o-mini"],
-                "extraction_modes": ["legal_document_json_relaxed", "legal_document_json", "generic_document_json"],
+                "extraction_modes": ["legal_document_json_relaxed", "generic_document_json"],
                 "status": "available"
             },
             "text-to-schema": {
