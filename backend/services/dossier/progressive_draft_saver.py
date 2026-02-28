@@ -50,8 +50,16 @@ class ProgressiveDraftSaver:
         self.dossiers_data_dir = dossiers_root()
         logger.debug("📝 ProgressiveDraftSaver initialized")
 
-    def save_draft_result(self, dossier_id: str, transcription_id: str,
-                         draft_index: int, result: Dict[str, Any]) -> bool:
+    def save_draft_result(
+        self,
+        dossier_id: str,
+        transcription_id: str,
+        draft_index: int,
+        result: Dict[str, Any],
+        *,
+        extraction_mode_used: Optional[str] = None,
+        model_used: Optional[str] = None,
+    ) -> bool:
         """
         Save a single draft result immediately upon completion.
 
@@ -73,7 +81,12 @@ class ProgressiveDraftSaver:
             version_file = drafts_dir / f"{transcription_id}_v{draft_index + 1}.json"
 
             # Prepare content for saving
-            content = self._prepare_draft_content(result, draft_index)
+            content = self._prepare_draft_content(
+                result,
+                draft_index,
+                extraction_mode_used=extraction_mode_used,
+                model_used=model_used,
+            )
 
             # Save the draft file
             drafts_dir.mkdir(parents=True, exist_ok=True)
@@ -118,7 +131,14 @@ class ProgressiveDraftSaver:
             logger.error(f"❌ Failed to save draft v{draft_index + 1}: {e}")
             return False
 
-    def _prepare_draft_content(self, result: Dict[str, Any], draft_index: int) -> Dict[str, Any]:
+    def _prepare_draft_content(
+        self,
+        result: Dict[str, Any],
+        draft_index: int,
+        *,
+        extraction_mode_used: Optional[str] = None,
+        model_used: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Prepare the content to be saved for a draft result.
 
@@ -161,12 +181,18 @@ class ProgressiveDraftSaver:
         # Add metadata
         meta = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
         json_meta = meta.get("json_extraction") if isinstance(meta.get("json_extraction"), dict) else {}
-        extraction_mode_used = json_meta.get("mode") or meta.get("extraction_mode") or "unknown"
+        extraction_mode_used = (
+            extraction_mode_used
+            or json_meta.get("mode")
+            or meta.get("extraction_mode")
+            or "unknown"
+        )
+        resolved_model_used = model_used or result.get("model_used")
         content.update({
             "_draft_index": draft_index,
             "_created_at": datetime.now().isoformat(),
             "_status": "completed" if success else "failed",
-            "_model_used": result.get("model_used"),
+            "_model_used": resolved_model_used,
             "_tokens_used": result.get("tokens_used"),
             "_processing_time": result.get("processing_time"),
             "_extraction_mode_used": extraction_mode_used,

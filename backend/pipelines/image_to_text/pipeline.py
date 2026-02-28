@@ -631,7 +631,12 @@ class ImageToTextPipeline:
             progressive_save_callback = None
             if dossier_id and transcription_id:
                 logger.info(f"💾 PROGRESSIVE SAVING ENABLED for dossier {dossier_id}, transcription {transcription_id}")
-                progressive_save_callback = self._create_progressive_save_callback(dossier_id, transcription_id)
+                progressive_save_callback = self._create_progressive_save_callback(
+                    dossier_id,
+                    transcription_id,
+                    extraction_mode=extraction_mode,
+                    model=model,
+                )
                 logger.info("✅ Progressive save callback created and assigned")
             else:
                 logger.info(f"⚠️ PROGRESSIVE SAVING DISABLED: dossier_id={dossier_id}, transcription_id={transcription_id}")
@@ -670,7 +675,14 @@ class ImageToTextPipeline:
                 "error": f"Redundancy processing failed: {str(e)}"
             }
 
-    def _create_progressive_save_callback(self, dossier_id: str, transcription_id: str):
+    def _create_progressive_save_callback(
+        self,
+        dossier_id: str,
+        transcription_id: str,
+        *,
+        extraction_mode: str,
+        model: str,
+    ):
         """
         Create a callback function for progressive draft saving.
 
@@ -688,7 +700,14 @@ class ImageToTextPipeline:
                 from services.dossier.progressive_draft_saver import ProgressiveDraftSaver
 
                 saver = ProgressiveDraftSaver()
-                success = saver.save_draft_result(dossier_id, transcription_id, draft_index, result)
+                success = saver.save_draft_result(
+                    dossier_id,
+                    transcription_id,
+                    draft_index,
+                    result,
+                    extraction_mode_used=extraction_mode,
+                    model_used=model,
+                )
 
                 if success:
                     logger.info(f"✅ Progressive save successful for draft v{draft_index + 1}")

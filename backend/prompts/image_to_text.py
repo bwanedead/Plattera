@@ -92,9 +92,17 @@ Required keys:
 
 Rules:
 1. Use section ids as consecutive integers starting at 1.
-2. Include headers/titles inside section 1 body; do not create header-only sections.
-3. Preserve legal wording, bearings, distances, numbers, and line breaks exactly.
-4. Do not include extra keys outside documentId and sections.
+2. DO NOT INCLUDE DOCUMENT ID IN TEXT BODY. Put document ID only in documentId.
+3. Include headers/titles inside section 1 body; do not create header-only sections.
+4. Section on natural breaks:
+   - paragraph breaks and line breaks
+   - major clauses or distinct legal concepts
+   - logical content divisions in the deed
+5. Keep sectioning boundaries consistent across similar structure.
+6. Preserve legal wording, bearings, distances, numbers, and line breaks exactly.
+7. Do not hyphen-split words at line endings.
+8. Do not include extra keys outside documentId and sections.
+9. If the document contains multiple paragraphs or clauses, output multiple sections (typically 4–12 for a full deed page). Do not put the entire document into one section unless there are truly no natural breaks.
 """
 
 # Generic document transcription (structured JSON, no internal sectioning of main text)

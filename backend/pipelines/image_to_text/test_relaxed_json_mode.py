@@ -22,6 +22,8 @@ def test_prompts_expose_relaxed_legal_mode() -> None:
     assert "legal_document_json_relaxed" in modes
     prompt = get_image_to_text_prompt("legal_document_json_relaxed")
     assert "JSON object" in prompt
+    assert "Section on natural breaks" in prompt
+    assert "typically 4–12" in prompt
 
 
 def test_json_mode_kind_switches_between_strict_and_relaxed() -> None:
