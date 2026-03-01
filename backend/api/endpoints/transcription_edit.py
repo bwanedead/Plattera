@@ -12,11 +12,11 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query
 
 from config.paths import dossiers_artifacts_root
-from transcription_edit_loop.contracts import (
+from transcript_edit.contracts import (
     TranscriptionEditRunRequestV0,
 )
-from transcription_edit_loop.run_registry import TranscriptionEditRunRegistry
-from transcription_edit_loop.run_service import TranscriptionEditRunService
+from transcript_edit.run_registry import TranscriptionEditRunRegistry
+from transcript_edit.run_service import TranscriptionEditRunService
 
 router = APIRouter()
 

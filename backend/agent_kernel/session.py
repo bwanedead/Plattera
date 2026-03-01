@@ -37,6 +37,10 @@ from .tooling import (
     CorpusDeedHydrator,
     DeedSpanIndexUpserterTool,
     DraftIRFilesystemProposer,
+    TranscriptAuditTool,
+    TranscriptEditPlanApplyTool,
+    TranscriptMappingPromoterTool,
+    TranscriptSpanOpenerTool,
     TextSpanOpenerTool,
 )
 from .tooling import (
@@ -87,6 +91,10 @@ class KernelSessionManager:
                 georeferencer=FeatureGraphGeoreferenceTool(),
                 validator=FeatureGraphValidateTool(),
                 renderer=FeatureGraphRenderTool(),
+                transcript_auditor=TranscriptAuditTool(),
+                transcript_span_opener=TranscriptSpanOpenerTool(),
+                transcript_plan_applier=TranscriptEditPlanApplyTool(),
+                transcript_promoter=TranscriptMappingPromoterTool(),
             )
         )
         self._persistence_service = persistence_service
@@ -639,6 +647,14 @@ def _build_dashboard(
         render_ref=_dump_ref(run_artifact.render_artifact_ref),
         retrieval_ref=_dump_ref(run_artifact.retrieval_artifact_ref),
         deed_span_index_ref=_dump_ref(run_artifact.deed_span_index_artifact_ref),
+        tx_source_transcript_ref=_dump_ref(run_artifact.tx_source_transcript_artifact_ref),
+        tx_open_spans_ref=_dump_ref(run_artifact.tx_open_spans_artifact_ref),
+        tx_validator_report_ref=_dump_ref(run_artifact.tx_validator_report_artifact_ref),
+        tx_edit_plan_ref=_dump_ref(run_artifact.tx_edit_plan_artifact_ref),
+        tx_apply_report_ref=_dump_ref(run_artifact.tx_apply_report_artifact_ref),
+        tx_edited_transcript_ref=_dump_ref(run_artifact.tx_edited_transcript_artifact_ref),
+        tx_mapping_pointer_ref=_dump_ref(run_artifact.tx_mapping_pointer_artifact_ref),
+        tx_span_seeds_ref=_dump_ref(run_artifact.tx_span_seeds_artifact_ref),
     )
 
     gap_counts: dict[str, int] = {}
@@ -724,6 +740,32 @@ def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord) -> None:
         run_artifact.retrieval_artifact_ref = _extract_ref(step.outputs, "retrieval_artifact_ref")
     if step.action == ActionType.UPSERT_DEED_SPAN_INDEX:
         run_artifact.deed_span_index_artifact_ref = _extract_ref(step.outputs, "deed_span_index_ref")
+    if step.action == ActionType.TX_AUDIT_TRANSCRIPT:
+        run_artifact.tx_validator_report_artifact_ref = _extract_ref(step.outputs, "tx_validator_report_ref")
+        source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
+        if source_ref is not None:
+            run_artifact.tx_source_transcript_artifact_ref = source_ref
+    if step.action == ActionType.TX_OPEN_TRANSCRIPT_SPANS:
+        run_artifact.tx_open_spans_artifact_ref = _extract_ref(step.outputs, "tx_open_spans_ref")
+        source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
+        if source_ref is not None:
+            run_artifact.tx_source_transcript_artifact_ref = source_ref
+    if step.action == ActionType.TX_APPLY_EDIT_PLAN:
+        run_artifact.tx_apply_report_artifact_ref = _extract_ref(step.outputs, "tx_apply_report_ref")
+        plan_ref = _extract_ref_from_inline(step.outputs_inline, "tx_edit_plan_ref")
+        if plan_ref is not None:
+            run_artifact.tx_edit_plan_artifact_ref = plan_ref
+        source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
+        if source_ref is not None:
+            run_artifact.tx_source_transcript_artifact_ref = source_ref
+        edited_ref = _extract_ref_from_inline(step.outputs_inline, "tx_edited_transcript_ref")
+        if edited_ref is not None:
+            run_artifact.tx_edited_transcript_artifact_ref = edited_ref
+    if step.action == ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING:
+        run_artifact.tx_mapping_pointer_artifact_ref = _extract_ref(step.outputs, "tx_mapping_pointer_ref")
+    seeds_ref = _extract_ref_from_inline(step.outputs_inline, "tx_span_seeds_ref")
+    if seeds_ref is not None:
+        run_artifact.tx_span_seeds_artifact_ref = seeds_ref
     if step.action == ActionType.COMPILE:
         run_artifact.compile_artifact_ref = _extract_ref(step.outputs, "compile_artifact_ref")
     if step.action == ActionType.JUDGE:
@@ -744,6 +786,23 @@ def _extract_ref(outputs: dict[str, object], key: str) -> ArtifactRef | None:
     raw = outputs.get(key)
     if isinstance(raw, dict):
         return ArtifactRef.model_validate(raw)
+    if isinstance(raw, str) and raw:
+        return ArtifactRef(artifact_path=raw)
+    return None
+
+
+def _extract_ref_from_inline(outputs_inline: dict[str, object] | None, key: str) -> ArtifactRef | None:
+    if not isinstance(outputs_inline, dict):
+        return None
+    raw = outputs_inline.get(key)
+    if isinstance(raw, dict):
+        try:
+            return ArtifactRef.model_validate(raw)
+        except Exception:
+            path = raw.get("artifact_path")
+            if isinstance(path, str) and path:
+                return ArtifactRef(artifact_path=path)
+            return None
     if isinstance(raw, str) and raw:
         return ArtifactRef(artifact_path=raw)
     return None

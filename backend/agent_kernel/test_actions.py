@@ -23,6 +23,10 @@ from backend.agent_kernel.actions import (
     PatchProposer,
     Renderer,
     StatusSummarizer,
+    TranscriptAuditor,
+    TranscriptSpanOpener,
+    TranscriptPlanApplier,
+    TranscriptPromoter,
     Validator,
 )
 from backend.agent_kernel.models import ActionType
@@ -42,6 +46,10 @@ class _DeterministicServices(
     Renderer,
     PatchProposer,
     StatusSummarizer,
+    TranscriptAuditor,
+    TranscriptSpanOpener,
+    TranscriptPlanApplier,
+    TranscriptPromoter,
 ):
     def hydrate_deed(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
@@ -91,6 +99,39 @@ class _DeterministicServices(
         del inputs
         return "stable"
 
+    def audit_transcript(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        del inputs
+        return {
+            "artifact_ref": {"artifact_path": "artifacts/tx/validator-report-001.json"},
+            "reason_codes": ["tx_audit_completed"],
+            "tx_source_transcript_ref": "artifacts/tx/source-001.json",
+            "tx_findings_count": 0,
+        }
+
+    def apply_edit_plan(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        del inputs
+        return {
+            "artifact_ref": {"artifact_path": "artifacts/tx/apply-report-001.json"},
+            "reason_codes": ["tx_apply_completed"],
+            "tx_edit_plan_ref": "artifacts/tx/edit-plan-001.json",
+            "tx_edited_transcript_ref": "artifacts/tx/edited-001.json",
+        }
+
+    def open_transcript_spans(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        del inputs
+        return {
+            "artifact_ref": None,
+            "reason_codes": ["tx_spans_opened"],
+            "spans": [{"span_id": "s1", "start_char": 0, "end_char": 12, "text": "Beginning at"}],
+        }
+
+    def promote_transcript_for_mapping(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        del inputs
+        return {
+            "artifact_ref": {"artifact_path": "artifacts/tx/latest_transcript_for_mapping.json"},
+            "reason_codes": ["tx_promote_completed"],
+        }
+
 
 def _build_executor() -> ActionExecutor:
     services = _DeterministicServices()
@@ -107,6 +148,10 @@ def _build_executor() -> ActionExecutor:
         renderer=services,
         patch_proposer=services,
         status_summarizer=services,
+        transcript_auditor=services,
+        transcript_span_opener=services,
+        transcript_plan_applier=services,
+        transcript_promoter=services,
     )
     return ActionExecutor(deps=deps)
 
@@ -125,6 +170,10 @@ def test_executor_supports_required_deterministic_actions() -> None:
         ActionType.GEOREFERENCE,
         ActionType.VALIDATE,
         ActionType.RENDER,
+        ActionType.TX_AUDIT_TRANSCRIPT,
+        ActionType.TX_OPEN_TRANSCRIPT_SPANS,
+        ActionType.TX_APPLY_EDIT_PLAN,
+        ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
     )
 
     for index, action in enumerate(actions, start=1):
@@ -258,7 +307,23 @@ def test_new_actions_return_explicit_missing_interface_reason_codes() -> None:
         {"artifact_ref": {"artifact_path": "artifacts/x.json"}},
     )
     drafted = executor.execute("draft", ActionType.DRAFT_IR, {"deed_text": "..."})
+    tx_audit = executor.execute("tx-audit", ActionType.TX_AUDIT_TRANSCRIPT, {"source_text": "abc"})
+    tx_apply = executor.execute("tx-apply", ActionType.TX_APPLY_EDIT_PLAN, {"edit_plan": {}})
+    tx_spans = executor.execute(
+        "tx-spans",
+        ActionType.TX_OPEN_TRANSCRIPT_SPANS,
+        {"source_text": "alpha beta gamma", "spans": [{"start_char": 0, "end_char": 5}]},
+    )
+    tx_promote = executor.execute(
+        "tx-promote",
+        ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
+        {"transcript_ref": "artifacts/tx/edited-001.json"},
+    )
 
     assert hydrated.reason_codes == ["missing_deed_hydrator_interface"]
     assert opened.reason_codes == ["missing_artifact_opener_interface"]
     assert drafted.reason_codes == ["missing_draft_ir_proposer_interface"]
+    assert tx_audit.reason_codes == ["missing_transcript_auditor_interface"]
+    assert tx_spans.reason_codes == ["missing_transcript_span_opener_interface"]
+    assert tx_apply.reason_codes == ["missing_transcript_plan_applier_interface"]
+    assert tx_promote.reason_codes == ["missing_transcript_promoter_interface"]

@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from config.paths import dossiers_artifacts_root
 
-from .contracts import ApplyReportV0, EditPlanV0, TranscriptDocumentV0
+from .contracts import ApplyReportV0, EditPlanV0, TranscriptDocumentV0, TranscriptSpanSeedsArtifactV1
 
 
 class TranscriptionEditPersistenceService:
@@ -98,3 +98,18 @@ class TranscriptionEditPersistenceService:
         }
         self._atomic_write(pointer, payload)
         return str(pointer)
+
+    def save_transcript_span_seeds(self, *, dossier_id: str, artifact: TranscriptSpanSeedsArtifactV1) -> str:
+        path = self._new_artifact_path(dossier_id, "transcript_span_seeds")
+        self._atomic_write(path, artifact.model_dump(mode="json"))
+        pointer = self._artifact_dir(dossier_id) / "latest_transcript_span_seeds.json"
+        pointer_payload = {
+            "artifact_type": "latest_transcript_span_seeds_pointer_v1",
+            "dossier_id": str(dossier_id),
+            "seeds_ref": str(path),
+            "source_transcript_ref": artifact.source_transcript_ref,
+            "source_transcript_hash": artifact.source_transcript_hash,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._atomic_write(pointer, pointer_payload)
+        return str(path)

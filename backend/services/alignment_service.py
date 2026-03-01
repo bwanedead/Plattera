@@ -239,18 +239,13 @@ class AlignmentService:
                                 logger.info("📝 Updated run metadata for alignment consensus")
                                 # Emit event for UI auto-refresh (non-blocking)
                                 try:
-                                    import asyncio
-
-                                    asyncio.create_task(
-                                        event_bus.publish(
-                                            {
-                                                "type": "dossier:update",
-                                                "dossier_id": str(dossier_id),
-                                                "transcription_id": str(transcription_id),
-                                                "event": "alignment_consensus_saved",
-                                            }
-                                        )
-                                    )
+                                    event_payload = {
+                                        "type": "dossier:update",
+                                        "dossier_id": str(dossier_id),
+                                        "transcription_id": str(transcription_id),
+                                        "event": "alignment_consensus_saved",
+                                    }
+                                    event_bus.publish_best_effort(event_payload)
                                 except Exception:
                                     pass
                             except Exception as meta_err:

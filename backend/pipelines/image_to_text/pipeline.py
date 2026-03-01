@@ -76,7 +76,10 @@ DEFAULT MODES:
 from services.registry import get_registry
 from prompts.image_to_text import get_image_to_text_prompt
 import base64
+import hashlib
 import os
+import threading
+import time
 from pathlib import Path
 import logging
 from typing import Tuple, Dict, Any, Optional, Union
@@ -85,16 +88,43 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field, ValidationError
 from pipelines.image_to_text.image_processor import enhance_for_character_recognition
 from pipelines.image_to_text.redundancy import RedundancyProcessor
-from transcription_edit_loop.contracts import (
+from agent_kernel.session import KernelSessionManager
+from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
+from agent_kernel.tooling import (
+    TranscriptAuditTool,
+    TranscriptEditPlanApplyTool,
+    TranscriptMappingPromoterTool,
+    TranscriptSpanOpenerTool,
+)
+from agents.transcript_edit.controller import run_transcript_edit_controller_loop
+from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
+from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
+from transcript_edit.contracts import (
     EditLoopStartRequestV0,
     TranscriptionEditRunRequestV0,
 )
-from transcription_edit_loop.run_service import TranscriptionEditRunService
-from transcription_edit_loop.persistence import TranscriptionEditPersistenceService
+from transcript_edit.persistence import TranscriptionEditPersistenceService
+from transcript_edit.run_registry import TranscriptionEditRunRegistry
+from config.paths import dossiers_root
+from transcript_edit.run_service import TranscriptionEditRunService
 
 logger = logging.getLogger(__name__)
 
 _LEGAL_JSON_MODES = {"legal_document_json", "legal_document_json_relaxed"}
+_MODE_OFF = "off"
+_MODE_AUDIT_ONLY = "audit_only"
+_MODE_AUDIT_REPAIR = "audit_then_repair"
+_MODE_AUDIT_REPAIR_PROMOTE = "audit_then_repair_then_promote"
+
+
+def _extract_best_result_index(metadata: Any) -> int | None:
+    if not isinstance(metadata, dict):
+        return None
+    analysis = metadata.get("redundancy_analysis")
+    if not isinstance(analysis, dict):
+        return None
+    value = analysis.get("best_result_index")
+    return value if isinstance(value, int) and value >= 0 else None
 
 
 class _LegalSectionV0(BaseModel):
@@ -120,6 +150,7 @@ class ImageToTextPipeline:
         self.redundancy_processor = RedundancyProcessor()
         self.transcription_edit_run_service = TranscriptionEditRunService()
         self.transcription_edit_persistence = TranscriptionEditPersistenceService()
+        self.transcription_edit_run_registry = TranscriptionEditRunRegistry()
     
     def process(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document_json_relaxed", enhancement_settings: dict = None) -> dict:
         """
@@ -346,6 +377,14 @@ class ImageToTextPipeline:
             raw_output_ref=raw_output_ref,
             context=context,
         )
+        self._maybe_trigger_transcript_edit_agent_background(
+            extraction_mode=extraction_mode,
+            normalized_payload=normalized_payload if isinstance(normalized_payload, dict) else None,
+            context={
+                **context,
+                "best_result_index": _extract_best_result_index(metadata),
+            },
+        )
         result["metadata"] = metadata
         logger.info(
             "json_extraction_outcome %s",
@@ -364,6 +403,187 @@ class ImageToTextPipeline:
             ),
         )
         return result
+
+    def _maybe_trigger_transcript_edit_agent_background(
+        self,
+        *,
+        extraction_mode: str,
+        normalized_payload: dict[str, Any] | None,
+        context: dict[str, Any],
+    ) -> None:
+        if extraction_mode != "legal_document_json_relaxed":
+            return
+        if not isinstance(normalized_payload, dict):
+            return
+        policy_mode = self._post_t0_tx_agent_mode()
+        if policy_mode == _MODE_OFF:
+            return
+        execution_mode = self._post_t0_tx_agent_execution()
+        dossier_id = context.get("dossier_id")
+        if not isinstance(dossier_id, str) or not dossier_id.strip():
+            return
+        transcription_id = str(context.get("transcription_id") or "").strip() or None
+        best_result_index_raw = context.get("best_result_index")
+        best_result_index = best_result_index_raw if isinstance(best_result_index_raw, int) else None
+        source_transcript_ref = self._resolve_post_t0_source_transcript_ref(
+            dossier_id=dossier_id,
+            transcription_id=transcription_id,
+            best_result_index=best_result_index,
+        )
+        source_text = None
+        input_kind = "ref" if source_transcript_ref else "text"
+        if source_transcript_ref is None:
+            sections = normalized_payload.get("sections")
+            if not isinstance(sections, list):
+                return
+            section_bodies = [
+                str(section.get("body") or "").strip()
+                for section in sections
+                if isinstance(section, dict) and str(section.get("body") or "").strip()
+            ]
+            if not section_bodies:
+                return
+            source_text = "\n\n".join(section_bodies)
+
+        auto_promote = policy_mode == _MODE_AUDIT_REPAIR_PROMOTE and source_transcript_ref is not None
+        run_id = f"tx_post_t0_{int(time.time())}_{hashlib.sha256((dossier_id + str(transcription_id or '')).encode('utf-8')).hexdigest()[:8]}"
+        self.transcription_edit_run_registry.create_run(
+            run_id=run_id,
+            request={
+                "dossier_id": dossier_id,
+                "transcription_id": transcription_id,
+                "mode": policy_mode,
+                "execution": execution_mode,
+                "input_kind": input_kind,
+                "best_result_index": best_result_index,
+                "auto_promote": auto_promote,
+                "trigger": "post_t0",
+            },
+        )
+        logger.info(
+            "transcript_edit_agent_post_t0_trigger %s",
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "dossier_id": dossier_id,
+                    "transcription_id": transcription_id,
+                            "mode": policy_mode,
+                            "execution": execution_mode,
+                            "input_kind": input_kind,
+                            "best_result_index": best_result_index,
+                            "auto_promote": auto_promote,
+                        },
+                        ensure_ascii=False,
+                    ),
+        )
+
+        def _run_once() -> None:
+            try:
+                session_manager = KernelSessionManager(
+                    action_executor=ActionExecutor(
+                        deps=ActionExecutorDeps(
+                            transcript_auditor=TranscriptAuditTool(),
+                            transcript_span_opener=TranscriptSpanOpenerTool(),
+                            transcript_plan_applier=TranscriptEditPlanApplyTool(),
+                            transcript_promoter=TranscriptMappingPromoterTool(),
+                        )
+                    ),
+                    persistence_service=RunArtifactPersistenceService(),
+                )
+                result = run_transcript_edit_controller_loop(
+                    session_manager=session_manager,
+                    request=TranscriptEditAgentRunRequest(
+                        dossier_id=dossier_id,
+                        source_transcript_ref=source_transcript_ref,
+                        source_text=source_text,
+                        max_iterations=3,
+                        mode=policy_mode,
+                        auto_promote=auto_promote,
+                    ),
+                    request_id_prefix=f"tx-post-t0-{transcription_id or 'adhoc'}",
+                )
+                self.transcription_edit_run_registry.update_run(
+                    run_id=run_id,
+                    patch={
+                        "status": result.status,
+                        "snapshot": {
+                            "status": result.status,
+                            "reason_code": result.reason_code,
+                            "iterations": result.iterations,
+                            "session_id": result.session_id,
+                            "run_artifact_ref": result.run_artifact_ref,
+                            "latest_refs": result.latest_refs,
+                            "review_required": result.review_required,
+                        },
+                    },
+                )
+                logger.info(
+                    "transcript_edit_agent_post_t0_completed %s",
+                    json.dumps(
+                        {
+                            "run_id": run_id,
+                            "dossier_id": dossier_id,
+                            "transcription_id": transcription_id,
+                            "status": result.status,
+                            "reason_code": result.reason_code,
+                            "iterations": result.iterations,
+                            "review_required": result.review_required,
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            except Exception as exc:
+                self.transcription_edit_run_registry.update_run(
+                    run_id=run_id,
+                    patch={"status": "failed", "error": str(exc)},
+                )
+                logger.warning("transcript_edit_agent_post_t0_failed: %s", str(exc))
+        if execution_mode == "sync":
+            _run_once()
+            return
+        threading.Thread(target=_run_once, daemon=True).start()
+
+    def _resolve_post_t0_source_transcript_ref(
+        self,
+        *,
+        dossier_id: str,
+        transcription_id: str | None,
+        best_result_index: int | None = None,
+    ) -> str | None:
+        if not transcription_id:
+            return None
+        raw_root = (
+            dossiers_root()
+            / "views"
+            / "transcriptions"
+            / str(dossier_id)
+            / str(transcription_id)
+            / "raw"
+        )
+        if isinstance(best_result_index, int) and best_result_index >= 0:
+            draft_num = best_result_index + 1
+            versioned = raw_root / f"{transcription_id}_v{draft_num}.json"
+            if versioned.exists():
+                return str(versioned)
+        ref = (
+            raw_root
+            / f"{transcription_id}.json"
+        )
+        if ref.exists():
+            return str(ref)
+        return None
+
+    def _post_t0_tx_agent_mode(self) -> str:
+        raw = str(os.getenv("PLATTERA_POST_T0_TX_AGENT_MODE", "")).strip().lower()
+        if raw in {_MODE_OFF, _MODE_AUDIT_ONLY, _MODE_AUDIT_REPAIR, _MODE_AUDIT_REPAIR_PROMOTE}:
+            return raw
+        return _MODE_AUDIT_REPAIR_PROMOTE
+
+    def _post_t0_tx_agent_execution(self) -> str:
+        raw = str(os.getenv("PLATTERA_POST_T0_TX_AGENT_EXECUTION", "")).strip().lower()
+        if raw in {"background_thread", "sync"}:
+            return raw
+        return "background_thread"
 
     def _persist_json_extraction_metric(
         self,

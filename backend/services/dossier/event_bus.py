@@ -39,6 +39,19 @@ class DossierEventBus:
                     except Exception:
                         pass
 
+    def publish_best_effort(self, event: Dict[str, Any]) -> None:
+        """
+        Publish from either async or sync contexts without leaking un-awaited coroutines.
+
+        If called inside an active event loop, schedule a background task.
+        Otherwise, run publish synchronously in a temporary loop.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.publish(event))
+        except RuntimeError:
+            asyncio.run(self.publish(event))
+
     def get_subscriber_count(self) -> int:
         # helper for logging purposes only
         return len(self._subscribers)

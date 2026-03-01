@@ -316,14 +316,14 @@ class ImageToTextQueueService:
                     pass
             # Publish dossier update event for auto-refresh of dossier manager
             try:
-                import asyncio
                 from services.dossier.event_bus import event_bus
-                asyncio.create_task(event_bus.publish({
+                event_payload = {
                     "type": "dossier:update",
                     "event": "run_completed",
                     "dossier_id": str(dossier_id),
                     "transcription_id": str(transcription_id)
-                }))
+                }
+                event_bus.publish_best_effort(event_payload)
             except Exception:
                 pass
         except Exception as e:

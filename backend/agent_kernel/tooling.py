@@ -24,6 +24,18 @@ from feature_graph.models import FeatureGraph
 from retrieval.engine.retrieval_engine import RetrievalEngine
 from retrieval.filters.models import RetrievalFilters
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+from transcript_edit.apply import (
+    apply_plan_to_sections,
+    materialize_canonical_input,
+)
+from transcript_edit.contracts import (
+    EditLoopStartRequestV0,
+    EditPlanV0,
+    TranscriptDocumentV0,
+    transcript_text_hash,
+)
+from transcript_edit.persistence import TranscriptionEditPersistenceService
+from transcript_edit.validators import run_validators
 
 from .run_artifact import ArtifactRef, ValidationInline
 
@@ -235,6 +247,327 @@ class DeedSpanIndexUpserterTool:
             "artifact_ref": artifact_ref,
             "reason_codes": ["deed_span_index_saved"],
             "span_catalog_excerpt": _span_catalog_excerpt(spans),
+        }
+
+
+@dataclass
+class TranscriptAuditTool:
+    """Run deterministic transcript validators and persist validator artifacts."""
+
+    persistence: TranscriptionEditPersistenceService = field(default_factory=TranscriptionEditPersistenceService)
+
+    def audit_transcript(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        dossier_id = _read_str(inputs.get("dossier_id")) or "adhoc"
+        source_ref = _read_str(
+            inputs.get("source_transcript_ref")
+            or inputs.get("transcript_ref")
+            or inputs.get("tx_source_transcript_ref")
+        )
+        source_text = _read_str(inputs.get("source_text"))
+        if source_ref is None and source_text is None:
+            return _tool_refusal_result("tx_audit_missing_source_transcript")
+        try:
+            canonical = materialize_canonical_input(
+                EditLoopStartRequestV0(
+                    dossier_id=dossier_id,
+                    source_transcript_ref=source_ref,
+                    source_text=source_text,
+                    mode="audit_only",
+                )
+            )
+        except Exception:
+            return _tool_refusal_result("tx_audit_invalid_source_transcript")
+        document = TranscriptDocumentV0(
+            source_transcript_ref=canonical.source_transcript_ref,
+            source_transcript_hash=canonical.source_transcript_hash,
+            sections=canonical.transcript_sections,
+            metadata={"source": "agent_kernel_tx_audit"},
+        )
+        source_artifact_ref = canonical.source_transcript_ref
+        if source_text is not None:
+            source_artifact_ref = self.persistence.save_source_transcript_input(
+                dossier_id=dossier_id,
+                document=document,
+            )
+        report = run_validators(document=document, source_transcript_ref=source_artifact_ref)
+        report_ref = self.persistence.save_validator_report(
+            dossier_id=dossier_id,
+            report_payload=report.model_dump(mode="json"),
+        )
+        findings_count = len(report.findings)
+        top_findings: list[dict[str, Any]] = []
+        for finding in report.findings[:12]:
+            top_findings.append(
+                {
+                    "finding_id": finding.finding_id,
+                    "finding_type": finding.finding_type,
+                    "severity": finding.severity,
+                    "message": finding.message,
+                    "section_id": finding.section_id,
+                    "span": finding.span,
+                }
+            )
+        return {
+            "artifact_ref": ArtifactRef(artifact_path=report_ref),
+            "reason_codes": ["tx_audit_completed"],
+            "tx_source_transcript_ref": source_artifact_ref,
+            "tx_source_transcript_hash": report.source_transcript_hash,
+            "tx_validator_summary": report.summary,
+            "tx_findings_count": findings_count,
+            "tx_error_findings_count": int(report.summary.get("errors", 0)),
+            "tx_warning_findings_count": int(report.summary.get("warnings", 0)),
+            "tx_has_findings": findings_count > 0,
+            "tx_top_findings": top_findings,
+        }
+
+
+@dataclass
+class TranscriptSpanOpenerTool:
+    """Open bounded transcript spans for planner context."""
+
+    def open_transcript_spans(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        dossier_id = _read_str(inputs.get("dossier_id")) or "adhoc"
+        source_ref = _read_str(
+            inputs.get("source_transcript_ref")
+            or inputs.get("tx_source_transcript_ref")
+            or inputs.get("transcript_ref")
+        )
+        source_text = _read_str(inputs.get("source_text"))
+        if source_ref is None and source_text is None:
+            return _tool_refusal_result("tx_open_spans_missing_source_transcript")
+        try:
+            canonical = materialize_canonical_input(
+                EditLoopStartRequestV0(
+                    source_transcript_ref=source_ref,
+                    source_text=source_text,
+                    mode="audit_only",
+                )
+            )
+        except Exception:
+            return _tool_refusal_result("tx_open_spans_invalid_source_transcript")
+
+        text = canonical.transcript_text
+        max_chars_per_span = _bounded_int(inputs.get("max_chars_per_span"), default=1800, minimum=1, maximum=5000)
+        max_total_chars = _bounded_int(inputs.get("max_total_chars"), default=7000, minimum=1, maximum=12000)
+        spans: list[dict[str, Any]] = []
+        total_chars = 0
+
+        raw_spans = inputs.get("spans")
+        if isinstance(raw_spans, list):
+            for idx, raw in enumerate(raw_spans):
+                if not isinstance(raw, dict):
+                    continue
+                start_char = raw.get("start_char")
+                end_char = raw.get("end_char")
+                if not isinstance(start_char, int) or not isinstance(end_char, int):
+                    continue
+                if start_char < 0 or end_char <= start_char or end_char > len(text):
+                    continue
+                excerpt = text[start_char:end_char]
+                truncated = False
+                if len(excerpt) > max_chars_per_span:
+                    excerpt = excerpt[:max_chars_per_span]
+                    truncated = True
+                if total_chars + len(excerpt) > max_total_chars:
+                    break
+                total_chars += len(excerpt)
+                spans.append(
+                    {
+                        "span_id": _read_str(raw.get("span_id")) or f"offset_{idx + 1}",
+                        "start_char": start_char,
+                        "end_char": end_char,
+                        "text": excerpt,
+                        "truncated": truncated,
+                    }
+                )
+
+        raw_anchors = inputs.get("anchors")
+        if isinstance(raw_anchors, list):
+            for idx, raw in enumerate(raw_anchors):
+                if not isinstance(raw, dict):
+                    continue
+                start_anchor = _read_str(raw.get("start_anchor"))
+                end_anchor = _read_str(raw.get("end_anchor"))
+                if not start_anchor or not end_anchor:
+                    continue
+                occurrence = _bounded_int(raw.get("occurrence"), default=1, minimum=1, maximum=200)
+                start_from = 0
+                start_idx = -1
+                end_idx = -1
+                for _ in range(occurrence):
+                    start_idx = text.find(start_anchor, start_from)
+                    if start_idx < 0:
+                        break
+                    end_search_from = start_idx + len(start_anchor)
+                    end_idx = text.find(end_anchor, end_search_from)
+                    if end_idx < 0:
+                        break
+                    start_from = end_idx + len(end_anchor)
+                if start_idx < 0 or end_idx < 0:
+                    continue
+                span_start = start_idx
+                span_end = end_idx + len(end_anchor)
+                excerpt = text[span_start:span_end]
+                truncated = False
+                if len(excerpt) > max_chars_per_span:
+                    excerpt = excerpt[:max_chars_per_span]
+                    truncated = True
+                if total_chars + len(excerpt) > max_total_chars:
+                    break
+                total_chars += len(excerpt)
+                spans.append(
+                    {
+                        "span_id": _read_str(raw.get("span_id")) or f"anchor_{idx + 1}",
+                        "start_char": span_start,
+                        "end_char": span_end,
+                        "text": excerpt,
+                        "truncated": truncated,
+                    }
+                )
+
+        if not spans:
+            excerpt = text[: min(max_chars_per_span, len(text))]
+            spans.append(
+                {
+                    "span_id": "fallback_1",
+                    "start_char": 0,
+                    "end_char": len(excerpt),
+                    "text": excerpt,
+                    "truncated": len(excerpt) < len(text),
+                }
+            )
+
+        artifact_ref = _persist_json_artifact(
+            category="transcript_spans",
+            dossier_id=dossier_id,
+            payload={
+                "artifact_type": "transcript_spans_open_v1",
+                "source_transcript_ref": canonical.source_transcript_ref,
+                "spans": spans,
+                "max_chars_per_span": max_chars_per_span,
+                "max_total_chars": max_total_chars,
+            },
+        )
+        return {
+            "artifact_ref": artifact_ref,
+            "reason_codes": ["tx_spans_opened"],
+            "tx_source_transcript_ref": canonical.source_transcript_ref,
+            "spans": spans,
+        }
+
+
+@dataclass
+class TranscriptEditPlanApplyTool:
+    """Apply EditPlanV0 against section-preserving transcript documents."""
+
+    persistence: TranscriptionEditPersistenceService = field(default_factory=TranscriptionEditPersistenceService)
+
+    def apply_edit_plan(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        dossier_id = _read_str(inputs.get("dossier_id")) or "adhoc"
+        raw_plan = inputs.get("edit_plan")
+        if not isinstance(raw_plan, dict):
+            return _tool_refusal_result("tx_apply_missing_edit_plan")
+        try:
+            plan = EditPlanV0.model_validate(raw_plan)
+        except Exception:
+            return _tool_refusal_result("tx_apply_invalid_edit_plan")
+        try:
+            canonical = materialize_canonical_input(
+                EditLoopStartRequestV0(
+                    dossier_id=dossier_id,
+                    source_transcript_ref=plan.source_transcript_ref,
+                    mode="repair",
+                )
+            )
+        except Exception:
+            return _tool_refusal_result("tx_apply_invalid_source_transcript")
+        source_document = TranscriptDocumentV0(
+            source_transcript_ref=canonical.source_transcript_ref,
+            source_transcript_hash=canonical.source_transcript_hash,
+            sections=canonical.transcript_sections,
+            metadata={"source": "agent_kernel_tx_apply"},
+        )
+        plan_ref = self.persistence.save_edit_plan(dossier_id=dossier_id, plan=plan)
+        apply_report, output_doc = apply_plan_to_sections(plan=plan, document=source_document)
+        apply_ref = self.persistence.save_apply_report(dossier_id=dossier_id, report=apply_report)
+        if apply_report.root_status == "refused":
+            return {
+                "artifact_ref": ArtifactRef(artifact_path=apply_ref),
+                "reason_codes": [f"tx_apply_refused:{apply_report.root_reason_code or 'unknown'}"],
+                "kernel_refusal": {
+                    "reason_code": f"tx_apply_refused:{apply_report.root_reason_code or 'unknown'}",
+                    "retryable": True,
+                    "missing_inputs": [],
+                    "blocked_by_budget": False,
+                    "blocked_by_invariant": False,
+                },
+                "tx_edit_plan_ref": plan_ref,
+                "tx_source_transcript_ref": canonical.source_transcript_ref,
+                "tx_source_transcript_hash": canonical.source_transcript_hash,
+                "tx_apply_summary": {
+                    "applied_count": apply_report.applied_count,
+                    "refused_count": apply_report.refused_count,
+                    "root_status": apply_report.root_status,
+                    "root_reason_code": apply_report.root_reason_code,
+                },
+            }
+        edited_ref = self.persistence.save_edited_transcript(dossier_id=dossier_id, document=output_doc)
+        return {
+            "artifact_ref": ArtifactRef(artifact_path=apply_ref),
+            "reason_codes": ["tx_apply_completed"],
+            "tx_edit_plan_ref": plan_ref,
+            "tx_source_transcript_ref": canonical.source_transcript_ref,
+            "tx_source_transcript_hash": canonical.source_transcript_hash,
+            "tx_apply_report_ref": apply_ref,
+            "tx_edited_transcript_ref": edited_ref,
+            "tx_apply_summary": {
+                "applied_count": apply_report.applied_count,
+                "refused_count": apply_report.refused_count,
+                "root_status": apply_report.root_status,
+            },
+        }
+
+
+@dataclass
+class TranscriptMappingPromoterTool:
+    """Promote a transcript artifact for downstream mapping hydration."""
+
+    persistence: TranscriptionEditPersistenceService = field(default_factory=TranscriptionEditPersistenceService)
+
+    def promote_transcript_for_mapping(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        dossier_id = _read_str(inputs.get("dossier_id")) or "adhoc"
+        transcript_ref = _read_str(
+            inputs.get("transcript_ref")
+            or inputs.get("tx_edited_transcript_ref")
+            or inputs.get("source_transcript_ref")
+        )
+        if transcript_ref is None:
+            return _tool_refusal_result("tx_promote_missing_transcript_ref")
+        transcript_hash = _read_str(inputs.get("transcript_hash"))
+        if transcript_hash is None:
+            try:
+                canonical = materialize_canonical_input(
+                    EditLoopStartRequestV0(
+                        dossier_id=dossier_id,
+                        source_transcript_ref=transcript_ref,
+                        mode="audit_only",
+                    )
+                )
+            except Exception:
+                return _tool_refusal_result("tx_promote_invalid_transcript_ref")
+            transcript_hash = transcript_text_hash(canonical.transcript_text)
+        pointer_ref = self.persistence.write_latest_transcript_for_mapping(
+            dossier_id=dossier_id,
+            transcript_ref=transcript_ref,
+            transcript_hash=transcript_hash,
+            run_id=_read_str(inputs.get("run_id")),
+        )
+        return {
+            "artifact_ref": ArtifactRef(artifact_path=pointer_ref),
+            "reason_codes": ["tx_promote_completed"],
+            "tx_mapping_pointer_ref": pointer_ref,
+            "tx_promoted_transcript_ref": transcript_ref,
+            "tx_promoted_transcript_hash": transcript_hash,
         }
 
 

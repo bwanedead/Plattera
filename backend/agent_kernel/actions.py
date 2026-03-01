@@ -94,6 +94,30 @@ class StatusSummarizer(Protocol):
     def summarize_status(self, inputs: Mapping[str, Any]) -> str: ...
 
 
+class TranscriptAuditor(Protocol):
+    """Explicit interface for TX_AUDIT_TRANSCRIPT action execution."""
+
+    def audit_transcript(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
+class TranscriptSpanOpener(Protocol):
+    """Explicit interface for TX_OPEN_TRANSCRIPT_SPANS action execution."""
+
+    def open_transcript_spans(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
+class TranscriptPlanApplier(Protocol):
+    """Explicit interface for TX_APPLY_EDIT_PLAN action execution."""
+
+    def apply_edit_plan(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
+class TranscriptPromoter(Protocol):
+    """Explicit interface for TX_PROMOTE_TRANSCRIPT_FOR_MAPPING action execution."""
+
+    def promote_transcript_for_mapping(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
 @dataclass(frozen=True)
 class ActionExecutorDeps:
     """Dependency bundle for deterministic and LLM-scaffold action execution."""
@@ -112,6 +136,10 @@ class ActionExecutorDeps:
     renderer: Renderer | None = None
     patch_proposer: PatchProposer | None = None
     status_summarizer: StatusSummarizer | None = None
+    transcript_auditor: TranscriptAuditor | None = None
+    transcript_span_opener: TranscriptSpanOpener | None = None
+    transcript_plan_applier: TranscriptPlanApplier | None = None
+    transcript_promoter: TranscriptPromoter | None = None
 
 
 class ActionExecutor:
@@ -151,6 +179,14 @@ class ActionExecutor:
             actions.append(ActionType.SUMMARIZE_STATUS)
         if self._deps.deed_span_index_upserter is not None or allow_stubbed:
             actions.append(ActionType.UPSERT_DEED_SPAN_INDEX)
+        if self._deps.transcript_auditor is not None or allow_stubbed:
+            actions.append(ActionType.TX_AUDIT_TRANSCRIPT)
+        if self._deps.transcript_span_opener is not None or allow_stubbed:
+            actions.append(ActionType.TX_OPEN_TRANSCRIPT_SPANS)
+        if self._deps.transcript_plan_applier is not None or allow_stubbed:
+            actions.append(ActionType.TX_APPLY_EDIT_PLAN)
+        if self._deps.transcript_promoter is not None or allow_stubbed:
+            actions.append(ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING)
         return tuple(actions)
 
     def execute(self, step_id: str, action: ActionType, inputs: Mapping[str, Any]) -> StepRecord:
@@ -282,6 +318,62 @@ class ActionExecutor:
                 execute_fn=(
                     self._deps.deed_span_index_upserter.upsert_deed_span_index
                     if self._deps.deed_span_index_upserter is not None
+                    else None
+                ),
+                inputs=inputs,
+            )
+        if action == ActionType.TX_AUDIT_TRANSCRIPT:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="tx_validator_report_ref",
+                reason_code="tx_audit_completed",
+                missing_reason="missing_transcript_auditor_interface",
+                execute_fn=(
+                    self._deps.transcript_auditor.audit_transcript
+                    if self._deps.transcript_auditor is not None
+                    else None
+                ),
+                inputs=inputs,
+            )
+        if action == ActionType.TX_OPEN_TRANSCRIPT_SPANS:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="tx_open_spans_ref",
+                reason_code="tx_spans_opened",
+                missing_reason="missing_transcript_span_opener_interface",
+                execute_fn=(
+                    self._deps.transcript_span_opener.open_transcript_spans
+                    if self._deps.transcript_span_opener is not None
+                    else None
+                ),
+                inputs=inputs,
+            )
+        if action == ActionType.TX_APPLY_EDIT_PLAN:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="tx_apply_report_ref",
+                reason_code="tx_apply_completed",
+                missing_reason="missing_transcript_plan_applier_interface",
+                execute_fn=(
+                    self._deps.transcript_plan_applier.apply_edit_plan
+                    if self._deps.transcript_plan_applier is not None
+                    else None
+                ),
+                inputs=inputs,
+            )
+        if action == ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="tx_mapping_pointer_ref",
+                reason_code="tx_promote_completed",
+                missing_reason="missing_transcript_promoter_interface",
+                execute_fn=(
+                    self._deps.transcript_promoter.promote_transcript_for_mapping
+                    if self._deps.transcript_promoter is not None
                     else None
                 ),
                 inputs=inputs,

@@ -56,6 +56,10 @@ class ActionType(str, Enum):
     PROPOSE_PATCH = "propose_patch"
     SUMMARIZE_STATUS = "summarize_status"
     UPSERT_DEED_SPAN_INDEX = "upsert_deed_span_index"
+    TX_AUDIT_TRANSCRIPT = "tx_audit_transcript"
+    TX_OPEN_TRANSCRIPT_SPANS = "tx_open_transcript_spans"
+    TX_APPLY_EDIT_PLAN = "tx_apply_edit_plan"
+    TX_PROMOTE_TRANSCRIPT_FOR_MAPPING = "tx_promote_transcript_for_mapping"
 
 
 class KernelGoal(BaseModel):
@@ -152,6 +156,14 @@ class KernelLatestRefs(BaseModel):
     render_ref: Optional[dict[str, object]] = None
     retrieval_ref: Optional[dict[str, object]] = None
     deed_span_index_ref: Optional[dict[str, object]] = None
+    tx_source_transcript_ref: Optional[dict[str, object]] = None
+    tx_open_spans_ref: Optional[dict[str, object]] = None
+    tx_validator_report_ref: Optional[dict[str, object]] = None
+    tx_edit_plan_ref: Optional[dict[str, object]] = None
+    tx_apply_report_ref: Optional[dict[str, object]] = None
+    tx_edited_transcript_ref: Optional[dict[str, object]] = None
+    tx_mapping_pointer_ref: Optional[dict[str, object]] = None
+    tx_span_seeds_ref: Optional[dict[str, object]] = None
 
 
 class KernelGapSummary(BaseModel):

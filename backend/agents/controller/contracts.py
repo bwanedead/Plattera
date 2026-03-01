@@ -317,6 +317,67 @@ class _RenderArgs(BaseModel):
         return self
 
 
+class _TxAuditTranscriptArgs(BaseModel):
+    dossier_id: str | None = Field(default=None, max_length=128)
+    source_transcript_ref: str | None = Field(default=None, max_length=512)
+    source_text: str | None = Field(default=None, max_length=120000)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_TxAuditTranscriptArgs":
+        if not self.source_transcript_ref and not self.source_text:
+            raise ValueError("tx_audit_requires_source_transcript_ref_or_source_text")
+        return self
+
+
+class _TxOpenTranscriptSpansRawRange(BaseModel):
+    span_id: str | None = Field(default=None, max_length=128)
+    start_char: int = Field(..., ge=0)
+    end_char: int = Field(..., ge=1)
+
+
+class _TxOpenTranscriptSpansAnchorSpec(BaseModel):
+    span_id: str | None = Field(default=None, max_length=128)
+    start_anchor: str = Field(..., min_length=1, max_length=200)
+    end_anchor: str = Field(..., min_length=1, max_length=200)
+    occurrence: int | None = Field(default=None, ge=1, le=200)
+
+
+class _TxOpenTranscriptSpansArgs(BaseModel):
+    dossier_id: str | None = Field(default=None, max_length=128)
+    source_transcript_ref: str | None = Field(default=None, max_length=512)
+    source_text: str | None = Field(default=None, max_length=120000)
+    spans: list[_TxOpenTranscriptSpansRawRange] | None = Field(default=None, max_length=20)
+    anchors: list[_TxOpenTranscriptSpansAnchorSpec] | None = Field(default=None, max_length=20)
+    max_chars_per_span: int | None = Field(default=None, ge=1, le=5000)
+    max_total_chars: int | None = Field(default=None, ge=1, le=12000)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_TxOpenTranscriptSpansArgs":
+        if not self.source_transcript_ref and not self.source_text:
+            raise ValueError("tx_open_spans_requires_source_transcript_ref_or_source_text")
+        if not self.spans and not self.anchors:
+            raise ValueError("tx_open_spans_requires_spans_or_anchors")
+        return self
+
+
+class _TxApplyEditPlanArgs(BaseModel):
+    dossier_id: str | None = Field(default=None, max_length=128)
+    edit_plan: dict[str, Any]
+
+
+class _TxPromoteTranscriptArgs(BaseModel):
+    dossier_id: str | None = Field(default=None, max_length=128)
+    transcript_ref: str | None = Field(default=None, max_length=512)
+    tx_edited_transcript_ref: str | None = Field(default=None, max_length=512)
+    source_transcript_hash: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def _validate_minimum_inputs(self) -> "_TxPromoteTranscriptArgs":
+        if not self.transcript_ref and not self.tx_edited_transcript_ref:
+            raise ValueError("tx_promote_requires_transcript_ref")
+        return self
+
+
 class _ProposePatchArgs(BaseModel):
     ir_artifact_ref: str | None = Field(default=None, max_length=512)
     retrieval_artifact_ref: str | None = Field(default=None, max_length=512)
@@ -347,6 +408,10 @@ _ACTION_ARG_MODELS: dict[ActionType, type[BaseModel]] = {
     ActionType.GEOREFERENCE: _GeoreferenceArgs,
     ActionType.VALIDATE: _ValidateArgs,
     ActionType.RENDER: _RenderArgs,
+    ActionType.TX_AUDIT_TRANSCRIPT: _TxAuditTranscriptArgs,
+    ActionType.TX_OPEN_TRANSCRIPT_SPANS: _TxOpenTranscriptSpansArgs,
+    ActionType.TX_APPLY_EDIT_PLAN: _TxApplyEditPlanArgs,
+    ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING: _TxPromoteTranscriptArgs,
     ActionType.PROPOSE_PATCH: _ProposePatchArgs,
     ActionType.SUMMARIZE_STATUS: _SummarizeStatusArgs,
     ActionType.UPSERT_DEED_SPAN_INDEX: _UpsertDeedSpanIndexArgs,
@@ -552,6 +617,10 @@ _TOOL_REQUIRED_FIELDS: dict[ActionType, list[str]] = {
     ActionType.GEOREFERENCE: ["bundle_artifact_ref | ir_artifact_ref"],
     ActionType.VALIDATE: ["georef_artifact_ref"],
     ActionType.RENDER: ["georef_artifact_ref"],
+    ActionType.TX_AUDIT_TRANSCRIPT: ["source_transcript_ref | source_text"],
+    ActionType.TX_OPEN_TRANSCRIPT_SPANS: ["source_transcript_ref | source_text", "spans[] OR anchors[]"],
+    ActionType.TX_APPLY_EDIT_PLAN: ["edit_plan"],
+    ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING: ["transcript_ref | tx_edited_transcript_ref"],
     ActionType.PROPOSE_PATCH: ["ir_artifact_ref"],
     ActionType.UPSERT_DEED_SPAN_INDEX: ["deed_text_artifact_ref", "deed_fingerprint", "upserts[]"],
 }
@@ -562,6 +631,7 @@ _TOOL_SCHEMA_REQUIRED_KEYS: dict[ActionType, list[str]] = {
     ActionType.UPSERT_DEED_SPAN_INDEX: ["deed_text_artifact_ref", "deed_fingerprint", "upserts"],
     ActionType.RETRIEVE_EVIDENCE: ["query"],
     ActionType.RENDER: ["georef_artifact_ref"],
+    ActionType.TX_APPLY_EDIT_PLAN: ["edit_plan"],
 }
 
 
@@ -734,6 +804,40 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
         return {"georef_artifact_ref": "<georef-artifact-ref>"}
     if action == ActionType.RENDER:
         return {"georef_artifact_ref": "<georef-artifact-ref>", "width": 900, "height": 700}
+    if action == ActionType.TX_AUDIT_TRANSCRIPT:
+        return {"dossier_id": dossier_id, "source_transcript_ref": "<transcript-ref>"}
+    if action == ActionType.TX_OPEN_TRANSCRIPT_SPANS:
+        return {
+            "dossier_id": dossier_id,
+            "source_transcript_ref": "<transcript-ref>",
+            "anchors": [
+                {
+                    "span_id": "tx_01",
+                    "start_anchor": "Beginning at",
+                    "end_anchor": "to the point of beginning",
+                }
+            ],
+            "max_total_chars": 4000,
+        }
+    if action == ActionType.TX_APPLY_EDIT_PLAN:
+        return {
+            "dossier_id": dossier_id,
+            "edit_plan": {
+                "plan_version": "edit_plan_v0",
+                "source_transcript_ref": "<transcript-ref>",
+                "source_transcript_hash": "<sha256>",
+                "plan_id": "plan-001",
+                "summary": "Normalize obvious OCR punctuation spacing.",
+                "ops": [],
+                "global_flags": {"review_required": False},
+                "plan_fingerprint": "<fingerprint>",
+            },
+        }
+    if action == ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING:
+        return {
+            "dossier_id": dossier_id,
+            "tx_edited_transcript_ref": "<edited-transcript-ref>",
+        }
     if action == ActionType.PROPOSE_PATCH:
         return {"ir_artifact_ref": ir_ref}
     if action == ActionType.UPSERT_DEED_SPAN_INDEX:
@@ -797,6 +901,26 @@ def _common_mistakes_for_action(action: ActionType, *, reason_code: str | None) 
         return [
             "RETRIEVE_EVIDENCE requires a non-empty query string.",
             "Use retrieval only when it helps resolve a concrete gap or ambiguity.",
+        ]
+    if action == ActionType.TX_AUDIT_TRANSCRIPT:
+        return [
+            "Provide source_transcript_ref when possible; source_text is fallback only.",
+            "Run transcript audit before proposing transcript edits.",
+        ]
+    if action == ActionType.TX_OPEN_TRANSCRIPT_SPANS:
+        return [
+            "TX_OPEN_TRANSCRIPT_SPANS needs source_transcript_ref/source_text and spans[] or anchors[].",
+            "Keep requests bounded; do not request full-document spans repeatedly.",
+        ]
+    if action == ActionType.TX_APPLY_EDIT_PLAN:
+        return [
+            "TX_APPLY_EDIT_PLAN requires edit_plan at top level.",
+            "Each op should include expected_old.old_excerpt for drift safety.",
+        ]
+    if action == ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING:
+        return [
+            "Promotion requires transcript_ref (or tx_edited_transcript_ref).",
+            "Do not promote when unresolved validator errors remain.",
         ]
     if action == ActionType.UPSERT_DEED_SPAN_INDEX:
         return [

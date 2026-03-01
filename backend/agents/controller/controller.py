@@ -48,6 +48,7 @@ from .prompting import (
 )
 from .retrieval_intents import classify_retrieval_degradation, map_retrieval_intent_to_inputs
 from .tool_specs import ToolSpec
+from .bootstrap import load_transcript_span_seeds_for_mapping, materialize_seed_spans_from_text
 
 _MAX_CONTROLLER_INPUT_BYTES = 4096
 _MAX_EVENTS = 200
@@ -203,6 +204,27 @@ def run_controller_loop(
             "deed_text_artifact_ref": bootstrap_context.get("deed_text_artifact_ref"),
         },
     )
+    seed_bootstrap_step = _bootstrap_deed_span_index_from_transcript_seeds(
+        session_manager=session_manager,
+        session_id=session_id,
+        request_id=start_request.request_id,
+        bootstrap_context=bootstrap_context,
+    )
+    if seed_bootstrap_step is not None:
+        started.dashboard = seed_bootstrap_step.dashboard
+        _append_event(
+            transcript,
+            event_type="bootstrap_span_seeds_materialized",
+            detail=seed_bootstrap_step.execution_state.value,
+            payload={
+                "execution_state": seed_bootstrap_step.execution_state.value,
+                "reason_code": (
+                    seed_bootstrap_step.refusal.reason_code
+                    if seed_bootstrap_step.refusal is not None
+                    else None
+                ),
+            },
+        )
 
     iterations = 0
     run_summary_ref: str | None = None
@@ -1646,6 +1668,73 @@ def _contains_excessive_depth(value: object, *, depth: int = 0, max_depth: int =
     if isinstance(value, list):
         return any(_contains_excessive_depth(v, depth=depth + 1, max_depth=max_depth) for v in value)
     return False
+
+
+def _bootstrap_deed_span_index_from_transcript_seeds(
+    *,
+    session_manager: KernelSessionManager,
+    session_id: str,
+    request_id: str,
+    bootstrap_context: dict[str, object],
+) -> KernelStepResult | None:
+    dossier_id = _read_str(bootstrap_context.get("dossier_id"))
+    if dossier_id is None:
+        return None
+    deed_text = bootstrap_context.get("deed_text_full")
+    deed_ref = _read_str(bootstrap_context.get("deed_text_artifact_ref"))
+    deed_fingerprint = bootstrap_context.get("deed_fingerprint")
+    if not isinstance(deed_text, str) or not deed_text:
+        return None
+    if deed_ref is None or not isinstance(deed_fingerprint, dict):
+        return None
+    seed_bundle = load_transcript_span_seeds_for_mapping(dossier_id=dossier_id)
+    if seed_bundle is None:
+        return None
+    spans = materialize_seed_spans_from_text(deed_text=deed_text, seed_bundle=seed_bundle, max_spans=24)
+    if not spans:
+        return None
+    upserts: list[dict[str, object]] = []
+    for span in spans:
+        start_char = int(span["start_char"])
+        end_char = int(span["end_char"])
+        label = str(span.get("label") or "misc")
+        seed_id = str(span.get("seed_id") or f"seed_{len(upserts)+1:02d}")
+        intended = deed_text[start_char:end_char]
+        upserts.append(
+            {
+                "span_id": seed_id,
+                "kind": "transcript_seed",
+                "labels": [label],
+                "status": "proposed",
+                "start_char": start_char,
+                "end_char": end_char,
+                "anchor": {
+                    "start_snippet": str(span.get("start_anchor") or "")[:200],
+                    "end_snippet": str(span.get("end_anchor") or "")[:200],
+                },
+                "agent_intent": {"intended_verbatim_text": intended[:2000]},
+            }
+        )
+    if not upserts:
+        return None
+    payload = {
+        "dossier_id": dossier_id,
+        "deed_text_artifact_ref": deed_ref,
+        "deed_fingerprint": deed_fingerprint,
+        "upserts": upserts,
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    ).hexdigest()[:12]
+    return session_manager.step(
+        KernelStepRequest(
+            session_id=session_id,
+            idempotency_key=f"bootstrap-seed-upsert-{digest}",
+            action_type=ActionType.UPSERT_DEED_SPAN_INDEX,
+            inputs=payload,
+            notes=f"request_id={request_id}",
+        )
+    )
 
 
 def _build_bootstrap_context(start_request: KernelSessionStartRequest) -> dict[str, object]:

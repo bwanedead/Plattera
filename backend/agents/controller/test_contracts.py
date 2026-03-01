@@ -143,3 +143,22 @@ def test_validate_action_args_draft_ir_accepts_graph() -> None:
     assert missing == []
     assert isinstance(cleaned, dict)
     assert isinstance(cleaned.get("graph"), dict)
+
+
+def test_validate_action_args_tx_open_transcript_spans_requires_source_and_query_shape() -> None:
+    cleaned, reason_code, missing = validate_action_args(
+        action_type=ActionType.TX_OPEN_TRANSCRIPT_SPANS,
+        args={"anchors": [{"start_anchor": "Beginning", "end_anchor": "P.O.B."}]},
+    )
+    assert cleaned is None
+    assert reason_code == "tx_open_spans_requires_source_transcript_ref_or_source_text"
+    assert missing == []
+
+
+def test_action_tool_specs_for_menu_tx_apply_edit_plan_requires_edit_plan() -> None:
+    specs = action_tool_specs_for_menu([ActionType.TX_APPLY_EDIT_PLAN.value])
+    assert len(specs) == 1
+    params = specs[0].parameters_schema
+    required = params.get("required")
+    assert isinstance(required, list)
+    assert "edit_plan" in required

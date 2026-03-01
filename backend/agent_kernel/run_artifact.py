@@ -80,6 +80,14 @@ class RunArtifact(BaseModel):
     render_artifact_ref: Optional[ArtifactRef] = None
     retrieval_artifact_ref: Optional[ArtifactRef] = None
     deed_span_index_artifact_ref: Optional[ArtifactRef] = None
+    tx_source_transcript_artifact_ref: Optional[ArtifactRef] = None
+    tx_open_spans_artifact_ref: Optional[ArtifactRef] = None
+    tx_validator_report_artifact_ref: Optional[ArtifactRef] = None
+    tx_edit_plan_artifact_ref: Optional[ArtifactRef] = None
+    tx_apply_report_artifact_ref: Optional[ArtifactRef] = None
+    tx_edited_transcript_artifact_ref: Optional[ArtifactRef] = None
+    tx_mapping_pointer_artifact_ref: Optional[ArtifactRef] = None
+    tx_span_seeds_artifact_ref: Optional[ArtifactRef] = None
     idempotency_ledger: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     steps: List[StepRecord] = Field(default_factory=list)
 

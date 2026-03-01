@@ -10,6 +10,7 @@ from api.endpoints import image_to_text_jobs, index_maintenance, retrieval
 from api.endpoints import feature_graph
 from api.endpoints import agent_loop
 from api.endpoints import transcription_edit
+from api.endpoints import transcript_edit_agent
 from api import logs as logs_router
 from api.endpoints.plss import container_router
 from api.endpoints.dossier import management_router, association_router, navigation_router, views_router, dossier_image_processing_router, runs_router
@@ -75,6 +76,7 @@ api_router.include_router(retrieval.router, prefix="/api", tags=["retrieval"])
 api_router.include_router(feature_graph.router, prefix="/api/feature-graph", tags=["feature-graph"])
 api_router.include_router(agent_loop.router, prefix="/api/agent-loop", tags=["agent-loop"])
 api_router.include_router(transcription_edit.router, prefix="/api/transcription-edit", tags=["transcription-edit"])
+api_router.include_router(transcript_edit_agent.router, prefix="/api/transcript-edit-agent", tags=["transcript-edit-agent"])
 
 # Config endpoints (no additional prefix; router has /config)
 api_router.include_router(config_endpoints.router)

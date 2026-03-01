@@ -238,3 +238,40 @@ class ApplyReportV0(BaseModel):
     output_transcript_ref: str | None = None
     output_transcript_text: str
     output_transcript_hash: str
+
+
+class TranscriptSpanSeedLabel(str, Enum):
+    POB = "pob"
+    CALL_CHAIN = "call_chain"
+    PLSS = "plss"
+    TIE_TO_CORNER = "tie_to_corner"
+    CLOSURE = "closure"
+    EXCEPTION = "exception"
+    ACREAGE = "acreage"
+    CONSIDERATION = "consideration"
+    HABENDUM = "habendum"
+    MISC = "misc"
+
+
+class TranscriptSpanSeedOrigin(str, Enum):
+    VALIDATOR = "validator"
+    AGENT = "agent"
+    HYBRID = "hybrid"
+
+
+class TranscriptSpanSeedV1(BaseModel):
+    seed_id: str = Field(..., min_length=1, max_length=128)
+    label: TranscriptSpanSeedLabel
+    seed_origin: TranscriptSpanSeedOrigin
+    seed_confidence: Confidence
+    notes: str | None = Field(default=None, max_length=500)
+    locator: LocatorAnchorsV0
+
+
+class TranscriptSpanSeedsArtifactV1(BaseModel):
+    artifact_type: Literal["transcript_span_seeds_v1"] = "transcript_span_seeds_v1"
+    created_at: str
+    dossier_id: str
+    source_transcript_ref: str = Field(..., min_length=1, max_length=1024)
+    source_transcript_hash: str = Field(..., min_length=8, max_length=80)
+    seeds: list[TranscriptSpanSeedV1] = Field(default_factory=list, max_length=30)

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.pipelines.image_to_text.pipeline import ImageToTextPipeline
+from backend.agents.transcript_edit.contracts import TranscriptEditAgentRunResult
 from backend.prompts.image_to_text import get_available_extraction_modes, get_image_to_text_prompt
 
 
@@ -14,6 +16,8 @@ def _pipeline_stub() -> ImageToTextPipeline:
     pipeline = ImageToTextPipeline.__new__(ImageToTextPipeline)
     pipeline.transcription_edit_run_service = None
     pipeline.transcription_edit_persistence = None
+    pipeline.transcription_edit_run_registry = None
+    pipeline._maybe_trigger_transcript_edit_agent_background = lambda **kwargs: None  # type: ignore[method-assign]
     return pipeline
 
 
@@ -153,3 +157,120 @@ def test_relaxed_mode_unrecoverable_returns_failure_with_artifacts(monkeypatch) 
     assert out["error"] == "relaxed_json_validation_and_repair_failed"
     assert out["metadata"]["json_extraction"]["raw_output_ref"] == "artifact://raw"
     assert out["metadata"]["json_extraction"]["repair_snapshot_ref"] == "artifact://repair"
+
+
+def test_post_t0_trigger_uses_text_fallback_without_auto_promote(monkeypatch) -> None:
+    pipeline = ImageToTextPipeline.__new__(ImageToTextPipeline)
+    calls: dict[str, object] = {}
+
+    class _RegistryStub:
+        def create_run(self, *, run_id: str, request: dict):  # type: ignore[no-untyped-def]
+            calls["run_id"] = run_id
+            calls["request"] = request
+            return {}
+
+        def update_run(self, *, run_id: str, patch: dict):  # type: ignore[no-untyped-def]
+            calls["updated_run_id"] = run_id
+            calls["patch"] = patch
+            return {}
+
+    pipeline.transcription_edit_run_registry = _RegistryStub()
+    monkeypatch.setattr(
+        pipeline,
+        "_resolve_post_t0_source_transcript_ref",
+        lambda *, dossier_id, transcription_id, best_result_index=None: None,
+    )
+    monkeypatch.setattr(
+        "backend.pipelines.image_to_text.pipeline.run_transcript_edit_controller_loop",
+        lambda *, session_manager, request, request_id_prefix: TranscriptEditAgentRunResult(
+            run_artifact_ref="ref://run",
+            session_id="s1",
+            iterations=1,
+            status="completed",
+            reason_code="ok",
+            latest_refs={"x": 1},
+            review_required=False,
+        ),
+    )
+    monkeypatch.setenv("PLATTERA_POST_T0_TX_AGENT_MODE", "audit_then_repair_then_promote")
+    monkeypatch.setenv("PLATTERA_POST_T0_TX_AGENT_EXECUTION", "sync")
+
+    pipeline._maybe_trigger_transcript_edit_agent_background(
+        extraction_mode="legal_document_json_relaxed",
+        normalized_payload={"sections": [{"id": 1, "body": "Beginning at NW corner."}]},
+        context={"dossier_id": "D1", "transcription_id": "T1"},
+    )
+    req = calls.get("request")
+    assert isinstance(req, dict)
+    assert req["auto_promote"] is False
+    patch = calls.get("patch")
+    assert isinstance(patch, dict)
+    snapshot = patch.get("snapshot")
+    assert isinstance(snapshot, dict)
+    assert snapshot.get("status") == "completed"
+
+
+def test_post_t0_trigger_prefers_transcript_ref_and_allows_promote(monkeypatch) -> None:
+    pipeline = ImageToTextPipeline.__new__(ImageToTextPipeline)
+    captured: dict[str, object] = {}
+
+    class _RegistryStub:
+        def create_run(self, *, run_id: str, request: dict):  # type: ignore[no-untyped-def]
+            return {}
+
+        def update_run(self, *, run_id: str, patch: dict):  # type: ignore[no-untyped-def]
+            captured["patch"] = patch
+            return {}
+
+    pipeline.transcription_edit_run_registry = _RegistryStub()
+    monkeypatch.setattr(
+        pipeline,
+        "_resolve_post_t0_source_transcript_ref",
+        lambda *, dossier_id, transcription_id, best_result_index=None: "C:/tmp/source_ref.json",
+    )
+
+    def _fake_run(*, session_manager, request, request_id_prefix):  # type: ignore[no-untyped-def]
+        captured["request"] = request
+        return TranscriptEditAgentRunResult(
+            run_artifact_ref="ref://run",
+            session_id="s1",
+            iterations=1,
+            status="completed",
+            reason_code="ok",
+            latest_refs={},
+            review_required=False,
+        )
+
+    monkeypatch.setattr("backend.pipelines.image_to_text.pipeline.run_transcript_edit_controller_loop", _fake_run)
+    monkeypatch.setenv("PLATTERA_POST_T0_TX_AGENT_MODE", "audit_then_repair_then_promote")
+    monkeypatch.setenv("PLATTERA_POST_T0_TX_AGENT_EXECUTION", "sync")
+
+    pipeline._maybe_trigger_transcript_edit_agent_background(
+        extraction_mode="legal_document_json_relaxed",
+        normalized_payload={"sections": [{"id": 1, "body": "Beginning at NW corner."}]},
+        context={"dossier_id": "D1", "transcription_id": "T1"},
+    )
+    req = captured.get("request")
+    assert req is not None
+    assert req.source_transcript_ref == "C:/tmp/source_ref.json"
+    assert req.auto_promote is True
+
+
+def test_resolve_post_t0_source_transcript_ref_prefers_best_versioned_draft(tmp_path, monkeypatch) -> None:
+    pipeline = _pipeline_stub()
+    dossier_id = "D1"
+    transcription_id = "T1"
+    raw = tmp_path / "views" / "transcriptions" / dossier_id / transcription_id / "raw"
+    raw.mkdir(parents=True)
+    versioned = raw / f"{transcription_id}_v2.json"
+    base = raw / f"{transcription_id}.json"
+    versioned.write_text("{}", encoding="utf-8")
+    base.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("backend.pipelines.image_to_text.pipeline.dossiers_root", lambda: tmp_path)
+
+    ref = pipeline._resolve_post_t0_source_transcript_ref(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        best_result_index=1,
+    )
+    assert ref == str(versioned)

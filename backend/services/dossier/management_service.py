@@ -830,13 +830,12 @@ class DossierManagementService:
             logger.info(f"📋 Created run metadata: {run_file}")
             # Notify listeners
             try:
-                import asyncio
-                asyncio.create_task(event_bus.publish({
+                event_bus.publish_best_effort({
                     "type": "dossier:update",
                     "dossier_id": str(dossier_id),
                     "transcription_id": str(transcription_id),
                     "event": "run_created"
-                }))
+                })
             except Exception:
                 pass
             return True
@@ -921,13 +920,12 @@ class DossierManagementService:
             logger.debug(f"📝 Updated run metadata: {run_file}")
             # Notify listeners
             try:
-                import asyncio
-                asyncio.create_task(event_bus.publish({
+                event_bus.publish_best_effort({
                     "type": "dossier:update",
                     "dossier_id": str(dossier_id),
                     "transcription_id": str(transcription_id),
                     "event": "run_updated"
-                }))
+                })
             except Exception:
                 pass
             return True
