@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from agents.transcript_edit.controller import run_transcript_edit_controller_loop
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
+from agents.transcript_edit.terminalization import terminal_message, terminal_summary
 from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
 from agent_kernel.session import KernelSessionManager
 from agent_kernel.tooling import (
@@ -31,57 +32,6 @@ router = APIRouter()
 
 _registry = TranscriptionEditRunRegistry()
 logger = logging.getLogger(__name__)
-
-
-def _terminal_message(result) -> str:
-    """Produce a human-readable terminal message from run result."""
-    status = getattr(result, "status", "unknown")
-    reason = getattr(result, "reason_code", "") or ""
-    iterations = getattr(result, "iterations", 0)
-    review = getattr(result, "review_required", False)
-    if status == "completed" and "promoted" in reason:
-        return f"Transcript clean and promoted for mapping after {iterations} iteration(s)."
-    if status == "completed":
-        return f"Transcript audit completed after {iterations} iteration(s) — no errors found."
-    if status == "needs_review":
-        short_reason = reason.replace("tx_agent_", "").replace("_", " ")
-        return f"Run finished after {iterations} iteration(s) — needs review ({short_reason})."
-    if status == "failed":
-        short_reason = reason.replace("tx_", "").replace("_", " ")
-        return f"Run failed after {iterations} iteration(s): {short_reason}."
-    return f"Run ended with status '{status}' after {iterations} iteration(s)."
-
-
-def _terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[str, Any]:
-    first_audit = None
-    final_audit = None
-    edits_applied = 0
-    used_human_feedback = False
-    for entry in progress_log:
-        if not isinstance(entry, dict):
-            continue
-        phase = str(entry.get("phase") or "")
-        event_type = str(entry.get("event_type") or "")
-        detail = entry.get("detail") if isinstance(entry.get("detail"), dict) else {}
-        if phase == "audit_result":
-            if first_audit is None:
-                first_audit = detail
-            final_audit = detail
-        if phase == "apply_result":
-            edits_applied += int(detail.get("plan_op_count") or 0)
-        if event_type == "human_feedback" or phase in {"human_feedback_received", "human_feedback_reused"}:
-            used_human_feedback = True
-    return {
-        "status": getattr(result, "status", "unknown"),
-        "reason_code": getattr(result, "reason_code", None),
-        "iterations": getattr(result, "iterations", None),
-        "review_required": bool(getattr(result, "review_required", False)),
-        "edits_applied_total": edits_applied,
-        "used_human_feedback": used_human_feedback,
-        "initial_findings": first_audit or {},
-        "final_findings": final_audit or {},
-    }
-
 
 class TranscriptEditAgentApiRequest(TranscriptEditAgentRunRequest):
     background: bool = True
@@ -195,7 +145,7 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             request_id_prefix=f"tx-agent-{run_id}",
             progress_cb=_progress_update,
         )
-        terminal_summary = _terminal_summary(progress_log, result)
+        run_terminal_summary = terminal_summary(progress_log, result)
         _registry.update_run(
             run_id=run_id,
             patch={
@@ -209,7 +159,7 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                     "run_artifact_ref": result.run_artifact_ref,
                     "latest_refs": result.latest_refs,
                     "review_required": result.review_required,
-                    "terminal_summary": terminal_summary,
+                    "terminal_summary": run_terminal_summary,
                     "live_status": progress_log[-1] if progress_log else None,
                     "progress_log": list(progress_log),
                 },
@@ -219,12 +169,12 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             "done",
             {
                 "phase": result.status,
-                "message": _terminal_message(result),
+                "message": terminal_message(result),
                 "execution_state": result.status,
                 "iteration": result.iterations,
                 "latest_refs": result.latest_refs,
                 "review_required": result.review_required,
-                "summary": terminal_summary,
+                "summary": run_terminal_summary,
                 "terminal": True,
             },
         )
