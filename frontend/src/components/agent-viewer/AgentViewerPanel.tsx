@@ -13,71 +13,236 @@ interface AgentViewerPanelProps {
   isOpen: boolean;
   loopKind: AgentViewerLoopKind | null;
   runId: string | null;
+  sessionKey?: string;
+  transcriptionDrafts?: Array<{ id: string; label: string; text: string }>;
+  isTranscribing?: boolean;
   onClose: () => void;
+}
+
+type ViewerTheme = 'void' | 'space';
+type CanvasMode = 'transcription' | 'agent';
+
+function summarizeEventForesight(evt: AgentViewerEvent | null): string {
+  if (!evt) return 'I am waiting for the next instruction.';
+  const phase = String(evt.status?.stage || evt.payload?.phase || '').toLowerCase();
+  if (phase === 'audit') return 'Next, I will audit the transcript for deterministic issues.';
+  if (phase === 'open_spans') return 'Next, I will open localized spans to inspect target clauses.';
+  if (phase === 'image_verify') return 'Next, I will verify mapping-critical claims against the source image.';
+  if (phase === 'apply') return 'Next, I will apply the candidate edit plan safely.';
+  if (phase === 'promote') return 'Next, I will evaluate promotion eligibility for mapping use.';
+  if (evt.event_type === 'human_feedback_needed') return 'Next, I need your decision before proceeding.';
+  if (evt.event_type === 'done') return 'I have finished this run.';
+  if (phase) return `Next, I will continue with ${phase.replace(/_/g, ' ')}.`;
+  return 'Next, I will continue with the safest available step.';
+}
+
+function readableArtifactText(data: any): string {
+  if (data == null) return '';
+  if (typeof data === 'string') return data;
+  if (typeof data !== 'object') return String(data);
+  const asObj = data as Record<string, any>;
+  const lines: string[] = [];
+
+  if (typeof asObj.artifact_type === 'string') {
+    lines.push(`Artifact Type: ${asObj.artifact_type}`);
+  }
+
+  if (Array.isArray(asObj.sections)) {
+    lines.push(`Sections: ${asObj.sections.length}`);
+    asObj.sections.slice(0, 12).forEach((section: any, idx: number) => {
+      const body = typeof section?.body === 'string' ? section.body.trim() : '';
+      if (!body) return;
+      lines.push('');
+      lines.push(`Section ${idx + 1}`);
+      lines.push(body);
+    });
+    return lines.join('\n');
+  }
+
+  if (Array.isArray(asObj.results)) {
+    asObj.results.slice(0, 25).forEach((result: any, idx: number) => {
+      lines.push(`\nCheck ${idx + 1}`);
+      if (result?.check_id) lines.push(`- ID: ${result.check_id}`);
+      if (result?.status) lines.push(`- Status: ${result.status}`);
+      if (result?.confidence) lines.push(`- Confidence: ${result.confidence}`);
+      if (result?.observed_text) lines.push(`- Observed: ${String(result.observed_text).trim()}`);
+      if (result?.reason) lines.push(`- Reason: ${String(result.reason).trim()}`);
+    });
+    return lines.join('\n').trim();
+  }
+
+  if (Array.isArray(asObj.findings)) {
+    lines.push(`Findings: ${asObj.findings.length}`);
+    asObj.findings.slice(0, 30).forEach((finding: any, idx: number) => {
+      const sev = String(finding?.severity || 'unknown');
+      const msg = String(finding?.message || '').trim();
+      const kind = String(finding?.finding_type || 'finding');
+      lines.push(`${idx + 1}. [${sev}] ${kind}${msg ? ` — ${msg}` : ''}`);
+    });
+    return lines.join('\n');
+  }
+
+  if (Array.isArray(asObj.ops)) {
+    lines.push(`Proposed Edits: ${asObj.ops.length}`);
+    asObj.ops.slice(0, 25).forEach((op: any, idx: number) => {
+      const opType = String(op?.op_type || 'edit');
+      const reason = String(op?.reason || '').trim();
+      lines.push(`${idx + 1}. ${opType}${reason ? ` — ${reason}` : ''}`);
+    });
+    return lines.join('\n');
+  }
+
+  for (const [key, value] of Object.entries(asObj)) {
+    if (value == null) continue;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      lines.push(`${key}: ${String(value)}`);
+    }
+  }
+
+  if (lines.length === 0) {
+    return 'Structured artifact loaded. No text-friendly fields found in this payload.';
+  }
+  return lines.join('\n');
 }
 
 export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
   isOpen,
   loopKind,
   runId,
+  sessionKey,
+  transcriptionDrafts = [],
+  isTranscribing = false,
   onClose,
 }) => {
   const [events, setEvents] = React.useState<AgentViewerEvent[]>([]);
   const [connected, setConnected] = React.useState(false);
-  const arrivalSeqRef = React.useRef(0);
-  const [expandedGroups, setExpandedGroups] = React.useState<Record<string, boolean>>({});
-  const [focusedGroupKey, setFocusedGroupKey] = React.useState<string | null>(null);
-  const [selectedArtifactRef, setSelectedArtifactRef] = React.useState<string | null>(null);
-  const [selectedArtifactJson, setSelectedArtifactJson] = React.useState<any>(null);
-  const [artifactError, setArtifactError] = React.useState<string | null>(null);
-  const [loadingArtifact, setLoadingArtifact] = React.useState(false);
-  const [activeArtifactTab, setActiveArtifactTab] = React.useState<'selected' | 'pinned' | 'latest'>('selected');
-  const [pinnedArtifacts, setPinnedArtifacts] = React.useState<Array<{
-    artifactRef: string;
-    label: string;
-    pinnedAtSeq: number;
-  }>>([]);
   const [feedbackEntries, setFeedbackEntries] = React.useState<AgentViewerFeedbackEntry[]>([]);
   const [feedbackNote, setFeedbackNote] = React.useState('');
   const [feedbackBusy, setFeedbackBusy] = React.useState(false);
   const [feedbackError, setFeedbackError] = React.useState<string | null>(null);
+  const [canvasMode, setCanvasMode] = React.useState<CanvasMode>('transcription');
+  const [selectedDraftIndex, setSelectedDraftIndex] = React.useState(0);
+  const [theme, setTheme] = React.useState<ViewerTheme>('void');
+  const [lensing, setLensing] = React.useState<{ x: number; y: number; active: boolean }>({ x: 50, y: 50, active: false });
+  const [selectedArtifactRef, setSelectedArtifactRef] = React.useState<string | null>(null);
+  const [selectedArtifactJson, setSelectedArtifactJson] = React.useState<any>(null);
+  const [artifactError, setArtifactError] = React.useState<string | null>(null);
+  const [loadingArtifact, setLoadingArtifact] = React.useState(false);
+
+  const activeLoopKind = loopKind ?? null;
+  const activeRunId = typeof runId === 'string' && runId.trim() ? runId : null;
+  const hasActiveRun = Boolean(activeLoopKind && activeRunId);
 
   React.useEffect(() => {
-    if (!isOpen || !loopKind || !runId) return;
+    if (hasActiveRun) setCanvasMode('agent');
+  }, [hasActiveRun]);
+
+  React.useEffect(() => {
+    if (selectedDraftIndex < transcriptionDrafts.length) return;
+    setSelectedDraftIndex(0);
+  }, [selectedDraftIndex, transcriptionDrafts.length]);
+
+  React.useEffect(() => {
+    if (!isOpen || !activeLoopKind || !activeRunId) return;
     setEvents([]);
     setConnected(false);
-    arrivalSeqRef.current = 0;
-    setExpandedGroups({});
-    setFocusedGroupKey(null);
-    setPinnedArtifacts([]);
-    setActiveArtifactTab('selected');
-    setFeedbackEntries([]);
-    setFeedbackNote('');
-    setFeedbackError(null);
     const unsubscribe = subscribeAgentViewerEvents(
-      loopKind,
-      runId,
+      activeLoopKind,
+      activeRunId,
       (event) => {
         setConnected(true);
-        arrivalSeqRef.current += 1;
-        setEvents((prev) => {
-          const tagged = { ...event, payload: { ...(event.payload || {}), _arrival_order: arrivalSeqRef.current } };
-          return [tagged, ...prev].slice(0, 200);
-        });
+        setEvents((prev) => [event, ...prev].slice(0, 250));
       },
       () => setConnected(false),
     );
     return () => unsubscribe();
-  }, [isOpen, loopKind, runId]);
+  }, [isOpen, activeLoopKind, activeRunId]);
 
   React.useEffect(() => {
-    if (!isOpen || !loopKind || !runId) return;
+    if (!isOpen) return;
+    const endpoint = 'http://127.0.0.1:8000/api/logs/frontend';
+    const postLog = (level: string, args: any[]) => {
+      try {
+        const text = args
+          .map((v) => {
+            if (typeof v === 'string') return v;
+            try {
+              return JSON.stringify(v);
+            } catch {
+              return String(v);
+            }
+          })
+          .join(' ');
+        void fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            level,
+            message: text.slice(0, 3800),
+            source: 'agent_viewer_client',
+            ts: Date.now() / 1000,
+          }),
+        });
+      } catch {
+        // ignore
+      }
+    };
+
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    console.warn = (...args: any[]) => {
+      postLog('WARNING', args);
+      originalWarn(...args);
+    };
+    console.error = (...args: any[]) => {
+      postLog('ERROR', args);
+      originalError(...args);
+    };
+
+    const onWindowError = (evt: ErrorEvent) => {
+      postLog('ERROR', [evt.message, evt.filename, evt.lineno, evt.colno]);
+    };
+    window.addEventListener('error', onWindowError);
+
+    return () => {
+      console.warn = originalWarn;
+      console.error = originalError;
+      window.removeEventListener('error', onWindowError);
+    };
+  }, [isOpen]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    setEvents([]);
+    setConnected(false);
+    setSelectedArtifactRef(null);
+    setSelectedArtifactJson(null);
+    setArtifactError(null);
+    setFeedbackEntries([]);
+    setFeedbackNote('');
+    setFeedbackError(null);
+  }, [isOpen, sessionKey]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    if (!isTranscribing) return;
+    if (hasActiveRun) return;
+    setEvents([]);
+    setConnected(false);
+    setSelectedArtifactRef(null);
+    setSelectedArtifactJson(null);
+    setArtifactError(null);
+  }, [isOpen, isTranscribing, hasActiveRun]);
+
+  React.useEffect(() => {
+    if (!isOpen || !activeLoopKind || !activeRunId) return;
     let cancelled = false;
     (async () => {
       try {
-        const feedback = await getAgentViewerFeedback(loopKind, runId);
-        if (cancelled) return;
-        setFeedbackEntries(Array.isArray(feedback.entries) ? feedback.entries : []);
+        const feedback = await getAgentViewerFeedback(activeLoopKind, activeRunId);
+        if (!cancelled) {
+          setFeedbackEntries(Array.isArray(feedback.entries) ? feedback.entries : []);
+        }
       } catch {
         if (!cancelled) setFeedbackEntries([]);
       }
@@ -85,295 +250,139 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, loopKind, runId]);
-
-  const openArtifact = React.useCallback(async (artifactRef: string) => {
-    setSelectedArtifactRef(artifactRef);
-    setLoadingArtifact(true);
-    setArtifactError(null);
-    setActiveArtifactTab('selected');
-    try {
-      const payload = await getAgentViewerArtifactJson(artifactRef);
-      setSelectedArtifactJson(payload?.json ?? null);
-    } catch (error) {
-      setSelectedArtifactJson(null);
-      setArtifactError(error instanceof Error ? error.message : 'Failed to open artifact');
-    } finally {
-      setLoadingArtifact(false);
-    }
-  }, []);
-
-  const pinArtifact = React.useCallback((artifactRef: string, label: string) => {
-    if (!artifactRef) return;
-    setPinnedArtifacts((prev) => {
-      const next = prev.filter((item) => item.artifactRef !== artifactRef);
-      next.unshift({ artifactRef, label, pinnedAtSeq: arrivalSeqRef.current });
-      return next.slice(0, 20);
-    });
-    setActiveArtifactTab('pinned');
-  }, []);
-
-  const openBestArtifactForGroup = React.useCallback((groupEvents: AgentViewerEvent[]) => {
-    for (const evt of groupEvents) {
-      const refs = evt.artifact_refs || {};
-      const firstRef = Object.values(refs)[0];
-      if (firstRef?.artifact_path) {
-        void openArtifact(firstRef.artifact_path);
-        return;
-      }
-    }
-  }, [openArtifact]);
+  }, [isOpen, activeLoopKind, activeRunId]);
 
   const orderedEvents = React.useMemo(() => {
-    const withArrival = events.map((evt, index) => ({
-      evt,
-      idx: index,
-      seq: typeof evt.seq === 'number' ? evt.seq : null,
-      ts: typeof evt.timestamp_epoch_seconds === 'number' ? evt.timestamp_epoch_seconds : null,
-      arrival: typeof evt.payload?._arrival_order === 'number'
-        ? evt.payload._arrival_order
-        : (events.length - index),
-    }));
-    withArrival.sort((a, b) => {
-      if (a.seq != null && b.seq != null && a.seq !== b.seq) return b.seq - a.seq;
-      if (a.ts != null && b.ts != null && a.ts !== b.ts) return b.ts - a.ts;
-      return b.arrival - a.arrival;
+    const sorted = [...events];
+    sorted.sort((a, b) => {
+      const as = typeof a.seq === 'number' ? a.seq : -1;
+      const bs = typeof b.seq === 'number' ? b.seq : -1;
+      if (as !== bs) return bs - as;
+      const at = typeof a.timestamp_epoch_seconds === 'number' ? a.timestamp_epoch_seconds : -1;
+      const bt = typeof b.timestamp_epoch_seconds === 'number' ? b.timestamp_epoch_seconds : -1;
+      return bt - at;
     });
-    return withArrival.map((x) => x.evt);
+    return sorted;
   }, [events]);
 
-  type Group = {
-    key: string;
-    kind: 'iteration' | 'ungrouped';
-    iteration: number | null;
-    events: AgentViewerEvent[];
-    latestStage: string;
-  };
-
-  const groups = React.useMemo<Group[]>(() => {
-    const byKey = new Map<string, Group>();
-    for (const evt of orderedEvents) {
-      const iter = typeof evt.iteration === 'number' ? evt.iteration : null;
-      const key = iter != null ? `iter:${iter}` : `ungrouped:${evt.event_type || 'status'}`;
-      const existing = byKey.get(key);
-      if (!existing) {
-        byKey.set(key, {
-          key,
-          kind: iter != null ? 'iteration' : 'ungrouped',
-          iteration: iter,
-          events: [evt],
-          latestStage: String(evt.status?.stage || evt.event_type || 'event'),
-        });
-      } else {
-        existing.events.push(evt);
-      }
-    }
-    const out = Array.from(byKey.values());
-    out.sort((a, b) => {
-      const ai = a.iteration;
-      const bi = b.iteration;
-      if (ai != null && bi != null && ai !== bi) return bi - ai;
-      if (ai != null) return -1;
-      if (bi != null) return 1;
-      return a.key.localeCompare(b.key);
-    });
-    for (const g of out) {
-      g.events.sort((a, b) => {
-        const as = typeof a.seq === 'number' ? a.seq : null;
-        const bs = typeof b.seq === 'number' ? b.seq : null;
-        if (as != null && bs != null && as !== bs) return bs - as;
-        const at = typeof a.timestamp_epoch_seconds === 'number' ? a.timestamp_epoch_seconds : null;
-        const bt = typeof b.timestamp_epoch_seconds === 'number' ? b.timestamp_epoch_seconds : null;
-        if (at != null && bt != null && at !== bt) return bt - at;
-        return 0;
-      });
-      g.latestStage = String(g.events[0]?.status?.stage || g.events[0]?.event_type || 'event');
-    }
-    return out;
-  }, [orderedEvents]);
-
-  React.useEffect(() => {
-    const maxIteration = groups
-      .map((g) => g.iteration)
-      .filter((v): v is number => typeof v === 'number')
-      .sort((a, b) => b - a)[0];
-    if (typeof maxIteration !== 'number') return;
-    const key = `iter:${maxIteration}`;
-    setExpandedGroups((prev) => ({ ...prev, [key]: true }));
-    if (!focusedGroupKey) {
-      setFocusedGroupKey(key);
-    }
-  }, [groups, focusedGroupKey]);
-
-  const latestRefs = React.useMemo(() => {
-    const refs: Array<{ label: string; artifactRef: string }> = [];
-    for (const evt of orderedEvents) {
-      const entries = Object.entries(evt.artifact_refs || {});
-      if (entries.length === 0) continue;
-      for (const [label, value] of entries) {
-        if (value?.artifact_path) refs.push({ label, artifactRef: value.artifact_path });
-      }
-      if (refs.length > 0) break;
-    }
-    return refs.slice(0, 8);
-  }, [orderedEvents]);
-
-  const toggleGroup = React.useCallback((key: string, groupEvents: AgentViewerEvent[]) => {
-    setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
-    setFocusedGroupKey(key);
-    openBestArtifactForGroup(groupEvents);
-  }, [openBestArtifactForGroup]);
-
-  const focusedGroupEvents = React.useMemo(() => {
-    const key = focusedGroupKey;
-    if (!key) return [] as AgentViewerEvent[];
-    const group = groups.find((g) => g.key === key);
-    return group?.events || [];
-  }, [groups, focusedGroupKey]);
-
-  const feedbackChoices = React.useMemo(() => {
-    const latestPromptEvent = focusedGroupEvents.find((evt) => evt.event_type === 'human_feedback_needed');
-    const promptChoices = Array.isArray(latestPromptEvent?.payload?.choices)
-      ? latestPromptEvent?.payload?.choices
-      : [];
-    const options: string[] = promptChoices.length > 0 ? [...promptChoices] : ['Approve promotion', 'Needs more edits'];
-    for (const evt of focusedGroupEvents) {
-      const payload = evt.payload || {};
-      const checks = Array.isArray(payload.image_verification?.checks) ? payload.image_verification.checks : [];
-      for (const c of checks) {
-        if (!c || typeof c !== 'object') continue;
-        const expected = typeof c.expected_text === 'string' ? c.expected_text.trim() : '';
-        const observed = typeof c.observed_text === 'string' ? c.observed_text.trim() : '';
-        if (expected && expected.length <= 60) options.push(expected);
-        if (observed && observed.length <= 60) options.push(observed);
-      }
-      const reasonCode = typeof payload.reason_code === 'string' ? payload.reason_code : '';
-      if (/range/i.test(reasonCode)) {
-        options.push('Range 74');
-        options.push('Range 75');
-      }
-    }
-    const unique = Array.from(new Set(options.map((o) => o.trim()).filter(Boolean)));
-    return unique.slice(0, 8);
-  }, [focusedGroupEvents]);
+  const currentEvent = orderedEvents[0] || null;
+  const currentStatusText = summarizeEventForesight(currentEvent);
 
   const activeFeedbackPrompt = React.useMemo(() => {
-    for (const evt of focusedGroupEvents) {
+    for (const evt of orderedEvents) {
       if (evt.event_type !== 'human_feedback_needed') continue;
       const promptId = typeof evt.payload?.prompt_id === 'string' ? evt.payload.prompt_id : '';
       if (!promptId) continue;
+      const choices = Array.isArray(evt.payload?.choices) ? evt.payload.choices.filter((c: any) => typeof c === 'string') : [];
       return {
         promptId,
         blocking: Boolean(evt.payload?.blocking),
-        line1: evt.status?.line1 || 'Human feedback needed',
-        line2: evt.status?.line2 || '',
+        line1: String(evt.status?.line1 || 'Human feedback needed'),
+        line2: String(evt.status?.line2 || ''),
+        choices: choices.slice(0, 8),
       };
     }
     return null;
-  }, [focusedGroupEvents]);
+  }, [orderedEvents]);
 
   const activePromptSatisfied = React.useMemo(() => {
     if (!activeFeedbackPrompt?.promptId) return false;
     return feedbackEntries.some((entry) => String(entry.prompt_id || '') === activeFeedbackPrompt.promptId);
   }, [activeFeedbackPrompt, feedbackEntries]);
 
+  React.useEffect(() => {
+    if (canvasMode !== 'agent') return;
+    if (selectedArtifactRef) return;
+    for (const evt of orderedEvents) {
+      const refs = evt.artifact_refs || {};
+      const firstRef = Object.values(refs)[0];
+      if (firstRef?.artifact_path) {
+        setSelectedArtifactRef(firstRef.artifact_path);
+        break;
+      }
+    }
+  }, [canvasMode, orderedEvents, selectedArtifactRef]);
+
+  React.useEffect(() => {
+    if (!selectedArtifactRef) return;
+    let cancelled = false;
+    setLoadingArtifact(true);
+    setArtifactError(null);
+    (async () => {
+      try {
+        const payload = await getAgentViewerArtifactJson(selectedArtifactRef);
+        if (!cancelled) setSelectedArtifactJson(payload?.json ?? null);
+      } catch (error) {
+        if (!cancelled) {
+          setSelectedArtifactJson(null);
+          setArtifactError(error instanceof Error ? error.message : 'Failed to open artifact');
+        }
+      } finally {
+        if (!cancelled) setLoadingArtifact(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedArtifactRef]);
+
   const submitFeedback = React.useCallback(async (choice?: string) => {
-    if (!loopKind || !runId) return;
+    if (!activeLoopKind || !activeRunId) return;
     setFeedbackBusy(true);
     setFeedbackError(null);
     try {
-      const response = await submitAgentViewerFeedback(loopKind, runId, {
+      const response = await submitAgentViewerFeedback(activeLoopKind, activeRunId, {
         prompt_id: activeFeedbackPrompt?.promptId || null,
         choice: choice || null,
         note: feedbackNote.trim() || null,
         metadata: {
-          focused_group: focusedGroupKey,
-          event_count: focusedGroupEvents.length,
+          canvas_mode: canvasMode,
+          event_count: orderedEvents.length,
         },
       });
-      setFeedbackEntries((prev) => [response.entry, ...prev].slice(0, 30));
+      setFeedbackEntries((prev) => [response.entry, ...prev].slice(0, 40));
       setFeedbackNote('');
     } catch (error) {
       setFeedbackError(error instanceof Error ? error.message : 'Failed to submit feedback');
     } finally {
       setFeedbackBusy(false);
     }
-  }, [loopKind, runId, activeFeedbackPrompt, feedbackNote, focusedGroupKey, focusedGroupEvents.length]);
+  }, [activeLoopKind, activeRunId, activeFeedbackPrompt, feedbackNote, canvasMode, orderedEvents.length]);
 
-  const renderEventCard = React.useCallback((evt: AgentViewerEvent) => {
-    const refs = evt.artifact_refs || {};
-    const refEntries = Object.entries(refs);
-    const stage = String(evt.status?.stage || '').toLowerCase();
-    const isDone = evt.event_type === 'done';
-    const isRefusal = stage.includes('refus') || String(evt.payload?.reason_code || '').toLowerCase().includes('refus');
-    const border = isDone
-      ? '1px solid rgba(67, 208, 135, 0.42)'
-      : isRefusal
-      ? '1px solid rgba(255, 164, 92, 0.46)'
-      : '1px solid rgba(255,255,255,0.08)';
-    const background = isDone
-      ? 'rgba(67, 208, 135, 0.08)'
-      : isRefusal
-      ? 'rgba(255,164,92,0.08)'
-      : 'rgba(255,255,255,0.02)';
-    return (
-      <div
-        key={`${evt.seq ?? 'na'}-${evt.timestamp_epoch_seconds ?? 'na'}-${evt.event_type}`}
-        style={{ border, borderRadius: 8, padding: 8, background }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 3 }}>
-          <span style={{ fontSize: 10, opacity: 0.75 }}>{evt.event_type}</span>
-          <span style={{ fontSize: 10, opacity: 0.7 }}>iter {evt.iteration ?? '-'}</span>
-        </div>
-        <div style={{ fontSize: 12, fontWeight: 600 }}>{evt.status?.line1 || 'Agent update'}</div>
-        {evt.status?.line2 && <div style={{ fontSize: 11, opacity: 0.82, marginTop: 2 }}>{evt.status.line2}</div>}
-        {refEntries.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-            {refEntries.slice(0, 6).map(([key, value]) => (
-              <React.Fragment key={key}>
-                <button
-                  onClick={() => openArtifact(value.artifact_path)}
-                  style={{
-                    fontSize: 10,
-                    padding: '2px 6px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(131,191,255,0.45)',
-                    background: 'rgba(131,191,255,0.12)',
-                  }}
-                  title={value.artifact_path}
-                >
-                  {key}
-                </button>
-                <button
-                  onClick={() => pinArtifact(value.artifact_path, key)}
-                  style={{
-                    fontSize: 10,
-                    padding: '2px 6px',
-                    borderRadius: 999,
-                    border: '1px solid rgba(255,255,255,0.28)',
-                    background: 'rgba(255,255,255,0.08)',
-                  }}
-                  title="Pin artifact"
-                >
-                  Pin
-                </button>
-              </React.Fragment>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }, [openArtifact, pinArtifact]);
+  const readableCanvasText = React.useMemo(() => readableArtifactText(selectedArtifactJson), [selectedArtifactJson]);
 
-  if (!isOpen || !loopKind || !runId) return null;
+  if (!isOpen) return null;
+
+  const isSpaceTheme = theme === 'space';
+  const overlayBackground = isSpaceTheme ? 'rgba(0,0,0,0.88)' : 'rgba(0,0,0,0.82)';
+  const panelBackground = isSpaceTheme
+    ? 'radial-gradient(circle at 20% 20%, rgba(22,27,45,0.82), #000 52%), radial-gradient(circle at 80% 70%, rgba(12,20,38,0.55), #000 60%)'
+    : '#000000';
+  const headerBackground = isSpaceTheme
+    ? 'linear-gradient(180deg, rgba(8,12,22,0.95), rgba(2,2,2,0.98))'
+    : '#020202';
+
+  const lensX = lensing.x.toFixed(2);
+  const lensY = lensing.y.toFixed(2);
+  const lensMask = `radial-gradient(180px circle at ${lensX}% ${lensY}%, rgba(255,255,255,0.98) 0%, rgba(255,255,255,0.45) 40%, rgba(255,255,255,0.12) 62%, transparent 80%)`;
+  const lensShiftX = ((lensing.x - 50) * 0.28).toFixed(2);
+  const lensShiftY = ((lensing.y - 50) * 0.28).toFixed(2);
+
+  const floatingHistory = orderedEvents.slice(0, 14).map((evt, idx) => ({
+    idx,
+    text: summarizeEventForesight(evt),
+    iteration: evt.iteration,
+    isCurrent: idx === 0,
+  }));
 
   return (
     <div
+      className="agent-viewer-shell"
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 2300,
-        background: 'rgba(0,0,0,0.58)',
+        zIndex: 12000,
+        background: overlayBackground,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -381,19 +390,74 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
       }}
       onClick={onClose}
     >
+      <style>
+        {`
+          .agent-viewer-shell, .agent-viewer-shell * { color: #e8edf7; }
+          .agent-viewer-shell button { color: #e8edf7; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.2); }
+          .agent-viewer-shell button:disabled { opacity: 0.6; cursor: not-allowed; }
+          .agent-viewer-shell textarea { color: #e8edf7; }
+          .agent-viewer-shell textarea::placeholder { color: rgba(232,237,247,0.6); }
+        `}
+      </style>
+
       <div
         style={{
           width: 'min(1500px, 97vw)',
           height: 'min(920px, 95vh)',
-          background: '#0b1018',
+          background: panelBackground,
           border: '1px solid rgba(255,255,255,0.16)',
           borderRadius: 12,
           overflow: 'hidden',
           display: 'grid',
           gridTemplateRows: '48px 1fr',
+          position: 'relative',
         }}
+        onMouseMove={(e) => {
+          if (!isSpaceTheme) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          if (!rect.width || !rect.height) return;
+          const x = ((e.clientX - rect.left) / rect.width) * 100;
+          const y = ((e.clientY - rect.top) / rect.height) * 100;
+          setLensing({ x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)), active: true });
+        }}
+        onMouseLeave={() => setLensing((prev) => ({ ...prev, active: false }))}
         onClick={(e) => e.stopPropagation()}
       >
+        {isSpaceTheme && (
+          <>
+            <div
+              aria-hidden
+              style={{
+                position: 'absolute',
+                inset: 0,
+                pointerEvents: 'none',
+                opacity: 0.3,
+                backgroundImage:
+                  'radial-gradient(rgba(255,255,255,0.9) 0.7px, transparent 0.7px), radial-gradient(rgba(165,197,255,0.7) 0.7px, transparent 0.7px)',
+                backgroundSize: '28px 28px, 46px 46px',
+                backgroundPosition: '0 0, 13px 21px',
+              }}
+            />
+            <div
+              aria-hidden
+              style={{
+                position: 'absolute',
+                inset: 0,
+                pointerEvents: 'none',
+                opacity: lensing.active ? 0.22 : 0,
+                transition: 'opacity 160ms ease-out',
+                backgroundImage:
+                  'radial-gradient(rgba(255,255,255,0.95) 0.75px, transparent 0.75px), radial-gradient(rgba(165,197,255,0.72) 0.75px, transparent 0.75px)',
+                backgroundSize: '23px 23px, 39px 39px',
+                backgroundPosition: `${lensShiftX}px ${lensShiftY}px, ${13 + Number(lensShiftX)}px ${21 + Number(lensShiftY)}px`,
+                WebkitMaskImage: lensMask,
+                maskImage: lensMask,
+                filter: 'contrast(1.02)',
+              }}
+            />
+          </>
+        )}
+
         <div
           style={{
             display: 'flex',
@@ -401,239 +465,150 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
             justifyContent: 'space-between',
             padding: '0 12px',
             borderBottom: '1px solid rgba(255,255,255,0.08)',
-            background: '#0f1724',
+            background: headerBackground,
+            zIndex: 1,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <strong style={{ fontSize: 13 }}>Agent Viewer</strong>
-            <span style={{ fontSize: 11, opacity: 0.8 }}>{loopKind}</span>
-            <span style={{ fontSize: 11, opacity: 0.72 }}>{runId}</span>
+            <button onClick={() => setTheme((t) => (t === 'void' ? 'space' : 'void'))} style={{ fontSize: 11, borderRadius: 999, padding: '3px 8px' }}>
+              Theme: {theme === 'void' ? 'Void' : 'Space'}
+            </button>
+            <button onClick={() => setCanvasMode('transcription')} style={{ fontSize: 11, borderRadius: 999, padding: '3px 8px', opacity: canvasMode === 'transcription' ? 1 : 0.72 }}>
+              Transcription
+            </button>
+            <button onClick={() => setCanvasMode('agent')} disabled={!hasActiveRun} style={{ fontSize: 11, borderRadius: 999, padding: '3px 8px', opacity: canvasMode === 'agent' ? 1 : 0.72 }}>
+              Agent
+            </button>
+            <span style={{ fontSize: 11, opacity: 0.8 }}>{activeLoopKind ?? 'idle'}</span>
+            <span style={{ fontSize: 11, opacity: 0.72 }}>{activeRunId ?? 'no active run'}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 8, height: 8, borderRadius: 999, background: connected ? '#2ac477' : '#d4a83f' }} />
-            <span style={{ fontSize: 11, opacity: 0.82 }}>{connected ? 'Live' : 'Disconnected'}</span>
-            <button onClick={onClose}>Close</button>
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', minHeight: 0 }}>
-          <div
-            style={{
-              borderRight: '1px solid rgba(255,255,255,0.08)',
-              overflowY: 'auto',
-              padding: 10,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-            }}
-          >
-            {groups.length === 0 && (
-              <div style={{ fontSize: 12, opacity: 0.72, padding: 6 }}>Waiting for events...</div>
-            )}
-            {groups.map((group) => {
-              const expanded = expandedGroups[group.key] ?? false;
-              const isFocused = focusedGroupKey === group.key;
-              return (
-                <div
-                  key={group.key}
-                  style={{
-                    border: isFocused ? '1px solid rgba(131,191,255,0.42)' : '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: 8,
-                    background: 'rgba(255,255,255,0.015)',
-                  }}
-                >
-                  <button
-                    onClick={() => toggleGroup(group.key, group.events)}
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'inherit',
-                      padding: '8px 10px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700 }}>
-                        {group.kind === 'iteration' ? `Iteration ${group.iteration}` : 'Ungrouped / Lifecycle'}
-                      </div>
-                      <div style={{ fontSize: 10, opacity: 0.72 }}>
-                        {group.events.length} events • latest stage={group.latestStage}
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 14, opacity: 0.78 }}>{expanded ? '▾' : '▸'}</div>
-                  </button>
-                  {expanded && (
-                    <div style={{ padding: '0 8px 8px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {group.events.map((evt) => renderEventCard(evt))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ minHeight: 0, overflow: 'auto', padding: 10 }}>
-            <div
-              style={{
-                marginBottom: 10,
-                padding: 10,
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: 8,
-                background: 'rgba(255,255,255,0.02)',
-              }}
+            <span style={{ fontSize: 11, opacity: 0.82 }}>{hasActiveRun ? (connected ? 'Live' : 'Disconnected') : (isTranscribing ? 'Transcribing' : 'Idle')}</span>
+            <button
+              onClick={onClose}
+              aria-label="Close Agent Viewer"
+              title="Close"
+              style={{ width: 30, height: 30, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1, fontWeight: 600, padding: 0 }}
             >
-              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Human Feedback</div>
-              {activeFeedbackPrompt && (
-                <div
-                  style={{
-                    marginBottom: 8,
-                    padding: 8,
-                    borderRadius: 6,
-                    border: activeFeedbackPrompt.blocking
-                      ? '1px solid rgba(255,170,92,0.55)'
-                      : '1px solid rgba(255,255,255,0.18)',
-                    background: activeFeedbackPrompt.blocking
-                      ? 'rgba(255,170,92,0.1)'
-                      : 'rgba(255,255,255,0.03)',
-                  }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 700 }}>{activeFeedbackPrompt.line1}</div>
-                  {activeFeedbackPrompt.line2 && (
-                    <div style={{ fontSize: 11, opacity: 0.82, marginTop: 2 }}>{activeFeedbackPrompt.line2}</div>
-                  )}
-                  {activePromptSatisfied && (
-                    <div style={{ fontSize: 11, marginTop: 4, color: '#8ee5b0' }}>
-                      Prompt response received.
-                    </div>
-                  )}
-                  <div style={{ fontSize: 10, opacity: 0.7, marginTop: 3 }}>
-                    prompt_id: {activeFeedbackPrompt.promptId}
-                  </div>
-                </div>
-              )}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                {feedbackChoices.map((choice) => (
-                  <button
-                    key={choice}
-                    onClick={() => submitFeedback(choice)}
-                    disabled={feedbackBusy || !activeFeedbackPrompt || activePromptSatisfied}
-                    style={{
-                      fontSize: 11,
-                      padding: '4px 8px',
-                      borderRadius: 999,
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      background: 'rgba(255,255,255,0.04)',
-                    }}
-                  >
-                    {choice}
-                  </button>
-                ))}
-              </div>
-              <textarea
-                value={feedbackNote}
-                onChange={(e) => setFeedbackNote(e.target.value)}
-                placeholder="Add nuance for the agent (optional)"
-                rows={3}
-                style={{
-                  width: '100%',
-                  resize: 'vertical',
-                  fontSize: 11,
-                  borderRadius: 6,
-                  border: '1px solid rgba(255,255,255,0.18)',
-                  background: 'rgba(255,255,255,0.03)',
-                  color: 'inherit',
-                  padding: 8,
-                }}
-              />
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-                <button onClick={() => submitFeedback()} disabled={feedbackBusy || activePromptSatisfied}>
-                  {feedbackBusy ? 'Submitting...' : 'Submit note'}
-                </button>
-                {feedbackError && <span style={{ fontSize: 11, color: '#ff9aa0' }}>{feedbackError}</span>}
-              </div>
-              {feedbackEntries.length > 0 && (
-                <div style={{ marginTop: 8, fontSize: 11, opacity: 0.82 }}>
-                  Latest: {feedbackEntries[0]?.choice || feedbackEntries[0]?.note || 'feedback'}
-                </div>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-              {(['selected', 'pinned', 'latest'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveArtifactTab(tab)}
-                  style={{
-                    fontSize: 11,
-                    padding: '4px 8px',
-                    borderRadius: 999,
-                    border: activeArtifactTab === tab
-                      ? '1px solid rgba(131,191,255,0.58)'
-                      : '1px solid rgba(255,255,255,0.18)',
-                    background: activeArtifactTab === tab
-                      ? 'rgba(131,191,255,0.12)'
-                      : 'rgba(255,255,255,0.03)',
-                  }}
-                >
-                  {tab === 'selected' ? 'Selected' : tab === 'pinned' ? `Pinned (${pinnedArtifacts.length})` : 'Latest refs'}
-                </button>
-              ))}
-            </div>
-            {activeArtifactTab === 'selected' && (
-              <div style={{ fontSize: 12, opacity: 0.78, marginBottom: 6 }}>
-                {selectedArtifactRef ? `Artifact: ${selectedArtifactRef}` : 'Select an artifact from the timeline'}
-              </div>
-            )}
-            {activeArtifactTab === 'pinned' && (
-              <div style={{ marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {pinnedArtifacts.length === 0 && (
-                  <div style={{ fontSize: 12, opacity: 0.72 }}>No pinned artifacts yet.</div>
-                )}
-                {pinnedArtifacts.map((item) => (
-                  <div key={item.artifactRef} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <button onClick={() => openArtifact(item.artifactRef)}>{item.label}</button>
-                    <span style={{ fontSize: 10, opacity: 0.7 }}>{item.artifactRef}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {activeArtifactTab === 'latest' && (
-              <div style={{ marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {latestRefs.length === 0 && (
-                  <div style={{ fontSize: 12, opacity: 0.72 }}>No artifact refs in latest events.</div>
-                )}
-                {latestRefs.map((item) => (
-                  <div key={`${item.label}:${item.artifactRef}`} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <button onClick={() => openArtifact(item.artifactRef)}>{item.label}</button>
-                    <button onClick={() => pinArtifact(item.artifactRef, item.label)}>Pin</button>
-                  </div>
-                ))}
-              </div>
-            )}
-            {loadingArtifact && <div style={{ fontSize: 12 }}>Loading artifact…</div>}
-            {artifactError && <div style={{ fontSize: 12, color: '#ff9aa0' }}>{artifactError}</div>}
-            {!loadingArtifact && !artifactError && selectedArtifactJson && (
-              <pre
-                style={{
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  fontSize: 11,
-                  lineHeight: 1.35,
-                  margin: 0,
-                  padding: 10,
-                  borderRadius: 8,
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  background: 'rgba(255,255,255,0.02)',
-                }}
-              >
-                {JSON.stringify(selectedArtifactJson, null, 2)}
-              </pre>
-            )}
+              ×
+            </button>
           </div>
         </div>
+
+        {canvasMode === 'transcription' && (
+          <div style={{ minHeight: 0, padding: 14, display: 'flex', flexDirection: 'column', gap: 12, zIndex: 1 }}>
+            {transcriptionDrafts.length === 0 ? (
+              <div style={{ flex: 1, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 10, background: 'rgba(255,255,255,0.01)' }}>
+                <div style={{ fontSize: 13, opacity: 0.86 }}>{isTranscribing ? 'Waiting for transcription drafts…' : 'No transcription artifact loaded yet.'}</div>
+                <div style={{ fontSize: 11, opacity: 0.68 }}>Keep this viewer open. Drafts will appear here as they complete.</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>Draft {selectedDraftIndex + 1} of {transcriptionDrafts.length}</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => setSelectedDraftIndex((v) => Math.max(0, v - 1))} disabled={selectedDraftIndex <= 0}>◀</button>
+                    <button onClick={() => setSelectedDraftIndex((v) => Math.min(transcriptionDrafts.length - 1, v + 1))} disabled={selectedDraftIndex >= transcriptionDrafts.length - 1}>▶</button>
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.85, padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.01)' }}>
+                  {transcriptionDrafts[selectedDraftIndex]?.label || `Draft ${selectedDraftIndex + 1}`}
+                </div>
+                <pre style={{ margin: 0, flex: 1, minHeight: 0, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.45, padding: 12, borderRadius: 10, border: '1px solid rgba(255,255,255,0.09)', background: 'rgba(255,255,255,0.015)' }}>
+                  {transcriptionDrafts[selectedDraftIndex]?.text || ''}
+                </pre>
+              </>
+            )}
+          </div>
+        )}
+
+        {canvasMode === 'agent' && (
+          <div style={{ minHeight: 0, zIndex: 1, position: 'relative' }}>
+            <div style={{ position: 'absolute', inset: '12px 360px 78px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.28)', overflow: 'auto', padding: 14 }}>
+              {loadingArtifact && <div style={{ fontSize: 12, opacity: 0.86 }}>Loading latest artifact…</div>}
+              {artifactError && <div style={{ fontSize: 12, color: '#ff9aa0' }}>{artifactError}</div>}
+              {!loadingArtifact && !artifactError && !selectedArtifactJson && (
+                <div style={{ fontSize: 12, opacity: 0.72 }}>No artifact loaded yet. Waiting for agent outputs…</div>
+              )}
+              {!loadingArtifact && !artifactError && selectedArtifactJson && (
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.4 }}>
+                  {readableCanvasText}
+                </pre>
+              )}
+            </div>
+
+            <div style={{ position: 'absolute', top: 12, right: 12, width: 336, bottom: 78, borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.42)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 999, background: connected ? '#2ac477' : '#d4a83f' }} />
+                <span style={{ fontSize: 11, opacity: 0.86 }}>Agent Intent Stream</span>
+                <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.68 }}>{orderedEvents.length} updates</span>
+              </div>
+
+              <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span
+                  style={{
+                    width: 11,
+                    height: 11,
+                    borderRadius: 999,
+                    border: '2px solid rgba(255,255,255,0.28)',
+                    borderTopColor: '#8ec5ff',
+                    display: 'inline-block',
+                    animation: 'agentViewerSpin 1s linear infinite',
+                  }}
+                />
+                <div style={{ fontSize: 12, lineHeight: 1.35 }}>{currentStatusText}</div>
+              </div>
+
+              <div style={{ padding: '10px 12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {floatingHistory.map((item) => (
+                  <div key={`${item.idx}:${item.iteration ?? 'na'}`} style={{ fontSize: item.isCurrent ? 12 : 11, opacity: item.isCurrent ? 0.96 : 0.78, lineHeight: 1.35 }}>
+                    {item.isCurrent ? '• ' : '· '} {item.text}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ position: 'absolute', left: 12, right: 12, bottom: 12, borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.58)', padding: 10 }}>
+              {activeFeedbackPrompt && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>{activeFeedbackPrompt.line1}</div>
+                  {!!activeFeedbackPrompt.line2 && <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>{activeFeedbackPrompt.line2}</div>}
+                  <div style={{ fontSize: 10, opacity: 0.64, marginTop: 3 }}>prompt_id: {activeFeedbackPrompt.promptId}</div>
+                </div>
+              )}
+
+              {activeFeedbackPrompt?.choices?.length ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                  {activeFeedbackPrompt.choices.map((choice) => (
+                    <button key={choice} onClick={() => submitFeedback(choice)} disabled={feedbackBusy || activePromptSatisfied} style={{ fontSize: 11, borderRadius: 999, padding: '4px 8px' }}>
+                      {choice}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'end' }}>
+                <textarea
+                  value={feedbackNote}
+                  onChange={(e) => setFeedbackNote(e.target.value)}
+                  rows={2}
+                  placeholder="Send guidance to the agent..."
+                  style={{ width: '100%', resize: 'vertical', borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.02)', padding: 8, fontSize: 12 }}
+                />
+                <button onClick={() => submitFeedback()} disabled={feedbackBusy || activePromptSatisfied} style={{ height: 34, borderRadius: 8, padding: '0 10px', fontSize: 12 }}>
+                  {feedbackBusy ? 'Sending…' : 'Send'}
+                </button>
+              </div>
+
+              {feedbackError && <div style={{ marginTop: 6, fontSize: 11, color: '#ff9aa0' }}>{feedbackError}</div>}
+              {activePromptSatisfied && <div style={{ marginTop: 6, fontSize: 11, color: '#8ee5b0' }}>Prompt response received.</div>}
+            </div>
+
+            <style>{`@keyframes agentViewerSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
       </div>
     </div>
   );

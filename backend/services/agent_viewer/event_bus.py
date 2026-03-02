@@ -6,19 +6,28 @@ import asyncio
 import json
 import threading
 from collections import defaultdict
+from collections import deque
 from typing import Any
 
 
 class AgentViewerEventBus:
     def __init__(self) -> None:
         self._subscribers: dict[str, list[tuple[asyncio.AbstractEventLoop, asyncio.Queue]]] = defaultdict(list)
+        self._history: dict[str, deque[str]] = defaultdict(lambda: deque(maxlen=300))
         self._lock = threading.Lock()
 
     async def subscribe(self, stream_key: str) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
+        history_items: list[str]
         with self._lock:
             self._subscribers[stream_key].append((loop, q))
+            history_items = list(self._history.get(stream_key, ()))
+        for data in history_items:
+            try:
+                q.put_nowait(data)
+            except Exception:
+                break
         return q
 
     async def unsubscribe(self, stream_key: str, q: asyncio.Queue) -> None:
@@ -36,6 +45,7 @@ class AgentViewerEventBus:
     def publish_sync(self, stream_key: str, event: dict[str, Any]) -> None:
         data = json.dumps(event)
         with self._lock:
+            self._history[stream_key].append(data)
             targets = list(self._subscribers.get(stream_key, []))
         for loop, q in targets:
             try:
@@ -58,4 +68,3 @@ def _safe_put_nowait(q: asyncio.Queue, data: str) -> None:
 
 
 event_bus = AgentViewerEventBus()
-

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { ProcessingResult, EnhancementSettings, RedundancySettings, ConsensusSettings } from '../types/imageProcessing';
 import { fetchModelsAPI, processFilesAPI } from '../services/imageProcessingApi';
+import { listTranscriptEditRuns } from '../services/transcriptEditAgentApi';
 
 interface UseImageProcessingOptions {
   onProcessingComplete?: () => void;
@@ -53,6 +54,15 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
   // Queue UI state to persist after staging is cleared
   type QueueItem = { fileName: string; jobId?: string; status: 'queued' | 'processing' | 'done' | 'error' };
   const [processingQueue, setProcessingQueue] = useState<QueueItem[]>([]);
+  const [latestTranscriptEditRunId, setLatestTranscriptEditRunId] = useState<string | null>(null);
+
+  const resolveTranscriptEditRunId = useCallback((result: ProcessingResult | null | undefined): string | null => {
+    const metadata = (result?.result as any)?.metadata;
+    const runId = typeof metadata?.transcript_edit_agent_run_id === 'string'
+      ? metadata.transcript_edit_agent_run_id.trim()
+      : '';
+    return runId || null;
+  }, []);
 
   // Dynamic redundancy defaults based on extraction mode
   const getRedundancyDefaults = (mode: string): RedundancySettings => {
@@ -90,8 +100,41 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
     } catch {}
   }, [stagedFiles.length, processingMode]);
 
-  const handleProcess = async (userInstruction?: string) => {
+  const attachTranscriptEditRunFromResult = useCallback((result: ProcessingResult | null | undefined) => {
+    const runId = resolveTranscriptEditRunId(result);
+    if (runId) {
+      setLatestTranscriptEditRunId(runId);
+    }
+  }, [resolveTranscriptEditRunId]);
+
+  const attachLatestPostT0RunForResult = useCallback(async (result: ProcessingResult | null | undefined) => {
+    const metadata = (result?.result as any)?.metadata || {};
+    const dossierId = typeof metadata?.dossier_id === 'string' ? metadata.dossier_id.trim() : '';
+    const transcriptionId = typeof metadata?.transcription_id === 'string' ? metadata.transcription_id.trim() : '';
+    if (!dossierId || !transcriptionId) return;
+    try {
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const runs = await listTranscriptEditRuns(120);
+        const candidates = runs.filter((run) => {
+          const request = run?.request || {};
+          return request?.dossier_id === dossierId && request?.transcription_id === transcriptionId && request?.trigger === 'post_t0';
+        });
+        const match = candidates.find((run) => run?.status === 'running') || candidates[0];
+        const runId = typeof match?.run_id === 'string' ? match.run_id.trim() : '';
+        if (runId) {
+          setLatestTranscriptEditRunId(runId);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    } catch (error) {
+      console.warn('Failed to resolve transcript edit run from registry:', error);
+    }
+  }, []);
+
+  const handleProcess = async (userInstruction?: string, opts?: { runEditLoop?: boolean }) => {
     if (stagedFiles.length === 0) return;
+    const runEditLoop = Boolean(opts?.runEditLoop);
 
     setIsProcessing(true);
 
@@ -228,17 +271,20 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
                     });
                     // Update queue: mark this job done and advance next queued to processing
                     setProcessingQueue(prev => {
-                      const list = prev.map(item => item.jobId === jobId ? { ...item, status: 'done' } : item);
+                      const list: QueueItem[] = prev.map(item => item.jobId === jobId ? { ...item, status: 'done' as const } : item);
                       const hasProcessing = list.some(i => i.status === 'processing');
                       if (!hasProcessing) {
                         const idxNext = list.findIndex(i => i.status === 'queued');
-                        if (idxNext >= 0) list[idxNext] = { ...list[idxNext], status: 'processing' };
+                        if (idxNext >= 0) list[idxNext] = { ...list[idxNext], status: 'processing' as const };
                       }
                       return list;
                     });
                     // Select first successful if none selected
                     if (!selectedResult) {
                       setSelectedResult(completed);
+                    }
+                    if (runEditLoop) {
+                      attachTranscriptEditRunFromResult(completed);
                     }
                     return;
                   }
@@ -252,11 +298,11 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
                       return copy;
                     });
                     setProcessingQueue(prev => {
-                      const list = prev.map(item => item.jobId === jobId ? { ...item, status: 'error' } : item);
+                      const list: QueueItem[] = prev.map(item => item.jobId === jobId ? { ...item, status: 'error' as const } : item);
                       const hasProcessing = list.some(i => i.status === 'processing');
                       if (!hasProcessing) {
                         const idxNext = list.findIndex(i => i.status === 'queued');
-                        if (idxNext >= 0) list[idxNext] = { ...list[idxNext], status: 'processing' };
+                        if (idxNext >= 0) list[idxNext] = { ...list[idxNext], status: 'processing' as const };
                       }
                       return list;
                     });
@@ -278,6 +324,16 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
       const firstSuccessful = results.find(r => r.status === 'completed') || results[0];
       if (firstSuccessful) {
         setSelectedResult(firstSuccessful);
+        attachTranscriptEditRunFromResult(firstSuccessful);
+        if (!resolveTranscriptEditRunId(firstSuccessful)) {
+          void attachLatestPostT0RunForResult(firstSuccessful);
+        }
+        if (runEditLoop && firstSuccessful.status === 'completed') {
+          const runId = resolveTranscriptEditRunId(firstSuccessful);
+          if (!runId) {
+            void attachLatestPostT0RunForResult(firstSuccessful);
+          }
+        }
       }
 
       setStagedFiles([]);
@@ -355,16 +411,16 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
 
         let anyCompleted = false;
         setProcessingQueue(prev => {
-          const list = prev.map(item => {
+          const list: QueueItem[] = prev.map(item => {
             if (!item.jobId) return item;
             const j = statusById.get(item.jobId);
             if (!j) return item;
             if (j.status === 'SUCCEEDED' && item.status !== 'done') {
               anyCompleted = true;
-              return { ...item, status: 'done' };
+              return { ...item, status: 'done' as const };
             }
             if ((j.status === 'FAILED' || j.status === 'CANCELED') && item.status !== 'error') {
-              return { ...item, status: 'error' };
+              return { ...item, status: 'error' as const };
             }
             return item;
           });
@@ -372,7 +428,7 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
           const hasProcessing = list.some(i => i.status === 'processing');
           if (!hasProcessing) {
             const idxNext = list.findIndex(i => i.status === 'queued');
-            if (idxNext >= 0) list[idxNext] = { ...list[idxNext], status: 'processing' };
+            if (idxNext >= 0) list[idxNext] = { ...list[idxNext], status: 'processing' as const };
           }
           return list;
         });
@@ -391,6 +447,23 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
     };
   }, [processingQueue]);
 
+  useEffect(() => {
+    const runId = resolveTranscriptEditRunId(selectedResult);
+    if (runId) {
+      setLatestTranscriptEditRunId(runId);
+    }
+  }, [selectedResult, resolveTranscriptEditRunId]);
+
+  useEffect(() => {
+    for (const result of sessionResults) {
+      const runId = resolveTranscriptEditRunId(result);
+      if (runId) {
+        setLatestTranscriptEditRunId(runId);
+        return;
+      }
+    }
+  }, [sessionResults, resolveTranscriptEditRunId]);
+
   return {
     // State
     stagedFiles,
@@ -407,6 +480,7 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
     consensusSettings,
     processingMode,
     processingQueue,
+    latestTranscriptEditRunId,
     // DOSSIER SUPPORT
     selectedDossierId,
     onProcessingComplete,

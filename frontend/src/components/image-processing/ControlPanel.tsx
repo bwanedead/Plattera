@@ -30,6 +30,7 @@ interface ControlPanelProps {
   onShowDraftLoader: () => void;
   isProcessing: boolean;
   onProcess: (userInstruction?: string) => void;
+  onProcessWithEditLoop?: (userInstruction?: string) => void;
   // processing mode is now auto-detected in the hook; no manual toggle
   availableModels: Record<string, any>;
   selectedModel: string;
@@ -52,6 +53,8 @@ interface ControlPanelProps {
   onSegmentChange?: (segmentId: string | null) => void;
   // Queue status
   processingQueue?: { fileName: string; jobId?: string; status: 'queued' | 'processing' | 'done' | 'error' }[];
+  transcriptEditRunId?: string | null;
+  onOpenAgentViewer?: () => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -62,6 +65,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onShowDraftLoader,
   isProcessing,
   onProcess,
+  onProcessWithEditLoop,
   // processingMode removed; auto-managed
   availableModels,
   selectedModel,
@@ -83,6 +87,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   selectedSegmentId = null,
   onSegmentChange,
   processingQueue = [],
+  transcriptEditRunId = null,
+  onOpenAgentViewer,
 }) => {
   // Removed noisy debug logs for production clarity
 
@@ -384,6 +390,28 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             : (stagedFiles.length <= 1
                 ? `Process 1 File`
                 : `Queue ${Math.min(stagedFiles.length, 20)} File${stagedFiles.length !== 1 ? 's' : ''}`)}
+        </button>
+        <button
+          className={`process-button ${isProcessing ? 'processing' : ''}`}
+          onClick={() => onProcessWithEditLoop && onProcessWithEditLoop(instructionText.trim() || undefined)}
+          disabled={stagedFiles.length === 0 || isProcessing || !onProcessWithEditLoop}
+          style={{ marginTop: '0.5rem' }}
+          title="Run transcription and then launch transcript edit loop for each completed deed."
+        >
+          {isProcessing
+            ? 'Processing...'
+            : (stagedFiles.length <= 1
+                ? `Transcribe + Edit Loop (1 file)`
+                : `Transcribe + Edit Loop (${Math.min(stagedFiles.length, 20)} files)`)}
+        </button>
+        <button
+          className="process-button"
+          onClick={() => onOpenAgentViewer && onOpenAgentViewer()}
+          disabled={!onOpenAgentViewer}
+          style={{ marginTop: '0.5rem' }}
+          title={transcriptEditRunId ? `Open Agent Viewer (${transcriptEditRunId})` : 'Open Agent Viewer'}
+        >
+          {transcriptEditRunId ? 'Open Agent Viewer (Live)' : 'Open Agent Viewer'}
         </button>
       </div>
 

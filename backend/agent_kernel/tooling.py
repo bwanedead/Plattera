@@ -9,6 +9,7 @@ import os
 import hashlib
 import tempfile
 import re
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,6 +46,9 @@ from transcript_edit.validators import run_validators
 from services.llm.openai import OpenAIService
 
 from .run_artifact import ArtifactRef, ValidationInline
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -506,6 +510,14 @@ class TranscriptImageVerificationTool:
             expected = _read_str(check.get("expected_text"))
             if not query:
                 continue
+            logger.info(
+                "TX_IMAGE_VERIFY_CALL ► model=%s check_id=%s idx=%s expected=%s query=%s",
+                model,
+                check_id,
+                index + 1,
+                (expected or "n/a")[:80],
+                query[:120],
+            )
             crop_box = _coerce_crop_box(check.get("crop_box"))
             zoom_factor = _bounded_float(check.get("zoom_factor"), default=zoom_default, minimum=1.0, maximum=6.0)
             image_b64, render_meta = _encode_image_for_verification(
@@ -534,6 +546,14 @@ class TranscriptImageVerificationTool:
             )
             result_item["render_meta"] = render_meta
             results.append(result_item)
+            logger.info(
+                "TX_IMAGE_VERIFY_RESULT ► model=%s check_id=%s status=%s confidence=%s observed=%s",
+                model,
+                check_id,
+                result_item.get("status"),
+                result_item.get("confidence"),
+                _summarize_text(str(result_item.get("observed_text") or ""))[:120],
+            )
 
         if not results:
             return _tool_refusal_result("tx_image_verify_missing_checks")

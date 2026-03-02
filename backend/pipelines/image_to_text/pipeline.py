@@ -108,6 +108,7 @@ from transcript_edit.persistence import TranscriptionEditPersistenceService
 from transcript_edit.run_registry import TranscriptionEditRunRegistry
 from config.paths import dossiers_root
 from transcript_edit.run_service import TranscriptionEditRunService
+from services.agent_viewer.event_bus import event_bus as viewer_event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -444,7 +445,7 @@ class ImageToTextPipeline:
             raw_output_ref=raw_output_ref,
             context=context,
         )
-        self._maybe_trigger_transcript_edit_agent_background(
+        tx_run_id = self._maybe_trigger_transcript_edit_agent_background(
             extraction_mode=extraction_mode,
             normalized_payload=normalized_payload if isinstance(normalized_payload, dict) else None,
             context={
@@ -456,6 +457,8 @@ class ImageToTextPipeline:
                 ),
             },
         )
+        if tx_run_id:
+            metadata["transcript_edit_agent_run_id"] = tx_run_id
         result["metadata"] = metadata
         logger.info(
             "json_extraction_outcome %s",
@@ -481,18 +484,18 @@ class ImageToTextPipeline:
         extraction_mode: str,
         normalized_payload: dict[str, Any] | None,
         context: dict[str, Any],
-    ) -> None:
+    ) -> str | None:
         if extraction_mode != "legal_document_json_relaxed":
-            return
+            return None
         if not isinstance(normalized_payload, dict):
-            return
+            return None
         policy_mode = self._post_t0_tx_agent_mode()
         if policy_mode == _MODE_OFF:
-            return
+            return None
         execution_mode = self._post_t0_tx_agent_execution()
         dossier_id = context.get("dossier_id")
         if not isinstance(dossier_id, str) or not dossier_id.strip():
-            return
+            return None
         transcription_id = str(context.get("transcription_id") or "").strip() or None
         best_result_index_raw = context.get("best_result_index")
         best_result_index = best_result_index_raw if isinstance(best_result_index_raw, int) else None
@@ -508,18 +511,19 @@ class ImageToTextPipeline:
             if isinstance(candidate_texts_raw, list)
             else []
         )
+        drafts_seen = len(candidate_texts) if candidate_texts else "n/a"
         input_kind = "ref" if source_transcript_ref else "text"
         if source_transcript_ref is None:
             sections = normalized_payload.get("sections")
             if not isinstance(sections, list):
-                return
+                return None
             section_bodies = [
                 str(section.get("body") or "").strip()
                 for section in sections
                 if isinstance(section, dict) and str(section.get("body") or "").strip()
             ]
             if not section_bodies:
-                return
+                return None
             source_text = "\n\n".join(section_bodies)
 
         auto_promote = policy_mode == _MODE_AUDIT_REPAIR_PROMOTE and source_transcript_ref is not None
@@ -553,9 +557,125 @@ class ImageToTextPipeline:
                         ensure_ascii=False,
                     ),
         )
+        boundary_line = "🌟" * 50
+        ascii_boundary_line = "*" * 90
+        logger.info(ascii_boundary_line)
+        logger.info(boundary_line)
+        logger.info("🌟🌟🌟🌟🌟 TX LOOP HANDOFF START 🌟🌟🌟🌟🌟")
+        logger.info(
+            "🌟 T0 COMPLETE: dossier=%s transcription=%s drafts_saved=%s selected_draft=%s",
+            dossier_id,
+            transcription_id,
+            drafts_seen,
+            (best_result_index + 1) if isinstance(best_result_index, int) else "n/a",
+        )
+        logger.info(
+            "🌟 NEXT STAGE: TRANSCRIPT EDIT LOOP STARTING run_id=%s mode=%s execution=%s model=%s input_kind=%s",
+            run_id,
+            policy_mode,
+            execution_mode,
+            "gpt-5.2",
+            input_kind,
+        )
+        logger.info("🌟 NOTE: Any OpenAI calls after this fence are edit-loop calls, not T0 draft extraction.")
+        logger.info("🌟🌟🌟🌟🌟 TRANSCRIPT EDIT LOOP BEGINS NOW 🌟🌟🌟🌟🌟")
+        logger.info(boundary_line)
+        logger.info(ascii_boundary_line)
+        logger.info(
+            "TX_LOOP_BOUNDARY ► T0_COMPLETE dossier=%s transcription=%s selected_draft=%s run_id=%s",
+            dossier_id,
+            transcription_id,
+            (best_result_index + 1) if isinstance(best_result_index, int) else "n/a",
+            run_id,
+        )
+        logger.info(
+            "TX_LOOP_BOUNDARY ► EDIT_LOOP_START mode=%s execution=%s model=%s input_kind=%s auto_promote=%s",
+            policy_mode,
+            execution_mode,
+            "gpt-5.2",
+            input_kind,
+            auto_promote,
+        )
 
         def _run_once() -> None:
             try:
+                seq = 0
+                progress_log: list[dict[str, Any]] = []
+
+                def _to_artifact_ref_map(obj: Any) -> dict[str, dict[str, str]]:
+                    if not isinstance(obj, dict):
+                        return {}
+                    refs: dict[str, dict[str, str]] = {}
+                    for key, value in obj.items():
+                        if isinstance(value, str) and value.strip():
+                            refs[str(key)] = {"artifact_path": value}
+                        elif isinstance(value, dict):
+                            path = value.get("artifact_path")
+                            if isinstance(path, str) and path.strip():
+                                refs[str(key)] = {"artifact_path": path}
+                    return refs
+
+                def _publish_viewer_event(event_type: str, event: dict[str, Any]) -> None:
+                    nonlocal seq
+                    payload = event if isinstance(event, dict) else {}
+                    viewer_event_bus.publish_sync(
+                        f"transcript_edit:{run_id}",
+                        {
+                            "protocol": "agent_viewer_event_v1",
+                            "run_id": run_id,
+                            "loop_kind": "transcript_edit",
+                            "seq": seq,
+                            "iteration": payload.get("iteration"),
+                            "timestamp_epoch_seconds": int(time.time()),
+                            "event_type": event_type,
+                            "status": {
+                                "stage": payload.get("phase"),
+                                "line1": payload.get("message") or "Transcript edit update",
+                                "line2": payload.get("execution_state"),
+                            },
+                            "artifact_refs": _to_artifact_ref_map(payload.get("latest_refs")),
+                            "payload": payload,
+                        },
+                    )
+                    seq += 1
+
+                def _progress_update(event: dict[str, Any]) -> None:
+                    if not isinstance(event, dict):
+                        return
+                    progress_item = {
+                        "timestamp_epoch_seconds": int(time.time()),
+                        **event,
+                    }
+                    progress_log.append(progress_item)
+                    if len(progress_log) > 60:
+                        del progress_log[:-60]
+                    phase = str(event.get("phase") or "status")
+                    iter_value = event.get("iteration")
+                    message = str(event.get("message") or "").strip()
+                    latest_refs = event.get("latest_refs") if isinstance(event.get("latest_refs"), dict) else {}
+                    logger.info(
+                        "TX_LOOP_EVENT ► run_id=%s iteration=%s phase=%s message=%s refs=%s",
+                        run_id,
+                        iter_value if isinstance(iter_value, int) else "n/a",
+                        phase,
+                        message[:220] if message else "n/a",
+                        ",".join(sorted(latest_refs.keys())) if latest_refs else "none",
+                    )
+                    self.transcription_edit_run_registry.update_run(
+                        run_id=run_id,
+                        patch={
+                            "status": "running",
+                            "snapshot": {
+                                "run_id": run_id,
+                                "status": "running",
+                                "live_status": progress_item,
+                                "progress_log": list(progress_log),
+                            },
+                        },
+                    )
+                    event_type = str(event.get("event_type") or "status")
+                    _publish_viewer_event(event_type, event)
+
                 session_manager = KernelSessionManager(
                     action_executor=ActionExecutor(
                         deps=ActionExecutorDeps(
@@ -580,8 +700,10 @@ class ImageToTextPipeline:
                         max_iterations=3,
                         mode=policy_mode,
                         auto_promote=auto_promote,
+                        hitl_enabled=False,
                     ),
                     request_id_prefix=f"tx-post-t0-{transcription_id or 'adhoc'}",
+                    progress_cb=_progress_update,
                 )
                 self.transcription_edit_run_registry.update_run(
                     run_id=run_id,
@@ -595,7 +717,20 @@ class ImageToTextPipeline:
                             "run_artifact_ref": result.run_artifact_ref,
                             "latest_refs": result.latest_refs,
                             "review_required": result.review_required,
+                            "live_status": progress_log[-1] if progress_log else None,
+                            "progress_log": list(progress_log),
                         },
+                    },
+                )
+                _publish_viewer_event(
+                    "done" if result.status == "completed" else "status",
+                    {
+                        "phase": result.status,
+                        "message": result.reason_code,
+                        "execution_state": result.status,
+                        "iteration": result.iterations,
+                        "latest_refs": result.latest_refs,
+                        "review_required": result.review_required,
                     },
                 )
                 logger.info(
@@ -613,16 +748,55 @@ class ImageToTextPipeline:
                         ensure_ascii=False,
                     ),
                 )
+                logger.info(
+                    "TX_LOOP_BOUNDARY ► EDIT_LOOP_END run_id=%s status=%s reason=%s iterations=%s",
+                    run_id,
+                    result.status,
+                    result.reason_code,
+                    result.iterations,
+                )
+                logger.info("*" * 90)
+                logger.info("🏁" * 50)
+                logger.info(
+                    "🏁 TX LOOP END: run_id=%s status=%s iterations=%s reason=%s",
+                    run_id,
+                    result.status,
+                    result.iterations,
+                    result.reason_code,
+                )
+                logger.info("🏁" * 50)
+                logger.info("*" * 90)
             except Exception as exc:
                 self.transcription_edit_run_registry.update_run(
                     run_id=run_id,
                     patch={"status": "failed", "error": str(exc)},
                 )
                 logger.warning("transcript_edit_agent_post_t0_failed: %s", str(exc))
+                logger.info("*" * 90)
+                logger.info("🏁" * 50)
+                logger.info("🏁 TX LOOP END: run_id=%s status=failed reason=%s", run_id, str(exc))
+                logger.info("🏁" * 50)
+                logger.info("*" * 90)
+                viewer_event_bus.publish_sync(
+                    f"transcript_edit:{run_id}",
+                    {
+                        "protocol": "agent_viewer_event_v1",
+                        "run_id": run_id,
+                        "loop_kind": "transcript_edit",
+                        "seq": 0,
+                        "iteration": None,
+                        "timestamp_epoch_seconds": int(time.time()),
+                        "event_type": "status",
+                        "status": {"stage": "failed", "line1": "Transcript edit run failed", "line2": str(exc)[:220]},
+                        "artifact_refs": {},
+                        "payload": {"error": str(exc)},
+                    },
+                )
         if execution_mode == "sync":
             _run_once()
-            return
+            return run_id
         threading.Thread(target=_run_once, daemon=True).start()
+        return run_id
 
     def _resolve_post_t0_source_transcript_ref(
         self,

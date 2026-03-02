@@ -12,6 +12,7 @@ LOG_DIR = os.getenv("LOG_DIR", os.path.join(os.path.dirname(__file__), "..", "lo
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 RING_BUFFER_SIZE = int(os.getenv("RING_BUFFER_SIZE", "2000"))
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
+ACTIVE_LOG_FILE = LOG_FILE
 
 
 class RingBufferHandler(logging.Handler):
@@ -49,7 +50,12 @@ def get_ring_handler() -> RingBufferHandler:
     return _ring_handler
 
 
+def get_active_log_file() -> str:
+    return ACTIVE_LOG_FILE
+
+
 def init_logging():
+    global ACTIVE_LOG_FILE
     os.makedirs(LOG_DIR, exist_ok=True)
 
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -72,6 +78,7 @@ def init_logging():
         log_file = os.path.join(LOG_DIR, f"app_{stamp}.log")
     else:
         log_file = LOG_FILE
+    ACTIVE_LOG_FILE = log_file
 
     # Rotating file handler (append-only)
     file_handler = RotatingFileHandler(
@@ -98,5 +105,4 @@ def init_logging():
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     # Keep uvicorn.error at INFO to see startup/errors
     logging.getLogger("uvicorn.error").setLevel(logging.INFO)
-
 

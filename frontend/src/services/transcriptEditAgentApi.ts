@@ -78,3 +78,13 @@ export const getTranscriptEditRun = async (runId: string): Promise<TranscriptEdi
   }
   return response.json();
 };
+
+export const listTranscriptEditRuns = async (limit = 50): Promise<TranscriptEditRunRecord[]> => {
+  const response = await fetch(`${API_BASE_URL}/runs?limit=${Math.max(1, Math.min(200, limit))}`);
+  if (!response.ok) {
+    throw new Error(`Transcript edit runs list failed (${response.status})`);
+  }
+  const payload = await response.json();
+  const runs = Array.isArray(payload?.runs) ? payload.runs : [];
+  return runs as TranscriptEditRunRecord[];
+};

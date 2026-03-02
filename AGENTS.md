@@ -175,6 +175,25 @@ If forbiddon git actions are needed, **describe exact commands for a human to ru
 ## Build, Test, and Development Commands
 Install backend deps with `pip install -r backend/requirements.txt`, then run `uvicorn main:app --reload` (from `backend/`) or `python main.py` for quick checks. Frontend setup uses `npm install` in `frontend/`, `npm run dev` for local preview, `npm run build` for production, and `npm run tauri:dev` for the desktop shell. Manage secrets through `backend/.env`; update header comments when introducing new variables.
 
+## Logs for Agents (Recommended Workflow)
+- Prefer API log access first (stable and filterable), then file reads only if needed.
+- Endpoints:
+  - `GET /api/logs/recent?limit=500` for in-memory recent logs.
+  - `GET /api/logs/tail?source=active&limit_lines=400` for file-backed tail.
+  - `GET /api/logs/tail?source=active&run_id=<id>` to isolate one loop/run.
+  - `GET /api/logs/tail?source=active&contains=TX_LOOP_EVENT` for selective grep-like pulls.
+  - `GET /api/logs/tail?source=active&exclude=uvicorn.access` to remove noise.
+  - `GET /api/logs/frontend/recent?limit=200` for browser-side logs forwarded from the Agent Viewer.
+  - `POST /api/logs/frontend` accepts structured frontend logs (`source`, `level`, `message`, `ts`).
+  - `GET /api/logs/download` to export zipped logs.
+- `source` options for `/api/logs/tail`:
+  - `active` (current runtime log file; preferred)
+  - `latest_session` (newest `app_*.log`)
+  - `app` (stable `app.log`)
+- Keep pulls targeted:
+  - Start with `run_id` and/or `contains` filters.
+  - Increase `limit_lines` only when needed.
+
 ## Coding Style & Naming Conventions
 Follow PEP 8: four-space indentation, `snake_case` functions, `PascalCase` classes, and descriptive module names (`georeference_service.py`). Prefer type hints and Pydantic models for payloads. In TypeScript, use functional components, `PascalCase` filenames in `components/`, and `camelCase` for hooks or util exports (for example `useAlignmentStatus`). Co-locate styles in `styles/` and reuse Leaflet tokens. Log via `logging.getLogger(__name__)` or the colored formatter configured in `backend/main.py`.
 

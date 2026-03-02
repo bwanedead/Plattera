@@ -119,7 +119,7 @@ def run_transcript_edit_controller_loop(
             {
                 "iteration": iterations,
                 "phase": "audit",
-                "message": "Audited transcript for deterministic findings.",
+                "message": "Next, I will decide whether findings require edits or promotion.",
                 "latest_refs": latest_refs,
                 "execution_state": str(audit.execution_state.value),
             },
@@ -186,6 +186,16 @@ def run_transcript_edit_controller_loop(
                 and error_count <= 0
             )
             if should_promote and current_transcript_ref:
+                _emit_progress(
+                    progress_cb,
+                    {
+                        "iteration": iterations,
+                        "phase": "promote",
+                        "message": "Next, I will run a final image sanity check before promotion.",
+                        "latest_refs": latest_refs,
+                        "execution_state": "running",
+                    },
+                )
                 final_verify = _final_image_sanity_pass_before_promote(
                     session_manager=session_manager,
                     session_id=session_id,
@@ -348,6 +358,16 @@ def run_transcript_edit_controller_loop(
                 review_required=True,
             )
 
+        _emit_progress(
+            progress_cb,
+            {
+                "iteration": iterations,
+                "phase": "open_spans",
+                "message": "Next, I will open localized transcript spans for planning context.",
+                "latest_refs": latest_refs,
+                "execution_state": "running",
+            },
+        )
         span_context = _open_planner_context_spans(
             session_manager=session_manager,
             session_id=session_id,
@@ -361,8 +381,18 @@ def run_transcript_edit_controller_loop(
             {
                 "iteration": iterations,
                 "phase": "open_spans",
-                "message": "Opened localized transcript spans for planning context.",
+                "message": "Next, I will verify mapping-critical claims against the source image.",
                 "latest_refs": latest_refs,
+            },
+        )
+        _emit_progress(
+            progress_cb,
+            {
+                "iteration": iterations,
+                "phase": "image_verify",
+                "message": "Next, I will verify mapping-critical claims against the source image.",
+                "latest_refs": latest_refs,
+                "execution_state": "running",
             },
         )
         image_verification = _verify_mapping_critical_with_image(
@@ -383,7 +413,7 @@ def run_transcript_edit_controller_loop(
                 {
                     "iteration": iterations,
                     "phase": "image_verify",
-                    "message": "Ran image-backed verification on mapping-critical findings.",
+                    "message": "Next, I will build the safest drift-safe edit plan from verified findings.",
                     "latest_refs": latest_refs,
                     "image_verification": image_verification.get("payload"),
                 },
@@ -407,6 +437,16 @@ def run_transcript_edit_controller_loop(
             plan_reason = "deterministic_consensus_plan"
             raw_plan_text = json.dumps(consensus_plan_payload, ensure_ascii=False)
         else:
+            _emit_progress(
+                progress_cb,
+                {
+                    "iteration": iterations,
+                    "phase": "plan",
+                    "message": "Next, I will generate a drift-safe edit plan.",
+                    "latest_refs": latest_refs,
+                    "execution_state": "running",
+                },
+            )
             try:
                 plan, plan_reason, raw_plan_text = planner_client.propose_plan(
                     model=request.model,
@@ -465,7 +505,7 @@ def run_transcript_edit_controller_loop(
             {
                 "iteration": iterations,
                 "phase": "apply",
-                "message": "Applied transcript edit plan and persisted updated artifacts.",
+                "message": "Next, I will re-audit the transcript after applying this plan.",
                 "latest_refs": latest_refs,
                 "execution_state": str(apply.execution_state.value),
             },

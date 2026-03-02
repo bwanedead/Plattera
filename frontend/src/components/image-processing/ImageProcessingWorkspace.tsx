@@ -20,6 +20,7 @@ import { FinalDraftSelector } from './FinalDraftSelector';
 import { useDossierManager } from '../../hooks/useDossierManager';
 import { saveDossierEditAPI } from '../../services/imageProcessingApi';
 import { StableAllotmentContainer } from '../layout/StableAllotmentContainer';
+import { AgentViewerPanel } from '../agent-viewer/AgentViewerPanel';
 
 
 interface ImageProcessingWorkspaceProps {
@@ -47,6 +48,7 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
   const [showDraftLoader, setShowDraftLoader] = useState(false);
   const [draftCount, setDraftCount] = useState(0);
   const [showEditedVersion, setShowEditedVersion] = useState(true);
+  const [agentViewerOpen, setAgentViewerOpen] = useState(false);
 
   // Measurement/debug refs for Allotment container
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -608,6 +610,36 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     };
   }, [layoutKey]);
 
+  const viewerTranscriptionDrafts = useMemo(() => {
+    const out: Array<{ id: string; label: string; text: string }> = [];
+    const selected: any = imageProcessing.selectedResult?.result;
+    const metadata = selected?.metadata || {};
+    const analysis = metadata?.redundancy_analysis;
+    const rawResults = Array.isArray(analysis?.individual_results) ? analysis.individual_results : [];
+    rawResults.forEach((item: any, idx: number) => {
+      const text = typeof item?.text === 'string' ? item.text.trim() : '';
+      if (!text) return;
+      out.push({
+        id: `draft-${idx + 1}`,
+        label: `Draft ${idx + 1}`,
+        text,
+      });
+    });
+    if (out.length > 0) return out;
+    const extracted = typeof selected?.extracted_text === 'string' ? selected.extracted_text.trim() : '';
+    if (!extracted) return [];
+    return [{ id: 'selected', label: 'Selected Draft', text: extracted }];
+  }, [imageProcessing.selectedResult]);
+
+  const viewerSessionKey = useMemo(() => {
+    const meta: any = imageProcessing.selectedResult?.result?.metadata || {};
+    const dossierId = typeof meta?.dossier_id === 'string' ? meta.dossier_id : '';
+    const transcriptionId = typeof meta?.transcription_id === 'string' ? meta.transcription_id : '';
+    const startedAt = typeof meta?.started_at === 'string' ? meta.started_at : '';
+    const finishedAt = typeof meta?.finished_at === 'string' ? meta.finished_at : '';
+    return `${dossierId}:${transcriptionId}:${startedAt}:${finishedAt}`;
+  }, [imageProcessing.selectedResult]);
+
   // Debug: ResizeObserver heartbeat on the workspace container
   useEffect(() => {
     if (!containerRef.current || typeof ResizeObserver === 'undefined') return;
@@ -681,7 +713,10 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
                 onShowDraftLoader={() => setShowDraftLoader(true)}
             isProcessing={imageProcessing.isProcessing}
             onProcess={imageProcessing.handleProcess}
+              onProcessWithEditLoop={(instruction) => imageProcessing.handleProcess(instruction, { runEditLoop: true })}
               processingQueue={imageProcessing.processingQueue}
+              transcriptEditRunId={imageProcessing.latestTranscriptEditRunId}
+              onOpenAgentViewer={() => setAgentViewerOpen(true)}
             availableModels={imageProcessing.availableModels}
             selectedModel={imageProcessing.selectedModel}
             onModelChange={imageProcessing.setSelectedModel}
@@ -848,6 +883,15 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
         isOpen={showDraftLoader}
         onClose={() => setShowDraftLoader(false)}
         onLoadDrafts={handleLoadDrafts}
+      />
+      <AgentViewerPanel
+        isOpen={agentViewerOpen}
+        loopKind={imageProcessing.latestTranscriptEditRunId ? 'transcript_edit' : null}
+        runId={imageProcessing.latestTranscriptEditRunId}
+        sessionKey={viewerSessionKey}
+        transcriptionDrafts={viewerTranscriptionDrafts}
+        isTranscribing={imageProcessing.isProcessing}
+        onClose={() => setAgentViewerOpen(false)}
       />
     </div>
   );
