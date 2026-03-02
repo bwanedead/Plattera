@@ -227,7 +227,9 @@ def run_transcript_edit_controller_loop(
 
         if error_count <= 0 and not blocking_warning_present:
             must_verify_before_terminal = bool(applied_any_edits or has_disagreements or used_human_feedback)
+            final_verify_ran = False
             if must_verify_before_terminal and current_transcript_ref:
+                final_verify_ran = True
                 final_verify = _final_image_sanity_pass_before_promote(
                     session_manager=session_manager,
                     session_id=session_id,
@@ -319,28 +321,29 @@ def run_transcript_edit_controller_loop(
                         "execution_state": "running",
                     },
                 )
-                final_verify = _final_image_sanity_pass_before_promote(
-                    session_manager=session_manager,
-                    session_id=session_id,
-                    iteration=iterations,
-                    dossier_id=request.dossier_id,
-                    source_transcript_ref=current_transcript_ref,
-                    source_image_refs=request.source_image_refs,
-                    disagreement_hints=effective_disagreement_hints,
-                    model=_edit_loop_model(request.model),
-                )
-                latest_refs = final_verify.get("latest_refs", latest_refs)
-                if not bool(final_verify.get("passed")):
-                    reason = _read_str(final_verify.get("reason")) or "tx_agent_final_image_verify_failed"
-                    return _result(
-                        start=start,
+                if not final_verify_ran:
+                    final_verify = _final_image_sanity_pass_before_promote(
+                        session_manager=session_manager,
                         session_id=session_id,
-                        iterations=iterations,
-                        status="needs_review",
-                        reason=reason,
-                        latest_refs=latest_refs,
-                        review_required=True,
+                        iteration=iterations,
+                        dossier_id=request.dossier_id,
+                        source_transcript_ref=current_transcript_ref,
+                        source_image_refs=request.source_image_refs,
+                        disagreement_hints=effective_disagreement_hints,
+                        model=_edit_loop_model(request.model),
                     )
+                    latest_refs = final_verify.get("latest_refs", latest_refs)
+                    if not bool(final_verify.get("passed")):
+                        reason = _read_str(final_verify.get("reason")) or "tx_agent_final_image_verify_failed"
+                        return _result(
+                            start=start,
+                            session_id=session_id,
+                            iterations=iterations,
+                            status="needs_review",
+                            reason=reason,
+                            latest_refs=latest_refs,
+                            review_required=True,
+                        )
                 promote = _step(
                     session_manager=session_manager,
                     session_id=session_id,
@@ -907,7 +910,7 @@ def _verify_mapping_critical_with_image(
     inputs: dict[str, Any] = {
         "dossier_id": dossier_id,
         "source_transcript_ref": source_transcript_ref,
-        "checks": checks[:6],
+        "checks": checks[:4],
         "model": model,
         "zoom_factor": 3.2,
     }
@@ -987,7 +990,7 @@ def _final_image_sanity_pass_before_promote(
     inputs: dict[str, Any] = {
         "dossier_id": dossier_id,
         "source_transcript_ref": source_transcript_ref,
-        "checks": checks[:6],
+        "checks": checks[:4],
         "model": model,
         "zoom_factor": 3.2,
     }

@@ -138,11 +138,7 @@ class FinalDraftSelector:
         formatted_text = ""
         
         for i, section in enumerate(sections):
-            # Add section header if it exists
-            if section.get('header') and section['header'].strip():
-                formatted_text += f"{section['header'].strip()}\n"
-            
-            # Add section body
+            # Only emit verbatim section body text; do not inject synthetic section labels.
             if section.get('body') and section['body'].strip():
                 body_text = section['body'].strip()
                 formatted_text += f"{body_text}\n"
