@@ -26,6 +26,9 @@ class TranscriptEditPlanPlanner:
         findings_summary: dict[str, Any],
         top_findings: list[dict[str, Any]],
         span_context: list[dict[str, Any]],
+        image_verification: dict[str, Any] | None,
+        candidate_disagreement_hints: dict[str, Any] | None,
+        mapping_priority_focus: dict[str, Any] | None,
         max_attempts: int,
     ) -> tuple[EditPlanV0 | None, str, str]:
         if not self._service.is_available() or getattr(self._service, "client", None) is None:
@@ -40,6 +43,9 @@ class TranscriptEditPlanPlanner:
             findings_summary=findings_summary,
             top_findings=top_findings,
             span_context=span_context,
+            image_verification=image_verification or {},
+            candidate_disagreement_hints=candidate_disagreement_hints or {},
+            mapping_priority_focus=mapping_priority_focus or {},
         )
         raw_content = ""
         last_error = "planner_invalid_response"
@@ -58,9 +64,19 @@ class TranscriptEditPlanPlanner:
             else:
                 params["max_tokens"] = 4000
                 params["temperature"] = 0
-            completion = client.chat.completions.create(
-                **params,
-            )
+            try:
+                completion = client.chat.completions.create(
+                    **params,
+                )
+            except Exception as exc:
+                last_error = f"planner_api_error:{type(exc).__name__}"
+                user_msg = build_plan_repair_user_message(
+                    error_reason=last_error,
+                    raw_content="",
+                    source_transcript_ref=source_transcript_ref,
+                    source_transcript_hash=source_transcript_hash,
+                )
+                continue
             message = completion.choices[0].message if completion.choices else None
             content = message.content if message is not None else None
             raw_content = content if isinstance(content, str) else ""

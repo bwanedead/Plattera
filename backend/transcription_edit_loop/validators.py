@@ -8,10 +8,19 @@ from typing import Iterable
 from .contracts import TranscriptDocumentV0, ValidatorFindingV0, ValidatorReportV0, transcript_text_hash
 from .section_adapter import sections_to_text_with_index_map
 
-_BEARING_PATTERN = re.compile(r"\b[NS]\s*\d{1,2}(?:\.\d+)?\s*[EW]\b", re.IGNORECASE)
+_BEARING_PATTERN = re.compile(
+    r"\b[NS]\.?\s*\d{1,3}(?:\s*°\s*\d{1,2}(?:\s*['’]\s*\d{1,2}(?:\.\d+)?)?(?:\s*['’])?)?"
+    r"\s*(?:[EW]\.?|east|west)\b"
+    r"|\b[NS]\s*\d{1,2}(?:\.\d+)?\s*[EW]\b",
+    re.IGNORECASE,
+)
 _DISTANCE_PATTERN = re.compile(r"\b\d+(?:\.\d+)?\s*(?:ft|feet|chains|ch)\b", re.IGNORECASE)
 _PLSS_TOKEN_PATTERN = re.compile(
     r"\b(T(?:ownship)?\s*\d+\s*[NS]|R(?:ange)?\s*\d+\s*[EW]|Sec(?:tion)?\s*\d+)\b",
+    re.IGNORECASE,
+)
+_PLSS_PAREN_PATTERN = re.compile(
+    r"\b(?P<kind>township|range|section)\b[^()]{0,60}\((?P<num>\d{1,3})\)\s*(?P<dir>north|south|east|west)?",
     re.IGNORECASE,
 )
 
@@ -70,8 +79,21 @@ def _distance_findings(*, text: str, spans: list) -> Iterable[ValidatorFindingV0
 
 def _plss_consistency_findings(*, text: str) -> Iterable[ValidatorFindingV0]:
     findings: list[ValidatorFindingV0] = []
+    normalized: list[str] = []
     tokens = _PLSS_TOKEN_PATTERN.findall(text)
-    normalized = [re.sub(r"\s+", "", token.lower()) for token in tokens]
+    normalized.extend([re.sub(r"\s+", "", token.lower()) for token in tokens])
+    for match in _PLSS_PAREN_PATTERN.finditer(text):
+        kind = str(match.group("kind") or "").lower()
+        num = str(match.group("num") or "").lower()
+        direction = str(match.group("dir") or "").lower()
+        if kind == "township":
+            suffix = "n" if direction.startswith("n") else ("s" if direction.startswith("s") else "")
+            normalized.append(f"t{num}{suffix}")
+        elif kind == "range":
+            suffix = "e" if direction.startswith("e") else ("w" if direction.startswith("w") else "")
+            normalized.append(f"r{num}{suffix}")
+        elif kind == "section":
+            normalized.append(f"sec{num}")
     townships = sorted({token for token in normalized if token.startswith("t")})
     ranges = sorted({token for token in normalized if token.startswith("r")})
     sections = sorted({token for token in normalized if token.startswith("sec")})
@@ -131,4 +153,3 @@ def _call_chain_findings(*, text: str) -> Iterable[ValidatorFindingV0]:
             )
         )
     return findings
-

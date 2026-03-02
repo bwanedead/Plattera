@@ -106,6 +106,12 @@ class TranscriptSpanOpener(Protocol):
     def open_transcript_spans(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
 
+class TranscriptImageVerifier(Protocol):
+    """Explicit interface for TX_VERIFY_TRANSCRIPT_WITH_IMAGE action execution."""
+
+    def verify_transcript_with_image(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
 class TranscriptPlanApplier(Protocol):
     """Explicit interface for TX_APPLY_EDIT_PLAN action execution."""
 
@@ -138,6 +144,7 @@ class ActionExecutorDeps:
     status_summarizer: StatusSummarizer | None = None
     transcript_auditor: TranscriptAuditor | None = None
     transcript_span_opener: TranscriptSpanOpener | None = None
+    transcript_image_verifier: TranscriptImageVerifier | None = None
     transcript_plan_applier: TranscriptPlanApplier | None = None
     transcript_promoter: TranscriptPromoter | None = None
 
@@ -183,6 +190,8 @@ class ActionExecutor:
             actions.append(ActionType.TX_AUDIT_TRANSCRIPT)
         if self._deps.transcript_span_opener is not None or allow_stubbed:
             actions.append(ActionType.TX_OPEN_TRANSCRIPT_SPANS)
+        if self._deps.transcript_image_verifier is not None or allow_stubbed:
+            actions.append(ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE)
         if self._deps.transcript_plan_applier is not None or allow_stubbed:
             actions.append(ActionType.TX_APPLY_EDIT_PLAN)
         if self._deps.transcript_promoter is not None or allow_stubbed:
@@ -346,6 +355,20 @@ class ActionExecutor:
                 execute_fn=(
                     self._deps.transcript_span_opener.open_transcript_spans
                     if self._deps.transcript_span_opener is not None
+                    else None
+                ),
+                inputs=inputs,
+            )
+        if action == ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="tx_image_verify_ref",
+                reason_code="tx_image_verified",
+                missing_reason="missing_transcript_image_verifier_interface",
+                execute_fn=(
+                    self._deps.transcript_image_verifier.verify_transcript_with_image
+                    if self._deps.transcript_image_verifier is not None
                     else None
                 ),
                 inputs=inputs,

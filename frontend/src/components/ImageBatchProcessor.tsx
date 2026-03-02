@@ -34,7 +34,7 @@ const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({
 }) => {
   const [processing, setProcessing] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
-  const [selectedModel, setSelectedModel] = useState('gpt-4o')
+  const [selectedModel, setSelectedModel] = useState('gpt-o4-mini')
   const [extractionMode, setExtractionMode] = useState('legal_document_json_relaxed')
   const [availableModels, setAvailableModels] = useState<Record<string, ModelInfo>>({})
   const [availableExtractionModes, setAvailableExtractionModes] = useState<Record<string, {name: string, description: string}>>({})
@@ -44,6 +44,12 @@ const ImageBatchProcessor: React.FC<ImageBatchProcessorProps> = ({
 
   // Default models in case API is not available
   const defaultModels: Record<string, ModelInfo> = {
+    "gpt-o4-mini": {
+      name: "GPT-o4-mini",
+      description: "Recommended transcription model for T0 deed OCR",
+      cost_tier: "standard",
+      verification_required: false
+    },
     "gpt-4o": {
       name: "GPT-4o",
       description: "Fast, cost-effective vision model optimized for document OCR",

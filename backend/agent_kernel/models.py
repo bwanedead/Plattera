@@ -58,6 +58,7 @@ class ActionType(str, Enum):
     UPSERT_DEED_SPAN_INDEX = "upsert_deed_span_index"
     TX_AUDIT_TRANSCRIPT = "tx_audit_transcript"
     TX_OPEN_TRANSCRIPT_SPANS = "tx_open_transcript_spans"
+    TX_VERIFY_TRANSCRIPT_WITH_IMAGE = "tx_verify_transcript_with_image"
     TX_APPLY_EDIT_PLAN = "tx_apply_edit_plan"
     TX_PROMOTE_TRANSCRIPT_FOR_MAPPING = "tx_promote_transcript_for_mapping"
 
@@ -158,6 +159,7 @@ class KernelLatestRefs(BaseModel):
     deed_span_index_ref: Optional[dict[str, object]] = None
     tx_source_transcript_ref: Optional[dict[str, object]] = None
     tx_open_spans_ref: Optional[dict[str, object]] = None
+    tx_image_verify_ref: Optional[dict[str, object]] = None
     tx_validator_report_ref: Optional[dict[str, object]] = None
     tx_edit_plan_ref: Optional[dict[str, object]] = None
     tx_apply_report_ref: Optional[dict[str, object]] = None

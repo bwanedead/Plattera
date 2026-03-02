@@ -34,6 +34,28 @@ class _InMemoryPersistence:
         return self._store.get((request_id, run_id))
 
 
+class _ImageVerifierStub:
+    def verify_transcript_with_image(self, inputs):  # type: ignore[no-untyped-def]
+        del inputs
+        return {
+            "artifact_ref": {"artifact_path": "in-memory://tx/image_verify.json"},
+            "reason_codes": ["tx_image_verified"],
+            "tx_image_verify_summary": {"total_checks": 1, "match_count": 1, "mismatch_count": 0, "unclear_count": 0},
+            "tx_image_verify_results": [{"check_id": "c1", "status": "match", "confidence": "high"}],
+        }
+
+
+class _ImageVerifierUnclearStub:
+    def verify_transcript_with_image(self, inputs):  # type: ignore[no-untyped-def]
+        del inputs
+        return {
+            "artifact_ref": {"artifact_path": "in-memory://tx/image_verify_unclear.json"},
+            "reason_codes": ["tx_image_verified"],
+            "tx_image_verify_summary": {"total_checks": 2, "match_count": 1, "mismatch_count": 0, "unclear_count": 1},
+            "tx_image_verify_results": [{"check_id": "c1", "status": "unclear", "confidence": "low"}],
+        }
+
+
 class _PlannerSuccess:
     def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
         source_ref = kwargs["source_transcript_ref"]
@@ -72,11 +94,36 @@ class _PlannerInvalid:
         return None, "planner_invalid_response", "{bad}"
 
 
-def _session_manager() -> KernelSessionManager:
+class _PlannerNoOps:
+    def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+        source_ref = kwargs["source_transcript_ref"]
+        source_hash = kwargs["source_transcript_hash"]
+        plan = EditPlanV0.model_validate(
+            {
+                "plan_version": "edit_plan_v0",
+                "source_transcript_ref": source_ref,
+                "source_transcript_hash": source_hash,
+                "plan_id": "noop",
+                "summary": "no safe edits",
+                "ops": [],
+                "global_flags": {"review_required": True, "rationale": "conflicting evidence"},
+            }
+        )
+        return plan, "ok", json.dumps(plan.model_dump(mode="json"))
+
+
+class _PlannerRaises:
+    def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        raise RuntimeError("simulated network error")
+
+
+def _session_manager(image_verifier=None) -> KernelSessionManager:
     executor = ActionExecutor(
         deps=ActionExecutorDeps(
             transcript_auditor=TranscriptAuditTool(),
             transcript_span_opener=TranscriptSpanOpenerTool(),
+            transcript_image_verifier=image_verifier or _ImageVerifierStub(),
             transcript_plan_applier=TranscriptEditPlanApplyTool(),
             transcript_promoter=TranscriptMappingPromoterTool(),
         )
@@ -126,3 +173,76 @@ def test_transcript_controller_invalid_planner_stops_needs_review_no_promote() -
         assert result.status == "needs_review"
         assert result.review_required is True
         assert result.reason_code.startswith("tx_agent_plan_invalid")
+
+
+def test_transcript_controller_redundancy_conflict_blocks_autopromote() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}), encoding="utf-8")
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                auto_promote=True,
+                candidate_texts=[
+                    "Range seventy-five (75) West",
+                    "Range seventy-four (74) West",
+                    "Range seventy-five (75) West",
+                ],
+            ),
+            request_id_prefix="tx-test-disagreement",
+            planner=_PlannerNoOps(),
+        )
+        assert result.status == "needs_review"
+        assert result.review_required is True
+        assert result.reason_code.startswith("tx_agent_no_safe_plan_for_findings")
+
+
+def test_transcript_controller_planner_exception_degrades_to_needs_review() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(json.dumps({"sections": [{"id": "s1", "body": "Beginning at NW corner."}]}), encoding="utf-8")
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                max_invalid_plan_attempts=1,
+                auto_promote=True,
+                candidate_texts=[
+                    "Range seventy-five (75) West",
+                    "Range seventy-four (74) West",
+                ],
+            ),
+            request_id_prefix="tx-test-planner-exc",
+            planner=_PlannerRaises(),
+        )
+        assert result.status == "needs_review"
+        assert result.review_required is True
+        assert result.reason_code.startswith("tx_agent_plan_invalid:planner_exception")
+
+
+def test_transcript_controller_blocks_promote_when_final_image_sanity_unclear() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(json.dumps({"sections": [{"id": "s1", "body": "Simple heading and legal text."}]}), encoding="utf-8")
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(image_verifier=_ImageVerifierUnclearStub()),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                auto_promote=True,
+            ),
+            request_id_prefix="tx-test-final-image-gate",
+            planner=_PlannerSuccess(),
+        )
+        assert result.status == "needs_review"
+        assert result.review_required is True
+        assert result.reason_code.startswith("tx_agent_final_image_verify_failed")

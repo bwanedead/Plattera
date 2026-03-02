@@ -9,7 +9,10 @@ def build_planner_system_message() -> str:
         "You are a legal transcript edit planner. "
         "Propose a bounded EditPlanV0 JSON object only. "
         "Faithfully represent source deed semantics, prioritize sanity, and avoid speculative edits. "
+        "Do not propose purely cosmetic formatting edits (spacing, punctuation, symbol variants) unless meaning changes. "
         "Prefer localized normalization edits first. "
+        "If a finding indicates numeric/PLSS inconsistency and context provides a clear dominant value, "
+        "you may propose a localized semantic correction with review_required=true. "
         "Each op must include drift-safe expected_old.old_excerpt from verbatim transcript text. "
         "Prefer anchors locator; use offsets only when anchors are unreliable. "
         "Do not produce cross-section edits unless strictly necessary. "
@@ -24,6 +27,9 @@ def build_planner_user_message(
     findings_summary: dict[str, Any],
     top_findings: list[dict[str, Any]],
     span_context: list[dict[str, Any]],
+    image_verification: dict[str, Any],
+    candidate_disagreement_hints: dict[str, Any],
+    mapping_priority_focus: dict[str, Any],
 ) -> str:
     schema_snippet = {
         "plan_version": "edit_plan_v0",
@@ -64,6 +70,9 @@ def build_planner_user_message(
         "findings_summary": findings_summary,
         "top_findings": top_findings,
         "span_context": span_context,
+        "image_verification": image_verification,
+        "candidate_disagreement_hints": candidate_disagreement_hints,
+        "mapping_priority_focus": mapping_priority_focus,
     }
     return json.dumps(payload, ensure_ascii=False)
 
@@ -100,4 +109,3 @@ def build_plan_repair_user_message(
         "note": "If no safe edit is justified, return ops=[] with rationale.",
     }
     return json.dumps(payload, ensure_ascii=False)
-

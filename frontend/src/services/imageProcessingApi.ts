@@ -105,6 +105,7 @@ export const fetchModelsAPI = async () => {
     console.warn('Failed to load models from API, using defaults:', error);
     // Fallback to default models
     return {
+      "gpt-o4-mini": { name: "GPT-o4-mini", provider: "openai" },
       "gpt-4o": { name: "GPT-4o", provider: "openai" },
       "o3": { name: "o3", provider: "openai" },
       "gpt-4": { name: "GPT-4", provider: "openai" },

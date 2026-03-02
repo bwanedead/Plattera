@@ -15,11 +15,13 @@ from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
 from agent_kernel.session import KernelSessionManager
 from agent_kernel.tooling import (
     TranscriptAuditTool,
+    TranscriptImageVerificationTool,
     TranscriptEditPlanApplyTool,
     TranscriptMappingPromoterTool,
     TranscriptSpanOpenerTool,
 )
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
+from services.agent_viewer.event_bus import event_bus as viewer_event_bus
 from transcript_edit.run_registry import TranscriptionEditRunRegistry
 
 router = APIRouter()
@@ -33,12 +35,78 @@ class TranscriptEditAgentApiRequest(TranscriptEditAgentRunRequest):
 
 def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
     try:
+        progress_log: list[dict[str, Any]] = []
+        seq = 0
+
+        def _to_artifact_ref_map(obj: Any) -> dict[str, dict[str, str]]:
+            if not isinstance(obj, dict):
+                return {}
+            refs: dict[str, dict[str, str]] = {}
+            for key, value in obj.items():
+                if isinstance(value, str) and value.strip():
+                    refs[str(key)] = {"artifact_path": value}
+                elif isinstance(value, dict):
+                    path = value.get("artifact_path")
+                    if isinstance(path, str) and path.strip():
+                        refs[str(key)] = {"artifact_path": path}
+            return refs
+
+        def _publish_viewer_event(event_type: str, event: dict[str, Any]) -> None:
+            nonlocal seq
+            payload = event if isinstance(event, dict) else {}
+            viewer_event_bus.publish_sync(
+                f"transcript_edit:{run_id}",
+                {
+                    "protocol": "agent_viewer_event_v1",
+                    "run_id": run_id,
+                    "loop_kind": "transcript_edit",
+                    "seq": seq,
+                    "iteration": payload.get("iteration"),
+                    "timestamp_epoch_seconds": int(time()),
+                    "event_type": event_type,
+                    "status": {
+                        "stage": payload.get("phase"),
+                        "line1": payload.get("message") or "Transcript edit update",
+                        "line2": payload.get("execution_state"),
+                    },
+                    "artifact_refs": _to_artifact_ref_map(payload.get("latest_refs")),
+                    "payload": payload,
+                },
+            )
+            seq += 1
+
+        def _progress_update(event: dict[str, Any]) -> None:
+            progress_log.append(
+                {
+                    "timestamp_epoch_seconds": int(time()),
+                    **(event if isinstance(event, dict) else {}),
+                }
+            )
+            if len(progress_log) > 40:
+                del progress_log[:-40]
+            latest = progress_log[-1] if progress_log else None
+            _registry.update_run(
+                run_id=run_id,
+                patch={
+                    "status": "running",
+                    "snapshot": {
+                        "run_id": run_id,
+                        "status": "running",
+                        "live_status": latest,
+                        "progress_log": list(progress_log),
+                    },
+                },
+            )
+            event_type = str(event.get("event_type") or "status")
+            _publish_viewer_event(event_type, event)
+
         persistence = RunArtifactPersistenceService()
         session_manager = KernelSessionManager(
             action_executor=ActionExecutor(
                 deps=ActionExecutorDeps(
                     transcript_auditor=TranscriptAuditTool(),
                     transcript_span_opener=TranscriptSpanOpenerTool(),
+                    transcript_image_verifier=TranscriptImageVerificationTool(),
                     transcript_plan_applier=TranscriptEditPlanApplyTool(),
                     transcript_promoter=TranscriptMappingPromoterTool(),
                 )
@@ -49,6 +117,7 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             session_manager=session_manager,
             request=TranscriptEditAgentRunRequest.model_validate(request.model_dump(mode="json")),
             request_id_prefix=f"tx-agent-{run_id}",
+            progress_cb=_progress_update,
         )
         _registry.update_run(
             run_id=run_id,
@@ -63,11 +132,39 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                     "run_artifact_ref": result.run_artifact_ref,
                     "latest_refs": result.latest_refs,
                     "review_required": result.review_required,
+                    "live_status": progress_log[-1] if progress_log else None,
+                    "progress_log": list(progress_log),
                 },
+            },
+        )
+        _publish_viewer_event(
+            "done" if result.status == "completed" else "status",
+            {
+                "phase": result.status,
+                "message": result.reason_code,
+                "execution_state": result.status,
+                "iteration": result.iterations,
+                "latest_refs": result.latest_refs,
+                "review_required": result.review_required,
             },
         )
     except Exception as exc:
         _registry.update_run(run_id=run_id, patch={"status": "failed", "error": str(exc)})
+        viewer_event_bus.publish_sync(
+            f"transcript_edit:{run_id}",
+            {
+                "protocol": "agent_viewer_event_v1",
+                "run_id": run_id,
+                "loop_kind": "transcript_edit",
+                "seq": 0,
+                "iteration": None,
+                "timestamp_epoch_seconds": int(time()),
+                "event_type": "status",
+                "status": {"stage": "failed", "line1": "Transcript edit run failed", "line2": str(exc)[:240]},
+                "artifact_refs": {},
+                "payload": {"error": str(exc)},
+            },
+        )
 
 
 @router.post("/run")
@@ -85,6 +182,7 @@ async def start_run(request: TranscriptEditAgentApiRequest) -> dict[str, Any]:
             "mode": request.mode,
             "has_source_transcript_ref": bool(request.source_transcript_ref),
             "has_source_text": bool(request.source_text),
+            "source_image_refs_count": len(request.source_image_refs or []),
             "has_edit_plan": isinstance(request.edit_plan, dict),
         },
     )

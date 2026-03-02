@@ -82,6 +82,7 @@ class RunArtifact(BaseModel):
     deed_span_index_artifact_ref: Optional[ArtifactRef] = None
     tx_source_transcript_artifact_ref: Optional[ArtifactRef] = None
     tx_open_spans_artifact_ref: Optional[ArtifactRef] = None
+    tx_image_verify_artifact_ref: Optional[ArtifactRef] = None
     tx_validator_report_artifact_ref: Optional[ArtifactRef] = None
     tx_edit_plan_artifact_ref: Optional[ArtifactRef] = None
     tx_apply_report_artifact_ref: Optional[ArtifactRef] = None

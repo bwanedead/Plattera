@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
 import hashlib
@@ -13,7 +15,11 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
-from config.paths import agent_kernel_artifacts_root, dossiers_feature_graphs_artifacts_root
+from config.paths import (
+    agent_kernel_artifacts_root,
+    dossiers_associations_root,
+    dossiers_feature_graphs_artifacts_root,
+)
 from corpus.types import CorpusEntryKind, CorpusEntryRef, CorpusView
 from corpus.virtual_provider import VirtualCorpusProvider
 from feature_graph.artifacts import create_compile_artifact, create_ir_artifact, create_judge_artifact
@@ -36,6 +42,7 @@ from transcript_edit.contracts import (
 )
 from transcript_edit.persistence import TranscriptionEditPersistenceService
 from transcript_edit.validators import run_validators
+from services.llm.openai import OpenAIService
 
 from .run_artifact import ArtifactRef, ValidationInline
 
@@ -457,6 +464,118 @@ class TranscriptSpanOpenerTool:
 
 
 @dataclass
+class TranscriptImageVerificationTool:
+    """Verify transcript claims against the source deed image with optional zoom/crop."""
+
+    service: OpenAIService = field(default_factory=OpenAIService)
+
+    def verify_transcript_with_image(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        dossier_id = _read_str(inputs.get("dossier_id")) or "adhoc"
+        source_ref = _read_str(
+            inputs.get("source_transcript_ref")
+            or inputs.get("tx_source_transcript_ref")
+            or inputs.get("transcript_ref")
+        )
+        if source_ref is None:
+            return _tool_refusal_result("tx_image_verify_missing_source_transcript")
+        if not self.service.is_available() or getattr(self.service, "client", None) is None:
+            return _tool_refusal_result("tx_image_verify_service_unavailable")
+
+        requested_image_path = _read_str(inputs.get("image_path") or inputs.get("image_ref"))
+        image_path = _resolve_transcript_source_image_path(
+            dossier_id=dossier_id,
+            source_transcript_ref=source_ref,
+            requested_image_path=requested_image_path,
+        )
+        if image_path is None:
+            return _tool_refusal_result("tx_image_verify_source_image_not_found")
+        image_file = Path(image_path)
+        if not image_file.exists():
+            return _tool_refusal_result("tx_image_verify_source_image_not_found")
+
+        model = _read_str(inputs.get("model")) or "gpt-5.2"
+        checks = _coerce_image_verify_checks(inputs)
+        if not checks:
+            return _tool_refusal_result("tx_image_verify_missing_checks")
+
+        zoom_default = _bounded_float(inputs.get("zoom_factor"), default=2.2, minimum=1.0, maximum=6.0)
+        results: list[dict[str, Any]] = []
+        for index, check in enumerate(checks):
+            check_id = _read_str(check.get("check_id")) or f"check_{index + 1}"
+            query = _read_str(check.get("query")) or _read_str(check.get("message"))
+            expected = _read_str(check.get("expected_text"))
+            if not query:
+                continue
+            crop_box = _coerce_crop_box(check.get("crop_box"))
+            zoom_factor = _bounded_float(check.get("zoom_factor"), default=zoom_default, minimum=1.0, maximum=6.0)
+            image_b64, render_meta = _encode_image_for_verification(
+                image_path=image_file,
+                crop_box=crop_box,
+                zoom_factor=zoom_factor,
+            )
+            prompt = _build_transcript_image_verify_prompt(
+                check_id=check_id,
+                query=query,
+                expected_text=expected,
+            )
+            response = self.service.call_vision(
+                prompt=prompt,
+                image_data=image_b64,
+                model=model,
+                json_mode="relaxed",
+                max_tokens=1600,
+                detail="high",
+            )
+            result_item = _coerce_image_verify_result(
+                check_id=check_id,
+                query=query,
+                expected_text=expected,
+                response=response,
+            )
+            result_item["render_meta"] = render_meta
+            results.append(result_item)
+
+        if not results:
+            return _tool_refusal_result("tx_image_verify_missing_checks")
+
+        summary = _summarize_image_verify_results(results)
+        payload = {
+            "artifact_type": "transcript_image_verification",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "dossier_id": dossier_id,
+            "source_transcript_ref": source_ref,
+            "image_path": str(image_file),
+            "model": model,
+            "summary": summary,
+            "results": results,
+        }
+        artifact_ref = _persist_json_artifact(
+            category="transcript_image_verify",
+            dossier_id=dossier_id,
+            payload=payload,
+        )
+        compact_results = []
+        for item in results[:8]:
+            compact_results.append(
+                {
+                    "check_id": item.get("check_id"),
+                    "status": item.get("status"),
+                    "confidence": item.get("confidence"),
+                    "observed_text": _summarize_text(str(item.get("observed_text") or ""))[:220],
+                    "reason": _summarize_text(str(item.get("reason") or ""))[:220],
+                }
+            )
+        return {
+            "artifact_ref": artifact_ref,
+            "reason_codes": ["tx_image_verified"],
+            "tx_source_transcript_ref": source_ref,
+            "tx_image_path": str(image_file),
+            "tx_image_verify_summary": summary,
+            "tx_image_verify_results": compact_results,
+        }
+
+
+@dataclass
 class TranscriptEditPlanApplyTool:
     """Apply EditPlanV0 against section-preserving transcript documents."""
 
@@ -562,12 +681,14 @@ class TranscriptMappingPromoterTool:
             transcript_hash=transcript_hash,
             run_id=_read_str(inputs.get("run_id")),
         )
+        span_seeds_ref = _read_str(inputs.get("tx_span_seeds_ref"))
         return {
             "artifact_ref": ArtifactRef(artifact_path=pointer_ref),
             "reason_codes": ["tx_promote_completed"],
             "tx_mapping_pointer_ref": pointer_ref,
             "tx_promoted_transcript_ref": transcript_ref,
             "tx_promoted_transcript_hash": transcript_hash,
+            "tx_span_seeds_ref": span_seeds_ref,
         }
 
 
@@ -2039,6 +2160,239 @@ def _bounded_int(raw: Any, *, default: int, minimum: int, maximum: int) -> int:
     except Exception:
         return default
     return max(minimum, min(maximum, value))
+
+
+def _bounded_float(raw: Any, *, default: float, minimum: float, maximum: float) -> float:
+    try:
+        value = float(raw)
+    except Exception:
+        return default
+    return max(minimum, min(maximum, value))
+
+
+def _coerce_image_verify_checks(inputs: Mapping[str, Any]) -> list[dict[str, Any]]:
+    raw_checks = inputs.get("checks")
+    checks: list[dict[str, Any]] = []
+    if isinstance(raw_checks, list):
+        for item in raw_checks[:8]:
+            if isinstance(item, dict):
+                checks.append(dict(item))
+    elif isinstance(raw_checks, dict):
+        checks.append(dict(raw_checks))
+    else:
+        query = _read_str(inputs.get("query"))
+        if query:
+            checks.append({"check_id": "single_check", "query": query, "expected_text": _read_str(inputs.get("expected_text"))})
+    return checks
+
+
+def _coerce_crop_box(raw: Any) -> dict[str, int] | None:
+    if not isinstance(raw, Mapping):
+        return None
+    try:
+        x = int(raw.get("x"))  # type: ignore[arg-type]
+        y = int(raw.get("y"))  # type: ignore[arg-type]
+        width = int(raw.get("width"))  # type: ignore[arg-type]
+        height = int(raw.get("height"))  # type: ignore[arg-type]
+    except Exception:
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return {"x": x, "y": y, "width": width, "height": height}
+
+
+def _encode_image_for_verification(
+    *,
+    image_path: Path,
+    crop_box: dict[str, int] | None,
+    zoom_factor: float,
+) -> tuple[str, dict[str, Any]]:
+    try:
+        from PIL import Image
+    except Exception as exc:
+        raise RuntimeError(f"pillow_unavailable:{exc}") from exc
+    with Image.open(image_path) as img:
+        img = img.convert("RGB")
+        original_size = [img.width, img.height]
+        applied_crop: dict[str, int] | None = None
+        if isinstance(crop_box, dict):
+            x = max(0, int(crop_box.get("x", 0)))
+            y = max(0, int(crop_box.get("y", 0)))
+            width = max(1, int(crop_box.get("width", 1)))
+            height = max(1, int(crop_box.get("height", 1)))
+            x2 = min(img.width, x + width)
+            y2 = min(img.height, y + height)
+            if x2 > x and y2 > y:
+                img = img.crop((x, y, x2, y2))
+                applied_crop = {"x": x, "y": y, "width": x2 - x, "height": y2 - y}
+        if zoom_factor > 1.0:
+            target_w = max(1, int(round(img.width * zoom_factor)))
+            target_h = max(1, int(round(img.height * zoom_factor)))
+            img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=95)
+        encoded = base64.b64encode(out.getvalue()).decode("ascii")
+        return encoded, {
+            "original_size": original_size,
+            "rendered_size": [img.width, img.height],
+            "crop_box": applied_crop,
+            "zoom_factor": round(float(zoom_factor), 3),
+        }
+
+
+def _build_transcript_image_verify_prompt(
+    *,
+    check_id: str,
+    query: str,
+    expected_text: str | None,
+) -> str:
+    payload = {
+        "task": "Verify a transcript claim against the provided deed image.",
+        "instructions": [
+            "Return JSON only.",
+            "Carefully read the image text relevant to the query.",
+            "If uncertain, set status='unclear' and explain why.",
+        ],
+        "output_schema": {
+            "check_id": "string",
+            "status": "match|mismatch|unclear",
+            "observed_text": "string",
+            "confidence": "low|medium|high",
+            "reason": "string",
+        },
+        "check": {
+            "check_id": check_id,
+            "query": query,
+            "expected_text": expected_text or "",
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _coerce_image_verify_result(
+    *,
+    check_id: str,
+    query: str,
+    expected_text: str | None,
+    response: Mapping[str, Any],
+) -> dict[str, Any]:
+    if not bool(response.get("success")):
+        return {
+            "check_id": check_id,
+            "query": query,
+            "expected_text": expected_text,
+            "status": "unclear",
+            "confidence": "low",
+            "observed_text": "",
+            "reason": _summarize_text(str(response.get("error") or "vision_call_failed"))[:260],
+        }
+    raw_text = _read_str(response.get("text")) or ""
+    parsed = {}
+    try:
+        loaded = json.loads(raw_text)
+        if isinstance(loaded, dict):
+            parsed = loaded
+    except Exception:
+        parsed = {}
+    status = str(parsed.get("status") or "").strip().lower()
+    if status not in {"match", "mismatch", "unclear"}:
+        status = "unclear"
+    confidence = str(parsed.get("confidence") or "").strip().lower()
+    if confidence not in {"low", "medium", "high"}:
+        confidence = "low" if status == "unclear" else "medium"
+    observed = _read_str(parsed.get("observed_text")) or _summarize_text(raw_text)[:220]
+    reason = _read_str(parsed.get("reason")) or ("model_reported_match" if status == "match" else "model_reported_mismatch")
+    return {
+        "check_id": _read_str(parsed.get("check_id")) or check_id,
+        "query": query,
+        "expected_text": expected_text,
+        "status": status,
+        "confidence": confidence,
+        "observed_text": observed,
+        "reason": reason,
+    }
+
+
+def _summarize_image_verify_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = {"match": 0, "mismatch": 0, "unclear": 0}
+    for item in results:
+        status = str(item.get("status") or "unclear").strip().lower()
+        if status not in counts:
+            status = "unclear"
+        counts[status] += 1
+    return {
+        "total_checks": len(results),
+        "match_count": counts["match"],
+        "mismatch_count": counts["mismatch"],
+        "unclear_count": counts["unclear"],
+    }
+
+
+def _resolve_transcript_source_image_path(
+    *,
+    dossier_id: str,
+    source_transcript_ref: str,
+    requested_image_path: str | None,
+) -> str | None:
+    if requested_image_path:
+        path = Path(requested_image_path)
+        if path.exists():
+            return str(path)
+
+    source_path = Path(source_transcript_ref)
+    inferred_dossier = _infer_dossier_id_from_transcript_ref(source_path)
+    dossier = inferred_dossier or (dossier_id if dossier_id != "adhoc" else None)
+    transcription_id = _infer_transcription_id_from_transcript_ref(source_path)
+    if not dossier or not transcription_id:
+        return None
+    assoc_path = dossiers_associations_root() / f"assoc_{dossier}.json"
+    assoc = _read_json_dict(assoc_path)
+    if not isinstance(assoc, dict):
+        return None
+    associations = assoc.get("associations")
+    if not isinstance(associations, list):
+        return None
+    for entry in associations:
+        if not isinstance(entry, dict):
+            continue
+        if _read_str(entry.get("transcription_id")) != transcription_id:
+            continue
+        metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+        provenance = metadata.get("provenance") if isinstance(metadata, dict) and isinstance(metadata.get("provenance"), dict) else {}
+        enhancement = provenance.get("enhancement") if isinstance(provenance, dict) and isinstance(provenance.get("enhancement"), dict) else {}
+        candidates = [
+            _read_str(enhancement.get("original_image_path")),
+            _read_str(metadata.get("original_path")),
+            _read_str(enhancement.get("processed_image_path")),
+        ]
+        for candidate in candidates:
+            if candidate and Path(candidate).exists():
+                return candidate
+    return None
+
+
+def _infer_dossier_id_from_transcript_ref(path: Path) -> str | None:
+    parts = list(path.parts)
+    try:
+        idx = parts.index("transcriptions")
+    except ValueError:
+        return None
+    if idx + 1 >= len(parts):
+        return None
+    value = str(parts[idx + 1]).strip()
+    return value or None
+
+
+def _infer_transcription_id_from_transcript_ref(path: Path) -> str | None:
+    parts = list(path.parts)
+    try:
+        idx = parts.index("transcriptions")
+    except ValueError:
+        return None
+    if idx + 2 >= len(parts):
+        return None
+    value = str(parts[idx + 2]).strip()
+    return value or None
 
 
 def _coerce_artifact_ref(raw: Any) -> ArtifactRef | None:

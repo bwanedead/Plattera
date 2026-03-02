@@ -24,6 +24,7 @@ from backend.agent_kernel.actions import (
     Renderer,
     StatusSummarizer,
     TranscriptAuditor,
+    TranscriptImageVerifier,
     TranscriptSpanOpener,
     TranscriptPlanApplier,
     TranscriptPromoter,
@@ -47,6 +48,7 @@ class _DeterministicServices(
     PatchProposer,
     StatusSummarizer,
     TranscriptAuditor,
+    TranscriptImageVerifier,
     TranscriptSpanOpener,
     TranscriptPlanApplier,
     TranscriptPromoter,
@@ -125,11 +127,20 @@ class _DeterministicServices(
             "spans": [{"span_id": "s1", "start_char": 0, "end_char": 12, "text": "Beginning at"}],
         }
 
-    def promote_transcript_for_mapping(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+    def verify_transcript_with_image(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
         del inputs
+        return {
+            "artifact_ref": {"artifact_path": "artifacts/tx/image-verify-001.json"},
+            "reason_codes": ["tx_image_verified"],
+            "tx_image_verify_summary": {"total_checks": 1, "mismatch_count": 0, "unclear_count": 0},
+        }
+
+    def promote_transcript_for_mapping(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        seeds_ref = inputs.get("tx_span_seeds_ref")
         return {
             "artifact_ref": {"artifact_path": "artifacts/tx/latest_transcript_for_mapping.json"},
             "reason_codes": ["tx_promote_completed"],
+            "tx_span_seeds_ref": seeds_ref,
         }
 
 
@@ -150,6 +161,7 @@ def _build_executor() -> ActionExecutor:
         status_summarizer=services,
         transcript_auditor=services,
         transcript_span_opener=services,
+        transcript_image_verifier=services,
         transcript_plan_applier=services,
         transcript_promoter=services,
     )
@@ -172,6 +184,7 @@ def test_executor_supports_required_deterministic_actions() -> None:
         ActionType.RENDER,
         ActionType.TX_AUDIT_TRANSCRIPT,
         ActionType.TX_OPEN_TRANSCRIPT_SPANS,
+        ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
         ActionType.TX_APPLY_EDIT_PLAN,
         ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
     )
@@ -314,6 +327,11 @@ def test_new_actions_return_explicit_missing_interface_reason_codes() -> None:
         ActionType.TX_OPEN_TRANSCRIPT_SPANS,
         {"source_text": "alpha beta gamma", "spans": [{"start_char": 0, "end_char": 5}]},
     )
+    tx_verify = executor.execute(
+        "tx-verify",
+        ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+        {"source_transcript_ref": "artifacts/tx/source-001.json", "checks": [{"query": "range"}]},
+    )
     tx_promote = executor.execute(
         "tx-promote",
         ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
@@ -325,5 +343,6 @@ def test_new_actions_return_explicit_missing_interface_reason_codes() -> None:
     assert drafted.reason_codes == ["missing_draft_ir_proposer_interface"]
     assert tx_audit.reason_codes == ["missing_transcript_auditor_interface"]
     assert tx_spans.reason_codes == ["missing_transcript_span_opener_interface"]
+    assert tx_verify.reason_codes == ["missing_transcript_image_verifier_interface"]
     assert tx_apply.reason_codes == ["missing_transcript_plan_applier_interface"]
     assert tx_promote.reason_codes == ["missing_transcript_promoter_interface"]

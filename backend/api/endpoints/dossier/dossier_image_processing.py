@@ -45,7 +45,7 @@ router = APIRouter()
 
 class DossierProcessRequest(BaseModel):
     """Request model for dossier processing"""
-    model: str = "gpt-4o"
+    model: str = "gpt-o4-mini"
     extraction_mode: str = "legal_document_json_relaxed"
     cleanup_after: str = "true"
     flow_to: Optional[str] = None
@@ -72,7 +72,7 @@ async def process_with_dossier_association(
     dossier_id: str = Form(...),
     transcription_id: Optional[str] = Form(None),
     # Processing parameters
-    model: str = Form("gpt-4o"),
+    model: str = Form("gpt-o4-mini"),
     extraction_mode: str = Form("legal_document_json_relaxed"),
     cleanup_after: str = Form("true"),
     flow_to: Optional[str] = Form(None),

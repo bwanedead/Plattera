@@ -367,7 +367,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <option value="gpt-5-mini-consensus">GPT-5 Mini (Consensus)</option>
                 <option value="gpt-5-nano-consensus">GPT-5 Nano (Consensus)</option>
               </select>
-              <small className="consensus-strategy-hint">Runs only when redundancy is enabled (>1 drafts)</small>
+              <small className="consensus-strategy-hint">Runs only when redundancy is enabled (&gt;1 drafts)</small>
             </div>
           )}
         </div>

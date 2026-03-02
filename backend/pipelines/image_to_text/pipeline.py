@@ -40,7 +40,7 @@ RESPONSE FORMAT (UNCHANGED):
 {
     "success": True,
     "extracted_text": "...",  # Frontend dependency
-    "model_used": "gpt-4o", 
+    "model_used": "gpt-o4-mini", 
     "service_type": "llm",
     "tokens_used": 6561,
     "confidence_score": 1.0,
@@ -70,7 +70,7 @@ SAFETY RULES:
 DEFAULT MODES:
 =============
 - Default extraction_mode: "legal_document_json_relaxed" (structured output, local validation/repair)
-- Default model: "gpt-4o" (balanced speed/quality)
+- Default model: "gpt-o4-mini" (best OCR/transcription reliability for T0)
 - JSON mode auto-enables redundancy for better consensus analysis
 """
 from services.registry import get_registry
@@ -92,6 +92,7 @@ from agent_kernel.session import KernelSessionManager
 from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
 from agent_kernel.tooling import (
     TranscriptAuditTool,
+    TranscriptImageVerificationTool,
     TranscriptEditPlanApplyTool,
     TranscriptMappingPromoterTool,
     TranscriptSpanOpenerTool,
@@ -127,6 +128,68 @@ def _extract_best_result_index(metadata: Any) -> int | None:
     return value if isinstance(value, int) and value >= 0 else None
 
 
+def _extract_redundancy_candidate_texts(*, metadata: Any, validate_fn) -> list[str]:
+    if not isinstance(metadata, dict):
+        return []
+    analysis = metadata.get("redundancy_analysis")
+    if not isinstance(analysis, dict):
+        return []
+    raw_results = analysis.get("individual_results")
+    if not isinstance(raw_results, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw_results:
+        if not isinstance(item, dict):
+            continue
+        raw_text = item.get("text")
+        if not isinstance(raw_text, str) or not raw_text.strip():
+            continue
+        normalized = validate_fn(raw_text)
+        if not isinstance(normalized, dict):
+            continue
+        sections = normalized.get("sections")
+        if not isinstance(sections, list):
+            continue
+        parts: list[str] = []
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            body = section.get("body")
+            if isinstance(body, str) and body.strip():
+                parts.append(body.strip())
+        joined = "\n\n".join(parts).strip()
+        if not joined:
+            continue
+        key = joined[:4000]
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(joined)
+        if len(out) >= 10:
+            break
+    return out
+
+
+def _extract_source_image_refs_from_context(context: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    if not isinstance(context, dict):
+        return refs
+    for key in ("original_image_path", "image_path", "processed_image_path"):
+        value = context.get(key)
+        if isinstance(value, str) and value.strip():
+            refs.append(value.strip())
+    # Preserve order while de-duplicating.
+    seen: set[str] = set()
+    out: list[str] = []
+    for ref in refs:
+        if ref in seen:
+            continue
+        seen.add(ref)
+        out.append(ref)
+    return out[:5]
+
+
 class _LegalSectionV0(BaseModel):
     id: int = Field(..., ge=1)
     body: str
@@ -152,7 +215,7 @@ class ImageToTextPipeline:
         self.transcription_edit_persistence = TranscriptionEditPersistenceService()
         self.transcription_edit_run_registry = TranscriptionEditRunRegistry()
     
-    def process(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document_json_relaxed", enhancement_settings: dict = None) -> dict:
+    def process(self, image_path: str, model: str = "gpt-o4-mini", extraction_mode: str = "legal_document_json_relaxed", enhancement_settings: dict = None) -> dict:
         """
         Process an image to extract text
         
@@ -168,7 +231,7 @@ class ImageToTextPipeline:
             dict: Processing result with extracted text and metadata
             
         CRITICAL FLOW:
-        1. Get service for model (OpenAI for gpt-4o, gpt-o4-mini)
+        1. Get service for model (OpenAI for gpt-o4-mini, gpt-4o)
         2. Prepare enhanced image (base64 encoding)
         3. Get appropriate prompt for extraction mode
         4. Call service.process_image_with_text()
@@ -232,7 +295,11 @@ class ImageToTextPipeline:
                 result=result,
                 extraction_mode=extraction_mode,
                 model=model,
-                context={"pipeline_method": "process"},
+                context={
+                    "pipeline_method": "process",
+                    "original_image_path": image_path,
+                    "image_path": image_path,
+                },
             )
             
             # CRITICAL: Standardize the response
@@ -383,6 +450,10 @@ class ImageToTextPipeline:
             context={
                 **context,
                 "best_result_index": _extract_best_result_index(metadata),
+                "redundancy_candidate_texts": _extract_redundancy_candidate_texts(
+                    metadata=metadata,
+                    validate_fn=self._validate_legal_document_json_payload,
+                ),
             },
         )
         result["metadata"] = metadata
@@ -431,6 +502,12 @@ class ImageToTextPipeline:
             best_result_index=best_result_index,
         )
         source_text = None
+        candidate_texts_raw = context.get("redundancy_candidate_texts")
+        candidate_texts = (
+            [str(v) for v in candidate_texts_raw if isinstance(v, str) and str(v).strip()]
+            if isinstance(candidate_texts_raw, list)
+            else []
+        )
         input_kind = "ref" if source_transcript_ref else "text"
         if source_transcript_ref is None:
             sections = normalized_payload.get("sections")
@@ -484,6 +561,7 @@ class ImageToTextPipeline:
                         deps=ActionExecutorDeps(
                             transcript_auditor=TranscriptAuditTool(),
                             transcript_span_opener=TranscriptSpanOpenerTool(),
+                            transcript_image_verifier=TranscriptImageVerificationTool(),
                             transcript_plan_applier=TranscriptEditPlanApplyTool(),
                             transcript_promoter=TranscriptMappingPromoterTool(),
                         )
@@ -496,6 +574,9 @@ class ImageToTextPipeline:
                         dossier_id=dossier_id,
                         source_transcript_ref=source_transcript_ref,
                         source_text=source_text,
+                        source_image_refs=_extract_source_image_refs_from_context(context),
+                        model="gpt-5.2",
+                        candidate_texts=candidate_texts[:10],
                         max_iterations=3,
                         mode=policy_mode,
                         auto_promote=auto_promote,
@@ -795,7 +876,7 @@ class ImageToTextPipeline:
         from prompts.image_to_text import get_available_extraction_modes
         return get_available_extraction_modes()
     
-    def process_with_redundancy(self, image_path: str, model: str = "gpt-4o", extraction_mode: str = "legal_document_json_relaxed",
+    def process_with_redundancy(self, image_path: str, model: str = "gpt-o4-mini", extraction_mode: str = "legal_document_json_relaxed",
                                enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = "sequential",
                                dossier_id: str = None, transcription_id: str = None, run_context: str = "solo") -> dict:
         """
@@ -885,6 +966,8 @@ class ImageToTextPipeline:
                     "run_context": run_context,
                     "dossier_id": dossier_id,
                     "transcription_id": transcription_id,
+                    "original_image_path": image_path,
+                    "image_path": image_path,
                 },
             )
 

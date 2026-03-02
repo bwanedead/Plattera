@@ -441,12 +441,17 @@ class OpenAIService(LLMService):
                 }
                 
                 # 🔧 IMPROVEMENT: Explicit high max_tokens for all models to prevent cutoffs
-                if "o4-mini" in api_model_name:
+                is_reasoning_model = ("o4-mini" in api_model_name) or api_model_name.startswith("gpt-5")
+                if is_reasoning_model:
                     default_max = self.models.get(model, {}).get("default_max_tokens", 12000)
                     completion_params["max_completion_tokens"] = kwargs.get("max_tokens", default_max)
+                    # GPT-5/o4-mini models expect reasoning controls and max_completion_tokens.
                     completion_params["reasoning_effort"] = "high"
                     if attempt == 0:
-                        logger.debug(f"🧠 Using o4-mini with high reasoning effort, max_tokens: {completion_params['max_completion_tokens']}{ctx}")
+                        logger.debug(
+                            f"🧠 Using reasoning model {api_model_name} with max_completion_tokens="
+                            f"{completion_params['max_completion_tokens']}{ctx}"
+                        )
                 else:
                     completion_params["temperature"] = kwargs.get("temperature", 0.1)
                     completion_params["max_tokens"] = kwargs.get("max_tokens", 8000)  # Increased from 4000

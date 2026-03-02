@@ -11,10 +11,16 @@ import {
   type AgentTapeEvent,
   type AgentTapeStatus,
 } from '../services/agentLoopApi';
+import {
+  getTranscriptEditRun,
+  startTranscriptEditRun,
+  type TranscriptEditLiveStatus,
+} from '../services/transcriptEditAgentApi';
 import { finalizedApi } from '../services/dossier/finalizedApi';
 import { saveSchemaForDossier } from '../services/textToSchemaApi';
 import { saveDossierEditAPI } from '../services/imageProcessingApi';
 import { TextToSchemaControlPanel } from './text-to-schema/TextToSchemaControlPanel';
+import { AgentViewerPanel } from './agent-viewer/AgentViewerPanel';
 import { SchemaResultsTabs } from './text-to-schema/SchemaResultsTabs';
 import { OriginalTextTab } from './text-to-schema/OriginalTextTab';
 import { JsonSchemaTab } from './text-to-schema/JsonSchemaTab';
@@ -25,6 +31,7 @@ import { SchemaManager } from './schema/SchemaManager';
 import { StableAllotmentContainer } from './layout/StableAllotmentContainer';
 import { schemaApi } from '../services/schema/schemaApi';
 import { MapWorkspace } from './mapping/MapWorkspace';
+import type { AgentViewerLoopKind } from '../services/agentViewerApi';
 
 interface TextToSchemaWorkspaceProps {
   onExit: () => void;
@@ -57,6 +64,8 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   const [showSchemaManagerPanel, setShowSchemaManagerPanel] = useState<boolean>(false);
   const AGENT_LOOP_POLL_INTERVAL_MS = 1000;
   const AGENT_LOOP_MAX_POLLS = 120;
+  const TRANSCRIPT_EDIT_POLL_INTERVAL_MS = 1000;
+  const TRANSCRIPT_EDIT_MAX_POLLS = 180;
 
   // Schema selection loading + error state so that Schema Manager
   // "View" interactions surface clearly in the UI (not just devtools).
@@ -68,6 +77,13 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
   const [agentLoopMapParcel, setAgentLoopMapParcel] = useState<any | null>(null);
   const [agentLoopMapSchemaData, setAgentLoopMapSchemaData] = useState<any | null>(null);
   const [showAgentLoopMap, setShowAgentLoopMap] = useState(false);
+  const [transcriptEditRunId, setTranscriptEditRunId] = useState<string | null>(null);
+  const [transcriptEditRunStatus, setTranscriptEditRunStatus] = useState<string | null>(null);
+  const [transcriptEditLiveStatus, setTranscriptEditLiveStatus] = useState<TranscriptEditLiveStatus | null>(null);
+  const [transcriptEditEvents, setTranscriptEditEvents] = useState<TranscriptEditLiveStatus[]>([]);
+  const [agentViewerOpen, setAgentViewerOpen] = useState(false);
+  const [agentViewerRunId, setAgentViewerRunId] = useState<string | null>(null);
+  const [agentViewerLoopKind, setAgentViewerLoopKind] = useState<AgentViewerLoopKind | null>(null);
 
   // Measurement/debug refs for Allotment container
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -836,6 +852,87 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
     }
   }, [state, selectedFinalizedId, updateState, pollAgentLoopRun]);
 
+  const pollTranscriptEditRun = useCallback(
+    async (runId: string) => {
+      let attempts = 0;
+      while (attempts < TRANSCRIPT_EDIT_MAX_POLLS) {
+        attempts += 1;
+        const run = await getTranscriptEditRun(runId);
+        const snapshot = run?.snapshot || null;
+        const status = String(snapshot?.status || run?.status || 'running');
+        setTranscriptEditRunStatus(status);
+        if (snapshot?.live_status) {
+          setTranscriptEditLiveStatus(snapshot.live_status as TranscriptEditLiveStatus);
+        }
+        if (Array.isArray(snapshot?.progress_log)) {
+          setTranscriptEditEvents(snapshot.progress_log as TranscriptEditLiveStatus[]);
+        }
+
+        if (status !== 'running') {
+          updateState({ isProcessing: false } as any);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, TRANSCRIPT_EDIT_POLL_INTERVAL_MS));
+      }
+      updateState({ isProcessing: false } as any);
+    },
+    [updateState]
+  );
+
+  const handleStartTranscriptEditRun = useCallback(async () => {
+    const textToProcess =
+      typeof state.finalDraftText === 'string' ? state.finalDraftText : String(state.finalDraftText || '');
+    if (!textToProcess.trim()) return;
+
+    const effectiveDossierId =
+      selectedFinalizedId ||
+      (state.finalDraftMetadata as any)?.dossierId ||
+      undefined;
+
+    updateState({ isProcessing: true } as any);
+    setTranscriptEditEvents([]);
+    setTranscriptEditLiveStatus(null);
+    setTranscriptEditRunStatus('running');
+
+    try {
+      const start = await startTranscriptEditRun({
+        dossier_id: effectiveDossierId,
+        source_text: textToProcess,
+        background: true,
+      });
+      const runId = String(start.run_id || '');
+      setTranscriptEditRunId(runId || null);
+      await pollTranscriptEditRun(runId);
+    } catch (error) {
+      setTranscriptEditRunStatus('failed');
+      setTranscriptEditLiveStatus({
+        message: error instanceof Error ? error.message : 'Failed to start transcript-edit run',
+      });
+      updateState({ isProcessing: false } as any);
+    }
+  }, [state.finalDraftText, state.finalDraftMetadata, selectedFinalizedId, updateState, pollTranscriptEditRun]);
+
+  const handleResumeTranscriptEditPolling = useCallback(async () => {
+    if (!transcriptEditRunId) return;
+    updateState({ isProcessing: true } as any);
+    try {
+      await pollTranscriptEditRun(transcriptEditRunId);
+    } catch (error) {
+      setTranscriptEditRunStatus('failed');
+      setTranscriptEditLiveStatus({
+        message: error instanceof Error ? error.message : 'Failed to poll transcript-edit run',
+      });
+      updateState({ isProcessing: false } as any);
+    }
+  }, [transcriptEditRunId, pollTranscriptEditRun, updateState]);
+
+  const handleOpenAgentViewer = useCallback((loopKind: AgentViewerLoopKind, runId: string) => {
+    if (!runId) return;
+    setAgentViewerLoopKind(loopKind);
+    setAgentViewerRunId(runId);
+    setAgentViewerOpen(true);
+  }, []);
+
   // Finalized selection handler
   const handleSelectFinalized = useCallback(async (dossierId: string) => {
     try {
@@ -1082,6 +1179,13 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
             onAgentLoopModelChange={handleAgentLoopModelChange}
             onStartProcessing={handleStartTextToSchema} // Now accepts optional text parameter
             onResumePolling={handleResumeAgentLoopPolling}
+            onOpenAgentViewer={handleOpenAgentViewer}
+            transcriptEditRunId={transcriptEditRunId}
+            transcriptEditRunStatus={transcriptEditRunStatus}
+            transcriptEditLiveStatus={transcriptEditLiveStatus}
+            transcriptEditEvents={transcriptEditEvents}
+            onStartTranscriptEditRun={handleStartTranscriptEditRun}
+            onResumeTranscriptEditPolling={handleResumeTranscriptEditPolling}
             finalizedDossiers={finalizedList}
             finalizedLoading={finalizedLoading}
             selectedFinalizedId={selectedFinalizedId}
@@ -1359,6 +1463,12 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
           </div>
         </div>
       )}
+      <AgentViewerPanel
+        isOpen={agentViewerOpen}
+        loopKind={agentViewerLoopKind}
+        runId={agentViewerRunId}
+        onClose={() => setAgentViewerOpen(false)}
+      />
     </div>
   );
 };

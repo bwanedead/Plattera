@@ -101,7 +101,7 @@ class TextToSchemaRequest(BaseModel):
 async def process_content(
     file: UploadFile = File(...),
     content_type: str = Form(...),  # "image-to-text", "text-to-schema", etc.
-    model: str = Form("gpt-4o"),
+    model: str = Form("gpt-o4-mini"),
     extraction_mode: str = Form("legal_document_json_relaxed"),
     cleanup_after: str = Form("true"),
     flow_to: str = Form(None),
@@ -850,7 +850,7 @@ def _metric_timestamp(*, path: Path, payload: dict) -> datetime | None:
 async def test_process(
     file: UploadFile = File(...),
     content_type: str = Form(...),
-    model: str = Form("gpt-4o"),
+    model: str = Form("gpt-o4-mini"),
     extraction_mode: str = Form("legal_document_json_relaxed"),
     cleanup_after: str = Form("true")
 ):
@@ -879,7 +879,7 @@ async def test_process(
 async def test_process(
     file: UploadFile = File(...),
     content_type: str = Form(...),
-    model: str = Form("gpt-4o"),
+    model: str = Form("gpt-o4-mini"),
     extraction_mode: str = Form("legal_document_json_relaxed"),
     cleanup_after: str = Form("true")
 ):

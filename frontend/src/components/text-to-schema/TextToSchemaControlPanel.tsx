@@ -1,6 +1,8 @@
 import React, { useState, useCallback } from 'react';
 import { ParcelTracerLoader } from '../image-processing/ParcelTracerLoader';
 import type { AgentTapeEvent, AgentTapeStatus } from '../../services/agentLoopApi';
+import type { AgentViewerLoopKind } from '../../services/agentViewerApi';
+import type { TranscriptEditLiveStatus } from '../../services/transcriptEditAgentApi';
 
 type InputMode = 'finalized' | 'direct-input';
 
@@ -23,6 +25,13 @@ interface TextToSchemaControlPanelProps {
   onAgentLoopModelChange: (model: string) => void;
   onStartProcessing: (text?: string) => void; // Updated to accept optional text
   onResumePolling?: () => void;
+  onOpenAgentViewer?: (loopKind: AgentViewerLoopKind, runId: string) => void;
+  transcriptEditRunId?: string | null;
+  transcriptEditRunStatus?: string | null;
+  transcriptEditLiveStatus?: TranscriptEditLiveStatus | null;
+  transcriptEditEvents?: TranscriptEditLiveStatus[];
+  onStartTranscriptEditRun?: () => void;
+  onResumeTranscriptEditPolling?: () => void;
   finalizedDossiers: Array<{ dossier_id: string; title?: string; latest_generated_at?: string }>;
   finalizedLoading: boolean;
   selectedFinalizedId: string | null | undefined;
@@ -48,6 +57,13 @@ export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> =
   onAgentLoopModelChange,
   onStartProcessing,
   onResumePolling,
+  onOpenAgentViewer,
+  transcriptEditRunId,
+  transcriptEditRunStatus,
+  transcriptEditLiveStatus,
+  transcriptEditEvents = [],
+  onStartTranscriptEditRun,
+  onResumeTranscriptEditPolling,
   finalizedDossiers,
   finalizedLoading,
   selectedFinalizedId,
@@ -58,6 +74,7 @@ export const TextToSchemaControlPanel: React.FC<TextToSchemaControlPanelProps> =
   const [agentActivityDebug, setAgentActivityDebug] = useState(false);
   const tapeEvents = Array.isArray(agentLoopTapeEvents) ? agentLoopTapeEvents : [];
   const hasAgentTapePanel = engine === 'agent_loop' && (!!agentLoopRunId || tapeEvents.length > 0 || !!agentLoopLiveStatus);
+  const hasTranscriptEditPanel = !!transcriptEditRunId || transcriptEditEvents.length > 0 || !!transcriptEditLiveStatus;
 
   // Ensure we have a valid string for final draft
   const finalText = typeof finalDraftText === 'string' ? finalDraftText : String(finalDraftText || '');
@@ -356,6 +373,20 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
         )}
       </button>
 
+      <div style={{ marginTop: 10 }}>
+        <button
+          onClick={() => onStartTranscriptEditRun && onStartTranscriptEditRun()}
+          disabled={!hasValidText || isProcessing || !onStartTranscriptEditRun}
+          className="process-btn"
+          style={{ width: '100%', opacity: 0.92 }}
+        >
+          Run Transcript Edit Loop
+        </button>
+        <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
+          Runs audit/repair on the current text and shows live progress.
+        </div>
+      </div>
+
       {/* Processing Status */}
       {isProcessing && !(engine === 'agent_loop' && hasAgentTapePanel) && (
         <div className="processing-status">
@@ -409,6 +440,24 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
               )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {!!agentLoopRunId && (
+                <button
+                  type="button"
+                  onClick={() => onOpenAgentViewer && onOpenAgentViewer('agent_loop', agentLoopRunId)}
+                  style={{
+                    fontSize: 10,
+                    padding: '2px 6px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(131,191,255,0.45)',
+                    background: 'rgba(131,191,255,0.12)',
+                    color: 'rgba(230,246,255,0.96)',
+                    cursor: 'pointer',
+                  }}
+                  title="Open unified agent viewer"
+                >
+                  Open Viewer
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setAgentActivityDebug(v => !v)}
@@ -633,6 +682,76 @@ Beginning at a point on the west boundary of Section Two (2), Township Fourteen 
               })}
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {hasTranscriptEditPanel && (
+        <div
+          style={{
+            marginTop: 10,
+            border: '1px solid rgba(84, 184, 146, 0.28)',
+            borderRadius: 12,
+            padding: 12,
+            background: 'linear-gradient(180deg, rgba(14,22,18,0.97), rgba(10,14,12,0.96))',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700 }}>Transcript Edit Activity</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {!!transcriptEditRunId && (
+                <button
+                  type="button"
+                  onClick={() => onOpenAgentViewer && onOpenAgentViewer('transcript_edit', transcriptEditRunId)}
+                  style={{
+                    fontSize: 10,
+                    padding: '2px 6px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(131,191,255,0.45)',
+                    background: 'rgba(131,191,255,0.12)',
+                    color: 'rgba(230,246,255,0.96)',
+                    cursor: 'pointer',
+                  }}
+                  title="Open unified agent viewer"
+                >
+                  Open Viewer
+                </button>
+              )}
+              <div style={{ fontSize: 10, opacity: 0.76 }}>
+                {String(transcriptEditRunStatus || 'running').toUpperCase()}
+              </div>
+            </div>
+          </div>
+          {transcriptEditLiveStatus && (
+            <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.03)' }}>
+              <div style={{ fontSize: 11, fontWeight: 600 }}>
+                {transcriptEditLiveStatus.message || 'Working...'}
+              </div>
+              <div style={{ marginTop: 2, fontSize: 10, opacity: 0.74 }}>
+                iter {transcriptEditLiveStatus.iteration ?? '-'} • {transcriptEditLiveStatus.phase || 'step'}
+              </div>
+            </div>
+          )}
+          {transcriptEditEvents.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
+              {transcriptEditEvents.slice(-10).reverse().map((evt, idx) => (
+                <div key={`${evt.timestamp_epoch_seconds ?? 'na'}-${idx}`} style={{ padding: '6px 8px', borderRadius: 7, background: 'rgba(255,255,255,0.02)' }}>
+                  <div style={{ fontSize: 11 }}>{evt.message || 'step update'}</div>
+                  <div style={{ marginTop: 2, fontSize: 10, opacity: 0.7 }}>
+                    iter {evt.iteration ?? '-'} • {evt.phase || 'step'}{evt.execution_state ? ` • ${evt.execution_state}` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {transcriptEditRunStatus === 'running' && (
+            <button
+              className="mode-button"
+              style={{ marginTop: 8, padding: '4px 8px' }}
+              onClick={() => onResumeTranscriptEditPolling && onResumeTranscriptEditPolling()}
+            >
+              Keep Polling
+            </button>
           )}
         </div>
       )}

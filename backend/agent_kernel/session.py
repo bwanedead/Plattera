@@ -38,6 +38,7 @@ from .tooling import (
     DeedSpanIndexUpserterTool,
     DraftIRFilesystemProposer,
     TranscriptAuditTool,
+    TranscriptImageVerificationTool,
     TranscriptEditPlanApplyTool,
     TranscriptMappingPromoterTool,
     TranscriptSpanOpenerTool,
@@ -93,6 +94,7 @@ class KernelSessionManager:
                 renderer=FeatureGraphRenderTool(),
                 transcript_auditor=TranscriptAuditTool(),
                 transcript_span_opener=TranscriptSpanOpenerTool(),
+                transcript_image_verifier=TranscriptImageVerificationTool(),
                 transcript_plan_applier=TranscriptEditPlanApplyTool(),
                 transcript_promoter=TranscriptMappingPromoterTool(),
             )
@@ -649,6 +651,7 @@ def _build_dashboard(
         deed_span_index_ref=_dump_ref(run_artifact.deed_span_index_artifact_ref),
         tx_source_transcript_ref=_dump_ref(run_artifact.tx_source_transcript_artifact_ref),
         tx_open_spans_ref=_dump_ref(run_artifact.tx_open_spans_artifact_ref),
+        tx_image_verify_ref=_dump_ref(run_artifact.tx_image_verify_artifact_ref),
         tx_validator_report_ref=_dump_ref(run_artifact.tx_validator_report_artifact_ref),
         tx_edit_plan_ref=_dump_ref(run_artifact.tx_edit_plan_artifact_ref),
         tx_apply_report_ref=_dump_ref(run_artifact.tx_apply_report_artifact_ref),
@@ -747,6 +750,11 @@ def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord) -> None:
             run_artifact.tx_source_transcript_artifact_ref = source_ref
     if step.action == ActionType.TX_OPEN_TRANSCRIPT_SPANS:
         run_artifact.tx_open_spans_artifact_ref = _extract_ref(step.outputs, "tx_open_spans_ref")
+        source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
+        if source_ref is not None:
+            run_artifact.tx_source_transcript_artifact_ref = source_ref
+    if step.action == ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE:
+        run_artifact.tx_image_verify_artifact_ref = _extract_ref(step.outputs, "tx_image_verify_ref")
         source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
         if source_ref is not None:
             run_artifact.tx_source_transcript_artifact_ref = source_ref

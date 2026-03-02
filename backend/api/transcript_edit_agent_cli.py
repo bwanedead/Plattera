@@ -22,6 +22,7 @@ def _build_parser() -> argparse.ArgumentParser:
     source_group.add_argument("--text-file", dest="text_file")
     source_group.add_argument("--text", dest="text")
     parser.add_argument("--dossier-id", dest="dossier_id")
+    parser.add_argument("--image-ref", dest="image_refs", action="append", default=[])
     parser.add_argument("--model", default="gpt-5.2")
     parser.add_argument("--max-iterations", type=int, default=4)
     parser.add_argument(
@@ -54,6 +55,7 @@ async def _run_async(args: argparse.Namespace) -> int:
         dossier_id=args.dossier_id,
         source_transcript_ref=source_transcript_ref,
         source_text=source_text,
+        source_image_refs=[str(v) for v in (args.image_refs or []) if isinstance(v, str) and v.strip()],
         model=args.model,
         max_iterations=args.max_iterations,
         mode=args.mode,
