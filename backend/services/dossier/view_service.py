@@ -327,6 +327,13 @@ class DossierViewService:
                         f"**/{base_id}/consensus/alignment_{base_id}.json"
                     )
                 )
+            elif transcription_id.endswith("_agent_edit"):
+                base_id = transcription_id[:-len("_agent_edit")]
+                candidates = list(
+                    transcriptions_root.rglob(
+                        f"**/{base_id}/consensus/agent_edit_{base_id}.json"
+                    )
+                )
         except Exception:
             candidates = []
 

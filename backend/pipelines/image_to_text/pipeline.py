@@ -95,6 +95,7 @@ from agent_kernel.tooling import (
     TranscriptImageVerificationTool,
     TranscriptEditPlanApplyTool,
     TranscriptMappingPromoterTool,
+    TranscriptSpanSeedsSaverTool,
     TranscriptSpanOpenerTool,
 )
 from agents.transcript_edit.controller import run_transcript_edit_controller_loop
@@ -170,6 +171,22 @@ def _extract_redundancy_candidate_texts(*, metadata: Any, validate_fn) -> list[s
         if len(out) >= 10:
             break
     return out
+
+
+def _format_terminal_message(status: str, reason_code: str, iterations: int) -> str:
+    """Produce a human-readable terminal message from run result."""
+    reason = reason_code or ""
+    if status == "completed" and "promoted" in reason:
+        return f"Transcript clean and promoted for mapping after {iterations} iteration(s)."
+    if status == "completed":
+        return f"Transcript audit completed after {iterations} iteration(s) — no errors found."
+    if status == "needs_review":
+        short_reason = reason.replace("tx_agent_", "").replace("_", " ")
+        return f"Run finished after {iterations} iteration(s) — needs review ({short_reason})."
+    if status == "failed":
+        short_reason = reason.replace("tx_", "").replace("_", " ")
+        return f"Run failed after {iterations} iteration(s): {short_reason}."
+    return f"Run ended with status '{status}' after {iterations} iteration(s)."
 
 
 def _extract_source_image_refs_from_context(context: dict[str, Any]) -> list[str]:
@@ -601,6 +618,8 @@ class ImageToTextPipeline:
             try:
                 seq = 0
                 progress_log: list[dict[str, Any]] = []
+                loop_started_mono = time.perf_counter()
+                last_event_mono = loop_started_mono
 
                 def _to_artifact_ref_map(obj: Any) -> dict[str, dict[str, str]]:
                     if not isinstance(obj, dict):
@@ -640,10 +659,17 @@ class ImageToTextPipeline:
                     seq += 1
 
                 def _progress_update(event: dict[str, Any]) -> None:
+                    nonlocal last_event_mono
                     if not isinstance(event, dict):
                         return
+                    now_mono = time.perf_counter()
+                    elapsed_ms = int((now_mono - loop_started_mono) * 1000)
+                    since_prev_ms = int((now_mono - last_event_mono) * 1000)
+                    last_event_mono = now_mono
                     progress_item = {
                         "timestamp_epoch_seconds": int(time.time()),
+                        "elapsed_ms": elapsed_ms,
+                        "since_prev_ms": since_prev_ms,
                         **event,
                     }
                     progress_log.append(progress_item)
@@ -654,10 +680,12 @@ class ImageToTextPipeline:
                     message = str(event.get("message") or "").strip()
                     latest_refs = event.get("latest_refs") if isinstance(event.get("latest_refs"), dict) else {}
                     logger.info(
-                        "TX_LOOP_EVENT ► run_id=%s iteration=%s phase=%s message=%s refs=%s",
+                        "TX_LOOP_EVENT ► run_id=%s iteration=%s phase=%s elapsed_ms=%s since_prev_ms=%s message=%s refs=%s",
                         run_id,
                         iter_value if isinstance(iter_value, int) else "n/a",
                         phase,
+                        elapsed_ms,
+                        since_prev_ms,
                         message[:220] if message else "n/a",
                         ",".join(sorted(latest_refs.keys())) if latest_refs else "none",
                     )
@@ -683,6 +711,7 @@ class ImageToTextPipeline:
                             transcript_span_opener=TranscriptSpanOpenerTool(),
                             transcript_image_verifier=TranscriptImageVerificationTool(),
                             transcript_plan_applier=TranscriptEditPlanApplyTool(),
+                            transcript_span_seeds_saver=TranscriptSpanSeedsSaverTool(),
                             transcript_promoter=TranscriptMappingPromoterTool(),
                         )
                     ),
@@ -692,19 +721,50 @@ class ImageToTextPipeline:
                     session_manager=session_manager,
                     request=TranscriptEditAgentRunRequest(
                         dossier_id=dossier_id,
+                        transcription_id=transcription_id,
+                        trigger="post_t0",
                         source_transcript_ref=source_transcript_ref,
                         source_text=source_text,
                         source_image_refs=_extract_source_image_refs_from_context(context),
                         model="gpt-5.2",
                         candidate_texts=candidate_texts[:10],
-                        max_iterations=3,
+                        max_iterations=5,
+                        min_iterations_before_complete=3,
                         mode=policy_mode,
                         auto_promote=auto_promote,
-                        hitl_enabled=False,
+                        hitl_enabled=True,
                     ),
-                    request_id_prefix=f"tx-post-t0-{transcription_id or 'adhoc'}",
+                    request_id_prefix=f"tx-agent-{run_id}",
                     progress_cb=_progress_update,
                 )
+                first_audit = None
+                final_audit = None
+                edits_applied = 0
+                used_human_feedback = False
+                for _entry in progress_log:
+                    if not isinstance(_entry, dict):
+                        continue
+                    _phase = str(_entry.get("phase") or "")
+                    _etype = str(_entry.get("event_type") or "")
+                    _detail = _entry.get("detail") if isinstance(_entry.get("detail"), dict) else {}
+                    if _phase == "audit_result":
+                        if first_audit is None:
+                            first_audit = _detail
+                        final_audit = _detail
+                    if _phase == "apply_result":
+                        edits_applied += int(_detail.get("plan_op_count") or 0)
+                    if _etype == "human_feedback" or _phase in {"human_feedback_received", "human_feedback_reused"}:
+                        used_human_feedback = True
+                terminal_summary = {
+                    "status": result.status,
+                    "reason_code": result.reason_code,
+                    "iterations": result.iterations,
+                    "review_required": bool(result.review_required),
+                    "edits_applied_total": edits_applied,
+                    "used_human_feedback": used_human_feedback,
+                    "initial_findings": first_audit or {},
+                    "final_findings": final_audit or {},
+                }
                 self.transcription_edit_run_registry.update_run(
                     run_id=run_id,
                     patch={
@@ -717,20 +777,24 @@ class ImageToTextPipeline:
                             "run_artifact_ref": result.run_artifact_ref,
                             "latest_refs": result.latest_refs,
                             "review_required": result.review_required,
+                            "terminal_summary": terminal_summary,
                             "live_status": progress_log[-1] if progress_log else None,
                             "progress_log": list(progress_log),
                         },
                     },
                 )
+                _terminal_msg = _format_terminal_message(result.status, result.reason_code, result.iterations)
                 _publish_viewer_event(
-                    "done" if result.status == "completed" else "status",
+                    "done",
                     {
                         "phase": result.status,
-                        "message": result.reason_code,
+                        "message": _terminal_msg,
                         "execution_state": result.status,
                         "iteration": result.iterations,
                         "latest_refs": result.latest_refs,
                         "review_required": result.review_required,
+                        "summary": terminal_summary,
+                        "terminal": True,
                     },
                 )
                 logger.info(
@@ -744,6 +808,7 @@ class ImageToTextPipeline:
                             "reason_code": result.reason_code,
                             "iterations": result.iterations,
                             "review_required": result.review_required,
+                            "elapsed_ms": int((time.perf_counter() - loop_started_mono) * 1000),
                         },
                         ensure_ascii=False,
                     ),
@@ -783,13 +848,13 @@ class ImageToTextPipeline:
                         "protocol": "agent_viewer_event_v1",
                         "run_id": run_id,
                         "loop_kind": "transcript_edit",
-                        "seq": 0,
+                        "seq": seq,
                         "iteration": None,
                         "timestamp_epoch_seconds": int(time.time()),
-                        "event_type": "status",
+                        "event_type": "done",
                         "status": {"stage": "failed", "line1": "Transcript edit run failed", "line2": str(exc)[:220]},
                         "artifact_refs": {},
-                        "payload": {"error": str(exc)},
+                        "payload": {"error": str(exc), "terminal": True},
                     },
                 )
         if execution_mode == "sync":

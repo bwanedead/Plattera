@@ -118,6 +118,12 @@ class TranscriptPlanApplier(Protocol):
     def apply_edit_plan(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
 
+class TranscriptSpanSeedsSaver(Protocol):
+    """Explicit interface for TX_SAVE_TRANSCRIPT_SPAN_SEEDS action execution."""
+
+    def save_transcript_span_seeds(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
 class TranscriptPromoter(Protocol):
     """Explicit interface for TX_PROMOTE_TRANSCRIPT_FOR_MAPPING action execution."""
 
@@ -146,6 +152,7 @@ class ActionExecutorDeps:
     transcript_span_opener: TranscriptSpanOpener | None = None
     transcript_image_verifier: TranscriptImageVerifier | None = None
     transcript_plan_applier: TranscriptPlanApplier | None = None
+    transcript_span_seeds_saver: TranscriptSpanSeedsSaver | None = None
     transcript_promoter: TranscriptPromoter | None = None
 
 
@@ -192,6 +199,8 @@ class ActionExecutor:
             actions.append(ActionType.TX_OPEN_TRANSCRIPT_SPANS)
         if self._deps.transcript_image_verifier is not None or allow_stubbed:
             actions.append(ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE)
+        if self._deps.transcript_span_seeds_saver is not None or allow_stubbed:
+            actions.append(ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS)
         if self._deps.transcript_plan_applier is not None or allow_stubbed:
             actions.append(ActionType.TX_APPLY_EDIT_PLAN)
         if self._deps.transcript_promoter is not None or allow_stubbed:
@@ -383,6 +392,20 @@ class ActionExecutor:
                 execute_fn=(
                     self._deps.transcript_plan_applier.apply_edit_plan
                     if self._deps.transcript_plan_applier is not None
+                    else None
+                ),
+                inputs=inputs,
+            )
+        if action == ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="tx_span_seeds_ref",
+                reason_code="tx_span_seeds_saved",
+                missing_reason="missing_transcript_span_seeds_saver_interface",
+                execute_fn=(
+                    self._deps.transcript_span_seeds_saver.save_transcript_span_seeds
+                    if self._deps.transcript_span_seeds_saver is not None
                     else None
                 ),
                 inputs=inputs,

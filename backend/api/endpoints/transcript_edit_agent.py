@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from threading import Thread
 from time import time
+import time as _time
 from typing import Any
 from uuid import uuid4
 
@@ -18,6 +20,7 @@ from agent_kernel.tooling import (
     TranscriptImageVerificationTool,
     TranscriptEditPlanApplyTool,
     TranscriptMappingPromoterTool,
+    TranscriptSpanSeedsSaverTool,
     TranscriptSpanOpenerTool,
 )
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
@@ -27,6 +30,57 @@ from transcript_edit.run_registry import TranscriptionEditRunRegistry
 router = APIRouter()
 
 _registry = TranscriptionEditRunRegistry()
+logger = logging.getLogger(__name__)
+
+
+def _terminal_message(result) -> str:
+    """Produce a human-readable terminal message from run result."""
+    status = getattr(result, "status", "unknown")
+    reason = getattr(result, "reason_code", "") or ""
+    iterations = getattr(result, "iterations", 0)
+    review = getattr(result, "review_required", False)
+    if status == "completed" and "promoted" in reason:
+        return f"Transcript clean and promoted for mapping after {iterations} iteration(s)."
+    if status == "completed":
+        return f"Transcript audit completed after {iterations} iteration(s) — no errors found."
+    if status == "needs_review":
+        short_reason = reason.replace("tx_agent_", "").replace("_", " ")
+        return f"Run finished after {iterations} iteration(s) — needs review ({short_reason})."
+    if status == "failed":
+        short_reason = reason.replace("tx_", "").replace("_", " ")
+        return f"Run failed after {iterations} iteration(s): {short_reason}."
+    return f"Run ended with status '{status}' after {iterations} iteration(s)."
+
+
+def _terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[str, Any]:
+    first_audit = None
+    final_audit = None
+    edits_applied = 0
+    used_human_feedback = False
+    for entry in progress_log:
+        if not isinstance(entry, dict):
+            continue
+        phase = str(entry.get("phase") or "")
+        event_type = str(entry.get("event_type") or "")
+        detail = entry.get("detail") if isinstance(entry.get("detail"), dict) else {}
+        if phase == "audit_result":
+            if first_audit is None:
+                first_audit = detail
+            final_audit = detail
+        if phase == "apply_result":
+            edits_applied += int(detail.get("plan_op_count") or 0)
+        if event_type == "human_feedback" or phase in {"human_feedback_received", "human_feedback_reused"}:
+            used_human_feedback = True
+    return {
+        "status": getattr(result, "status", "unknown"),
+        "reason_code": getattr(result, "reason_code", None),
+        "iterations": getattr(result, "iterations", None),
+        "review_required": bool(getattr(result, "review_required", False)),
+        "edits_applied_total": edits_applied,
+        "used_human_feedback": used_human_feedback,
+        "initial_findings": first_audit or {},
+        "final_findings": final_audit or {},
+    }
 
 
 class TranscriptEditAgentApiRequest(TranscriptEditAgentRunRequest):
@@ -37,6 +91,8 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
     try:
         progress_log: list[dict[str, Any]] = []
         seq = 0
+        loop_started_mono = _time.perf_counter()
+        last_event_mono = loop_started_mono
 
         def _to_artifact_ref_map(obj: Any) -> dict[str, dict[str, str]]:
             if not isinstance(obj, dict):
@@ -76,9 +132,16 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             seq += 1
 
         def _progress_update(event: dict[str, Any]) -> None:
+            nonlocal last_event_mono
+            now_mono = _time.perf_counter()
+            elapsed_ms = int((now_mono - loop_started_mono) * 1000)
+            since_prev_ms = int((now_mono - last_event_mono) * 1000)
+            last_event_mono = now_mono
             progress_log.append(
                 {
                     "timestamp_epoch_seconds": int(time()),
+                    "elapsed_ms": elapsed_ms,
+                    "since_prev_ms": since_prev_ms,
                     **(event if isinstance(event, dict) else {}),
                 }
             )
@@ -98,6 +161,18 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                 },
             )
             event_type = str(event.get("event_type") or "status")
+            phase = str(event.get("phase") or "status")
+            iter_value = event.get("iteration")
+            message = str(event.get("message") or "").strip()
+            logger.info(
+                "TX_LOOP_EVENT ► run_id=%s iteration=%s phase=%s elapsed_ms=%s since_prev_ms=%s message=%s",
+                run_id,
+                iter_value if isinstance(iter_value, int) else "n/a",
+                phase,
+                elapsed_ms,
+                since_prev_ms,
+                message[:220] if message else "n/a",
+            )
             _publish_viewer_event(event_type, event)
 
         persistence = RunArtifactPersistenceService()
@@ -108,6 +183,7 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                     transcript_span_opener=TranscriptSpanOpenerTool(),
                     transcript_image_verifier=TranscriptImageVerificationTool(),
                     transcript_plan_applier=TranscriptEditPlanApplyTool(),
+                    transcript_span_seeds_saver=TranscriptSpanSeedsSaverTool(),
                     transcript_promoter=TranscriptMappingPromoterTool(),
                 )
             ),
@@ -119,6 +195,7 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             request_id_prefix=f"tx-agent-{run_id}",
             progress_cb=_progress_update,
         )
+        terminal_summary = _terminal_summary(progress_log, result)
         _registry.update_run(
             run_id=run_id,
             patch={
@@ -132,21 +209,32 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                     "run_artifact_ref": result.run_artifact_ref,
                     "latest_refs": result.latest_refs,
                     "review_required": result.review_required,
+                    "terminal_summary": terminal_summary,
                     "live_status": progress_log[-1] if progress_log else None,
                     "progress_log": list(progress_log),
                 },
             },
         )
         _publish_viewer_event(
-            "done" if result.status == "completed" else "status",
+            "done",
             {
                 "phase": result.status,
-                "message": result.reason_code,
+                "message": _terminal_message(result),
                 "execution_state": result.status,
                 "iteration": result.iterations,
                 "latest_refs": result.latest_refs,
                 "review_required": result.review_required,
+                "summary": terminal_summary,
+                "terminal": True,
             },
+        )
+        logger.info(
+            "TX_LOOP_DONE ► run_id=%s status=%s iterations=%s elapsed_ms=%s reason=%s",
+            run_id,
+            result.status,
+            result.iterations,
+            int((_time.perf_counter() - loop_started_mono) * 1000),
+            result.reason_code,
         )
     except Exception as exc:
         _registry.update_run(run_id=run_id, patch={"status": "failed", "error": str(exc)})
@@ -156,13 +244,13 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                 "protocol": "agent_viewer_event_v1",
                 "run_id": run_id,
                 "loop_kind": "transcript_edit",
-                "seq": 0,
+                "seq": seq if "seq" in dir() else 0,
                 "iteration": None,
                 "timestamp_epoch_seconds": int(time()),
-                "event_type": "status",
+                "event_type": "done",
                 "status": {"stage": "failed", "line1": "Transcript edit run failed", "line2": str(exc)[:240]},
                 "artifact_refs": {},
-                "payload": {"error": str(exc)},
+                "payload": {"error": str(exc), "terminal": True},
             },
         )
 
@@ -176,6 +264,8 @@ async def start_run(request: TranscriptEditAgentApiRequest) -> dict[str, Any]:
         run_id=run_id,
         request={
             "dossier_id": request.dossier_id,
+            "transcription_id": request.transcription_id,
+            "trigger": request.trigger,
             "model": request.model,
             "max_iterations": request.max_iterations,
             "auto_promote": request.auto_promote,

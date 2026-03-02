@@ -434,6 +434,42 @@ class EditPersistenceService:
 		self._write_json(self._head_file(dossier_id, transcription_id), head)
 		return True, "v2"
 
+	def save_agent_edit_draft(
+		self,
+		dossier_id: str,
+		transcription_id: str,
+		sections: Any,
+		*,
+		source_ref: Optional[str] = None,
+		run_id: Optional[str] = None,
+		reason_code: Optional[str] = None,
+	) -> Tuple[bool, str]:
+		"""
+		Persist the agent-edited transcript as a dedicated run-adjacent draft.
+		File:
+		- consensus/agent_edit_{tid}.json
+		"""
+		cons_dir = self._consensus_dir(dossier_id, transcription_id)
+		cons_dir.mkdir(parents=True, exist_ok=True)
+		agent_path = cons_dir / f"agent_edit_{transcription_id}.json"
+		payload = {
+			"type": "agent_edit",
+			"documentId": "agent_edit",
+			"sections": sections if isinstance(sections, list) else [{"id": 1, "body": str(sections or "")}],
+			"source_ref": source_ref,
+			"run_id": run_id,
+			"reason_code": reason_code,
+			"_status": "completed",
+			"_updated_at": datetime.utcnow().isoformat(),
+		}
+		self._write_json(agent_path, payload)
+		head = self._ensure_head(dossier_id, transcription_id)
+		head.setdefault("agent_edit", {})
+		head["agent_edit"]["available"] = True
+		head["agent_edit"]["updated_at"] = datetime.utcnow().isoformat()
+		self._write_json(self._head_file(dossier_id, transcription_id), head)
+		return True, str(agent_path)
+
 	# ---------------- Final selection persistence ----------------
 	def set_final_selection(self, dossier_id: str, transcription_id: str, draft_id: str) -> bool:
 		"""

@@ -4,6 +4,7 @@ import hashlib
 import json
 from typing import Any
 import re
+from pathlib import Path
 from datetime import datetime, timezone
 from collections.abc import Callable
 import time
@@ -18,17 +19,20 @@ from agent_kernel.models import (
     StepExecutionState,
 )
 from agent_kernel.session import KernelSessionManager
+from transcript_edit.contracts import EditPlanV0
 from transcript_edit.persistence import TranscriptionEditPersistenceService
 from services.agent_viewer import feedback_store
+from services.dossier.edit_persistence_service import EditPersistenceService
 
 from .contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
 from .planner import TranscriptEditPlanPlanner
-from .span_seeds import build_transcript_span_seeds_artifact, load_transcript_text_for_seeds
+from .span_seeds import load_transcript_text_for_seeds
 
 _MODE_OFF = "off"
 _MODE_AUDIT_ONLY = "audit_only"
 _MODE_AUDIT_REPAIR = "audit_then_repair"
 _MODE_AUDIT_REPAIR_PROMOTE = "audit_then_repair_then_promote"
+_EDIT_LOOP_LLM_MODEL = "gpt-5.2"
 
 
 def run_transcript_edit_controller_loop(
@@ -95,9 +99,36 @@ def run_transcript_edit_controller_loop(
     applied_non_normalization = False
     applied_requires_review = False
     span_seeds_ref: str | None = None
+    sticky_range_selection: int | None = None
     last_reason = "tx_agent_not_started"
+    applied_any_edits = False
     disagreement_hints = _candidate_disagreement_hints(request.candidate_texts)
-    mapping_focus = _mapping_priority_focus(disagreement_hints=disagreement_hints)
+    candidate_count = len(request.candidate_texts) if request.candidate_texts else 0
+    has_disagreements = bool(
+        disagreement_hints.get("range_values")
+        or disagreement_hints.get("distance_values")
+        or disagreement_hints.get("bearing_values")
+        or disagreement_hints.get("acreage_values")
+    )
+    min_iterations_before_complete = max(
+        1,
+        min(int(request.max_iterations), int(request.min_iterations_before_complete)),
+    )
+    used_human_feedback = False
+    _emit_progress(
+        progress_cb,
+        {
+            "iteration": 0,
+            "phase": "starting",
+            "message": (
+                f"Starting transcript edit loop ({mode.replace('_', ' ')}). "
+                f"{'Analyzing ' + str(candidate_count) + ' draft(s) for consistency. ' if candidate_count > 1 else ''}"
+                f"{'Disagreements detected between drafts — will investigate.' if has_disagreements else 'Auditing transcript for errors and mapping-critical issues.'}"
+            ),
+            "latest_refs": latest_refs,
+            "execution_state": "starting",
+        },
+    )
 
     for iterations in range(1, request.max_iterations + 1):
         audit_inputs: dict[str, Any] = {"dossier_id": request.dossier_id}
@@ -119,7 +150,7 @@ def run_transcript_edit_controller_loop(
             {
                 "iteration": iterations,
                 "phase": "audit",
-                "message": "Next, I will decide whether findings require edits or promotion.",
+                "message": f"Auditing transcript for deterministic errors and mapping-critical issues (iteration {iterations}).",
                 "latest_refs": latest_refs,
                 "execution_state": str(audit.execution_state.value),
             },
@@ -146,8 +177,17 @@ def run_transcript_edit_controller_loop(
         source_transcript_hash = _read_str(inline.get("tx_source_transcript_hash")) or ""
         if not source_transcript_hash:
             source_transcript_hash = _read_str_from_latest_refs(latest_refs, "tx_source_transcript_ref") or ""
-        disagreement_findings = _critical_disagreement_findings(disagreement_hints)
-        if disagreement_findings:
+        effective_disagreement_hints = _resolved_disagreement_hints(
+            disagreement_hints=disagreement_hints,
+            sticky_range_selection=sticky_range_selection,
+        )
+        mapping_focus = _mapping_priority_focus(disagreement_hints=effective_disagreement_hints)
+        disagreement_findings = _critical_disagreement_findings(effective_disagreement_hints)
+        # Include disagreement findings on first iteration (to gate obvious cross-draft conflicts),
+        # and on later iterations only when the validator still finds issues. This prevents
+        # stale disagreement hints from re-triggering HITL after a clean re-audit.
+        include_disagreement_findings = bool(disagreement_findings and (finding_count > 0 or iterations == 1 or sticky_range_selection is None))
+        if include_disagreement_findings:
             top_findings = [*top_findings, *disagreement_findings]
             findings_summary = _merge_findings_summary_with_disagreement(
                 findings_summary=findings_summary,
@@ -155,6 +195,28 @@ def run_transcript_edit_controller_loop(
             )
         planning_findings = _prioritized_findings_for_planning(top_findings=top_findings)
         blocking_warning_present = _has_blocking_warnings(top_findings)
+        warning_count = _read_int(findings_summary.get("warnings") if isinstance(findings_summary, dict) else None, 0)
+        _emit_progress(
+            progress_cb,
+            {
+                "iteration": iterations,
+                "phase": "audit_result",
+                "message": (
+                    f"Found {finding_count} issues ({error_count} errors, {warning_count} warnings)."
+                    if finding_count > 0
+                    else "Transcript is clean — no issues found."
+                ),
+                "latest_refs": latest_refs,
+                "execution_state": str(audit.execution_state.value),
+                "detail": {
+                    "finding_count": finding_count,
+                    "error_count": error_count,
+                    "warning_count": warning_count,
+                    "top_findings": [_finding_to_display_dict(f) for f in top_findings[:6]],
+                    "summary_text": _top_findings_summary_text(top_findings),
+                },
+            },
+        )
 
         finding_signature = _finding_signature(summary=findings_summary, findings=top_findings)
         if previous_finding_signature is not None and finding_signature == previous_finding_signature:
@@ -164,20 +226,81 @@ def run_transcript_edit_controller_loop(
         previous_finding_signature = finding_signature
 
         if error_count <= 0 and not blocking_warning_present:
+            must_verify_before_terminal = bool(applied_any_edits or has_disagreements or used_human_feedback)
+            if must_verify_before_terminal and current_transcript_ref:
+                final_verify = _final_image_sanity_pass_before_promote(
+                    session_manager=session_manager,
+                    session_id=session_id,
+                    iteration=iterations,
+                    dossier_id=request.dossier_id,
+                    source_transcript_ref=current_transcript_ref,
+                    source_image_refs=request.source_image_refs,
+                    disagreement_hints=effective_disagreement_hints,
+                    model=_edit_loop_model(request.model),
+                )
+                latest_refs = final_verify.get("latest_refs", latest_refs)
+                if not bool(final_verify.get("passed")):
+                    reason = _read_str(final_verify.get("reason")) or "tx_agent_final_image_verify_failed"
+                    if iterations < request.max_iterations:
+                        _emit_progress(
+                            progress_cb,
+                            {
+                                "iteration": iterations,
+                                "phase": "final_verify_retry",
+                                "message": "Final image verification found unresolved map-critical uncertainty; re-checking before terminal decision.",
+                                "latest_refs": latest_refs,
+                                "execution_state": "retrying",
+                            },
+                        )
+                        continue
+                    return _result(
+                        start=start,
+                        session_id=session_id,
+                        iterations=iterations,
+                        status="needs_review",
+                        reason=reason,
+                        latest_refs=latest_refs,
+                        review_required=True,
+                    )
+            if (
+                iterations < min_iterations_before_complete
+                and (applied_any_edits or has_disagreements or used_human_feedback)
+            ):
+                _emit_progress(
+                    progress_cb,
+                    {
+                        "iteration": iterations,
+                        "phase": "stabilize",
+                        "message": f"Clean audit achieved; running additional stabilization pass ({iterations}/{min_iterations_before_complete}) before terminalizing.",
+                        "latest_refs": latest_refs,
+                        "execution_state": "running",
+                    },
+                )
+                continue
             if (
                 request.dossier_id
                 and current_transcript_ref
                 and source_transcript_hash
                 and error_count <= 0
             ):
-                span_seeds_ref = _emit_transcript_span_seeds(
-                    persistence=tx_persistence,
-                    dossier_id=request.dossier_id,
-                    source_transcript_ref=current_transcript_ref,
-                    source_transcript_hash=source_transcript_hash,
+                seeds_step = _step(
+                    session_manager=session_manager,
+                    session_id=session_id,
+                    prefix="tx_span_seeds",
+                    iteration=iterations,
+                    action_type=ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
+                    inputs={
+                        "dossier_id": request.dossier_id,
+                        "source_transcript_ref": current_transcript_ref,
+                        "source_transcript_hash": source_transcript_hash,
+                        "max_seeds": 24,
+                    },
                 )
-                if span_seeds_ref:
-                    latest_refs["tx_span_seeds_ref"] = {"artifact_path": span_seeds_ref}
+                latest_refs = seeds_step.dashboard.latest_refs.model_dump(mode="json")
+                seeds_inline = _read_step_outputs_inline(seeds_step.step_record)
+                span_seeds_ref_candidate = _read_str(seeds_inline.get("tx_span_seeds_ref"))
+                if span_seeds_ref_candidate:
+                    span_seeds_ref = span_seeds_ref_candidate
             should_promote = (
                 mode == _MODE_AUDIT_REPAIR_PROMOTE
                 and request.auto_promote
@@ -203,7 +326,8 @@ def run_transcript_edit_controller_loop(
                     dossier_id=request.dossier_id,
                     source_transcript_ref=current_transcript_ref,
                     source_image_refs=request.source_image_refs,
-                    model=_vision_verify_model(request.model),
+                    disagreement_hints=effective_disagreement_hints,
+                    model=_edit_loop_model(request.model),
                 )
                 latest_refs = final_verify.get("latest_refs", latest_refs)
                 if not bool(final_verify.get("passed")):
@@ -244,6 +368,14 @@ def run_transcript_edit_controller_loop(
                         latest_refs=latest_refs,
                         review_required=True,
                     )
+                if applied_any_edits:
+                    _persist_agent_edit_draft(
+                        dossier_id=request.dossier_id,
+                        transcription_id=request.transcription_id,
+                        source_transcript_ref=current_transcript_ref,
+                        run_id=request_id_prefix,
+                        reason_code="tx_agent_clean_promoted",
+                    )
                 return _result(
                     start=start,
                     session_id=session_id,
@@ -252,6 +384,14 @@ def run_transcript_edit_controller_loop(
                     reason="tx_agent_clean_promoted",
                     latest_refs=latest_refs,
                     review_required=False,
+                )
+            if applied_any_edits:
+                _persist_agent_edit_draft(
+                    dossier_id=request.dossier_id,
+                    transcription_id=request.transcription_id,
+                    source_transcript_ref=current_transcript_ref,
+                    run_id=request_id_prefix,
+                    reason_code="tx_agent_clean_no_promote" if error_count <= 0 else "tx_agent_blocked_error_findings",
                 )
             return _result(
                 start=start,
@@ -275,10 +415,33 @@ def run_transcript_edit_controller_loop(
             )
 
         manual_plan_override: dict[str, Any] | None = None
+        if sticky_range_selection is not None and current_transcript_ref and source_transcript_hash:
+            manual_plan_override = _build_range_feedback_plan(
+                source_transcript_ref=current_transcript_ref,
+                source_transcript_hash=source_transcript_hash,
+                selected_number=sticky_range_selection,
+            )
+            if manual_plan_override is not None:
+                _emit_progress(
+                    progress_cb,
+                    {
+                        "event_type": "human_feedback",
+                        "iteration": iterations,
+                        "phase": "human_feedback_reused",
+                        "message": f"Reusing prior human range decision ({sticky_range_selection}) to continue safely.",
+                        "execution_state": "received",
+                        "latest_refs": latest_refs,
+                    },
+                )
         viewer_run_id = _viewer_run_id_from_request_prefix(request_id_prefix)
-        if blocking_warning_present and request.hitl_enabled and viewer_run_id.startswith("tx_agent_"):
+        if (
+            manual_plan_override is None
+            and blocking_warning_present
+            and request.hitl_enabled
+            and (viewer_run_id.startswith("tx_agent_") or viewer_run_id.startswith("tx_post_t0_"))
+        ):
             feedback_prompt = _build_human_feedback_prompt(
-                disagreement_hints=disagreement_hints,
+                disagreement_hints=effective_disagreement_hints,
                 top_findings=top_findings,
                 iteration=iterations,
             )
@@ -329,7 +492,9 @@ def run_transcript_edit_controller_loop(
                     },
                 )
                 selected_number = _range_number_from_feedback(feedback_entry)
+                used_human_feedback = True
                 if selected_number is not None and current_transcript_ref and source_transcript_hash:
+                    sticky_range_selection = selected_number
                     manual_plan_override = _build_range_feedback_plan(
                         source_transcript_ref=current_transcript_ref,
                         source_transcript_hash=source_transcript_hash,
@@ -358,73 +523,124 @@ def run_transcript_edit_controller_loop(
                 review_required=True,
             )
 
-        _emit_progress(
-            progress_cb,
-            {
-                "iteration": iterations,
-                "phase": "open_spans",
-                "message": "Next, I will open localized transcript spans for planning context.",
-                "latest_refs": latest_refs,
-                "execution_state": "running",
-            },
-        )
-        span_context = _open_planner_context_spans(
-            session_manager=session_manager,
-            session_id=session_id,
-            iteration=iterations,
-            dossier_id=request.dossier_id,
-            source_transcript_ref=current_transcript_ref,
-            top_findings=planning_findings,
-        )
-        _emit_progress(
-            progress_cb,
-            {
-                "iteration": iterations,
-                "phase": "open_spans",
-                "message": "Next, I will verify mapping-critical claims against the source image.",
-                "latest_refs": latest_refs,
-            },
-        )
-        _emit_progress(
-            progress_cb,
-            {
-                "iteration": iterations,
-                "phase": "image_verify",
-                "message": "Next, I will verify mapping-critical claims against the source image.",
-                "latest_refs": latest_refs,
-                "execution_state": "running",
-            },
-        )
-        image_verification = _verify_mapping_critical_with_image(
-            session_manager=session_manager,
-            session_id=session_id,
-            iteration=iterations,
-            dossier_id=request.dossier_id,
-            source_transcript_ref=current_transcript_ref,
-            top_findings=planning_findings,
-            disagreement_hints=disagreement_hints,
-            source_image_refs=request.source_image_refs,
-            model=_vision_verify_model(request.model),
-        )
-        if image_verification:
-            latest_refs = image_verification.get("latest_refs", latest_refs)
+        span_context: list[dict[str, Any]] = []
+        image_verification: dict[str, Any] = {}
+        if manual_plan_override is None:
+            _emit_progress(
+                progress_cb,
+                {
+                    "iteration": iterations,
+                    "phase": "open_spans",
+                    "message": "Opening localized transcript spans around flagged areas for detailed inspection.",
+                    "latest_refs": latest_refs,
+                    "execution_state": "running",
+                },
+            )
+            span_context = _open_planner_context_spans(
+                session_manager=session_manager,
+                session_id=session_id,
+                iteration=iterations,
+                dossier_id=request.dossier_id,
+                source_transcript_ref=current_transcript_ref,
+                top_findings=planning_findings,
+            )
+            _emit_progress(
+                progress_cb,
+                {
+                    "iteration": iterations,
+                    "phase": "open_spans_result",
+                    "message": f"Opened {len(span_context)} text spans for context.",
+                    "latest_refs": latest_refs,
+                    "detail": {
+                        "span_count": len(span_context),
+                        "spans": [_span_to_display_dict(s) for s in span_context[:6]],
+                    },
+                },
+            )
             _emit_progress(
                 progress_cb,
                 {
                     "iteration": iterations,
                     "phase": "image_verify",
-                    "message": "Next, I will build the safest drift-safe edit plan from verified findings.",
+                    "message": "Cross-referencing mapping-critical values (PLSS tokens, distances, bearings) against the source deed image.",
                     "latest_refs": latest_refs,
-                    "image_verification": image_verification.get("payload"),
+                    "execution_state": "running",
                 },
             )
+            image_verification = _verify_mapping_critical_with_image(
+                session_manager=session_manager,
+                session_id=session_id,
+                iteration=iterations,
+                dossier_id=request.dossier_id,
+                source_transcript_ref=current_transcript_ref,
+                top_findings=planning_findings,
+                disagreement_hints=effective_disagreement_hints,
+                source_image_refs=request.source_image_refs,
+                model=_edit_loop_model(request.model),
+            )
+            if image_verification:
+                latest_refs = image_verification.get("latest_refs", latest_refs)
+                iv_payload = image_verification.get("payload") or {}
+                iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
+                iv_results = iv_results if isinstance(iv_results, list) else []
+                iv_confirmed = sum(1 for r in iv_results if isinstance(r, dict) and str(r.get("status") or "").lower() in {"confirmed", "match"})
+                iv_rejected = sum(1 for r in iv_results if isinstance(r, dict) and str(r.get("status") or "").lower() in {"rejected", "mismatch"})
+                iv_total = len(iv_results)
+                _emit_progress(
+                    progress_cb,
+                    {
+                        "iteration": iterations,
+                        "phase": "image_verify_result",
+                        "message": f"Image check: {iv_confirmed} confirmed, {iv_rejected} rejected out of {iv_total} checks.",
+                        "latest_refs": latest_refs,
+                        "image_verification": iv_payload,
+                        "detail": {
+                            "confirmed": iv_confirmed,
+                            "rejected": iv_rejected,
+                            "total": iv_total,
+                            "results": [
+                                {
+                                    "check_id": r.get("check_id"),
+                                    "status": r.get("status"),
+                                    "observed_text": str(r.get("observed_text") or "")[:120],
+                                }
+                                for r in iv_results[:8]
+                                if isinstance(r, dict)
+                            ],
+                        },
+                    },
+                )
+        else:
+            _emit_progress(
+                progress_cb,
+                {
+                    "iteration": iterations,
+                    "phase": "image_verify",
+                    "message": "Running post-feedback image verification before applying the override plan.",
+                    "latest_refs": latest_refs,
+                    "execution_state": "running",
+                },
+            )
+            image_verification = _verify_mapping_critical_with_image(
+                session_manager=session_manager,
+                session_id=session_id,
+                iteration=iterations,
+                dossier_id=request.dossier_id,
+                source_transcript_ref=current_transcript_ref,
+                top_findings=planning_findings,
+                disagreement_hints=effective_disagreement_hints,
+                source_image_refs=request.source_image_refs,
+                model=_edit_loop_model(request.model),
+            )
+            if image_verification:
+                latest_refs = image_verification.get("latest_refs", latest_refs)
         manual_plan = manual_plan_override or (request.edit_plan if isinstance(request.edit_plan, dict) else None)
         consensus_plan_payload = None
         if manual_plan is None:
             consensus_plan_payload = _build_deterministic_consensus_plan(
                 source_transcript_ref=current_transcript_ref,
                 source_transcript_hash=source_transcript_hash,
-                disagreement_hints=disagreement_hints,
+                disagreement_hints=effective_disagreement_hints,
                 image_verification=image_verification.get("payload") if isinstance(image_verification, dict) else {},
                 top_findings=planning_findings,
             )
@@ -442,21 +658,21 @@ def run_transcript_edit_controller_loop(
                 {
                     "iteration": iterations,
                     "phase": "plan",
-                    "message": "Next, I will generate a drift-safe edit plan.",
+                    "message": "Building a drift-safe edit plan from verified findings and image evidence.",
                     "latest_refs": latest_refs,
                     "execution_state": "running",
                 },
             )
             try:
                 plan, plan_reason, raw_plan_text = planner_client.propose_plan(
-                    model=request.model,
+                    model=_edit_loop_model(request.model),
                     source_transcript_ref=current_transcript_ref,
                     source_transcript_hash=source_transcript_hash,
                     findings_summary=findings_summary,
                     top_findings=_coerce_findings(planning_findings),
                     span_context=span_context,
                     image_verification=image_verification.get("payload") if isinstance(image_verification, dict) else {},
-                    candidate_disagreement_hints=disagreement_hints,
+                    candidate_disagreement_hints=effective_disagreement_hints,
                     mapping_priority_focus=mapping_focus,
                     max_attempts=request.max_invalid_plan_attempts,
                 )
@@ -491,23 +707,48 @@ def run_transcript_edit_controller_loop(
                     latest_refs=latest_refs,
                     review_required=True,
                 )
+        plan_ops = plan_payload.get("ops") if isinstance(plan_payload, dict) else []
+        plan_ops = plan_ops if isinstance(plan_ops, list) else []
+        _emit_progress(
+            progress_cb,
+            {
+                "iteration": iterations,
+                "phase": "plan_result",
+                "message": f"Edit plan ready ({plan_reason}): {len(plan_ops)} operations proposed.",
+                "latest_refs": latest_refs,
+                "execution_state": "running",
+                "detail": {
+                    "plan_reason": plan_reason,
+                    "op_count": len(plan_ops),
+                    "ops_preview": [_plan_op_to_display_dict(op) for op in plan_ops[:6] if isinstance(op, dict)],
+                },
+            },
+        )
         apply = _step(
             session_manager=session_manager,
             session_id=session_id,
             prefix="tx_apply",
             iteration=iterations,
             action_type=ActionType.TX_APPLY_EDIT_PLAN,
-            inputs={"dossier_id": request.dossier_id, "edit_plan": plan_payload},
+            inputs=_build_apply_inputs_for_plan(
+                persistence=tx_persistence,
+                dossier_id=request.dossier_id,
+                plan_payload=plan_payload,
+            ),
         )
         latest_refs = apply.dashboard.latest_refs.model_dump(mode="json")
         _emit_progress(
             progress_cb,
             {
                 "iteration": iterations,
-                "phase": "apply",
-                "message": "Next, I will re-audit the transcript after applying this plan.",
+                "phase": "apply_result",
+                "message": f"Applied {len(plan_ops)} edits. Re-auditing transcript.",
                 "latest_refs": latest_refs,
                 "execution_state": str(apply.execution_state.value),
+                "detail": {
+                    "plan_op_count": len(plan_ops),
+                    "ops": [_plan_op_to_display_dict(op) for op in plan_ops[:6] if isinstance(op, dict)],
+                },
             },
         )
         if apply.execution_state != StepExecutionState.EXECUTED:
@@ -530,12 +771,22 @@ def run_transcript_edit_controller_loop(
             applied_non_normalization = True
         if _plan_has_review_required(plan_payload or {}):
             applied_requires_review = True
+        if len(plan_ops) > 0:
+            applied_any_edits = True
         if manual_plan is None:
             invalid_plan_strikes = 0
         last_reason = plan_reason if plan_reason else "tx_apply_completed"
         if raw_plan_text:
             _ = raw_plan_text  # retain variable for debugging parity without expanding artifacts
 
+    if applied_any_edits:
+        _persist_agent_edit_draft(
+            dossier_id=request.dossier_id,
+            transcription_id=request.transcription_id,
+            source_transcript_ref=current_transcript_ref,
+            run_id=request_id_prefix,
+            reason_code=last_reason if last_reason != "tx_agent_not_started" else "tx_agent_max_iterations_reached",
+        )
     return _result(
         start=start,
         session_id=session_id,
@@ -658,7 +909,7 @@ def _verify_mapping_critical_with_image(
         "source_transcript_ref": source_transcript_ref,
         "checks": checks[:6],
         "model": model,
-        "zoom_factor": 2.4,
+        "zoom_factor": 3.2,
     }
     if isinstance(source_image_refs, list) and source_image_refs:
         first_image = _read_str(source_image_refs[0])
@@ -693,6 +944,7 @@ def _final_image_sanity_pass_before_promote(
     dossier_id: str | None,
     source_transcript_ref: str,
     source_image_refs: list[str],
+    disagreement_hints: dict[str, Any],
     model: str,
 ) -> dict[str, Any]:
     checks = [
@@ -712,17 +964,32 @@ def _final_image_sanity_pass_before_promote(
             "expected_text": None,
         },
         {
+            "check_id": "final_sanity_bearing",
+            "query": (
+                "Report the first explicit bearing token exactly as written (including degree value/minutes if present)."
+            ),
+            "expected_text": None,
+        },
+        {
             "check_id": "final_sanity_acreage",
             "query": "Report acreage value(s) stated for parcel descriptions if present.",
             "expected_text": None,
         },
     ]
+    existing_ids = {str(item.get("check_id") or "") for item in checks if isinstance(item, dict)}
+    for extra in _image_checks_from_disagreement_hints(disagreement_hints):
+        if not isinstance(extra, dict):
+            continue
+        cid = str(extra.get("check_id") or "")
+        if cid and cid not in existing_ids:
+            checks.append(extra)
+            existing_ids.add(cid)
     inputs: dict[str, Any] = {
         "dossier_id": dossier_id,
         "source_transcript_ref": source_transcript_ref,
-        "checks": checks,
+        "checks": checks[:6],
         "model": model,
-        "zoom_factor": 2.4,
+        "zoom_factor": 3.2,
     }
     if isinstance(source_image_refs, list) and source_image_refs:
         first_image = _read_str(source_image_refs[0])
@@ -882,37 +1149,35 @@ def _plan_has_no_ops(plan: dict[str, Any]) -> bool:
     return len([op for op in ops if isinstance(op, dict)]) == 0
 
 
+def _build_apply_inputs_for_plan(
+    *,
+    persistence: TranscriptionEditPersistenceService,
+    dossier_id: str | None,
+    plan_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {"dossier_id": dossier_id}
+    if not isinstance(plan_payload, dict):
+        return out
+    try:
+        plan = EditPlanV0.model_validate(plan_payload)
+    except Exception:
+        out["edit_plan"] = plan_payload
+        return out
+    try:
+        plan_ref = persistence.save_edit_plan(dossier_id=dossier_id or "adhoc", plan=plan)
+    except Exception:
+        out["edit_plan"] = plan.model_dump(mode="json")
+        return out
+    out["edit_plan_ref"] = plan_ref
+    return out
+
+
 def _read_str_from_latest_refs(latest_refs: dict[str, Any], key: str) -> str | None:
     value = latest_refs.get(key)
     if isinstance(value, dict):
         path = value.get("artifact_path")
         return _read_str(path)
     return _read_str(value)
-
-
-def _emit_transcript_span_seeds(
-    *,
-    persistence: TranscriptionEditPersistenceService,
-    dossier_id: str,
-    source_transcript_ref: str,
-    source_transcript_hash: str,
-) -> str | None:
-    transcript_text = load_transcript_text_for_seeds(source_transcript_ref)
-    if not transcript_text:
-        return None
-    artifact = build_transcript_span_seeds_artifact(
-        dossier_id=dossier_id,
-        source_transcript_ref=source_transcript_ref,
-        source_transcript_hash=source_transcript_hash,
-        transcript_text=transcript_text,
-    )
-    if not artifact.seeds:
-        return None
-    try:
-        return persistence.save_transcript_span_seeds(dossier_id=dossier_id, artifact=artifact)
-    except Exception:
-        # Seeds are advisory only; failure here must not fail the controller loop.
-        return None
 
 
 def _has_blocking_warnings(top_findings: list[dict[str, Any]]) -> bool:
@@ -922,6 +1187,7 @@ def _has_blocking_warnings(top_findings: list[dict[str, Any]]) -> bool:
         "plss_township_conflict_001",
         "candidate_disagreement_range_conflict_001",
         "candidate_disagreement_tie_distance_conflict_001",
+        "candidate_disagreement_bearing_conflict_001",
     }
     for finding in top_findings:
         if not isinstance(finding, dict):
@@ -1045,6 +1311,36 @@ def _candidate_disagreement_hints(candidate_texts: list[str]) -> dict[str, Any]:
     }
 
 
+def _resolved_disagreement_hints(
+    *,
+    disagreement_hints: dict[str, Any],
+    sticky_range_selection: int | None,
+) -> dict[str, Any]:
+    if not isinstance(disagreement_hints, dict):
+        return {}
+    resolved = dict(disagreement_hints)
+    if sticky_range_selection is not None:
+        token_w = f"r{sticky_range_selection}w"
+        token_e = f"r{sticky_range_selection}e"
+        range_values = resolved.get("range_values")
+        if isinstance(range_values, list):
+            selected: dict[str, Any] | None = None
+            for item in range_values:
+                if not isinstance(item, dict):
+                    continue
+                value = str(item.get("value") or "").strip().lower()
+                if value in {token_w, token_e}:
+                    selected = {
+                        "value": value,
+                        "count": _read_int(item.get("count"), 1),
+                    }
+                    break
+            if selected is None:
+                selected = {"value": token_w, "count": max(1, _read_int(resolved.get("candidate_count"), 1))}
+            resolved["range_values"] = [selected]
+    return resolved
+
+
 def _extract_numeric_literals(message: str) -> list[str]:
     out: list[str] = []
     if not isinstance(message, str):
@@ -1094,7 +1390,19 @@ def _image_checks_from_disagreement_hints(disagreement_hints: dict[str, Any]) ->
                 "expected_text": None,
             }
         )
-    return checks[:4]
+    bearing_values = disagreement_hints.get("bearing_values")
+    if isinstance(bearing_values, list) and len(bearing_values) > 1:
+        checks.append(
+            {
+                "check_id": "image_check_bearing_tokens",
+                "query": (
+                    "Read the deed image and report the exact bearing token used in the tie/call clause "
+                    "(for example, include degree value/minutes and direction letters exactly)."
+                ),
+                "expected_text": None,
+            }
+        )
+    return checks[:6]
 
 
 def _image_numeric_signals(image_verification: dict[str, Any]) -> dict[str, str | None]:
@@ -1160,11 +1468,9 @@ def _first_expected_token_from_message(message: str) -> str | None:
     return None
 
 
-def _vision_verify_model(preferred: str) -> str:
-    normalized = str(preferred or "").strip().lower()
-    if normalized in {"gpt-o4-mini", "gpt-4o", "o3"}:
-        return normalized
-    return "gpt-o4-mini"
+def _edit_loop_model(preferred: str | None) -> str:
+    del preferred
+    return _EDIT_LOOP_LLM_MODEL
 
 
 def _prioritized_findings_for_planning(*, top_findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1379,6 +1685,20 @@ def _critical_disagreement_findings(disagreement_hints: dict[str, Any]) -> list[
                     "span": None,
                 }
             )
+    bearings = disagreement_hints.get("bearing_values")
+    if isinstance(bearings, list) and len(bearings) > 1:
+        values = [str(item.get("value")) for item in bearings[:4] if isinstance(item, dict) and item.get("value")]
+        if values:
+            findings.append(
+                {
+                    "finding_id": "candidate_disagreement_bearing_conflict_001",
+                    "finding_type": "bearing_parse",
+                    "severity": "warning",
+                    "message": f"Redundancy drafts disagree on bearing tokens: {', '.join(values)}",
+                    "section_id": None,
+                    "span": None,
+                }
+            )
     return findings
 
 
@@ -1559,3 +1879,85 @@ def _is_critical_tie_distance(value: Any) -> bool:
     except Exception:
         return False
     return number >= 900.0
+
+
+# ---------------------------------------------------------------------------
+# Display helpers for rich progress emissions
+# ---------------------------------------------------------------------------
+
+def _top_findings_summary_text(findings: list[dict[str, Any]]) -> str:
+    """Join first 3 finding messages, truncated, for display."""
+    msgs: list[str] = []
+    for f in findings[:3]:
+        if not isinstance(f, dict):
+            continue
+        msg = str(f.get("message") or "").strip()
+        if msg:
+            msgs.append(msg[:120])
+    return "; ".join(msgs) if msgs else ""
+
+
+def _finding_to_display_dict(finding: dict[str, Any]) -> dict[str, Any]:
+    """Extract displayable fields from a finding."""
+    return {
+        "finding_id": finding.get("finding_id"),
+        "finding_type": finding.get("finding_type"),
+        "severity": finding.get("severity"),
+        "message": str(finding.get("message") or "")[:200],
+    }
+
+
+def _span_to_display_dict(span: dict[str, Any]) -> dict[str, Any]:
+    """span_id + text excerpt (120 chars)."""
+    text = str(span.get("text") or span.get("content") or "").strip()
+    return {
+        "span_id": span.get("span_id"),
+        "text": text[:120] + ("..." if len(text) > 120 else ""),
+    }
+
+
+def _persist_agent_edit_draft(
+    *,
+    dossier_id: str | None,
+    transcription_id: str | None,
+    source_transcript_ref: str | None,
+    run_id: str | None,
+    reason_code: str | None,
+) -> None:
+    if not dossier_id or not transcription_id or not source_transcript_ref:
+        return
+    try:
+        raw = json.loads(Path(source_transcript_ref).read_text(encoding="utf-8"))
+    except Exception:
+        return
+    sections = raw.get("sections") if isinstance(raw, dict) else None
+    if not isinstance(sections, list):
+        text_value = ""
+        if isinstance(raw, dict):
+            text_value = str(raw.get("text") or raw.get("extracted_text") or "")
+        elif isinstance(raw, str):
+            text_value = raw
+        sections = [{"id": 1, "body": text_value}]
+    try:
+        EditPersistenceService().save_agent_edit_draft(
+            dossier_id=str(dossier_id),
+            transcription_id=str(transcription_id),
+            sections=sections,
+            source_ref=source_transcript_ref,
+            run_id=run_id,
+            reason_code=reason_code,
+        )
+    except Exception:
+        return
+
+
+def _plan_op_to_display_dict(op: dict[str, Any]) -> dict[str, Any]:
+    """op_type, reason, original/replacement text (50 chars each)."""
+    original = str(op.get("expected_old", {}).get("old_excerpt", "") if isinstance(op.get("expected_old"), dict) else "")
+    replacement = str(op.get("new_text") or "")
+    return {
+        "op_type": op.get("op_type"),
+        "reason": str(op.get("reason") or "")[:100],
+        "original_text": original[:50] + ("..." if len(original) > 50 else ""),
+        "replacement_text": replacement[:50] + ("..." if len(replacement) > 50 else ""),
+    }

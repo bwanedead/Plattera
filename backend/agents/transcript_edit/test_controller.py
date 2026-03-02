@@ -14,9 +14,14 @@ from backend.agent_kernel.tooling import (
     TranscriptAuditTool,
     TranscriptEditPlanApplyTool,
     TranscriptMappingPromoterTool,
+    TranscriptSpanSeedsSaverTool,
     TranscriptSpanOpenerTool,
 )
-from backend.agents.transcript_edit.controller import run_transcript_edit_controller_loop
+from backend.agents.transcript_edit.controller import (
+    _critical_disagreement_findings,
+    _image_checks_from_disagreement_hints,
+    run_transcript_edit_controller_loop,
+)
 from backend.agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
 from backend.transcript_edit.contracts import EditPlanV0
 
@@ -125,6 +130,7 @@ def _session_manager(image_verifier=None) -> KernelSessionManager:
             transcript_span_opener=TranscriptSpanOpenerTool(),
             transcript_image_verifier=image_verifier or _ImageVerifierStub(),
             transcript_plan_applier=TranscriptEditPlanApplyTool(),
+            transcript_span_seeds_saver=TranscriptSpanSeedsSaverTool(),
             transcript_promoter=TranscriptMappingPromoterTool(),
         )
     )
@@ -246,3 +252,29 @@ def test_transcript_controller_blocks_promote_when_final_image_sanity_unclear() 
         assert result.status == "needs_review"
         assert result.review_required is True
         assert result.reason_code.startswith("tx_agent_final_image_verify_failed")
+
+
+def test_disagreement_findings_include_bearing_conflict() -> None:
+    findings = _critical_disagreement_findings(
+        {
+            "bearing_values": [
+                {"value": "n 4 e", "count": 2},
+                {"value": "n 2 e", "count": 1},
+            ]
+        }
+    )
+    ids = {str(item.get("finding_id")) for item in findings if isinstance(item, dict)}
+    assert "candidate_disagreement_bearing_conflict_001" in ids
+
+
+def test_image_checks_include_bearing_check_when_disagreement_present() -> None:
+    checks = _image_checks_from_disagreement_hints(
+        {
+            "bearing_values": [
+                {"value": "n 4 e", "count": 2},
+                {"value": "n 2 e", "count": 1},
+            ]
+        }
+    )
+    check_ids = {str(item.get("check_id")) for item in checks if isinstance(item, dict)}
+    assert "image_check_bearing_tokens" in check_ids

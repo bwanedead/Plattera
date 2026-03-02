@@ -16,6 +16,7 @@ from .actions import ActionExecutor, ActionExecutorDeps
 from .claimability import evaluate_claimability
 from .models import (
     ActionType,
+    KernelClaimabilityStatus,
     KernelDashboard,
     KernelFailureClassification,
     KernelGapSummary,
@@ -40,6 +41,7 @@ from .tooling import (
     TranscriptAuditTool,
     TranscriptImageVerificationTool,
     TranscriptEditPlanApplyTool,
+    TranscriptSpanSeedsSaverTool,
     TranscriptMappingPromoterTool,
     TranscriptSpanOpenerTool,
     TextSpanOpenerTool,
@@ -96,6 +98,7 @@ class KernelSessionManager:
                 transcript_span_opener=TranscriptSpanOpenerTool(),
                 transcript_image_verifier=TranscriptImageVerificationTool(),
                 transcript_plan_applier=TranscriptEditPlanApplyTool(),
+                transcript_span_seeds_saver=TranscriptSpanSeedsSaverTool(),
                 transcript_promoter=TranscriptMappingPromoterTool(),
             )
         )
@@ -679,10 +682,10 @@ def _build_dashboard(
             gap_counts_by_kind={code: gap_counts[code] for code in top_codes},
             top_reason_codes=top_codes,
         ),
-        claimability={
-            "claimable_ready": claimable_ready,
-            "missing_claimability": missing_claimability[:_MAX_MISSING_CLAIMABILITY],
-        },
+        claimability=KernelClaimabilityStatus(
+            claimable_ready=claimable_ready,
+            missing_claimability=missing_claimability[:_MAX_MISSING_CLAIMABILITY],
+        ),
         semantic_ready=semantic_ready,
         budgets_remaining=budgets_remaining,
         failure_classification=KernelFailureClassification(
@@ -702,7 +705,7 @@ def _build_empty_dashboard(
     return KernelDashboard(
         latest_refs=KernelLatestRefs(),
         gap_summary=KernelGapSummary(),
-        claimability={"claimable_ready": False, "missing_claimability": []},
+        claimability=KernelClaimabilityStatus(claimable_ready=False, missing_claimability=[]),
         semantic_ready=semantic_ready,
         budgets_remaining={
             "steps_remaining": 0,
@@ -769,6 +772,15 @@ def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord) -> None:
         edited_ref = _extract_ref_from_inline(step.outputs_inline, "tx_edited_transcript_ref")
         if edited_ref is not None:
             run_artifact.tx_edited_transcript_artifact_ref = edited_ref
+    if step.action == ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS:
+        seeds_ref = _extract_ref(step.outputs, "tx_span_seeds_ref")
+        if seeds_ref is None:
+            seeds_ref = _extract_ref_from_inline(step.outputs_inline, "tx_span_seeds_ref")
+        if seeds_ref is not None:
+            run_artifact.tx_span_seeds_artifact_ref = seeds_ref
+        source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
+        if source_ref is not None:
+            run_artifact.tx_source_transcript_artifact_ref = source_ref
     if step.action == ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING:
         run_artifact.tx_mapping_pointer_artifact_ref = _extract_ref(step.outputs, "tx_mapping_pointer_ref")
     seeds_ref = _extract_ref_from_inline(step.outputs_inline, "tx_span_seeds_ref")

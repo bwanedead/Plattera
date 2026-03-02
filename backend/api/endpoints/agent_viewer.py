@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from time import time
 from typing import Any, AsyncGenerator, Literal
@@ -12,12 +13,13 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from config.paths import dossiers_artifacts_root
+from config.paths import dossiers_artifacts_root, dossiers_views_root
 from services.agent_viewer import feedback_store
 from services.agent_loop.event_bus import event_bus as agent_loop_event_bus
 from services.agent_viewer.event_bus import event_bus as viewer_event_bus
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _MAX_ARTIFACT_JSON_BYTES = 262144
 _VALID_LOOP_KINDS = {"agent_loop", "transcript_edit"}
@@ -111,6 +113,14 @@ async def post_agent_viewer_feedback(
         note=request.note,
         metadata=request.metadata,
     )
+    logger.info(
+        "AGENT_VIEWER_FEEDBACK ► loop_kind=%s run_id=%s prompt_id=%s choice=%s note_len=%s",
+        loop_kind,
+        run_id,
+        str(request.prompt_id or "")[:80] or "n/a",
+        str(request.choice or "")[:80] or "n/a",
+        len(str(request.note or "")),
+    )
     viewer_event_bus.publish_sync(
         _stream_key(loop_kind, run_id),
         {
@@ -146,10 +156,13 @@ def _stream_key(loop_kind: str, run_id: str) -> str:
 def _resolve_artifact_path(artifact_ref: str) -> Path | None:
     try:
         path = Path(artifact_ref).resolve()
-        root = dossiers_artifacts_root().resolve()
+        artifacts_root = dossiers_artifacts_root().resolve()
+        views_root = dossiers_views_root().resolve()
     except Exception:
         return None
-    if path == root or root in path.parents:
+    if path == artifacts_root or artifacts_root in path.parents:
+        return path
+    if path == views_root or views_root in path.parents:
         return path
     return None
 

@@ -27,6 +27,7 @@ from backend.agent_kernel.actions import (
     TranscriptImageVerifier,
     TranscriptSpanOpener,
     TranscriptPlanApplier,
+    TranscriptSpanSeedsSaver,
     TranscriptPromoter,
     Validator,
 )
@@ -51,6 +52,7 @@ class _DeterministicServices(
     TranscriptImageVerifier,
     TranscriptSpanOpener,
     TranscriptPlanApplier,
+    TranscriptSpanSeedsSaver,
     TranscriptPromoter,
 ):
     def hydrate_deed(self, inputs: Mapping[str, Any]) -> ArtifactRef:
@@ -143,6 +145,14 @@ class _DeterministicServices(
             "tx_span_seeds_ref": seeds_ref,
         }
 
+    def save_transcript_span_seeds(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        del inputs
+        return {
+            "artifact_ref": {"artifact_path": "artifacts/tx/span-seeds-001.json"},
+            "reason_codes": ["tx_span_seeds_saved"],
+            "tx_span_seeds_ref": "artifacts/tx/span-seeds-001.json",
+        }
+
 
 def _build_executor() -> ActionExecutor:
     services = _DeterministicServices()
@@ -163,6 +173,7 @@ def _build_executor() -> ActionExecutor:
         transcript_span_opener=services,
         transcript_image_verifier=services,
         transcript_plan_applier=services,
+        transcript_span_seeds_saver=services,
         transcript_promoter=services,
     )
     return ActionExecutor(deps=deps)
@@ -185,6 +196,7 @@ def test_executor_supports_required_deterministic_actions() -> None:
         ActionType.TX_AUDIT_TRANSCRIPT,
         ActionType.TX_OPEN_TRANSCRIPT_SPANS,
         ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+        ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
         ActionType.TX_APPLY_EDIT_PLAN,
         ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
     )
@@ -337,6 +349,11 @@ def test_new_actions_return_explicit_missing_interface_reason_codes() -> None:
         ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
         {"transcript_ref": "artifacts/tx/edited-001.json"},
     )
+    tx_span_seeds = executor.execute(
+        "tx-seeds",
+        ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
+        {"source_transcript_ref": "artifacts/tx/source-001.json", "source_transcript_hash": "sha256:abc"},
+    )
 
     assert hydrated.reason_codes == ["missing_deed_hydrator_interface"]
     assert opened.reason_codes == ["missing_artifact_opener_interface"]
@@ -345,4 +362,5 @@ def test_new_actions_return_explicit_missing_interface_reason_codes() -> None:
     assert tx_spans.reason_codes == ["missing_transcript_span_opener_interface"]
     assert tx_verify.reason_codes == ["missing_transcript_image_verifier_interface"]
     assert tx_apply.reason_codes == ["missing_transcript_plan_applier_interface"]
+    assert tx_span_seeds.reason_codes == ["missing_transcript_span_seeds_saver_interface"]
     assert tx_promote.reason_codes == ["missing_transcript_promoter_interface"]

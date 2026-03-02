@@ -523,6 +523,35 @@ class DossierManagementService:
             except Exception as _e3:
                 logger.warning(f"⚠️ Failed to append alignment consensus draft for {transcription.transcription_id}: {_e3}")
 
+            # Append agent-edited draft when transcript edit loop produced one.
+            try:
+                from config.paths import dossiers_views_root as _dossiers_views_root
+
+                _root = _dossiers_views_root()
+                agent_edit_path = (
+                    _root
+                    / str(dossier.id)
+                    / str(transcription.transcription_id)
+                    / "consensus"
+                    / f"agent_edit_{transcription.transcription_id}.json"
+                )
+                if agent_edit_path.exists():
+                    agent_edit_draft = Draft(
+                        draft_id=f"{transcription.transcription_id}_agent_edit",
+                        transcription_id=transcription.transcription_id,
+                        position=len(run.drafts),
+                        is_best=False,
+                    )
+                    agent_edit_draft.metadata = {
+                        "type": "agent_edit",
+                        "label": "Agent Edited Draft",
+                        "status": "completed",
+                        "style": "agent-edit",
+                    }
+                    run.drafts.append(agent_edit_draft)
+            except Exception as _e4:
+                logger.warning(f"⚠️ Failed to append agent-edited draft for {transcription.transcription_id}: {_e4}")
+
             # Build hierarchy
             segment.runs.append(run)
             dossier.segments.append(segment)

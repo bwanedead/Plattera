@@ -77,6 +77,7 @@ export const DraftItem: React.FC<DraftItemProps> = ({
   const isFailed = draft.metadata?.status === 'failed';
   const isLLMConsensus = (draft.metadata as any)?.type === 'llm_consensus';
   const isAlignmentConsensus = (draft.metadata as any)?.type === 'alignment_consensus';
+  const isAgentEdit = (draft.metadata as any)?.type === 'agent_edit';
   const versions = (draft.metadata as any)?.versions as any | undefined;
   const finalSelectedId = (run as any)?.metadata?.final_selected_id as string | undefined;
   const isFinal = (id: string) => typeof finalSelectedId === 'string' && finalSelectedId === id;
@@ -180,12 +181,15 @@ export const DraftItem: React.FC<DraftItemProps> = ({
         <div className="draft-info">
           <div className={`draft-name ${
             ((draft.metadata as any)?.type === 'llm_consensus') ? 'consensus' :
-            ((draft.metadata as any)?.type === 'alignment_consensus') ? 'alignment-consensus' : ''
+            ((draft.metadata as any)?.type === 'alignment_consensus') ? 'alignment-consensus' :
+            ((draft.metadata as any)?.type === 'agent_edit') ? 'consensus' : ''
           }`}>
             {((draft.metadata as any)?.type === 'llm_consensus')
               ? (isProcessing ? 'LLM Consensus (Processing...)': 'LLM Consensus Draft')
               : ((draft.metadata as any)?.type === 'alignment_consensus')
               ? 'Alignment Consensus Draft'
+              : ((draft.metadata as any)?.type === 'agent_edit')
+              ? 'Agent Edited Draft'
               : (isProcessing ? `Draft ${draft.position + 1} (Processing...)` : `Draft ${draft.position + 1}`)}
             {draft.isBest && <span className="best-indicator">*</span>}
           </div>
@@ -198,7 +202,7 @@ export const DraftItem: React.FC<DraftItemProps> = ({
           {versions && (
             <div className="draft-versions" style={{ marginTop: 6, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               {/* Raw + Alignment only for raw draft items */}
-              {!(isLLMConsensus || isAlignmentConsensus) && (
+              {!(isLLMConsensus || isAlignmentConsensus || isAgentEdit) && (
                 <>
                   <span
                     onClick={(e) => {

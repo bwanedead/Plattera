@@ -8,11 +8,14 @@ from pydantic import BaseModel, Field
 
 class TranscriptEditAgentRunRequest(BaseModel):
     dossier_id: Optional[str] = None
+    transcription_id: Optional[str] = None
+    trigger: Optional[str] = None
     source_transcript_ref: Optional[str] = None
     source_text: Optional[str] = None
     source_image_refs: list[str] = Field(default_factory=list, max_length=5)
     model: str = "gpt-5.2"
     max_iterations: int = Field(default=4, ge=1, le=30)
+    min_iterations_before_complete: int = Field(default=3, ge=1, le=10)
     mode: str = Field(default="audit_then_repair_then_promote")
     auto_promote: bool = True
     edit_plan: Optional[dict[str, Any]] = None

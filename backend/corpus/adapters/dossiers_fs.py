@@ -228,6 +228,20 @@ class DossiersFSAdapter:
                 p = root / base_id / "consensus" / f"alignment_{base_id}_{ver}.json"
                 if p.exists():
                     return p
+
+        # --- Agent-edited transcript draft ---
+        if "_agent_edit" in draft_id:
+            if draft_id.endswith("_agent_edit_v1") or draft_id.endswith("_agent_edit_v2"):
+                base_id = draft_id.split("_agent_edit_")[0]
+                ver = "v1" if draft_id.endswith("_v1") else "v2"
+                p = root / base_id / "consensus" / f"agent_edit_{base_id}_{ver}.json"
+                if p.exists():
+                    return p
+                return None
+            base_id = draft_id.removesuffix("_agent_edit")
+            p = root / base_id / "consensus" / f"agent_edit_{base_id}.json"
+            if p.exists():
+                return p
                 return None
             else:
                 base_id = draft_id.removesuffix("_consensus_alignment")

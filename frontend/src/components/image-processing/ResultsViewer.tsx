@@ -213,7 +213,11 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
               } catch {}
 
               const allDrafts = resolved.context?.run?.drafts || [];
-              const rawDrafts = allDrafts.filter(d => !d.id.endsWith('_consensus_llm') && !d.id.endsWith('_consensus_alignment'));
+              const rawDrafts = allDrafts.filter(d =>
+                !d.id.endsWith('_consensus_llm') &&
+                !d.id.endsWith('_consensus_alignment') &&
+                !d.id.endsWith('_agent_edit')
+              );
               const individual_results = rawDrafts.map((draft, i) => ({
                 success: true,
                 text: '',
@@ -304,7 +308,11 @@ export const ResultsViewer: React.FC<ResultsViewerProps> = ({
         const resolved: ResolvedSelection = await resolveSelectionToText(nextPath, undefined);
 
         const allDrafts = resolved.context?.run?.drafts || [];
-        const rawDrafts = allDrafts.filter(d => !d.id.endsWith('_consensus_llm') && !d.id.endsWith('_consensus_alignment'));
+        const rawDrafts = allDrafts.filter(d =>
+          !d.id.endsWith('_consensus_llm') &&
+          !d.id.endsWith('_consensus_alignment') &&
+          !d.id.endsWith('_agent_edit')
+        );
 
         const draftIds = Array.from(new Set([
           ...allDrafts.map(d => d.id),

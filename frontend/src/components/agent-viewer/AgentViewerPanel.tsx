@@ -24,16 +24,102 @@ type CanvasMode = 'transcription' | 'agent';
 
 function summarizeEventForesight(evt: AgentViewerEvent | null): string {
   if (!evt) return 'I am waiting for the next instruction.';
+  // Prefer dynamic backend message if substantive
+  const line1 = String(evt.status?.line1 || '');
+  if (line1.length > 30) return line1;
+  // For done events, use the backend terminal message
+  if (evt.event_type === 'done') {
+    if (line1.length > 10) return line1;
+    return 'I have finished this run.';
+  }
+  if (evt.event_type === 'human_feedback_needed') return 'Next, I need your decision before proceeding.';
+  // Fallback to phase-based canned text for old/sparse events
   const phase = String(evt.status?.stage || evt.payload?.phase || '').toLowerCase();
   if (phase === 'audit') return 'Next, I will audit the transcript for deterministic issues.';
   if (phase === 'open_spans') return 'Next, I will open localized spans to inspect target clauses.';
   if (phase === 'image_verify') return 'Next, I will verify mapping-critical claims against the source image.';
   if (phase === 'apply') return 'Next, I will apply the candidate edit plan safely.';
   if (phase === 'promote') return 'Next, I will evaluate promotion eligibility for mapping use.';
-  if (evt.event_type === 'human_feedback_needed') return 'Next, I need your decision before proceeding.';
-  if (evt.event_type === 'done') return 'I have finished this run.';
   if (phase) return `Next, I will continue with ${phase.replace(/_/g, ' ')}.`;
   return 'Next, I will continue with the safest available step.';
+}
+
+const SEVERITY_COLORS: Record<string, string> = {
+  error: '#ff6b6b',
+  warning: '#d4a83f',
+  info: '#8ec5ff',
+};
+
+function EventDetailBlock({ evt }: { evt: AgentViewerEvent }) {
+  const phase = String(evt.payload?.phase || '').toLowerCase();
+  const detail = evt.payload?.detail as Record<string, any> | undefined;
+  if (!detail) return null;
+
+  if (phase === 'audit_result' && Array.isArray(detail.top_findings)) {
+    return (
+      <div style={{ padding: '6px 0', fontSize: 11, lineHeight: 1.4 }}>
+        {(detail.top_findings as any[]).slice(0, 5).map((f: any, i: number) => (
+          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'baseline', marginBottom: 3 }}>
+            <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 4, background: SEVERITY_COLORS[f.severity] || '#555', color: '#fff', flexShrink: 0 }}>
+              {String(f.severity || 'info').toUpperCase()}
+            </span>
+            <span style={{ opacity: 0.88 }}>{String(f.message || '').slice(0, 140)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (phase === 'open_spans_result' && Array.isArray(detail.spans)) {
+    return (
+      <div style={{ padding: '6px 0', fontSize: 11, lineHeight: 1.4 }}>
+        {(detail.spans as any[]).slice(0, 4).map((s: any, i: number) => (
+          <div key={i} style={{ marginBottom: 4, fontFamily: 'monospace', fontSize: 10, opacity: 0.82, background: 'rgba(255,255,255,0.03)', padding: '3px 6px', borderRadius: 4 }}>
+            {String(s.text || '').slice(0, 100)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (phase === 'image_verify_result' && Array.isArray(detail.results)) {
+    return (
+      <div style={{ padding: '6px 0', fontSize: 11, lineHeight: 1.4 }}>
+        {(detail.results as any[]).slice(0, 5).map((r: any, i: number) => {
+          const st = String(r.status || '').toLowerCase();
+          const isOk = st === 'confirmed' || st === 'match';
+          return (
+            <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'baseline', marginBottom: 3 }}>
+              <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 4, background: isOk ? '#2ac477' : '#ff6b6b', color: '#fff', flexShrink: 0 }}>
+                {isOk ? 'OK' : 'FAIL'}
+              </span>
+              <span style={{ opacity: 0.82 }}>{String(r.check_id || '')} — {String(r.observed_text || '').slice(0, 80)}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if ((phase === 'plan_result' || phase === 'apply_result') && Array.isArray(detail.ops_preview || detail.ops)) {
+    const ops = (detail.ops_preview || detail.ops || []) as any[];
+    return (
+      <div style={{ padding: '6px 0', fontSize: 11, lineHeight: 1.4 }}>
+        {ops.slice(0, 4).map((op: any, i: number) => (
+          <div key={i} style={{ marginBottom: 4 }}>
+            <div style={{ fontSize: 10, opacity: 0.6 }}>{String(op.reason || '').slice(0, 80)}</div>
+            <div>
+              <span style={{ textDecoration: 'line-through', opacity: 0.5 }}>{String(op.original_text || '')}</span>
+              {' → '}
+              <span style={{ color: '#2ac477' }}>{String(op.replacement_text || '')}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function readableArtifactText(data: any): string {
@@ -42,18 +128,43 @@ function readableArtifactText(data: any): string {
   if (typeof data !== 'object') return String(data);
   const asObj = data as Record<string, any>;
   const lines: string[] = [];
+  const findingsList =
+    Array.isArray(asObj.findings)
+      ? asObj.findings
+      : Array.isArray(asObj.report?.findings)
+      ? asObj.report.findings
+      : null;
+  const opsList =
+    Array.isArray(asObj.ops)
+      ? asObj.ops
+      : Array.isArray(asObj.plan?.ops)
+      ? asObj.plan.ops
+      : null;
+  const summaryObj =
+    typeof asObj.summary === 'object' && asObj.summary !== null
+      ? asObj.summary
+      : typeof asObj.report?.summary === 'object' && asObj.report.summary !== null
+      ? asObj.report.summary
+      : null;
 
   if (typeof asObj.artifact_type === 'string') {
     lines.push(`Artifact Type: ${asObj.artifact_type}`);
   }
+  if (summaryObj) {
+    const err = Number((summaryObj as any).error_count ?? (summaryObj as any).errors ?? 0);
+    const warn = Number((summaryObj as any).warning_count ?? (summaryObj as any).warnings ?? 0);
+    const total = Number((summaryObj as any).total_checks ?? (summaryObj as any).total ?? 0);
+    if (Number.isFinite(err) || Number.isFinite(warn) || Number.isFinite(total)) {
+      lines.push(`Summary: errors=${Number.isFinite(err) ? err : 0}, warnings=${Number.isFinite(warn) ? warn : 0}, total=${Number.isFinite(total) ? total : 0}`);
+    }
+  }
 
   if (Array.isArray(asObj.sections)) {
     lines.push(`Sections: ${asObj.sections.length}`);
-    asObj.sections.slice(0, 12).forEach((section: any, idx: number) => {
+    asObj.sections.slice(0, 24).forEach((section: any) => {
       const body = typeof section?.body === 'string' ? section.body.trim() : '';
       if (!body) return;
       lines.push('');
-      lines.push(`Section ${idx + 1}`);
       lines.push(body);
     });
     return lines.join('\n');
@@ -71,9 +182,9 @@ function readableArtifactText(data: any): string {
     return lines.join('\n').trim();
   }
 
-  if (Array.isArray(asObj.findings)) {
-    lines.push(`Findings: ${asObj.findings.length}`);
-    asObj.findings.slice(0, 30).forEach((finding: any, idx: number) => {
+  if (findingsList) {
+    lines.push(`Findings: ${findingsList.length}`);
+    findingsList.slice(0, 30).forEach((finding: any, idx: number) => {
       const sev = String(finding?.severity || 'unknown');
       const msg = String(finding?.message || '').trim();
       const kind = String(finding?.finding_type || 'finding');
@@ -82,9 +193,9 @@ function readableArtifactText(data: any): string {
     return lines.join('\n');
   }
 
-  if (Array.isArray(asObj.ops)) {
-    lines.push(`Proposed Edits: ${asObj.ops.length}`);
-    asObj.ops.slice(0, 25).forEach((op: any, idx: number) => {
+  if (opsList) {
+    lines.push(`Proposed Edits: ${opsList.length}`);
+    opsList.slice(0, 25).forEach((op: any, idx: number) => {
       const opType = String(op?.op_type || 'edit');
       const reason = String(op?.reason || '').trim();
       lines.push(`${idx + 1}. ${opType}${reason ? ` — ${reason}` : ''}`);
@@ -255,20 +366,40 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
   const orderedEvents = React.useMemo(() => {
     const sorted = [...events];
     sorted.sort((a, b) => {
-      const as = typeof a.seq === 'number' ? a.seq : -1;
-      const bs = typeof b.seq === 'number' ? b.seq : -1;
-      if (as !== bs) return bs - as;
       const at = typeof a.timestamp_epoch_seconds === 'number' ? a.timestamp_epoch_seconds : -1;
       const bt = typeof b.timestamp_epoch_seconds === 'number' ? b.timestamp_epoch_seconds : -1;
-      return bt - at;
+      if (at !== bt) return bt - at;
+      const as = typeof a.seq === 'number' ? a.seq : -1;
+      const bs = typeof b.seq === 'number' ? b.seq : -1;
+      return bs - as;
     });
     return sorted;
   }, [events]);
 
-  const currentEvent = orderedEvents[0] || null;
+  const doneEvent = React.useMemo(() => orderedEvents.find((evt) => evt.event_type === 'done') || null, [orderedEvents]);
+  const currentEvent = doneEvent || orderedEvents[0] || null;
+  const detailEvent = React.useMemo(
+    () => orderedEvents.find((evt) => evt?.payload?.detail && typeof evt.payload.detail === 'object') || null,
+    [orderedEvents],
+  );
+  const isRunTerminal = Boolean(doneEvent);
+  const terminalStatus: 'completed' | 'needs_review' | 'failed' | null = isRunTerminal
+    ? (() => {
+        const doneEvt = doneEvent;
+        const stage = String(doneEvt?.status?.stage || doneEvt?.payload?.phase || '').toLowerCase();
+        if (stage === 'completed') return 'completed';
+        if (stage === 'failed') return 'failed';
+        return 'needs_review';
+      })()
+    : null;
   const currentStatusText = summarizeEventForesight(currentEvent);
+  const terminalSummary = React.useMemo(() => {
+    const raw = doneEvent?.payload?.summary;
+    return raw && typeof raw === 'object' ? (raw as Record<string, any>) : null;
+  }, [doneEvent]);
 
   const activeFeedbackPrompt = React.useMemo(() => {
+    if (isRunTerminal) return null;
     for (const evt of orderedEvents) {
       if (evt.event_type !== 'human_feedback_needed') continue;
       const promptId = typeof evt.payload?.prompt_id === 'string' ? evt.payload.prompt_id : '';
@@ -283,7 +414,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
       };
     }
     return null;
-  }, [orderedEvents]);
+  }, [orderedEvents, isRunTerminal]);
 
   const activePromptSatisfied = React.useMemo(() => {
     if (!activeFeedbackPrompt?.promptId) return false;
@@ -292,14 +423,48 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
 
   React.useEffect(() => {
     if (canvasMode !== 'agent') return;
-    if (selectedArtifactRef) return;
-    for (const evt of orderedEvents) {
+    if (!orderedEvents.length) return;
+    const eventsWithRefs = orderedEvents.filter(
+      (evt) => evt && evt.artifact_refs && Object.keys(evt.artifact_refs).length > 0,
+    );
+    if (!eventsWithRefs.length) return;
+    const phaseRefKeys: Record<string, string[]> = {
+      audit: ['tx_validator_report_ref'],
+      audit_result: ['tx_validator_report_ref'],
+      open_spans: ['tx_open_spans_ref'],
+      open_spans_result: ['tx_open_spans_ref'],
+      image_verify: ['tx_image_verify_ref'],
+      image_verify_result: ['tx_image_verify_ref'],
+      plan: ['tx_edit_plan_ref'],
+      plan_result: ['tx_edit_plan_ref'],
+      apply: ['tx_edited_transcript_ref', 'tx_apply_report_ref'],
+      apply_result: ['tx_edited_transcript_ref', 'tx_apply_report_ref'],
+      promote: ['tx_mapping_pointer_ref'],
+    };
+    let bestRef: string | null = null;
+    for (const evt of eventsWithRefs) {
       const refs = evt.artifact_refs || {};
-      const firstRef = Object.values(refs)[0];
-      if (firstRef?.artifact_path) {
-        setSelectedArtifactRef(firstRef.artifact_path);
-        break;
+      const phase = String(evt.payload?.phase || evt.status?.stage || '').toLowerCase();
+      const preferredKeys = phaseRefKeys[phase] || [];
+      for (const key of preferredKeys) {
+        const ref = refs[key];
+        if (ref?.artifact_path) {
+          bestRef = ref.artifact_path;
+          break;
+        }
       }
+      if (bestRef) break;
+      for (const key of ['tx_edited_transcript_ref', 'tx_source_transcript_ref', 'tx_validator_report_ref', 'ir_ref']) {
+        const ref = refs[key];
+        if (ref?.artifact_path) {
+          bestRef = ref.artifact_path;
+          break;
+        }
+      }
+      if (bestRef) break;
+    }
+    if (bestRef && bestRef !== selectedArtifactRef) {
+      setSelectedArtifactRef(bestRef);
     }
   }, [canvasMode, orderedEvents, selectedArtifactRef]);
 
@@ -526,17 +691,29 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
 
         {canvasMode === 'agent' && (
           <div style={{ minHeight: 0, zIndex: 1, position: 'relative' }}>
-            <div style={{ position: 'absolute', inset: '12px 360px 78px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.28)', overflow: 'auto', padding: 14 }}>
-              {loadingArtifact && <div style={{ fontSize: 12, opacity: 0.86 }}>Loading latest artifact…</div>}
-              {artifactError && <div style={{ fontSize: 12, color: '#ff9aa0' }}>{artifactError}</div>}
-              {!loadingArtifact && !artifactError && !selectedArtifactJson && (
-                <div style={{ fontSize: 12, opacity: 0.72 }}>No artifact loaded yet. Waiting for agent outputs…</div>
+            <div style={{ position: 'absolute', inset: '12px 360px 78px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.28)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              {currentEvent && (
+                <div style={{ padding: '6px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(142,197,255,0.15)', border: '1px solid rgba(142,197,255,0.25)' }}>
+                    {String(currentEvent.payload?.phase || currentEvent.status?.stage || 'idle').replace(/_/g, ' ')}
+                  </span>
+                  {typeof currentEvent.iteration === 'number' && (
+                    <span style={{ fontSize: 10, opacity: 0.6 }}>iter {currentEvent.iteration}</span>
+                  )}
+                </div>
               )}
-              {!loadingArtifact && !artifactError && selectedArtifactJson && (
-                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.4 }}>
-                  {readableCanvasText}
-                </pre>
-              )}
+              <div style={{ flex: 1, overflow: 'auto', padding: 14 }}>
+                {loadingArtifact && <div style={{ fontSize: 12, opacity: 0.86 }}>Loading latest artifact…</div>}
+                {artifactError && <div style={{ fontSize: 12, color: '#ff9aa0' }}>{artifactError}</div>}
+                {!loadingArtifact && !artifactError && !selectedArtifactJson && (
+                  <div style={{ fontSize: 12, opacity: 0.72 }}>No artifact loaded yet. Waiting for agent outputs…</div>
+                )}
+                {!loadingArtifact && !artifactError && selectedArtifactJson && (
+                  <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.4 }}>
+                    {readableCanvasText}
+                  </pre>
+                )}
+              </div>
             </div>
 
             <div style={{ position: 'absolute', top: 12, right: 12, width: 336, bottom: 78, borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.42)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -547,19 +724,48 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
               </div>
 
               <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: 8, alignItems: 'center' }}>
-                <span
-                  style={{
-                    width: 11,
-                    height: 11,
-                    borderRadius: 999,
-                    border: '2px solid rgba(255,255,255,0.28)',
-                    borderTopColor: '#8ec5ff',
-                    display: 'inline-block',
-                    animation: 'agentViewerSpin 1s linear infinite',
-                  }}
-                />
+                {isRunTerminal ? (
+                  <span
+                    style={{
+                      width: 11,
+                      height: 11,
+                      borderRadius: 999,
+                      background: terminalStatus === 'completed' ? '#2ac477' : terminalStatus === 'failed' ? '#ff6b6b' : '#d4a83f',
+                      display: 'inline-block',
+                      flexShrink: 0,
+                    }}
+                  />
+                ) : (
+                  <span
+                    style={{
+                      width: 11,
+                      height: 11,
+                      borderRadius: 999,
+                      border: '2px solid rgba(255,255,255,0.28)',
+                      borderTopColor: '#8ec5ff',
+                      display: 'inline-block',
+                      animation: 'agentViewerSpin 1s linear infinite',
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
                 <div style={{ fontSize: 12, lineHeight: 1.35 }}>{currentStatusText}</div>
               </div>
+
+              {terminalSummary && (
+                <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 11, lineHeight: 1.4, opacity: 0.9 }}>
+                  <div>Status: {String(terminalSummary.status || 'unknown')}</div>
+                  <div>Reason: {String(terminalSummary.reason_code || 'n/a')}</div>
+                  <div>Edits Applied: {Number(terminalSummary.edits_applied_total || 0)}</div>
+                  <div>HITL Used: {terminalSummary.used_human_feedback ? 'yes' : 'no'}</div>
+                </div>
+              )}
+
+              {detailEvent && (
+                <div style={{ padding: '0 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <EventDetailBlock evt={detailEvent} />
+                </div>
+              )}
 
               <div style={{ padding: '10px 12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {floatingHistory.map((item) => (
@@ -572,7 +778,27 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
 
             <div style={{ position: 'absolute', left: 12, right: 12, bottom: 12, borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.58)', padding: 10 }}>
               {activeFeedbackPrompt && (
-                <div style={{ marginBottom: 8 }}>
+                <div
+                  style={{
+                    marginBottom: 8,
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    border: activeFeedbackPrompt.blocking
+                      ? '1px solid rgba(255, 171, 64, 0.85)'
+                      : '1px solid rgba(255,255,255,0.16)',
+                    background: activeFeedbackPrompt.blocking
+                      ? 'linear-gradient(180deg, rgba(255,171,64,0.14), rgba(255,171,64,0.05))'
+                      : 'rgba(255,255,255,0.04)',
+                    boxShadow:
+                      activeFeedbackPrompt.blocking && !activePromptSatisfied
+                        ? '0 0 0 1px rgba(255,171,64,0.22), 0 0 14px rgba(255,171,64,0.24)'
+                        : 'none',
+                    animation:
+                      activeFeedbackPrompt.blocking && !activePromptSatisfied
+                        ? 'agentViewerPulse 1.4s ease-in-out infinite'
+                        : 'none',
+                  }}
+                >
                   <div style={{ fontSize: 12, fontWeight: 600 }}>{activeFeedbackPrompt.line1}</div>
                   {!!activeFeedbackPrompt.line2 && <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>{activeFeedbackPrompt.line2}</div>}
                   <div style={{ fontSize: 10, opacity: 0.64, marginTop: 3 }}>prompt_id: {activeFeedbackPrompt.promptId}</div>
@@ -582,7 +808,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
               {activeFeedbackPrompt?.choices?.length ? (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                   {activeFeedbackPrompt.choices.map((choice) => (
-                    <button key={choice} onClick={() => submitFeedback(choice)} disabled={feedbackBusy || activePromptSatisfied} style={{ fontSize: 11, borderRadius: 999, padding: '4px 8px' }}>
+                    <button key={choice} onClick={() => submitFeedback(choice)} disabled={feedbackBusy || activePromptSatisfied || isRunTerminal} style={{ fontSize: 11, borderRadius: 999, padding: '4px 8px' }}>
                       {choice}
                     </button>
                   ))}
@@ -597,7 +823,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
                   placeholder="Send guidance to the agent..."
                   style={{ width: '100%', resize: 'vertical', borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.02)', padding: 8, fontSize: 12 }}
                 />
-                <button onClick={() => submitFeedback()} disabled={feedbackBusy || activePromptSatisfied} style={{ height: 34, borderRadius: 8, padding: '0 10px', fontSize: 12 }}>
+                <button onClick={() => submitFeedback()} disabled={feedbackBusy || activePromptSatisfied || isRunTerminal} style={{ height: 34, borderRadius: 8, padding: '0 10px', fontSize: 12 }}>
                   {feedbackBusy ? 'Sending…' : 'Send'}
                 </button>
               </div>
@@ -606,7 +832,14 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
               {activePromptSatisfied && <div style={{ marginTop: 6, fontSize: 11, color: '#8ee5b0' }}>Prompt response received.</div>}
             </div>
 
-            <style>{`@keyframes agentViewerSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+            <style>{`
+              @keyframes agentViewerSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+              @keyframes agentViewerPulse {
+                0% { box-shadow: 0 0 0 1px rgba(255,171,64,0.16), 0 0 8px rgba(255,171,64,0.14); }
+                50% { box-shadow: 0 0 0 1px rgba(255,171,64,0.3), 0 0 20px rgba(255,171,64,0.32); }
+                100% { box-shadow: 0 0 0 1px rgba(255,171,64,0.16), 0 0 8px rgba(255,171,64,0.14); }
+              }
+            `}</style>
           </div>
         )}
       </div>

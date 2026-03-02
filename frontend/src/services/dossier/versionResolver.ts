@@ -13,7 +13,7 @@ function getDraftPosition(draft: Draft): number {
 }
 
 export function isStrictVersionedId(id: string): boolean {
-  return /(_v[12]$|_draft_\d+_v[12]$|_consensus_(llm|alignment)_v[12]$)/.test(String(id));
+  return /(_v[12]$|_draft_\d+_v[12]$|_consensus_(llm|alignment)_v[12]$|_agent_edit(?:_v[12])?$)/.test(String(id));
 }
 
 /**
@@ -23,6 +23,10 @@ export function isStrictVersionedId(id: string): boolean {
 export function pickStrictVersionedId(run: Run, draft: Draft): string {
   const transcriptionId = getTranscriptionId(run);
   const baseTid = getBaseTidFromTranscriptionId(transcriptionId);
+  const draftType = String((draft as any)?.metadata?.type || '');
+  if (draftType === 'agent_edit' || String((draft as any)?.id || '').endsWith('_agent_edit')) {
+    return `${baseTid}_agent_edit`;
+  }
   const pos = getDraftPosition(draft);
   const versions = ((draft as any)?.metadata?.versions) || {};
 

@@ -42,6 +42,10 @@ from transcript_edit.contracts import (
     transcript_text_hash,
 )
 from transcript_edit.persistence import TranscriptionEditPersistenceService
+from transcript_edit.span_seeds import (
+    build_transcript_span_seeds_artifact,
+    load_transcript_text_for_seeds,
+)
 from transcript_edit.validators import run_validators
 from services.llm.openai import OpenAIService
 
@@ -603,11 +607,23 @@ class TranscriptEditPlanApplyTool:
 
     def apply_edit_plan(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
         dossier_id = _read_str(inputs.get("dossier_id")) or "adhoc"
+        plan_ref_from_inputs = _read_str(inputs.get("edit_plan_ref") or inputs.get("tx_edit_plan_ref"))
+        plan_payload: dict[str, Any] | None = None
+        if plan_ref_from_inputs:
+            path = Path(plan_ref_from_inputs)
+            if not path.exists():
+                return _tool_refusal_result("tx_apply_missing_edit_plan_ref")
+            loaded = _read_json_dict(path)
+            if not isinstance(loaded, dict):
+                return _tool_refusal_result("tx_apply_invalid_edit_plan_ref")
+            plan_payload = loaded
         raw_plan = inputs.get("edit_plan")
-        if not isinstance(raw_plan, dict):
+        if plan_payload is None and isinstance(raw_plan, dict):
+            plan_payload = raw_plan
+        if not isinstance(plan_payload, dict):
             return _tool_refusal_result("tx_apply_missing_edit_plan")
         try:
-            plan = EditPlanV0.model_validate(raw_plan)
+            plan = EditPlanV0.model_validate(plan_payload)
         except Exception:
             return _tool_refusal_result("tx_apply_invalid_edit_plan")
         try:
@@ -626,7 +642,7 @@ class TranscriptEditPlanApplyTool:
             sections=canonical.transcript_sections,
             metadata={"source": "agent_kernel_tx_apply"},
         )
-        plan_ref = self.persistence.save_edit_plan(dossier_id=dossier_id, plan=plan)
+        plan_ref = plan_ref_from_inputs or self.persistence.save_edit_plan(dossier_id=dossier_id, plan=plan)
         apply_report, output_doc = apply_plan_to_sections(plan=plan, document=source_document)
         apply_ref = self.persistence.save_apply_report(dossier_id=dossier_id, report=apply_report)
         if apply_report.root_status == "refused":
@@ -664,6 +680,40 @@ class TranscriptEditPlanApplyTool:
                 "refused_count": apply_report.refused_count,
                 "root_status": apply_report.root_status,
             },
+        }
+
+
+@dataclass
+class TranscriptSpanSeedsSaverTool:
+    """Build and persist transcript span seeds through kernel action execution."""
+
+    persistence: TranscriptionEditPersistenceService = field(default_factory=TranscriptionEditPersistenceService)
+
+    def save_transcript_span_seeds(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        dossier_id = _read_str(inputs.get("dossier_id")) or "adhoc"
+        source_ref = _read_str(inputs.get("source_transcript_ref") or inputs.get("tx_source_transcript_ref"))
+        source_hash = _read_str(inputs.get("source_transcript_hash") or inputs.get("tx_source_transcript_hash"))
+        max_seeds = _bounded_int(inputs.get("max_seeds"), default=24, minimum=1, maximum=30)
+        if source_ref is None or source_hash is None:
+            return _tool_refusal_result("tx_span_seeds_missing_source")
+        transcript_text = load_transcript_text_for_seeds(source_ref)
+        if not transcript_text:
+            return _tool_refusal_result("tx_span_seeds_missing_source_text")
+        artifact = build_transcript_span_seeds_artifact(
+            dossier_id=dossier_id,
+            source_transcript_ref=source_ref,
+            source_transcript_hash=source_hash,
+            transcript_text=transcript_text,
+            max_seeds=max_seeds,
+        )
+        seeds_ref = self.persistence.save_transcript_span_seeds(dossier_id=dossier_id, artifact=artifact)
+        return {
+            "artifact_ref": ArtifactRef(artifact_path=seeds_ref),
+            "reason_codes": ["tx_span_seeds_saved"],
+            "tx_source_transcript_ref": source_ref,
+            "tx_source_transcript_hash": source_hash,
+            "tx_span_seeds_ref": seeds_ref,
+            "tx_span_seeds_count": len(artifact.seeds),
         }
 
 

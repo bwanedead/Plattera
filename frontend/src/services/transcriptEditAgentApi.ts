@@ -29,6 +29,7 @@ export interface TranscriptEditRunSnapshot {
   run_artifact_ref?: string | null;
   latest_refs?: Record<string, any> | null;
   review_required?: boolean;
+  terminal_summary?: Record<string, any> | null;
   live_status?: TranscriptEditLiveStatus | null;
   progress_log?: TranscriptEditLiveStatus[] | null;
 }
