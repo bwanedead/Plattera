@@ -4,6 +4,7 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from collections import deque
 from typing import Deque, Dict, Any, Optional
+from pathlib import Path
 
 from config.paths import is_frozen
 
@@ -13,6 +14,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 RING_BUFFER_SIZE = int(os.getenv("RING_BUFFER_SIZE", "2000"))
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
 ACTIVE_LOG_FILE = LOG_FILE
+MAX_SESSION_LOG_FILES = int(os.getenv("LOG_MAX_SESSION_FILES", "5"))
 
 
 class RingBufferHandler(logging.Handler):
@@ -79,6 +81,7 @@ def init_logging():
     else:
         log_file = LOG_FILE
     ACTIVE_LOG_FILE = log_file
+    _prune_session_logs(log_dir=LOG_DIR, active_log_file=ACTIVE_LOG_FILE, keep_count=MAX_SESSION_LOG_FILES)
 
     # Rotating file handler (append-only)
     file_handler = RotatingFileHandler(
@@ -106,3 +109,35 @@ def init_logging():
     # Keep uvicorn.error at INFO to see startup/errors
     logging.getLogger("uvicorn.error").setLevel(logging.INFO)
 
+
+def _prune_session_logs(*, log_dir: str, active_log_file: str, keep_count: int) -> None:
+    """Retain only the newest per-session app_*.log files to cap disk growth."""
+    try:
+        keep = max(1, int(keep_count))
+    except Exception:
+        keep = 5
+    try:
+        directory = Path(log_dir)
+        if not directory.exists():
+            return
+        active_path = Path(active_log_file).resolve()
+        session_logs = sorted(
+            (p for p in directory.glob("app_*.log") if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        kept = 0
+        for path in session_logs:
+            if path.resolve() == active_path:
+                kept += 1
+                continue
+            if kept < keep:
+                kept += 1
+                continue
+            try:
+                path.unlink()
+            except Exception:
+                # Never fail startup due to log housekeeping.
+                pass
+    except Exception:
+        pass

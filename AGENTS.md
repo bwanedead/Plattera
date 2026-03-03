@@ -177,6 +177,7 @@ Install backend deps with `pip install -r backend/requirements.txt`, then run `u
 
 ## Logs for Agents (Recommended Workflow)
 - Prefer API log access first (stable and filterable), then file reads only if needed.
+- Primary backend log module: `backend/api/logs.py` (API) and `backend/services/logging_service.py` (file/ring config).
 - Endpoints:
   - `GET /api/logs/recent?limit=500` for in-memory recent logs.
   - `GET /api/logs/tail?source=active&limit_lines=400` for file-backed tail.
@@ -190,6 +191,9 @@ Install backend deps with `pip install -r backend/requirements.txt`, then run `u
   - `active` (current runtime log file; preferred)
   - `latest_session` (newest `app_*.log`)
   - `app` (stable `app.log`)
+- File location:
+  - Session logs are written under `backend/logs/` as `app_YYYYMMDD_HHMMSS.log`.
+  - Retention is capped to the newest 5 session logs by default (`LOG_MAX_SESSION_FILES`, set in `backend/services/logging_service.py`).
 - Keep pulls targeted:
   - Start with `run_id` and/or `contains` filters.
   - Increase `limit_lines` only when needed.
@@ -205,6 +209,16 @@ Recent commits are concise status lines (`ui improvements in regard to buttons..
 
 ## Architecture Expectations
 All development must follow modular, scalable architecture with strict separation of concerns. Code should not be placed into large, catch-all files or allowed to deteriorate into spaghetti structures. Each module or component should have a clearly defined responsibility, and coupling between unrelated parts of the system should be avoided. Maintainability, clarity, extensibility, and long-term soundness take priority over any fast workaround or short-term patch. When there is a choice between a quick implementation and a structurally correct solution, the more robust and reliable option should always be taken. Shortcuts that compromise future stability, readability, or adaptability should not be used.
+
+## Separation of Concerns Protocol
+- Before implementing substantial edits, ask: **"Should these edits be separated into dedicated modules of responsibility?"**
+- If yes, define the target architecture first:
+  - module responsibilities
+  - boundaries/contracts between modules
+  - how this supports future building, pivoting, and rewind
+- Avoid growing high-churn files into monoliths. If a change mixes transport/state/policy/rendering/persistence concerns, split it.
+- Optimize for architecture that stays sane under ongoing iteration, not just immediate delivery.
+- Avoid massive spaghetti piles.
 
 
 ## Virtual Environment (venv) Requirements

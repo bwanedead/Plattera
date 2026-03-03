@@ -9,7 +9,12 @@ from agent_kernel.session import KernelSessionManager
 from transcript_edit.persistence import TranscriptionEditPersistenceService
 
 from .contracts import TranscriptEditAgentRunRequest
-from .decision_ledger import ledger_snapshot_for_payload, update_ledger_from_iteration
+from .decision_ledger import (
+    choose_investigation_focus,
+    has_blocking_dispute,
+    ledger_snapshot_for_payload,
+    update_ledger_from_iteration,
+)
 from .draft_persistence import persist_agent_edit_draft
 from .hitl_feedback import (
     build_human_feedback_prompt,
@@ -83,6 +88,7 @@ def handle_clean_iteration(
     progress_cb: Callable[[dict[str, Any]], None] | None,
     model: str,
 ) -> TranscriptEditDecision | None:
+    actionable_blocking_closure = _has_actionable_blocking_closure(state.decision_ledger)
     policy_facts = TranscriptEditFacts(
         iterations=iterations,
         mode=mode,
@@ -95,6 +101,7 @@ def handle_clean_iteration(
         has_disagreements=has_disagreements,
         has_images=bool(request.source_image_refs),
         min_iterations_before_complete=min_iterations_before_complete,
+        actionable_blocking_closure=actionable_blocking_closure,
     )
     needs_terminal_verify = must_verify_before_terminal(policy_facts)
     final_verify_ran = False
@@ -362,6 +369,20 @@ def handle_repair_iteration(
     span_context: list[dict[str, Any]] = []
     image_verification: dict[str, Any] = {}
     if manual_plan_override is None:
+        focus = choose_investigation_focus(state.decision_ledger)
+        focus_reason = str((focus or {}).get("next_check_reason") or "Prioritizing highest-risk unresolved item.")
+        focus_reason_code = str((focus or {}).get("next_check_reason_code") or "next_open_item")
+        focus_key = str((focus or {}).get("decision_key") or "").strip()
+        if focus:
+            emit_progress(
+                progress_cb,
+                ticker_payload(
+                    iteration=iterations,
+                    phase="investigate",
+                    message=focus_reason,
+                    latest_refs=state.latest_refs,
+                ),
+            )
         emit_progress(
             progress_cb,
             open_spans_payload(
@@ -374,17 +395,19 @@ def handle_repair_iteration(
             ticker_payload(
                 iteration=iterations,
                 phase="open_spans",
-                message="Gathering localized transcript spans around highest-risk mapping findings.",
+                message=f"Gathering localized spans for {focus_key or 'priority findings'} ({focus_reason_code}).",
                 latest_refs=state.latest_refs,
             ),
         )
+        focused_findings = _findings_for_focus_key(top_findings=planning_findings, focus_key=focus_key)
+        focus_findings = focused_findings if focused_findings else planning_findings
         span_context = _open_planner_context_spans(
             session_manager=session_manager,
             session_id=session_id,
             iteration=iterations,
             dossier_id=request.dossier_id,
             source_transcript_ref=state.current_transcript_ref,
-            top_findings=planning_findings,
+            top_findings=focus_findings,
         )
         emit_progress(
             progress_cb,
@@ -417,7 +440,7 @@ def handle_repair_iteration(
             iteration=iterations,
             dossier_id=request.dossier_id,
             source_transcript_ref=state.current_transcript_ref,
-            top_findings=planning_findings,
+            top_findings=focus_findings,
             disagreement_hints=effective_disagreement_hints,
             source_image_refs=request.source_image_refs,
             model=model,
@@ -502,13 +525,23 @@ def handle_repair_iteration(
 
     manual_plan = manual_plan_override or (request.edit_plan if isinstance(request.edit_plan, dict) else None)
     consensus_plan_payload = None
-    if manual_plan is None:
+    if manual_plan is None and not has_blocking_dispute(state.decision_ledger):
         consensus_plan_payload = _build_deterministic_consensus_plan(
             source_transcript_ref=state.current_transcript_ref,
             source_transcript_hash=source_transcript_hash,
             disagreement_hints=effective_disagreement_hints,
             image_verification=image_verification.get("payload") if isinstance(image_verification, dict) else {},
             top_findings=planning_findings,
+        )
+    elif manual_plan is None:
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="plan",
+                message="Skipping deterministic shortcut plan because blocking conflicting evidence remains.",
+                latest_refs=state.latest_refs,
+            ),
         )
 
     if manual_plan is not None:
@@ -754,3 +787,47 @@ def _span_to_display_dict(span: dict[str, Any]) -> dict[str, Any]:
         "span_id": span.get("span_id"),
         "text": text[:120] + ("..." if len(text) > 120 else ""),
     }
+
+
+def _findings_for_focus_key(*, top_findings: list[dict[str, Any]], focus_key: str) -> list[dict[str, Any]]:
+    key = str(focus_key or "").strip().lower()
+    if not key:
+        return []
+    keyword_map: dict[str, tuple[str, ...]] = {
+        "township": ("township", "plss"),
+        "range": ("range", "plss"),
+        "section": ("section", "plss"),
+        "tie_distance": ("distance", "tie distance"),
+        "tie_bearing": ("bearing",),
+        "acreage": ("acre", "acreage"),
+        "closure_or_pob": ("closure", "point of beginning", "pob"),
+    }
+    keywords = keyword_map.get(key, ())
+    if not keywords:
+        return []
+    focused: list[dict[str, Any]] = []
+    for finding in top_findings:
+        if not isinstance(finding, dict):
+            continue
+        blob = f"{str(finding.get('finding_type') or '')} {str(finding.get('message') or '')}".lower()
+        if any(token in blob for token in keywords):
+            focused.append(finding)
+    return focused
+
+
+def _has_actionable_blocking_closure(ledger: dict[str, Any] | None) -> bool:
+    if not isinstance(ledger, dict):
+        return False
+    items = ledger.get("items")
+    if not isinstance(items, list):
+        return False
+    actionable_states = {"disputed", "accepted_with_risk"}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if not bool(item.get("blocking")):
+            continue
+        state = str(item.get("state") or "unknown")
+        if state in actionable_states:
+            return True
+    return False

@@ -23,6 +23,17 @@ interface AgentViewerPanelProps {
 type ViewerTheme = 'void' | 'space';
 type CanvasMode = 'transcription' | 'agent';
 type AgentCanvasPage = 'live_draft' | 'diff' | 'verify_image' | 'ops' | 'wip_preview';
+type ClosureRequirement = {
+  block_reason?: string;
+  required_information?: string;
+  self_retrievable?: string;
+  retrieval_attempted?: boolean;
+  retrieval_blocker?: string | null;
+  minimal_user_action?: string;
+  resolution_options?: string[];
+  evidence_refs?: string[];
+  attempt_summary?: string;
+};
 type DecisionLedgerItem = {
   key?: string;
   label?: string;
@@ -31,6 +42,7 @@ type DecisionLedgerItem = {
   alternatives?: string[];
   blocking?: boolean;
   confidence?: string | number | null;
+  closure_requirement?: ClosureRequirement | null;
 };
 
 function summarizeEventForesight(evt: AgentViewerEvent | null): string {
@@ -43,7 +55,12 @@ function summarizeEventForesight(evt: AgentViewerEvent | null): string {
     if (line1.length > 10) return line1;
     return 'I have finished this run.';
   }
-  if (evt.event_type === 'human_feedback_needed') return 'Next, I need your decision before proceeding.';
+  if (evt.event_type === 'human_feedback_needed') {
+    const blocking = Boolean(evt.payload?.blocking);
+    return blocking
+      ? 'Next, I need your decision before proceeding.'
+      : 'Feedback requested. I will continue investigating while this is pending.';
+  }
   // Fallback to phase-based canned text for old/sparse events
   const phase = String(evt.status?.stage || evt.payload?.phase || '').toLowerCase();
   if (phase === 'audit') return 'Next, I will audit the transcript for deterministic issues.';
@@ -60,6 +77,14 @@ const SEVERITY_COLORS: Record<string, string> = {
   warning: '#d4a83f',
   info: '#8ec5ff',
 };
+
+function closureReasonLabel(reason: string): string {
+  const r = String(reason || '').toLowerCase();
+  if (r === 'ambiguity') return 'Layer 1 Ambiguity';
+  if (r === 'contradiction') return 'Layer 2 Contradiction';
+  if (r === 'dependency') return 'Layer 3 Dependency';
+  return 'Closure Needed';
+}
 
 function EventDetailBlock({ evt }: { evt: AgentViewerEvent }) {
   const phase = String(evt.payload?.phase || '').toLowerCase();
@@ -438,6 +463,10 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
   const [feedbackNote, setFeedbackNote] = React.useState('');
   const [feedbackBusy, setFeedbackBusy] = React.useState(false);
   const [feedbackError, setFeedbackError] = React.useState<string | null>(null);
+  const [promptReceipt, setPromptReceipt] = React.useState<string | null>(null);
+  const [isHydratingReplay, setIsHydratingReplay] = React.useState(false);
+  const replayHydratingRef = React.useRef(false);
+  const [decisionOtherByKey, setDecisionOtherByKey] = React.useState<Record<string, string>>({});
   const [canvasMode, setCanvasMode] = React.useState<CanvasMode>('transcription');
   const [selectedDraftIndex, setSelectedDraftIndex] = React.useState(0);
   const [theme, setTheme] = React.useState<ViewerTheme>('void');
@@ -468,16 +497,37 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     if (!isOpen || !activeLoopKind || !activeRunId) return;
     setEvents([]);
     setConnected(false);
+    setIsHydratingReplay(true);
+    replayHydratingRef.current = true;
+    const replayTimer = window.setTimeout(() => {
+      replayHydratingRef.current = false;
+      setIsHydratingReplay(false);
+    }, 1400);
     const unsubscribe = subscribeAgentViewerEvents(
       activeLoopKind,
       activeRunId,
       (event) => {
         setConnected(true);
-        setEvents((prev) => [event, ...prev].slice(0, 250));
+        const taggedEvent =
+          replayHydratingRef.current
+            ? {
+                ...event,
+                payload: {
+                  ...(event.payload || {}),
+                  __replay: true,
+                },
+              }
+            : event;
+        setEvents((prev) => [taggedEvent, ...prev].slice(0, 250));
       },
       () => setConnected(false),
     );
-    return () => unsubscribe();
+    return () => {
+      window.clearTimeout(replayTimer);
+      replayHydratingRef.current = false;
+      setIsHydratingReplay(false);
+      unsubscribe();
+    };
   }, [isOpen, activeLoopKind, activeRunId]);
 
   React.useEffect(() => {
@@ -543,6 +593,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     setFeedbackEntries([]);
     setFeedbackNote('');
     setFeedbackError(null);
+    setPromptReceipt(null);
     setCanvasPageIndex(0);
     setSourceTranscriptText('');
     setEditedTranscriptText('');
@@ -612,6 +663,11 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     const raw = doneEvent?.payload?.summary;
     return raw && typeof raw === 'object' ? (raw as Record<string, any>) : null;
   }, [doneEvent]);
+  const unresolvedRequirementsCount = React.useMemo(() => {
+    if (!terminalSummary) return 0;
+    const unresolved = terminalSummary.unresolved_closure_requirements;
+    return Array.isArray(unresolved) ? unresolved.length : 0;
+  }, [terminalSummary]);
   const decisionLedger = React.useMemo(
     () => extractDecisionLedger(detailEvent, terminalSummary),
     [detailEvent, terminalSummary],
@@ -635,6 +691,8 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
       if (evt.event_type !== 'human_feedback_needed') continue;
       const promptId = typeof evt.payload?.prompt_id === 'string' ? evt.payload.prompt_id : '';
       if (!promptId) continue;
+      const alreadyAnswered = feedbackEntries.some((entry) => String(entry.prompt_id || '') === promptId);
+      if (alreadyAnswered) continue;
       const choices = Array.isArray(evt.payload?.choices) ? evt.payload.choices.filter((c: any) => typeof c === 'string') : [];
       return {
         promptId,
@@ -645,12 +703,18 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
       };
     }
     return null;
-  }, [orderedEvents, isRunTerminal]);
+  }, [orderedEvents, isRunTerminal, feedbackEntries]);
 
   const activePromptSatisfied = React.useMemo(() => {
     if (!activeFeedbackPrompt?.promptId) return false;
     return feedbackEntries.some((entry) => String(entry.prompt_id || '') === activeFeedbackPrompt.promptId);
   }, [activeFeedbackPrompt, feedbackEntries]);
+
+  const recentFeedbackEntries = React.useMemo(() => feedbackEntries.slice(0, 5), [feedbackEntries]);
+
+  React.useEffect(() => {
+    if (activeFeedbackPrompt) setPromptReceipt(null);
+  }, [activeFeedbackPrompt]);
 
   const artifactCandidates = React.useMemo(() => collectArtifactCandidates(orderedEvents), [orderedEvents]);
   const sourceTranscriptRef = React.useMemo(() => findLatestRef(orderedEvents, 'tx_source_transcript_ref'), [orderedEvents]);
@@ -790,9 +854,11 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     if (!activeLoopKind || !activeRunId) return;
     setFeedbackBusy(true);
     setFeedbackError(null);
+    setPromptReceipt(null);
+    const activePromptId = activeFeedbackPrompt?.promptId || null;
     try {
       const response = await submitAgentViewerFeedback(activeLoopKind, activeRunId, {
-        prompt_id: activeFeedbackPrompt?.promptId || null,
+        prompt_id: activePromptId,
         choice: choice || null,
         note: feedbackNote.trim() || null,
         metadata: {
@@ -801,6 +867,33 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
         },
       });
       setFeedbackEntries((prev) => [response.entry, ...prev].slice(0, 40));
+      if (activePromptId) {
+        setPromptReceipt(`Received ${choice || 'feedback'}; queued for next checkpoint.`);
+        setEvents((prev) => [
+          {
+            protocol: 'agent_viewer_event_v1',
+            loop_kind: activeLoopKind,
+            run_id: activeRunId,
+            seq: Date.now(),
+            iteration: null,
+            timestamp_epoch_seconds: Math.floor(Date.now() / 1000),
+            event_type: 'human_feedback',
+            status: {
+              stage: 'human_feedback',
+              line1: 'Feedback received and queued',
+              line2: choice || null,
+            },
+            artifact_refs: {},
+            payload: {
+              phase: 'human_feedback_received',
+              stream_kind: 'narration',
+              prompt_id: activePromptId,
+              choice: choice || null,
+            },
+          },
+          ...prev,
+        ].slice(0, 250));
+      }
       setFeedbackNote('');
     } catch (error) {
       setFeedbackError(error instanceof Error ? error.message : 'Failed to submit feedback');
@@ -808,6 +901,31 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
       setFeedbackBusy(false);
     }
   }, [activeLoopKind, activeRunId, activeFeedbackPrompt, feedbackNote, canvasMode, orderedEvents.length]);
+
+  const resendFeedbackEntry = React.useCallback(
+    async (entry: AgentViewerFeedbackEntry) => {
+      if (!activeLoopKind || !activeRunId) return;
+      setFeedbackBusy(true);
+      setFeedbackError(null);
+      try {
+        const response = await submitAgentViewerFeedback(activeLoopKind, activeRunId, {
+          prompt_id: entry.prompt_id || null,
+          choice: entry.choice || null,
+          note: entry.note || null,
+          metadata: {
+            ...(entry.metadata || {}),
+            action: 'resend_feedback_entry',
+          },
+        });
+        setFeedbackEntries((prev) => [response.entry, ...prev].slice(0, 40));
+      } catch (error) {
+        setFeedbackError(error instanceof Error ? error.message : 'Failed to resend feedback');
+      } finally {
+        setFeedbackBusy(false);
+      }
+    },
+    [activeLoopKind, activeRunId],
+  );
 
   const requestDecisionReview = React.useCallback(
     async (decisionKey: string) => {
@@ -835,6 +953,45 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     [activeLoopKind, activeRunId],
   );
 
+  const submitDecisionResolution = React.useCallback(
+    async (decisionKey: string, choice: string | null, extraNote?: string | null) => {
+      if (!activeLoopKind || !activeRunId) return;
+      const key = String(decisionKey || '').trim();
+      if (!key) return;
+      const chosen = choice ? String(choice).trim() : '';
+      const otherRaw = String(decisionOtherByKey[key] || '').trim();
+      const noteParts = [
+        chosen ? `Resolved ${key} as: ${chosen}` : '',
+        extraNote ? String(extraNote).trim() : '',
+        !chosen && otherRaw ? `Resolved ${key} as: ${otherRaw}` : '',
+      ].filter(Boolean);
+      setFeedbackBusy(true);
+      setFeedbackError(null);
+      try {
+        const response = await submitAgentViewerFeedback(activeLoopKind, activeRunId, {
+          prompt_id: null,
+          choice: chosen || null,
+          note: noteParts.length ? noteParts.join(' | ') : null,
+          metadata: {
+            action: 'resolve_closure_requirement',
+            decision_key: key,
+            resolved_value: chosen || otherRaw || null,
+            source: 'closure_requirement_panel',
+          },
+        });
+        setFeedbackEntries((prev) => [response.entry, ...prev].slice(0, 40));
+        if (!chosen) {
+          setDecisionOtherByKey((prev) => ({ ...prev, [key]: '' }));
+        }
+      } catch (error) {
+        setFeedbackError(error instanceof Error ? error.message : 'Failed to submit closure resolution');
+      } finally {
+        setFeedbackBusy(false);
+      }
+    },
+    [activeLoopKind, activeRunId, decisionOtherByKey],
+  );
+
   if (!isOpen) return null;
 
   const isSpaceTheme = theme === 'space';
@@ -858,6 +1015,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     iteration: evt.iteration,
     isCurrent: idx === 0,
     isTicker: String(evt.payload?.stream_kind || 'narration') === 'ticker',
+    isReplay: Boolean(evt.payload?.__replay),
   }));
 
   return (
@@ -1180,6 +1338,11 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
                 <span style={{ fontSize: 11, opacity: 0.86 }}>Agent Intent Stream</span>
                 <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.68 }}>{orderedEvents.length} updates</span>
               </div>
+              {isHydratingReplay && (
+                <div style={{ padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 10, opacity: 0.76 }}>
+                  Replaying buffered events. Switching to live stream...
+                </div>
+              )}
 
               <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: 8, alignItems: 'center' }}>
                 {isRunTerminal ? (
@@ -1214,6 +1377,8 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
                 <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 11, lineHeight: 1.4, opacity: 0.9 }}>
                   <div>Status: {String(terminalSummary.status || 'unknown')}</div>
                   <div>Reason: {String(terminalSummary.reason_code || 'n/a')}</div>
+                  <div>Closure State: {String(terminalSummary.closure_state || 'unknown')}</div>
+                  <div>Unresolved Requirements: {unresolvedRequirementsCount}</div>
                   <div>Edits Applied: {Number(terminalSummary.edits_applied_total || 0)}</div>
                   <div>HITL Used: {terminalSummary.used_human_feedback ? 'yes' : 'no'}</div>
                 </div>
@@ -1233,6 +1398,15 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
                     {decisionItems.slice(0, 10).map((item, idx) => {
                       const state = String(item.state || 'unknown');
                       const blocking = Boolean(item.blocking);
+                      const decisionKey = String(item.key || '');
+                      const closure = item.closure_requirement && typeof item.closure_requirement === 'object'
+                        ? (item.closure_requirement as ClosureRequirement)
+                        : null;
+                      const closureReason = String(closure?.block_reason || '').toLowerCase();
+                      const closureReasonBg =
+                        closureReason === 'ambiguity' ? 'rgba(142,197,255,0.22)' :
+                        closureReason === 'contradiction' ? 'rgba(255,107,107,0.24)' :
+                        closureReason === 'dependency' ? 'rgba(212,168,63,0.26)' : 'rgba(255,255,255,0.15)';
                       const stateColor =
                         state === 'verified' ? '#2ac477' :
                         state === 'disputed' ? '#ff6b6b' :
@@ -1245,9 +1419,9 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
                             </span>
                             <span style={{ fontSize: 11, opacity: 0.9 }}>{String(item.label || item.key || 'decision')}</span>
                             {blocking && <span style={{ fontSize: 10, opacity: 0.65 }}>(blocking)</span>}
-                            {item.key && (
+                            {decisionKey && (
                               <button
-                                onClick={() => requestDecisionReview(String(item.key))}
+                                onClick={() => requestDecisionReview(decisionKey)}
                                 disabled={feedbackBusy || isRunTerminal}
                                 style={{ marginLeft: 'auto', fontSize: 10, padding: '1px 6px', borderRadius: 999 }}
                               >
@@ -1261,6 +1435,69 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
                           {Array.isArray(item.alternatives) && item.alternatives.length > 0 && (
                             <div style={{ marginTop: 2, opacity: 0.7 }}>
                               Alt: {item.alternatives.slice(0, 3).map((v) => String(v)).join(' | ')}
+                            </div>
+                          )}
+                          {closure && (
+                            <div style={{ marginTop: 5, borderTop: '1px dashed rgba(255,255,255,0.12)', paddingTop: 5 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: closureReasonBg }}>
+                                  {closureReasonLabel(closureReason)}
+                                </span>
+                                <span style={{ fontSize: 10, opacity: 0.68 }}>
+                                  self-retrievable: {String(closure.self_retrievable || 'unknown')}
+                                </span>
+                              </div>
+                              {closure.required_information && (
+                                <div style={{ fontSize: 10, opacity: 0.86 }}>
+                                  Need: {String(closure.required_information)}
+                                </div>
+                              )}
+                              {closure.minimal_user_action && (
+                                <div style={{ fontSize: 10, opacity: 0.72 }}>
+                                  Action: {String(closure.minimal_user_action)}
+                                </div>
+                              )}
+                              {closure.attempt_summary && (
+                                <div style={{ fontSize: 10, opacity: 0.64 }}>
+                                  Attempt: {String(closure.attempt_summary)}
+                                </div>
+                              )}
+                              {Array.isArray(closure.evidence_refs) && closure.evidence_refs.length > 0 && (
+                                <div style={{ marginTop: 2, fontSize: 10, opacity: 0.62 }}>
+                                  Evidence: {closure.evidence_refs.slice(0, 3).join(', ')}
+                                </div>
+                              )}
+                              {Array.isArray(closure.resolution_options) && closure.resolution_options.length > 0 && decisionKey && (
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
+                                  {closure.resolution_options.slice(0, 4).map((option, optionIdx) => (
+                                    <button
+                                      key={`${decisionKey}-opt-${optionIdx}`}
+                                      onClick={() => submitDecisionResolution(decisionKey, String(option))}
+                                      disabled={feedbackBusy || isRunTerminal}
+                                      style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999 }}
+                                    >
+                                      {String(option)}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                              {decisionKey && (
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 4, marginTop: 4 }}>
+                                  <input
+                                    value={String(decisionOtherByKey[decisionKey] || '')}
+                                    onChange={(e) => setDecisionOtherByKey((prev) => ({ ...prev, [decisionKey]: e.target.value }))}
+                                    placeholder="Other value"
+                                    style={{ minWidth: 0, borderRadius: 6, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.02)', padding: '3px 6px', fontSize: 10 }}
+                                  />
+                                  <button
+                                    onClick={() => submitDecisionResolution(decisionKey, null)}
+                                    disabled={feedbackBusy || isRunTerminal || !String(decisionOtherByKey[decisionKey] || '').trim()}
+                                    style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999 }}
+                                  >
+                                    Send Other
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1292,6 +1529,33 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
                 </div>
               )}
 
+              {recentFeedbackEntries.length > 0 && (
+                <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 11, lineHeight: 1.35 }}>
+                  <div style={{ fontSize: 11, opacity: 0.85, marginBottom: 6 }}>Recent Feedback</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 120, overflowY: 'auto' }}>
+                    {recentFeedbackEntries.map((entry, idx) => (
+                      <div key={`${entry.submitted_at_epoch_seconds}-${idx}`} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '5px 6px', background: 'rgba(255,255,255,0.02)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 10, opacity: 0.62 }}>
+                            {new Date((Number(entry.submitted_at_epoch_seconds) || 0) * 1000).toLocaleTimeString()}
+                          </span>
+                          {entry.choice && <span style={{ opacity: 0.9 }}>{String(entry.choice)}</span>}
+                          {entry.prompt_id && <span style={{ fontSize: 10, opacity: 0.58 }}>{String(entry.prompt_id)}</span>}
+                          <button
+                            onClick={() => resendFeedbackEntry(entry)}
+                            disabled={feedbackBusy || isRunTerminal}
+                            style={{ marginLeft: 'auto', fontSize: 10, padding: '1px 6px', borderRadius: 999 }}
+                          >
+                            Resend
+                          </button>
+                        </div>
+                        {entry.note && <div style={{ marginTop: 2, opacity: 0.72 }}>{String(entry.note).slice(0, 160)}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {detailEvent && (
                 <div style={{ padding: '0 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <EventDetailBlock evt={detailEvent} />
@@ -1308,7 +1572,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
                       lineHeight: 1.35,
                     }}
                   >
-                    {item.isTicker ? '∙ ' : item.isCurrent ? '• ' : '· '} {item.text}
+                    {item.isReplay ? 'R ' : item.isTicker ? '∙ ' : item.isCurrent ? '• ' : '· '} {item.text}
                   </div>
                 ))}
               </div>
@@ -1339,7 +1603,18 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
                 >
                   <div style={{ fontSize: 12, fontWeight: 600 }}>{activeFeedbackPrompt.line1}</div>
                   {!!activeFeedbackPrompt.line2 && <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>{activeFeedbackPrompt.line2}</div>}
+                  {!activeFeedbackPrompt.blocking && (
+                    <div style={{ fontSize: 10, opacity: 0.7, marginTop: 3 }}>
+                      Non-blocking. The loop continues while this feedback is pending.
+                    </div>
+                  )}
                   <div style={{ fontSize: 10, opacity: 0.64, marginTop: 3 }}>prompt_id: {activeFeedbackPrompt.promptId}</div>
+                </div>
+              )}
+
+              {!activeFeedbackPrompt && promptReceipt && (
+                <div style={{ marginBottom: 8, padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(42,196,119,0.45)', background: 'rgba(42,196,119,0.14)', fontSize: 11 }}>
+                  {promptReceipt}
                 </div>
               )}
 
@@ -1384,3 +1659,8 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     </div>
   );
 };
+
+
+
+
+

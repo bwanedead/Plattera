@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from .contracts import TranscriptEditAgentRunResult
+from .decision_ledger import (
+    closure_state_from_layers,
+    derive_layer_statuses,
+    unresolved_closure_requirements,
+)
 
 
 def build_run_result(
@@ -77,15 +82,27 @@ def terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[st
     final_error_count = int((final_audit or {}).get("error_count") or 0) if isinstance(final_audit, dict) else 0
     validator_clean = final_error_count <= 0
     promoted = result_status == "completed" and "promoted" in reason_code
+    unresolved_requirements = (
+        unresolved_closure_requirements(decision_ledger)
+        if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("items"), list)
+        else []
+    )
+    blocking_unresolved = any(bool(item.get("blocking")) for item in unresolved_requirements if isinstance(item, dict))
     mapping_ready = False
     readiness_blocker: str | None = None
     if promoted:
         mapping_ready = True
-    elif result_status == "completed" and validator_clean:
+    elif result_status == "completed" and validator_clean and not blocking_unresolved:
         mapping_ready = True
     elif reason_code.startswith("tx_agent_final_image_verify_failed"):
         mapping_ready = False
         readiness_blocker = "mapping_critical_image_verification_unresolved"
+    layer_statuses = derive_layer_statuses(
+        mapping_ready=mapping_ready,
+        validator_clean=validator_clean,
+        readiness_blocker=readiness_blocker,
+    )
+    closure_state = closure_state_from_layers(layer_statuses)
     return {
         "status": result_status,
         "reason_code": reason_code or None,
@@ -97,7 +114,10 @@ def terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[st
         "mapping_ready": mapping_ready,
         "promoted": promoted,
         "readiness_blocker": readiness_blocker,
+        "closure_state": closure_state,
+        **layer_statuses,
         "decision_ledger": decision_ledger or {},
+        "unresolved_closure_requirements": unresolved_requirements,
         "decision_ledger_summary": (
             decision_ledger.get("summary")
             if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("summary"), dict)
