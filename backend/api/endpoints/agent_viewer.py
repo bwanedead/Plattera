@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import mimetypes
 from pathlib import Path
 from time import time
 from typing import Any, AsyncGenerator, Literal
@@ -13,7 +14,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from config.paths import dossiers_artifacts_root, dossiers_views_root
+from config.paths import dossiers_artifacts_root, dossiers_root, dossiers_views_root
 from services.agent_viewer import feedback_store
 from services.agent_loop.event_bus import event_bus as agent_loop_event_bus
 from services.agent_viewer.event_bus import event_bus as viewer_event_bus
@@ -74,12 +75,26 @@ async def agent_viewer_artifact_json(artifact_ref: str = Query(..., min_length=1
     if len(raw) > _MAX_ARTIFACT_JSON_BYTES:
         raise HTTPException(status_code=413, detail="artifact_json_too_large")
     try:
-        payload = json.loads(raw.decode("utf-8"))
+        # Tolerate UTF-8 BOM written by some Windows tooling.
+        payload = json.loads(raw.decode("utf-8-sig"))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"artifact_json_invalid:{type(exc).__name__}") from exc
-    if not isinstance(payload, (dict, list)):
-        raise HTTPException(status_code=400, detail="artifact_json_not_object_or_array")
     return {"artifact_path": str(safe_path), "json": payload}
+
+
+@router.get("/artifact/image")
+async def agent_viewer_artifact_image(artifact_ref: str = Query(..., min_length=1)):
+    safe_path = _resolve_artifact_path(artifact_ref)
+    if safe_path is None:
+        raise HTTPException(status_code=400, detail="artifact_ref_outside_allowed_roots")
+    if not safe_path.exists():
+        raise HTTPException(status_code=404, detail="artifact_not_found")
+    mime_type, _ = mimetypes.guess_type(str(safe_path))
+    if not mime_type or not mime_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="artifact_not_image")
+    from fastapi.responses import FileResponse
+
+    return FileResponse(str(safe_path), media_type=mime_type)
 
 
 @router.get("/feedback/{loop_kind}/{run_id}")
@@ -158,11 +173,14 @@ def _resolve_artifact_path(artifact_ref: str) -> Path | None:
         path = Path(artifact_ref).resolve()
         artifacts_root = dossiers_artifacts_root().resolve()
         views_root = dossiers_views_root().resolve()
+        dossier_root = dossiers_root().resolve()
     except Exception:
         return None
     if path == artifacts_root or artifacts_root in path.parents:
         return path
     if path == views_root or views_root in path.parents:
+        return path
+    if path == dossier_root or dossier_root in path.parents:
         return path
     return None
 
@@ -206,6 +224,26 @@ def _normalize_agent_loop_event(run_id: str, payload: dict[str, Any]) -> dict[st
                 "reason_code": status.get("reason_code"),
                 "phase": status.get("phase"),
             },
+        }
+    if event_type == "upstream_correction_request":
+        request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+        line1 = str(request.get("message") or "Upstream correction request")
+        line2 = str(request.get("reason_code") or "")
+        return {
+            "protocol": "agent_viewer_event_v1",
+            "run_id": run_id,
+            "loop_kind": "agent_loop",
+            "seq": None,
+            "iteration": None,
+            "timestamp_epoch_seconds": int(time()),
+            "event_type": "upstream_correction_request",
+            "status": {
+                "stage": "upstream_correction_request",
+                "line1": line1[:200],
+                "line2": line2[:240] or None,
+            },
+            "artifact_refs": _to_artifact_ref_map({"request_ref": payload.get("request_ref")}),
+            "payload": {"request": request, "source_event_type": event_type},
         }
     if event_type in {"run_started", "run_completed", "run_failed"}:
         run = payload.get("run") if isinstance(payload.get("run"), dict) else {}

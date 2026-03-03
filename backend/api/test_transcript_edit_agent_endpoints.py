@@ -11,6 +11,7 @@ from fastapi import HTTPException
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api.endpoints import transcript_edit_agent
+from agents.transcript_edit.contracts import TranscriptEditAgentRunResult
 from transcript_edit.run_registry import TranscriptionEditRunRegistry
 
 
@@ -94,3 +95,62 @@ def test_run_endpoint_requires_source() -> None:
         except HTTPException as exc:
             assert exc.status_code == 400
 
+
+def test_execute_run_emits_terminal_handoff_fields(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _reset_registry(Path(tmp))
+        captured_events: list[dict[str, Any]] = []
+
+        def _fake_run_loop(**kwargs: Any) -> TranscriptEditAgentRunResult:
+            progress_cb = kwargs.get("progress_cb")
+            if callable(progress_cb):
+                progress_cb(
+                    {
+                        "iteration": 1,
+                        "phase": "audit_result",
+                        "message": "ok",
+                        "detail": {"error_count": 0},
+                        "latest_refs": {},
+                    }
+                )
+            return TranscriptEditAgentRunResult(
+                run_artifact_ref="in-memory://run",
+                session_id="s1",
+                iterations=1,
+                status="completed",
+                reason_code="tx_agent_clean_no_promote",
+                latest_refs={},
+                review_required=False,
+            )
+
+        class _Bus:
+            def publish_sync(self, channel: str, event: dict[str, Any]) -> None:
+                del channel
+                captured_events.append(event)
+
+        monkeypatch.setattr(transcript_edit_agent, "run_transcript_edit_controller_loop", _fake_run_loop)
+        monkeypatch.setattr(transcript_edit_agent, "viewer_event_bus", _Bus())
+        monkeypatch.setattr(
+            transcript_edit_agent,
+            "build_handoff_packet",
+            lambda **kwargs: {"handoff_summary": "Mapping-ready."},
+        )
+        monkeypatch.setattr(
+            transcript_edit_agent,
+            "persist_handoff_packet",
+            lambda **kwargs: "in-memory://handoff.json",
+        )
+
+        request = transcript_edit_agent.TranscriptEditAgentApiRequest(
+            source_text="Beginning at ...",
+            dossier_id="D1",
+            background=False,
+        )
+        transcript_edit_agent._registry.create_run(run_id="r1", request={"dossier_id": "D1"})  # type: ignore[attr-defined]
+        transcript_edit_agent._execute_run("r1", request)
+        done = next(evt for evt in captured_events if evt.get("event_type") == "done")
+        payload = done.get("payload") or {}
+        assert payload.get("handoff_packet_ref") == "in-memory://handoff.json"
+        assert payload.get("handoff_summary") == "Mapping-ready."
+        run = asyncio.run(transcript_edit_agent.get_run("r1"))
+        assert run["snapshot"]["terminal_summary"]["handoff_packet_ref"] == "in-memory://handoff.json"

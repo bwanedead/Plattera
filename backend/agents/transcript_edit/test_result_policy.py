@@ -27,6 +27,7 @@ def _facts(**overrides):
         applied_requires_review=False,
         used_human_feedback=False,
         has_disagreements=True,
+        has_images=False,
         min_iterations_before_complete=3,
     )
     values = {**base.__dict__, **overrides}
@@ -38,6 +39,7 @@ def test_must_verify_before_terminal_when_edits_or_disagreements() -> None:
     assert must_verify_before_terminal(_facts(applied_any_edits=False, has_disagreements=True)) is True
     assert must_verify_before_terminal(_facts(applied_any_edits=False, has_disagreements=False, used_human_feedback=True)) is True
     assert must_verify_before_terminal(_facts(applied_any_edits=False, has_disagreements=False, used_human_feedback=False)) is False
+    assert must_verify_before_terminal(_facts(applied_any_edits=False, has_disagreements=False, used_human_feedback=False, has_images=True)) is True
 
 
 def test_should_run_stabilization_pass_before_min_iterations() -> None:

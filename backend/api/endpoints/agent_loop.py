@@ -28,12 +28,18 @@ from agents.controller.bootstrap import (
     hydrate_and_persist_finalized_dossier_text,
     persist_deed_text_artifact,
 )
+from agents.schema_mapping.handoff_bridge import (
+    handoff_bootstrap_metadata,
+    load_transcript_handoff_packet,
+    maybe_build_upstream_correction_request,
+    persist_upstream_correction_requests,
+)
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from services.agent_loop.event_bus import event_bus
 from services.agent_loop.run_registry_service import AgentLoopRunRegistryService
 from services.dossier.management_service import DossierManagementService
 from services.dossier.finalized_snapshot_service import FinalizedSnapshotService
-from config.paths import agent_kernel_artifacts_root, dossiers_feature_graphs_artifacts_root
+from config.paths import agent_kernel_artifacts_root, dossiers_artifacts_root, dossiers_feature_graphs_artifacts_root
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -54,6 +60,8 @@ class AgentLoopRunRequest(BaseModel):
     max_iterations: Optional[int] = Field(default=None, ge=1, le=200)
     requires_global_placement: bool = True
     render_required: bool = True
+    transcript_handoff_ref: Optional[str] = None
+    mapping_readiness_mode: str = "best_effort"
     background: bool = True
 
 
@@ -64,6 +72,11 @@ def _build_start_request(run_id: str, request: AgentLoopRunRequest) -> KernelSes
         "source": "agent_loop_api_bootstrap",
         "dossier_id": request.dossier_id,
     }
+    handoff_packet = load_transcript_handoff_packet(handoff_ref=request.transcript_handoff_ref)
+    bootstrap_metadata.update(handoff_bootstrap_metadata(handoff_packet))
+    if handoff_packet and request.transcript_handoff_ref:
+        bootstrap_metadata["transcript_handoff_path"] = request.transcript_handoff_ref
+    bootstrap_metadata["mapping_readiness_mode"] = request.mapping_readiness_mode
     if request.text and request.text.strip():
         deed_artifact = persist_deed_text_artifact(
             request_id=request_id,
@@ -137,8 +150,30 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
         session_manager = KernelSessionManager(persistence_service=persistence)
         llm_client = OpenAINextStepClient()
         start_request = _build_start_request(run_id, request)
+        handoff_packet = load_transcript_handoff_packet(handoff_ref=request.transcript_handoff_ref)
+        readiness_mode = str(request.mapping_readiness_mode or "best_effort").strip().lower()
+        if readiness_mode not in {"best_effort", "strict"}:
+            readiness_mode = "best_effort"
+        if handoff_packet is not None and readiness_mode == "strict":
+            terminal = handoff_packet.get("terminal") if isinstance(handoff_packet.get("terminal"), dict) else {}
+            if not bool(terminal.get("mapping_ready")):
+                patch = {
+                    "status": "failed",
+                    "error": "mapping_strict_handoff_not_ready",
+                    "transcript_handoff_consumed": {
+                        "transcript_handoff_ref": request.transcript_handoff_ref,
+                        "mapping_ready": False,
+                        "resume_recommendation": str(handoff_packet.get("resume_recommendation") or ""),
+                        "mapping_watchlist": handoff_packet.get("mapping_watchlist") if isinstance(handoff_packet.get("mapping_watchlist"), list) else [],
+                    },
+                }
+                updated = _run_registry.update_run(run_id=run_id, patch=patch)
+                if updated is not None:
+                    event_bus.publish_sync(run_id, {"event_type": "run_failed", "run": updated})
+                return
         effective_max_iterations = _resolve_max_iterations(request=request, start_request=start_request)
         seq_state = {"seq": 0}
+        upstream_requests: list[dict[str, Any]] = []
 
         def _on_controller_event(event: dict[str, object]) -> None:
             tape_event = _agent_tape_event_from_transcript_event(run_id=run_id, event=event, seq=seq_state["seq"])
@@ -146,6 +181,21 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
             if tape_event is None:
                 return
             event_bus.publish_sync(run_id, tape_event)
+            correction_request = maybe_build_upstream_correction_request(
+                run_id=run_id,
+                event=event,
+                handoff_packet=handoff_packet,
+            )
+            if correction_request is not None:
+                upstream_requests.append(correction_request)
+                event_bus.publish_sync(
+                    run_id,
+                    {
+                        "event_type": "upstream_correction_request",
+                        "run_id": run_id,
+                        "request": correction_request,
+                    },
+                )
             _run_registry.update_run(
                 run_id=run_id,
                 patch={"live_status": tape_event.get("status"), "last_agent_tape_event": tape_event},
@@ -170,6 +220,22 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
             "terminal": result.terminal.model_dump(mode="json"),
             "dashboard": result.last_dashboard,
         }
+        upstream_requests_ref = persist_upstream_correction_requests(
+            run_id=run_id,
+            dossier_id=request.dossier_id,
+            requests=upstream_requests,
+        )
+        if upstream_requests:
+            patch["upstream_correction_requests"] = upstream_requests
+        if upstream_requests_ref:
+            patch["upstream_correction_requests_ref"] = upstream_requests_ref
+        if handoff_packet is not None:
+            patch["transcript_handoff_consumed"] = {
+                "transcript_handoff_ref": request.transcript_handoff_ref,
+                "mapping_ready": bool(((handoff_packet.get("terminal") or {}) if isinstance(handoff_packet.get("terminal"), dict) else {}).get("mapping_ready")),
+                "resume_recommendation": str(handoff_packet.get("resume_recommendation") or ""),
+                "mapping_watchlist": handoff_packet.get("mapping_watchlist") if isinstance(handoff_packet.get("mapping_watchlist"), list) else [],
+            }
         updated = _run_registry.update_run(run_id=run_id, patch=patch)
         logger.info(
             "agent_loop_run_completed %s",
@@ -183,6 +249,8 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
                     "run_artifact_ref": result.run_artifact_ref,
                     "transcript_artifact_ref": result.transcript_artifact_ref,
                     "terminal": result.terminal.model_dump(mode="json"),
+                    "upstream_correction_requests": upstream_requests,
+                    "upstream_correction_requests_ref": upstream_requests_ref,
                 },
                 ensure_ascii=True,
             ),
@@ -247,6 +315,8 @@ async def start_agent_loop_run(request: AgentLoopRunRequest) -> dict[str, Any]:
             "model": request.model,
             "requested_max_iterations": request.max_iterations,
             "effective_max_iterations": effective_max_iterations,
+            "transcript_handoff_ref": request.transcript_handoff_ref,
+            "mapping_readiness_mode": request.mapping_readiness_mode,
         },
     )
     logger.info(
@@ -261,6 +331,8 @@ async def start_agent_loop_run(request: AgentLoopRunRequest) -> dict[str, Any]:
                 "model": request.model,
                 "requested_max_iterations": request.max_iterations,
                 "effective_max_iterations": effective_max_iterations,
+                "transcript_handoff_ref": request.transcript_handoff_ref,
+                "mapping_readiness_mode": request.mapping_readiness_mode,
                 "background": request.background,
             },
             ensure_ascii=True,
@@ -360,6 +432,14 @@ def _resolve_agent_loop_artifact_path(artifact_ref: str) -> Path | None:
         pass
     try:
         roots.append(dossiers_feature_graphs_artifacts_root().resolve())
+    except Exception:
+        pass
+    try:
+        roots.append((dossiers_artifacts_root() / "transcript_edit_handoffs").resolve())
+    except Exception:
+        pass
+    try:
+        roots.append((dossiers_artifacts_root() / "mapping_upstream_requests").resolve())
     except Exception:
         pass
     for root in roots:

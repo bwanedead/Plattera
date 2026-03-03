@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from agent_kernel.models import ActionType, StepExecutionState
@@ -25,6 +27,7 @@ def verify_mapping_critical_with_image(
     step_fn: Callable[..., Any],
     read_step_outputs_inline_fn: Callable[[dict[str, Any] | None], dict[str, Any]],
     read_str_fn: Callable[[object], str | None],
+    progress_cb: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     for finding in top_findings[:6]:
@@ -57,24 +60,91 @@ def verify_mapping_critical_with_image(
         if first_image:
             inputs["image_ref"] = first_image
 
-    step = step_fn(
-        session_manager=session_manager,
-        session_id=session_id,
-        prefix="tx_verify_img",
-        iteration=iteration,
-        action_type=ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
-        inputs=inputs,
-    )
-    latest_refs = step.dashboard.latest_refs.model_dump(mode="json")
-    if step.execution_state != StepExecutionState.EXECUTED:
-        return {"latest_refs": latest_refs, "payload": {}}
-    inline = read_step_outputs_inline_fn(step.step_record)
+    selected_checks = checks[:4]
+    all_results: list[dict[str, Any]] = []
+    latest_refs: dict[str, Any] = {}
+    image_path: str | None = None
+    total_checks = len(selected_checks)
+
+    for check_index, check in enumerate(selected_checks, start=1):
+        if progress_cb is not None:
+            progress_cb(
+                {
+                    "check_index": check_index,
+                    "check_total": total_checks,
+                    "check_id": str(check.get("check_id") or f"check_{check_index}"),
+                    "stage": "running",
+                }
+            )
+        step_inputs = dict(inputs)
+        step_inputs["checks"] = [check]
+        step = step_fn(
+            session_manager=session_manager,
+            session_id=session_id,
+            prefix=f"tx_verify_img_{check_index}",
+            iteration=iteration,
+            action_type=ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+            inputs=step_inputs,
+        )
+        latest_refs = step.dashboard.latest_refs.model_dump(mode="json")
+        if step.execution_state != StepExecutionState.EXECUTED:
+            return {"latest_refs": latest_refs, "payload": {}}
+        inline = read_step_outputs_inline_fn(step.step_record)
+        step_results = _read_full_image_verify_results(latest_refs=latest_refs)
+        if not step_results:
+            inline_results = inline.get("tx_image_verify_results")
+            if isinstance(inline_results, list):
+                step_results = [item for item in inline_results if isinstance(item, dict)]
+        if step_results:
+            all_results.extend(step_results)
+        image_path = read_str_fn(inline.get("tx_image_path")) or image_path
+        if progress_cb is not None:
+            progress_cb(
+                {
+                    "check_index": check_index,
+                    "check_total": total_checks,
+                    "check_id": str(check.get("check_id") or f"check_{check_index}"),
+                    "stage": "completed",
+                }
+            )
+
+    match_count = sum(1 for item in all_results if str(item.get("status") or "").lower() in {"match", "confirmed"})
+    mismatch_count = sum(1 for item in all_results if str(item.get("status") or "").lower() in {"mismatch", "rejected"})
+    unclear_count = sum(1 for item in all_results if str(item.get("status") or "").lower() in {"unclear", "unknown"})
     payload = {
-        "summary": inline.get("tx_image_verify_summary") if isinstance(inline.get("tx_image_verify_summary"), dict) else {},
-        "results": inline.get("tx_image_verify_results") if isinstance(inline.get("tx_image_verify_results"), list) else [],
-        "image_path": read_str_fn(inline.get("tx_image_path")),
+        "summary": {
+            "total_checks": total_checks,
+            "match_count": match_count,
+            "mismatch_count": mismatch_count,
+            "unclear_count": unclear_count,
+        },
+        "results": all_results,
+        "image_path": image_path,
     }
     return {"latest_refs": latest_refs, "payload": payload}
+
+
+def _read_full_image_verify_results(*, latest_refs: dict[str, Any]) -> list[dict[str, Any]]:
+    artifact_ref = latest_refs.get("tx_image_verify_ref") if isinstance(latest_refs, dict) else None
+    artifact_path: str | None = None
+    if isinstance(artifact_ref, dict):
+        raw_path = artifact_ref.get("artifact_path")
+        if isinstance(raw_path, str) and raw_path.strip():
+            artifact_path = raw_path
+    elif isinstance(artifact_ref, str) and artifact_ref.strip():
+        artifact_path = artifact_ref
+    if not artifact_path:
+        return []
+    try:
+        payload = json.loads(Path(artifact_path).read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(payload, dict):
+        return []
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return []
+    return [item for item in results if isinstance(item, dict)]
 
 
 def final_image_sanity_pass_before_promote(

@@ -18,6 +18,8 @@
 - Keep mutable loop runtime state in `loop_state.py` (single source for iteration mutations).
 - Keep clean/repair per-iteration branch orchestration in `iteration_pipeline.py`.
 - Keep terminal run-result/message/summary composition in `terminalization.py`.
+- Keep mapping-critical decision ledger model/update helpers in `decision_ledger.py` (derived explanatory state for progress/terminal payloads).
+- Keep transcript-edit -> mapping handoff packet composition/persistence in `handoff_packet.py`.
 
 ## Allowed changes
 - Safe: improve loop brakes, improve request/response contracts, add endpoint/CLI ergonomics.
@@ -41,6 +43,8 @@
 - If changing completion/needs_review/failed decision rules, update `result_policy.py`.
 - If changing per-iteration clean/repair branching behavior, update `iteration_pipeline.py` before `controller.py`.
 - If changing done-event human summary or run-result composition, update `terminalization.py`.
+- If changing mapping-critical checklist items/decision states/evidence shaping, update `decision_ledger.py` and keep payload fields additive.
+- If changing downstream continuity payload shape or storage location, update `handoff_packet.py` and keep fields additive.
 
 ## Links
 - Related code: `backend/agents/transcript_edit/controller.py`
@@ -56,6 +60,8 @@
 - Related code: `backend/agents/transcript_edit/loop_state.py`
 - Related code: `backend/agents/transcript_edit/iteration_pipeline.py`
 - Related code: `backend/agents/transcript_edit/terminalization.py`
+- Related code: `backend/agents/transcript_edit/decision_ledger.py`
+- Related code: `backend/agents/transcript_edit/handoff_packet.py`
 - Related code: `backend/agent_kernel/actions.py`
 - Related code: `backend/agent_kernel/tooling.py`
 - Related code: `backend/transcript_edit/`

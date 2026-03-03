@@ -34,6 +34,9 @@ const API_BASE_URL = `${API_BASE}/api/agent-viewer`;
 export const getAgentViewerEventsUrl = (loopKind: AgentViewerLoopKind, runId: string): string =>
   `${API_BASE_URL}/events/${encodeURIComponent(loopKind)}/${encodeURIComponent(runId)}`;
 
+export const getAgentViewerArtifactImageUrl = (artifactRef: string): string =>
+  `${API_BASE_URL}/artifact/image?artifact_ref=${encodeURIComponent(artifactRef)}`;
+
 export const subscribeAgentViewerEvents = (
   loopKind: AgentViewerLoopKind,
   runId: string,
@@ -66,7 +69,14 @@ export const getAgentViewerArtifactJson = async (artifactRef: string): Promise<{
   const url = `${API_BASE_URL}/artifact/json?artifact_ref=${encodeURIComponent(artifactRef)}`;
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Failed to load artifact JSON (${response.status})`);
+    let detail = '';
+    try {
+      const payload = await response.json();
+      detail = payload?.detail ? `: ${String(payload.detail)}` : '';
+    } catch {
+      // ignore parse failure; keep status-only message
+    }
+    throw new Error(`Failed to load artifact JSON (${response.status})${detail}`);
   }
   return response.json();
 };

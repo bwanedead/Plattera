@@ -278,3 +278,32 @@ def test_image_checks_include_bearing_check_when_disagreement_present() -> None:
     )
     check_ids = {str(item.get("check_id")) for item in checks if isinstance(item, dict)}
     assert "image_check_bearing_tokens" in check_ids
+
+
+def test_transcript_controller_hitl_prompt_is_non_blocking_without_feedback() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}), encoding="utf-8")
+        progress_events: list[dict[str, Any]] = []
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=1,
+                auto_promote=False,
+                candidate_texts=[
+                    "Range seventy-five (75) West",
+                    "Range seventy-four (74) West",
+                ],
+                hitl_enabled=True,
+            ),
+            request_id_prefix="tx-agent-hitl-nonblocking",
+            planner=_PlannerNoOps(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+        assert result.status == "needs_review"
+        assert result.reason_code.startswith("tx_agent_no_safe_plan_for_findings")
+        assert result.reason_code != "human_feedback_timeout"
+        assert any(isinstance(evt, dict) for evt in progress_events)

@@ -23,6 +23,7 @@ def test_audit_result_payload_contract_shape() -> None:
     assert payload["detail"]["finding_count"] == 3
     assert isinstance(payload["detail"]["top_findings"], list)
     assert "summary_text" in payload["detail"]
+    assert payload["stream_kind"] == "narration"
 
 
 def test_image_verify_result_payload_contract_shape() -> None:
@@ -58,7 +59,7 @@ def test_human_feedback_needed_payload_contract_shape() -> None:
     assert payload["phase"] == "human_feedback_needed"
     assert payload["prompt_id"] == "hitl_1"
     assert isinstance(payload["choices"], list)
-    assert payload["blocking"] is True
+    assert payload["blocking"] is False
 
 
 def test_open_spans_result_payload_contract_shape() -> None:
@@ -108,3 +109,32 @@ def test_starting_payload_contract_shape() -> None:
     assert payload["phase"] == "starting"
     assert payload["execution_state"] == "starting"
     assert "message" in payload
+    assert payload["stream_kind"] == "narration"
+
+
+def test_orient_payload_contract_shape() -> None:
+    ledger = {"items": [{"key": "range", "state": "unknown"}], "summary": {"blocking_open_count": 1}}
+    payload = run_reporting.orient_payload(
+        mode="audit_then_repair_then_promote",
+        candidate_count=3,
+        has_disagreements=True,
+        has_images=True,
+        latest_refs={},
+        decision_ledger=ledger,
+    )
+    assert payload["phase"] == "orient"
+    assert payload["stream_kind"] == "narration"
+    assert isinstance(payload["detail"]["checklist"], list)
+    assert isinstance(payload["detail"]["done_criteria"], list)
+    assert payload["detail"]["decision_ledger"] == ledger
+
+
+def test_ticker_payload_contract_shape() -> None:
+    payload = run_reporting.ticker_payload(
+        iteration=2,
+        phase="plan",
+        message="Drafting plan",
+        latest_refs={},
+    )
+    assert payload["phase"] == "plan"
+    assert payload["stream_kind"] == "ticker"

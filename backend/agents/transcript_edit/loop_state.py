@@ -19,3 +19,5 @@ class TranscriptEditLoopState:
     last_reason: str = "tx_agent_not_started"
     applied_any_edits: bool = False
     used_human_feedback: bool = False
+    decision_ledger: dict[str, Any] = field(default_factory=dict)
+    pending_feedback_prompt_id: str | None = None

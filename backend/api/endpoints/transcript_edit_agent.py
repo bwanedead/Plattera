@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from agents.transcript_edit.controller import run_transcript_edit_controller_loop
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
+from agents.transcript_edit.handoff_packet import build_handoff_packet, persist_handoff_packet
 from agents.transcript_edit.terminalization import terminal_message, terminal_summary
 from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
 from agent_kernel.session import KernelSessionManager
@@ -145,7 +146,26 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             request_id_prefix=f"tx-agent-{run_id}",
             progress_cb=_progress_update,
         )
+        run_terminal_message = terminal_message(result)
         run_terminal_summary = terminal_summary(progress_log, result)
+        handoff_packet = build_handoff_packet(
+            run_id=run_id,
+            request=request,
+            result=result,
+            terminal_summary=run_terminal_summary,
+            terminal_message=run_terminal_message,
+            progress_log=progress_log,
+        )
+        handoff_packet_ref = persist_handoff_packet(
+            run_id=run_id,
+            dossier_id=request.dossier_id,
+            packet=handoff_packet,
+        )
+        run_terminal_summary = {
+            **run_terminal_summary,
+            "handoff_packet_ref": handoff_packet_ref,
+            "handoff_summary": handoff_packet.get("handoff_summary"),
+        }
         _registry.update_run(
             run_id=run_id,
             patch={
@@ -169,12 +189,14 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             "done",
             {
                 "phase": result.status,
-                "message": terminal_message(result),
+                "message": run_terminal_message,
                 "execution_state": result.status,
                 "iteration": result.iterations,
                 "latest_refs": result.latest_refs,
                 "review_required": result.review_required,
                 "summary": run_terminal_summary,
+                "handoff_packet_ref": handoff_packet_ref,
+                "handoff_summary": handoff_packet.get("handoff_summary"),
                 "terminal": True,
             },
         )

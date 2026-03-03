@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from pathlib import Path
 import sys
@@ -117,3 +118,42 @@ def test_feedback_endpoint_validation_rules(monkeypatch) -> None:
     assert out["ok"] is True
     assert out["entry"]["prompt_id"] == "p-1"
     assert out["entry"]["choice"] == "Range 75"
+
+
+def test_artifact_image_endpoint_serves_image_under_dossiers_root(monkeypatch, tmp_path: Path) -> None:
+    artifacts_root = tmp_path / "artifacts"
+    views_root = tmp_path / "views" / "transcriptions"
+    dossiers_root = tmp_path
+    image_root = dossiers_root / "images" / "original"
+    image_root.mkdir(parents=True, exist_ok=True)
+    png_path = image_root / "tiny.png"
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7gY5kAAAAASUVORK5CYII="
+    )
+    png_path.write_bytes(png_bytes)
+
+    monkeypatch.setattr(agent_viewer, "dossiers_artifacts_root", lambda: artifacts_root)
+    monkeypatch.setattr(agent_viewer, "dossiers_views_root", lambda: views_root)
+    monkeypatch.setattr(agent_viewer, "dossiers_root", lambda: dossiers_root)
+
+    response = asyncio.run(agent_viewer.agent_viewer_artifact_image(artifact_ref=str(png_path)))
+    assert response.status_code == 200
+    assert str(response.path).endswith("tiny.png")
+
+
+def test_normalize_agent_loop_upstream_correction_request_event() -> None:
+    normalized = agent_viewer._normalize_agent_loop_event(  # type: ignore[attr-defined]
+        run_id="run_1",
+        payload={
+            "event_type": "upstream_correction_request",
+            "request": {
+                "request_id": "r1",
+                "reason_code": "georef_range_mismatch",
+                "message": "Range token appears inconsistent with geometry.",
+            },
+        },
+    )
+    assert isinstance(normalized, dict)
+    assert normalized["event_type"] == "upstream_correction_request"
+    assert normalized["status"]["stage"] == "upstream_correction_request"
+    assert normalized["payload"]["request"]["request_id"] == "r1"

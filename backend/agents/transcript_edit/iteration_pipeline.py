@@ -9,13 +9,14 @@ from agent_kernel.session import KernelSessionManager
 from transcript_edit.persistence import TranscriptionEditPersistenceService
 
 from .contracts import TranscriptEditAgentRunRequest
+from .decision_ledger import ledger_snapshot_for_payload, update_ledger_from_iteration
 from .draft_persistence import persist_agent_edit_draft
 from .hitl_feedback import (
     build_human_feedback_prompt,
     build_range_feedback_plan,
+    poll_feedback_response,
     range_number_from_feedback,
     viewer_run_id_from_request_prefix,
-    wait_for_feedback_response,
 )
 from .image_verification import (
     final_image_sanity_pass_before_promote,
@@ -60,6 +61,7 @@ from .run_reporting import (
     plan_result_payload,
     promote_payload,
     stabilize_payload,
+    ticker_payload,
 )
 
 
@@ -91,11 +93,21 @@ def handle_clean_iteration(
         applied_requires_review=state.applied_requires_review,
         used_human_feedback=state.used_human_feedback,
         has_disagreements=has_disagreements,
+        has_images=bool(request.source_image_refs),
         min_iterations_before_complete=min_iterations_before_complete,
     )
     needs_terminal_verify = must_verify_before_terminal(policy_facts)
     final_verify_ran = False
     if needs_terminal_verify and state.current_transcript_ref:
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="image_verify",
+                message="Running final mapping-readiness sanity checks against the deed image.",
+                latest_refs=state.latest_refs,
+            ),
+        )
         final_verify_ran = True
         final_verify = final_image_sanity_pass_before_promote(
             session_manager=session_manager,
@@ -140,6 +152,15 @@ def handle_clean_iteration(
         and source_transcript_hash
         and error_count <= 0
     ):
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="stabilize",
+                message="Saving mapping span seeds from the clean transcript for downstream mapping context.",
+                latest_refs=state.latest_refs,
+            ),
+        )
         seeds_step = _step_kernel_action(
             session_manager=session_manager,
             session_id=session_id,
@@ -168,6 +189,15 @@ def handle_clean_iteration(
             ),
         )
         if not final_verify_ran:
+            emit_progress(
+                progress_cb,
+                ticker_payload(
+                    iteration=iterations,
+                    phase="image_verify",
+                    message="Running final sanity checks before promotion.",
+                    latest_refs=state.latest_refs,
+                ),
+            )
             final_verify = final_image_sanity_pass_before_promote(
                 session_manager=session_manager,
                 session_id=session_id,
@@ -262,11 +292,47 @@ def handle_repair_iteration(
                 ),
             )
     viewer_run_id = viewer_run_id_from_request_prefix(request_id_prefix)
+    if state.pending_feedback_prompt_id:
+        feedback_entry = poll_feedback_response(
+            run_id=viewer_run_id,
+            prompt_id=state.pending_feedback_prompt_id,
+        )
+        if feedback_entry is not None:
+            emit_progress(
+                progress_cb,
+                human_feedback_received_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    prompt_id=state.pending_feedback_prompt_id,
+                    feedback_entry=feedback_entry,
+                ),
+            )
+            selected_number = range_number_from_feedback(feedback_entry)
+            state.used_human_feedback = True
+            state.pending_feedback_prompt_id = None
+            if selected_number is not None and state.current_transcript_ref and source_transcript_hash:
+                state.sticky_range_selection = selected_number
+                manual_plan_override = build_range_feedback_plan(
+                    source_transcript_ref=state.current_transcript_ref,
+                    source_transcript_hash=source_transcript_hash,
+                    selected_number=selected_number,
+                )
+        else:
+            emit_progress(
+                progress_cb,
+                ticker_payload(
+                    iteration=iterations,
+                    phase="human_feedback_needed",
+                    message="Waiting for optional range confirmation while continuing other checks.",
+                    latest_refs=state.latest_refs,
+                ),
+            )
     if (
         manual_plan_override is None
         and blocking_warning_present
         and request.hitl_enabled
         and (viewer_run_id.startswith("tx_agent_") or viewer_run_id.startswith("tx_post_t0_"))
+        and not state.pending_feedback_prompt_id
     ):
         feedback_prompt = build_human_feedback_prompt(
             disagreement_hints=effective_disagreement_hints,
@@ -282,36 +348,7 @@ def handle_repair_iteration(
                     feedback_prompt=feedback_prompt,
                 ),
             )
-            feedback_entry = wait_for_feedback_response(
-                run_id=viewer_run_id,
-                prompt_id=str(feedback_prompt.get("prompt_id")),
-                timeout_seconds=request.hitl_wait_timeout_seconds,
-                poll_interval_seconds=request.hitl_poll_interval_seconds,
-            )
-            if feedback_entry is None:
-                return TranscriptEditDecision(
-                    status="needs_review",
-                    reason_code="human_feedback_timeout",
-                    review_required=True,
-                )
-            emit_progress(
-                progress_cb,
-                human_feedback_received_payload(
-                    iteration=iterations,
-                    latest_refs=state.latest_refs,
-                    prompt_id=str(feedback_prompt.get("prompt_id")),
-                    feedback_entry=feedback_entry,
-                ),
-            )
-            selected_number = range_number_from_feedback(feedback_entry)
-            state.used_human_feedback = True
-            if selected_number is not None and state.current_transcript_ref and source_transcript_hash:
-                state.sticky_range_selection = selected_number
-                manual_plan_override = build_range_feedback_plan(
-                    source_transcript_ref=state.current_transcript_ref,
-                    source_transcript_hash=source_transcript_hash,
-                    selected_number=selected_number,
-                )
+            state.pending_feedback_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
 
     if state.no_progress_streak >= request.max_no_progress_iterations:
         return TranscriptEditDecision(status="needs_review", reason_code="tx_agent_no_progress", review_required=True)
@@ -329,6 +366,15 @@ def handle_repair_iteration(
             progress_cb,
             open_spans_payload(
                 iteration=iterations,
+                latest_refs=state.latest_refs,
+            ),
+        )
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="open_spans",
+                message="Gathering localized transcript spans around highest-risk mapping findings.",
                 latest_refs=state.latest_refs,
             ),
         )
@@ -356,6 +402,15 @@ def handle_repair_iteration(
                 message="Cross-referencing mapping-critical values (PLSS tokens, distances, bearings) against the source deed image.",
             ),
         )
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="image_verify",
+                message="Verifying mapping-critical tokens against source imagery.",
+                latest_refs=state.latest_refs,
+            ),
+        )
         image_verification = _verify_mapping_critical_with_image(
             session_manager=session_manager,
             session_id=session_id,
@@ -366,12 +421,19 @@ def handle_repair_iteration(
             disagreement_hints=effective_disagreement_hints,
             source_image_refs=request.source_image_refs,
             model=model,
+            progress_cb=progress_cb,
         )
         if image_verification:
             state.latest_refs = image_verification.get("latest_refs", state.latest_refs)
             iv_payload = image_verification.get("payload") or {}
             iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
             iv_results = iv_results if isinstance(iv_results, list) else []
+            state.decision_ledger = update_ledger_from_iteration(
+                ledger=state.decision_ledger,
+                findings=planning_findings,
+                disagreement_hints=effective_disagreement_hints,
+                image_results=[result for result in iv_results if isinstance(result, dict)],
+            )
             iv_confirmed = sum(1 for r in iv_results if isinstance(r, dict) and str(r.get("status") or "").lower() in {"confirmed", "match"})
             iv_rejected = sum(1 for r in iv_results if isinstance(r, dict) and str(r.get("status") or "").lower() in {"rejected", "mismatch"})
             iv_total = len(iv_results)
@@ -393,6 +455,7 @@ def handle_repair_iteration(
                     iv_confirmed=iv_confirmed,
                     iv_rejected=iv_rejected,
                     iv_total=iv_total,
+                    decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
                 ),
             )
     else:
@@ -402,6 +465,15 @@ def handle_repair_iteration(
                 iteration=iterations,
                 latest_refs=state.latest_refs,
                 message="Running post-feedback image verification before applying the override plan.",
+            ),
+        )
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="image_verify",
+                message="Running image verification for the human-selected override path.",
+                latest_refs=state.latest_refs,
             ),
         )
         image_verification = _verify_mapping_critical_with_image(
@@ -414,9 +486,19 @@ def handle_repair_iteration(
             disagreement_hints=effective_disagreement_hints,
             source_image_refs=request.source_image_refs,
             model=model,
+            progress_cb=progress_cb,
         )
         if image_verification:
             state.latest_refs = image_verification.get("latest_refs", state.latest_refs)
+            iv_payload = image_verification.get("payload") or {}
+            iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
+            iv_results = iv_results if isinstance(iv_results, list) else []
+            state.decision_ledger = update_ledger_from_iteration(
+                ledger=state.decision_ledger,
+                findings=planning_findings,
+                disagreement_hints=effective_disagreement_hints,
+                image_results=[result for result in iv_results if isinstance(result, dict)],
+            )
 
     manual_plan = manual_plan_override or (request.edit_plan if isinstance(request.edit_plan, dict) else None)
     consensus_plan_payload = None
@@ -442,6 +524,15 @@ def handle_repair_iteration(
             progress_cb,
             plan_payload(
                 iteration=iterations,
+                latest_refs=state.latest_refs,
+            ),
+        )
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="plan",
+                message="Drafting a drift-safe correction plan from validated evidence.",
                 latest_refs=state.latest_refs,
             ),
         )
@@ -492,6 +583,15 @@ def handle_repair_iteration(
             plan_reason=plan_reason,
             op_count=len(plan_ops),
             ops_preview=[plan_op_to_display_dict(op) for op in plan_ops[:6] if isinstance(op, dict)],
+        ),
+    )
+    emit_progress(
+        progress_cb,
+        ticker_payload(
+            iteration=iterations,
+            phase="apply",
+            message="Applying the selected edit operations and preparing re-audit.",
+            latest_refs=state.latest_refs,
         ),
     )
     apply = _step_kernel_action(
@@ -595,7 +695,23 @@ def _verify_mapping_critical_with_image(
     disagreement_hints: dict[str, Any],
     source_image_refs: list[str],
     model: str,
+    progress_cb: Callable[[dict[str, Any]], None] | None,
 ) -> dict[str, Any]:
+    def _emit_check_progress(update: dict[str, Any]) -> None:
+        check_index = int(update.get("check_index") or 0)
+        check_total = int(update.get("check_total") or 0)
+        check_id = str(update.get("check_id") or "").strip() or "unknown_check"
+        stage = str(update.get("stage") or "running")
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iteration,
+                phase="image_verify",
+                message=f"Image check {check_index}/{check_total} ({check_id}) {stage}.",
+                latest_refs={},
+            ),
+        )
+
     return verify_mapping_critical_with_image(
         session_manager=session_manager,
         session_id=session_id,
@@ -609,6 +725,7 @@ def _verify_mapping_critical_with_image(
         step_fn=_step_kernel_action,
         read_step_outputs_inline_fn=read_step_outputs_inline,
         read_str_fn=read_str,
+        progress_cb=_emit_check_progress,
     )
 
 

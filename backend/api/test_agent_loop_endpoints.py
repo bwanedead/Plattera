@@ -244,3 +244,133 @@ def test_agent_tape_event_formatter_emits_compact_kernel_step_status() -> None:
     assert status["action_type"] == "judge"
     assert status["outcome"] == "executed"
     assert "Updated refs:" in str(status["line2"])
+
+
+def test_build_start_request_includes_handoff_bootstrap_metadata(monkeypatch) -> None:
+    packet = {
+        "terminal": {"mapping_ready": False, "readiness_blocker": "mapping_critical_image_verification_unresolved"},
+        "resume_recommendation": "proceed_with_caution",
+        "mapping_watchlist": ["range"],
+        "handoff_summary": "Not mapping-ready.",
+        "transcript_edit_run_id": "tx_run_1",
+    }
+    monkeypatch.setattr(agent_loop, "load_transcript_handoff_packet", lambda **kwargs: packet)
+    req = agent_loop.AgentLoopRunRequest(
+        dossier_id="D1",
+        transcript_handoff_ref="artifacts/transcript_edit_handoffs/D1/run.json",
+        mapping_readiness_mode="best_effort",
+    )
+    start = agent_loop._build_start_request("run_x", req)  # type: ignore[attr-defined]
+    metadata = start.initial_graph_json.get("metadata") if isinstance(start.initial_graph_json, dict) else {}
+    assert metadata.get("transcript_mapping_ready") is False
+    assert metadata.get("transcript_mapping_watchlist") == ["range"]
+    assert metadata.get("mapping_readiness_mode") == "best_effort"
+
+
+def test_execute_run_emits_upstream_correction_request_event(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _reset_registry(Path(tmp))
+        captured_events: list[dict[str, Any]] = []
+
+        class _FakeResult:
+            session_id = "s1"
+            run_artifact_ref = "ref://run"
+            transcript_artifact_ref = "ref://tape"
+            last_dashboard = {}
+
+            class _Terminal:
+                def model_dump(self, mode: str = "json") -> dict[str, Any]:
+                    del mode
+                    return {"terminal_outcome": "FAILED", "stop_reason": "needs_review", "success": False}
+
+            terminal = _Terminal()
+
+        def _fake_run_controller_loop(**kwargs: Any):
+            del kwargs
+            previous = agent_loop.set_transcript_event_hook(None)
+            try:
+                if callable(previous):
+                    previous(
+                        {
+                            "event_type": "kernel_step_result",
+                            "timestamp_epoch_seconds": 123,
+                            "payload": {
+                                "action_type": "georeference",
+                                "execution_state": "refused",
+                                "refusal": {"reason_code": "georef_range_mismatch"},
+                                "latest_refs": {"judge_ref": "artifacts/feature_graphs/D1/judge.json"},
+                            },
+                        }
+                    )
+            finally:
+                agent_loop.restore_transcript_event_hook(previous)
+            return _FakeResult()
+
+        monkeypatch.setattr(agent_loop, "run_controller_loop", _fake_run_controller_loop)
+        monkeypatch.setattr(agent_loop, "load_transcript_handoff_packet", lambda **kwargs: {"mapping_watchlist": ["range"]})
+
+        class _Bus:
+            def publish_sync(self, run_id: str, event: dict[str, Any]) -> None:
+                del run_id
+                captured_events.append(event)
+
+            async def publish(self, run_id: str, event: dict[str, Any]) -> None:
+                del run_id
+                captured_events.append(event)
+
+        monkeypatch.setattr(agent_loop, "event_bus", _Bus())
+
+        req = agent_loop.AgentLoopRunRequest(dossier_id="D1", background=False)
+        run_id = "run_test_upstream_req"
+        agent_loop._run_registry.create_run(run_id=run_id, request={"dossier_id": "D1"})  # type: ignore[attr-defined]
+        agent_loop._execute_run(run_id, req)
+        run = asyncio.run(agent_loop.get_agent_loop_run(run_id))
+        requests = run.get("upstream_correction_requests") or []
+        assert isinstance(requests, list) and len(requests) == 1
+        assert requests[0]["source"] == "mapping"
+        assert run.get("upstream_correction_requests_ref")
+
+
+def test_resolve_agent_loop_artifact_path_allows_handoff_and_upstream_artifacts(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        handoff_root = root / "artifacts" / "transcript_edit_handoffs"
+        upstream_root = root / "artifacts" / "mapping_upstream_requests"
+        handoff_root.mkdir(parents=True, exist_ok=True)
+        upstream_root.mkdir(parents=True, exist_ok=True)
+        handoff_file = handoff_root / "D1" / "run.json"
+        handoff_file.parent.mkdir(parents=True, exist_ok=True)
+        handoff_file.write_text("{}", encoding="utf-8")
+        upstream_file = upstream_root / "D1" / "run.json"
+        upstream_file.parent.mkdir(parents=True, exist_ok=True)
+        upstream_file.write_text("{}", encoding="utf-8")
+
+        monkeypatch.setattr(agent_loop, "dossiers_artifacts_root", lambda: root / "artifacts")
+        assert agent_loop._resolve_agent_loop_artifact_path(str(handoff_file)) is not None  # type: ignore[attr-defined]
+        assert agent_loop._resolve_agent_loop_artifact_path(str(upstream_file)) is not None  # type: ignore[attr-defined]
+
+
+def test_execute_run_strict_mode_blocks_when_handoff_not_mapping_ready(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _reset_registry(Path(tmp))
+        run_id = "run_strict_blocked"
+        agent_loop._run_registry.create_run(run_id=run_id, request={"dossier_id": "D1"})  # type: ignore[attr-defined]
+        monkeypatch.setattr(
+            agent_loop,
+            "load_transcript_handoff_packet",
+            lambda **kwargs: {
+                "terminal": {"mapping_ready": False},
+                "resume_recommendation": "requires_upstream_resolution",
+                "mapping_watchlist": ["range"],
+            },
+        )
+        req = agent_loop.AgentLoopRunRequest(
+            dossier_id="D1",
+            background=False,
+            transcript_handoff_ref="artifacts/transcript_edit_handoffs/D1/r.json",
+            mapping_readiness_mode="strict",
+        )
+        agent_loop._execute_run(run_id, req)
+        run = asyncio.run(agent_loop.get_agent_loop_run(run_id))
+        assert run["status"] == "failed"
+        assert run["error"] == "mapping_strict_handoff_not_ready"

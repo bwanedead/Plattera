@@ -81,6 +81,18 @@ def wait_for_feedback_response(
     return None
 
 
+def poll_feedback_response(
+    *,
+    run_id: str,
+    prompt_id: str,
+) -> dict[str, Any] | None:
+    return feedback_store.first_matching_prompt_entry(
+        loop_kind="transcript_edit",
+        run_id=run_id,
+        prompt_id=prompt_id,
+    )
+
+
 def range_number_from_feedback(feedback_entry: dict[str, Any]) -> int | None:
     if not isinstance(feedback_entry, dict):
         return None

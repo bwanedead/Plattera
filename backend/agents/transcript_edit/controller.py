@@ -36,6 +36,11 @@ from .disagreement_analysis import (
     prioritized_findings_for_planning,
     resolved_disagreement_hints,
 )
+from .decision_ledger import (
+    initialize_decision_ledger,
+    ledger_snapshot_for_payload,
+    update_ledger_from_iteration,
+)
 from .hitl_feedback import (
     build_human_feedback_prompt,
     build_range_feedback_plan,
@@ -77,6 +82,7 @@ from .terminalization import build_run_result
 from .run_reporting import (
     audit_payload,
     audit_result_payload,
+    orient_payload,
     starting_payload,
 )
 from .planner import TranscriptEditPlanPlanner
@@ -146,6 +152,7 @@ def run_transcript_edit_controller_loop(
     state = TranscriptEditLoopState(
         latest_refs=start.dashboard.latest_refs.model_dump(mode="json") if start.dashboard else {},
         current_transcript_ref=request.source_transcript_ref,
+        decision_ledger=initialize_decision_ledger(),
     )
     disagreement_hints = _candidate_disagreement_hints(request.candidate_texts)
     candidate_count = len(request.candidate_texts) if request.candidate_texts else 0
@@ -167,6 +174,17 @@ def run_transcript_edit_controller_loop(
             candidate_count=candidate_count,
             has_disagreements=has_disagreements,
             latest_refs=state.latest_refs,
+        ),
+    )
+    _emit_progress(
+        progress_cb,
+        orient_payload(
+            mode=mode,
+            candidate_count=candidate_count,
+            has_disagreements=has_disagreements,
+            has_images=bool(request.source_image_refs),
+            latest_refs=state.latest_refs,
+            decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
         ),
     )
 
@@ -235,6 +253,11 @@ def run_transcript_edit_controller_loop(
         planning_findings = _prioritized_findings_for_planning(top_findings=top_findings)
         blocking_warning_present = _has_blocking_warnings(top_findings)
         warning_count = _read_int(findings_summary.get("warnings") if isinstance(findings_summary, dict) else None, 0)
+        state.decision_ledger = update_ledger_from_iteration(
+            ledger=state.decision_ledger,
+            findings=top_findings,
+            disagreement_hints=effective_disagreement_hints,
+        )
         _emit_progress(
             progress_cb,
             audit_result_payload(
@@ -246,6 +269,7 @@ def run_transcript_edit_controller_loop(
                 summary_text=top_findings_summary_text(top_findings),
                 latest_refs=state.latest_refs,
                 execution_state=str(audit.execution_state.value),
+                decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
             ),
         )
 

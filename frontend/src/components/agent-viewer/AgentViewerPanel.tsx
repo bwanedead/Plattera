@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  getAgentViewerArtifactImageUrl,
   getAgentViewerArtifactJson,
   getAgentViewerFeedback,
   subscribeAgentViewerEvents,
@@ -21,6 +22,16 @@ interface AgentViewerPanelProps {
 
 type ViewerTheme = 'void' | 'space';
 type CanvasMode = 'transcription' | 'agent';
+type AgentCanvasPage = 'live_draft' | 'diff' | 'verify_image' | 'ops' | 'wip_preview';
+type DecisionLedgerItem = {
+  key?: string;
+  label?: string;
+  state?: string;
+  selected_value?: string | null;
+  alternatives?: string[];
+  blocking?: boolean;
+  confidence?: string | number | null;
+};
 
 function summarizeEventForesight(evt: AgentViewerEvent | null): string {
   if (!evt) return 'I am waiting for the next instruction.';
@@ -216,6 +227,202 @@ function readableArtifactText(data: any): string {
   return lines.join('\n');
 }
 
+function transcriptTextFromArtifact(data: any): string {
+  if (!data) return '';
+  if (typeof data === 'string') return data;
+  if (typeof data !== 'object') return String(data);
+  const asObj = data as Record<string, any>;
+  if (Array.isArray(asObj.sections)) {
+    return asObj.sections
+      .map((section: any) => (typeof section?.body === 'string' ? section.body.trim() : ''))
+      .filter(Boolean)
+      .join('\n\n');
+  }
+  const directText = typeof asObj.text === 'string' ? asObj.text : '';
+  const extracted = typeof asObj.extracted_text === 'string' ? asObj.extracted_text : '';
+  return directText || extracted || readableArtifactText(data);
+}
+
+function findLatestRef(events: AgentViewerEvent[], key: string): string | null {
+  for (const evt of events) {
+    const path = evt?.artifact_refs?.[key]?.artifact_path;
+    if (path) return path;
+  }
+  return null;
+}
+
+function buildLineDiffRows(beforeText: string, afterText: string): Array<{ left: string; right: string; changed: boolean }> {
+  const leftLines = (beforeText || '').split('\n');
+  const rightLines = (afterText || '').split('\n');
+  const max = Math.max(leftLines.length, rightLines.length);
+  const rows: Array<{ left: string; right: string; changed: boolean }> = [];
+  for (let i = 0; i < max; i += 1) {
+    const left = leftLines[i] ?? '';
+    const right = rightLines[i] ?? '';
+    rows.push({ left, right, changed: left.trim() !== right.trim() });
+  }
+  return rows;
+}
+
+function extractImagePath(events: AgentViewerEvent[], selectedArtifactJson: any): string | null {
+  if (selectedArtifactJson && typeof selectedArtifactJson === 'object') {
+    const direct = typeof selectedArtifactJson.image_path === 'string' ? selectedArtifactJson.image_path : '';
+    if (direct) return direct;
+  }
+  for (const evt of events) {
+    const phase = String(evt.payload?.phase || '').toLowerCase();
+    if (phase !== 'image_verify_result') continue;
+    const iv = evt.payload?.image_verification as Record<string, any> | undefined;
+    const path = typeof iv?.image_path === 'string' ? iv.image_path : '';
+    if (path) return path;
+  }
+  return null;
+}
+
+function extractImageVerificationResults(events: AgentViewerEvent[], selectedArtifactJson: any): Array<Record<string, any>> {
+  if (selectedArtifactJson && typeof selectedArtifactJson === 'object' && Array.isArray((selectedArtifactJson as any).results)) {
+    return (selectedArtifactJson as any).results.filter((v: any) => v && typeof v === 'object');
+  }
+  for (const evt of events) {
+    const phase = String(evt.payload?.phase || '').toLowerCase();
+    if (phase !== 'image_verify_result') continue;
+    const iv = evt.payload?.image_verification as Record<string, any> | undefined;
+    const results = Array.isArray(iv?.results) ? iv?.results : [];
+    return results.filter((v: any) => v && typeof v === 'object');
+  }
+  return [];
+}
+
+function renderMetaOf(result: any): Record<string, any> | null {
+  if (!result || typeof result !== 'object') return null;
+  const meta = (result as any).render_meta;
+  return meta && typeof meta === 'object' ? meta : null;
+}
+
+function extractPreviewPolyline(data: any): Array<[number, number]> | null {
+  if (!data || typeof data !== 'object') return null;
+  const obj = data as Record<string, any>;
+  if (Array.isArray(obj.coordinates) && obj.coordinates.length > 1) {
+    const coords = obj.coordinates.filter((v: any) => Array.isArray(v) && v.length >= 2).map((v: any) => [Number(v[0]), Number(v[1])] as [number, number]);
+    return coords.length > 1 ? coords : null;
+  }
+  if (Array.isArray(obj.features) && obj.features.length > 0) {
+    const feature = obj.features[0];
+    const geometry = feature?.geometry;
+    const coords = geometry?.coordinates;
+    if (Array.isArray(coords) && Array.isArray(coords[0]) && Array.isArray(coords[0][0])) {
+      const ring = coords[0].map((v: any) => [Number(v[0]), Number(v[1])] as [number, number]);
+      return ring.length > 1 ? ring : null;
+    }
+    if (Array.isArray(coords) && Array.isArray(coords[0])) {
+      const line = coords.map((v: any) => [Number(v[0]), Number(v[1])] as [number, number]);
+      return line.length > 1 ? line : null;
+    }
+  }
+  return null;
+}
+
+function collectArtifactCandidates(events: AgentViewerEvent[]): string[] {
+  const keyPriority: string[] = [
+    'tx_edited_transcript_ref',
+    'tx_source_transcript_ref',
+    'tx_mapping_pointer_ref',
+    'tx_apply_report_ref',
+    'tx_edit_plan_ref',
+    'tx_image_verify_ref',
+    'tx_open_spans_ref',
+    'tx_validator_report_ref',
+    'ir_ref',
+  ];
+  const seen = new Set<string>();
+  const refs: string[] = [];
+  for (const evt of events) {
+    const eventRefs = evt.artifact_refs || {};
+    for (const key of keyPriority) {
+      const path = eventRefs[key]?.artifact_path;
+      if (!path || seen.has(path)) continue;
+      seen.add(path);
+      refs.push(path);
+    }
+    for (const [, ref] of Object.entries(eventRefs)) {
+      const path = ref?.artifact_path;
+      if (!path || seen.has(path)) continue;
+      seen.add(path);
+      refs.push(path);
+    }
+  }
+  return refs;
+}
+
+function extractDecisionLedger(evt: AgentViewerEvent | null, terminalSummary: Record<string, any> | null): Record<string, any> | null {
+  const detailLedger = evt?.payload?.detail?.decision_ledger;
+  if (detailLedger && typeof detailLedger === 'object') return detailLedger as Record<string, any>;
+  const terminalLedger = terminalSummary?.decision_ledger;
+  if (terminalLedger && typeof terminalLedger === 'object') return terminalLedger as Record<string, any>;
+  return null;
+}
+
+function collectUpstreamCorrectionRequests(events: AgentViewerEvent[]): Array<Record<string, any>> {
+  const requests: Array<Record<string, any>> = [];
+  const seen = new Set<string>();
+  for (const evt of events) {
+    if (evt.event_type === 'upstream_correction_request' && evt.payload?.request && typeof evt.payload.request === 'object') {
+      const req = evt.payload.request as Record<string, any>;
+      const id = String(req.request_id || `${req.reason_code || 'request'}:${req.message || ''}`);
+      if (!seen.has(id)) {
+        seen.add(id);
+        requests.push(req);
+      }
+    }
+    const runPayload = evt.payload?.run;
+    if (runPayload && typeof runPayload === 'object' && Array.isArray((runPayload as any).upstream_correction_requests)) {
+      for (const req of (runPayload as any).upstream_correction_requests) {
+        if (!req || typeof req !== 'object') continue;
+        const id = String((req as any).request_id || `${(req as any).reason_code || 'request'}:${(req as any).message || ''}`);
+        if (!seen.has(id)) {
+          seen.add(id);
+          requests.push(req as Record<string, any>);
+        }
+      }
+    }
+  }
+  return requests;
+}
+
+async function loadBestArtifactJson(startRef: string, candidates: string[]): Promise<{ ref: string; json: any }> {
+  const queue = [startRef, ...candidates.filter((v) => v && v !== startRef)];
+  const visited = new Set<string>();
+  let lastError: Error | null = null;
+
+  while (queue.length) {
+    const ref = queue.shift() as string;
+    if (!ref || visited.has(ref)) continue;
+    visited.add(ref);
+    try {
+      const payload = await getAgentViewerArtifactJson(ref);
+      const data = payload?.json;
+      // If this is a pointer artifact, follow transcript refs automatically.
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        const transcriptRef = typeof (data as any).transcript_ref === 'string' ? String((data as any).transcript_ref) : '';
+        const sourceRef = typeof (data as any).source_transcript_ref === 'string' ? String((data as any).source_transcript_ref) : '';
+        if (transcriptRef && !visited.has(transcriptRef)) {
+          queue.unshift(transcriptRef);
+          continue;
+        }
+        if (sourceRef && !visited.has(sourceRef)) {
+          queue.unshift(sourceRef);
+          continue;
+        }
+      }
+      return { ref, json: data };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Failed to open artifact');
+    }
+  }
+
+  throw lastError || new Error('Failed to open artifact');
+}
+
 export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
   isOpen,
   loopKind,
@@ -239,6 +446,10 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
   const [selectedArtifactJson, setSelectedArtifactJson] = React.useState<any>(null);
   const [artifactError, setArtifactError] = React.useState<string | null>(null);
   const [loadingArtifact, setLoadingArtifact] = React.useState(false);
+  const [canvasPageIndex, setCanvasPageIndex] = React.useState(0);
+  const [sourceTranscriptText, setSourceTranscriptText] = React.useState('');
+  const [editedTranscriptText, setEditedTranscriptText] = React.useState('');
+  const [selectedVerifyResultIndex, setSelectedVerifyResultIndex] = React.useState(0);
 
   const activeLoopKind = loopKind ?? null;
   const activeRunId = typeof runId === 'string' && runId.trim() ? runId : null;
@@ -332,6 +543,10 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     setFeedbackEntries([]);
     setFeedbackNote('');
     setFeedbackError(null);
+    setCanvasPageIndex(0);
+    setSourceTranscriptText('');
+    setEditedTranscriptText('');
+    setSelectedVerifyResultIndex(0);
   }, [isOpen, sessionKey]);
 
   React.useEffect(() => {
@@ -377,7 +592,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
   }, [events]);
 
   const doneEvent = React.useMemo(() => orderedEvents.find((evt) => evt.event_type === 'done') || null, [orderedEvents]);
-  const currentEvent = doneEvent || orderedEvents[0] || null;
+  const currentEvent = doneEvent || orderedEvents.find((evt) => String(evt.payload?.stream_kind || 'narration') !== 'ticker') || orderedEvents[0] || null;
   const detailEvent = React.useMemo(
     () => orderedEvents.find((evt) => evt?.payload?.detail && typeof evt.payload.detail === 'object') || null,
     [orderedEvents],
@@ -397,6 +612,22 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     const raw = doneEvent?.payload?.summary;
     return raw && typeof raw === 'object' ? (raw as Record<string, any>) : null;
   }, [doneEvent]);
+  const decisionLedger = React.useMemo(
+    () => extractDecisionLedger(detailEvent, terminalSummary),
+    [detailEvent, terminalSummary],
+  );
+  const decisionItems = React.useMemo(
+    () => (Array.isArray(decisionLedger?.items) ? (decisionLedger?.items as DecisionLedgerItem[]) : []),
+    [decisionLedger],
+  );
+  const decisionSummary = React.useMemo(
+    () => (decisionLedger && typeof decisionLedger.summary === 'object' ? (decisionLedger.summary as Record<string, any>) : null),
+    [decisionLedger],
+  );
+  const upstreamCorrectionRequests = React.useMemo(
+    () => collectUpstreamCorrectionRequests(orderedEvents),
+    [orderedEvents],
+  );
 
   const activeFeedbackPrompt = React.useMemo(() => {
     if (isRunTerminal) return null;
@@ -421,52 +652,92 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     return feedbackEntries.some((entry) => String(entry.prompt_id || '') === activeFeedbackPrompt.promptId);
   }, [activeFeedbackPrompt, feedbackEntries]);
 
+  const artifactCandidates = React.useMemo(() => collectArtifactCandidates(orderedEvents), [orderedEvents]);
+  const sourceTranscriptRef = React.useMemo(() => findLatestRef(orderedEvents, 'tx_source_transcript_ref'), [orderedEvents]);
+  const editedTranscriptRef = React.useMemo(() => findLatestRef(orderedEvents, 'tx_edited_transcript_ref'), [orderedEvents]);
+  const transcriptDiffRows = React.useMemo(
+    () => buildLineDiffRows(sourceTranscriptText, editedTranscriptText),
+    [sourceTranscriptText, editedTranscriptText],
+  );
+  const activeImagePath = React.useMemo(
+    () => extractImagePath(orderedEvents, selectedArtifactJson),
+    [orderedEvents, selectedArtifactJson],
+  );
+  const imageVerifyResults = React.useMemo(
+    () => extractImageVerificationResults(orderedEvents, selectedArtifactJson),
+    [orderedEvents, selectedArtifactJson],
+  );
+  const selectedVerifyResult = imageVerifyResults[Math.min(selectedVerifyResultIndex, Math.max(imageVerifyResults.length - 1, 0))] || null;
+  const selectedVerifyMeta = renderMetaOf(selectedVerifyResult);
+  const verifyOriginalSize = React.useMemo(() => {
+    const withMeta = imageVerifyResults.find((v) => renderMetaOf(v)?.original_size);
+    const size = renderMetaOf(withMeta)?.original_size;
+    if (Array.isArray(size) && size.length >= 2) return [Number(size[0]) || 1000, Number(size[1]) || 1000] as [number, number];
+    return [1000, 1000] as [number, number];
+  }, [imageVerifyResults]);
+  const activeImageUrl = React.useMemo(
+    () => (activeImagePath ? getAgentViewerArtifactImageUrl(activeImagePath) : null),
+    [activeImagePath],
+  );
+  const previewPolyline = React.useMemo(
+    () => extractPreviewPolyline(selectedArtifactJson),
+    [selectedArtifactJson],
+  );
+  const previewPathD = React.useMemo(() => {
+    if (!previewPolyline || previewPolyline.length < 2) return '';
+    const xs = previewPolyline.map((p) => p[0]);
+    const ys = previewPolyline.map((p) => p[1]);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const width = Math.max(1e-6, maxX - minX);
+    const height = Math.max(1e-6, maxY - minY);
+    const pad = 24;
+    const inner = 1000 - pad * 2;
+    return previewPolyline
+      .map(([x, y], idx) => {
+        const nx = pad + ((x - minX) / width) * inner;
+        const ny = 1000 - (pad + ((y - minY) / height) * inner);
+        return `${idx === 0 ? 'M' : 'L'} ${nx.toFixed(2)} ${ny.toFixed(2)}`;
+      })
+      .join(' ');
+  }, [previewPolyline]);
+
+  const availableCanvasPages = React.useMemo(() => {
+    const pages: Array<{ id: AgentCanvasPage; label: string }> = [{ id: 'live_draft', label: 'Live Draft' }];
+    if (sourceTranscriptText || editedTranscriptText) pages.push({ id: 'diff', label: 'Compare' });
+    if (activeImageUrl) pages.push({ id: 'verify_image', label: 'Image Verify' });
+    if (selectedArtifactJson && typeof selectedArtifactJson === 'object') {
+      const obj = selectedArtifactJson as Record<string, any>;
+      if (Array.isArray(obj.ops) || Array.isArray(obj.plan?.ops) || Array.isArray(obj.results)) {
+        pages.push({ id: 'ops', label: 'Ops/Checks' });
+      }
+    }
+    if (previewPolyline || findLatestRef(orderedEvents, 'ir_ref')) pages.push({ id: 'wip_preview', label: 'WIP Preview' });
+    return pages;
+  }, [activeImageUrl, editedTranscriptText, orderedEvents, previewPolyline, selectedArtifactJson, sourceTranscriptText]);
+
+  const activeCanvasPage = availableCanvasPages[Math.min(canvasPageIndex, Math.max(availableCanvasPages.length - 1, 0))]?.id ?? 'live_draft';
+
+  React.useEffect(() => {
+    if (canvasPageIndex < availableCanvasPages.length) return;
+    setCanvasPageIndex(0);
+  }, [availableCanvasPages.length, canvasPageIndex]);
+
+  React.useEffect(() => {
+    if (selectedVerifyResultIndex < imageVerifyResults.length) return;
+    setSelectedVerifyResultIndex(0);
+  }, [imageVerifyResults.length, selectedVerifyResultIndex]);
+
   React.useEffect(() => {
     if (canvasMode !== 'agent') return;
-    if (!orderedEvents.length) return;
-    const eventsWithRefs = orderedEvents.filter(
-      (evt) => evt && evt.artifact_refs && Object.keys(evt.artifact_refs).length > 0,
-    );
-    if (!eventsWithRefs.length) return;
-    const phaseRefKeys: Record<string, string[]> = {
-      audit: ['tx_validator_report_ref'],
-      audit_result: ['tx_validator_report_ref'],
-      open_spans: ['tx_open_spans_ref'],
-      open_spans_result: ['tx_open_spans_ref'],
-      image_verify: ['tx_image_verify_ref'],
-      image_verify_result: ['tx_image_verify_ref'],
-      plan: ['tx_edit_plan_ref'],
-      plan_result: ['tx_edit_plan_ref'],
-      apply: ['tx_edited_transcript_ref', 'tx_apply_report_ref'],
-      apply_result: ['tx_edited_transcript_ref', 'tx_apply_report_ref'],
-      promote: ['tx_mapping_pointer_ref'],
-    };
-    let bestRef: string | null = null;
-    for (const evt of eventsWithRefs) {
-      const refs = evt.artifact_refs || {};
-      const phase = String(evt.payload?.phase || evt.status?.stage || '').toLowerCase();
-      const preferredKeys = phaseRefKeys[phase] || [];
-      for (const key of preferredKeys) {
-        const ref = refs[key];
-        if (ref?.artifact_path) {
-          bestRef = ref.artifact_path;
-          break;
-        }
-      }
-      if (bestRef) break;
-      for (const key of ['tx_edited_transcript_ref', 'tx_source_transcript_ref', 'tx_validator_report_ref', 'ir_ref']) {
-        const ref = refs[key];
-        if (ref?.artifact_path) {
-          bestRef = ref.artifact_path;
-          break;
-        }
-      }
-      if (bestRef) break;
+    if (!artifactCandidates.length) return;
+    const preferredRef = artifactCandidates[0];
+    if (!selectedArtifactRef || !artifactCandidates.includes(selectedArtifactRef)) {
+      setSelectedArtifactRef(preferredRef);
     }
-    if (bestRef && bestRef !== selectedArtifactRef) {
-      setSelectedArtifactRef(bestRef);
-    }
-  }, [canvasMode, orderedEvents, selectedArtifactRef]);
+  }, [canvasMode, artifactCandidates, selectedArtifactRef]);
 
   React.useEffect(() => {
     if (!selectedArtifactRef) return;
@@ -475,8 +746,11 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     setArtifactError(null);
     (async () => {
       try {
-        const payload = await getAgentViewerArtifactJson(selectedArtifactRef);
-        if (!cancelled) setSelectedArtifactJson(payload?.json ?? null);
+        const loaded = await loadBestArtifactJson(selectedArtifactRef, artifactCandidates);
+        if (!cancelled) {
+          setSelectedArtifactRef(loaded.ref);
+          setSelectedArtifactJson(loaded.json ?? null);
+        }
       } catch (error) {
         if (!cancelled) {
           setSelectedArtifactJson(null);
@@ -489,7 +763,28 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedArtifactRef]);
+  }, [selectedArtifactRef, artifactCandidates]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const loadTranscriptRef = async (ref: string | null, setter: (value: string) => void) => {
+      if (!ref) {
+        setter('');
+        return;
+      }
+      try {
+        const payload = await getAgentViewerArtifactJson(ref);
+        if (!cancelled) setter(transcriptTextFromArtifact(payload?.json));
+      } catch {
+        if (!cancelled) setter('');
+      }
+    };
+    void loadTranscriptRef(sourceTranscriptRef, setSourceTranscriptText);
+    void loadTranscriptRef(editedTranscriptRef, setEditedTranscriptText);
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceTranscriptRef, editedTranscriptRef]);
 
   const submitFeedback = React.useCallback(async (choice?: string) => {
     if (!activeLoopKind || !activeRunId) return;
@@ -514,7 +809,31 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     }
   }, [activeLoopKind, activeRunId, activeFeedbackPrompt, feedbackNote, canvasMode, orderedEvents.length]);
 
-  const readableCanvasText = React.useMemo(() => readableArtifactText(selectedArtifactJson), [selectedArtifactJson]);
+  const requestDecisionReview = React.useCallback(
+    async (decisionKey: string) => {
+      if (!activeLoopKind || !activeRunId) return;
+      setFeedbackBusy(true);
+      setFeedbackError(null);
+      try {
+        const response = await submitAgentViewerFeedback(activeLoopKind, activeRunId, {
+          prompt_id: null,
+          choice: null,
+          note: `Please re-check decision key: ${decisionKey}`,
+          metadata: {
+            action: 'review_again',
+            decision_key: decisionKey,
+            source: 'decision_ledger_panel',
+          },
+        });
+        setFeedbackEntries((prev) => [response.entry, ...prev].slice(0, 40));
+      } catch (error) {
+        setFeedbackError(error instanceof Error ? error.message : 'Failed to submit decision review');
+      } finally {
+        setFeedbackBusy(false);
+      }
+    },
+    [activeLoopKind, activeRunId],
+  );
 
   if (!isOpen) return null;
 
@@ -538,6 +857,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     text: summarizeEventForesight(evt),
     iteration: evt.iteration,
     isCurrent: idx === 0,
+    isTicker: String(evt.payload?.stream_kind || 'narration') === 'ticker',
   }));
 
   return (
@@ -692,26 +1012,164 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
         {canvasMode === 'agent' && (
           <div style={{ minHeight: 0, zIndex: 1, position: 'relative' }}>
             <div style={{ position: 'absolute', inset: '12px 360px 78px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.28)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              {currentEvent && (
-                <div style={{ padding: '6px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <div style={{ padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                {currentEvent && (
                   <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(142,197,255,0.15)', border: '1px solid rgba(142,197,255,0.25)' }}>
                     {String(currentEvent.payload?.phase || currentEvent.status?.stage || 'idle').replace(/_/g, ' ')}
                   </span>
-                  {typeof currentEvent.iteration === 'number' && (
-                    <span style={{ fontSize: 10, opacity: 0.6 }}>iter {currentEvent.iteration}</span>
-                  )}
-                </div>
-              )}
-              <div style={{ flex: 1, overflow: 'auto', padding: 14 }}>
-                {loadingArtifact && <div style={{ fontSize: 12, opacity: 0.86 }}>Loading latest artifact…</div>}
-                {artifactError && <div style={{ fontSize: 12, color: '#ff9aa0' }}>{artifactError}</div>}
-                {!loadingArtifact && !artifactError && !selectedArtifactJson && (
-                  <div style={{ fontSize: 12, opacity: 0.72 }}>No artifact loaded yet. Waiting for agent outputs…</div>
                 )}
-                {!loadingArtifact && !artifactError && selectedArtifactJson && (
+                {typeof currentEvent?.iteration === 'number' && (
+                  <span style={{ fontSize: 10, opacity: 0.6 }}>iter {currentEvent.iteration}</span>
+                )}
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button onClick={() => setCanvasPageIndex((v) => Math.max(0, v - 1))} disabled={canvasPageIndex <= 0} style={{ fontSize: 11, padding: '2px 8px' }}>◀</button>
+                  <span style={{ fontSize: 11, opacity: 0.84 }}>
+                    {availableCanvasPages[canvasPageIndex]?.label || 'Live Draft'}
+                  </span>
+                  <button onClick={() => setCanvasPageIndex((v) => Math.min(availableCanvasPages.length - 1, v + 1))} disabled={canvasPageIndex >= availableCanvasPages.length - 1} style={{ fontSize: 11, padding: '2px 8px' }}>▶</button>
+                </div>
+              </div>
+
+              <div style={{ flex: 1, overflow: 'auto', padding: 14 }}>
+                {activeCanvasPage === 'live_draft' && (
+                  <>
+                    {loadingArtifact && <div style={{ fontSize: 12, opacity: 0.86 }}>Loading latest artifact…</div>}
+                    {artifactError && <div style={{ fontSize: 12, color: '#ff9aa0' }}>{artifactError}</div>}
+                    {!loadingArtifact && !artifactError && !selectedArtifactJson && (
+                      <div style={{ fontSize: 12, opacity: 0.72 }}>No artifact loaded yet. Waiting for agent outputs…</div>
+                    )}
+                    {!loadingArtifact && !selectedArtifactJson && transcriptionDrafts.length > 0 && (
+                      <div style={{ marginTop: 10 }}>
+                        <div style={{ fontSize: 11, opacity: 0.72, marginBottom: 6 }}>
+                          Fallback view: latest transcription draft
+                        </div>
+                        <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.4 }}>
+                          {transcriptionDrafts[Math.min(selectedDraftIndex, transcriptionDrafts.length - 1)]?.text || ''}
+                        </pre>
+                      </div>
+                    )}
+                    {!loadingArtifact && !artifactError && selectedArtifactJson && (
+                      <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.4 }}>
+                        {transcriptTextFromArtifact(selectedArtifactJson)}
+                      </pre>
+                    )}
+                  </>
+                )}
+
+                {activeCanvasPage === 'diff' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 6 }}>Source</div>
+                      <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, overflow: 'hidden' }}>
+                        {transcriptDiffRows.slice(0, 300).map((row, idx) => (
+                          <div key={`l-${idx}`} style={{ padding: '3px 8px', fontSize: 11, lineHeight: 1.35, background: row.changed ? 'rgba(255,107,107,0.10)' : 'transparent' }}>
+                            {row.left || ' '}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 6 }}>Edited</div>
+                      <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, overflow: 'hidden' }}>
+                        {transcriptDiffRows.slice(0, 300).map((row, idx) => (
+                          <div key={`r-${idx}`} style={{ padding: '3px 8px', fontSize: 11, lineHeight: 1.35, background: row.changed ? 'rgba(42,196,119,0.14)' : 'transparent' }}>
+                            {row.right || ' '}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeCanvasPage === 'verify_image' && (
+                  <div style={{ display: 'grid', gridTemplateRows: '1fr auto', height: '100%', gap: 10 }}>
+                    {activeImageUrl ? (
+                      <div style={{ borderRadius: 8, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.02)', overflow: 'hidden' }}>
+                        <svg viewBox={`0 0 ${verifyOriginalSize[0]} ${verifyOriginalSize[1]}`} style={{ width: '100%', maxHeight: 520 }}>
+                          <image href={activeImageUrl} x={0} y={0} width={verifyOriginalSize[0]} height={verifyOriginalSize[1]} preserveAspectRatio="xMidYMid meet" />
+                          {imageVerifyResults.map((result: any, idx: number) => {
+                            const meta = renderMetaOf(result);
+                            const crop = meta?.crop_box;
+                            if (!crop || typeof crop !== 'object') return null;
+                            const isSelected = idx === Math.min(selectedVerifyResultIndex, imageVerifyResults.length - 1);
+                            const st = String(result?.status || '').toLowerCase();
+                            const stroke = st === 'match' || st === 'confirmed' ? '#2ac477' : st === 'mismatch' || st === 'rejected' ? '#ff6b6b' : '#d4a83f';
+                            return (
+                              <g key={`crop-${idx}`}>
+                                <rect
+                                  x={Number(crop.x) || 0}
+                                  y={Number(crop.y) || 0}
+                                  width={Math.max(1, Number(crop.width) || 0)}
+                                  height={Math.max(1, Number(crop.height) || 0)}
+                                  fill={isSelected ? `${stroke}22` : `${stroke}12`}
+                                  stroke={stroke}
+                                  strokeWidth={isSelected ? 3 : 1.5}
+                                />
+                              </g>
+                            );
+                          })}
+                        </svg>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, opacity: 0.72 }}>No active image verification artifact yet.</div>
+                    )}
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {imageVerifyResults.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {imageVerifyResults.map((result: any, idx: number) => {
+                            const st = String(result?.status || '').toLowerCase();
+                            const active = idx === Math.min(selectedVerifyResultIndex, imageVerifyResults.length - 1);
+                            const bg = st === 'match' || st === 'confirmed' ? 'rgba(42,196,119,0.2)' : st === 'mismatch' || st === 'rejected' ? 'rgba(255,107,107,0.2)' : 'rgba(212,168,63,0.2)';
+                            return (
+                              <button
+                                key={`check-${idx}`}
+                                onClick={() => setSelectedVerifyResultIndex(idx)}
+                                style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: active ? bg : 'rgba(255,255,255,0.04)', border: active ? '1px solid rgba(255,255,255,0.4)' : '1px solid rgba(255,255,255,0.18)' }}
+                              >
+                                {String(result?.check_id || `check_${idx + 1}`)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {selectedVerifyResult && (
+                        <div style={{ fontSize: 11, opacity: 0.82, lineHeight: 1.4 }}>
+                          <div>Status: {String(selectedVerifyResult.status || 'unknown')}</div>
+                          <div>Observed: {String(selectedVerifyResult.observed_text || '').slice(0, 180)}</div>
+                          {selectedVerifyMeta?.crop_box && (
+                            <div>
+                              Crop: x={Number(selectedVerifyMeta.crop_box.x) || 0}, y={Number(selectedVerifyMeta.crop_box.y) || 0}, w={Number(selectedVerifyMeta.crop_box.width) || 0}, h={Number(selectedVerifyMeta.crop_box.height) || 0}
+                            </div>
+                          )}
+                          {selectedVerifyMeta?.zoom_factor && <div>Zoom: {String(selectedVerifyMeta.zoom_factor)}x</div>}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 11, opacity: 0.75 }}>
+                        Showing current image used for verification with per-check crop overlays when available.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeCanvasPage === 'ops' && (
                   <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.4 }}>
-                    {readableCanvasText}
+                    {readableArtifactText(selectedArtifactJson)}
                   </pre>
+                )}
+
+                {activeCanvasPage === 'wip_preview' && (
+                  <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
+                    {previewPathD ? (
+                      <svg viewBox="0 0 1000 1000" style={{ width: '100%', height: '100%', maxHeight: 560, borderRadius: 8, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.02)' }}>
+                        <path d={previewPathD} fill="rgba(142,197,255,0.18)" stroke="#8ec5ff" strokeWidth={4} />
+                      </svg>
+                    ) : (
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 14, opacity: 0.9 }}>Constructing geometry preview…</div>
+                        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 6 }}>Work-in-progress view can display incomplete geometry states.</div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -761,6 +1219,79 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
                 </div>
               )}
 
+              {decisionItems.length > 0 && (
+                <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 11, lineHeight: 1.35 }}>
+                  <div style={{ fontSize: 11, opacity: 0.85, marginBottom: 6 }}>Decision Checklist</div>
+                  {decisionSummary && (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6, opacity: 0.78 }}>
+                      <span>Open: {Number(decisionSummary.blocking_open_count || 0)}</span>
+                      <span>Verified: {Number(decisionSummary.verified_count || 0)}</span>
+                      <span>Disputed: {Number(decisionSummary.disputed_count || 0)}</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
+                    {decisionItems.slice(0, 10).map((item, idx) => {
+                      const state = String(item.state || 'unknown');
+                      const blocking = Boolean(item.blocking);
+                      const stateColor =
+                        state === 'verified' ? '#2ac477' :
+                        state === 'disputed' ? '#ff6b6b' :
+                        state === 'accepted_with_risk' ? '#d4a83f' : '#8ec5ff';
+                      return (
+                        <div key={`${String(item.key || idx)}`} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '5px 6px', background: 'rgba(255,255,255,0.02)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: `${stateColor}33`, border: `1px solid ${stateColor}66` }}>
+                              {state.replace(/_/g, ' ')}
+                            </span>
+                            <span style={{ fontSize: 11, opacity: 0.9 }}>{String(item.label || item.key || 'decision')}</span>
+                            {blocking && <span style={{ fontSize: 10, opacity: 0.65 }}>(blocking)</span>}
+                            {item.key && (
+                              <button
+                                onClick={() => requestDecisionReview(String(item.key))}
+                                disabled={feedbackBusy || isRunTerminal}
+                                style={{ marginLeft: 'auto', fontSize: 10, padding: '1px 6px', borderRadius: 999 }}
+                              >
+                                Review Again
+                              </button>
+                            )}
+                          </div>
+                          {item.selected_value && (
+                            <div style={{ marginTop: 3, opacity: 0.82 }}>Selected: {String(item.selected_value)}</div>
+                          )}
+                          {Array.isArray(item.alternatives) && item.alternatives.length > 0 && (
+                            <div style={{ marginTop: 2, opacity: 0.7 }}>
+                              Alt: {item.alternatives.slice(0, 3).map((v) => String(v)).join(' | ')}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {upstreamCorrectionRequests.length > 0 && (
+                <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 11, lineHeight: 1.35 }}>
+                  <div style={{ fontSize: 11, opacity: 0.85, marginBottom: 6 }}>Upstream Correction Requests</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 130, overflowY: 'auto' }}>
+                    {upstreamCorrectionRequests.slice(0, 6).map((req, idx) => (
+                      <div key={`${String(req.request_id || idx)}`} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '5px 6px', background: 'rgba(255,255,255,0.02)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 999, background: req.severity === 'blocking' ? 'rgba(255,107,107,0.28)' : 'rgba(212,168,63,0.28)' }}>
+                            {String(req.severity || 'caution')}
+                          </span>
+                          <span style={{ opacity: 0.92 }}>{String(req.reason_code || 'mapping_transcript_suspect')}</span>
+                        </div>
+                        <div style={{ marginTop: 3, opacity: 0.82 }}>{String(req.message || '').slice(0, 170)}</div>
+                        {Array.isArray(req.decision_keys) && req.decision_keys.length > 0 && (
+                          <div style={{ marginTop: 2, opacity: 0.7 }}>Keys: {req.decision_keys.slice(0, 4).join(', ')}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {detailEvent && (
                 <div style={{ padding: '0 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <EventDetailBlock evt={detailEvent} />
@@ -769,8 +1300,15 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
 
               <div style={{ padding: '10px 12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {floatingHistory.map((item) => (
-                  <div key={`${item.idx}:${item.iteration ?? 'na'}`} style={{ fontSize: item.isCurrent ? 12 : 11, opacity: item.isCurrent ? 0.96 : 0.78, lineHeight: 1.35 }}>
-                    {item.isCurrent ? '• ' : '· '} {item.text}
+                  <div
+                    key={`${item.idx}:${item.iteration ?? 'na'}`}
+                    style={{
+                      fontSize: item.isTicker ? 10 : item.isCurrent ? 12 : 11,
+                      opacity: item.isTicker ? 0.58 : item.isCurrent ? 0.96 : 0.78,
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    {item.isTicker ? '∙ ' : item.isCurrent ? '• ' : '· '} {item.text}
                   </div>
                 ))}
               </div>

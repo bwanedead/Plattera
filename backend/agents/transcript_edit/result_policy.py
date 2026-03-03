@@ -14,6 +14,7 @@ class TranscriptEditFacts:
     applied_requires_review: bool
     used_human_feedback: bool
     has_disagreements: bool
+    has_images: bool
     min_iterations_before_complete: int
 
 
@@ -25,7 +26,12 @@ class TranscriptEditDecision:
 
 
 def must_verify_before_terminal(facts: TranscriptEditFacts) -> bool:
-    return bool(facts.applied_any_edits or facts.has_disagreements or facts.used_human_feedback)
+    return bool(
+        facts.has_images
+        or facts.applied_any_edits
+        or facts.has_disagreements
+        or facts.used_human_feedback
+    )
 
 
 def should_run_stabilization_pass(facts: TranscriptEditFacts) -> bool:
