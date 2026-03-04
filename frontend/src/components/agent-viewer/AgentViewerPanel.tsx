@@ -115,6 +115,32 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     () => (decisionLedger && typeof decisionLedger.summary === 'object' ? (decisionLedger.summary as Record<string, any>) : null),
     [decisionLedger],
   );
+  const layerChips = React.useMemo(() => {
+    const termL1 = String(terminalSummary?.layer1_canonical_recovery || '').trim();
+    const termL2 = String(terminalSummary?.layer2_canonical_sanity || '').trim();
+    const termL3 = String(terminalSummary?.layer3_dependency_completeness || '').trim();
+    const termClosure = String(terminalSummary?.closure_state || '').trim();
+    if (termL1 || termL2 || termL3 || termClosure) {
+      return {
+        layer1: termL1 || 'unknown',
+        layer2: termL2 || 'unknown',
+        layer3: termL3 || 'unknown',
+        closureState: termClosure || 'unknown',
+        unresolvedCount: unresolvedRequirementsCount,
+      };
+    }
+    if (!hasActiveRun) return null;
+    const blockingOpenCount = Number(decisionSummary?.blocking_open_count || 0);
+    const disputedCount = Number(decisionSummary?.disputed_count || 0);
+    const hasBlockers = blockingOpenCount > 0 || disputedCount > 0;
+    return {
+      layer1: hasBlockers ? 'blocked' : 'in_progress',
+      layer2: hasBlockers ? 'blocked' : 'in_progress',
+      layer3: hasBlockers ? 'blocked' : 'in_progress',
+      closureState: hasBlockers ? 'blocked' : 'in_progress',
+      unresolvedCount: Math.max(0, blockingOpenCount),
+    };
+  }, [terminalSummary, unresolvedRequirementsCount, hasActiveRun, decisionSummary]);
   const upstreamCorrectionRequests = React.useMemo(
     () => collectUpstreamCorrectionRequests(orderedEvents),
     [orderedEvents],
@@ -305,6 +331,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
           activeRunId={activeRunId}
           connected={connected}
           isTranscribing={isTranscribing}
+          layerChips={layerChips}
           onClose={onClose}
         />
 

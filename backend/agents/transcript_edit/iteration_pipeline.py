@@ -735,12 +735,17 @@ def _verify_mapping_critical_with_image(
         check_total = int(update.get("check_total") or 0)
         check_id = str(update.get("check_id") or "").strip() or "unknown_check"
         stage = str(update.get("stage") or "running")
+        if stage == "waiting":
+            elapsed_seconds = int(update.get("elapsed_seconds") or 0)
+            message = f"Image check {check_index}/{check_total} ({check_id}) still running ({elapsed_seconds}s elapsed)."
+        else:
+            message = f"Image check {check_index}/{check_total} ({check_id}) {stage}."
         emit_progress(
             progress_cb,
             ticker_payload(
                 iteration=iteration,
                 phase="image_verify",
-                message=f"Image check {check_index}/{check_total} ({check_id}) {stage}.",
+                message=message,
                 latest_refs={},
             ),
         )

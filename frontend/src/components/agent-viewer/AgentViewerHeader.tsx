@@ -11,6 +11,13 @@ type Props = {
   activeRunId: string | null;
   connected: boolean;
   isTranscribing: boolean;
+  layerChips: {
+    layer1: string;
+    layer2: string;
+    layer3: string;
+    closureState: string;
+    unresolvedCount: number;
+  } | null;
   onClose: () => void;
 };
 
@@ -24,8 +31,29 @@ export function AgentViewerHeader({
   activeRunId,
   connected,
   isTranscribing,
+  layerChips,
   onClose,
 }: Props) {
+  const chipStyle = (value: string): React.CSSProperties => {
+    const v = String(value || '').toLowerCase();
+    const bg = v === 'satisfied' || v === 'achieved'
+      ? 'rgba(42,196,119,0.20)'
+      : v === 'blocked' || v === 'failed'
+      ? 'rgba(255,107,107,0.20)'
+      : v === 'in_progress' || v === 'running'
+      ? 'rgba(142,197,255,0.20)'
+      : 'rgba(255,255,255,0.1)';
+    return {
+      fontSize: 10,
+      lineHeight: 1.1,
+      padding: '2px 7px',
+      borderRadius: 999,
+      border: '1px solid rgba(255,255,255,0.22)',
+      background: bg,
+      opacity: 0.95,
+    };
+  };
+
   return (
     <div
       style={{
@@ -53,6 +81,17 @@ export function AgentViewerHeader({
         </button>
         <span style={{ fontSize: 11, opacity: 0.8 }}>{activeLoopKind ?? 'idle'}</span>
         <span style={{ fontSize: 11, opacity: 0.72 }}>{activeRunId ?? 'no active run'}</span>
+        {layerChips && (
+          <>
+            <span style={chipStyle(layerChips.layer1)}>L1 {layerChips.layer1}</span>
+            <span style={chipStyle(layerChips.layer2)}>L2 {layerChips.layer2}</span>
+            <span style={chipStyle(layerChips.layer3)}>L3 {layerChips.layer3}</span>
+            <span style={chipStyle(layerChips.closureState)}>Closure {layerChips.closureState}</span>
+            <span style={{ ...chipStyle(layerChips.unresolvedCount > 0 ? 'blocked' : 'satisfied') }}>
+              Open {layerChips.unresolvedCount}
+            </span>
+          </>
+        )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 8, height: 8, borderRadius: 999, background: connected ? '#2ac477' : '#d4a83f' }} />
@@ -69,4 +108,3 @@ export function AgentViewerHeader({
     </div>
   );
 }
-

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -78,13 +80,16 @@ def verify_mapping_critical_with_image(
             )
         step_inputs = dict(inputs)
         step_inputs["checks"] = [check]
-        step = step_fn(
+        step = _run_step_with_heartbeat(
             session_manager=session_manager,
             session_id=session_id,
-            prefix=f"tx_verify_img_{check_index}",
             iteration=iteration,
-            action_type=ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
-            inputs=step_inputs,
+            check_index=check_index,
+            check_total=total_checks,
+            check_id=str(check.get("check_id") or f"check_{check_index}"),
+            step_fn=step_fn,
+            step_inputs=step_inputs,
+            progress_cb=progress_cb,
         )
         latest_refs = step.dashboard.latest_refs.model_dump(mode="json")
         if step.execution_state != StepExecutionState.EXECUTED:
@@ -122,6 +127,60 @@ def verify_mapping_critical_with_image(
         "image_path": image_path,
     }
     return {"latest_refs": latest_refs, "payload": payload}
+
+
+def _run_step_with_heartbeat(
+    *,
+    session_manager: Any,
+    session_id: str,
+    iteration: int,
+    check_index: int,
+    check_total: int,
+    check_id: str,
+    step_fn: Callable[..., Any],
+    step_inputs: dict[str, Any],
+    progress_cb: Callable[[dict[str, Any]], None] | None,
+) -> Any:
+    result_box: dict[str, Any] = {}
+    error_box: dict[str, BaseException] = {}
+
+    def _worker() -> None:
+        try:
+            result_box["step"] = step_fn(
+                session_manager=session_manager,
+                session_id=session_id,
+                prefix=f"tx_verify_img_{check_index}",
+                iteration=iteration,
+                action_type=ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+                inputs=step_inputs,
+            )
+        except BaseException as exc:  # pragma: no cover - defensive thread handoff
+            error_box["error"] = exc
+
+    worker = threading.Thread(target=_worker, daemon=True)
+    worker.start()
+    started = time.monotonic()
+    next_heartbeat = started + 3.0
+    heartbeat_index = 0
+    while worker.is_alive():
+        worker.join(timeout=0.4)
+        now = time.monotonic()
+        if progress_cb is not None and worker.is_alive() and now >= next_heartbeat:
+            heartbeat_index += 1
+            progress_cb(
+                {
+                    "check_index": check_index,
+                    "check_total": check_total,
+                    "check_id": check_id,
+                    "stage": "waiting",
+                    "elapsed_seconds": int(now - started),
+                    "heartbeat_index": heartbeat_index,
+                }
+            )
+            next_heartbeat = now + 3.0
+    if "error" in error_box:
+        raise error_box["error"]
+    return result_box.get("step")
 
 
 def _read_full_image_verify_results(*, latest_refs: dict[str, Any]) -> list[dict[str, Any]]:
