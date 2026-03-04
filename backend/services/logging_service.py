@@ -14,7 +14,8 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 RING_BUFFER_SIZE = int(os.getenv("RING_BUFFER_SIZE", "2000"))
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
 ACTIVE_LOG_FILE = LOG_FILE
-MAX_SESSION_LOG_FILES = int(os.getenv("LOG_MAX_SESSION_FILES", "5"))
+# Keep a strict fixed cap so session logs never grow unbounded.
+MAX_SESSION_LOG_FILES = 5
 
 
 class RingBufferHandler(logging.Handler):
@@ -112,10 +113,7 @@ def init_logging():
 
 def _prune_session_logs(*, log_dir: str, active_log_file: str, keep_count: int) -> None:
     """Retain only the newest per-session app_*.log files to cap disk growth."""
-    try:
-        keep = max(1, int(keep_count))
-    except Exception:
-        keep = 5
+    keep = 5
     try:
         directory = Path(log_dir)
         if not directory.exists():

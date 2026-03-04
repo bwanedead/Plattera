@@ -218,6 +218,7 @@ export function useAgentViewerFeedback({
     setFeedbackNote,
     feedbackBusy,
     feedbackError,
+    setFeedbackError,
     promptReceipt,
     setPromptReceipt,
     decisionOtherByKey,

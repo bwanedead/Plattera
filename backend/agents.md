@@ -7,7 +7,7 @@
 ## Contracts & invariants
 - Backend logs are exposed via `backend/api/logs.py` endpoints and configured in `backend/services/logging_service.py`.
 - Session log files live at `backend/logs/app_YYYYMMDD_HHMMSS.log` when running in dev mode.
-- Session log retention is capped (default 5 files) via `LOG_MAX_SESSION_FILES`.
+- Session log retention is capped at 5 per-session files (`app_*.log`) in `logging_service.py`.
 - Separation of concerns is required across backend work: orchestration, policy, reporting payloads, persistence, and transport should remain in dedicated modules.
 - Before substantial edits, ask: "Should these edits be separated into dedicated modules of responsibility?" If yes, define the intended module boundaries first.
 
