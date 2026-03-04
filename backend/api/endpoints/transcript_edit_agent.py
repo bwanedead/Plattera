@@ -145,6 +145,7 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             request=TranscriptEditAgentRunRequest.model_validate(request.model_dump(mode="json")),
             request_id_prefix=f"tx-agent-{run_id}",
             progress_cb=_progress_update,
+            startup_countdown_seconds=60,
         )
         run_terminal_message = terminal_message(result)
         run_terminal_summary = terminal_summary(progress_log, result)

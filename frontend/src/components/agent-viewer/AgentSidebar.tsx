@@ -18,6 +18,7 @@ type Props = {
   decisionSummary: Record<string, any> | null;
   feedbackBusy: boolean;
   isHydratingReplay: boolean;
+  allowTerminalFeedback: boolean;
   decisionOtherByKey: Record<string, string>;
   setDecisionOtherByKey: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   requestDecisionReview: (decisionKey: string) => void;
@@ -40,6 +41,7 @@ export function AgentSidebar({
   decisionSummary,
   feedbackBusy,
   isHydratingReplay,
+  allowTerminalFeedback,
   decisionOtherByKey,
   setDecisionOtherByKey,
   requestDecisionReview,
@@ -126,7 +128,7 @@ export function AgentSidebar({
         decisionItems={decisionItems}
         decisionSummary={decisionSummary}
         feedbackBusy={feedbackBusy}
-        isRunTerminal={isRunTerminal}
+        isRunTerminal={isRunTerminal && !allowTerminalFeedback}
         decisionOtherByKey={decisionOtherByKey}
         setDecisionOtherByKey={setDecisionOtherByKey}
         requestDecisionReview={requestDecisionReview}
@@ -169,7 +171,7 @@ export function AgentSidebar({
                   {entry.prompt_id && <span style={{ fontSize: 10, opacity: 0.58 }}>{String(entry.prompt_id)}</span>}
                   <button
                     onClick={() => resendFeedbackEntry(entry)}
-                    disabled={feedbackBusy || isRunTerminal}
+                    disabled={feedbackBusy || (isRunTerminal && !allowTerminalFeedback)}
                     style={{ marginLeft: 'auto', fontSize: 10, padding: '1px 6px', borderRadius: 999 }}
                   >
                     Resend

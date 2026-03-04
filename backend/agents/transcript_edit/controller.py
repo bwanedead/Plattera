@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 from collections.abc import Callable
 
@@ -83,6 +85,7 @@ from .run_reporting import (
     audit_payload,
     audit_result_payload,
     orient_payload,
+    preflight_countdown_payload,
     starting_payload,
 )
 from .planner import TranscriptEditPlanPlanner
@@ -92,6 +95,7 @@ _MODE_AUDIT_ONLY = "audit_only"
 _MODE_AUDIT_REPAIR = "audit_then_repair"
 _MODE_AUDIT_REPAIR_PROMOTE = "audit_then_repair_then_promote"
 _EDIT_LOOP_LLM_MODEL = "gpt-5.2"
+_LOG = logging.getLogger(__name__)
 
 
 def run_transcript_edit_controller_loop(
@@ -101,6 +105,7 @@ def run_transcript_edit_controller_loop(
     request_id_prefix: str,
     planner: TranscriptEditPlanPlanner | None = None,
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
+    startup_countdown_seconds: int = 0,
 ) -> TranscriptEditAgentRunResult:
     if not request.source_transcript_ref and not request.source_text:
         raise ValueError("source_transcript_ref_or_source_text_required")
@@ -167,6 +172,13 @@ def run_transcript_edit_controller_loop(
         min(int(request.max_iterations), int(request.min_iterations_before_complete)),
     )
     loop_model = _edit_loop_model(request.model)
+    countdown_seconds = max(0, int(startup_countdown_seconds))
+    if countdown_seconds > 0:
+        _run_prestart_countdown(
+            progress_cb=progress_cb,
+            latest_refs=state.latest_refs,
+            countdown_seconds=countdown_seconds,
+        )
     _emit_progress(
         progress_cb,
         starting_payload(
@@ -373,6 +385,33 @@ def run_transcript_edit_controller_loop(
 
 def _emit_progress(progress_cb: Callable[[dict[str, Any]], None] | None, payload: dict[str, Any]) -> None:
     emit_progress(progress_cb, payload)
+
+
+def _run_prestart_countdown(
+    *,
+    progress_cb: Callable[[dict[str, Any]], None] | None,
+    latest_refs: dict[str, Any],
+    countdown_seconds: int,
+) -> None:
+    _LOG.info(
+        "TX_LOOP_PRESTART_COUNTDOWN ► state=starting remaining_seconds=%s",
+        countdown_seconds,
+    )
+    for remaining_seconds in range(countdown_seconds, -1, -1):
+        _emit_progress(
+            progress_cb,
+            preflight_countdown_payload(
+                remaining_seconds=remaining_seconds,
+                latest_refs=latest_refs,
+            ),
+        )
+        _LOG.info(
+            "TX_LOOP_PRESTART_COUNTDOWN ► remaining_seconds=%s",
+            remaining_seconds,
+        )
+        if remaining_seconds > 0:
+            time.sleep(1)
+    _LOG.info("TX_LOOP_PRESTART_COUNTDOWN ► state=completed")
 
 
 def _step(

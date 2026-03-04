@@ -141,7 +141,6 @@ def _extract_redundancy_candidate_texts(*, metadata: Any, validate_fn) -> list[s
     if not isinstance(raw_results, list):
         return []
     out: list[str] = []
-    seen: set[str] = set()
     for item in raw_results:
         if not isinstance(item, dict):
             continue
@@ -164,10 +163,6 @@ def _extract_redundancy_candidate_texts(*, metadata: Any, validate_fn) -> list[s
         joined = "\n\n".join(parts).strip()
         if not joined:
             continue
-        key = joined[:4000]
-        if key in seen:
-            continue
-        seen.add(key)
         out.append(joined)
         if len(out) >= 10:
             break
@@ -479,6 +474,15 @@ class ImageToTextPipeline:
             context={
                 **context,
                 "best_result_index": _extract_best_result_index(metadata),
+                "redundancy_total_calls": int(((metadata.get("redundancy_analysis") or {}).get("total_calls") or 0))
+                if isinstance(metadata, dict)
+                else 0,
+                "redundancy_successful_calls": int(((metadata.get("redundancy_analysis") or {}).get("successful_calls") or 0))
+                if isinstance(metadata, dict)
+                else 0,
+                "redundancy_valid_extractions": int(((metadata.get("redundancy_analysis") or {}).get("valid_extractions") or 0))
+                if isinstance(metadata, dict)
+                else 0,
                 "redundancy_candidate_texts": _extract_redundancy_candidate_texts(
                     metadata=metadata,
                     validate_fn=self._validate_legal_document_json_payload,
@@ -539,6 +543,49 @@ class ImageToTextPipeline:
             if isinstance(candidate_texts_raw, list)
             else []
         )
+        expected_count_raw = context.get("redundancy_expected_count")
+        expected_count = expected_count_raw if isinstance(expected_count_raw, int) and expected_count_raw > 0 else 0
+        total_calls_raw = context.get("redundancy_total_calls")
+        total_calls = total_calls_raw if isinstance(total_calls_raw, int) and total_calls_raw >= 0 else 0
+        successful_calls_raw = context.get("redundancy_successful_calls")
+        successful_calls = successful_calls_raw if isinstance(successful_calls_raw, int) and successful_calls_raw >= 0 else 0
+        gate_requires_full_n = expected_count > 1
+        if gate_requires_full_n:
+            drafts_persisted = self._all_post_t0_draft_files_exist(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                expected_count=expected_count,
+            )
+            gate_pass = (
+                total_calls >= expected_count
+                and successful_calls >= expected_count
+                and drafts_persisted
+            )
+            logger.info(
+                "TX_LOOP_BOUNDARY ► T0_HANDOFF_GATE expected=%s total_calls=%s successful_calls=%s drafts_persisted=%s status=%s",
+                expected_count,
+                total_calls,
+                successful_calls,
+                drafts_persisted,
+                "pass" if gate_pass else "blocked",
+            )
+            if not gate_pass:
+                logger.warning(
+                    "transcript_edit_agent_post_t0_blocked %s",
+                    json.dumps(
+                        {
+                            "reason": "t0_handoff_gate_not_satisfied",
+                            "expected_count": expected_count,
+                            "total_calls": total_calls,
+                            "successful_calls": successful_calls,
+                            "drafts_persisted": drafts_persisted,
+                            "dossier_id": dossier_id,
+                            "transcription_id": transcription_id,
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+                return None
         drafts_seen = len(candidate_texts) if candidate_texts else "n/a"
         input_kind = "ref" if source_transcript_ref else "text"
         if source_transcript_ref is None:
@@ -790,6 +837,7 @@ class ImageToTextPipeline:
                     ),
                     request_id_prefix=f"tx-agent-{run_id}",
                     progress_cb=_progress_update,
+                    startup_countdown_seconds=60,
                 )
                 first_audit = None
                 final_audit = None
@@ -984,6 +1032,29 @@ class ImageToTextPipeline:
         if ref.exists():
             return str(ref)
         return None
+
+    def _all_post_t0_draft_files_exist(
+        self,
+        *,
+        dossier_id: str,
+        transcription_id: str | None,
+        expected_count: int,
+    ) -> bool:
+        if not transcription_id or expected_count <= 0:
+            return False
+        raw_root = (
+            dossiers_root()
+            / "views"
+            / "transcriptions"
+            / str(dossier_id)
+            / str(transcription_id)
+            / "raw"
+        )
+        for idx in range(1, expected_count + 1):
+            versioned = raw_root / f"{transcription_id}_v{idx}.json"
+            if not versioned.exists():
+                return False
+        return True
 
     def _post_t0_tx_agent_mode(self) -> str:
         raw = str(os.getenv("PLATTERA_POST_T0_TX_AGENT_MODE", "")).strip().lower()
@@ -1384,6 +1455,7 @@ class ImageToTextPipeline:
                     "run_context": run_context,
                     "dossier_id": dossier_id,
                     "transcription_id": transcription_id,
+                    "redundancy_expected_count": redundancy_count,
                     "transcript_edit_run_id_hint": transcript_edit_run_id_hint,
                     "original_image_path": image_path,
                     "image_path": image_path,

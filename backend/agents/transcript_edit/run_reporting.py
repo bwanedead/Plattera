@@ -82,6 +82,21 @@ def orient_payload(
     }
 
 
+def preflight_countdown_payload(
+    *,
+    remaining_seconds: int,
+    latest_refs: dict[str, Any],
+) -> dict[str, Any]:
+    return _base_payload(
+        iteration=0,
+        phase="preflight_countdown",
+        message=f"Preflight countdown: {remaining_seconds}s remaining before transcript-edit API work begins.",
+        latest_refs=latest_refs,
+        execution_state="waiting",
+        stream_kind="ticker",
+    )
+
+
 def ticker_payload(
     *,
     iteration: int,
@@ -255,6 +270,61 @@ def open_spans_payload(*, iteration: int, latest_refs: dict[str, Any]) -> dict[s
         latest_refs=latest_refs,
         execution_state="running",
     )
+
+
+def investigation_baseline_payload(
+    *,
+    iteration: int,
+    latest_refs: dict[str, Any],
+    conflict_map: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        **_base_payload(
+            iteration=iteration,
+            phase="investigation_baseline",
+            message="Running baseline investigation to self-reconcile cross-draft conflicts before any HITL escalation.",
+            latest_refs=latest_refs,
+            execution_state="running",
+        ),
+        "detail": {
+            "conflict_count": len(conflict_map),
+            "conflict_map": conflict_map,
+        },
+    }
+
+
+def investigation_baseline_result_payload(
+    *,
+    iteration: int,
+    latest_refs: dict[str, Any],
+    evidence_attempts: list[dict[str, Any]],
+    residual_blockers: list[dict[str, Any]],
+    mapping_blocking_count: int,
+    optional_count: int,
+    next_recommended_action: str,
+    decision_ledger: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        **_base_payload(
+            iteration=iteration,
+            phase="investigation_baseline_result",
+            message=(
+                "Baseline investigation complete. "
+                f"Residual blockers: {len(residual_blockers)} "
+                f"({mapping_blocking_count} mapping-blocking, {optional_count} optional)."
+            ),
+            latest_refs=latest_refs,
+            execution_state="running",
+        ),
+        "detail": {
+            "evidence_attempts": evidence_attempts,
+            "residual_blockers": residual_blockers,
+            "mapping_blocking_count": mapping_blocking_count,
+            "optional_count": optional_count,
+            "next_recommended_action": next_recommended_action,
+            "decision_ledger": decision_ledger,
+        },
+    }
 
 
 def open_spans_result_payload(

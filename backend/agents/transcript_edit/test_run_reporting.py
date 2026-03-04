@@ -138,3 +138,43 @@ def test_ticker_payload_contract_shape() -> None:
     )
     assert payload["phase"] == "plan"
     assert payload["stream_kind"] == "ticker"
+
+
+def test_preflight_countdown_payload_contract_shape() -> None:
+    payload = run_reporting.preflight_countdown_payload(
+        remaining_seconds=60,
+        latest_refs={},
+    )
+    assert payload["phase"] == "preflight_countdown"
+    assert payload["stream_kind"] == "ticker"
+    assert payload["execution_state"] == "waiting"
+    assert "60s remaining" in payload["message"]
+
+
+def test_investigation_baseline_payload_contract_shape() -> None:
+    payload = run_reporting.investigation_baseline_payload(
+        iteration=1,
+        latest_refs={},
+        conflict_map=[{"decision_key": "range", "values": ["r74w", "r75w"], "conflict": True}],
+    )
+    assert payload["phase"] == "investigation_baseline"
+    assert payload["stream_kind"] == "narration"
+    assert payload["detail"]["conflict_count"] == 1
+    assert isinstance(payload["detail"]["conflict_map"], list)
+
+
+def test_investigation_baseline_result_payload_contract_shape() -> None:
+    payload = run_reporting.investigation_baseline_result_payload(
+        iteration=1,
+        latest_refs={},
+        evidence_attempts=[{"attempt": "open_spans", "status": "completed", "result_count": 4}],
+        residual_blockers=[{"decision_key": "range", "mapping_blocking": True}],
+        mapping_blocking_count=1,
+        optional_count=0,
+        next_recommended_action="Range: confirm token.",
+        decision_ledger={"items": []},
+    )
+    assert payload["phase"] == "investigation_baseline_result"
+    assert payload["detail"]["mapping_blocking_count"] == 1
+    assert isinstance(payload["detail"]["evidence_attempts"], list)
+    assert isinstance(payload["detail"]["residual_blockers"], list)

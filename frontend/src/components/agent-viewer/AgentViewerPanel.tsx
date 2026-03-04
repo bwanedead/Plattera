@@ -28,6 +28,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
   const [selectedDraftIndex, setSelectedDraftIndex] = React.useState(0);
   const [theme, setTheme] = React.useState<ViewerTheme>('void');
   const [lensing, setLensing] = React.useState<{ x: number; y: number; active: boolean }>({ x: 50, y: 50, active: false });
+  const lastPromptRenderLogRef = React.useRef<string>('');
 
   const activeLoopKind = loopKind ?? null;
   const activeRunId = typeof runId === 'string' && runId.trim() ? runId : null;
@@ -104,6 +105,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     const unresolved = terminalSummary.unresolved_closure_requirements;
     return Array.isArray(unresolved) ? unresolved.length : 0;
   }, [terminalSummary]);
+  const allowTerminalFeedback = isRunTerminal && unresolvedRequirementsCount > 0;
   const decisionLedger = React.useMemo(
     () => extractDecisionLedger(detailEvent, terminalSummary),
     [detailEvent, terminalSummary],
@@ -192,6 +194,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     activeLoopKind,
     activeRunId,
     isRunTerminal,
+    allowTerminalFeedback,
     orderedEvents,
     canvasMode,
   });
@@ -199,6 +202,9 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
   React.useEffect(() => {
     if (!isOpen || !activeLoopKind || !activeRunId) return;
     if (!activeFeedbackPrompt) return;
+    const promptKey = `${activeRunId}:${String(activeFeedbackPrompt.promptId || '')}`;
+    if (lastPromptRenderLogRef.current === promptKey) return;
+    lastPromptRenderLogRef.current = promptKey;
     void fetch('http://127.0.0.1:8000/api/logs/frontend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -406,6 +412,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
               decisionSummary={decisionSummary}
               feedbackBusy={feedbackBusy}
               isHydratingReplay={isHydratingReplay}
+              allowTerminalFeedback={allowTerminalFeedback}
               decisionOtherByKey={decisionOtherByKey}
               setDecisionOtherByKey={setDecisionOtherByKey}
               requestDecisionReview={requestDecisionReview}
@@ -424,6 +431,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
               submitFeedbackWithAck={submitFeedbackWithAck}
               feedbackBusy={feedbackBusy}
               isRunTerminal={isRunTerminal}
+              allowTerminalFeedback={allowTerminalFeedback}
               feedbackError={feedbackError}
             />
 

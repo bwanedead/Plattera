@@ -13,6 +13,7 @@ from .decision_ledger import (
     choose_investigation_focus,
     has_blocking_dispute,
     ledger_snapshot_for_payload,
+    unresolved_closure_requirements,
     update_ledger_from_iteration,
 )
 from .draft_persistence import persist_agent_edit_draft
@@ -58,6 +59,8 @@ from .run_reporting import (
     human_feedback_needed_payload,
     human_feedback_received_payload,
     human_feedback_reused_payload,
+    investigation_baseline_payload,
+    investigation_baseline_result_payload,
     image_verify_payload,
     image_verify_result_payload,
     open_spans_payload,
@@ -351,29 +354,6 @@ def handle_repair_iteration(
                 latest_refs=state.latest_refs,
             ),
         )
-    if (
-        manual_plan_override is None
-        and blocking_warning_present
-        and request.hitl_enabled
-        and (viewer_run_id.startswith("tx_agent_") or viewer_run_id.startswith("tx_post_t0_"))
-        and not state.pending_feedback_prompt_id
-    ):
-        feedback_prompt = build_human_feedback_prompt(
-            disagreement_hints=effective_disagreement_hints,
-            top_findings=top_findings,
-            iteration=iterations,
-        )
-        if feedback_prompt is not None:
-            emit_progress(
-                progress_cb,
-                human_feedback_needed_payload(
-                    iteration=iterations,
-                    latest_refs=state.latest_refs,
-                    feedback_prompt=feedback_prompt,
-                ),
-            )
-            state.pending_feedback_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
-
     if state.no_progress_streak >= request.max_no_progress_iterations:
         return TranscriptEditDecision(status="needs_review", reason_code="tx_agent_no_progress", review_required=True)
     if not state.current_transcript_ref:
@@ -386,6 +366,15 @@ def handle_repair_iteration(
     span_context: list[dict[str, Any]] = []
     image_verification: dict[str, Any] = {}
     if manual_plan_override is None:
+        conflict_map = _conflict_map_from_disagreement_hints(effective_disagreement_hints)
+        emit_progress(
+            progress_cb,
+            investigation_baseline_payload(
+                iteration=iterations,
+                latest_refs=state.latest_refs,
+                conflict_map=conflict_map,
+            ),
+        )
         focus = choose_investigation_focus(state.decision_ledger)
         focus_reason = str((focus or {}).get("next_check_reason") or "Prioritizing highest-risk unresolved item.")
         focus_reason_code = str((focus or {}).get("next_check_reason_code") or "next_open_item")
@@ -548,6 +537,60 @@ def handle_repair_iteration(
         drained_plan = _drain_pending_feedback(checkpoint_label="post_feedback_image_verify")
         if drained_plan is not None:
             manual_plan_override = drained_plan
+
+    baseline_unresolved = unresolved_closure_requirements(state.decision_ledger)
+    baseline_residual = [_baseline_residual_from_unresolved(item) for item in baseline_unresolved]
+    mapping_blocking_count = sum(1 for item in baseline_residual if bool(item.get("mapping_blocking")))
+    optional_count = max(0, len(baseline_residual) - mapping_blocking_count)
+    next_recommended_action = _next_recommended_action_text(baseline_residual)
+    emit_progress(
+        progress_cb,
+        investigation_baseline_result_payload(
+            iteration=iterations,
+            latest_refs=state.latest_refs,
+            evidence_attempts=_baseline_evidence_attempts(
+                span_context=span_context,
+                image_verification=image_verification,
+            ),
+            residual_blockers=baseline_residual[:6],
+            mapping_blocking_count=mapping_blocking_count,
+            optional_count=optional_count,
+            next_recommended_action=next_recommended_action,
+            decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
+        ),
+    )
+
+    if (
+        manual_plan_override is None
+        and blocking_warning_present
+        and request.hitl_enabled
+        and (viewer_run_id.startswith("tx_agent_") or viewer_run_id.startswith("tx_post_t0_"))
+        and not state.pending_feedback_prompt_id
+    ):
+        feedback_prompt = build_human_feedback_prompt(
+            disagreement_hints=effective_disagreement_hints,
+            top_findings=top_findings,
+            iteration=iterations,
+        )
+        if feedback_prompt is not None:
+            emit_progress(
+                progress_cb,
+                ticker_payload(
+                    iteration=iterations,
+                    phase="human_feedback_needed",
+                    message="Unable to self-resolve remaining range conflict after source checks; requesting your confirmation.",
+                    latest_refs=state.latest_refs,
+                ),
+            )
+            emit_progress(
+                progress_cb,
+                human_feedback_needed_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    feedback_prompt=feedback_prompt,
+                ),
+            )
+            state.pending_feedback_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
 
     manual_plan = manual_plan_override or (request.edit_plan if isinstance(request.edit_plan, dict) else None)
     consensus_plan_payload = None
@@ -862,3 +905,88 @@ def _has_actionable_blocking_closure(ledger: dict[str, Any] | None) -> bool:
         if state in actionable_states:
             return True
     return False
+
+
+def _conflict_map_from_disagreement_hints(disagreement_hints: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(disagreement_hints, dict):
+        return []
+    mapping: list[tuple[str, str]] = [
+        ("range_values", "range"),
+        ("distance_values", "tie_distance"),
+        ("bearing_values", "tie_bearing"),
+        ("acreage_values", "acreage"),
+    ]
+    out: list[dict[str, Any]] = []
+    for source_key, decision_key in mapping:
+        raw_values = disagreement_hints.get(source_key)
+        if not isinstance(raw_values, list):
+            continue
+        values: list[str] = []
+        for item in raw_values[:6]:
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get("value") or "").strip()
+            if value:
+                values.append(value)
+        if len(values) < 2:
+            continue
+        out.append(
+            {
+                "decision_key": decision_key,
+                "values": values,
+                "conflict": True,
+            }
+        )
+    return out
+
+
+def _baseline_residual_from_unresolved(item: dict[str, Any]) -> dict[str, Any]:
+    requirement = item.get("closure_requirement") if isinstance(item.get("closure_requirement"), dict) else {}
+    return {
+        "decision_key": str(item.get("key") or ""),
+        "label": str(item.get("label") or item.get("key") or "decision"),
+        "state": str(item.get("state") or "unknown"),
+        "mapping_blocking": bool(item.get("mapping_blocking")),
+        "required_information": str(requirement.get("required_information") or "").strip(),
+        "minimal_user_action": str(requirement.get("minimal_user_action") or "").strip(),
+    }
+
+
+def _baseline_evidence_attempts(
+    *,
+    span_context: list[dict[str, Any]],
+    image_verification: dict[str, Any],
+) -> list[dict[str, Any]]:
+    image_payload = image_verification.get("payload") if isinstance(image_verification, dict) else {}
+    image_results = image_payload.get("results") if isinstance(image_payload, dict) else []
+    image_count = len(image_results) if isinstance(image_results, list) else 0
+    return [
+        {
+            "attempt": "open_spans",
+            "status": "completed",
+            "result_count": len(span_context),
+        },
+        {
+            "attempt": "image_verify",
+            "status": "completed" if image_count > 0 else "attempted",
+            "result_count": image_count,
+        },
+    ]
+
+
+def _next_recommended_action_text(residual_blockers: list[dict[str, Any]]) -> str:
+    if not residual_blockers:
+        return "Proceed with plan/apply stage."
+    for item in residual_blockers:
+        if not isinstance(item, dict):
+            continue
+        if not bool(item.get("mapping_blocking")):
+            continue
+        label = str(item.get("label") or item.get("decision_key") or "decision")
+        action = str(item.get("minimal_user_action") or item.get("required_information") or "").strip()
+        if action:
+            return f"{label}: {action}"
+        return f"Resolve {label}."
+    first = residual_blockers[0] if isinstance(residual_blockers[0], dict) else {}
+    label = str(first.get("label") or first.get("decision_key") or "decision")
+    return f"Review optional transcript-quality issue: {label}."

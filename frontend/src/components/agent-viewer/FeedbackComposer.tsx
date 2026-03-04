@@ -10,6 +10,7 @@ type Props = {
   submitFeedbackWithAck: (choice?: string) => void;
   feedbackBusy: boolean;
   isRunTerminal: boolean;
+  allowTerminalFeedback: boolean;
   feedbackError: string | null;
 };
 
@@ -22,8 +23,10 @@ export function FeedbackComposer({
   submitFeedbackWithAck,
   feedbackBusy,
   isRunTerminal,
+  allowTerminalFeedback,
   feedbackError,
 }: Props) {
+  const terminalLocked = isRunTerminal && !allowTerminalFeedback;
   return (
     <div style={{ position: 'absolute', left: 12, right: 12, bottom: 12, borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.58)', padding: 10 }}>
       {activeFeedbackPrompt && (
@@ -73,7 +76,7 @@ export function FeedbackComposer({
       {activeFeedbackPrompt?.choices?.length ? (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
           {activeFeedbackPrompt.choices.map((choice) => (
-            <button key={choice} onClick={() => submitFeedbackWithAck(choice)} disabled={feedbackBusy || activePromptSatisfied || isRunTerminal} style={{ fontSize: 11, borderRadius: 999, padding: '4px 8px' }}>
+            <button key={choice} onClick={() => submitFeedbackWithAck(choice)} disabled={feedbackBusy || activePromptSatisfied || terminalLocked} style={{ fontSize: 11, borderRadius: 999, padding: '4px 8px' }}>
               {choice}
             </button>
           ))}
@@ -88,7 +91,7 @@ export function FeedbackComposer({
           placeholder="Send guidance to the agent..."
           style={{ width: '100%', resize: 'vertical', borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.02)', padding: 8, fontSize: 12 }}
         />
-        <button onClick={() => submitFeedbackWithAck()} disabled={feedbackBusy || activePromptSatisfied || isRunTerminal} style={{ height: 34, borderRadius: 8, padding: '0 10px', fontSize: 12 }}>
+        <button onClick={() => submitFeedbackWithAck()} disabled={feedbackBusy || activePromptSatisfied || terminalLocked} style={{ height: 34, borderRadius: 8, padding: '0 10px', fontSize: 12 }}>
           {feedbackBusy ? 'Sending…' : 'Send'}
         </button>
       </div>

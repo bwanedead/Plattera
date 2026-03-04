@@ -21,6 +21,7 @@ type Params = {
   activeLoopKind: AgentViewerLoopKind | null;
   activeRunId: string | null;
   isRunTerminal: boolean;
+  allowTerminalFeedback: boolean;
   orderedEvents: AgentViewerEvent[];
   canvasMode: string;
 };
@@ -30,6 +31,7 @@ export function useAgentViewerFeedback({
   activeLoopKind,
   activeRunId,
   isRunTerminal,
+  allowTerminalFeedback,
   orderedEvents,
   canvasMode,
 }: Params) {
@@ -59,7 +61,7 @@ export function useAgentViewerFeedback({
   }, [isOpen, activeLoopKind, activeRunId]);
 
   const activeFeedbackPrompt = React.useMemo<ActivePrompt | null>(() => {
-    if (isRunTerminal) return null;
+    if (isRunTerminal && !allowTerminalFeedback) return null;
     const answeredPromptIds = new Set(
       feedbackEntries.map((entry) => String(entry.prompt_id || '').trim()).filter(Boolean),
     );
@@ -82,7 +84,7 @@ export function useAgentViewerFeedback({
     const fallback = deriveClosurePromptFromEvents(orderedEvents, answeredPromptIds, feedbackEntries);
     if (fallback) return fallback;
     return null;
-  }, [orderedEvents, isRunTerminal, feedbackEntries]);
+  }, [orderedEvents, isRunTerminal, allowTerminalFeedback, feedbackEntries]);
 
   const activePromptSatisfied = React.useMemo(() => {
     if (!activeFeedbackPrompt?.promptId) return false;
@@ -109,6 +111,8 @@ export function useAgentViewerFeedback({
         metadata: {
           canvas_mode: canvasMode,
           event_count: orderedEvents.length,
+          action: activePromptId?.startsWith('closure_req_') ? 'resolve_closure_requirement' : 'prompt_feedback',
+          decision_key: inferDecisionKeyFromPromptId(activePromptId || '') || null,
         },
       });
       setFeedbackEntries((prev) => [response.entry, ...prev].slice(0, 40));
@@ -264,13 +268,10 @@ function deriveClosurePromptFromEvents(
   answeredPromptIds: Set<string>,
   feedbackEntries: AgentViewerFeedbackEntry[],
 ): ActivePrompt | null {
+  if (!hasBaselineInvestigationCompleted(orderedEvents)) return null;
   const ledgerItems = extractLedgerItems(orderedEvents);
   if (ledgerItems.length === 0) return null;
-  const resolvedKeys = new Set(
-    feedbackEntries
-      .map((entry) => String(entry.metadata?.decision_key || '').trim().toLowerCase())
-      .filter(Boolean),
-  );
+  const resolvedKeys = collectResolvedKeysFromFeedback(feedbackEntries);
   const candidates = ledgerItems
     .filter((item) => {
       const state = item.state.toLowerCase();
@@ -307,6 +308,48 @@ function deriveClosurePromptFromEvents(
     choices,
     synthetic: true,
   };
+}
+
+function hasBaselineInvestigationCompleted(orderedEvents: AgentViewerEvent[]): boolean {
+  for (const evt of orderedEvents) {
+    const phase = String(evt.payload?.phase || '').toLowerCase();
+    if (phase === 'investigation_baseline_result') return true;
+  }
+  return false;
+}
+
+function collectResolvedKeysFromFeedback(feedbackEntries: AgentViewerFeedbackEntry[]): Set<string> {
+  const resolved = new Set<string>();
+  for (const entry of feedbackEntries) {
+    const explicit = String(entry.metadata?.decision_key || '').trim().toLowerCase();
+    if (explicit) resolved.add(explicit);
+    const fromPrompt = inferDecisionKeyFromPromptId(String(entry.prompt_id || '').trim());
+    if (fromPrompt) resolved.add(fromPrompt);
+    const fromChoice = inferDecisionKeyFromText(String(entry.choice || '')) || inferDecisionKeyFromText(String(entry.note || ''));
+    if (fromChoice) resolved.add(fromChoice);
+  }
+  return resolved;
+}
+
+function inferDecisionKeyFromPromptId(promptId: string): string | null {
+  const value = String(promptId || '').trim().toLowerCase();
+  if (!value) return null;
+  if (value.startsWith('closure_req_')) return value.replace('closure_req_', '').trim() || null;
+  if (value.startsWith('hitl_range_')) return 'range';
+  return null;
+}
+
+function inferDecisionKeyFromText(text: string): string | null {
+  const t = String(text || '').toLowerCase();
+  if (!t) return null;
+  if (t.includes('range')) return 'range';
+  if (t.includes('township')) return 'township';
+  if (t.includes('section')) return 'section';
+  if (t.includes('bearing')) return 'tie_bearing';
+  if (t.includes('distance') || t.includes('feet') || t.includes('ft')) return 'tie_distance';
+  if (t.includes('acre')) return 'acreage';
+  if (t.includes('closure') || t.includes('point of beginning') || t.includes('pob')) return 'closure_or_pob';
+  return null;
 }
 
 function extractLedgerItems(orderedEvents: AgentViewerEvent[]): ClosureItem[] {

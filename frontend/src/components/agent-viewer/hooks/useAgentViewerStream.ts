@@ -123,6 +123,8 @@ export function useAgentViewerStream({ isOpen, activeLoopKind, activeRunId }: Pa
             source: 'agent_viewer_client',
             ts: Date.now() / 1000,
           }),
+        }).catch(() => {
+          // Non-fatal: backend log sink may be temporarily unavailable.
         });
       } catch {
         // ignore
