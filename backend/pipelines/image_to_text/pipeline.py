@@ -837,7 +837,7 @@ class ImageToTextPipeline:
                     ),
                     request_id_prefix=f"tx-agent-{run_id}",
                     progress_cb=_progress_update,
-                    startup_countdown_seconds=60,
+                    startup_countdown_seconds=15,
                 )
                 first_audit = None
                 final_audit = None
