@@ -1,0 +1,72 @@
+import React from 'react';
+import type { CanvasMode, ViewerTheme } from './types';
+
+type Props = {
+  theme: ViewerTheme;
+  setTheme: React.Dispatch<React.SetStateAction<ViewerTheme>>;
+  canvasMode: CanvasMode;
+  setCanvasMode: React.Dispatch<React.SetStateAction<CanvasMode>>;
+  hasActiveRun: boolean;
+  activeLoopKind: string | null;
+  activeRunId: string | null;
+  connected: boolean;
+  isTranscribing: boolean;
+  onClose: () => void;
+};
+
+export function AgentViewerHeader({
+  theme,
+  setTheme,
+  canvasMode,
+  setCanvasMode,
+  hasActiveRun,
+  activeLoopKind,
+  activeRunId,
+  connected,
+  isTranscribing,
+  onClose,
+}: Props) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 12px',
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        background: theme === 'space'
+          ? 'linear-gradient(180deg, rgba(8,12,22,0.95), rgba(2,2,2,0.98))'
+          : '#020202',
+        zIndex: 1,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <strong style={{ fontSize: 13 }}>Agent Viewer</strong>
+        <button onClick={() => setTheme((t) => (t === 'void' ? 'space' : 'void'))} style={{ fontSize: 11, borderRadius: 999, padding: '3px 8px' }}>
+          Theme: {theme === 'void' ? 'Void' : 'Space'}
+        </button>
+        <button onClick={() => setCanvasMode('transcription')} style={{ fontSize: 11, borderRadius: 999, padding: '3px 8px', opacity: canvasMode === 'transcription' ? 1 : 0.72 }}>
+          Transcription
+        </button>
+        <button onClick={() => setCanvasMode('agent')} disabled={!hasActiveRun} style={{ fontSize: 11, borderRadius: 999, padding: '3px 8px', opacity: canvasMode === 'agent' ? 1 : 0.72 }}>
+          Agent
+        </button>
+        <span style={{ fontSize: 11, opacity: 0.8 }}>{activeLoopKind ?? 'idle'}</span>
+        <span style={{ fontSize: 11, opacity: 0.72 }}>{activeRunId ?? 'no active run'}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 999, background: connected ? '#2ac477' : '#d4a83f' }} />
+        <span style={{ fontSize: 11, opacity: 0.82 }}>{hasActiveRun ? (connected ? 'Live' : 'Disconnected') : (isTranscribing ? 'Transcribing' : 'Idle')}</span>
+        <button
+          onClick={onClose}
+          aria-label="Close Agent Viewer"
+          title="Close"
+          style={{ width: 30, height: 30, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, lineHeight: 1, fontWeight: 600, padding: 0 }}
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
