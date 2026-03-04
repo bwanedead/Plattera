@@ -165,6 +165,10 @@ def unresolved_closure_requirements(ledger: dict[str, Any] | None) -> list[dict[
                 "label": item.get("label"),
                 "state": item.get("state"),
                 "blocking": bool(item.get("blocking")),
+                "mapping_blocking": bool(
+                    (requirement.get("mapping_blocking") if isinstance(requirement, dict) else False)
+                    or item.get("blocking")
+                ),
                 "closure_requirement": dict(requirement),
             }
         )
@@ -462,9 +466,13 @@ def _build_closure_requirement(*, item: dict[str, Any], readiness_blocker: str) 
     options = alternatives[:4]
     if not options and item.get("selected_value"):
         options = [str(item.get("selected_value"))]
+    mapping_blocking = bool(item.get("blocking"))
+    operational_impact = "mapping_blocking" if mapping_blocking else "transcript_quality_only"
 
     return {
         "block_reason": block_reason,
+        "mapping_blocking": mapping_blocking,
+        "operational_impact": operational_impact,
         "required_information": _required_information_for_key(key),
         "self_retrievable": self_retrievable,
         "retrieval_attempted": retrieval_attempted,
@@ -488,7 +496,7 @@ def _required_information_for_key(key: str) -> str:
     if key == "tie_bearing":
         return "Confirm tie bearing notation (quadrant + degrees)."
     if key == "acreage":
-        return "Confirm acreage numeric value."
+        return "Confirm acreage numeric value (optional for mapping if geometry is otherwise closed)."
     if key == "closure_or_pob":
         return "Confirm closure/POB reference language."
     return "Confirm unresolved mapping-critical token."
@@ -497,6 +505,8 @@ def _required_information_for_key(key: str) -> str:
 def _minimal_user_action_for_key(key: str, *, block_reason: str) -> str:
     if block_reason == "dependency":
         return "Provide or identify the referenced external record so mapping can proceed."
+    if key == "acreage":
+        return "Confirm acreage if available, or defer if mapping geometry is already sufficient."
     if key in {"range", "township", "section", "tie_distance", "tie_bearing", "acreage"}:
         return "Select the correct value from options, or enter Other if none match."
     return "Confirm the correct clause value or provide corrected text."

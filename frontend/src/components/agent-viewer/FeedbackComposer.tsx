@@ -50,6 +50,11 @@ export function FeedbackComposer({
         >
           <div style={{ fontSize: 12, fontWeight: 600 }}>{activeFeedbackPrompt.line1}</div>
           {!!activeFeedbackPrompt.line2 && <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>{activeFeedbackPrompt.line2}</div>}
+          {activeFeedbackPrompt.synthetic && (
+            <div style={{ fontSize: 10, opacity: 0.68, marginTop: 3 }}>
+              Generated from unresolved closure requirements.
+            </div>
+          )}
           {!activeFeedbackPrompt.blocking && (
             <div style={{ fontSize: 10, opacity: 0.66, marginTop: 3 }}>
               Optional feedback: the loop can continue while this remains unanswered.

@@ -22,6 +22,13 @@ class FrontendLogEntry(BaseModel):
     meta: dict[str, object] | None = None
 
 
+def get_frontend_logs_snapshot(limit: int = 5000) -> list[dict[str, object]]:
+    """Return a newest-first snapshot for internal diagnostics endpoints."""
+    if limit <= 0:
+        return list(_frontend_log_buffer)
+    return list(_frontend_log_buffer)[-limit:]
+
+
 @router.get("/recent")
 def get_recent_logs(limit: int = Query(500, ge=1, le=5000)):
     ring = get_ring_handler()

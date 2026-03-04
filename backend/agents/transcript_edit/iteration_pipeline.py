@@ -299,41 +299,58 @@ def handle_repair_iteration(
                 ),
             )
     viewer_run_id = viewer_run_id_from_request_prefix(request_id_prefix)
-    if state.pending_feedback_prompt_id:
+    def _drain_pending_feedback(*, checkpoint_label: str) -> dict[str, Any] | None:
+        if not state.pending_feedback_prompt_id:
+            return None
         feedback_entry = poll_feedback_response(
             run_id=viewer_run_id,
             prompt_id=state.pending_feedback_prompt_id,
         )
-        if feedback_entry is not None:
-            emit_progress(
-                progress_cb,
-                human_feedback_received_payload(
-                    iteration=iterations,
-                    latest_refs=state.latest_refs,
-                    prompt_id=state.pending_feedback_prompt_id,
-                    feedback_entry=feedback_entry,
-                ),
+        if feedback_entry is None:
+            return None
+        emit_progress(
+            progress_cb,
+            human_feedback_received_payload(
+                iteration=iterations,
+                latest_refs=state.latest_refs,
+                prompt_id=state.pending_feedback_prompt_id,
+                feedback_entry=feedback_entry,
+            ),
+        )
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="human_feedback_needed",
+                message=f"Feedback received at {checkpoint_label}; incorporating into current iteration.",
+                latest_refs=state.latest_refs,
+            ),
+        )
+        selected_number = range_number_from_feedback(feedback_entry)
+        state.used_human_feedback = True
+        state.pending_feedback_prompt_id = None
+        if selected_number is not None and state.current_transcript_ref and source_transcript_hash:
+            state.sticky_range_selection = selected_number
+            return build_range_feedback_plan(
+                source_transcript_ref=state.current_transcript_ref,
+                source_transcript_hash=source_transcript_hash,
+                selected_number=selected_number,
             )
-            selected_number = range_number_from_feedback(feedback_entry)
-            state.used_human_feedback = True
-            state.pending_feedback_prompt_id = None
-            if selected_number is not None and state.current_transcript_ref and source_transcript_hash:
-                state.sticky_range_selection = selected_number
-                manual_plan_override = build_range_feedback_plan(
-                    source_transcript_ref=state.current_transcript_ref,
-                    source_transcript_hash=source_transcript_hash,
-                    selected_number=selected_number,
-                )
-        else:
-            emit_progress(
-                progress_cb,
-                ticker_payload(
-                    iteration=iterations,
-                    phase="human_feedback_needed",
-                    message="Waiting for optional range confirmation while continuing other checks.",
-                    latest_refs=state.latest_refs,
-                ),
-            )
+        return None
+
+    drained_plan = _drain_pending_feedback(checkpoint_label="iteration_start")
+    if drained_plan is not None:
+        manual_plan_override = drained_plan
+    elif state.pending_feedback_prompt_id:
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="human_feedback_needed",
+                message="Waiting for optional range confirmation while continuing other checks.",
+                latest_refs=state.latest_refs,
+            ),
+        )
     if (
         manual_plan_override is None
         and blocking_warning_present
@@ -417,6 +434,9 @@ def handle_repair_iteration(
                 spans_display=[_span_to_display_dict(s) for s in span_context[:6]],
             ),
         )
+        drained_plan = _drain_pending_feedback(checkpoint_label="open_spans")
+        if drained_plan is not None:
+            manual_plan_override = drained_plan
         emit_progress(
             progress_cb,
             image_verify_payload(
@@ -481,6 +501,9 @@ def handle_repair_iteration(
                     decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
                 ),
             )
+        drained_plan = _drain_pending_feedback(checkpoint_label="image_verify")
+        if drained_plan is not None:
+            manual_plan_override = drained_plan
     else:
         emit_progress(
             progress_cb,
@@ -522,6 +545,9 @@ def handle_repair_iteration(
                 disagreement_hints=effective_disagreement_hints,
                 image_results=[result for result in iv_results if isinstance(result, dict)],
             )
+        drained_plan = _drain_pending_feedback(checkpoint_label="post_feedback_image_verify")
+        if drained_plan is not None:
+            manual_plan_override = drained_plan
 
     manual_plan = manual_plan_override or (request.edit_plan if isinstance(request.edit_plan, dict) else None)
     consensus_plan_payload = None

@@ -56,6 +56,19 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
   const [processingQueue, setProcessingQueue] = useState<QueueItem[]>([]);
   const [latestTranscriptEditRunId, setLatestTranscriptEditRunId] = useState<string | null>(null);
 
+  const deriveTranscriptEditRunIdHint = useCallback((dossierId: string, transcriptionId: string): string => {
+    const sec = Math.floor(Date.now() / 1000);
+    const key = `${dossierId}${transcriptionId}`;
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < key.length; i += 1) {
+      hash ^= key.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+      hash >>>= 0;
+    }
+    const suffix = hash.toString(16).padStart(8, '0').slice(0, 8);
+    return `tx_post_t0_${sec}_${suffix}`;
+  }, []);
+
   const resolveTranscriptEditRunId = useCallback((result: ProcessingResult | null | undefined): string | null => {
     const metadata = (result?.result as any)?.metadata;
     const runId = typeof metadata?.transcript_edit_agent_run_id === 'string'
@@ -161,6 +174,7 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
       const firstFile = stagedFiles[0];
       let initTranscriptionId: string | undefined;
       let initDossierId: string | undefined;
+      let transcriptEditRunIdHint: string | undefined;
 
       if (!isAutoCreateBatch) {
         try {
@@ -195,6 +209,10 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
             }
             initTranscriptionId = initResult.transcription_id;
             initDossierId = initResult.dossier_id;
+            if (runEditLoop && initDossierId && initTranscriptionId) {
+              transcriptEditRunIdHint = deriveTranscriptEditRunIdHint(String(initDossierId), String(initTranscriptionId));
+              setLatestTranscriptEditRunId(transcriptEditRunIdHint);
+            }
           }
         } catch (initError) {
           console.warn('⚠️ Failed to initialize run skeleton (non-critical):', initError);
@@ -221,7 +239,8 @@ export const useImageProcessing = (options?: UseImageProcessingOptions) => {
         // an existing dossier. In auto-create mode this must be undefined.
         dossierIdToSend ? (selectedSegmentId || undefined) : undefined,
         initTranscriptionId,
-        userInstruction
+        userInstruction,
+        transcriptEditRunIdHint
       );
 
       // Initialize queue from results (batch path returns job ids in metadata)

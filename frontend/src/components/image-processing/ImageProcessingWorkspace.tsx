@@ -640,6 +640,13 @@ export const ImageProcessingWorkspace: React.FC<ImageProcessingWorkspaceProps> =
     return `${dossierId}:${transcriptionId}:${startedAt}:${finishedAt}`;
   }, [imageProcessing.selectedResult]);
 
+  useEffect(() => {
+    if (!imageProcessing.isProcessing) return;
+    if (!imageProcessing.latestTranscriptEditRunId) return;
+    if (agentViewerOpen) return;
+    setAgentViewerOpen(true);
+  }, [imageProcessing.isProcessing, imageProcessing.latestTranscriptEditRunId, agentViewerOpen]);
+
   // Debug: ResizeObserver heartbeat on the workspace container
   useEffect(() => {
     if (!containerRef.current || typeof ResizeObserver === 'undefined') return;

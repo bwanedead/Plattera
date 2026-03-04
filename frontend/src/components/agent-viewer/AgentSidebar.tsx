@@ -48,12 +48,26 @@ export function AgentSidebar({
   recentFeedbackEntries,
   resendFeedbackEntry,
 }: Props) {
-  const floatingHistory = orderedEvents.slice(0, 14).map((evt, idx) => ({
+  const tickerByLane = React.useMemo(() => {
+    const byLane = new Map<string, AgentViewerEvent>();
+    for (const evt of orderedEvents) {
+      const isTicker = String(evt.payload?.stream_kind || 'narration') === 'ticker';
+      if (!isTicker) continue;
+      const lane = String(evt.lane || evt.payload?.lane || 'system').toLowerCase();
+      if (!byLane.has(lane)) byLane.set(lane, evt);
+    }
+    return Array.from(byLane.entries()).map(([lane, evt]) => ({ lane, evt }));
+  }, [orderedEvents]);
+
+  const floatingHistory = orderedEvents
+    .filter((evt) => String(evt.payload?.stream_kind || 'narration') !== 'ticker')
+    .slice(0, 14)
+    .map((evt, idx) => ({
     idx,
     text: summarizeEventForesight(evt),
     iteration: evt.iteration,
     isCurrent: idx === 0,
-    isTicker: String(evt.payload?.stream_kind || 'narration') === 'ticker',
+    isTicker: false,
     isReplay: Boolean(evt.payload?.__replay),
   }));
 
@@ -100,6 +114,9 @@ export function AgentSidebar({
           <div>Reason: {String(terminalSummary.reason_code || 'n/a')}</div>
           <div>Closure State: {String(terminalSummary.closure_state || 'unknown')}</div>
           <div>Unresolved Requirements: {unresolvedRequirementsCount}</div>
+          {terminalSummary.next_best_action && (
+            <div style={{ marginTop: 3 }}>Next Best Action: {String(terminalSummary.next_best_action)}</div>
+          )}
           <div>Edits Applied: {Number(terminalSummary.edits_applied_total || 0)}</div>
           <div>HITL Used: {terminalSummary.used_human_feedback ? 'yes' : 'no'}</div>
         </div>
@@ -168,6 +185,16 @@ export function AgentSidebar({
       {detailEvent && (
         <div style={{ padding: '0 12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
           <EventDetailBlock evt={detailEvent} />
+        </div>
+      )}
+
+      {tickerByLane.length > 0 && (
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: 10, opacity: 0.74, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {tickerByLane.map(({ lane, evt }) => (
+            <div key={`ticker:${lane}`}>
+              {lane}: {summarizeEventForesight(evt)}
+            </div>
+          ))}
         </div>
       )}
 

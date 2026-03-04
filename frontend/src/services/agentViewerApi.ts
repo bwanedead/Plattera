@@ -13,7 +13,10 @@ export interface AgentViewerArtifactRef {
 export interface AgentViewerEvent {
   protocol: 'agent_viewer_event_v1';
   run_id: string;
+  session_id?: string;
   loop_kind: AgentViewerLoopKind;
+  lane?: string;
+  lane_seq?: number | null;
   seq?: number | null;
   iteration?: number | null;
   timestamp_epoch_seconds?: number | null;

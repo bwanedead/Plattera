@@ -1,4 +1,5 @@
 import type { AgentViewerEvent } from '../../services/agentViewerApi';
+import type { LaneChip } from './types';
 
 export function summarizeEventForesight(evt: AgentViewerEvent | null): string {
   if (!evt) return 'I am waiting for the next instruction.';
@@ -278,4 +279,90 @@ export function collectUpstreamCorrectionRequests(events: AgentViewerEvent[]): A
     }
   }
   return requests;
+}
+
+export function buildLaneChips(orderedEvents: AgentViewerEvent[], hasActiveRun: boolean): LaneChip[] {
+  if (!hasActiveRun) return [];
+  const latestByLane = new Map<string, AgentViewerEvent>();
+  for (const evt of orderedEvents) {
+    const lane = String((evt as any).lane || evt.payload?.lane || '').toLowerCase();
+    if (!lane) continue;
+    if (!latestByLane.has(lane)) latestByLane.set(lane, evt);
+  }
+  const targetLanes = ['t0', 'tx', 'interaction'];
+  return targetLanes.map((lane): LaneChip => {
+    const evt = latestByLane.get(lane) || null;
+    if (!evt) {
+      return {
+        lane,
+        state: lane === 'interaction' ? 'ready' : 'waiting',
+        text: lane === 'interaction' ? 'Ready for user input.' : 'Waiting for lane activity.',
+        elapsedLabel: null,
+        retryLabel: null,
+      };
+    }
+    const stage = String(evt?.status?.stage || evt?.payload?.phase || '').toLowerCase();
+    const line = String(evt?.status?.line1 || evt?.payload?.message || '').trim() || 'Lane update';
+    const terminal = Boolean(evt?.payload?.terminal) || String(evt?.event_type || '') === 'done';
+    const isFailed = stage === 'failed' || String(evt?.payload?.execution_state || '').toLowerCase() === 'failed';
+    const state = terminal ? (isFailed ? 'failed' : 'completed') : stage.includes('feedback') ? 'waiting' : 'running';
+    return {
+      lane,
+      state,
+      text: line,
+      elapsedLabel: inferElapsedLabel(evt),
+      retryLabel: inferRetryLabel(evt),
+    };
+  });
+}
+
+function inferElapsedLabel(evt: AgentViewerEvent): string | null {
+  const payload = evt.payload && typeof evt.payload === 'object' ? evt.payload : {};
+  const elapsedRaw = payload.elapsed_ms ?? payload.detail?.elapsed_ms;
+  if (typeof elapsedRaw === 'number' && Number.isFinite(elapsedRaw) && elapsedRaw >= 0) {
+    return formatElapsedMs(elapsedRaw);
+  }
+  const ts = typeof evt.timestamp_epoch_seconds === 'number' ? evt.timestamp_epoch_seconds : null;
+  if (ts == null || ts <= 0) return null;
+  const ageMs = Math.max(0, Date.now() - Math.floor(ts * 1000));
+  return formatElapsedMs(ageMs);
+}
+
+function inferRetryLabel(evt: AgentViewerEvent): string | null {
+  const payload = evt.payload && typeof evt.payload === 'object' ? evt.payload : {};
+  const detail = payload.detail && typeof payload.detail === 'object' ? payload.detail : {};
+  const attempt = asNumber(detail.retry_attempt ?? detail.attempt ?? payload.retry_attempt ?? payload.attempt);
+  const max = asNumber(detail.retry_max ?? detail.max_attempts ?? payload.retry_max ?? payload.max_attempts);
+  if (attempt != null && max != null && max > 0) {
+    return `r${attempt}/${max}`;
+  }
+  if (attempt != null && attempt > 0) {
+    return `r${attempt}`;
+  }
+  const text = `${String(evt.status?.line1 || '')} ${String(payload.message || '')}`.trim();
+  const m = text.match(/attempt\s+(\d+)\s*\/\s*(\d+)/i);
+  if (m) return `r${m[1]}/${m[2]}`;
+  return null;
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function formatElapsedMs(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min >= 60) {
+    const hr = Math.floor(min / 60);
+    const remMin = min % 60;
+    return `${hr}h${remMin}m`;
+  }
+  if (min > 0) return `${min}m${String(sec).padStart(2, '0')}s`;
+  return `${sec}s`;
 }

@@ -89,7 +89,8 @@ async def process_with_dossier_association(
     auto_llm_consensus: str = Form("false"),
     llm_consensus_model: str = Form("gpt-5-consensus"),
     # Optional user instruction appended to prompt
-    user_instruction: Optional[str] = Form(None)
+    user_instruction: Optional[str] = Form(None),
+    transcript_edit_run_id_hint: Optional[str] = Form(None),
 ):
     """
     Process an image with dossier association and progressive draft saving.
@@ -316,7 +317,8 @@ async def process_with_dossier_association(
             consensus_strategy,
             dossier_id=dossier_id,
             transcription_id=transcription_id,
-            run_context="solo"
+            run_context="solo",
+            transcript_edit_run_id_hint=(str(transcript_edit_run_id_hint).strip() if transcript_edit_run_id_hint else None),
         ))
 
         if not result.get("success", False):

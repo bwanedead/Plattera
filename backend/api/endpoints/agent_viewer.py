@@ -6,6 +6,8 @@ import asyncio
 import json
 import logging
 import mimetypes
+import re
+from datetime import datetime
 from pathlib import Path
 from time import time
 from typing import Any, AsyncGenerator, Literal
@@ -14,16 +16,21 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from api.logs import get_frontend_logs_snapshot
 from config.paths import dossiers_artifacts_root, dossiers_root, dossiers_views_root
 from services.agent_viewer import feedback_store
 from services.agent_loop.event_bus import event_bus as agent_loop_event_bus
 from services.agent_viewer.event_bus import event_bus as viewer_event_bus
+from services.logging_service import get_active_log_file
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _MAX_ARTIFACT_JSON_BYTES = 262144
 _VALID_LOOP_KINDS = {"agent_loop", "transcript_edit"}
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+_TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})")
+_MARKER_RE = re.compile(r"AGENT_VIEWER_TIMING\s+►\s+([a-zA-Z0-9_]+)")
 
 
 class AgentViewerFeedbackRequest(BaseModel):
@@ -41,12 +48,19 @@ async def stream_agent_viewer_events(
     if loop_kind not in _VALID_LOOP_KINDS:
         raise HTTPException(status_code=400, detail="invalid_loop_kind")
     if loop_kind == "agent_loop":
+        logger.info("AGENT_VIEWER_TIMING ► sse_subscribe_start loop_kind=%s run_id=%s", loop_kind, run_id)
         q = await agent_loop_event_bus.subscribe(run_id)
         return StreamingResponse(
             _agent_loop_sse_stream(run_id=run_id, q=q),
             media_type="text/event-stream",
         )
     stream_key = _stream_key(loop_kind, run_id)
+    logger.info(
+        "AGENT_VIEWER_TIMING ► sse_subscribe_start loop_kind=%s run_id=%s stream_key=%s",
+        loop_kind,
+        run_id,
+        stream_key,
+    )
     q = await viewer_event_bus.subscribe(stream_key)
     return StreamingResponse(
         _viewer_sse_stream(stream_key=stream_key, q=q),
@@ -164,8 +178,130 @@ async def post_agent_viewer_feedback(
     return {"ok": True, "entry": entry, "count": count}
 
 
+@router.get("/timing-summary/{run_id}")
+async def get_agent_viewer_timing_summary(
+    run_id: str,
+    max_backend_lines: int = Query(default=5000, ge=200, le=20000),
+    max_frontend_entries: int = Query(default=2000, ge=100, le=5000),
+) -> dict[str, Any]:
+    backend_events = _collect_backend_timing_events(run_id=run_id, max_lines=max_backend_lines)
+    frontend_events = _collect_frontend_timing_events(run_id=run_id, max_entries=max_frontend_entries)
+    timeline = sorted([*backend_events, *frontend_events], key=lambda item: float(item.get("ts") or 0.0))
+    first_key_ts: dict[str, float] = {}
+    for evt in timeline:
+        key = str(evt.get("key") or "")
+        ts = float(evt.get("ts") or 0.0)
+        if not key or ts <= 0:
+            continue
+        first_key_ts.setdefault(key, ts)
+    return {
+        "run_id": run_id,
+        "backend_count": len(backend_events),
+        "frontend_count": len(frontend_events),
+        "timeline_count": len(timeline),
+        "keys": first_key_ts,
+        "deltas_ms": _compute_timing_deltas_ms(first_key_ts),
+        "backend_events": backend_events,
+        "frontend_events": frontend_events,
+        "timeline": timeline,
+    }
+
+
 def _stream_key(loop_kind: str, run_id: str) -> str:
     return f"{loop_kind}:{run_id}"
+
+
+def _collect_backend_timing_events(*, run_id: str, max_lines: int) -> list[dict[str, Any]]:
+    path = Path(get_active_log_file())
+    if not path.exists():
+        return []
+    lines: list[str] = []
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for raw in handle:
+            line = raw.rstrip("\r\n")
+            if "AGENT_VIEWER_TIMING" not in line:
+                continue
+            lines.append(line)
+            if len(lines) > max_lines:
+                del lines[:-max_lines]
+    out: list[dict[str, Any]] = []
+    for line in lines:
+        clean = _ANSI_RE.sub("", line)
+        if not _line_matches_run(clean, run_id):
+            continue
+        marker = _MARKER_RE.search(clean)
+        key = marker.group(1) if marker is not None else "unknown"
+        out.append(
+            {
+                "source": "backend",
+                "key": key,
+                "ts": _parse_backend_log_ts(clean),
+                "line": clean[-500:],
+            }
+        )
+    return out
+
+
+def _collect_frontend_timing_events(*, run_id: str, max_entries: int) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for entry in get_frontend_logs_snapshot(limit=max_entries):
+        if not isinstance(entry, dict):
+            continue
+        message = str(entry.get("message") or "")
+        if "AGENT_VIEWER_TIMING" not in message:
+            continue
+        meta = entry.get("meta") if isinstance(entry.get("meta"), dict) else {}
+        if f"run={run_id}" not in message and str(meta.get("run_id") or "") != run_id:
+            continue
+        marker = _MARKER_RE.search(message)
+        key = marker.group(1) if marker is not None else "unknown"
+        out.append(
+            {
+                "source": "frontend",
+                "key": key,
+                "ts": float(entry.get("ts") or 0.0),
+                "message": message[-500:],
+            }
+        )
+    return out
+
+
+def _line_matches_run(line: str, run_id: str) -> bool:
+    if f"run_id={run_id}" in line:
+        return True
+    if f"run={run_id}" in line:
+        return True
+    if f"stream_key=transcript_edit:{run_id}" in line:
+        return True
+    return False
+
+
+def _parse_backend_log_ts(line: str) -> float:
+    match = _TS_RE.search(line)
+    if match is None:
+        return 0.0
+    try:
+        return datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S,%f").timestamp()
+    except Exception:
+        return 0.0
+
+
+def _compute_timing_deltas_ms(first_key_ts: dict[str, float]) -> dict[str, float | None]:
+    def _delta(start_key: str, end_key: str) -> float | None:
+        start = first_key_ts.get(start_key)
+        end = first_key_ts.get(end_key)
+        if start is None or end is None:
+            return None
+        return round((end - start) * 1000.0, 1)
+
+    return {
+        "tx_run_created_to_first_progress": _delta("tx_run_created", "tx_first_progress_emitted"),
+        "first_progress_to_first_viewer_publish": _delta("tx_first_progress_emitted", "tx_first_viewer_publish"),
+        "first_viewer_publish_to_sse_first_delivery": _delta("tx_first_viewer_publish", "sse_first_delivery"),
+        "sse_first_delivery_to_frontend_first_event": _delta("sse_first_delivery", "first_event_received"),
+        "frontend_first_event_to_first_live_event": _delta("first_event_received", "first_live_event_received"),
+        "prompt_event_received_to_prompt_rendered": _delta("prompt_event_received", "prompt_rendered"),
+    }
 
 
 def _resolve_artifact_path(artifact_ref: str) -> Path | None:
@@ -322,10 +458,26 @@ async def _agent_loop_sse_stream(run_id: str, q: asyncio.Queue) -> AsyncGenerato
 
 
 async def _viewer_sse_stream(stream_key: str, q: asyncio.Queue) -> AsyncGenerator[str, None]:
+    first_delivery_logged = False
     try:
         while True:
             try:
                 data = await asyncio.wait_for(q.get(), timeout=10.0)
+                if not first_delivery_logged:
+                    first_delivery_logged = True
+                    try:
+                        parsed = json.loads(data)
+                    except Exception:
+                        parsed = {}
+                    if isinstance(parsed, dict):
+                        payload = parsed.get("payload") if isinstance(parsed.get("payload"), dict) else {}
+                        logger.info(
+                            "AGENT_VIEWER_TIMING ► sse_first_delivery stream_key=%s event_type=%s phase=%s seq=%s",
+                            stream_key,
+                            str(parsed.get("event_type") or "status"),
+                            str(payload.get("phase") or "n/a"),
+                            str(parsed.get("seq") if parsed.get("seq") is not None else "n/a"),
+                        )
                 yield f"data: {data}\n\n"
             except asyncio.TimeoutError:
                 yield "event: ping\ndata: {}\n\n"

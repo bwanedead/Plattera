@@ -100,6 +100,7 @@ from agent_kernel.tooling import (
 )
 from agents.transcript_edit.controller import run_transcript_edit_controller_loop
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
+from agents.transcript_edit.decision_ledger import unresolved_closure_requirements
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from transcript_edit.contracts import (
     EditLoopStartRequestV0,
@@ -182,7 +183,17 @@ def _format_terminal_message(status: str, reason_code: str, iterations: int) -> 
         return f"Transcript audit completed after {iterations} iteration(s) — no errors found."
     if status == "needs_review":
         short_reason = reason.replace("tx_agent_", "").replace("_", " ")
-        return f"Run finished after {iterations} iteration(s) — needs review ({short_reason})."
+        if reason.startswith("tx_agent_no_safe_plan_for_findings"):
+            return (
+                f"Run paused for review after {iterations} iteration(s): "
+                "no safe edit plan remains for unresolved findings."
+            )
+        if reason.startswith("tx_agent_closure_requirements_unresolved"):
+            return (
+                f"Run paused after {iterations} iteration(s): "
+                "closure requirements are still unresolved."
+            )
+        return f"Run paused for review after {iterations} iteration(s) ({short_reason})."
     if status == "failed":
         short_reason = reason.replace("tx_", "").replace("_", " ")
         return f"Run failed after {iterations} iteration(s): {short_reason}."
@@ -544,7 +555,16 @@ class ImageToTextPipeline:
             source_text = "\n\n".join(section_bodies)
 
         auto_promote = policy_mode == _MODE_AUDIT_REPAIR_PROMOTE and source_transcript_ref is not None
-        run_id = f"tx_post_t0_{int(time.time())}_{hashlib.sha256((dossier_id + str(transcription_id or '')).encode('utf-8')).hexdigest()[:8]}"
+        run_id_hint = str(context.get("transcript_edit_run_id_hint") or "").strip()
+        run_id = run_id_hint or f"tx_post_t0_{int(time.time())}_{hashlib.sha256((dossier_id + str(transcription_id or '')).encode('utf-8')).hexdigest()[:8]}"
+        logger.info(
+            "AGENT_VIEWER_TIMING ► t0_handoff_start run_id=%s dossier=%s transcription=%s mode=%s execution=%s",
+            run_id,
+            dossier_id,
+            transcription_id or "n/a",
+            policy_mode,
+            execution_mode,
+        )
         self.transcription_edit_run_registry.create_run(
             run_id=run_id,
             request={
@@ -557,6 +577,11 @@ class ImageToTextPipeline:
                 "auto_promote": auto_promote,
                 "trigger": "post_t0",
             },
+        )
+        logger.info(
+            "AGENT_VIEWER_TIMING ► tx_run_created run_id=%s stream_key=%s",
+            run_id,
+            f"transcript_edit:{run_id}",
         )
         logger.info(
             "transcript_edit_agent_post_t0_trigger %s",
@@ -620,6 +645,8 @@ class ImageToTextPipeline:
                 progress_log: list[dict[str, Any]] = []
                 loop_started_mono = time.perf_counter()
                 last_event_mono = loop_started_mono
+                first_progress_logged = False
+                first_viewer_publish_logged = False
 
                 def _to_artifact_ref_map(obj: Any) -> dict[str, dict[str, str]]:
                     if not isinstance(obj, dict):
@@ -635,14 +662,27 @@ class ImageToTextPipeline:
                     return refs
 
                 def _publish_viewer_event(event_type: str, event: dict[str, Any]) -> None:
-                    nonlocal seq
+                    nonlocal seq, first_viewer_publish_logged
                     payload = event if isinstance(event, dict) else {}
+                    lane_seq = seq
+                    if not first_viewer_publish_logged:
+                        first_viewer_publish_logged = True
+                        logger.info(
+                            "AGENT_VIEWER_TIMING ► tx_first_viewer_publish run_id=%s event_type=%s phase=%s elapsed_ms=%s",
+                            run_id,
+                            event_type,
+                            str(payload.get("phase") or "n/a"),
+                            int((time.perf_counter() - loop_started_mono) * 1000),
+                        )
                     viewer_event_bus.publish_sync(
                         f"transcript_edit:{run_id}",
                         {
                             "protocol": "agent_viewer_event_v1",
                             "run_id": run_id,
+                            "session_id": run_id,
                             "loop_kind": "transcript_edit",
+                            "lane": "tx",
+                            "lane_seq": lane_seq,
                             "seq": seq,
                             "iteration": payload.get("iteration"),
                             "timestamp_epoch_seconds": int(time.time()),
@@ -653,13 +693,19 @@ class ImageToTextPipeline:
                                 "line2": payload.get("execution_state"),
                             },
                             "artifact_refs": _to_artifact_ref_map(payload.get("latest_refs")),
-                            "payload": payload,
+                            "payload": {
+                                **payload,
+                                "session_id": run_id,
+                                "lane": "tx",
+                                "lane_seq": lane_seq,
+                                "stream_kind": str(payload.get("stream_kind") or "narration"),
+                            },
                         },
                     )
                     seq += 1
 
                 def _progress_update(event: dict[str, Any]) -> None:
-                    nonlocal last_event_mono
+                    nonlocal last_event_mono, first_progress_logged
                     if not isinstance(event, dict):
                         return
                     now_mono = time.perf_counter()
@@ -676,6 +722,14 @@ class ImageToTextPipeline:
                     if len(progress_log) > 60:
                         del progress_log[:-60]
                     phase = str(event.get("phase") or "status")
+                    if not first_progress_logged:
+                        first_progress_logged = True
+                        logger.info(
+                            "AGENT_VIEWER_TIMING ► tx_first_progress_emitted run_id=%s phase=%s elapsed_ms=%s",
+                            run_id,
+                            phase,
+                            elapsed_ms,
+                        )
                     iter_value = event.get("iteration")
                     message = str(event.get("message") or "").strip()
                     latest_refs = event.get("latest_refs") if isinstance(event.get("latest_refs"), dict) else {}
@@ -765,6 +819,34 @@ class ImageToTextPipeline:
                     "initial_findings": first_audit or {},
                     "final_findings": final_audit or {},
                 }
+                latest_decision_ledger: dict[str, Any] | None = None
+                for _entry in progress_log:
+                    if not isinstance(_entry, dict):
+                        continue
+                    _detail = _entry.get("detail") if isinstance(_entry.get("detail"), dict) else {}
+                    _ledger = _detail.get("decision_ledger")
+                    if isinstance(_ledger, dict):
+                        latest_decision_ledger = _ledger
+                if latest_decision_ledger:
+                    unresolved = unresolved_closure_requirements(latest_decision_ledger)
+                    terminal_summary["decision_ledger"] = latest_decision_ledger
+                    terminal_summary["unresolved_closure_requirements"] = unresolved
+                    terminal_summary["closure_state"] = "blocked" if unresolved else "achieved"
+                    top_unresolved = next(
+                        (
+                            item
+                            for item in unresolved
+                            if isinstance(item, dict) and bool(item.get("blocking"))
+                        ),
+                        unresolved[0] if unresolved else None,
+                    )
+                    if isinstance(top_unresolved, dict):
+                        req = top_unresolved.get("closure_requirement") if isinstance(top_unresolved.get("closure_requirement"), dict) else {}
+                        label = str(top_unresolved.get("label") or top_unresolved.get("key") or "decision")
+                        action = str(req.get("minimal_user_action") or req.get("required_information") or "").strip()
+                        terminal_summary["next_best_action"] = (
+                            f"{label}: {action}" if action else f"Resolve {label}."
+                        )
                 self.transcription_edit_run_registry.update_run(
                     run_id=run_id,
                     patch={
@@ -847,14 +929,24 @@ class ImageToTextPipeline:
                     {
                         "protocol": "agent_viewer_event_v1",
                         "run_id": run_id,
+                        "session_id": run_id,
                         "loop_kind": "transcript_edit",
+                        "lane": "tx",
+                        "lane_seq": seq,
                         "seq": seq,
                         "iteration": None,
                         "timestamp_epoch_seconds": int(time.time()),
                         "event_type": "done",
                         "status": {"stage": "failed", "line1": "Transcript edit run failed", "line2": str(exc)[:220]},
                         "artifact_refs": {},
-                        "payload": {"error": str(exc), "terminal": True},
+                        "payload": {
+                            "error": str(exc),
+                            "terminal": True,
+                            "session_id": run_id,
+                            "lane": "tx",
+                            "lane_seq": seq,
+                            "stream_kind": "narration",
+                        },
                     },
                 )
         if execution_mode == "sync":
@@ -1117,7 +1209,8 @@ class ImageToTextPipeline:
     
     def process_with_redundancy(self, image_path: str, model: str = "gpt-o4-mini", extraction_mode: str = "legal_document_json_relaxed",
                                enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = "sequential",
-                               dossier_id: str = None, transcription_id: str = None, run_context: str = "solo") -> dict:
+                               dossier_id: str = None, transcription_id: str = None, run_context: str = "solo",
+                               transcript_edit_run_id_hint: str | None = None) -> dict:
         """
         Process with redundancy using the dedicated RedundancyProcessor
 
@@ -1136,6 +1229,47 @@ class ImageToTextPipeline:
         """
         try:
             extraction_mode = self._effective_extraction_mode(extraction_mode)
+            lane_session_id = str(transcript_edit_run_id_hint or "").strip()
+            t0_lane_seq = 0
+
+            def _publish_t0_lane_event(event_type: str, payload: dict[str, Any]) -> None:
+                nonlocal t0_lane_seq
+                if not lane_session_id:
+                    return
+                payload_data = payload if isinstance(payload, dict) else {}
+                phase = str(payload_data.get("phase") or event_type or "t0_status")
+                message = str(payload_data.get("message") or "T0 update")
+                lane_payload = {
+                    **payload_data,
+                    "session_id": lane_session_id,
+                    "lane": "t0",
+                    "lane_seq": t0_lane_seq,
+                    "stream_kind": str(payload_data.get("stream_kind") or "ticker"),
+                }
+                viewer_event_bus.publish_sync(
+                    f"transcript_edit:{lane_session_id}",
+                    {
+                        "protocol": "agent_viewer_event_v1",
+                        "run_id": lane_session_id,
+                        "session_id": lane_session_id,
+                        "loop_kind": "transcript_edit",
+                        "lane": "t0",
+                        "lane_seq": t0_lane_seq,
+                        "seq": -(t0_lane_seq + 1),
+                        "iteration": None,
+                        "timestamp_epoch_seconds": int(time.time()),
+                        "event_type": event_type,
+                        "status": {
+                            "stage": phase,
+                            "line1": message,
+                            "line2": str(payload_data.get("execution_state") or ""),
+                        },
+                        "artifact_refs": {},
+                        "payload": lane_payload,
+                    },
+                )
+                t0_lane_seq += 1
+
             # Handle single redundancy by falling back to original method
             if redundancy_count <= 1:
                 return self.process(image_path, model, extraction_mode, enhancement_settings)
@@ -1181,6 +1315,38 @@ class ImageToTextPipeline:
             else:
                 logger.info(f"⚠️ PROGRESSIVE SAVING DISABLED: dossier_id={dossier_id}, transcription_id={transcription_id}")
 
+            _publish_t0_lane_event(
+                "status",
+                {
+                    "phase": "t0_start",
+                    "message": f"Starting initial transcription ({redundancy_count} drafts).",
+                    "execution_state": "running",
+                },
+            )
+
+            def _lane_progress_update(event: dict[str, Any]) -> None:
+                if not isinstance(event, dict):
+                    return
+                draft_idx = int(event.get("draft_index") or 0)
+                draft_total = int(event.get("draft_total") or max(1, redundancy_count))
+                status = str(event.get("status") or "completed")
+                elapsed_ms = int(event.get("elapsed_ms") or 0)
+                _publish_t0_lane_event(
+                    "status",
+                    {
+                        **event,
+                        "phase": str(event.get("phase") or "t0_draft_result"),
+                        "message": f"T0 draft {draft_idx}/{draft_total} {status}.",
+                        "execution_state": "running",
+                        "detail": {
+                            "draft_index": draft_idx,
+                            "draft_total": draft_total,
+                            "status": status,
+                            "elapsed_ms": elapsed_ms,
+                        },
+                    },
+                )
+
             # Delegate to redundancy processor
             json_mode = self._json_mode_kind(extraction_mode)
             result = self.redundancy_processor.process(
@@ -1194,7 +1360,20 @@ class ImageToTextPipeline:
                 progressive_save_callback=progressive_save_callback,
                 dossier_id=dossier_id,
                 transcription_id=transcription_id,
-                run_context=run_context
+                run_context=run_context,
+                lane_progress_callback=_lane_progress_update,
+            )
+            _publish_t0_lane_event(
+                "status",
+                {
+                    "phase": "t0_complete",
+                    "message": "Initial transcription completed; preparing transcript edit loop.",
+                    "execution_state": "completed",
+                    "detail": {
+                        "success": bool(result.get("success", False)),
+                        "redundancy_count": redundancy_count,
+                    },
+                },
             )
             return self._postprocess_legal_json_result(
                 result=result,
@@ -1205,12 +1384,22 @@ class ImageToTextPipeline:
                     "run_context": run_context,
                     "dossier_id": dossier_id,
                     "transcription_id": transcription_id,
+                    "transcript_edit_run_id_hint": transcript_edit_run_id_hint,
                     "original_image_path": image_path,
                     "image_path": image_path,
                 },
             )
 
         except Exception as e:
+            _publish_t0_lane_event(
+                "status",
+                {
+                    "phase": "t0_failed",
+                    "message": "Initial transcription failed.",
+                    "execution_state": "failed",
+                    "detail": {"error": str(e)},
+                },
+            )
             logger.error(f"Redundancy processing failed: {str(e)}")
             return {
                 "success": False,

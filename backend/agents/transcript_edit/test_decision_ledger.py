@@ -114,3 +114,16 @@ def test_choose_investigation_focus_prefers_blocking_disputed_items() -> None:
     assert focus["decision_key"] == "range"
     assert str(focus["next_check_reason_code"]) in {"blocking_conflict_unresolved", "blocking_mapping_critical"}
     assert has_blocking_dispute(updated) is True
+
+
+def test_closure_requirement_marks_non_blocking_items_as_optional_for_mapping() -> None:
+    updated = update_ledger_from_iteration(
+        ledger=initialize_decision_ledger(),
+        findings=[{"finding_id": "f-acre", "message": "Acreage conflict between drafts (1.4 acres vs 1.9 acres)."}],
+        disagreement_hints={"acreage_values": [{"value": "1.4 acres", "count": 2}, {"value": "1.9 acres", "count": 1}]},
+    )
+    acreage_item = _item(updated, "acreage")
+    closure = acreage_item.get("closure_requirement")
+    assert isinstance(closure, dict)
+    assert closure.get("mapping_blocking") is False
+    assert str(closure.get("operational_impact")) == "transcript_quality_only"

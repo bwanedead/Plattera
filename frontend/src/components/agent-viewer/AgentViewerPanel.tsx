@@ -8,6 +8,7 @@ import { useAgentViewerStream } from './hooks/useAgentViewerStream';
 import { useAgentViewerFeedback } from './hooks/useAgentViewerFeedback';
 import { useAgentViewerArtifacts } from './hooks/useAgentViewerArtifacts';
 import {
+  buildLaneChips,
   collectUpstreamCorrectionRequests,
   extractDecisionLedger,
   summarizeEventForesight,
@@ -141,6 +142,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
       unresolvedCount: Math.max(0, blockingOpenCount),
     };
   }, [terminalSummary, unresolvedRequirementsCount, hasActiveRun, decisionSummary]);
+  const laneChips = React.useMemo(() => buildLaneChips(orderedEvents, hasActiveRun), [orderedEvents, hasActiveRun]);
   const upstreamCorrectionRequests = React.useMemo(
     () => collectUpstreamCorrectionRequests(orderedEvents),
     [orderedEvents],
@@ -193,6 +195,29 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     orderedEvents,
     canvasMode,
   });
+
+  React.useEffect(() => {
+    if (!isOpen || !activeLoopKind || !activeRunId) return;
+    if (!activeFeedbackPrompt) return;
+    void fetch('http://127.0.0.1:8000/api/logs/frontend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        level: 'INFO',
+        source: 'agent_viewer_timing',
+        message: `AGENT_VIEWER_TIMING ► prompt_rendered loop=${activeLoopKind} run=${activeRunId} prompt_id=${String(activeFeedbackPrompt.promptId || '')}`,
+        ts: Date.now() / 1000,
+        meta: {
+          loop_kind: activeLoopKind,
+          run_id: activeRunId,
+          prompt_id: String(activeFeedbackPrompt.promptId || ''),
+          blocking: Boolean(activeFeedbackPrompt.blocking),
+        },
+      }),
+    }).catch(() => {
+      // ignore timing log failures
+    });
+  }, [isOpen, activeLoopKind, activeRunId, activeFeedbackPrompt]);
 
   const submitFeedbackWithAck = React.useCallback(async (choice?: string) => {
     const result = await submitFeedback(choice);
@@ -332,6 +357,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
           connected={connected}
           isTranscribing={isTranscribing}
           layerChips={layerChips}
+          laneChips={laneChips}
           onClose={onClose}
         />
 

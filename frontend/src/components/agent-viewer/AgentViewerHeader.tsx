@@ -1,5 +1,5 @@
 import React from 'react';
-import type { CanvasMode, ViewerTheme } from './types';
+import type { CanvasMode, LaneChip, ViewerTheme } from './types';
 
 type Props = {
   theme: ViewerTheme;
@@ -18,6 +18,7 @@ type Props = {
     closureState: string;
     unresolvedCount: number;
   } | null;
+  laneChips: LaneChip[];
   onClose: () => void;
 };
 
@@ -32,6 +33,7 @@ export function AgentViewerHeader({
   connected,
   isTranscribing,
   layerChips,
+  laneChips,
   onClose,
 }: Props) {
   const chipStyle = (value: string): React.CSSProperties => {
@@ -91,6 +93,17 @@ export function AgentViewerHeader({
               Open {layerChips.unresolvedCount}
             </span>
           </>
+        )}
+        {laneChips.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 6 }}>
+            {laneChips.map((chip) => (
+              <span key={chip.lane} style={chipStyle(chip.state)} title={chip.text}>
+                {chip.lane}: {chip.state}
+                {chip.elapsedLabel ? ` ${chip.elapsedLabel}` : ''}
+                {chip.retryLabel ? ` ${chip.retryLabel}` : ''}
+              </span>
+            ))}
+          </div>
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

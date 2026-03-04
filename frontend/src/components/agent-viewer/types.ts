@@ -44,3 +44,11 @@ export type DecisionLedgerItem = {
 
 export type DecisionSummary = Record<string, any> | null;
 export type GenericDetailEvent = AgentViewerEvent | null;
+
+export type LaneChip = {
+  lane: string;
+  state: string;
+  text: string;
+  elapsedLabel?: string | null;
+  retryLabel?: string | null;
+};

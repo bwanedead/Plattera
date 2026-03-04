@@ -13,6 +13,7 @@ export type ActivePrompt = {
   line1: string;
   line2: string;
   choices: string[];
+  synthetic?: boolean;
 };
 
 type Params = {
@@ -59,11 +60,14 @@ export function useAgentViewerFeedback({
 
   const activeFeedbackPrompt = React.useMemo<ActivePrompt | null>(() => {
     if (isRunTerminal) return null;
+    const answeredPromptIds = new Set(
+      feedbackEntries.map((entry) => String(entry.prompt_id || '').trim()).filter(Boolean),
+    );
     for (const evt of orderedEvents) {
       if (evt.event_type !== 'human_feedback_needed') continue;
       const promptId = typeof evt.payload?.prompt_id === 'string' ? evt.payload.prompt_id : '';
       if (!promptId) continue;
-      const alreadyAnswered = feedbackEntries.some((entry) => String(entry.prompt_id || '') === promptId);
+      const alreadyAnswered = answeredPromptIds.has(promptId);
       if (alreadyAnswered) continue;
       const choices = Array.isArray(evt.payload?.choices) ? evt.payload.choices.filter((c: any) => typeof c === 'string') : [];
       return {
@@ -72,8 +76,11 @@ export function useAgentViewerFeedback({
         line1: String(evt.status?.line1 || 'Human feedback needed'),
         line2: String(evt.status?.line2 || ''),
         choices: choices.slice(0, 8),
+        synthetic: false,
       };
     }
+    const fallback = deriveClosurePromptFromEvents(orderedEvents, answeredPromptIds, feedbackEntries);
+    if (fallback) return fallback;
     return null;
   }, [orderedEvents, isRunTerminal, feedbackEntries]);
 
@@ -231,4 +238,115 @@ export function useAgentViewerFeedback({
     requestDecisionReview,
     submitDecisionResolution,
   };
+}
+
+type ClosureItem = {
+  key: string;
+  label: string;
+  blocking: boolean;
+  mappingBlocking: boolean;
+  state: string;
+  closureRequirement: Record<string, any> | null;
+};
+
+const KEY_PRIORITY: Record<string, number> = {
+  township: 0,
+  range: 1,
+  section: 2,
+  tie_distance: 3,
+  tie_bearing: 4,
+  closure_or_pob: 5,
+  acreage: 6,
+};
+
+function deriveClosurePromptFromEvents(
+  orderedEvents: AgentViewerEvent[],
+  answeredPromptIds: Set<string>,
+  feedbackEntries: AgentViewerFeedbackEntry[],
+): ActivePrompt | null {
+  const ledgerItems = extractLedgerItems(orderedEvents);
+  if (ledgerItems.length === 0) return null;
+  const resolvedKeys = new Set(
+    feedbackEntries
+      .map((entry) => String(entry.metadata?.decision_key || '').trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const candidates = ledgerItems
+    .filter((item) => {
+      const state = item.state.toLowerCase();
+      const unresolved = state === 'disputed' || state === 'open' || state === 'unknown' || state === 'candidate_found' || state === 'accepted_with_risk';
+      if (!unresolved) return false;
+      if (!item.closureRequirement) return false;
+      if (resolvedKeys.has(item.key.toLowerCase())) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.mappingBlocking !== b.mappingBlocking) return a.mappingBlocking ? -1 : 1;
+      if (a.blocking !== b.blocking) return a.blocking ? -1 : 1;
+      const aReason = String(a.closureRequirement?.block_reason || '').toLowerCase();
+      const bReason = String(b.closureRequirement?.block_reason || '').toLowerCase();
+      const reasonRank = (r: string) => (r === 'contradiction' ? 0 : r === 'ambiguity' ? 1 : r === 'dependency' ? 2 : 3);
+      const rr = reasonRank(aReason) - reasonRank(bReason);
+      if (rr !== 0) return rr;
+      return (KEY_PRIORITY[a.key] ?? 99) - (KEY_PRIORITY[b.key] ?? 99);
+    });
+  const mappingCandidates = candidates.filter((item) => item.mappingBlocking);
+  const top = (mappingCandidates.length > 0 ? mappingCandidates[0] : candidates[0]) || null;
+  if (!top) return null;
+  const promptId = `closure_req_${top.key}`;
+  if (answeredPromptIds.has(promptId)) return null;
+  const req = top.closureRequirement || {};
+  const choices = Array.isArray(req.resolution_options)
+    ? req.resolution_options.filter((v: any) => typeof v === 'string').slice(0, 6)
+    : [];
+  return {
+    promptId,
+    blocking: Boolean(top.mappingBlocking || top.blocking),
+    line1: String(req.required_information || `Resolve ${top.label} ambiguity.`),
+    line2: String(req.minimal_user_action || 'Select the correct value, or provide Other.'),
+    choices,
+    synthetic: true,
+  };
+}
+
+function extractLedgerItems(orderedEvents: AgentViewerEvent[]): ClosureItem[] {
+  for (const evt of orderedEvents) {
+    const detailLedger = evt.payload?.detail?.decision_ledger;
+    const terminalLedger = evt.payload?.summary?.decision_ledger;
+    const unresolvedFromSummary = evt.payload?.summary?.unresolved_closure_requirements;
+    const itemsRaw =
+      (detailLedger && Array.isArray(detailLedger.items) ? detailLedger.items : null)
+      || (terminalLedger && Array.isArray(terminalLedger.items) ? terminalLedger.items : null);
+    if (itemsRaw) {
+      return itemsRaw
+        .filter((item: any) => item && typeof item === 'object')
+        .map((item: any) => ({
+          key: String(item.key || ''),
+          label: String(item.label || item.key || 'decision'),
+          blocking: Boolean(item.blocking),
+          mappingBlocking: Boolean(
+            item.closure_requirement?.mapping_blocking ?? item.mapping_blocking ?? item.blocking,
+          ),
+          state: String(item.state || 'unknown'),
+          closureRequirement: item.closure_requirement && typeof item.closure_requirement === 'object' ? item.closure_requirement : null,
+        }))
+        .filter((item: ClosureItem) => item.key);
+    }
+    if (Array.isArray(unresolvedFromSummary)) {
+      return unresolvedFromSummary
+        .filter((item: any) => item && typeof item === 'object')
+        .map((item: any) => ({
+          key: String(item.key || ''),
+          label: String(item.label || item.key || 'decision'),
+          blocking: Boolean(item.blocking),
+          mappingBlocking: Boolean(
+            item.closure_requirement?.mapping_blocking ?? item.mapping_blocking ?? item.blocking,
+          ),
+          state: String(item.state || 'unknown'),
+          closureRequirement: item.closure_requirement && typeof item.closure_requirement === 'object' ? item.closure_requirement : null,
+        }))
+        .filter((item: ClosureItem) => item.key);
+    }
+  }
+  return [];
 }

@@ -30,7 +30,8 @@ class RedundancyProcessor:
                progressive_save_callback: callable = None,
                dossier_id: Optional[str] = None,
                transcription_id: Optional[str] = None,
-               run_context: str = "solo") -> dict:
+               run_context: str = "solo",
+               lane_progress_callback: callable = None) -> dict:
         """
         Complete redundancy processing workflow with optional progressive saving
 
@@ -62,7 +63,7 @@ class RedundancyProcessor:
         # Execute parallel API calls with optional progressive saving
         parallel_results = self._execute_parallel_calls(
             service, image_data, image_format, prompt, model, redundancy_count, json_mode,
-            progressive_save_callback, dossier_id, transcription_id, run_context
+            progressive_save_callback, dossier_id, transcription_id, run_context, lane_progress_callback
         )
 
         # Analyze results and format response
@@ -83,9 +84,11 @@ class RedundancyProcessor:
                                progressive_save_callback: callable = None,
                                dossier_id: Optional[str] = None,
                                transcription_id: Optional[str] = None,
-                               run_context: str = "solo") -> List[dict]:
+                               run_context: str = "solo",
+                               lane_progress_callback: callable = None) -> List[dict]:
         """Execute multiple API calls with improved staggering and jitter to reduce empty responses"""
         results = []
+        started_mono = time.perf_counter()
 
         logger.info(f"🚀 API EXECUTION ► Starting {count} parallel calls with staggered timing (run={run_context})")
         if progressive_save_callback:
@@ -142,6 +145,29 @@ class RedundancyProcessor:
                             logger.warning(f"⚠️ Progressive save failed for draft v{draft_index+1}: {save_error}")
 
                     results.append(result)
+                    logger.info(
+                        "AGENT_VIEWER_TIMING ► t0_draft_returned draft=%s/%s success=%s elapsed_ms=%s run=%s dossier=%s transcription=%s",
+                        draft_index + 1,
+                        count,
+                        bool(result.get("success", False)),
+                        int((time.perf_counter() - started_mono) * 1000),
+                        run_context,
+                        dossier_id or "n/a",
+                        transcription_id or "n/a",
+                    )
+                    if lane_progress_callback:
+                        try:
+                            lane_progress_callback(
+                                {
+                                    "phase": "t0_draft_result",
+                                    "draft_index": draft_index + 1,
+                                    "draft_total": count,
+                                    "status": "completed" if bool(result.get("success", False)) else "failed",
+                                    "elapsed_ms": int((time.perf_counter() - started_mono) * 1000),
+                                }
+                            )
+                        except Exception:
+                            pass
                 except concurrent.futures.TimeoutError as e:
                     logger.error(f"⏳ API CALL {draft_index+1} ► Timed out after 240s")
                     failed_result = {
@@ -156,6 +182,26 @@ class RedundancyProcessor:
                             "transcription_id": transcription_id
                         }
                     }
+                    if progressive_save_callback:
+                        try:
+                            progressive_save_callback(draft_index, failed_result)
+                            logger.debug(f"💾 PROGRESSIVE SAVE TRIGGERED ► Draft v{draft_index+1} timed out, saved error state")
+                        except Exception as save_error:
+                            logger.warning(f"⚠️ Progressive save failed for timed-out draft v{draft_index+1}: {save_error}")
+                    results.append(failed_result)
+                    if lane_progress_callback:
+                        try:
+                            lane_progress_callback(
+                                {
+                                    "phase": "t0_draft_result",
+                                    "draft_index": draft_index + 1,
+                                    "draft_total": count,
+                                    "status": "failed",
+                                    "elapsed_ms": int((time.perf_counter() - started_mono) * 1000),
+                                }
+                            )
+                        except Exception:
+                            pass
                 except Exception as e:
                     err_type = type(e).__name__
                     err_msg = str(e) or repr(e)
@@ -182,6 +228,19 @@ class RedundancyProcessor:
                             logger.warning(f"⚠️ Progressive save failed for failed draft v{draft_index+1}: {save_error}")
 
                     results.append(failed_result)
+                    if lane_progress_callback:
+                        try:
+                            lane_progress_callback(
+                                {
+                                    "phase": "t0_draft_result",
+                                    "draft_index": draft_index + 1,
+                                    "draft_total": count,
+                                    "status": "failed",
+                                    "elapsed_ms": int((time.perf_counter() - started_mono) * 1000),
+                                }
+                            )
+                        except Exception:
+                            pass
 
         successful_count = sum(1 for r in results if r.get("success", False))
         logger.info(f"📊 API EXECUTION COMPLETE ► {successful_count}/{count} calls successful")

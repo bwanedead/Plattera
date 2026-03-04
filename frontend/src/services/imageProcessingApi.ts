@@ -12,7 +12,8 @@ export const processFilesAPI = async (
   dossierId?: string,
   segmentId?: string,
   transcriptionId?: string,
-  userInstruction?: string
+  userInstruction?: string,
+  transcriptEditRunIdHint?: string
 ): Promise<ProcessingResult[]> => {
   console.log(`Processing ${files.length} files with model: ${model} and mode: ${mode}`);
 
@@ -70,6 +71,7 @@ export const processFilesAPI = async (
     if (segmentId) formData.append('segment_id', segmentId);
     if (transcriptionId) formData.append('transcription_id', transcriptionId);
     if (userInstruction) formData.append('user_instruction', userInstruction);
+    if (transcriptEditRunIdHint) formData.append('transcript_edit_run_id_hint', transcriptEditRunIdHint);
 
     const endpoint = dossierId ? 'http://127.0.0.1:8000/api/dossier/process' : 'http://127.0.0.1:8000/api/process';
     const response = await fetch(endpoint, { method: 'POST', body: formData });

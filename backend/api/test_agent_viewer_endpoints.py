@@ -157,3 +157,52 @@ def test_normalize_agent_loop_upstream_correction_request_event() -> None:
     assert normalized["event_type"] == "upstream_correction_request"
     assert normalized["status"]["stage"] == "upstream_correction_request"
     assert normalized["payload"]["request"]["request_id"] == "r1"
+
+
+def test_timing_summary_endpoint_aggregates_backend_and_frontend_markers(monkeypatch, tmp_path: Path) -> None:
+    run_id = "tx_post_t0_demo123"
+    log_path = tmp_path / "app_test.log"
+    log_path.write_text(
+        "\n".join(
+            [
+                "2026-03-04 10:00:00,000 INFO x: AGENT_VIEWER_TIMING ► tx_run_created run_id=tx_post_t0_demo123 stream_key=transcript_edit:tx_post_t0_demo123",
+                "2026-03-04 10:00:00,100 INFO x: AGENT_VIEWER_TIMING ► tx_first_progress_emitted run_id=tx_post_t0_demo123 phase=starting elapsed_ms=100",
+                "2026-03-04 10:00:00,150 INFO x: AGENT_VIEWER_TIMING ► tx_first_viewer_publish run_id=tx_post_t0_demo123 event_type=status phase=starting elapsed_ms=150",
+                "2026-03-04 10:00:00,300 INFO x: AGENT_VIEWER_TIMING ► sse_first_delivery stream_key=transcript_edit:tx_post_t0_demo123 event_type=status phase=starting seq=1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(agent_viewer, "get_active_log_file", lambda: str(log_path))
+    monkeypatch.setattr(
+        agent_viewer,
+        "get_frontend_logs_snapshot",
+        lambda limit=5000: [
+            {
+                "ts": 1762279200.500,
+                "level": "INFO",
+                "source": "agent_viewer_timing",
+                "message": f"AGENT_VIEWER_TIMING ► first_event_received loop=transcript_edit run={run_id} elapsed_ms=500",
+                "meta": {"run_id": run_id},
+            },
+            {
+                "ts": 1762279200.900,
+                "level": "INFO",
+                "source": "agent_viewer_timing",
+                "message": f"AGENT_VIEWER_TIMING ► prompt_rendered loop=transcript_edit run={run_id} prompt_id=p1",
+                "meta": {"run_id": run_id, "prompt_id": "p1"},
+            },
+        ],
+    )
+
+    result = asyncio.run(
+        agent_viewer.get_agent_viewer_timing_summary(
+            run_id=run_id,
+            max_backend_lines=5000,
+            max_frontend_entries=2000,
+        )
+    )
+    assert result["run_id"] == run_id
+    assert result["backend_count"] >= 4
+    assert result["frontend_count"] >= 2
+    assert "tx_run_created_to_first_progress" in result["deltas_ms"]

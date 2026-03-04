@@ -46,7 +46,17 @@ def terminal_message(result: Any) -> str:
         return f"Transcript audit completed after {iterations} iteration(s) — no errors found."
     if status == "needs_review":
         short_reason = reason.replace("tx_agent_", "").replace("_", " ")
-        return f"Run finished after {iterations} iteration(s) — needs review ({short_reason})."
+        if reason.startswith("tx_agent_no_safe_plan_for_findings"):
+            return (
+                f"Run paused for review after {iterations} iteration(s): "
+                "no safe edit plan remains for unresolved findings."
+            )
+        if reason.startswith("tx_agent_closure_requirements_unresolved"):
+            return (
+                f"Run paused after {iterations} iteration(s): "
+                "closure requirements are still unresolved."
+            )
+        return f"Run paused for review after {iterations} iteration(s) ({short_reason})."
     if status == "failed":
         short_reason = reason.replace("tx_", "").replace("_", " ")
         return f"Run failed after {iterations} iteration(s): {short_reason}."
