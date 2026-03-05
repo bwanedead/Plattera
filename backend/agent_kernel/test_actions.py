@@ -24,6 +24,7 @@ from backend.agent_kernel.actions import (
     Renderer,
     StatusSummarizer,
     TranscriptAuditor,
+    TranscriptOrientBaseliner,
     TranscriptImageVerifier,
     TranscriptSpanOpener,
     TranscriptPlanApplier,
@@ -49,6 +50,7 @@ class _DeterministicServices(
     PatchProposer,
     StatusSummarizer,
     TranscriptAuditor,
+    TranscriptOrientBaseliner,
     TranscriptImageVerifier,
     TranscriptSpanOpener,
     TranscriptPlanApplier,
@@ -121,6 +123,14 @@ class _DeterministicServices(
             "tx_edited_transcript_ref": "artifacts/tx/edited-001.json",
         }
 
+    def orient_and_baseline(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+        del inputs
+        return {
+            "artifact_ref": {"artifact_path": "artifacts/tx/orient-baseline-001.json"},
+            "reason_codes": ["tx_orient_baseline_completed"],
+            "tx_orient_items": [{"key": "range", "state": "disputed"}],
+        }
+
     def open_transcript_spans(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
         del inputs
         return {
@@ -170,6 +180,7 @@ def _build_executor() -> ActionExecutor:
         patch_proposer=services,
         status_summarizer=services,
         transcript_auditor=services,
+        transcript_orient_baseliner=services,
         transcript_span_opener=services,
         transcript_image_verifier=services,
         transcript_plan_applier=services,
@@ -194,6 +205,7 @@ def test_executor_supports_required_deterministic_actions() -> None:
         ActionType.VALIDATE,
         ActionType.RENDER,
         ActionType.TX_AUDIT_TRANSCRIPT,
+        ActionType.TX_ORIENT_AND_BASELINE,
         ActionType.TX_OPEN_TRANSCRIPT_SPANS,
         ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
         ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
@@ -334,6 +346,7 @@ def test_new_actions_return_explicit_missing_interface_reason_codes() -> None:
     drafted = executor.execute("draft", ActionType.DRAFT_IR, {"deed_text": "..."})
     tx_audit = executor.execute("tx-audit", ActionType.TX_AUDIT_TRANSCRIPT, {"source_text": "abc"})
     tx_apply = executor.execute("tx-apply", ActionType.TX_APPLY_EDIT_PLAN, {"edit_plan": {}})
+    tx_orient = executor.execute("tx-orient", ActionType.TX_ORIENT_AND_BASELINE, {"source_text": "abc"})
     tx_spans = executor.execute(
         "tx-spans",
         ActionType.TX_OPEN_TRANSCRIPT_SPANS,
@@ -359,6 +372,7 @@ def test_new_actions_return_explicit_missing_interface_reason_codes() -> None:
     assert opened.reason_codes == ["missing_artifact_opener_interface"]
     assert drafted.reason_codes == ["missing_draft_ir_proposer_interface"]
     assert tx_audit.reason_codes == ["missing_transcript_auditor_interface"]
+    assert tx_orient.reason_codes == ["missing_transcript_orient_baseliner_interface"]
     assert tx_spans.reason_codes == ["missing_transcript_span_opener_interface"]
     assert tx_verify.reason_codes == ["missing_transcript_image_verifier_interface"]
     assert tx_apply.reason_codes == ["missing_transcript_plan_applier_interface"]

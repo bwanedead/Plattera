@@ -84,6 +84,7 @@ class RunArtifact(BaseModel):
     tx_open_spans_artifact_ref: Optional[ArtifactRef] = None
     tx_image_verify_artifact_ref: Optional[ArtifactRef] = None
     tx_validator_report_artifact_ref: Optional[ArtifactRef] = None
+    tx_orient_baseline_artifact_ref: Optional[ArtifactRef] = None
     tx_edit_plan_artifact_ref: Optional[ArtifactRef] = None
     tx_apply_report_artifact_ref: Optional[ArtifactRef] = None
     tx_edited_transcript_artifact_ref: Optional[ArtifactRef] = None

@@ -81,8 +81,6 @@ export function useAgentViewerFeedback({
         synthetic: false,
       };
     }
-    const fallback = deriveClosurePromptFromEvents(orderedEvents, answeredPromptIds, feedbackEntries);
-    if (fallback) return fallback;
     return null;
   }, [orderedEvents, isRunTerminal, allowTerminalFeedback, feedbackEntries]);
 
@@ -111,7 +109,7 @@ export function useAgentViewerFeedback({
         metadata: {
           canvas_mode: canvasMode,
           event_count: orderedEvents.length,
-          action: activePromptId?.startsWith('closure_req_') ? 'resolve_closure_requirement' : 'prompt_feedback',
+          action: 'prompt_feedback',
           decision_key: inferDecisionKeyFromPromptId(activePromptId || '') || null,
         },
       });
@@ -244,152 +242,16 @@ export function useAgentViewerFeedback({
   };
 }
 
-type ClosureItem = {
-  key: string;
-  label: string;
-  blocking: boolean;
-  mappingBlocking: boolean;
-  state: string;
-  closureRequirement: Record<string, any> | null;
-};
-
-const KEY_PRIORITY: Record<string, number> = {
-  township: 0,
-  range: 1,
-  section: 2,
-  tie_distance: 3,
-  tie_bearing: 4,
-  closure_or_pob: 5,
-  acreage: 6,
-};
-
-function deriveClosurePromptFromEvents(
-  orderedEvents: AgentViewerEvent[],
-  answeredPromptIds: Set<string>,
-  feedbackEntries: AgentViewerFeedbackEntry[],
-): ActivePrompt | null {
-  if (!hasBaselineInvestigationCompleted(orderedEvents)) return null;
-  const ledgerItems = extractLedgerItems(orderedEvents);
-  if (ledgerItems.length === 0) return null;
-  const resolvedKeys = collectResolvedKeysFromFeedback(feedbackEntries);
-  const candidates = ledgerItems
-    .filter((item) => {
-      const state = item.state.toLowerCase();
-      const unresolved = state === 'disputed' || state === 'open' || state === 'unknown' || state === 'candidate_found' || state === 'accepted_with_risk';
-      if (!unresolved) return false;
-      if (!item.closureRequirement) return false;
-      if (resolvedKeys.has(item.key.toLowerCase())) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      if (a.mappingBlocking !== b.mappingBlocking) return a.mappingBlocking ? -1 : 1;
-      if (a.blocking !== b.blocking) return a.blocking ? -1 : 1;
-      const aReason = String(a.closureRequirement?.block_reason || '').toLowerCase();
-      const bReason = String(b.closureRequirement?.block_reason || '').toLowerCase();
-      const reasonRank = (r: string) => (r === 'contradiction' ? 0 : r === 'ambiguity' ? 1 : r === 'dependency' ? 2 : 3);
-      const rr = reasonRank(aReason) - reasonRank(bReason);
-      if (rr !== 0) return rr;
-      return (KEY_PRIORITY[a.key] ?? 99) - (KEY_PRIORITY[b.key] ?? 99);
-    });
-  const mappingCandidates = candidates.filter((item) => item.mappingBlocking);
-  const top = (mappingCandidates.length > 0 ? mappingCandidates[0] : candidates[0]) || null;
-  if (!top) return null;
-  const promptId = `closure_req_${top.key}`;
-  if (answeredPromptIds.has(promptId)) return null;
-  const req = top.closureRequirement || {};
-  const choices = Array.isArray(req.resolution_options)
-    ? req.resolution_options.filter((v: any) => typeof v === 'string').slice(0, 6)
-    : [];
-  return {
-    promptId,
-    blocking: Boolean(top.mappingBlocking || top.blocking),
-    line1: String(req.required_information || `Resolve ${top.label} ambiguity.`),
-    line2: String(req.minimal_user_action || 'Select the correct value, or provide Other.'),
-    choices,
-    synthetic: true,
-  };
-}
-
-function hasBaselineInvestigationCompleted(orderedEvents: AgentViewerEvent[]): boolean {
-  for (const evt of orderedEvents) {
-    const phase = String(evt.payload?.phase || '').toLowerCase();
-    if (phase === 'investigation_baseline_result') return true;
-  }
-  return false;
-}
-
-function collectResolvedKeysFromFeedback(feedbackEntries: AgentViewerFeedbackEntry[]): Set<string> {
-  const resolved = new Set<string>();
-  for (const entry of feedbackEntries) {
-    const explicit = String(entry.metadata?.decision_key || '').trim().toLowerCase();
-    if (explicit) resolved.add(explicit);
-    const fromPrompt = inferDecisionKeyFromPromptId(String(entry.prompt_id || '').trim());
-    if (fromPrompt) resolved.add(fromPrompt);
-    const fromChoice = inferDecisionKeyFromText(String(entry.choice || '')) || inferDecisionKeyFromText(String(entry.note || ''));
-    if (fromChoice) resolved.add(fromChoice);
-  }
-  return resolved;
-}
-
 function inferDecisionKeyFromPromptId(promptId: string): string | null {
   const value = String(promptId || '').trim().toLowerCase();
   if (!value) return null;
   if (value.startsWith('closure_req_')) return value.replace('closure_req_', '').trim() || null;
   if (value.startsWith('hitl_range_')) return 'range';
+  if (value.startsWith('hitl_township_')) return 'township';
+  if (value.startsWith('hitl_section_')) return 'section';
+  if (value.startsWith('hitl_tie_distance_')) return 'tie_distance';
+  if (value.startsWith('hitl_tie_bearing_')) return 'tie_bearing';
+  if (value.startsWith('hitl_closure_or_pob_')) return 'closure_or_pob';
+  if (value.startsWith('hitl_acreage_')) return 'acreage';
   return null;
-}
-
-function inferDecisionKeyFromText(text: string): string | null {
-  const t = String(text || '').toLowerCase();
-  if (!t) return null;
-  if (t.includes('range')) return 'range';
-  if (t.includes('township')) return 'township';
-  if (t.includes('section')) return 'section';
-  if (t.includes('bearing')) return 'tie_bearing';
-  if (t.includes('distance') || t.includes('feet') || t.includes('ft')) return 'tie_distance';
-  if (t.includes('acre')) return 'acreage';
-  if (t.includes('closure') || t.includes('point of beginning') || t.includes('pob')) return 'closure_or_pob';
-  return null;
-}
-
-function extractLedgerItems(orderedEvents: AgentViewerEvent[]): ClosureItem[] {
-  for (const evt of orderedEvents) {
-    const detailLedger = evt.payload?.detail?.decision_ledger;
-    const terminalLedger = evt.payload?.summary?.decision_ledger;
-    const unresolvedFromSummary = evt.payload?.summary?.unresolved_closure_requirements;
-    const itemsRaw =
-      (detailLedger && Array.isArray(detailLedger.items) ? detailLedger.items : null)
-      || (terminalLedger && Array.isArray(terminalLedger.items) ? terminalLedger.items : null);
-    if (itemsRaw) {
-      return itemsRaw
-        .filter((item: any) => item && typeof item === 'object')
-        .map((item: any) => ({
-          key: String(item.key || ''),
-          label: String(item.label || item.key || 'decision'),
-          blocking: Boolean(item.blocking),
-          mappingBlocking: Boolean(
-            item.closure_requirement?.mapping_blocking ?? item.mapping_blocking ?? item.blocking,
-          ),
-          state: String(item.state || 'unknown'),
-          closureRequirement: item.closure_requirement && typeof item.closure_requirement === 'object' ? item.closure_requirement : null,
-        }))
-        .filter((item: ClosureItem) => item.key);
-    }
-    if (Array.isArray(unresolvedFromSummary)) {
-      return unresolvedFromSummary
-        .filter((item: any) => item && typeof item === 'object')
-        .map((item: any) => ({
-          key: String(item.key || ''),
-          label: String(item.label || item.key || 'decision'),
-          blocking: Boolean(item.blocking),
-          mappingBlocking: Boolean(
-            item.closure_requirement?.mapping_blocking ?? item.mapping_blocking ?? item.blocking,
-          ),
-          state: String(item.state || 'unknown'),
-          closureRequirement: item.closure_requirement && typeof item.closure_requirement === 'object' ? item.closure_requirement : null,
-        }))
-        .filter((item: ClosureItem) => item.key);
-    }
-  }
-  return [];
 }

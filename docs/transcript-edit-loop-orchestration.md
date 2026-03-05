@@ -201,8 +201,11 @@ Controller starts kernel session with budgets:
 Startup sequence:
 1. `preflight_countdown` (runtime currently set to 60s in API/pipeline entrypoints)
 2. `starting`
-3. `orient`
-4. enter iteration loop
+3. deterministic canonical audit (advisory; source/hash stabilization)
+4. `tx_orient_and_baseline` (first semantic startup phase; text-only LLM)
+5. deterministic ledger commit from orient output
+6. emit `investigation_baseline_result` for startup baseline snapshot
+7. enter iteration loop
 
 Preflight log markers:
 - `TX_LOOP_PRESTART_COUNTDOWN ► state=starting remaining_seconds=60`
@@ -230,6 +233,7 @@ Repair path (high-level order):
 
 Design rule now in place:
 - First HITL prompt is emitted only after baseline investigation result in that iteration.
+- In startup, semantic baseline now comes from `tx_orient_and_baseline`, not deterministic disagreement hints.
 
 ---
 
@@ -299,14 +303,14 @@ Closure requirement fields:
 ---
 
 ## 14) Backend HITL prompting (authoritative path)
-Prompt builder currently focuses on range conflict:
-- requires disagreement hints with multiple range values
-- builds options like `Range 74 West`, `Range 75 West`
-- prompt id format: `hitl_range_<iteration>_<suffix>`
+Prompt builder is ledger-driven:
+- selects highest-priority unresolved mapping-blocking decision item from `decision_ledger`
+- builds options from `closure_requirement.resolution_options` (or selected value fallback)
+- prompt id format: `hitl_<decision_key>_<iteration>_<suffix>`
 
-Exact prompt text:
-- `line1`: `Confirm range token for this deed`
-- `line2`: `Image/text checks disagree on range values; promotion is blocked pending your choice.`
+Prompt text source:
+- `line1`: closure requirement `required_information`
+- `line2`: closure requirement `minimal_user_action`
 
 Feedback handling:
 - feedback posted to feedback store by viewer endpoint
@@ -368,6 +372,7 @@ Image checks support:
 ## 17) Kernel tool/action surface available to tx loop
 Action types used:
 - `TX_AUDIT_TRANSCRIPT`
+- `TX_ORIENT_AND_BASELINE`
 - `TX_OPEN_TRANSCRIPT_SPANS`
 - `TX_VERIFY_TRANSCRIPT_WITH_IMAGE`
 - `TX_APPLY_EDIT_PLAN`
@@ -376,6 +381,7 @@ Action types used:
 
 Required fields (contracts summary):
 - `TX_AUDIT_TRANSCRIPT`: `source_transcript_ref | source_text`
+- `TX_ORIENT_AND_BASELINE`: `source_transcript_ref | source_text`, optional `candidate_texts[]`, optional `model`
 - `TX_OPEN_TRANSCRIPT_SPANS`: `source_transcript_ref | source_text`, plus `spans[] OR anchors[]`
 - `TX_VERIFY_TRANSCRIPT_WITH_IMAGE`: source transcript + checks payload
 - `TX_APPLY_EDIT_PLAN`: `edit_plan`
@@ -384,6 +390,7 @@ Required fields (contracts summary):
 
 Tool implementations perform:
 - deterministic audit validators
+- startup semantic orientation baseline (typed JSON evidence + span-seed emission)
 - bounded span extraction
 - image verification with summarized result artifacts
 - plan apply with refusal-safe report
@@ -416,7 +423,7 @@ Event bus behavior:
 Common phases:
 - `preflight_countdown`
 - `starting`
-- `orient`
+- `investigation_baseline_result` (startup baseline after orient-commit)
 - `audit`
 - `audit_result`
 - `investigation_baseline`
@@ -441,18 +448,16 @@ Terminal event:
 
 ---
 
-## 20) Known UX/perception caveat: synthetic frontend prompts
-The frontend currently includes a fallback "synthetic closure prompt" mechanism (`closure_req_*`) that can derive prompts from unresolved ledger state even before backend emits authoritative `human_feedback_needed`.
+## 20) UX Prompting Status (March 2026)
+Synthetic frontend fallback prompting has been removed from active path.
+
+Current behavior:
+- backend `human_feedback_needed` is authoritative for actionable prompts
+- viewer no longer fabricates `closure_req_*` prompt ids from local ledger snapshots
 
 Impact:
-- perceived "instant prompt" after countdown can occur even when backend prompt is delayed until post-investigation.
-
-Mitigation recently added:
-- synthetic prompts are gated to require `investigation_baseline_result` first.
-
-Architectural recommendation:
-- backend prompts should be authoritative for active HITL.
-- synthetic path should be passive guidance (or removed) if strict discipline is required.
+- removes pre-authoritative prompt perception drift
+- keeps escalation timing aligned to post-`investigation_baseline_result` rule
 
 ---
 
@@ -501,12 +506,15 @@ Request-level controls:
 start session
 emit preflight_countdown(60..0)
 emit starting
-emit orient
+audit(source canonicalization + deterministic validators for advisory findings)
+orient_baseline = tx_orient_and_baseline(transcript + candidate_texts)
+commit orient_baseline -> decision_ledger
+emit investigation_baseline_result(startup)
 
 for i in 1..max_iterations:
   audit()
   emit audit_result
-  update_ledger(findings + disagreement hints)
+  update_ledger(findings)
 
   if clean_branch:
     maybe final verify
@@ -526,7 +534,7 @@ for i in 1..max_iterations:
   if unresolved blocking and no pending prompt:
     emit human_feedback_needed
 
-  plan = manual_override or deterministic_consensus or planner_llm
+  plan = manual_override or planner_llm
   if no safe plan: terminal needs_review
   apply(plan)
   continue
@@ -690,10 +698,12 @@ Known caveat:
 ## 28) Exact prompting schemes in play
 ### 28.1 Backend authoritative HITL prompt
 Built by `build_human_feedback_prompt`:
-- prompt id: `hitl_range_<iteration>_<suffix>`
-- line1: `Confirm range token for this deed`
-- line2: `Image/text checks disagree on range values; promotion is blocked pending your choice.`
-- choices: normalized range options from disagreement hints
+- prompt id: `hitl_<decision_key>_<iteration>_<suffix>`
+- decision selection: highest-priority unresolved mapping-blocking item from `decision_ledger`
+- line1 source: `closure_requirement.required_information`
+- line2 source: `closure_requirement.minimal_user_action`
+- choices source: `closure_requirement.resolution_options` (fallback: selected value)
+- evidence transparency: payload includes `evidence_attempts` counters (`open_spans_count`, `image_verify_count`, `retrieval_count`)
 
 ### 28.2 Planner prompt family
 1. system message
@@ -702,7 +712,7 @@ Built by `build_human_feedback_prompt`:
 - requires bounded JSON `EditPlanV0`
 
 2. user payload message
-- JSON with findings, spans, image verification, disagreement hints, mapping focus
+- JSON with findings, spans, image verification, mapping focus
 
 3. repair message
 - used when planner output invalid/empty; supplies error + minimal valid shape
@@ -727,7 +737,7 @@ Built by `build_human_feedback_prompt`:
 7. No HITL needed
 
 ### 29.2 Range contradiction, escalated to human
-1. Audit + disagreement hints detect range conflict
+1. Audit + ledger state detect unresolved mapping-blocking range conflict
 2. Baseline evidence still conflicting/unclear after image checks
 3. `investigation_baseline_result` shows residual mapping-blocking range
 4. Backend emits `human_feedback_needed`
@@ -762,7 +772,9 @@ Terminal payload includes:
 - `closure_state`
 - layer statuses (`layer1_*`, `layer2_*`, `layer3_*`)
 - `decision_ledger`
+- `closure_history` (per-decision state transitions derived from progress log snapshots)
 - `unresolved_closure_requirements`
+- `unresolved_optional_items`
 - initial/final findings
 
 Expected operator interpretation:
@@ -806,192 +818,36 @@ If another agent/system must reason about this loop externally, it should verify
 
 ---
 
-## 34) Pre-LLM Post-T0 Deep Dive (exhaustive)
-This section is the exact sequence that happens after T0 handoff and before the first new model/vision call.
+## 34) Pre-LLM Post-T0 Deep Dive (superseded and current)
 
-Important framing:
-- "Pre-LLM" means no fresh remote model inference request is made.
-- Every stage below is deterministic code execution and event emission.
-- Same transcript input and same config should produce the same outputs.
+### 34.1 Historical note (superseded March 2026)
+The old pre-LLM startup path (regex disagreement hints + synthetic `orient` + deterministic baseline conflict shaping) has been retired from authoritative decision flow.
 
-### 34.1 Stage 0: Handoff state assembly
-Conceptual:
-- Build the runtime "work packet" for transcript edit from artifacts already produced by T0.
-- Establish what text is being audited and what context exists for later escalation.
+Historical-only components:
+- disagreement-hint regex bucket authority
+- `orient` narrative phase as startup semantic signal
+- deterministic pre-image residual shaping as first semantic baseline
 
-Technical mechanics:
-- Resolve request fields into internal run request contract.
-- Load source transcript via `source_transcript_ref` or inline `source_text`.
-- Attach candidate draft texts (if provided from redundancy metadata).
-- Attach source image refs for later `image_verify` stage (not used yet for model calls).
-- Initialize loop state object:
-  - `current_transcript_ref`
-  - `latest_refs`
-  - `decision_ledger`
-  - iteration counters, progress signatures, sticky feedback slots
+These are preserved only as historical context and should not be used for current behavior expectations.
 
-Outputs:
-- In-memory session state ready for countdown/start events.
+### 34.2 Current startup semantics (active)
+Current startup sequence after T0 gate pass:
+1. `preflight_countdown`
+2. `starting`
+3. deterministic canonical audit (source/hash stabilization + advisory findings)
+4. `TX_ORIENT_AND_BASELINE` (text-only model call with typed JSON contract)
+5. deterministic ledger commit/coercion
+6. startup `investigation_baseline_result` emission
+7. closure gate and branch into clean/repair iteration flow
 
-### 34.2 Stage 1: Preflight countdown
-Conceptual:
-- Pure pacing/visibility boundary.
-- Provides temporal separation between T0 completion and tx processing.
-
-Technical mechanics:
-- Emit `preflight_countdown` payload every second from N to 0.
-- Sleep 1 second between ticks.
-- No transcript analysis or model usage occurs.
-
-Outputs:
-- Ticker events only; no semantic findings generated.
-
-### 34.3 Stage 2: `starting`
-Conceptual:
-- "Run banner" event announcing mode and basic context.
-
-Technical mechanics:
-- Build message from known fields:
-  - mode
-  - candidate draft count
-  - whether disagreement hints exist
-- Emit one status payload.
-
-Outputs:
-- `starting` event only.
-
-### 34.4 Stage 3: candidate disagreement "hints" (what a hint is and how it exists)
-Conceptual:
-- A hint is a deterministic "conflict clue" extracted from candidate drafts.
-- It is not an LLM judgment.
-- It says: "multiple candidates disagree on a mapping-critical token/value."
-
-How hints are acquired:
-1. System receives candidate draft texts from T0 redundancy output.
-2. Deterministic extractors pull token/value families from each candidate:
-  - range values
-  - township values
-  - distance-like values
-  - bearing-like values
-  - acreage-like values
-3. Values are bucketed and counted by normalized form.
-4. If multiple competing values survive normalization, a disagreement hint is created.
-
-Mechanism properties:
-- Deterministic parsing + normalization + counting.
-- No external call.
-- If candidates are identical each run, hints are identical each run.
-
-What hints are used for:
-- influence `starting` copy ("disagreements detected")
-- feed baseline conflict map
-- influence focus selection and potential HITL prompt content
-
-### 34.5 Stage 4: `orient`
-Conceptual:
-- Emits a checklist-style narrative statement before work proceeds.
-- It does not perform new evidence acquisition.
-
-Technical mechanics:
-- Construct payload from known mode/config context and static checklist lines.
-- Emit `orient` status event.
-
-Current functional value:
-- Primarily UX narration.
-- Not required to compute findings, plans, apply, or terminal decisions.
-
-Immediate change candidate (requested):
-- `orient` is a removal candidate because it is non-essential preamble and can create perceived fake "work" before substantive processing.
-- Recommended action: remove `orient` event emission and keep only actionable phases.
-
-### 34.6 Stage 5: Audit input canonicalization
-Conceptual:
-- Convert transcript source into a stable structure so validators run against a consistent representation.
-
-Technical mechanics:
-- Materialize canonical transcript document:
-  - section list normalization
-  - stable text assembly
-  - source hash computation
-- Persist/resolve source transcript artifact ref if needed.
-
-Outputs:
-- Canonical transcript document and hash for validators.
-
-### 34.7 Stage 6: `audit` deterministic validators
-Conceptual:
-- This is a transcript linter/rules engine, not a fresh model reasoning pass.
-
-Technical mechanics:
-- Run deterministic validator suite over canonical transcript:
-  - PLSS consistency checks
-  - numeric/unit sanity checks
-  - bearing parsing/structure checks
-  - call-chain structure checks
-- Produce finding objects with IDs, type, severity, message, spans/section ids.
-
-Outputs:
-- `audit` and `audit_result` emissions with counts and top findings.
-
-Why this can feel "instant":
-- CPU/local-file operations only.
-- No network roundtrip.
-- Highly repeatable for unchanged transcript inputs.
-
-### 34.8 Stage 7: Decision ledger update and focus precomputation
-Conceptual:
-- Convert findings/hints into a per-decision state model to decide what to investigate next.
-
-Technical mechanics:
-- Update ledger item states (`unknown`, `disputed`, etc.) using findings + hints.
-- Mark mapping-blocking vs optional items.
-- Choose next priority focus key with deterministic policy.
-
-Outputs:
-- Updated ledger snapshot, focused investigation target.
-
-### 34.9 Stage 8: `investigation_baseline` (pre-image phase)
-Conceptual:
-- Report what conflicts are currently known before image checks.
-
-Technical mechanics:
-- Build conflict map from disagreement hints.
-- Emit summary payload with conflict count, keys, value alternatives.
-
-Outputs:
-- Baseline conflict telemetry only (still pre-LLM).
-
-### 34.10 Stage 9: `open_spans` / `open_spans_result`
-Conceptual:
-- Gather local transcript snippets around focused findings for downstream plan/verification context.
-
-Technical mechanics:
-- Use offsets/anchors/fallback heuristics to extract bounded text windows.
-- Enforce max chars per span and max total chars budgets.
-- Emit selected span previews.
-
-Outputs:
-- Span context artifacts and display payloads.
-
-### 34.11 Stage 10: Baseline residual shaping before first model call
-Conceptual:
-- Summarize unresolved blockers and recommend next action text.
-
-Technical mechanics:
-- Derive unresolved closure requirements from ledger state.
-- Compute mapping-blocking/optional counts.
-- Build deterministic "next recommended action" string.
-
-Outputs:
-- Structured residual snapshot for operator visibility.
-
-### 34.12 First true post-T0 LLM boundary
-Conceptual:
-- The first fresh model-dependent stage is `image_verify`.
-- Anything before that is deterministic pipeline/runtime logic.
-
-Technical boundary marker:
-- Transition from local pre-LLM stages to `TX_VERIFY_TRANSCRIPT_WITH_IMAGE` action execution.
+Current semantic authority boundary:
+- First authoritative semantic baseline is model-driven via `TX_ORIENT_AND_BASELINE`
+- Deterministic code remains authoritative for:
+  - schema coercion/validation
+  - ledger commit
+  - mapping-blocking counts
+  - closure gate decisions
+  - branch/terminalization
 
 ---
 
@@ -1014,6 +870,7 @@ This section is a concise summary for transcript-edit operators.
 ### 36.1 Transcript-edit runtime (current wired set)
 When tx loop is started from post-T0 pipeline or transcript-edit endpoint, the configured action deps are narrowed to:
 - `tx_audit_transcript`
+- `tx_orient_and_baseline`
 - `tx_open_transcript_spans`
 - `tx_verify_transcript_with_image`
 - `tx_apply_edit_plan`

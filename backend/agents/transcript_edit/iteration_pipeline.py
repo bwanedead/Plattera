@@ -11,7 +11,6 @@ from transcript_edit.persistence import TranscriptionEditPersistenceService
 from .contracts import TranscriptEditAgentRunRequest
 from .decision_ledger import (
     choose_investigation_focus,
-    has_blocking_dispute,
     ledger_snapshot_for_payload,
     unresolved_closure_requirements,
     update_ledger_from_iteration,
@@ -86,7 +85,6 @@ def handle_clean_iteration(
     iterations: int,
     error_count: int,
     has_disagreements: bool,
-    effective_disagreement_hints: dict[str, Any],
     source_transcript_hash: str,
     progress_cb: Callable[[dict[str, Any]], None] | None,
     model: str,
@@ -126,7 +124,7 @@ def handle_clean_iteration(
             dossier_id=request.dossier_id,
             source_transcript_ref=state.current_transcript_ref,
             source_image_refs=request.source_image_refs,
-            disagreement_hints=effective_disagreement_hints,
+            disagreement_hints={},
             model=model,
             step_fn=_step_kernel_action,
             read_step_outputs_inline_fn=read_step_outputs_inline,
@@ -215,7 +213,7 @@ def handle_clean_iteration(
                 dossier_id=request.dossier_id,
                 source_transcript_ref=state.current_transcript_ref,
                 source_image_refs=request.source_image_refs,
-                disagreement_hints=effective_disagreement_hints,
+                disagreement_hints={},
                 model=model,
                 step_fn=_step_kernel_action,
                 read_step_outputs_inline_fn=read_step_outputs_inline,
@@ -279,12 +277,11 @@ def handle_repair_iteration(
     top_findings: list[dict[str, Any]],
     findings_summary: dict[str, Any],
     source_transcript_hash: str,
-    effective_disagreement_hints: dict[str, Any],
-    mapping_focus: dict[str, Any],
     blocking_warning_present: bool,
     progress_cb: Callable[[dict[str, Any]], None] | None,
     model: str,
 ) -> TranscriptEditDecision | None:
+    mapping_focus = choose_investigation_focus(state.decision_ledger) or {}
     manual_plan_override: dict[str, Any] | None = None
     if state.sticky_range_selection is not None and state.current_transcript_ref and source_transcript_hash:
         manual_plan_override = build_range_feedback_plan(
@@ -366,7 +363,7 @@ def handle_repair_iteration(
     span_context: list[dict[str, Any]] = []
     image_verification: dict[str, Any] = {}
     if manual_plan_override is None:
-        conflict_map = _conflict_map_from_disagreement_hints(effective_disagreement_hints)
+        conflict_map = _conflict_map_from_ledger(state.decision_ledger)
         emit_progress(
             progress_cb,
             investigation_baseline_payload(
@@ -450,7 +447,6 @@ def handle_repair_iteration(
             dossier_id=request.dossier_id,
             source_transcript_ref=state.current_transcript_ref,
             top_findings=focus_findings,
-            disagreement_hints=effective_disagreement_hints,
             source_image_refs=request.source_image_refs,
             model=model,
             progress_cb=progress_cb,
@@ -463,7 +459,6 @@ def handle_repair_iteration(
             state.decision_ledger = update_ledger_from_iteration(
                 ledger=state.decision_ledger,
                 findings=planning_findings,
-                disagreement_hints=effective_disagreement_hints,
                 image_results=[result for result in iv_results if isinstance(result, dict)],
             )
             iv_confirmed = sum(1 for r in iv_results if isinstance(r, dict) and str(r.get("status") or "").lower() in {"confirmed", "match"})
@@ -518,7 +513,6 @@ def handle_repair_iteration(
             dossier_id=request.dossier_id,
             source_transcript_ref=state.current_transcript_ref,
             top_findings=planning_findings,
-            disagreement_hints=effective_disagreement_hints,
             source_image_refs=request.source_image_refs,
             model=model,
             progress_cb=progress_cb,
@@ -531,7 +525,6 @@ def handle_repair_iteration(
             state.decision_ledger = update_ledger_from_iteration(
                 ledger=state.decision_ledger,
                 findings=planning_findings,
-                disagreement_hints=effective_disagreement_hints,
                 image_results=[result for result in iv_results if isinstance(result, dict)],
             )
         drained_plan = _drain_pending_feedback(checkpoint_label="post_feedback_image_verify")
@@ -543,15 +536,27 @@ def handle_repair_iteration(
     mapping_blocking_count = sum(1 for item in baseline_residual if bool(item.get("mapping_blocking")))
     optional_count = max(0, len(baseline_residual) - mapping_blocking_count)
     next_recommended_action = _next_recommended_action_text(baseline_residual)
+    baseline_attempts_list = _baseline_evidence_attempts(
+        span_context=span_context,
+        image_verification=image_verification,
+    )
+    evidence_attempts_counts = {
+        "open_spans_count": next(
+            (int(item.get("result_count") or 0) for item in baseline_attempts_list if str(item.get("attempt") or "") == "open_spans"),
+            0,
+        ),
+        "image_verify_count": next(
+            (int(item.get("result_count") or 0) for item in baseline_attempts_list if str(item.get("attempt") or "") == "image_verify"),
+            0,
+        ),
+        "retrieval_count": 0,
+    }
     emit_progress(
         progress_cb,
         investigation_baseline_result_payload(
             iteration=iterations,
             latest_refs=state.latest_refs,
-            evidence_attempts=_baseline_evidence_attempts(
-                span_context=span_context,
-                image_verification=image_verification,
-            ),
+            evidence_attempts=baseline_attempts_list,
             residual_blockers=baseline_residual[:6],
             mapping_blocking_count=mapping_blocking_count,
             optional_count=optional_count,
@@ -568,8 +573,7 @@ def handle_repair_iteration(
         and not state.pending_feedback_prompt_id
     ):
         feedback_prompt = build_human_feedback_prompt(
-            disagreement_hints=effective_disagreement_hints,
-            top_findings=top_findings,
+            decision_ledger=state.decision_ledger,
             iteration=iterations,
         )
         if feedback_prompt is not None:
@@ -578,7 +582,7 @@ def handle_repair_iteration(
                 ticker_payload(
                     iteration=iterations,
                     phase="human_feedback_needed",
-                    message="Unable to self-resolve remaining range conflict after source checks; requesting your confirmation.",
+                    message="Unable to self-resolve a mapping-blocking decision after evidence checks; requesting your confirmation.",
                     latest_refs=state.latest_refs,
                 ),
             )
@@ -588,30 +592,13 @@ def handle_repair_iteration(
                     iteration=iterations,
                     latest_refs=state.latest_refs,
                     feedback_prompt=feedback_prompt,
+                    evidence_attempts=evidence_attempts_counts,
                 ),
             )
             state.pending_feedback_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
 
     manual_plan = manual_plan_override or (request.edit_plan if isinstance(request.edit_plan, dict) else None)
     consensus_plan_payload = None
-    if manual_plan is None and not has_blocking_dispute(state.decision_ledger):
-        consensus_plan_payload = _build_deterministic_consensus_plan(
-            source_transcript_ref=state.current_transcript_ref,
-            source_transcript_hash=source_transcript_hash,
-            disagreement_hints=effective_disagreement_hints,
-            image_verification=image_verification.get("payload") if isinstance(image_verification, dict) else {},
-            top_findings=planning_findings,
-        )
-    elif manual_plan is None:
-        emit_progress(
-            progress_cb,
-            ticker_payload(
-                iteration=iterations,
-                phase="plan",
-                message="Skipping deterministic shortcut plan because blocking conflicting evidence remains.",
-                latest_refs=state.latest_refs,
-            ),
-        )
 
     if manual_plan is not None:
         selected_plan_payload = manual_plan
@@ -647,7 +634,7 @@ def handle_repair_iteration(
                 top_findings=coerce_findings(planning_findings),
                 span_context=span_context,
                 image_verification=image_verification.get("payload") if isinstance(image_verification, dict) else {},
-                candidate_disagreement_hints=effective_disagreement_hints,
+                candidate_disagreement_hints={},
                 mapping_priority_focus=mapping_focus,
                 max_attempts=request.max_invalid_plan_attempts,
             )
@@ -794,7 +781,6 @@ def _verify_mapping_critical_with_image(
     dossier_id: str | None,
     source_transcript_ref: str,
     top_findings: list[dict[str, Any]],
-    disagreement_hints: dict[str, Any],
     source_image_refs: list[str],
     model: str,
     progress_cb: Callable[[dict[str, Any]], None] | None,
@@ -826,32 +812,13 @@ def _verify_mapping_critical_with_image(
         dossier_id=dossier_id,
         source_transcript_ref=source_transcript_ref,
         top_findings=top_findings,
-        disagreement_hints=disagreement_hints,
+        disagreement_hints={},
         source_image_refs=source_image_refs,
         model=model,
         step_fn=_step_kernel_action,
         read_step_outputs_inline_fn=read_step_outputs_inline,
         read_str_fn=read_str,
         progress_cb=_emit_check_progress,
-    )
-
-
-def _build_deterministic_consensus_plan(
-    *,
-    source_transcript_ref: str,
-    source_transcript_hash: str,
-    disagreement_hints: dict[str, Any],
-    image_verification: dict[str, Any],
-    top_findings: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    from .disagreement_analysis import build_deterministic_consensus_plan
-
-    return build_deterministic_consensus_plan(
-        source_transcript_ref=source_transcript_ref,
-        source_transcript_hash=source_transcript_hash,
-        disagreement_hints=disagreement_hints,
-        image_verification=image_verification,
-        top_findings=top_findings,
     )
 
 
@@ -907,33 +874,26 @@ def _has_actionable_blocking_closure(ledger: dict[str, Any] | None) -> bool:
     return False
 
 
-def _conflict_map_from_disagreement_hints(disagreement_hints: dict[str, Any]) -> list[dict[str, Any]]:
-    if not isinstance(disagreement_hints, dict):
+def _conflict_map_from_ledger(ledger: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(ledger, dict):
         return []
-    mapping: list[tuple[str, str]] = [
-        ("range_values", "range"),
-        ("distance_values", "tie_distance"),
-        ("bearing_values", "tie_bearing"),
-        ("acreage_values", "acreage"),
-    ]
+    items = ledger.get("items")
+    if not isinstance(items, list):
+        return []
     out: list[dict[str, Any]] = []
-    for source_key, decision_key in mapping:
-        raw_values = disagreement_hints.get(source_key)
-        if not isinstance(raw_values, list):
+    for item in items:
+        if not isinstance(item, dict):
             continue
-        values: list[str] = []
-        for item in raw_values[:6]:
-            if not isinstance(item, dict):
-                continue
-            value = str(item.get("value") or "").strip()
-            if value:
-                values.append(value)
-        if len(values) < 2:
+        alternatives = [str(v).strip() for v in list(item.get("alternatives") or []) if str(v).strip()]
+        if len(alternatives) < 2:
+            continue
+        state = str(item.get("state") or "").strip().lower()
+        if state not in {"disputed", "accepted_with_risk", "candidate_found", "unknown"}:
             continue
         out.append(
             {
-                "decision_key": decision_key,
-                "values": values,
+                "decision_key": str(item.get("key") or ""),
+                "values": alternatives[:6],
                 "conflict": True,
             }
         )

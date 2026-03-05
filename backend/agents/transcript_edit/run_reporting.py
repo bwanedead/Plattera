@@ -28,7 +28,6 @@ def starting_payload(
     *,
     mode: str,
     candidate_count: int,
-    has_disagreements: bool,
     latest_refs: dict[str, Any],
 ) -> dict[str, Any]:
     return _base_payload(
@@ -36,50 +35,12 @@ def starting_payload(
         phase="starting",
         message=(
             f"Starting transcript edit loop ({mode.replace('_', ' ')}). "
-            f"{'Analyzing ' + str(candidate_count) + ' draft(s) for consistency. ' if candidate_count > 1 else ''}"
-            f"{'Disagreements detected between drafts — will investigate.' if has_disagreements else 'Auditing transcript for errors and mapping-critical issues.'}"
+            f"{'Loaded ' + str(candidate_count) + ' T0 draft candidate(s). ' if candidate_count > 0 else ''}"
+            "Preparing canonical transcript and semantic baseline."
         ),
         latest_refs=latest_refs,
         execution_state="starting",
     )
-
-
-def orient_payload(
-    *,
-    mode: str,
-    candidate_count: int,
-    has_disagreements: bool,
-    has_images: bool,
-    latest_refs: dict[str, Any],
-    decision_ledger: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return {
-        **_base_payload(
-            iteration=0,
-            phase="orient",
-            message="Orienting on deed context and mapping-sensitive checkpoints before edits.",
-            latest_refs=latest_refs,
-            execution_state="running",
-        ),
-        "detail": {
-            "mode": mode,
-            "candidate_count": candidate_count,
-            "has_disagreements": has_disagreements,
-            "has_images": has_images,
-            "checklist": [
-                "Verify PLSS anchors (township/range/section)",
-                "Verify tie distance and first bearing token",
-                "Verify acreage and closure/POB language",
-                "Only apply drift-safe edits, then re-audit",
-            ],
-            "done_criteria": [
-                "Validator findings resolved or downgraded safely",
-                "No unresolved mapping-critical uncertainty",
-                "Promotion only after final sanity checks (if enabled)",
-            ],
-            "decision_ledger": decision_ledger,
-        },
-    }
 
 
 def preflight_countdown_payload(
@@ -223,7 +184,9 @@ def human_feedback_needed_payload(
     latest_refs: dict[str, Any],
     feedback_prompt: dict[str, Any],
     blocking: bool = False,
+    evidence_attempts: dict[str, int] | None = None,
 ) -> dict[str, Any]:
+    attempts = evidence_attempts or {}
     return {
         "event_type": "human_feedback_needed",
         **_base_payload(
@@ -238,6 +201,11 @@ def human_feedback_needed_payload(
         "choices": feedback_prompt.get("choices", []),
         "default_choice": feedback_prompt.get("default_choice"),
         "context": feedback_prompt.get("context", {}),
+        "evidence_attempts": {
+            "open_spans_count": int(attempts.get("open_spans_count", 0)),
+            "image_verify_count": int(attempts.get("image_verify_count", 0)),
+            "retrieval_count": int(attempts.get("retrieval_count", 0)),
+        },
     }
 
 

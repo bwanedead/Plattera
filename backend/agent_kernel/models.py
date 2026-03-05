@@ -57,6 +57,7 @@ class ActionType(str, Enum):
     SUMMARIZE_STATUS = "summarize_status"
     UPSERT_DEED_SPAN_INDEX = "upsert_deed_span_index"
     TX_AUDIT_TRANSCRIPT = "tx_audit_transcript"
+    TX_ORIENT_AND_BASELINE = "tx_orient_and_baseline"
     TX_OPEN_TRANSCRIPT_SPANS = "tx_open_transcript_spans"
     TX_VERIFY_TRANSCRIPT_WITH_IMAGE = "tx_verify_transcript_with_image"
     TX_SAVE_TRANSCRIPT_SPAN_SEEDS = "tx_save_transcript_span_seeds"
@@ -162,6 +163,7 @@ class KernelLatestRefs(BaseModel):
     tx_open_spans_ref: Optional[dict[str, object]] = None
     tx_image_verify_ref: Optional[dict[str, object]] = None
     tx_validator_report_ref: Optional[dict[str, object]] = None
+    tx_orient_baseline_ref: Optional[dict[str, object]] = None
     tx_edit_plan_ref: Optional[dict[str, object]] = None
     tx_apply_report_ref: Optional[dict[str, object]] = None
     tx_edited_transcript_ref: Optional[dict[str, object]] = None

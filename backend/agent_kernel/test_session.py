@@ -192,6 +192,7 @@ def test_start_session_tool_menu_is_capability_aware_for_default_manager() -> No
     assert ActionType.JUDGE.value in result.tool_menu
     assert ActionType.RENDER.value in result.tool_menu
     assert ActionType.TX_AUDIT_TRANSCRIPT.value in result.tool_menu
+    assert ActionType.TX_ORIENT_AND_BASELINE.value in result.tool_menu
     assert ActionType.TX_OPEN_TRANSCRIPT_SPANS.value in result.tool_menu
     assert ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE.value in result.tool_menu
     assert ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS.value in result.tool_menu

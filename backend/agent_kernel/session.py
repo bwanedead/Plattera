@@ -39,6 +39,7 @@ from .tooling import (
     DeedSpanIndexUpserterTool,
     DraftIRFilesystemProposer,
     TranscriptAuditTool,
+    TranscriptOrientBaselineTool,
     TranscriptImageVerificationTool,
     TranscriptEditPlanApplyTool,
     TranscriptSpanSeedsSaverTool,
@@ -95,6 +96,7 @@ class KernelSessionManager:
                 validator=FeatureGraphValidateTool(),
                 renderer=FeatureGraphRenderTool(),
                 transcript_auditor=TranscriptAuditTool(),
+                transcript_orient_baseliner=TranscriptOrientBaselineTool(),
                 transcript_span_opener=TranscriptSpanOpenerTool(),
                 transcript_image_verifier=TranscriptImageVerificationTool(),
                 transcript_plan_applier=TranscriptEditPlanApplyTool(),
@@ -656,6 +658,7 @@ def _build_dashboard(
         tx_open_spans_ref=_dump_ref(run_artifact.tx_open_spans_artifact_ref),
         tx_image_verify_ref=_dump_ref(run_artifact.tx_image_verify_artifact_ref),
         tx_validator_report_ref=_dump_ref(run_artifact.tx_validator_report_artifact_ref),
+        tx_orient_baseline_ref=_dump_ref(run_artifact.tx_orient_baseline_artifact_ref),
         tx_edit_plan_ref=_dump_ref(run_artifact.tx_edit_plan_artifact_ref),
         tx_apply_report_ref=_dump_ref(run_artifact.tx_apply_report_artifact_ref),
         tx_edited_transcript_ref=_dump_ref(run_artifact.tx_edited_transcript_artifact_ref),
@@ -748,6 +751,11 @@ def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord) -> None:
         run_artifact.deed_span_index_artifact_ref = _extract_ref(step.outputs, "deed_span_index_ref")
     if step.action == ActionType.TX_AUDIT_TRANSCRIPT:
         run_artifact.tx_validator_report_artifact_ref = _extract_ref(step.outputs, "tx_validator_report_ref")
+        source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
+        if source_ref is not None:
+            run_artifact.tx_source_transcript_artifact_ref = source_ref
+    if step.action == ActionType.TX_ORIENT_AND_BASELINE:
+        run_artifact.tx_orient_baseline_artifact_ref = _extract_ref(step.outputs, "tx_orient_baseline_ref")
         source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
         if source_ref is not None:
             run_artifact.tx_source_transcript_artifact_ref = source_ref

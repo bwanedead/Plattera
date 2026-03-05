@@ -46,10 +46,6 @@ def test_update_ledger_from_audit_and_image_signals() -> None:
             {"finding_id": "f-range", "message": "Range conflict between candidate drafts"},
             {"finding_id": "f-distance", "message": "Tie distance appears as 1320 feet in call language"},
         ],
-        disagreement_hints={
-            "range_values": [{"value": "75 west", "count": 2}, {"value": "74 west", "count": 1}],
-            "distance_values": [{"value": "1320", "count": 2}],
-        },
         image_results=[
             {"check_id": "image_check_tie_distance", "status": "match", "observed_text": "1320 feet"},
             {"check_id": "image_check_range_tokens", "status": "mismatch", "observed_text": "Range 74 West"},
@@ -58,7 +54,6 @@ def test_update_ledger_from_audit_and_image_signals() -> None:
     range_item = _item(updated, "range")
     distance_item = _item(updated, "tie_distance")
     assert range_item["state"] == "disputed"
-    assert len(range_item["alternatives"]) >= 2
     assert distance_item["state"] == "verified"
     assert str(distance_item.get("selected_value") or "").lower().startswith("1320")
     assert updated["summary"]["disputed_count"] >= 1
@@ -95,7 +90,6 @@ def test_unresolved_closure_requirements_contains_only_actionable_items() -> Non
     updated = update_ledger_from_iteration(
         ledger=initialize_decision_ledger(),
         findings=[{"finding_id": "f-range", "message": "Range conflict between candidate drafts"}],
-        disagreement_hints={"range_values": [{"value": "75 west", "count": 2}, {"value": "74 west", "count": 1}]},
     )
     unresolved = unresolved_closure_requirements(updated)
     assert len(unresolved) >= 1
@@ -107,20 +101,18 @@ def test_choose_investigation_focus_prefers_blocking_disputed_items() -> None:
     updated = update_ledger_from_iteration(
         ledger=initialize_decision_ledger(),
         findings=[{"finding_id": "f-range", "message": "Range conflict between candidate drafts"}],
-        disagreement_hints={"range_values": [{"value": "75 west", "count": 2}, {"value": "74 west", "count": 1}]},
     )
     focus = choose_investigation_focus(updated)
     assert isinstance(focus, dict)
     assert focus["decision_key"] == "range"
-    assert str(focus["next_check_reason_code"]) in {"blocking_conflict_unresolved", "blocking_mapping_critical"}
-    assert has_blocking_dispute(updated) is True
+    assert str(focus["next_check_reason_code"]) in {"highest_uncertainty", "blocking_mapping_critical"}
+    assert has_blocking_dispute(updated) is False
 
 
 def test_closure_requirement_marks_non_blocking_items_as_optional_for_mapping() -> None:
     updated = update_ledger_from_iteration(
         ledger=initialize_decision_ledger(),
         findings=[{"finding_id": "f-acre", "message": "Acreage conflict between drafts (1.4 acres vs 1.9 acres)."}],
-        disagreement_hints={"acreage_values": [{"value": "1.4 acres", "count": 2}, {"value": "1.9 acres", "count": 1}]},
     )
     acreage_item = _item(updated, "acreage")
     closure = acreage_item.get("closure_requirement")

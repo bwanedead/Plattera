@@ -9,10 +9,7 @@ from typing import Any
 
 from agent_kernel.models import ActionType, StepExecutionState
 
-from .disagreement_analysis import (
-    first_expected_token_from_message,
-    image_checks_from_disagreement_hints,
-)
+from .disagreement_analysis import first_expected_token_from_message
 
 
 def verify_mapping_critical_with_image(
@@ -46,7 +43,7 @@ def verify_mapping_critical_with_image(
                 "expected_text": first_expected_token_from_message(str(finding.get("message") or "")),
             }
         )
-    checks.extend(image_checks_from_disagreement_hints(disagreement_hints))
+    del disagreement_hints
     if not checks:
         return {}
 
@@ -250,14 +247,7 @@ def final_image_sanity_pass_before_promote(
             "expected_text": None,
         },
     ]
-    existing_ids = {str(item.get("check_id") or "") for item in checks if isinstance(item, dict)}
-    for extra in image_checks_from_disagreement_hints(disagreement_hints):
-        if not isinstance(extra, dict):
-            continue
-        cid = str(extra.get("check_id") or "")
-        if cid and cid not in existing_ids:
-            checks.append(extra)
-            existing_ids.add(cid)
+    del disagreement_hints
     inputs: dict[str, Any] = {
         "dossier_id": dossier_id,
         "source_transcript_ref": source_transcript_ref,

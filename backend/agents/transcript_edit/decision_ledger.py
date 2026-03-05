@@ -17,6 +17,13 @@ _DISPUTED_HINTS = {"disagree", "conflict", "mismatch", "ambiguous", "unclear"}
 _CONFIRMED_STATUSES = {"match", "confirmed"}
 _DISPUTED_STATUSES = {"mismatch", "rejected", "unclear", "unknown"}
 _LAYER_STATUS_VALUES = {"satisfied", "blocked", "unknown"}
+_LAYER_TAG_VALUES = {
+    "layer1_canonical_recovery",
+    "layer2_canonical_sanity",
+    "layer3_dependency",
+    "layer4_transcript_quality_optional",
+}
+_IMPACT_VALUES = {"mapping_blocking", "transcript_quality_only"}
 _DECISION_PRIORITY: dict[str, int] = {
     "township": 0,
     "range": 1,
@@ -40,6 +47,10 @@ def initialize_decision_ledger() -> dict[str, Any]:
             "blocking": blocking,
             "evidence_refs": [],
             "user_override_state": "none",
+            "layer_tag": "layer1_canonical_recovery",
+            "operational_impact": "mapping_blocking" if blocking else "transcript_quality_only",
+            "provenance": "deterministic",
+            "verification_required": False,
             "closure_requirement": None,
         }
         for key, label, blocking in _DECISION_SPECS
@@ -74,7 +85,8 @@ def update_ledger_from_iteration(
         state = "disputed" if _looks_disputed(message) else "candidate_found"
         _apply_observation(item=item, state=state, value=value, evidence_ref=str(finding.get("finding_id") or "").strip() or None)
 
-    _apply_disagreement_hints(by_key=by_key, disagreement_hints=disagreement_hints or {})
+    # Candidate disagreement hints are no longer authoritative decision-path input.
+    del disagreement_hints
 
     for result in image_results or []:
         if not isinstance(result, dict):
@@ -98,6 +110,86 @@ def update_ledger_from_iteration(
                 _append_unique(item, "evidence_refs", "terminal_readiness_blocker")
 
     _attach_closure_requirements(working["items"], readiness_blocker=readiness_blocker)
+    working["summary"] = _summary(working["items"])
+    return working
+
+
+def update_ledger_from_orient_baseline(
+    *,
+    ledger: dict[str, Any] | None,
+    orient_items: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    working = _ensure_ledger_shape(ledger)
+    by_key: dict[str, dict[str, Any]] = {
+        str(item.get("key")): item
+        for item in working["items"]
+        if isinstance(item, dict) and isinstance(item.get("key"), str)
+    }
+    for raw in orient_items or []:
+        if not isinstance(raw, dict):
+            continue
+        key = str(raw.get("key") or "").strip()
+        if not key or key not in by_key:
+            continue
+        item = by_key[key]
+        state = str(raw.get("state") or item.get("state") or "unknown").strip()
+        if state not in {"unknown", "candidate_found", "verified", "disputed", "accepted_with_risk"}:
+            state = "unknown"
+        selected_value = raw.get("selected_value")
+        alternatives = [str(v).strip() for v in list(raw.get("alternatives") or []) if str(v).strip()][:8]
+        confidence = str(raw.get("confidence") or item.get("confidence") or "medium").strip().lower()
+        layer_tag = str(raw.get("layer_tag") or item.get("layer_tag") or "layer1_canonical_recovery").strip().lower()
+        if layer_tag not in _LAYER_TAG_VALUES:
+            layer_tag = "layer1_canonical_recovery"
+        operational_impact = str(raw.get("operational_impact") or item.get("operational_impact") or "mapping_blocking").strip().lower()
+        if operational_impact not in _IMPACT_VALUES:
+            operational_impact = "mapping_blocking" if bool(item.get("blocking")) else "transcript_quality_only"
+        mapping_blocking = operational_impact == "mapping_blocking"
+        block_reason = str(raw.get("block_reason") or "ambiguity").strip().lower()
+        if block_reason not in {"ambiguity", "contradiction", "dependency"}:
+            block_reason = "ambiguity"
+        required_information = str(raw.get("required_information") or _required_information_for_key(key)).strip()
+        minimal_user_action = str(raw.get("minimal_user_action") or _minimal_user_action_for_key(key, block_reason=block_reason)).strip()
+        resolution_options = [str(v).strip() for v in list(raw.get("resolution_options") or []) if str(v).strip()][:8]
+        evidence_refs = [str(v).strip() for v in list(raw.get("evidence_refs") or []) if str(v).strip()][:8]
+        if "orient_llm" not in evidence_refs:
+            evidence_refs.append("orient_llm")
+        retrieval_attempted = bool(raw.get("retrieval_attempted"))
+        retrieval_blocker = str(raw.get("retrieval_blocker") or "").strip() or None
+        self_retrievable = str(raw.get("self_retrievable") or ("yes" if not retrieval_attempted else "conditional")).strip().lower()
+        if self_retrievable not in {"yes", "conditional"}:
+            self_retrievable = "conditional"
+        attempt_summary = str(raw.get("attempt_summary") or _attempt_summary(state=state, evidence_count=len(evidence_refs))).strip()
+        item["state"] = state
+        if selected_value is not None:
+            item["selected_value"] = selected_value
+        if alternatives:
+            item["alternatives"] = alternatives
+        item["confidence"] = confidence
+        item["layer_tag"] = layer_tag
+        item["operational_impact"] = operational_impact
+        item["blocking"] = mapping_blocking
+        item["provenance"] = str(raw.get("provenance") or "orient_llm")
+        item["verification_required"] = bool(raw.get("verification_required"))
+        item["evidence_refs"] = evidence_refs
+        unresolved = state in {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
+        if unresolved:
+            item["closure_requirement"] = {
+                "block_reason": block_reason,
+                "mapping_blocking": mapping_blocking,
+                "operational_impact": operational_impact,
+                "required_information": required_information,
+                "self_retrievable": self_retrievable,
+                "retrieval_attempted": retrieval_attempted,
+                "retrieval_blocker": retrieval_blocker,
+                "minimal_user_action": minimal_user_action,
+                "resolution_options": resolution_options,
+                "evidence_refs": evidence_refs,
+                "attempt_summary": attempt_summary,
+            }
+        else:
+            item["closure_requirement"] = None
+    _attach_closure_requirements(working["items"], readiness_blocker=None)
     working["summary"] = _summary(working["items"])
     return working
 
@@ -257,6 +349,10 @@ def _ensure_ledger_shape(ledger: dict[str, Any] | None) -> dict[str, Any]:
                 "blocking": bool(raw.get("blocking", blocking)),
                 "evidence_refs": list(raw.get("evidence_refs") or []),
                 "user_override_state": str(raw.get("user_override_state") or "none"),
+                "layer_tag": str(raw.get("layer_tag") or ("layer1_canonical_recovery" if bool(raw.get("blocking", blocking)) else "layer4_transcript_quality_optional")),
+                "operational_impact": str(raw.get("operational_impact") or ("mapping_blocking" if bool(raw.get("blocking", blocking)) else "transcript_quality_only")),
+                "provenance": str(raw.get("provenance") or "deterministic"),
+                "verification_required": bool(raw.get("verification_required")),
                 "closure_requirement": (
                     dict(raw.get("closure_requirement"))
                     if isinstance(raw.get("closure_requirement"), dict)
@@ -429,7 +525,7 @@ def _attach_closure_requirements(items: list[dict[str, Any]], readiness_blocker:
         state = str(item.get("state") or "unknown")
         blocking = bool(item.get("blocking"))
         unresolved = state in {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
-        requires = bool((blocking and unresolved) or state == "disputed")
+        requires = bool(unresolved)
         if not requires:
             item["closure_requirement"] = None
             continue
@@ -446,8 +542,12 @@ def _build_closure_requirement(*, item: dict[str, Any], readiness_blocker: str) 
     evidence_refs = [str(v).strip() for v in list(item.get("evidence_refs") or []) if str(v).strip()]
     retrieval_attempted = bool(evidence_refs)
 
+    prior_requirement = item.get("closure_requirement") if isinstance(item.get("closure_requirement"), dict) else {}
+
     if readiness_blocker.startswith("dependency_"):
         block_reason = "dependency"
+    elif str(prior_requirement.get("block_reason") or "") in {"ambiguity", "contradiction", "dependency"}:
+        block_reason = str(prior_requirement.get("block_reason"))
     elif state == "disputed" and len(alternatives) > 1:
         block_reason = "contradiction"
     else:
@@ -466,19 +566,38 @@ def _build_closure_requirement(*, item: dict[str, Any], readiness_blocker: str) 
     options = alternatives[:4]
     if not options and item.get("selected_value"):
         options = [str(item.get("selected_value"))]
-    mapping_blocking = bool(item.get("blocking"))
-    operational_impact = "mapping_blocking" if mapping_blocking else "transcript_quality_only"
+    prior_mapping_blocking = prior_requirement.get("mapping_blocking")
+    mapping_blocking = bool(prior_mapping_blocking) if isinstance(prior_mapping_blocking, bool) else bool(item.get("blocking"))
+    prior_operational_impact = str(prior_requirement.get("operational_impact") or "").strip()
+    if prior_operational_impact in _IMPACT_VALUES:
+        operational_impact = prior_operational_impact
+    else:
+        operational_impact = "mapping_blocking" if mapping_blocking else "transcript_quality_only"
+    required_information = str(prior_requirement.get("required_information") or _required_information_for_key(key)).strip()
+    minimal_user_action = str(
+        prior_requirement.get("minimal_user_action") or _minimal_user_action_for_key(key, block_reason=block_reason)
+    ).strip()
+    resolution_options = [str(v).strip() for v in list(prior_requirement.get("resolution_options") or options) if str(v).strip()]
+    prior_self_retrievable = str(prior_requirement.get("self_retrievable") or "").strip()
+    if prior_self_retrievable in {"yes", "conditional"}:
+        self_retrievable = prior_self_retrievable
+    prior_retrieval_attempted = prior_requirement.get("retrieval_attempted")
+    if isinstance(prior_retrieval_attempted, bool):
+        retrieval_attempted = prior_retrieval_attempted
+    prior_retrieval_blocker = str(prior_requirement.get("retrieval_blocker") or "").strip() or None
+    if prior_retrieval_blocker:
+        retrieval_blocker = prior_retrieval_blocker
 
     return {
         "block_reason": block_reason,
         "mapping_blocking": mapping_blocking,
         "operational_impact": operational_impact,
-        "required_information": _required_information_for_key(key),
+        "required_information": required_information,
         "self_retrievable": self_retrievable,
         "retrieval_attempted": retrieval_attempted,
         "retrieval_blocker": retrieval_blocker,
-        "minimal_user_action": _minimal_user_action_for_key(key, block_reason=block_reason),
-        "resolution_options": options,
+        "minimal_user_action": minimal_user_action,
+        "resolution_options": resolution_options,
         "evidence_refs": evidence_refs[:8],
         "attempt_summary": _attempt_summary(state=state, evidence_count=len(evidence_refs)),
     }

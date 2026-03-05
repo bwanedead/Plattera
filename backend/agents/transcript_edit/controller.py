@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
@@ -20,27 +21,12 @@ from .context_spans import (
     fallback_spans_for_findings,
     open_planner_context_spans,
 )
-from .disagreement_analysis import (
-    build_deterministic_consensus_plan,
-    candidate_disagreement_hints,
-    critical_disagreement_findings,
-    deterministic_numeric_replace_op,
-    dominant_bucket_value,
-    extract_numeric_literals,
-    first_expected_token_from_message,
-    first_numeric_like,
-    has_blocking_warnings,
-    image_checks_from_disagreement_hints,
-    image_numeric_signals,
-    is_critical_tie_distance,
-    mapping_priority_focus,
-    merge_findings_summary_with_disagreement,
-    prioritized_findings_for_planning,
-    resolved_disagreement_hints,
-)
+from .disagreement_analysis import has_blocking_warnings, prioritized_findings_for_planning
 from .decision_ledger import (
     initialize_decision_ledger,
     ledger_snapshot_for_payload,
+    unresolved_closure_requirements,
+    update_ledger_from_orient_baseline,
     update_ledger_from_iteration,
 )
 from .hitl_feedback import (
@@ -84,7 +70,7 @@ from .terminalization import build_run_result
 from .run_reporting import (
     audit_payload,
     audit_result_payload,
-    orient_payload,
+    investigation_baseline_result_payload,
     preflight_countdown_payload,
     starting_payload,
 )
@@ -95,6 +81,7 @@ _MODE_AUDIT_ONLY = "audit_only"
 _MODE_AUDIT_REPAIR = "audit_then_repair"
 _MODE_AUDIT_REPAIR_PROMOTE = "audit_then_repair_then_promote"
 _EDIT_LOOP_LLM_MODEL = "gpt-5.2"
+_KERNEL_STEP_INPUT_BUDGET_BYTES = 4096
 _LOG = logging.getLogger(__name__)
 
 
@@ -159,14 +146,7 @@ def run_transcript_edit_controller_loop(
         current_transcript_ref=request.source_transcript_ref,
         decision_ledger=initialize_decision_ledger(),
     )
-    disagreement_hints = _candidate_disagreement_hints(request.candidate_texts)
     candidate_count = len(request.candidate_texts) if request.candidate_texts else 0
-    has_disagreements = bool(
-        disagreement_hints.get("range_values")
-        or disagreement_hints.get("distance_values")
-        or disagreement_hints.get("bearing_values")
-        or disagreement_hints.get("acreage_values")
-    )
     min_iterations_before_complete = max(
         1,
         min(int(request.max_iterations), int(request.min_iterations_before_complete)),
@@ -184,18 +164,115 @@ def run_transcript_edit_controller_loop(
         starting_payload(
             mode=mode,
             candidate_count=candidate_count,
-            has_disagreements=has_disagreements,
             latest_refs=state.latest_refs,
         ),
     )
+
+    # Deterministic canonical audit runs first for source/hash safety and advisory lints.
+    pre_audit_inputs: dict[str, Any] = {"dossier_id": request.dossier_id}
+    if state.current_transcript_ref:
+        pre_audit_inputs["source_transcript_ref"] = state.current_transcript_ref
+    elif request.source_text:
+        pre_audit_inputs["source_text"] = request.source_text
+    pre_audit = _step(
+        session_manager=session_manager,
+        session_id=session_id,
+        prefix="tx_pre_audit",
+        iteration=0,
+        action_type=ActionType.TX_AUDIT_TRANSCRIPT,
+        inputs=pre_audit_inputs,
+    )
+    state.latest_refs = pre_audit.dashboard.latest_refs.model_dump(mode="json")
+    if pre_audit.execution_state != StepExecutionState.EXECUTED:
+        reason = pre_audit.refusal.reason_code if pre_audit.refusal is not None else "tx_pre_audit_refused"
+        return _result(
+            start=start,
+            session_id=session_id,
+            iterations=0,
+            status="failed",
+            reason=reason,
+            latest_refs=state.latest_refs,
+            review_required=True,
+        )
+    pre_audit_inline = _read_step_outputs_inline(pre_audit.step_record)
+    pre_source_ref = _read_str(pre_audit_inline.get("tx_source_transcript_ref"))
+    if pre_source_ref:
+        state.current_transcript_ref = pre_source_ref
+    pre_source_hash = _read_str(pre_audit_inline.get("tx_source_transcript_hash")) or ""
+
+    orient_inputs = _build_orient_inputs(
+        dossier_id=request.dossier_id,
+        model=loop_model,
+        source_transcript_ref=state.current_transcript_ref,
+        source_text=request.source_text,
+        candidate_texts=request.candidate_texts,
+    )
+    orient = _step(
+        session_manager=session_manager,
+        session_id=session_id,
+        prefix="tx_orient_baseline",
+        iteration=0,
+        action_type=ActionType.TX_ORIENT_AND_BASELINE,
+        inputs=orient_inputs,
+    )
+    state.latest_refs = orient.dashboard.latest_refs.model_dump(mode="json")
+    if orient.execution_state != StepExecutionState.EXECUTED:
+        reason = orient.refusal.reason_code if orient.refusal is not None else "tx_orient_baseline_refused"
+        return _result(
+            start=start,
+            session_id=session_id,
+            iterations=0,
+            status="needs_review",
+            reason=reason,
+            latest_refs=state.latest_refs,
+            review_required=True,
+        )
+    orient_inline = _read_step_outputs_inline(orient.step_record)
+    orient_source_ref = _read_str(orient_inline.get("tx_source_transcript_ref"))
+    if orient_source_ref:
+        state.current_transcript_ref = orient_source_ref
+    if _read_str(orient_inline.get("tx_span_seeds_ref")):
+        state.span_seeds_ref = _read_str(orient_inline.get("tx_span_seeds_ref"))
+    state.decision_ledger = update_ledger_from_orient_baseline(
+        ledger=state.decision_ledger,
+        orient_items=[
+            item
+            for item in (
+                orient_inline.get("tx_orient_items")
+                if isinstance(orient_inline.get("tx_orient_items"), list)
+                else []
+            )
+            if isinstance(item, dict)
+        ],
+    )
+    baseline_unresolved = unresolved_closure_requirements(state.decision_ledger)
+    baseline_residual = [item for item in baseline_unresolved if isinstance(item, dict)]
+    mapping_blocking_count = sum(1 for item in baseline_residual if bool(item.get("mapping_blocking")))
+    optional_count = max(0, len(baseline_residual) - mapping_blocking_count)
     _emit_progress(
         progress_cb,
-        orient_payload(
-            mode=mode,
-            candidate_count=candidate_count,
-            has_disagreements=has_disagreements,
-            has_images=bool(request.source_image_refs),
+        investigation_baseline_result_payload(
+            iteration=0,
             latest_refs=state.latest_refs,
+            evidence_attempts=[
+                {
+                    "attempt": "tx_orient_and_baseline",
+                    "status": "completed",
+                    "result_count": len(
+                        orient_inline.get("tx_orient_items")
+                        if isinstance(orient_inline.get("tx_orient_items"), list)
+                        else []
+                    ),
+                }
+            ],
+            residual_blockers=baseline_residual[:6],
+            mapping_blocking_count=mapping_blocking_count,
+            optional_count=optional_count,
+            next_recommended_action=(
+                "Proceed to clean-path checks."
+                if mapping_blocking_count == 0
+                else "Proceed to investigation and evidence waterfall."
+            ),
             decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
         ),
     )
@@ -243,32 +320,15 @@ def run_transcript_edit_controller_loop(
         error_count = _read_int(inline.get("tx_error_findings_count"), 0)
         findings_summary = inline.get("tx_validator_summary") if isinstance(inline.get("tx_validator_summary"), dict) else {}
         top_findings = inline.get("tx_top_findings") if isinstance(inline.get("tx_top_findings"), list) else []
-        source_transcript_hash = _read_str(inline.get("tx_source_transcript_hash")) or ""
+        source_transcript_hash = _read_str(inline.get("tx_source_transcript_hash")) or pre_source_hash
         if not source_transcript_hash:
             source_transcript_hash = _read_str_from_latest_refs(state.latest_refs, "tx_source_transcript_ref") or ""
-        effective_disagreement_hints = _resolved_disagreement_hints(
-            disagreement_hints=disagreement_hints,
-            sticky_range_selection=state.sticky_range_selection,
-        )
-        mapping_focus = _mapping_priority_focus(disagreement_hints=effective_disagreement_hints)
-        disagreement_findings = _critical_disagreement_findings(effective_disagreement_hints)
-        # Include disagreement findings on first iteration (to gate obvious cross-draft conflicts),
-        # and on later iterations only when the validator still finds issues. This prevents
-        # stale disagreement hints from re-triggering HITL after a clean re-audit.
-        include_disagreement_findings = bool(disagreement_findings and (finding_count > 0 or iterations == 1 or state.sticky_range_selection is None))
-        if include_disagreement_findings:
-            top_findings = [*top_findings, *disagreement_findings]
-            findings_summary = _merge_findings_summary_with_disagreement(
-                findings_summary=findings_summary,
-                disagreement_findings=disagreement_findings,
-            )
         planning_findings = _prioritized_findings_for_planning(top_findings=top_findings)
         blocking_warning_present = _has_blocking_warnings(top_findings)
         warning_count = _read_int(findings_summary.get("warnings") if isinstance(findings_summary, dict) else None, 0)
         state.decision_ledger = update_ledger_from_iteration(
             ledger=state.decision_ledger,
             findings=top_findings,
-            disagreement_hints=effective_disagreement_hints,
         )
         _emit_progress(
             progress_cb,
@@ -293,6 +353,7 @@ def run_transcript_edit_controller_loop(
         state.previous_finding_signature = current_finding_signature
 
         if error_count <= 0 and not blocking_warning_present:
+            has_open_closure = bool(unresolved_closure_requirements(state.decision_ledger))
             decision = handle_clean_iteration(
                 state=state,
                 session_manager=session_manager,
@@ -304,8 +365,7 @@ def run_transcript_edit_controller_loop(
                 min_iterations_before_complete=min_iterations_before_complete,
                 iterations=iterations,
                 error_count=error_count,
-                has_disagreements=has_disagreements,
-                effective_disagreement_hints=effective_disagreement_hints,
+                has_disagreements=has_open_closure,
                 source_transcript_hash=source_transcript_hash,
                 progress_cb=progress_cb,
                 model=loop_model,
@@ -346,8 +406,6 @@ def run_transcript_edit_controller_loop(
             top_findings=top_findings,
             findings_summary=findings_summary,
             source_transcript_hash=source_transcript_hash,
-            effective_disagreement_hints=effective_disagreement_hints,
-            mapping_focus=mapping_focus,
             blocking_warning_present=blocking_warning_present,
             progress_cb=progress_cb,
             model=loop_model,
@@ -569,49 +627,42 @@ def _fallback_spans_for_findings(
     )
 
 
-def _candidate_disagreement_hints(candidate_texts: list[str]) -> dict[str, Any]:
-    return candidate_disagreement_hints(candidate_texts)
-
-
-def _resolved_disagreement_hints(
-    *,
-    disagreement_hints: dict[str, Any],
-    sticky_range_selection: int | None,
-) -> dict[str, Any]:
-    return resolved_disagreement_hints(
-        disagreement_hints=disagreement_hints,
-        sticky_range_selection=sticky_range_selection,
-    )
-
-
-def _extract_numeric_literals(message: str) -> list[str]:
-    return extract_numeric_literals(message)
-
-
-def _image_checks_from_disagreement_hints(disagreement_hints: dict[str, Any]) -> list[dict[str, Any]]:
-    return image_checks_from_disagreement_hints(disagreement_hints)
-
-
-def _image_numeric_signals(image_verification: dict[str, Any]) -> dict[str, str | None]:
-    return image_numeric_signals(image_verification)
-
-
-def _first_numeric_like(
-    values: list[str],
-    *,
-    minimum: float | None = None,
-    maximum: float | None = None,
-) -> str | None:
-    return first_numeric_like(values, minimum=minimum, maximum=maximum)
-
-
-def _first_expected_token_from_message(message: str) -> str | None:
-    return first_expected_token_from_message(message)
-
-
 def _edit_loop_model(preferred: str | None) -> str:
     del preferred
     return _EDIT_LOOP_LLM_MODEL
+
+
+def _build_orient_inputs(
+    *,
+    dossier_id: str | None,
+    model: str,
+    source_transcript_ref: str | None,
+    source_text: str | None,
+    candidate_texts: list[str],
+) -> dict[str, Any]:
+    # Keep orient inputs below kernel step payload limit by trimming candidates first.
+    inputs: dict[str, Any] = {
+        "dossier_id": dossier_id,
+        "model": model,
+    }
+    if source_transcript_ref:
+        inputs["source_transcript_ref"] = source_transcript_ref
+    elif source_text:
+        inputs["source_text"] = source_text
+    candidate_pool = [text for text in candidate_texts[:10] if isinstance(text, str) and text.strip()]
+    while candidate_pool:
+        candidate_inputs = dict(inputs)
+        candidate_inputs["candidate_texts"] = candidate_pool
+        if _kernel_inputs_size_bytes(candidate_inputs) <= _KERNEL_STEP_INPUT_BUDGET_BYTES:
+            inputs["candidate_texts"] = candidate_pool
+            return inputs
+        candidate_pool = candidate_pool[:-1]
+    return inputs
+
+
+def _kernel_inputs_size_bytes(inputs: dict[str, Any]) -> int:
+    payload = json.dumps(inputs, sort_keys=True, separators=(",", ":"))
+    return len(payload.encode("utf-8"))
 
 
 def _prioritized_findings_for_planning(*, top_findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -624,13 +675,11 @@ def _viewer_run_id_from_request_prefix(request_id_prefix: str) -> str:
 
 def _build_human_feedback_prompt(
     *,
-    disagreement_hints: dict[str, Any],
-    top_findings: list[dict[str, Any]],
+    decision_ledger: dict[str, Any],
     iteration: int,
 ) -> dict[str, Any] | None:
     return build_human_feedback_prompt(
-        disagreement_hints=disagreement_hints,
-        top_findings=top_findings,
+        decision_ledger=decision_ledger,
         iteration=iteration,
     )
 
@@ -665,73 +714,6 @@ def _build_range_feedback_plan(
         source_transcript_hash=source_transcript_hash,
         selected_number=selected_number,
     )
-
-
-def _mapping_priority_focus(disagreement_hints: dict[str, Any]) -> dict[str, Any]:
-    return mapping_priority_focus(disagreement_hints)
-
-
-def _critical_disagreement_findings(disagreement_hints: dict[str, Any]) -> list[dict[str, Any]]:
-    return critical_disagreement_findings(disagreement_hints)
-
-
-def _build_deterministic_consensus_plan(
-    *,
-    source_transcript_ref: str,
-    source_transcript_hash: str,
-    disagreement_hints: dict[str, Any],
-    image_verification: dict[str, Any],
-    top_findings: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    return build_deterministic_consensus_plan(
-        source_transcript_ref=source_transcript_ref,
-        source_transcript_hash=source_transcript_hash,
-        disagreement_hints=disagreement_hints,
-        image_verification=image_verification,
-        top_findings=top_findings,
-    )
-
-
-def _deterministic_numeric_replace_op(
-    *,
-    text: str,
-    bucket: Any,
-    value_regex: str,
-    value_guard,
-    op_id: str,
-    reason: str,
-    preferred_value: str | None = None,
-    preferred_strength: str | None = None,
-) -> dict[str, Any] | None:
-    return deterministic_numeric_replace_op(
-        text=text,
-        bucket=bucket,
-        value_regex=value_regex,
-        value_guard=value_guard,
-        op_id=op_id,
-        reason=reason,
-        preferred_value=preferred_value,
-        preferred_strength=preferred_strength,
-    )
-
-
-def _dominant_bucket_value(bucket: Any) -> tuple[str, int, int] | None:
-    return dominant_bucket_value(bucket)
-
-
-def _merge_findings_summary_with_disagreement(
-    *,
-    findings_summary: dict[str, Any],
-    disagreement_findings: list[dict[str, Any]],
-) -> dict[str, Any]:
-    return merge_findings_summary_with_disagreement(
-        findings_summary=findings_summary,
-        disagreement_findings=disagreement_findings,
-    )
-
-
-def _is_critical_tie_distance(value: Any) -> bool:
-    return is_critical_tie_distance(value)
 
 
 # ---------------------------------------------------------------------------

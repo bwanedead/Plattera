@@ -26,14 +26,36 @@ def test_build_run_result_and_terminal_message_completed_promoted() -> None:
     assert summary["layer2_canonical_sanity"] == "satisfied"
     assert summary["layer3_dependency_completeness"] == "satisfied"
     assert summary["unresolved_closure_requirements"] == []
+    assert summary["unresolved_optional_items"] == []
+    assert isinstance(summary["closure_history"], list)
 
 
 def test_terminal_summary_collects_audit_apply_and_feedback_flags() -> None:
     progress_log = [
-        {"phase": "audit_result", "detail": {"error_count": 2, "decision_ledger": {"summary": {"blocking_open_count": 3}}}},
+        {
+            "phase": "audit_result",
+            "timestamp_epoch_seconds": 100,
+            "detail": {
+                "error_count": 2,
+                "decision_ledger": {
+                    "items": [{"key": "range", "state": "unknown", "evidence_refs": ["f1"]}],
+                    "summary": {"blocking_open_count": 3},
+                },
+            },
+        },
         {"phase": "apply_result", "detail": {"plan_op_count": 3}},
         {"phase": "human_feedback_received", "detail": {}},
-        {"phase": "audit_result", "detail": {"error_count": 0}},
+        {
+            "phase": "audit_result",
+            "timestamp_epoch_seconds": 200,
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [{"key": "range", "state": "verified", "evidence_refs": ["image_check_range_tokens"]}],
+                    "summary": {"blocking_open_count": 0},
+                },
+            },
+        },
     ]
     result = build_run_result(
         run_artifact_ref=None,
@@ -54,7 +76,11 @@ def test_terminal_summary_collects_audit_apply_and_feedback_flags() -> None:
     assert summary["layer1_canonical_recovery"] == "unknown"
     assert summary["layer2_canonical_sanity"] == "unknown"
     assert summary["layer3_dependency_completeness"] == "unknown"
-    assert summary["decision_ledger_summary"] == {"blocking_open_count": 3}
+    assert summary["decision_ledger_summary"] == {"blocking_open_count": 0}
+    assert any(
+        isinstance(item, dict) and item.get("decision_key") == "range"
+        for item in summary["closure_history"]
+    )
 
 
 def test_terminal_message_and_summary_for_not_mapping_ready() -> None:
@@ -121,3 +147,44 @@ def test_terminal_summary_completed_status_not_mapping_ready_when_blocking_closu
     unresolved = summary["unresolved_closure_requirements"]
     assert isinstance(unresolved, list)
     assert any(str(item.get("key")) == "range" for item in unresolved if isinstance(item, dict))
+    assert isinstance(summary["unresolved_optional_items"], list)
+
+
+def test_terminal_summary_includes_unresolved_optional_items() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [
+                        {
+                            "key": "acreage",
+                            "label": "Acreage",
+                            "state": "disputed",
+                            "blocking": False,
+                            "closure_requirement": {
+                                "block_reason": "ambiguity",
+                                "mapping_blocking": False,
+                                "operational_impact": "transcript_quality_only",
+                            },
+                        }
+                    ],
+                    "summary": {"blocking_open_count": 0},
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s4",
+        iterations=1,
+        status="completed",
+        reason_code="tx_agent_clean_no_promote",
+        latest_refs={},
+        review_required=False,
+    )
+    summary = terminal_summary(progress_log, result)
+    optional_items = summary["unresolved_optional_items"]
+    assert isinstance(optional_items, list)
+    assert any(str(item.get("key")) == "acreage" for item in optional_items if isinstance(item, dict))

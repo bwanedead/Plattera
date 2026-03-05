@@ -12,14 +12,13 @@ from backend.agent_kernel.actions import ActionExecutor, ActionExecutorDeps
 from backend.agent_kernel.session import KernelSessionManager
 from backend.agent_kernel.tooling import (
     TranscriptAuditTool,
+    TranscriptOrientBaselineTool,
     TranscriptEditPlanApplyTool,
     TranscriptMappingPromoterTool,
     TranscriptSpanSeedsSaverTool,
     TranscriptSpanOpenerTool,
 )
 from backend.agents.transcript_edit.controller import (
-    _critical_disagreement_findings,
-    _image_checks_from_disagreement_hints,
     run_transcript_edit_controller_loop,
 )
 from backend.agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
@@ -123,10 +122,67 @@ class _PlannerRaises:
         raise RuntimeError("simulated network error")
 
 
+class _OrientBaselinerStub:
+    def orient_and_baseline(self, inputs):  # type: ignore[no-untyped-def]
+        source_ref = str(inputs.get("source_transcript_ref") or "in-memory://tx/source.json")
+        candidate_texts = inputs.get("candidate_texts") if isinstance(inputs.get("candidate_texts"), list) else []
+        has_conflict = len(candidate_texts) > 1
+        range_state = "disputed" if has_conflict else "verified"
+        range_impact = "mapping_blocking" if has_conflict else "transcript_quality_only"
+        return {
+            "artifact_ref": {"artifact_path": "in-memory://tx/orient_baseline.json"},
+            "reason_codes": ["tx_orient_baseline_completed"],
+            "tx_source_transcript_ref": source_ref,
+            "tx_source_transcript_hash": "sha256:orient",
+            "tx_orient_items": [
+                {
+                    "key": "range",
+                    "state": range_state,
+                    "alternatives": ["Range 75 West", "Range 74 West"],
+                    "confidence": "medium",
+                    "layer_tag": "layer1_canonical_recovery",
+                    "operational_impact": range_impact,
+                    "block_reason": "contradiction",
+                    "required_information": "Confirm exact range token.",
+                    "minimal_user_action": "Select the correct range token.",
+                    "resolution_options": ["Range 75 West", "Range 74 West"],
+                    "self_retrievable": "conditional",
+                    "retrieval_attempted": True,
+                    "retrieval_blocker": None,
+                    "verification_required": True,
+                    "attempt_summary": "Conflicting candidates.",
+                    "evidence_refs": ["orient_llm"],
+                    "provenance": "orient_llm",
+                },
+                {
+                    "key": "acreage",
+                    "state": "unknown",
+                    "alternatives": ["1.4 acres", "1.9 acres"],
+                    "confidence": "low",
+                    "layer_tag": "layer4_transcript_quality_optional",
+                    "operational_impact": "transcript_quality_only",
+                    "block_reason": "ambiguity",
+                    "required_information": "Confirm acreage if present.",
+                    "minimal_user_action": "Optional acreage confirmation.",
+                    "resolution_options": ["1.4 acres", "1.9 acres"],
+                    "self_retrievable": "conditional",
+                    "retrieval_attempted": True,
+                    "retrieval_blocker": None,
+                    "verification_required": False,
+                    "attempt_summary": "Optional discrepancy.",
+                    "evidence_refs": ["orient_llm"],
+                    "provenance": "orient_llm",
+                },
+            ],
+            "tx_span_seeds_ref": "in-memory://tx/span-seeds.json",
+        }
+
+
 def _session_manager(image_verifier=None) -> KernelSessionManager:
     executor = ActionExecutor(
         deps=ActionExecutorDeps(
             transcript_auditor=TranscriptAuditTool(),
+            transcript_orient_baseliner=_OrientBaselinerStub(),
             transcript_span_opener=TranscriptSpanOpenerTool(),
             transcript_image_verifier=image_verifier or _ImageVerifierStub(),
             transcript_plan_applier=TranscriptEditPlanApplyTool(),
@@ -204,7 +260,33 @@ def test_transcript_controller_redundancy_conflict_blocks_autopromote() -> None:
         )
         assert result.status == "needs_review"
         assert result.review_required is True
-        assert result.reason_code.startswith("tx_agent_no_safe_plan_for_findings")
+        assert result.reason_code == "tx_agent_closure_requirements_unresolved"
+
+
+def test_transcript_controller_trims_oversized_orient_inputs() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}), encoding="utf-8")
+        large_candidate = "Range seventy-five (75) West " + ("x" * 2400)
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                auto_promote=True,
+                candidate_texts=[
+                    large_candidate,
+                    large_candidate.replace("75", "74"),
+                    large_candidate,
+                ],
+            ),
+            request_id_prefix="tx-test-oversized-orient-inputs",
+            planner=_PlannerNoOps(),
+        )
+        assert result.status in {"completed", "needs_review"}
+        assert result.reason_code != "inputs_payload_too_large"
 
 
 def test_transcript_controller_planner_exception_degrades_to_needs_review() -> None:
@@ -254,32 +336,6 @@ def test_transcript_controller_blocks_promote_when_final_image_sanity_unclear() 
         assert result.reason_code.startswith("tx_agent_final_image_verify_failed")
 
 
-def test_disagreement_findings_include_bearing_conflict() -> None:
-    findings = _critical_disagreement_findings(
-        {
-            "bearing_values": [
-                {"value": "n 4 e", "count": 2},
-                {"value": "n 2 e", "count": 1},
-            ]
-        }
-    )
-    ids = {str(item.get("finding_id")) for item in findings if isinstance(item, dict)}
-    assert "candidate_disagreement_bearing_conflict_001" in ids
-
-
-def test_image_checks_include_bearing_check_when_disagreement_present() -> None:
-    checks = _image_checks_from_disagreement_hints(
-        {
-            "bearing_values": [
-                {"value": "n 4 e", "count": 2},
-                {"value": "n 2 e", "count": 1},
-            ]
-        }
-    )
-    check_ids = {str(item.get("check_id")) for item in checks if isinstance(item, dict)}
-    assert "image_check_bearing_tokens" in check_ids
-
-
 def test_transcript_controller_hitl_prompt_is_non_blocking_without_feedback() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         source = Path(tmp) / "source.json"
@@ -304,6 +360,6 @@ def test_transcript_controller_hitl_prompt_is_non_blocking_without_feedback() ->
             progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
         )
         assert result.status == "needs_review"
-        assert result.reason_code.startswith("tx_agent_no_safe_plan_for_findings")
+        assert result.reason_code == "tx_agent_closure_requirements_unresolved"
         assert result.reason_code != "human_feedback_timeout"
         assert any(isinstance(evt, dict) for evt in progress_events)

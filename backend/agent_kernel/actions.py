@@ -100,6 +100,12 @@ class TranscriptAuditor(Protocol):
     def audit_transcript(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
 
+class TranscriptOrientBaseliner(Protocol):
+    """Explicit interface for TX_ORIENT_AND_BASELINE action execution."""
+
+    def orient_and_baseline(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
 class TranscriptSpanOpener(Protocol):
     """Explicit interface for TX_OPEN_TRANSCRIPT_SPANS action execution."""
 
@@ -149,6 +155,7 @@ class ActionExecutorDeps:
     patch_proposer: PatchProposer | None = None
     status_summarizer: StatusSummarizer | None = None
     transcript_auditor: TranscriptAuditor | None = None
+    transcript_orient_baseliner: TranscriptOrientBaseliner | None = None
     transcript_span_opener: TranscriptSpanOpener | None = None
     transcript_image_verifier: TranscriptImageVerifier | None = None
     transcript_plan_applier: TranscriptPlanApplier | None = None
@@ -195,6 +202,8 @@ class ActionExecutor:
             actions.append(ActionType.UPSERT_DEED_SPAN_INDEX)
         if self._deps.transcript_auditor is not None or allow_stubbed:
             actions.append(ActionType.TX_AUDIT_TRANSCRIPT)
+        if self._deps.transcript_orient_baseliner is not None or allow_stubbed:
+            actions.append(ActionType.TX_ORIENT_AND_BASELINE)
         if self._deps.transcript_span_opener is not None or allow_stubbed:
             actions.append(ActionType.TX_OPEN_TRANSCRIPT_SPANS)
         if self._deps.transcript_image_verifier is not None or allow_stubbed:
@@ -350,6 +359,20 @@ class ActionExecutor:
                 execute_fn=(
                     self._deps.transcript_auditor.audit_transcript
                     if self._deps.transcript_auditor is not None
+                    else None
+                ),
+                inputs=inputs,
+            )
+        if action == ActionType.TX_ORIENT_AND_BASELINE:
+            return self._execute_artifact_action(
+                step_id=step_id,
+                action=action,
+                output_key="tx_orient_baseline_ref",
+                reason_code="tx_orient_baseline_completed",
+                missing_reason="missing_transcript_orient_baseliner_interface",
+                execute_fn=(
+                    self._deps.transcript_orient_baseliner.orient_and_baseline
+                    if self._deps.transcript_orient_baseliner is not None
                     else None
                 ),
                 inputs=inputs,

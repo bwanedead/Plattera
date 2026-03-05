@@ -20,44 +20,68 @@ def viewer_run_id_from_request_prefix(request_id_prefix: str) -> str:
 
 def build_human_feedback_prompt(
     *,
-    disagreement_hints: dict[str, Any],
-    top_findings: list[dict[str, Any]],
+    decision_ledger: dict[str, Any],
     iteration: int,
 ) -> dict[str, Any] | None:
-    if not isinstance(disagreement_hints, dict):
+    if not isinstance(decision_ledger, dict):
         return None
-    range_values = disagreement_hints.get("range_values")
-    if not (isinstance(range_values, list) and len(range_values) > 1):
+    items = decision_ledger.get("items")
+    if not isinstance(items, list):
         return None
-    options: list[str] = []
-    for item in range_values[:4]:
+    target = None
+    priority = {
+        "township": 0,
+        "range": 1,
+        "section": 2,
+        "tie_distance": 3,
+        "tie_bearing": 4,
+        "closure_or_pob": 5,
+        "DELIMITED": 99,
+        "acreage": 100,
+    }
+    unresolved_states = {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
+    for item in items:
         if not isinstance(item, dict):
             continue
-        token = str(item.get("value") or "").strip().lower()
-        m = re.match(r"r(\d{1,3})([we])$", token)
-        if not m:
+        state = str(item.get("state") or "").strip().lower()
+        if state not in unresolved_states:
             continue
-        num = m.group(1)
-        direction = "West" if m.group(2) == "w" else "East"
-        options.append(f"Range {num} {direction}")
-    options = [opt for opt in options if opt]
-    if len(options) < 2:
+        requirement = item.get("closure_requirement")
+        if not isinstance(requirement, dict):
+            continue
+        mapping_blocking = bool(requirement.get("mapping_blocking", item.get("blocking")))
+        if not mapping_blocking:
+            continue
+        if target is None:
+            target = item
+            continue
+        target_key = str(target.get("key") or "")
+        key = str(item.get("key") or "")
+        if priority.get(key, 50) < priority.get(target_key, 50):
+            target = item
+    if not isinstance(target, dict):
         return None
-    top_message = ""
-    for finding in top_findings:
-        if not isinstance(finding, dict):
-            continue
-        msg = str(finding.get("message") or "").strip()
-        if msg:
-            top_message = msg[:180]
-            break
+    requirement = target.get("closure_requirement") if isinstance(target.get("closure_requirement"), dict) else {}
+    key = str(target.get("key") or "decision").strip().lower()
+    options = [str(v).strip() for v in list(requirement.get("resolution_options") or []) if str(v).strip()][:4]
+    if not options:
+        selected = str(target.get("selected_value") or "").strip()
+        if selected:
+            options = [selected]
+    if not options:
+        return None
+    line1 = str(requirement.get("required_information") or f"Confirm value for {key}").strip()
+    line2 = str(requirement.get("minimal_user_action") or "Select the correct value or provide a note.").strip()
     return {
-        "prompt_id": f"hitl_range_{iteration}_{uuid4().hex[:8]}",
-        "line1": "Confirm range token for this deed",
-        "line2": "Image/text checks disagree on range values; promotion is blocked pending your choice.",
+        "prompt_id": f"hitl_{key}_{iteration}_{uuid4().hex[:8]}",
+        "line1": line1,
+        "line2": line2,
         "choices": options[:4],
         "default_choice": options[0],
-        "context": {"top_finding": top_message, "range_values": range_values[:4]},
+        "context": {
+            "decision_key": key,
+            "closure_requirement": requirement,
+        },
     }
 
 
