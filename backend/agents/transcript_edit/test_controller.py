@@ -223,6 +223,43 @@ class _OrientBaselinerStateStub:
         }
 
 
+class _OrientBaselinerSectionConflictStub:
+    def orient_and_baseline(self, inputs):  # type: ignore[no-untyped-def]
+        source_ref = str(
+            inputs.get("canonical_ref")
+            or inputs.get("source_transcript_ref")
+            or "in-memory://tx/source.json"
+        )
+        return {
+            "artifact_ref": {"artifact_path": "in-memory://tx/orient_baseline_section.json"},
+            "reason_codes": ["tx_orient_baseline_completed"],
+            "tx_source_transcript_ref": source_ref,
+            "tx_source_transcript_hash": "sha256:orient-section",
+            "tx_orient_items": [
+                {
+                    "key": "section",
+                    "state": "disputed",
+                    "alternatives": ["Section 12", "Section 13"],
+                    "confidence": "medium",
+                    "layer_tag": "layer1_canonical_recovery",
+                    "operational_impact": "mapping_blocking",
+                    "block_reason": "contradiction",
+                    "required_information": "Confirm section token.",
+                    "minimal_user_action": "Select the correct section token.",
+                    "resolution_options": ["Section 12", "Section 13"],
+                    "self_retrievable": "conditional",
+                    "retrieval_attempted": True,
+                    "retrieval_blocker": None,
+                    "verification_required": True,
+                    "attempt_summary": "Conflicting section candidates.",
+                    "evidence_refs": ["orient_llm"],
+                    "provenance": "orient_llm",
+                }
+            ],
+            "tx_span_seeds_ref": "in-memory://tx/span-seeds.json",
+        }
+
+
 def _session_manager(image_verifier=None, orient_baseliner=None) -> KernelSessionManager:
     executor = ActionExecutor(
         deps=ActionExecutorDeps(
@@ -461,3 +498,60 @@ def test_transcript_controller_does_not_clean_complete_with_mapping_blocking_can
         )
         assert result.status == "needs_review"
         assert result.reason_code == "tx_agent_closure_requirements_unresolved"
+
+
+def test_transcript_controller_non_range_feedback_generates_manual_override(monkeypatch) -> None:
+    def _fake_poll_feedback_response(*, run_id, prompt_id):  # type: ignore[no-untyped-def]
+        if str(prompt_id or "").startswith("hitl_section_"):
+            return {
+                "prompt_id": prompt_id,
+                "choice": "Section 12",
+                "note": "Resolved section as: Section 12",
+                "metadata": {
+                    "decision_key": "section",
+                    "resolved_value": "Section 12",
+                },
+            }
+        return None
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline.poll_feedback_response",
+        _fake_poll_feedback_response,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Beginning at corner in Section 13, Township 1 North, Range 75 West."}]}),
+            encoding="utf-8",
+        )
+        progress_events: list[dict[str, Any]] = []
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerSectionConflictStub()),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=3,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-nonrange-hitl",
+            planner=_PlannerNoOps(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+        assert result.status in {"needs_review", "completed"}
+        assert any(isinstance(evt, dict) and evt.get("event_type") == "human_feedback_needed" for evt in progress_events)
+        assert any(
+            isinstance(evt, dict)
+            and evt.get("phase") == "plan_result"
+            and isinstance(evt.get("detail"), dict)
+            and evt["detail"].get("plan_reason") == "manual_plan"
+            for evt in progress_events
+        )
+        assert any(
+            isinstance(evt, dict)
+            and evt.get("phase") == "apply_result"
+            and isinstance(evt.get("detail"), dict)
+            and int(evt["detail"].get("plan_op_count") or 0) > 0
+            for evt in progress_events
+        )

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import re
 import time
-from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
 from services.agent_viewer import feedback_store
 
 from .decision_ledger import unresolved_mapping_blocking_requirements
-from .span_seeds import load_transcript_text_for_seeds
+from .hitl_override_plans import build_feedback_override_plan as build_feedback_override_plan_for_key
+from .hitl_override_plans import supported_decision_keys
 
 
 def viewer_run_id_from_request_prefix(request_id_prefix: str) -> str:
@@ -116,21 +116,99 @@ def poll_feedback_response(
     )
 
 
-def range_number_from_feedback(feedback_entry: dict[str, Any]) -> int | None:
+def normalize_feedback_response(
+    *,
+    feedback_entry: dict[str, Any],
+    prompt_id: str | None,
+    prompt_context: dict[str, Any] | None,
+) -> dict[str, Any] | None:
     if not isinstance(feedback_entry, dict):
         return None
+    metadata = feedback_entry.get("metadata") if isinstance(feedback_entry.get("metadata"), dict) else {}
+    prompt_ctx = prompt_context if isinstance(prompt_context, dict) else {}
     choice = str(feedback_entry.get("choice") or "").strip()
     note = str(feedback_entry.get("note") or "").strip()
-    for text in (choice, note):
-        m = re.search(r"\b(\d{1,3})\b", text)
-        if not m:
-            continue
-        try:
-            num = int(m.group(1))
-        except Exception:
-            continue
-        if 1 <= num <= 200:
-            return num
+    decision_key = (
+        str(metadata.get("decision_key") or "").strip().lower()
+        or str(prompt_ctx.get("decision_key") or "").strip().lower()
+        or infer_decision_key_from_prompt_id(str(prompt_id or ""))
+    )
+    if decision_key not in supported_decision_keys():
+        return None
+    selected_value = str(metadata.get("resolved_value") or "").strip() or choice or _extract_resolved_value_from_note(note) or note
+    if not selected_value:
+        return None
+    return {
+        "decision_key": decision_key,
+        "selected_value": selected_value,
+        "choice": choice or None,
+        "note": note or None,
+        "prompt_id": str(prompt_id or "").strip() or None,
+        "metadata": metadata,
+        "prompt_context": prompt_ctx,
+    }
+
+
+def build_feedback_override_plan(
+    *,
+    source_transcript_ref: str,
+    source_transcript_hash: str,
+    normalized_feedback: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not isinstance(normalized_feedback, dict):
+        return None
+    decision_key = str(normalized_feedback.get("decision_key") or "").strip().lower()
+    selected_value = str(normalized_feedback.get("selected_value") or "").strip()
+    note = str(normalized_feedback.get("note") or "").strip() or None
+    return build_feedback_override_plan_for_key(
+        decision_key=decision_key,
+        selected_value=selected_value,
+        source_transcript_ref=source_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+        note=note,
+    )
+
+
+def infer_decision_key_from_prompt_id(prompt_id: str) -> str:
+    value = str(prompt_id or "").strip().lower()
+    if not value.startswith("hitl_"):
+        return ""
+    body = value[len("hitl_") :]
+    # format: hitl_<decision_key>_<iteration>_<suffix>
+    match = re.match(r"^(township|range|section|tie_distance|tie_bearing|closure_or_pob|acreage)_\d+_[a-z0-9]+$", body)
+    if match:
+        return str(match.group(1))
+    return ""
+
+
+def _extract_resolved_value_from_note(note: str) -> str:
+    if not note:
+        return ""
+    match = re.search(r"resolved\s+[a-z_]+\s+as:\s*(.+)$", note, re.IGNORECASE)
+    if match:
+        return str(match.group(1)).strip()
+    return ""
+
+
+# Backward-compat wrappers while callers migrate to generic feedback handling.
+def range_number_from_feedback(feedback_entry: dict[str, Any]) -> int | None:
+    normalized = normalize_feedback_response(
+        feedback_entry=feedback_entry,
+        prompt_id=str(feedback_entry.get("prompt_id") or ""),
+        prompt_context={"decision_key": "range"},
+    )
+    if not isinstance(normalized, dict):
+        return None
+    selected_value = str(normalized.get("selected_value") or "")
+    match = re.search(r"\b(\d{1,3})\b", selected_value)
+    if not match:
+        return None
+    try:
+        value = int(match.group(1))
+    except Exception:
+        return None
+    if 1 <= value <= 200:
+        return value
     return None
 
 
@@ -140,50 +218,10 @@ def build_range_feedback_plan(
     source_transcript_hash: str,
     selected_number: int,
 ) -> dict[str, Any] | None:
-    text = load_transcript_text_for_seeds(source_transcript_ref)
-    if not text:
-        return None
-    ops: list[dict[str, Any]] = []
-    pattern = re.compile(r"\bRange\b[^()\n]{0,80}\((\d{1,3})\)\s*(West|East)\b", re.IGNORECASE)
-    for idx, m in enumerate(pattern.finditer(text)):
-        current = m.group(1)
-        try:
-            current_num = int(current)
-        except Exception:
-            continue
-        if current_num == selected_number:
-            continue
-        ops.append(
-            {
-                "op_id": f"hitl-range-{idx+1}",
-                "op_type": "replace_span",
-                "change_class": "semantic",
-                "confidence": "medium",
-                "review_required": True,
-                "reason": "Human selected range token to resolve blocking conflict.",
-                "evidence_refs": [],
-                "target": {
-                    "locator_type": "offsets",
-                    "start_char": int(m.start(1)),
-                    "end_char": int(m.end(1)),
-                },
-                "expected_old": {"old_excerpt": str(current)},
-                "new_text": str(selected_number),
-            }
-        )
-        if len(ops) >= 2:
-            break
-    if not ops:
-        return None
-    return {
-        "plan_version": "edit_plan_v0",
-        "source_transcript_ref": source_transcript_ref,
-        "source_transcript_hash": source_transcript_hash,
-        "plan_id": f"hitl-range-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
-        "summary": "Apply human-selected range token to resolve blocking conflict.",
-        "ops": ops,
-        "global_flags": {
-            "review_required": True,
-            "rationale": "Human-guided semantic correction.",
-        },
-    }
+    return build_feedback_override_plan_for_key(
+        decision_key="range",
+        selected_value=str(selected_number),
+        source_transcript_ref=source_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+        note=None,
+    )

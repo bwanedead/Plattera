@@ -163,7 +163,8 @@ def promote_payload(*, iteration: int, latest_refs: dict[str, Any]) -> dict[str,
 def human_feedback_reused_payload(
     *,
     iteration: int,
-    sticky_range_selection: int,
+    decision_key: str,
+    selected_value: str,
     latest_refs: dict[str, Any],
 ) -> dict[str, Any]:
     return {
@@ -171,7 +172,7 @@ def human_feedback_reused_payload(
         **_base_payload(
             iteration=iteration,
             phase="human_feedback_reused",
-            message=f"Reusing prior human range decision ({sticky_range_selection}) to continue safely.",
+            message=f"Reusing prior human {decision_key} decision ({selected_value}) to continue safely.",
             latest_refs=latest_refs,
             execution_state="received",
         ),

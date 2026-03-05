@@ -19,10 +19,10 @@ from .decision_ledger import (
 )
 from .draft_persistence import persist_agent_edit_draft
 from .hitl_feedback import (
+    build_feedback_override_plan,
     build_human_feedback_prompt,
-    build_range_feedback_plan,
+    normalize_feedback_response,
     poll_feedback_response,
-    range_number_from_feedback,
     viewer_run_id_from_request_prefix,
 )
 from .image_verification import (
@@ -284,18 +284,22 @@ def handle_repair_iteration(
 ) -> TranscriptEditDecision | None:
     mapping_focus = choose_investigation_focus(state.decision_ledger) or {}
     manual_plan_override: dict[str, Any] | None = None
-    if state.sticky_range_selection is not None and state.current_transcript_ref and source_transcript_hash:
-        manual_plan_override = build_range_feedback_plan(
+    sticky_feedback = state.sticky_feedback_override if isinstance(state.sticky_feedback_override, dict) else None
+    if sticky_feedback is not None and state.current_transcript_ref and source_transcript_hash:
+        manual_plan_override = build_feedback_override_plan(
             source_transcript_ref=state.current_transcript_ref,
             source_transcript_hash=source_transcript_hash,
-            selected_number=state.sticky_range_selection,
+            normalized_feedback=sticky_feedback,
         )
         if manual_plan_override is not None:
+            decision_key = str(sticky_feedback.get("decision_key") or "decision").strip() or "decision"
+            selected_value = str(sticky_feedback.get("selected_value") or "").strip() or "selected value"
             emit_progress(
                 progress_cb,
                 human_feedback_reused_payload(
                     iteration=iterations,
-                    sticky_range_selection=state.sticky_range_selection,
+                    decision_key=decision_key,
+                    selected_value=selected_value,
                     latest_refs=state.latest_refs,
                 ),
             )
@@ -327,15 +331,36 @@ def handle_repair_iteration(
                 latest_refs=state.latest_refs,
             ),
         )
-        selected_number = range_number_from_feedback(feedback_entry)
         state.used_human_feedback = True
+        pending_prompt_id = state.pending_feedback_prompt_id
         state.pending_feedback_prompt_id = None
-        if selected_number is not None and state.current_transcript_ref and source_transcript_hash:
-            state.sticky_range_selection = selected_number
-            return build_range_feedback_plan(
+        normalized_feedback = normalize_feedback_response(
+            feedback_entry=feedback_entry,
+            prompt_id=pending_prompt_id,
+            prompt_context=state.pending_feedback_prompt,
+        )
+        state.pending_feedback_prompt = None
+        if (
+            isinstance(normalized_feedback, dict)
+            and state.current_transcript_ref
+            and source_transcript_hash
+        ):
+            state.sticky_feedback_override = normalized_feedback
+            override_plan = build_feedback_override_plan(
                 source_transcript_ref=state.current_transcript_ref,
                 source_transcript_hash=source_transcript_hash,
-                selected_number=selected_number,
+                normalized_feedback=normalized_feedback,
+            )
+            if override_plan is not None:
+                return override_plan
+            emit_progress(
+                progress_cb,
+                ticker_payload(
+                    iteration=iterations,
+                    phase="human_feedback_needed",
+                    message="Feedback was received, but no safe localized override plan could be derived yet.",
+                    latest_refs=state.latest_refs,
+                ),
             )
         return None
 
@@ -348,7 +373,7 @@ def handle_repair_iteration(
             ticker_payload(
                 iteration=iterations,
                 phase="human_feedback_needed",
-                message="Waiting for optional range confirmation while continuing other checks.",
+                message="Waiting for human feedback while continuing other checks.",
                 latest_refs=state.latest_refs,
             ),
         )
@@ -598,6 +623,7 @@ def handle_repair_iteration(
                 ),
             )
             state.pending_feedback_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
+            state.pending_feedback_prompt = feedback_prompt if isinstance(feedback_prompt, dict) else None
 
     if state.pending_feedback_prompt_id and manual_plan_override is None:
         # Keep the loop alive for feedback ingestion instead of terminalizing immediately on no-safe-plan.

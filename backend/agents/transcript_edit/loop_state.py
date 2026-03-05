@@ -15,9 +15,10 @@ class TranscriptEditLoopState:
     applied_non_normalization: bool = False
     applied_requires_review: bool = False
     span_seeds_ref: str | None = None
-    sticky_range_selection: int | None = None
+    sticky_feedback_override: dict[str, Any] | None = None
     last_reason: str = "tx_agent_not_started"
     applied_any_edits: bool = False
     used_human_feedback: bool = False
     decision_ledger: dict[str, Any] = field(default_factory=dict)
     pending_feedback_prompt_id: str | None = None
+    pending_feedback_prompt: dict[str, Any] | None = None
