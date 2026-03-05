@@ -54,15 +54,14 @@ from .loop_runtime import (
     step_kernel_action,
 )
 from .plan_interpretation import (
-    build_apply_inputs_for_plan,
-    coerce_findings,
     finding_signature,
     finding_to_display_dict,
-    max_change_class_from_plan,
-    plan_has_no_ops,
-    plan_has_review_required,
-    plan_op_to_display_dict,
     top_findings_summary_text,
+)
+from .progress_evaluation import (
+    blocking_signature,
+    blocking_unresolved_count,
+    classify_iteration_progress,
 )
 from .result_policy import (
     max_iterations_decision,
@@ -360,11 +359,30 @@ def run_transcript_edit_controller_loop(
         )
 
         current_finding_signature = finding_signature(summary=findings_summary, findings=top_findings)
-        if state.previous_finding_signature is not None and current_finding_signature == state.previous_finding_signature:
-            state.no_progress_streak += 1
-        else:
-            state.no_progress_streak = 0
+        current_blocking_signature = blocking_signature(state.decision_ledger)
+        current_blocking_count = blocking_unresolved_count(state.decision_ledger)
+        progressed, progress_reason, clear_pending_reaudit = classify_iteration_progress(
+            previous_finding_signature=state.previous_finding_signature,
+            current_finding_signature=current_finding_signature,
+            previous_blocking_signature=state.previous_blocking_signature,
+            current_blocking_signature=current_blocking_signature,
+            previous_blocking_count=state.previous_blocking_unresolved_count,
+            current_blocking_count=current_blocking_count,
+            previous_signal_counter=state.previous_signal_counter,
+            current_signal_counter=state.evidence_signal_counter,
+            pending_feedback_prompt_id=state.pending_feedback_prompt_id,
+            pending_reaudit_after_apply=state.pending_reaudit_after_apply,
+            apply_reaudit_baseline_blocking_count=state.apply_reaudit_baseline_blocking_count,
+        )
+        if clear_pending_reaudit:
+            state.pending_reaudit_after_apply = False
+            state.apply_reaudit_baseline_blocking_count = None
+        state.no_progress_streak = 0 if progressed else state.no_progress_streak + 1
+        state.last_progress_reason = progress_reason
         state.previous_finding_signature = current_finding_signature
+        state.previous_blocking_signature = current_blocking_signature
+        state.previous_blocking_unresolved_count = current_blocking_count
+        state.previous_signal_counter = state.evidence_signal_counter
 
         if error_count <= 0 and not blocking_warning_present and not has_mapping_blocking_closure:
             decision = handle_clean_iteration(

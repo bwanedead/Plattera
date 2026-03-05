@@ -104,6 +104,22 @@ def terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[st
     ]
     blocking_unresolved = has_unresolved_mapping_blocking_closure(decision_ledger)
     unresolved_mapping_blocking_items = unresolved_mapping_blocking_requirements(decision_ledger)
+    unresolved_dependency_items = [
+        item
+        for item in unresolved_mapping_blocking_items
+        if isinstance(item, dict)
+        and isinstance(item.get("closure_requirement"), dict)
+        and str((item.get("closure_requirement") or {}).get("block_reason") or "").strip().lower() == "dependency"
+    ]
+    unresolved_ambiguity_items = [
+        item for item in unresolved_mapping_blocking_items if item not in unresolved_dependency_items
+    ]
+    pending_feedback_prompt_ids = _pending_feedback_prompt_ids(progress_log=progress_log)
+    human_feedback_pending = len(pending_feedback_prompt_ids) > 0
+    optional_only_remaining = bool(
+        len(unresolved_optional_items) > 0
+        and len(unresolved_mapping_blocking_items) == 0
+    )
     mapping_ready = False
     readiness_blocker: str | None = None
     if promoted:
@@ -124,6 +140,14 @@ def terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[st
         decision_ledger=decision_ledger if isinstance(decision_ledger, dict) else {},
         closure_history=closure_history,
     )
+    terminal_classification = _terminal_classification(
+        mapping_ready=mapping_ready,
+        unresolved_dependency_items=unresolved_dependency_items,
+        unresolved_ambiguity_items=unresolved_ambiguity_items,
+        optional_only_remaining=optional_only_remaining,
+        human_feedback_pending=human_feedback_pending,
+        result_status=result_status,
+    )
     return {
         "status": result_status,
         "reason_code": reason_code or None,
@@ -136,12 +160,18 @@ def terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[st
         "promoted": promoted,
         "readiness_blocker": readiness_blocker,
         "closure_state": closure_state,
+        "terminal_classification": terminal_classification,
         **layer_statuses,
         "decision_ledger": decision_ledger_with_history,
         "closure_history": closure_history,
         "unresolved_closure_requirements": unresolved_requirements,
         "unresolved_mapping_blocking_closure_requirements": unresolved_mapping_blocking_items,
+        "unresolved_dependency_items": unresolved_dependency_items,
+        "unresolved_ambiguity_items": unresolved_ambiguity_items,
         "unresolved_optional_items": unresolved_optional_items,
+        "optional_only_remaining": optional_only_remaining,
+        "human_feedback_pending": human_feedback_pending,
+        "pending_feedback_prompt_ids": pending_feedback_prompt_ids,
         "decision_ledger_summary": (
             decision_ledger.get("summary")
             if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("summary"), dict)
@@ -218,3 +248,52 @@ def _attach_closure_history(*, decision_ledger: dict[str, Any], closure_history:
         updated_items.append(copy_item)
     out["items"] = updated_items
     return out
+
+
+def _pending_feedback_prompt_ids(*, progress_log: list[dict[str, Any]]) -> list[str]:
+    needed: list[str] = []
+    answered: set[str] = set()
+    for entry in progress_log:
+        if not isinstance(entry, dict):
+            continue
+        event_type = str(entry.get("event_type") or "").strip().lower()
+        phase = str(entry.get("phase") or "").strip().lower()
+        prompt_id = str(entry.get("prompt_id") or "").strip()
+        if event_type == "human_feedback_needed" and prompt_id:
+            needed.append(prompt_id)
+            continue
+        if phase in {"human_feedback_received", "human_feedback_reused"} and prompt_id:
+            answered.add(prompt_id)
+    pending = [pid for pid in needed if pid not in answered]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for pid in pending:
+        if pid in seen:
+            continue
+        seen.add(pid)
+        deduped.append(pid)
+    return deduped
+
+
+def _terminal_classification(
+    *,
+    mapping_ready: bool,
+    unresolved_dependency_items: list[dict[str, Any]],
+    unresolved_ambiguity_items: list[dict[str, Any]],
+    optional_only_remaining: bool,
+    human_feedback_pending: bool,
+    result_status: str,
+) -> str:
+    if mapping_ready:
+        if optional_only_remaining:
+            return "optional_quality_remaining_only"
+        return "closure_achieved"
+    if len(unresolved_dependency_items) > 0:
+        return "blocked_dependency_evidence_missing"
+    if human_feedback_pending:
+        return "blocked_human_feedback_needed"
+    if len(unresolved_ambiguity_items) > 0:
+        return "blocked_mapping_ambiguity_unresolved"
+    if result_status == "failed":
+        return "blocked_execution_failed"
+    return "blocked_no_safe_autonomous_move"

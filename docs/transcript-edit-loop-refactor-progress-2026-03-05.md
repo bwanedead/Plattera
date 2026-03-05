@@ -58,3 +58,54 @@ Make `gather_more_evidence` an executed runtime path and lock deterministic runt
 - Dependency retrieval execution remains explicit but unsupported until retrieval stage wiring is introduced.
 - Resolver quality remains bounded by packet quality and prompting discipline; deterministic guardrails now gate acceptance and execution behavior.
 
+## 8) Phase 5 objective
+Prove closed-world convergence behavior and honest terminalization without adding dependency retrieval.
+
+## 9) Phase 5 implementation summary
+- Added deterministic convergence helper module:
+  - `backend/agents/transcript_edit/progress_evaluation.py`
+- Controller now classifies progress from:
+  - finding signature
+  - mapping-blocking closure signature/count
+  - new-signal counters
+  - apply->re-audit confirmation gate
+- Loop state expanded for convergence tracking:
+  - progress reason
+  - previous blocking signature/count
+  - previous signal counter
+  - pending apply re-audit baseline
+  - focus stagnation continuity fields
+- Iteration pipeline tightened:
+  - no-progress reason now includes deterministic subtype
+  - image/evidence signals count only when ledger blocking signature materially changes
+  - apply marks pending re-audit and baseline blocking count
+- Terminal summary now explicitly classifies:
+  - `closure_achieved`
+  - `optional_quality_remaining_only`
+  - `blocked_dependency_evidence_missing`
+  - `blocked_human_feedback_needed`
+  - `blocked_mapping_ambiguity_unresolved`
+  - `blocked_no_safe_autonomous_move`
+- Terminal payload now includes:
+  - `unresolved_dependency_items`
+  - `unresolved_ambiguity_items`
+  - `human_feedback_pending`
+  - `pending_feedback_prompt_ids`
+  - `terminal_classification`
+
+## 10) Dependency stance (explicit)
+- Dependency retrieval remains deferred.
+- Dependency-bound unresolved mapping blockers are preserved and reported at terminal state; they are not auto-resolved in this phase.
+
+## 11) Phase 5 tests added/updated
+- Added:
+  - `backend/agents/transcript_edit/test_progress_evaluation.py`
+- Updated:
+  - `backend/agents/transcript_edit/test_controller.py`
+  - `backend/agents/transcript_edit/test_terminalization.py`
+
+## 12) Closed-world milestone claim
+Phase 5 establishes the closed-world proof point:
+- loop continuation now depends on material progress signals
+- apply is not treated as closure progress until re-audit confirms improvement
+- terminal outputs distinguish ambiguity blockers, dependency blockers, pending HITL, and optional-only leftovers

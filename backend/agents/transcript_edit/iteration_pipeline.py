@@ -46,6 +46,7 @@ from .plan_interpretation import (
     plan_op_to_display_dict,
 )
 from .planner import TranscriptEditPlanPlanner
+from .progress_evaluation import blocking_signature, blocking_unresolved_count
 from .result_policy import (
     TranscriptEditDecision,
     TranscriptEditFacts,
@@ -352,7 +353,10 @@ def handle_repair_iteration(
             ),
         )
     if state.no_progress_streak >= request.max_no_progress_iterations:
-        return TranscriptEditDecision(status="needs_review", reason_code="tx_agent_no_progress", review_required=True)
+        reason = "tx_agent_no_progress"
+        if state.last_progress_reason and state.last_progress_reason != "not_evaluated":
+            reason = f"{reason}:{state.last_progress_reason}"
+        return TranscriptEditDecision(status="needs_review", reason_code=reason, review_required=True)
     if not state.current_transcript_ref:
         return TranscriptEditDecision(
             status="needs_review",
@@ -376,6 +380,12 @@ def handle_repair_iteration(
         focus_reason = str((focus or {}).get("next_check_reason") or "Prioritizing highest-risk unresolved item.")
         focus_reason_code = str((focus or {}).get("next_check_reason_code") or "next_open_item")
         focus_key = str((focus or {}).get("decision_key") or "").strip()
+        prior_focus_key = str(state.last_focus_key or "").strip().lower()
+        if focus_key and focus_key.lower() == prior_focus_key:
+            state.focus_stagnation_streak += 1
+        else:
+            state.focus_stagnation_streak = 0
+        state.last_focus_key = focus_key.lower() or state.last_focus_key
         if focus:
             emit_progress(
                 progress_cb,
@@ -458,13 +468,15 @@ def handle_repair_iteration(
             iv_payload = image_verification.get("payload") or {}
             iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
             iv_results = iv_results if isinstance(iv_results, list) else []
-            if iv_results:
-                state.evidence_signal_counter += 1
+            before_sig = blocking_signature(state.decision_ledger)
             state.decision_ledger = update_ledger_from_iteration(
                 ledger=state.decision_ledger,
                 findings=planning_findings,
                 image_results=[result for result in iv_results if isinstance(result, dict)],
             )
+            after_sig = blocking_signature(state.decision_ledger)
+            if iv_results and before_sig != after_sig:
+                state.evidence_signal_counter += 1
             iv_confirmed = sum(1 for r in iv_results if isinstance(r, dict) and str(r.get("status") or "").lower() in {"confirmed", "match"})
             iv_rejected = sum(1 for r in iv_results if isinstance(r, dict) and str(r.get("status") or "").lower() in {"rejected", "mismatch"})
             iv_total = len(iv_results)
@@ -528,13 +540,15 @@ def handle_repair_iteration(
             iv_payload = image_verification.get("payload") or {}
             iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
             iv_results = iv_results if isinstance(iv_results, list) else []
-            if iv_results:
-                state.evidence_signal_counter += 1
+            before_sig = blocking_signature(state.decision_ledger)
             state.decision_ledger = update_ledger_from_iteration(
                 ledger=state.decision_ledger,
                 findings=planning_findings,
                 image_results=[result for result in iv_results if isinstance(result, dict)],
             )
+            after_sig = blocking_signature(state.decision_ledger)
+            if iv_results and before_sig != after_sig:
+                state.evidence_signal_counter += 1
         drained_plan = _drain_pending_feedback(checkpoint_label="post_feedback_image_verify")
         if drained_plan is not None:
             focus_feedback = drained_plan
@@ -817,13 +831,15 @@ def handle_repair_iteration(
             iv_payload = image_verification.get("payload") if isinstance(image_verification.get("payload"), dict) else {}
             iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
             iv_results = iv_results if isinstance(iv_results, list) else []
-            if iv_results:
-                state.evidence_signal_counter += 1
+            before_sig = blocking_signature(state.decision_ledger)
             state.decision_ledger = update_ledger_from_iteration(
                 ledger=state.decision_ledger,
                 findings=planning_findings,
                 image_results=[result for result in iv_results if isinstance(result, dict)],
             )
+            after_sig = blocking_signature(state.decision_ledger)
+            if iv_results and before_sig != after_sig:
+                state.evidence_signal_counter += 1
             emit_progress(
                 progress_cb,
                 image_verify_result_payload(
@@ -950,9 +966,11 @@ def handle_repair_iteration(
         state.applied_requires_review = True
     if len(plan_ops) > 0:
         state.applied_any_edits = True
+        state.pending_reaudit_after_apply = True
+        state.apply_reaudit_baseline_blocking_count = blocking_unresolved_count(state.decision_ledger)
     if manual_plan is None:
         state.invalid_plan_strikes = 0
-    state.last_reason = plan_reason if plan_reason else "tx_apply_completed"
+    state.last_reason = "tx_apply_completed_waiting_reaudit"
     if raw_plan_text:
         _ = raw_plan_text
     return None

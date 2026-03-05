@@ -11,7 +11,15 @@ class TranscriptEditLoopState:
     iterations: int = 0
     invalid_plan_strikes: int = 0
     no_progress_streak: int = 0
+    last_progress_reason: str = "not_evaluated"
     previous_finding_signature: str | None = None
+    previous_blocking_signature: str | None = None
+    previous_blocking_unresolved_count: int | None = None
+    previous_signal_counter: int = 0
+    pending_reaudit_after_apply: bool = False
+    apply_reaudit_baseline_blocking_count: int | None = None
+    last_focus_key: str | None = None
+    focus_stagnation_streak: int = 0
     applied_non_normalization: bool = False
     applied_requires_review: bool = False
     span_seeds_ref: str | None = None

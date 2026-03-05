@@ -233,3 +233,83 @@ def test_terminal_summary_includes_unresolved_optional_items() -> None:
     optional_items = summary["unresolved_optional_items"]
     assert isinstance(optional_items, list)
     assert any(str(item.get("key")) == "acreage" for item in optional_items if isinstance(item, dict))
+    assert summary["mapping_ready"] is True
+    assert summary["terminal_classification"] == "optional_quality_remaining_only"
+
+
+def test_terminal_summary_dependency_blocker_classification() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [
+                        {
+                            "key": "closure_or_pob",
+                            "label": "Closure / POB",
+                            "state": "disputed",
+                            "blocking": True,
+                            "closure_requirement": {
+                                "block_reason": "dependency",
+                                "mapping_blocking": True,
+                                "required_information": "Referenced external deed data.",
+                                "minimal_user_action": "Provide external reference.",
+                            },
+                        }
+                    ],
+                    "summary": {"blocking_open_count": 1},
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s5",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_closure_requirements_unresolved",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(progress_log, result)
+    assert summary["mapping_ready"] is False
+    assert summary["terminal_classification"] == "blocked_dependency_evidence_missing"
+    assert any(str(item.get("key")) == "closure_or_pob" for item in summary["unresolved_dependency_items"])
+
+
+def test_terminal_summary_pending_feedback_classification() -> None:
+    progress_log = [
+        {
+            "event_type": "human_feedback_needed",
+            "phase": "human_feedback_needed",
+            "prompt_id": "hitl_range_2_abc123",
+            "detail": {
+                "decision_ledger": {
+                    "items": [
+                        {
+                            "key": "range",
+                            "label": "Range",
+                            "state": "disputed",
+                            "blocking": True,
+                            "closure_requirement": {"block_reason": "ambiguity", "mapping_blocking": True},
+                        }
+                    ],
+                    "summary": {"blocking_open_count": 1},
+                }
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s6",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_closure_requirements_unresolved",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(progress_log, result)
+    assert summary["human_feedback_pending"] is True
+    assert summary["terminal_classification"] == "blocked_human_feedback_needed"
+    assert summary["pending_feedback_prompt_ids"] == ["hitl_range_2_abc123"]

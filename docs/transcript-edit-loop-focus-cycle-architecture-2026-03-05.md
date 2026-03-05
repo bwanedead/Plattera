@@ -28,6 +28,11 @@ The active path should avoid deterministic regex-style edit drafting and brittle
 The agent decides the semantic move.
 The deterministic runtime enforces rails, boundedness, persistence, and closure gates.
 
+Current operating stance (Phase 5):
+- closed-world convergence proof only (transcript + source image + existing tools + HITL evidence)
+- no dependency retrieval execution in-loop
+- dependency blockers are classified and reported honestly at terminalization
+
 ## 3) Canonical entities
 ### 3.1 Transcript
 The transcript is the mutable working document and current deed text being refined.
@@ -169,6 +174,11 @@ End when:
 - mapping-blocking closure is achieved, or
 - no autonomous closure move remains and blocked state must be reported
 
+Honest stop behavior:
+- repeated unchanged focus/evidence/transcript state increments no-progress handling
+- pending HITL without new feedback is not counted as progress
+- apply/edit is not treated as closure progress until a later re-audit/reconcile confirms improvement
+
 ## 6) Focus resolver contract
 Resolver should return a bounded object containing:
 - `decision_key`
@@ -186,6 +196,7 @@ Deterministic acceptance rules:
 - `mark_resolved_no_edit` is accepted only if deterministic ledger state agrees
 - `mark_blocked` is accepted only under deterministic conditions (invalid move, dependency blocker, budget exhaustion, no autonomous path)
 - `apply_edit_plan` is accepted only when bounded plan validation passes and scope checks hold
+- repeated identical evidence requests are budget-limited unless new signal arrives
 
 `closure_update_hint` is advisory only and does not directly mutate ledger truth.
 
@@ -246,6 +257,7 @@ Memory is not canonical transcript truth or closure truth.
 ### 10.2 Transitional areas
 - dependency retrieval execution remains explicitly unsupported pending retrieval-stage wiring
 - resolver guidance still depends on prompt quality and bounded context quality
+- closed-world convergence proof is active: progress/no-progress and terminal classification are now explicit runtime concerns
 
 ### 10.3 Explicitly superseded direction
 Regex-style deterministic HITL override builders are not the intended active architecture.

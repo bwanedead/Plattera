@@ -742,3 +742,52 @@ def test_transcript_controller_closure_update_hint_does_not_override_ledger_trut
         )
         assert result.status == "needs_review"
         assert str(result.reason_code).startswith("mark_resolved_no_edit_rejected:")
+
+
+def test_transcript_controller_repeated_closed_world_no_progress_halts() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}),
+            encoding="utf-8",
+        )
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=4,
+                max_no_progress_iterations=1,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="manual-closed-world-stagnation",
+            planner=_PlannerNoOps(),
+        )
+        assert result.status == "needs_review"
+        assert str(result.reason_code).startswith("tx_agent_no_progress:")
+
+
+def test_transcript_controller_apply_requires_reaudit_for_progress_claim() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Beginning at NW corner."}]}),
+            encoding="utf-8",
+        )
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=1,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="manual-apply-needs-reaudit",
+            planner=_PlannerSuccess(),
+        )
+        assert result.status == "needs_review"
+        assert "waiting_reaudit" in str(result.reason_code)

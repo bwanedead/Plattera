@@ -25,6 +25,10 @@ Operational objective:
 - Escalate to human only when unresolved, blocking ambiguity remains after evidence attempts.
 - Return explicit terminal state with reason and closure requirements.
 
+Current convergence scope:
+- closed-world only for now (transcript + source image + existing tx tooling + HITL evidence)
+- dependency retrieval is deferred; dependency blockers are classified/reportable but not auto-resolved
+
 Closure model:
 - Layer 1: canonical recovery (does transcript match source deed content)
 - Layer 2: canonical sanity (if recovered, does deed content remain internally coherent)
@@ -247,6 +251,11 @@ Phase 4 guardrails:
 - resolver cannot switch to another decision item
 - `closure_update_hint` is advisory-only
 - repeated identical evidence requests are budget-limited per `decision_key + transcript_hash + kind` until new signal arrives
+
+Phase 5 convergence hardening:
+- no-progress is evaluated from material state change, not activity
+- pending HITL without new response is treated as no-progress
+- apply/edit requires later re-audit confirmation before counting as closure improvement
 
 ---
 
@@ -803,12 +812,25 @@ Terminal payload includes:
 - `closure_history` (per-decision state transitions derived from progress log snapshots)
 - `unresolved_closure_requirements`
 - `unresolved_optional_items`
+- `unresolved_dependency_items`
+- `unresolved_ambiguity_items`
+- `human_feedback_pending`
+- `pending_feedback_prompt_ids`
+- `terminal_classification`
 - initial/final findings
 
 Expected operator interpretation:
 - `completed` means closure achieved under current policy.
 - `needs_review` means unresolved blockers/constraints remain.
 - `failed` means execution failure, not epistemic uncertainty.
+
+`terminal_classification` currently distinguishes:
+- `closure_achieved`
+- `optional_quality_remaining_only`
+- `blocked_dependency_evidence_missing`
+- `blocked_human_feedback_needed`
+- `blocked_mapping_ambiguity_unresolved`
+- `blocked_no_safe_autonomous_move`
 
 ---
 
