@@ -122,6 +122,38 @@ class _PlannerRaises:
         raise RuntimeError("simulated network error")
 
 
+class _PlannerSectionSuccess:
+    def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+        source_ref = kwargs["source_transcript_ref"]
+        source_hash = kwargs["source_transcript_hash"]
+        old_excerpt = "Section 13"
+        plan = EditPlanV0.model_validate(
+            {
+                "plan_version": "edit_plan_v0",
+                "source_transcript_ref": source_ref,
+                "source_transcript_hash": source_hash,
+                "plan_id": "section-override",
+                "summary": "apply section correction from feedback",
+                "ops": [
+                    {
+                        "op_id": "op-sec-1",
+                        "op_type": "replace_span",
+                        "change_class": "semantic",
+                        "confidence": "high",
+                        "review_required": True,
+                        "reason": "Human feedback resolved section conflict.",
+                        "evidence_refs": [source_ref],
+                        "target": {"locator_type": "offsets", "start_char": 27, "end_char": 37},
+                        "expected_old": {"old_excerpt": old_excerpt},
+                        "new_text": "Section 12",
+                    }
+                ],
+                "global_flags": {"review_required": True},
+            }
+        )
+        return plan, "ok", json.dumps(plan.model_dump(mode="json"))
+
+
 class _OrientBaselinerStub:
     def orient_and_baseline(self, inputs):  # type: ignore[no-untyped-def]
         source_ref = str(
@@ -536,7 +568,7 @@ def test_transcript_controller_non_range_feedback_generates_manual_override(monk
                 hitl_enabled=True,
             ),
             request_id_prefix="manual-nonrange-hitl",
-            planner=_PlannerNoOps(),
+            planner=_PlannerSectionSuccess(),
             progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
         )
         assert result.status in {"needs_review", "completed"}
@@ -545,7 +577,7 @@ def test_transcript_controller_non_range_feedback_generates_manual_override(monk
             isinstance(evt, dict)
             and evt.get("phase") == "plan_result"
             and isinstance(evt.get("detail"), dict)
-            and evt["detail"].get("plan_reason") == "manual_plan"
+            and str(evt["detail"].get("plan_reason") or "").startswith("resolver_edit_plan")
             for evt in progress_events
         )
         assert any(

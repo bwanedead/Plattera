@@ -18,8 +18,9 @@ from .decision_ledger import (
     update_ledger_from_iteration,
 )
 from .draft_persistence import persist_agent_edit_draft
+from .focus_packet import build_focus_packet
+from .focus_resolver import resolve_focus_move
 from .hitl_feedback import (
-    build_feedback_override_plan,
     build_human_feedback_prompt,
     normalize_feedback_response,
     poll_feedback_response,
@@ -284,25 +285,7 @@ def handle_repair_iteration(
 ) -> TranscriptEditDecision | None:
     mapping_focus = choose_investigation_focus(state.decision_ledger) or {}
     manual_plan_override: dict[str, Any] | None = None
-    sticky_feedback = state.sticky_feedback_override if isinstance(state.sticky_feedback_override, dict) else None
-    if sticky_feedback is not None and state.current_transcript_ref and source_transcript_hash:
-        manual_plan_override = build_feedback_override_plan(
-            source_transcript_ref=state.current_transcript_ref,
-            source_transcript_hash=source_transcript_hash,
-            normalized_feedback=sticky_feedback,
-        )
-        if manual_plan_override is not None:
-            decision_key = str(sticky_feedback.get("decision_key") or "decision").strip() or "decision"
-            selected_value = str(sticky_feedback.get("selected_value") or "").strip() or "selected value"
-            emit_progress(
-                progress_cb,
-                human_feedback_reused_payload(
-                    iteration=iterations,
-                    decision_key=decision_key,
-                    selected_value=selected_value,
-                    latest_refs=state.latest_refs,
-                ),
-            )
+    focus_feedback: dict[str, Any] | None = state.latest_feedback if isinstance(state.latest_feedback, dict) else None
     viewer_run_id = viewer_run_id_from_request_prefix(request_id_prefix)
     def _drain_pending_feedback(*, checkpoint_label: str) -> dict[str, Any] | None:
         if not state.pending_feedback_prompt_id:
@@ -340,33 +323,21 @@ def handle_repair_iteration(
             prompt_context=state.pending_feedback_prompt,
         )
         state.pending_feedback_prompt = None
-        if (
-            isinstance(normalized_feedback, dict)
-            and state.current_transcript_ref
-            and source_transcript_hash
-        ):
-            state.sticky_feedback_override = normalized_feedback
-            override_plan = build_feedback_override_plan(
-                source_transcript_ref=state.current_transcript_ref,
-                source_transcript_hash=source_transcript_hash,
-                normalized_feedback=normalized_feedback,
-            )
-            if override_plan is not None:
-                return override_plan
-            emit_progress(
-                progress_cb,
-                ticker_payload(
-                    iteration=iterations,
-                    phase="human_feedback_needed",
-                    message="Feedback was received, but no safe localized override plan could be derived yet.",
-                    latest_refs=state.latest_refs,
-                ),
-            )
-        return None
+        return normalized_feedback if isinstance(normalized_feedback, dict) else None
 
     drained_plan = _drain_pending_feedback(checkpoint_label="iteration_start")
     if drained_plan is not None:
-        manual_plan_override = drained_plan
+        focus_feedback = drained_plan
+        state.latest_feedback = drained_plan
+        emit_progress(
+            progress_cb,
+            human_feedback_reused_payload(
+                iteration=iterations,
+                decision_key=str(drained_plan.get("decision_key") or "decision"),
+                selected_value=str(drained_plan.get("selected_value") or "selected"),
+                latest_refs=state.latest_refs,
+            ),
+        )
     elif state.pending_feedback_prompt_id:
         emit_progress(
             progress_cb,
@@ -448,7 +419,8 @@ def handle_repair_iteration(
         )
         drained_plan = _drain_pending_feedback(checkpoint_label="open_spans")
         if drained_plan is not None:
-            manual_plan_override = drained_plan
+            focus_feedback = drained_plan
+            state.latest_feedback = drained_plan
         emit_progress(
             progress_cb,
             image_verify_payload(
@@ -513,7 +485,8 @@ def handle_repair_iteration(
             )
         drained_plan = _drain_pending_feedback(checkpoint_label="image_verify")
         if drained_plan is not None:
-            manual_plan_override = drained_plan
+            focus_feedback = drained_plan
+            state.latest_feedback = drained_plan
     else:
         emit_progress(
             progress_cb,
@@ -555,7 +528,8 @@ def handle_repair_iteration(
             )
         drained_plan = _drain_pending_feedback(checkpoint_label="post_feedback_image_verify")
         if drained_plan is not None:
-            manual_plan_override = drained_plan
+            focus_feedback = drained_plan
+            state.latest_feedback = drained_plan
 
     baseline_unresolved = unresolved_closure_requirements(state.decision_ledger)
     baseline_mapping_blocking_unresolved = unresolved_mapping_blocking_requirements(state.decision_ledger)
@@ -625,7 +599,7 @@ def handle_repair_iteration(
             state.pending_feedback_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
             state.pending_feedback_prompt = feedback_prompt if isinstance(feedback_prompt, dict) else None
 
-    if state.pending_feedback_prompt_id and manual_plan_override is None:
+    if state.pending_feedback_prompt_id and focus_feedback is None:
         # Keep the loop alive for feedback ingestion instead of terminalizing immediately on no-safe-plan.
         emit_progress(
             progress_cb,
@@ -639,12 +613,88 @@ def handle_repair_iteration(
         state.last_reason = "tx_agent_closure_requirements_unresolved"
         return None
 
-    manual_plan = manual_plan_override or (request.edit_plan if isinstance(request.edit_plan, dict) else None)
+    focus_key = str((mapping_focus or {}).get("decision_key") or "").strip().lower()
+    if isinstance(focus_feedback, dict):
+        feedback_key = str(focus_feedback.get("decision_key") or "").strip().lower()
+        if feedback_key:
+            focus_key = feedback_key
+    focus_packet = build_focus_packet(
+        decision_ledger=state.decision_ledger,
+        decision_key=focus_key or None,
+        source_transcript_ref=state.current_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+        span_context=span_context,
+        image_verification_payload=(image_verification.get("payload") if isinstance(image_verification, dict) else {}),
+        feedback=focus_feedback,
+        continuity_log=state.continuity_log,
+    )
+    resolver_outcome = resolve_focus_move(
+        focus_packet=focus_packet,
+        planner_client=planner_client,
+        model=model,
+        findings_summary=findings_summary,
+        planning_findings=planning_findings,
+        max_invalid_plan_attempts=request.max_invalid_plan_attempts,
+    )
+    move = str((resolver_outcome or {}).get("move") or "").strip().lower()
+    resolver_reason = str((resolver_outcome or {}).get("reason") or "").strip() or "resolver_no_reason"
+    state.continuity_log.append(
+        {
+            "decision_key": focus_key or "",
+            "move": move or "unknown_move",
+            "outcome": resolver_reason,
+        }
+    )
+    if len(state.continuity_log) > 50:
+        state.continuity_log = state.continuity_log[-50:]
+    if move == "request_human_feedback":
+        if not state.pending_feedback_prompt_id and request.hitl_enabled:
+            feedback_prompt = build_human_feedback_prompt(
+                decision_ledger=state.decision_ledger,
+                iteration=iterations,
+            )
+            if feedback_prompt is not None:
+                emit_progress(
+                    progress_cb,
+                    human_feedback_needed_payload(
+                        iteration=iterations,
+                        latest_refs=state.latest_refs,
+                        feedback_prompt=feedback_prompt,
+                        evidence_attempts=evidence_attempts_counts,
+                    ),
+                )
+                state.pending_feedback_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
+                state.pending_feedback_prompt = feedback_prompt if isinstance(feedback_prompt, dict) else None
+        state.last_reason = "tx_agent_closure_requirements_unresolved"
+        return None
+    if move == "mark_blocked":
+        if resolver_reason.startswith("resolver_plan_invalid:"):
+            return TranscriptEditDecision(
+                status="needs_review",
+                reason_code=f"tx_agent_plan_invalid:{resolver_reason.replace('resolver_plan_invalid:', '', 1)}",
+                review_required=True,
+            )
+        return TranscriptEditDecision(
+            status="needs_review",
+            reason_code="tx_agent_closure_requirements_unresolved",
+            review_required=True,
+        )
+    if move in {"gather_more_evidence", "mark_resolved_no_edit"}:
+        state.last_reason = resolver_reason
+        return None
+
+    manual_plan = (
+        (resolver_outcome.get("edit_plan") if isinstance(resolver_outcome, dict) else None)
+        if move == "apply_edit_plan"
+        else None
+    )
+    if manual_plan is None:
+        manual_plan = request.edit_plan if isinstance(request.edit_plan, dict) else None
     consensus_plan_payload = None
 
     if manual_plan is not None:
         selected_plan_payload = manual_plan
-        plan_reason = "manual_plan"
+        plan_reason = "resolver_edit_plan" if move == "apply_edit_plan" else "manual_plan"
         raw_plan_text = json.dumps(manual_plan, ensure_ascii=False)
     elif consensus_plan_payload is not None:
         selected_plan_payload = consensus_plan_payload
