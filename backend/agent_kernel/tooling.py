@@ -351,8 +351,10 @@ class TranscriptOrientBaselineTool:
 
     def orient_and_baseline(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
         dossier_id = _read_str(inputs.get("dossier_id")) or "adhoc"
+        canonical_ref = _read_str(inputs.get("canonical_ref"))
         source_ref = _read_str(
-            inputs.get("source_transcript_ref")
+            canonical_ref
+            or inputs.get("source_transcript_ref")
             or inputs.get("transcript_ref")
             or inputs.get("tx_source_transcript_ref")
         )
@@ -376,8 +378,113 @@ class TranscriptOrientBaselineTool:
         model = _read_str(inputs.get("model")) or "gpt-5.2"
         api_model = self.service.models.get(model, {}).get("api_model_name", model)
         max_attempts = _bounded_int(inputs.get("max_attempts"), default=2, minimum=1, maximum=3)
+
+        raw_candidate_refs = _coerce_str_list(inputs.get("candidate_refs"), limit=10)
         raw_candidates = inputs.get("candidate_texts")
-        candidate_texts = [str(item) for item in raw_candidates[:10] if isinstance(item, str)] if isinstance(raw_candidates, list) else []
+        inline_candidate_texts = [str(item) for item in raw_candidates[:10] if isinstance(item, str)] if isinstance(raw_candidates, list) else []
+        payload_mode = "refs" if raw_candidate_refs else "inline_texts"
+        inline_fallback_used = not raw_candidate_refs and bool(inline_candidate_texts)
+        selection_strategy = _read_str(inputs.get("selection_strategy")) or "first_middle_last"
+        max_candidates_for_orient = _bounded_int(
+            inputs.get("max_candidates_for_orient"),
+            default=3,
+            minimum=1,
+            maximum=10,
+        )
+        max_total_hydrated_bytes = _bounded_int(
+            inputs.get("max_total_hydrated_bytes"),
+            default=120000,
+            minimum=2000,
+            maximum=2000000,
+        )
+        max_bytes_per_candidate = _bounded_int(
+            inputs.get("max_bytes_per_candidate"),
+            default=40000,
+            minimum=500,
+            maximum=500000,
+        )
+
+        candidate_refs_hydrated = 0
+        candidate_refs_skipped = 0
+        hydrated_total_bytes = 0
+        hydration_budget_applied = False
+        selected_candidate_refs: list[str] = []
+        candidate_texts: list[str] = []
+        if raw_candidate_refs:
+            selected_candidate_refs = _select_candidate_refs_for_orient(
+                refs=raw_candidate_refs,
+                max_candidates=max_candidates_for_orient,
+                strategy=selection_strategy,
+            )
+            candidate_refs_skipped += max(0, len(raw_candidate_refs) - len(selected_candidate_refs))
+            for ref in selected_candidate_refs:
+                hydrated_text = _hydrate_candidate_text_for_orient(ref)
+                if hydrated_text is None:
+                    hydration_budget_applied = True
+                    candidate_refs_skipped += 1
+                    continue
+                bounded_text = _truncate_utf8_bytes(hydrated_text, max_bytes_per_candidate)
+                text_bytes = len(bounded_text.encode("utf-8"))
+                if hydrated_total_bytes + text_bytes > max_total_hydrated_bytes:
+                    hydration_budget_applied = True
+                    candidate_refs_skipped += 1
+                    continue
+                hydrated_total_bytes += text_bytes
+                candidate_refs_hydrated += 1
+                candidate_texts.append(bounded_text)
+            hydration_budget_applied = hydration_budget_applied or candidate_refs_hydrated < len(raw_candidate_refs)
+            if candidate_refs_hydrated <= 0:
+                return {
+                    "artifact_ref": None,
+                    "reason_codes": ["orient_hydration_budget_exhausted"],
+                    "kernel_refusal": {
+                        "reason_code": "orient_hydration_budget_exhausted",
+                        "missing_inputs": [],
+                        "retryable": False,
+                        "blocked_by_budget": True,
+                        "blocked_by_invariant": False,
+                    },
+                    "tx_source_transcript_ref": canonical.source_transcript_ref,
+                    "tx_source_transcript_hash": canonical.source_transcript_hash,
+                    "tx_orient_hydration": {
+                        "payload_mode": payload_mode,
+                        "inline_fallback_used": inline_fallback_used,
+                        "candidate_refs_total": len(raw_candidate_refs),
+                        "candidate_refs_hydrated": candidate_refs_hydrated,
+                        "candidate_refs_skipped": candidate_refs_skipped,
+                        "hydration_budget_applied": True,
+                        "hydration_selection_strategy": selection_strategy,
+                        "max_candidates_for_orient": max_candidates_for_orient,
+                        "max_total_hydrated_bytes": max_total_hydrated_bytes,
+                        "hydrated_total_bytes": hydrated_total_bytes,
+                    },
+                }
+        else:
+            candidate_texts = [text for text in inline_candidate_texts if text.strip()]
+
+        hydration_summary = {
+            "payload_mode": payload_mode,
+            "inline_fallback_used": inline_fallback_used,
+            "candidate_refs_total": len(raw_candidate_refs),
+            "candidate_refs_hydrated": candidate_refs_hydrated,
+            "candidate_refs_skipped": candidate_refs_skipped,
+            "hydration_budget_applied": hydration_budget_applied,
+            "hydration_selection_strategy": selection_strategy,
+            "max_candidates_for_orient": max_candidates_for_orient,
+            "max_total_hydrated_bytes": max_total_hydrated_bytes,
+            "hydrated_total_bytes": hydrated_total_bytes,
+            "selected_candidate_refs": selected_candidate_refs,
+        }
+        logger.info(
+            "TX_ORIENT_HYDRATION ► payload_mode=%s refs_total=%s refs_hydrated=%s refs_skipped=%s strategy=%s budget_applied=%s hydrated_total_bytes=%s",
+            payload_mode,
+            len(raw_candidate_refs),
+            candidate_refs_hydrated,
+            candidate_refs_skipped,
+            selection_strategy,
+            hydration_budget_applied,
+            hydrated_total_bytes,
+        )
         system_msg = _build_tx_orient_system_message()
         user_msg = _build_tx_orient_user_message(
             transcript_text=canonical.transcript_text,
@@ -428,6 +535,7 @@ class TranscriptOrientBaselineTool:
                 "api_model": api_model,
                 "source_transcript_ref": canonical.source_transcript_ref,
                 "source_transcript_hash": canonical.source_transcript_hash,
+                "hydration_summary": hydration_summary,
                 "raw_content": raw_content,
                 "error": None if orient_payload is not None else last_error,
             },
@@ -446,6 +554,7 @@ class TranscriptOrientBaselineTool:
                 "tx_orient_raw_output_ref": raw_output_ref,
                 "tx_source_transcript_ref": canonical.source_transcript_ref,
                 "tx_source_transcript_hash": canonical.source_transcript_hash,
+                "tx_orient_hydration": hydration_summary,
             }
 
         seeds = _coerce_orient_span_seeds(orient_payload)
@@ -469,6 +578,7 @@ class TranscriptOrientBaselineTool:
                 "orient_payload": orient_payload,
                 "tx_span_seeds_ref": span_seeds_ref,
                 "tx_orient_raw_output_ref": raw_output_ref,
+                "hydration_summary": hydration_summary,
             },
         )
         items = orient_payload.get("items") if isinstance(orient_payload.get("items"), list) else []
@@ -491,6 +601,7 @@ class TranscriptOrientBaselineTool:
                 "mapping_blocking_count": mapping_blocking_count,
                 "optional_count": optional_count,
             },
+            "tx_orient_hydration": hydration_summary,
             "tx_span_seeds_ref": span_seeds_ref,
             "tx_orient_raw_output_ref": raw_output_ref,
         }
@@ -3556,6 +3667,89 @@ def _coerce_orient_span_seeds(orient_payload: dict[str, Any]) -> list[Transcript
         if len(seeds) >= 24:
             break
     return seeds
+
+
+def _hydrate_candidate_text_for_orient(source_ref: str) -> str | None:
+    try:
+        canonical = materialize_canonical_input(
+            EditLoopStartRequestV0(
+                source_transcript_ref=source_ref,
+                mode="audit_only",
+            )
+        )
+    except Exception:
+        return None
+    text = str(canonical.transcript_text or "").strip()
+    return text or None
+
+
+def _select_candidate_refs_for_orient(
+    *,
+    refs: list[str],
+    max_candidates: int,
+    strategy: str,
+) -> list[str]:
+    unique_refs: list[str] = []
+    seen: set[str] = set()
+    for ref in refs:
+        value = str(ref or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        unique_refs.append(value)
+    if len(unique_refs) <= max_candidates:
+        return unique_refs
+    normalized_strategy = str(strategy or "").strip().lower()
+    if normalized_strategy != "first_middle_last":
+        normalized_strategy = "first_middle_last"
+    del normalized_strategy
+    indices = _even_sample_indices(total=len(unique_refs), count=max_candidates)
+    return [unique_refs[idx] for idx in indices]
+
+
+def _even_sample_indices(*, total: int, count: int) -> list[int]:
+    if total <= 0 or count <= 0:
+        return []
+    if count >= total:
+        return list(range(total))
+    if count == 1:
+        return [0]
+    out: list[int] = []
+    for pos in range(count):
+        idx = int(round(pos * (total - 1) / (count - 1)))
+        if idx not in out:
+            out.append(idx)
+    candidate = 0
+    while len(out) < count and candidate < total:
+        if candidate not in out:
+            out.append(candidate)
+        candidate += 1
+    out.sort()
+    return out
+
+
+def _truncate_utf8_bytes(text: str, max_bytes: int) -> str:
+    raw = text.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return text
+    clipped = raw[:max_bytes]
+    return clipped.decode("utf-8", errors="ignore")
+
+
+def _coerce_str_list(raw: Any, *, limit: int) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        value = _read_str(item)
+        if value is None or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _coerce_string_list(raw: Any, *, limit: int) -> list[str]:

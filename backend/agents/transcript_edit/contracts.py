@@ -19,7 +19,12 @@ class TranscriptEditAgentRunRequest(BaseModel):
     mode: str = Field(default="audit_then_repair_then_promote")
     auto_promote: bool = True
     edit_plan: Optional[dict[str, Any]] = None
+    candidate_refs: list[str] = Field(default_factory=list, max_length=10)
     candidate_texts: list[str] = Field(default_factory=list, max_length=10)
+    max_candidates_for_orient: int = Field(default=3, ge=1, le=10)
+    max_total_hydrated_bytes_for_orient: int = Field(default=120000, ge=2000, le=2000000)
+    max_bytes_per_candidate_for_orient: int | None = Field(default=40000, ge=500, le=500000)
+    orient_hydration_selection_strategy: str = Field(default="first_middle_last")
     max_invalid_plan_attempts: int = Field(default=2, ge=1, le=5)
     max_no_progress_iterations: int = Field(default=2, ge=1, le=5)
     hitl_enabled: bool = True

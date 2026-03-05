@@ -92,6 +92,7 @@ from agent_kernel.session import KernelSessionManager
 from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
 from agent_kernel.tooling import (
     TranscriptAuditTool,
+    TranscriptOrientBaselineTool,
     TranscriptImageVerificationTool,
     TranscriptEditPlanApplyTool,
     TranscriptMappingPromoterTool,
@@ -550,6 +551,11 @@ class ImageToTextPipeline:
         successful_calls_raw = context.get("redundancy_successful_calls")
         successful_calls = successful_calls_raw if isinstance(successful_calls_raw, int) and successful_calls_raw >= 0 else 0
         gate_requires_full_n = expected_count > 1
+        candidate_refs = self._collect_post_t0_candidate_refs(
+            dossier_id=dossier_id,
+            transcription_id=transcription_id,
+            expected_count=expected_count if gate_requires_full_n else 0,
+        )
         if gate_requires_full_n:
             drafts_persisted = self._all_post_t0_draft_files_exist(
                 dossier_id=dossier_id,
@@ -586,7 +592,7 @@ class ImageToTextPipeline:
                     ),
                 )
                 return None
-        drafts_seen = len(candidate_texts) if candidate_texts else "n/a"
+        drafts_seen = len(candidate_refs) if candidate_refs else (len(candidate_texts) if candidate_texts else "n/a")
         input_kind = "ref" if source_transcript_ref else "text"
         if source_transcript_ref is None:
             sections = normalized_payload.get("sections")
@@ -809,6 +815,7 @@ class ImageToTextPipeline:
                     action_executor=ActionExecutor(
                         deps=ActionExecutorDeps(
                             transcript_auditor=TranscriptAuditTool(),
+                            transcript_orient_baseliner=TranscriptOrientBaselineTool(),
                             transcript_span_opener=TranscriptSpanOpenerTool(),
                             transcript_image_verifier=TranscriptImageVerificationTool(),
                             transcript_plan_applier=TranscriptEditPlanApplyTool(),
@@ -828,7 +835,12 @@ class ImageToTextPipeline:
                         source_text=source_text,
                         source_image_refs=_extract_source_image_refs_from_context(context),
                         model="gpt-5.2",
+                        candidate_refs=candidate_refs[:10],
                         candidate_texts=candidate_texts[:10],
+                        max_candidates_for_orient=3,
+                        max_total_hydrated_bytes_for_orient=120000,
+                        max_bytes_per_candidate_for_orient=40000,
+                        orient_hydration_selection_strategy="first_middle_last",
                         max_iterations=5,
                         min_iterations_before_complete=3,
                         mode=policy_mode,
@@ -1032,6 +1044,49 @@ class ImageToTextPipeline:
         if ref.exists():
             return str(ref)
         return None
+
+    def _collect_post_t0_candidate_refs(
+        self,
+        *,
+        dossier_id: str,
+        transcription_id: str | None,
+        expected_count: int,
+    ) -> list[str]:
+        if not transcription_id:
+            return []
+        raw_root = (
+            dossiers_root()
+            / "views"
+            / "transcriptions"
+            / str(dossier_id)
+            / str(transcription_id)
+            / "raw"
+        )
+        if not raw_root.exists():
+            return []
+        refs: list[str] = []
+        if expected_count > 0:
+            for idx in range(1, expected_count + 1):
+                versioned = raw_root / f"{transcription_id}_v{idx}.json"
+                if versioned.exists():
+                    refs.append(str(versioned))
+            return refs[:10]
+
+        discovered: list[tuple[int, str]] = []
+        for path in raw_root.glob(f"{transcription_id}_v*.json"):
+            stem = path.stem
+            marker = f"{transcription_id}_v"
+            if not stem.startswith(marker):
+                continue
+            suffix = stem[len(marker):]
+            try:
+                version = int(suffix)
+            except Exception:
+                continue
+            discovered.append((version, str(path)))
+        discovered.sort(key=lambda item: item[0])
+        refs.extend(path for _, path in discovered[:10])
+        return refs
 
     def _all_post_t0_draft_files_exist(
         self,

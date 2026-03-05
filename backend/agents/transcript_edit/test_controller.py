@@ -124,9 +124,14 @@ class _PlannerRaises:
 
 class _OrientBaselinerStub:
     def orient_and_baseline(self, inputs):  # type: ignore[no-untyped-def]
-        source_ref = str(inputs.get("source_transcript_ref") or "in-memory://tx/source.json")
+        source_ref = str(
+            inputs.get("canonical_ref")
+            or inputs.get("source_transcript_ref")
+            or "in-memory://tx/source.json"
+        )
         candidate_texts = inputs.get("candidate_texts") if isinstance(inputs.get("candidate_texts"), list) else []
-        has_conflict = len(candidate_texts) > 1
+        candidate_refs = inputs.get("candidate_refs") if isinstance(inputs.get("candidate_refs"), list) else []
+        has_conflict = len(candidate_texts) > 1 or len(candidate_refs) > 1
         range_state = "disputed" if has_conflict else "verified"
         range_impact = "mapping_blocking" if has_conflict else "transcript_quality_only"
         return {

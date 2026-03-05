@@ -597,6 +597,20 @@ def handle_repair_iteration(
             )
             state.pending_feedback_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
 
+    if state.pending_feedback_prompt_id and manual_plan_override is None:
+        # Keep the loop alive for feedback ingestion instead of terminalizing immediately on no-safe-plan.
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="human_feedback_needed",
+                message="Awaiting user feedback for unresolved mapping-blocking decision; deferring plan/apply this iteration.",
+                latest_refs=state.latest_refs,
+            ),
+        )
+        state.last_reason = "tx_agent_closure_requirements_unresolved"
+        return None
+
     manual_plan = manual_plan_override or (request.edit_plan if isinstance(request.edit_plan, dict) else None)
     consensus_plan_payload = None
 

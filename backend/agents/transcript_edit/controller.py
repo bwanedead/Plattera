@@ -82,6 +82,7 @@ _MODE_AUDIT_REPAIR = "audit_then_repair"
 _MODE_AUDIT_REPAIR_PROMOTE = "audit_then_repair_then_promote"
 _EDIT_LOOP_LLM_MODEL = "gpt-5.2"
 _KERNEL_STEP_INPUT_BUDGET_BYTES = 4096
+_MAX_CANDIDATES = 10
 _LOG = logging.getLogger(__name__)
 
 
@@ -146,7 +147,11 @@ def run_transcript_edit_controller_loop(
         current_transcript_ref=request.source_transcript_ref,
         decision_ledger=initialize_decision_ledger(),
     )
-    candidate_count = len(request.candidate_texts) if request.candidate_texts else 0
+    candidate_count = (
+        len(request.candidate_refs)
+        if request.candidate_refs
+        else len(request.candidate_texts)
+    )
     min_iterations_before_complete = max(
         1,
         min(int(request.max_iterations), int(request.min_iterations_before_complete)),
@@ -205,7 +210,12 @@ def run_transcript_edit_controller_loop(
         model=loop_model,
         source_transcript_ref=state.current_transcript_ref,
         source_text=request.source_text,
+        candidate_refs=request.candidate_refs,
         candidate_texts=request.candidate_texts,
+        max_candidates_for_orient=request.max_candidates_for_orient,
+        max_total_hydrated_bytes_for_orient=request.max_total_hydrated_bytes_for_orient,
+        max_bytes_per_candidate_for_orient=request.max_bytes_per_candidate_for_orient,
+        orient_hydration_selection_strategy=request.orient_hydration_selection_strategy,
     )
     orient = _step(
         session_manager=session_manager,
@@ -638,18 +648,38 @@ def _build_orient_inputs(
     model: str,
     source_transcript_ref: str | None,
     source_text: str | None,
+    candidate_refs: list[str],
     candidate_texts: list[str],
+    max_candidates_for_orient: int,
+    max_total_hydrated_bytes_for_orient: int,
+    max_bytes_per_candidate_for_orient: int | None,
+    orient_hydration_selection_strategy: str,
 ) -> dict[str, Any]:
-    # Keep orient inputs below kernel step payload limit by trimming candidates first.
     inputs: dict[str, Any] = {
         "dossier_id": dossier_id,
         "model": model,
+        "max_candidates_for_orient": int(max_candidates_for_orient),
+        "max_total_hydrated_bytes": int(max_total_hydrated_bytes_for_orient),
+        "selection_strategy": str(orient_hydration_selection_strategy or "first_middle_last"),
     }
+    if isinstance(max_bytes_per_candidate_for_orient, int) and max_bytes_per_candidate_for_orient > 0:
+        inputs["max_bytes_per_candidate"] = int(max_bytes_per_candidate_for_orient)
     if source_transcript_ref:
-        inputs["source_transcript_ref"] = source_transcript_ref
+        inputs["canonical_ref"] = source_transcript_ref
     elif source_text:
         inputs["source_text"] = source_text
-    candidate_pool = [text for text in candidate_texts[:10] if isinstance(text, str) and text.strip()]
+
+    candidate_ref_pool = [
+        ref
+        for ref in candidate_refs[:_MAX_CANDIDATES]
+        if isinstance(ref, str) and ref.strip()
+    ]
+    if candidate_ref_pool:
+        inputs["candidate_refs"] = candidate_ref_pool
+        return inputs
+
+    # Deprecated fallback for callers not yet migrated to candidate refs.
+    candidate_pool = [text for text in candidate_texts[:_MAX_CANDIDATES] if isinstance(text, str) and text.strip()]
     while candidate_pool:
         candidate_inputs = dict(inputs)
         candidate_inputs["candidate_texts"] = candidate_pool
