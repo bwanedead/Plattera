@@ -255,6 +255,25 @@ class _PlannerSectionSuccess:
         return plan, "ok", json.dumps(plan.model_dump(mode="json"))
 
 
+class _PlannerHintResolvedNoEdit:
+    def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+        focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+        return {
+            "decision_key": str(focus_packet.get("decision_key") or "range"),
+            "move": "mark_resolved_no_edit",
+            "reason": "hint_says_resolved",
+            "edit_plan": None,
+            "feedback_prompt": None,
+            "evidence_request": None,
+            "closure_update_hint": {"state": "verified", "selected_value": "Range 75 West"},
+            "iteration_summary": "Resolver thinks no edit required.",
+        }, "ok", "{}"
+
+    def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        return None, "planner_unused", "{}"
+
+
 class _OrientBaselinerStub:
     def orient_and_baseline(self, inputs):  # type: ignore[no-untyped-def]
         source_ref = str(
@@ -699,3 +718,27 @@ def test_transcript_controller_non_range_feedback_generates_manual_override(monk
             and int(evt["detail"].get("plan_op_count") or 0) > 0
             for evt in progress_events
         )
+
+
+def test_transcript_controller_closure_update_hint_does_not_override_ledger_truth() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Range token remains unresolved in candidates."}]}),
+            encoding="utf-8",
+        )
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="manual-closure-hint-advisory",
+            planner=_PlannerHintResolvedNoEdit(),
+        )
+        assert result.status == "needs_review"
+        assert str(result.reason_code).startswith("mark_resolved_no_edit_rejected:")

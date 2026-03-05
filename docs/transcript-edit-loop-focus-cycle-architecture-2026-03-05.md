@@ -128,6 +128,13 @@ Assemble a bounded packet for one decision item:
 - recent attempts for this item
 - bounded memory summary
 
+Deterministic packet budgeting rules:
+- cap focused span count and per-span text length
+- cap image verification result count and observed-text length
+- include only attempts for the same `decision_key`
+- cap feedback/note payload sizes
+- prefer refs/summaries over large inline blobs
+
 ### 5.4 Semantic resolve
 Resolver receives focus packet and returns one move:
 - `apply_edit_plan`
@@ -144,6 +151,11 @@ Runtime executes selected move:
 - verify with image
 - retrieve external evidence
 - persist artifacts and refs
+
+`gather_more_evidence` is executed through typed `evidence_request` dispatch:
+- `open_spans`
+- `image_verify`
+- `retrieve_dependency_evidence` (explicitly unsupported until wired)
 
 ### 5.6 Commit outcome
 Runtime:
@@ -167,6 +179,15 @@ Resolver should return a bounded object containing:
 - optional `evidence_request`
 - optional `closure_update_hint`
 - optional `iteration_summary`
+
+Deterministic acceptance rules:
+- focus selection is runtime-owned and happens before resolver call
+- resolver output must stay scoped to focused `decision_key`
+- `mark_resolved_no_edit` is accepted only if deterministic ledger state agrees
+- `mark_blocked` is accepted only under deterministic conditions (invalid move, dependency blocker, budget exhaustion, no autonomous path)
+- `apply_edit_plan` is accepted only when bounded plan validation passes and scope checks hold
+
+`closure_update_hint` is advisory only and does not directly mutate ledger truth.
 
 ### 6.1 Move semantics
 `apply_edit_plan`: enough evidence for safe bounded edit.
@@ -223,9 +244,8 @@ Memory is not canonical transcript truth or closure truth.
 - iteration pipeline pivot toward focus-cycle handling
 
 ### 10.2 Transitional areas
-- resolver contract is being upgraded toward explicit move-first semantics
-- focus packet remains intentionally bounded and can be enriched further
-- evidence request execution paths remain incrementally integrated
+- dependency retrieval execution remains explicitly unsupported pending retrieval-stage wiring
+- resolver guidance still depends on prompt quality and bounded context quality
 
 ### 10.3 Explicitly superseded direction
 Regex-style deterministic HITL override builders are not the intended active architecture.

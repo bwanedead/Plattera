@@ -23,3 +23,5 @@ class TranscriptEditLoopState:
     pending_feedback_prompt_id: str | None = None
     pending_feedback_prompt: dict[str, Any] | None = None
     continuity_log: list[dict[str, Any]] = field(default_factory=list)
+    evidence_repeat_guard: dict[str, dict[str, Any]] = field(default_factory=dict)
+    evidence_signal_counter: int = 0

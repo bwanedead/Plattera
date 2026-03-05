@@ -227,13 +227,26 @@ Repair path (high-level order):
 9. ledger update from image evidence
 10. `investigation_baseline_result` (residual blockers + next action)
 11. if still unresolved and blocking, emit HITL prompt
-12. `plan` -> `plan_result`
-13. `apply` -> `apply_result`
-14. next iteration re-audit
+12. build bounded focus packet for selected `decision_key`
+13. resolver returns one move for current focus only
+14. runtime applies move-acceptance guardrails
+15. execute one accepted move:
+   - `apply_edit_plan` -> `plan_result` + `apply_result`
+   - `request_human_feedback` -> `human_feedback_needed`
+   - `gather_more_evidence` -> typed evidence executor dispatch
+   - `mark_blocked` -> deterministic blocked outcome
+   - `mark_resolved_no_edit` -> accepted only if deterministic closure state agrees
+16. next iteration re-audit/reconcile
 
 Design rule now in place:
 - First HITL prompt is emitted only after baseline investigation result in that iteration.
 - In startup, semantic baseline now comes from `tx_orient_and_baseline`, not deterministic disagreement hints.
+
+Phase 4 guardrails:
+- focus selection is deterministic and ledger-driven before resolver call
+- resolver cannot switch to another decision item
+- `closure_update_hint` is advisory-only
+- repeated identical evidence requests are budget-limited per `decision_key + transcript_hash + kind` until new signal arrives
 
 ---
 
@@ -534,9 +547,24 @@ for i in 1..max_iterations:
   if unresolved blocking and no pending prompt:
     emit human_feedback_needed
 
-  plan = manual_override or planner_llm
-  if no safe plan: terminal needs_review
-  apply(plan)
+  focus_packet = build_bounded_focus_packet(focus, transcript, ledger, evidence, feedback, continuity)
+  move = resolve_focus_move(focus_packet)
+  if move invalid or off-focus: reject/downgrade deterministically
+  if move == gather_more_evidence:
+    execute_typed_evidence_request_with_repeat_budget(move.evidence_request)
+    continue
+  if move == request_human_feedback:
+    emit human_feedback_needed
+    continue
+  if move == mark_resolved_no_edit:
+    accept only if ledger now agrees item is not unresolved mapping-blocking
+    continue
+  if move == mark_blocked:
+    accept only when deterministic blocked conditions hold, else continue
+  if move == apply_edit_plan:
+    validate and apply bounded plan
+  else:
+    continue
   continue
 
 return max_iterations terminal

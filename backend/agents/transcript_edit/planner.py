@@ -232,8 +232,24 @@ def _coerce_focus_move(
             }
     if move == "gather_more_evidence":
         evidence = parsed.get("evidence_request")
-        if isinstance(evidence, dict):
-            out["evidence_request"] = dict(evidence)
+        if not isinstance(evidence, dict):
+            raise ValueError("missing_evidence_request_for_gather_move")
+        evidence_kind = str(evidence.get("kind") or "").strip().lower()
+        if evidence_kind not in {"open_spans", "image_verify", "retrieve_dependency_evidence"}:
+            raise ValueError("invalid_evidence_request_kind")
+        evidence_key = str(evidence.get("decision_key") or out["decision_key"]).strip().lower()
+        if evidence_key != out["decision_key"]:
+            raise ValueError("evidence_request_decision_key_mismatch")
+        target = evidence.get("target") if isinstance(evidence.get("target"), dict) else {}
+        out["evidence_request"] = {
+            "kind": evidence_kind,
+            "decision_key": evidence_key,
+            "reason": str(evidence.get("reason") or "").strip()[:240],
+            "target": {
+                "span_ids": [str(v).strip() for v in list(target.get("span_ids") or []) if str(v).strip()][:8],
+                "expected_fields": [str(v).strip().lower() for v in list(target.get("expected_fields") or []) if str(v).strip()][:6],
+            },
+        }
     if isinstance(parsed.get("closure_update_hint"), dict):
         out["closure_update_hint"] = dict(parsed.get("closure_update_hint"))
     return out

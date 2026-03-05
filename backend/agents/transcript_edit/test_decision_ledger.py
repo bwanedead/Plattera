@@ -12,6 +12,7 @@ from backend.agents.transcript_edit.decision_ledger import (
     has_blocking_dispute,
     has_unresolved_mapping_blocking_closure,
     initialize_decision_ledger,
+    is_unresolved_mapping_blocking_decision,
     unresolved_mapping_blocking_requirements,
     unresolved_closure_requirements,
     update_ledger_from_iteration,
@@ -147,3 +148,18 @@ def test_unresolved_mapping_blocking_predicate_covers_all_unresolved_states() ->
         assert has_unresolved_mapping_blocking_closure(ledger) is True
         unresolved = unresolved_mapping_blocking_requirements(ledger)
         assert any(isinstance(item, dict) and str(item.get("key")) == "range" for item in unresolved)
+
+
+def test_is_unresolved_mapping_blocking_decision_is_key_specific() -> None:
+    ledger = initialize_decision_ledger()
+    range_item = _item(ledger, "range")
+    range_item["state"] = "disputed"
+    range_item["blocking"] = True
+    range_item["closure_requirement"] = {
+        "mapping_blocking": True,
+        "operational_impact": "mapping_blocking",
+        "resolution_options": ["Range 75 West"],
+        "evidence_refs": ["test"],
+    }
+    assert is_unresolved_mapping_blocking_decision(ledger, "range") is True
+    assert is_unresolved_mapping_blocking_decision(ledger, "section") is False

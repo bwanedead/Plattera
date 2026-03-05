@@ -12,11 +12,13 @@ from .contracts import TranscriptEditAgentRunRequest
 from .decision_ledger import (
     choose_investigation_focus,
     has_unresolved_mapping_blocking_closure,
+    is_unresolved_mapping_blocking_decision,
     ledger_snapshot_for_payload,
     unresolved_mapping_blocking_requirements,
     unresolved_closure_requirements,
     update_ledger_from_iteration,
 )
+from .evidence_executor import execute_evidence_request, normalize_evidence_request
 from .draft_persistence import persist_agent_edit_draft
 from .focus_packet import build_focus_packet
 from .focus_resolver import resolve_focus_move
@@ -39,9 +41,7 @@ from .loop_runtime import (
 from .loop_state import TranscriptEditLoopState
 from .plan_interpretation import (
     build_apply_inputs_for_plan,
-    coerce_findings,
     max_change_class_from_plan,
-    plan_has_no_ops,
     plan_has_review_required,
     plan_op_to_display_dict,
 )
@@ -67,12 +67,13 @@ from .run_reporting import (
     image_verify_result_payload,
     open_spans_payload,
     open_spans_result_payload,
-    plan_payload,
     plan_result_payload,
     promote_payload,
     stabilize_payload,
     ticker_payload,
 )
+
+MAX_EVIDENCE_REPEATS_PER_SIGNATURE = 2
 
 
 def handle_clean_iteration(
@@ -283,10 +284,11 @@ def handle_repair_iteration(
     progress_cb: Callable[[dict[str, Any]], None] | None,
     model: str,
 ) -> TranscriptEditDecision | None:
-    mapping_focus = choose_investigation_focus(state.decision_ledger) or {}
+    mapping_focus: dict[str, Any] = choose_investigation_focus(state.decision_ledger) or {}
     manual_plan_override: dict[str, Any] | None = None
     focus_feedback: dict[str, Any] | None = state.latest_feedback if isinstance(state.latest_feedback, dict) else None
     viewer_run_id = viewer_run_id_from_request_prefix(request_id_prefix)
+
     def _drain_pending_feedback(*, checkpoint_label: str) -> dict[str, Any] | None:
         if not state.pending_feedback_prompt_id:
             return None
@@ -329,6 +331,7 @@ def handle_repair_iteration(
     if drained_plan is not None:
         focus_feedback = drained_plan
         state.latest_feedback = drained_plan
+        state.evidence_signal_counter += 1
         emit_progress(
             progress_cb,
             human_feedback_reused_payload(
@@ -421,6 +424,7 @@ def handle_repair_iteration(
         if drained_plan is not None:
             focus_feedback = drained_plan
             state.latest_feedback = drained_plan
+            state.evidence_signal_counter += 1
         emit_progress(
             progress_cb,
             image_verify_payload(
@@ -454,6 +458,8 @@ def handle_repair_iteration(
             iv_payload = image_verification.get("payload") or {}
             iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
             iv_results = iv_results if isinstance(iv_results, list) else []
+            if iv_results:
+                state.evidence_signal_counter += 1
             state.decision_ledger = update_ledger_from_iteration(
                 ledger=state.decision_ledger,
                 findings=planning_findings,
@@ -487,6 +493,7 @@ def handle_repair_iteration(
         if drained_plan is not None:
             focus_feedback = drained_plan
             state.latest_feedback = drained_plan
+            state.evidence_signal_counter += 1
     else:
         emit_progress(
             progress_cb,
@@ -521,6 +528,8 @@ def handle_repair_iteration(
             iv_payload = image_verification.get("payload") or {}
             iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
             iv_results = iv_results if isinstance(iv_results, list) else []
+            if iv_results:
+                state.evidence_signal_counter += 1
             state.decision_ledger = update_ledger_from_iteration(
                 ledger=state.decision_ledger,
                 findings=planning_findings,
@@ -530,6 +539,7 @@ def handle_repair_iteration(
         if drained_plan is not None:
             focus_feedback = drained_plan
             state.latest_feedback = drained_plan
+            state.evidence_signal_counter += 1
 
     baseline_unresolved = unresolved_closure_requirements(state.decision_ledger)
     baseline_mapping_blocking_unresolved = unresolved_mapping_blocking_requirements(state.decision_ledger)
@@ -613,11 +623,12 @@ def handle_repair_iteration(
         state.last_reason = "tx_agent_closure_requirements_unresolved"
         return None
 
-    focus_key = str((mapping_focus or {}).get("decision_key") or "").strip().lower()
-    if isinstance(focus_feedback, dict):
-        feedback_key = str(focus_feedback.get("decision_key") or "").strip().lower()
-        if feedback_key:
-            focus_key = feedback_key
+    focus_key = _select_focus_decision_key(
+        decision_ledger=state.decision_ledger,
+        fallback_focus=mapping_focus,
+        focus_feedback=focus_feedback,
+    )
+    mapping_focus = mapping_focus or {"decision_key": focus_key}
     focus_packet = build_focus_packet(
         decision_ledger=state.decision_ledger,
         decision_key=focus_key or None,
@@ -638,6 +649,10 @@ def handle_repair_iteration(
     )
     move = str((resolver_outcome or {}).get("move") or "").strip().lower()
     resolver_reason = str((resolver_outcome or {}).get("reason") or "").strip() or "resolver_no_reason"
+    resolver_decision_key = str((resolver_outcome or {}).get("decision_key") or "").strip().lower()
+    if resolver_decision_key and resolver_decision_key != focus_key:
+        move = "mark_blocked"
+        resolver_reason = f"resolver_decision_key_mismatch:{resolver_decision_key}"
     state.continuity_log.append(
         {
             "decision_key": focus_key or "",
@@ -686,6 +701,14 @@ def handle_repair_iteration(
         state.last_reason = "tx_agent_closure_requirements_unresolved"
         return None
     if move == "mark_blocked":
+        if not _accept_mark_blocked(
+            decision_ledger=state.decision_ledger,
+            decision_key=focus_key,
+            resolver_reason=resolver_reason,
+            hitl_enabled=request.hitl_enabled,
+        ):
+            state.last_reason = f"mark_blocked_rejected:{resolver_reason}"
+            return None
         if resolver_reason.startswith(("resolver_move_invalid:", "resolver_plan_invalid:")):
             reason_suffix = resolver_reason
             if reason_suffix.startswith("resolver_move_invalid:"):
@@ -702,7 +725,134 @@ def handle_repair_iteration(
             reason_code="tx_agent_closure_requirements_unresolved",
             review_required=True,
         )
-    if move in {"gather_more_evidence", "mark_resolved_no_edit"}:
+    if move == "mark_resolved_no_edit":
+        if _accept_mark_resolved_no_edit(
+            decision_ledger=state.decision_ledger,
+            decision_key=focus_key,
+        ):
+            state.last_reason = resolver_reason
+            return None
+        state.last_reason = f"mark_resolved_no_edit_rejected:{resolver_reason}"
+        return None
+    if move == "gather_more_evidence":
+        normalized_request, normalize_reason = normalize_evidence_request(
+            evidence_request=(
+                resolver_outcome.get("evidence_request")
+                if isinstance(resolver_outcome, dict) and isinstance(resolver_outcome.get("evidence_request"), dict)
+                else None
+            ),
+            decision_key=focus_key,
+        )
+        if normalized_request is None:
+            state.last_reason = f"gather_more_evidence_rejected:{normalize_reason}"
+            return None
+        focused_findings = _findings_for_focus_key(top_findings=planning_findings, focus_key=focus_key)
+        focus_findings = focused_findings if focused_findings else planning_findings
+        evidence_result = execute_evidence_request(
+            normalized_request=normalized_request,
+            source_transcript_hash=source_transcript_hash,
+            repeat_guard=state.evidence_repeat_guard,
+            evidence_signal_counter=state.evidence_signal_counter,
+            max_repeats_per_signature=MAX_EVIDENCE_REPEATS_PER_SIGNATURE,
+            open_spans_runner=lambda _req: _open_planner_context_spans(
+                session_manager=session_manager,
+                session_id=session_id,
+                iteration=iterations,
+                dossier_id=request.dossier_id,
+                source_transcript_ref=state.current_transcript_ref or "",
+                top_findings=focus_findings,
+            ),
+            image_verify_runner=lambda _req: _verify_mapping_critical_with_image(
+                session_manager=session_manager,
+                session_id=session_id,
+                iteration=iterations,
+                dossier_id=request.dossier_id,
+                source_transcript_ref=state.current_transcript_ref or "",
+                top_findings=focus_findings,
+                source_image_refs=request.source_image_refs,
+                model=model,
+                progress_cb=progress_cb,
+            ),
+            retrieve_dependency_runner=None,
+        )
+        state.continuity_log.append(
+            {
+                "decision_key": focus_key,
+                "move": "gather_more_evidence",
+                "outcome": str(evidence_result.get("reason") or "evidence_result_unknown"),
+                "evidence_kind": str(evidence_result.get("kind") or ""),
+            }
+        )
+        if len(state.continuity_log) > 50:
+            state.continuity_log = state.continuity_log[-50:]
+        if str(evidence_result.get("status") or "") == "repeat_blocked":
+            return TranscriptEditDecision(
+                status="needs_review",
+                reason_code="tx_agent_evidence_repeat_budget_exhausted",
+                review_required=True,
+            )
+        if str(evidence_result.get("status") or "") in {"unsupported", "invalid"}:
+            state.last_reason = f"gather_more_evidence_failed:{evidence_result.get('reason')}"
+            return None
+        extra_spans = evidence_result.get("span_context") if isinstance(evidence_result.get("span_context"), list) else []
+        if extra_spans:
+            span_context = [s for s in extra_spans if isinstance(s, dict)]
+            state.evidence_signal_counter += 1
+            emit_progress(
+                progress_cb,
+                open_spans_result_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    spans_display=[_span_to_display_dict(s) for s in span_context[:6]],
+                ),
+            )
+        extra_image_verification = (
+            evidence_result.get("image_verification")
+            if isinstance(evidence_result.get("image_verification"), dict)
+            else {}
+        )
+        if extra_image_verification:
+            image_verification = extra_image_verification
+            state.latest_refs = image_verification.get("latest_refs", state.latest_refs)
+            iv_payload = image_verification.get("payload") if isinstance(image_verification.get("payload"), dict) else {}
+            iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
+            iv_results = iv_results if isinstance(iv_results, list) else []
+            if iv_results:
+                state.evidence_signal_counter += 1
+            state.decision_ledger = update_ledger_from_iteration(
+                ledger=state.decision_ledger,
+                findings=planning_findings,
+                image_results=[result for result in iv_results if isinstance(result, dict)],
+            )
+            emit_progress(
+                progress_cb,
+                image_verify_result_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    iv_payload=iv_payload,
+                    iv_results=[
+                        {
+                            "check_id": r.get("check_id"),
+                            "status": r.get("status"),
+                            "observed_text": str(r.get("observed_text") or "")[:120],
+                        }
+                        for r in iv_results[:8]
+                        if isinstance(r, dict)
+                    ],
+                    iv_confirmed=sum(
+                        1
+                        for r in iv_results
+                        if isinstance(r, dict) and str(r.get("status") or "").lower() in {"confirmed", "match"}
+                    ),
+                    iv_rejected=sum(
+                        1
+                        for r in iv_results
+                        if isinstance(r, dict) and str(r.get("status") or "").lower() in {"rejected", "mismatch"}
+                    ),
+                    iv_total=len(iv_results),
+                    decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
+                ),
+            )
         state.last_reason = resolver_reason
         return None
 
@@ -713,69 +863,33 @@ def handle_repair_iteration(
     )
     if manual_plan is None:
         manual_plan = request.edit_plan if isinstance(request.edit_plan, dict) else None
-    consensus_plan_payload = None
 
     if manual_plan is not None:
-        selected_plan_payload = manual_plan
-        plan_reason = "resolver_edit_plan" if move == "apply_edit_plan" else "manual_plan"
-        raw_plan_text = json.dumps(manual_plan, ensure_ascii=False)
-    elif consensus_plan_payload is not None:
-        selected_plan_payload = consensus_plan_payload
-        plan_reason = "deterministic_consensus_plan"
-        raw_plan_text = json.dumps(consensus_plan_payload, ensure_ascii=False)
-    else:
-        emit_progress(
-            progress_cb,
-            plan_payload(
-                iteration=iterations,
-                latest_refs=state.latest_refs,
-            ),
-        )
-        emit_progress(
-            progress_cb,
-            ticker_payload(
-                iteration=iterations,
-                phase="plan",
-                message="Drafting a drift-safe correction plan from validated evidence.",
-                latest_refs=state.latest_refs,
-            ),
-        )
-        try:
-            plan, plan_reason, raw_plan_text = planner_client.propose_plan(
-                model=model,
-                source_transcript_ref=state.current_transcript_ref,
-                source_transcript_hash=source_transcript_hash,
-                findings_summary=findings_summary,
-                top_findings=coerce_findings(planning_findings),
-                span_context=span_context,
-                image_verification=image_verification.get("payload") if isinstance(image_verification, dict) else {},
-                candidate_disagreement_hints={},
-                mapping_priority_focus=mapping_focus,
-                max_attempts=request.max_invalid_plan_attempts,
-            )
-        except Exception as exc:
-            plan = None
-            plan_reason = f"planner_exception:{type(exc).__name__}"
-            raw_plan_text = ""
-        selected_plan_payload = plan.model_dump(mode="json") if plan is not None else None
-        if selected_plan_payload is None:
+        if not _accept_apply_edit_plan(
+            resolver_decision_key=resolver_decision_key or focus_key,
+            focus_key=focus_key,
+            plan_payload=manual_plan,
+        ):
             state.invalid_plan_strikes += 1
             if state.invalid_plan_strikes >= request.max_invalid_plan_attempts:
                 return TranscriptEditDecision(
                     status="needs_review",
-                    reason_code=f"tx_agent_plan_invalid:{plan_reason}",
+                    reason_code="tx_agent_plan_invalid:focus_scope_mismatch",
                     review_required=True,
                 )
             return None
-        if plan_has_no_ops(selected_plan_payload):
-            reason = "tx_agent_no_safe_plan_for_findings"
-            if manual_plan is None:
-                reason = f"{reason}:{plan_reason}"
+        selected_plan_payload = manual_plan
+        plan_reason = "resolver_edit_plan" if move == "apply_edit_plan" else "manual_plan"
+        raw_plan_text = json.dumps(manual_plan, ensure_ascii=False)
+    else:
+        state.invalid_plan_strikes += 1
+        if state.invalid_plan_strikes >= request.max_invalid_plan_attempts:
             return TranscriptEditDecision(
                 status="needs_review",
-                reason_code=reason,
+                reason_code="tx_agent_plan_invalid:missing_apply_edit_plan",
                 review_required=True,
             )
+        return None
 
     plan_ops = selected_plan_payload.get("ops") if isinstance(selected_plan_payload, dict) else []
     plan_ops = plan_ops if isinstance(plan_ops, list) else []
@@ -863,6 +977,80 @@ def _step_kernel_action(
         action_type=action_type,
         inputs=inputs,
     )
+
+
+def _select_focus_decision_key(
+    *,
+    decision_ledger: dict[str, Any],
+    fallback_focus: dict[str, Any] | None,
+    focus_feedback: dict[str, Any] | None,
+) -> str:
+    if isinstance(focus_feedback, dict):
+        feedback_key = str(focus_feedback.get("decision_key") or "").strip().lower()
+        if feedback_key and is_unresolved_mapping_blocking_decision(decision_ledger, feedback_key):
+            return feedback_key
+    key = str((fallback_focus or {}).get("decision_key") or "").strip().lower()
+    if key:
+        return key
+    fallback = choose_investigation_focus(decision_ledger) or {}
+    return str(fallback.get("decision_key") or "").strip().lower()
+
+
+def _accept_mark_resolved_no_edit(*, decision_ledger: dict[str, Any], decision_key: str) -> bool:
+    return not is_unresolved_mapping_blocking_decision(decision_ledger, decision_key)
+
+
+def _accept_mark_blocked(
+    *,
+    decision_ledger: dict[str, Any],
+    decision_key: str,
+    resolver_reason: str,
+    hitl_enabled: bool,
+) -> bool:
+    reason = str(resolver_reason or "").strip().lower()
+    if reason.startswith(
+        (
+            "resolver_move_invalid:",
+            "resolver_plan_invalid:",
+            "resolver_move_invalid",
+            "resolver_plan_invalid",
+        )
+    ):
+        return True
+    unresolved = unresolved_mapping_blocking_requirements(decision_ledger)
+    focus_item = next(
+        (
+            item
+            for item in unresolved
+            if isinstance(item, dict) and str(item.get("key") or "").strip().lower() == decision_key
+        ),
+        None,
+    )
+    requirement = focus_item.get("closure_requirement") if isinstance(focus_item, dict) else {}
+    block_reason = str(requirement.get("block_reason") or "").strip().lower() if isinstance(requirement, dict) else ""
+    if block_reason == "dependency":
+        return True
+    if "repeat_budget" in reason or "evidence_budget" in reason:
+        return True
+    if not hitl_enabled and is_unresolved_mapping_blocking_decision(decision_ledger, decision_key):
+        return True
+    return False
+
+
+def _accept_apply_edit_plan(
+    *,
+    resolver_decision_key: str,
+    focus_key: str,
+    plan_payload: dict[str, Any],
+) -> bool:
+    if resolver_decision_key != focus_key:
+        return False
+    if not isinstance(plan_payload, dict):
+        return False
+    ops = plan_payload.get("ops")
+    if not isinstance(ops, list) or len(ops) <= 0:
+        return False
+    return True
 
 
 def _open_planner_context_spans(

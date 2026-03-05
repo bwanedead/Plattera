@@ -117,10 +117,12 @@ def build_focus_resolver_system_message() -> str:
     return (
         "You are a transcript-edit focus resolver. "
         "Return one bounded JSON move object for the current focus item. "
+        "The runtime preselects the focus decision_key; do not switch focus to any other item. "
         "Allowed move values: apply_edit_plan, request_human_feedback, gather_more_evidence, mark_blocked, mark_resolved_no_edit. "
         "If move=apply_edit_plan, include a valid EditPlanV0 in edit_plan. "
         "If move=request_human_feedback, include feedback_prompt with line1, line2, and bounded choices when available. "
-        "If move=gather_more_evidence, include evidence_request describing next evidence step. "
+        "If move=gather_more_evidence, include evidence_request with fields: kind, decision_key, reason, target. "
+        "Allowed evidence_request.kind values: open_spans, image_verify, retrieve_dependency_evidence. "
         "Always include decision_key, move, reason, and iteration_summary. "
         "Do not return markdown. Return JSON object only."
     )
@@ -147,7 +149,12 @@ def build_focus_resolver_user_message(
             "reason": "short reason",
             "edit_plan": {"plan_version": "edit_plan_v0", "ops": []},
             "feedback_prompt": None,
-            "evidence_request": None,
+            "evidence_request": {
+                "kind": "image_verify",
+                "decision_key": "range",
+                "reason": "Need image confirmation of range token near focused span.",
+                "target": {"span_ids": ["span_1"], "expected_fields": ["range"]},
+            },
             "closure_update_hint": None,
             "iteration_summary": "short summary",
         },

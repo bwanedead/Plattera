@@ -289,6 +289,20 @@ def has_unresolved_mapping_blocking_closure(ledger: dict[str, Any] | None) -> bo
     return len(unresolved_mapping_blocking_requirements(ledger)) > 0
 
 
+def is_unresolved_mapping_blocking_decision(
+    ledger: dict[str, Any] | None,
+    decision_key: str | None,
+) -> bool:
+    key = str(decision_key or "").strip().lower()
+    if not key:
+        return False
+    unresolved = unresolved_mapping_blocking_requirements(ledger)
+    return any(
+        isinstance(item, dict) and str(item.get("key") or "").strip().lower() == key
+        for item in unresolved
+    )
+
+
 def choose_investigation_focus(ledger: dict[str, Any] | None) -> dict[str, Any] | None:
     normalized = _ensure_ledger_shape(ledger)
     candidates: list[dict[str, Any]] = []
