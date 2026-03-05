@@ -29,7 +29,7 @@ def _facts(**overrides):
         has_disagreements=True,
         has_images=False,
         min_iterations_before_complete=3,
-        actionable_blocking_closure=False,
+        unresolved_mapping_blocking_closure=False,
     )
     values = {**base.__dict__, **overrides}
     return TranscriptEditFacts(**values)
@@ -52,7 +52,13 @@ def test_should_attempt_promote_matches_mode_and_flags() -> None:
     assert should_attempt_promote(_facts(), "audit_then_repair_then_promote") is True
     assert should_attempt_promote(_facts(mode="audit_then_repair"), "audit_then_repair_then_promote") is False
     assert should_attempt_promote(_facts(applied_requires_review=True), "audit_then_repair_then_promote") is False
-    assert should_attempt_promote(_facts(actionable_blocking_closure=True), "audit_then_repair_then_promote") is False
+    unresolved_states = {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
+    for state in unresolved_states:
+        unresolved = state in unresolved_states
+        assert should_attempt_promote(
+            _facts(unresolved_mapping_blocking_closure=unresolved),
+            "audit_then_repair_then_promote",
+        ) is False
 
 
 def test_clean_decisions_and_max_iteration_decision() -> None:
@@ -61,10 +67,15 @@ def test_clean_decisions_and_max_iteration_decision() -> None:
     assert clean.reason_code == "tx_agent_clean_no_promote"
     assert clean.review_required is False
 
-    blocked = clean_no_promote_decision(_facts(error_count=0, actionable_blocking_closure=True))
-    assert blocked.status == "needs_review"
-    assert blocked.reason_code == "tx_agent_closure_requirements_unresolved"
-    assert blocked.review_required is True
+    unresolved_states = {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
+    for state in unresolved_states:
+        unresolved = state in unresolved_states
+        blocked = clean_no_promote_decision(
+            _facts(error_count=0, unresolved_mapping_blocking_closure=unresolved)
+        )
+        assert blocked.status == "needs_review"
+        assert blocked.reason_code == "tx_agent_closure_requirements_unresolved"
+        assert blocked.review_required is True
 
     promoted = clean_promoted_decision()
     assert promoted.status == "completed"

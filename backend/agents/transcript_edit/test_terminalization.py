@@ -147,7 +147,52 @@ def test_terminal_summary_completed_status_not_mapping_ready_when_blocking_closu
     unresolved = summary["unresolved_closure_requirements"]
     assert isinstance(unresolved, list)
     assert any(str(item.get("key")) == "range" for item in unresolved if isinstance(item, dict))
+    unresolved_blocking = summary["unresolved_mapping_blocking_closure_requirements"]
+    assert isinstance(unresolved_blocking, list)
+    assert any(str(item.get("key")) == "range" for item in unresolved_blocking if isinstance(item, dict))
     assert isinstance(summary["unresolved_optional_items"], list)
+
+
+def test_terminal_summary_completed_status_not_mapping_ready_for_unknown_and_candidate_found() -> None:
+    for state in ["unknown", "candidate_found"]:
+        progress_log = [
+            {
+                "phase": "audit_result",
+                "detail": {
+                    "error_count": 0,
+                    "decision_ledger": {
+                        "items": [
+                            {
+                                "key": "range",
+                                "label": "Range",
+                                "state": state,
+                                "blocking": True,
+                                "provenance": "orient_llm",
+                                "closure_requirement": {
+                                    "block_reason": "ambiguity",
+                                    "mapping_blocking": True,
+                                    "resolution_options": ["Range 75 West"],
+                                    "evidence_refs": ["orient_llm"],
+                                },
+                            }
+                        ],
+                        "summary": {"blocking_open_count": 1},
+                    },
+                },
+            }
+        ]
+        result = build_run_result(
+            run_artifact_ref=None,
+            session_id="s3",
+            iterations=2,
+            status="completed",
+            reason_code="tx_agent_clean_no_promote",
+            latest_refs={},
+            review_required=False,
+        )
+        summary = terminal_summary(progress_log, result)
+        assert summary["mapping_ready"] is False
+        assert summary["closure_state"] == "blocked"
 
 
 def test_terminal_summary_includes_unresolved_optional_items() -> None:

@@ -6,6 +6,8 @@ from .contracts import TranscriptEditAgentRunResult
 from .decision_ledger import (
     closure_state_from_layers,
     derive_layer_statuses,
+    has_unresolved_mapping_blocking_closure,
+    unresolved_mapping_blocking_requirements,
     unresolved_closure_requirements,
 )
 
@@ -100,7 +102,8 @@ def terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[st
     unresolved_optional_items = [
         item for item in unresolved_requirements if isinstance(item, dict) and not bool(item.get("mapping_blocking"))
     ]
-    blocking_unresolved = any(bool(item.get("blocking")) for item in unresolved_requirements if isinstance(item, dict))
+    blocking_unresolved = has_unresolved_mapping_blocking_closure(decision_ledger)
+    unresolved_mapping_blocking_items = unresolved_mapping_blocking_requirements(decision_ledger)
     mapping_ready = False
     readiness_blocker: str | None = None
     if promoted:
@@ -137,6 +140,7 @@ def terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[st
         "decision_ledger": decision_ledger_with_history,
         "closure_history": closure_history,
         "unresolved_closure_requirements": unresolved_requirements,
+        "unresolved_mapping_blocking_closure_requirements": unresolved_mapping_blocking_items,
         "unresolved_optional_items": unresolved_optional_items,
         "decision_ledger_summary": (
             decision_ledger.get("summary")

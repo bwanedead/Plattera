@@ -11,7 +11,9 @@ from transcript_edit.persistence import TranscriptionEditPersistenceService
 from .contracts import TranscriptEditAgentRunRequest
 from .decision_ledger import (
     choose_investigation_focus,
+    has_unresolved_mapping_blocking_closure,
     ledger_snapshot_for_payload,
+    unresolved_mapping_blocking_requirements,
     unresolved_closure_requirements,
     update_ledger_from_iteration,
 )
@@ -89,7 +91,7 @@ def handle_clean_iteration(
     progress_cb: Callable[[dict[str, Any]], None] | None,
     model: str,
 ) -> TranscriptEditDecision | None:
-    actionable_blocking_closure = _has_actionable_blocking_closure(state.decision_ledger)
+    unresolved_mapping_blocking_closure = has_unresolved_mapping_blocking_closure(state.decision_ledger)
     policy_facts = TranscriptEditFacts(
         iterations=iterations,
         mode=mode,
@@ -102,7 +104,7 @@ def handle_clean_iteration(
         has_disagreements=has_disagreements,
         has_images=bool(request.source_image_refs),
         min_iterations_before_complete=min_iterations_before_complete,
-        actionable_blocking_closure=actionable_blocking_closure,
+        unresolved_mapping_blocking_closure=unresolved_mapping_blocking_closure,
     )
     needs_terminal_verify = must_verify_before_terminal(policy_facts)
     final_verify_ran = False
@@ -277,7 +279,6 @@ def handle_repair_iteration(
     top_findings: list[dict[str, Any]],
     findings_summary: dict[str, Any],
     source_transcript_hash: str,
-    blocking_warning_present: bool,
     progress_cb: Callable[[dict[str, Any]], None] | None,
     model: str,
 ) -> TranscriptEditDecision | None:
@@ -532,9 +533,11 @@ def handle_repair_iteration(
             manual_plan_override = drained_plan
 
     baseline_unresolved = unresolved_closure_requirements(state.decision_ledger)
+    baseline_mapping_blocking_unresolved = unresolved_mapping_blocking_requirements(state.decision_ledger)
     baseline_residual = [_baseline_residual_from_unresolved(item) for item in baseline_unresolved]
-    mapping_blocking_count = sum(1 for item in baseline_residual if bool(item.get("mapping_blocking")))
+    mapping_blocking_count = len(baseline_mapping_blocking_unresolved)
     optional_count = max(0, len(baseline_residual) - mapping_blocking_count)
+    has_mapping_blocking_residual = mapping_blocking_count > 0
     next_recommended_action = _next_recommended_action_text(baseline_residual)
     baseline_attempts_list = _baseline_evidence_attempts(
         span_context=span_context,
@@ -567,9 +570,8 @@ def handle_repair_iteration(
 
     if (
         manual_plan_override is None
-        and blocking_warning_present
+        and has_mapping_blocking_residual
         and request.hitl_enabled
-        and (viewer_run_id.startswith("tx_agent_") or viewer_run_id.startswith("tx_post_t0_"))
         and not state.pending_feedback_prompt_id
     ):
         feedback_prompt = build_human_feedback_prompt(
@@ -868,24 +870,6 @@ def _findings_for_focus_key(*, top_findings: list[dict[str, Any]], focus_key: st
         if any(token in blob for token in keywords):
             focused.append(finding)
     return focused
-
-
-def _has_actionable_blocking_closure(ledger: dict[str, Any] | None) -> bool:
-    if not isinstance(ledger, dict):
-        return False
-    items = ledger.get("items")
-    if not isinstance(items, list):
-        return False
-    actionable_states = {"disputed", "accepted_with_risk"}
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        if not bool(item.get("blocking")):
-            continue
-        state = str(item.get("state") or "unknown")
-        if state in actionable_states:
-            return True
-    return False
 
 
 def _conflict_map_from_ledger(ledger: dict[str, Any] | None) -> list[dict[str, Any]]:

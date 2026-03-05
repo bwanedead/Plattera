@@ -24,6 +24,7 @@ _LAYER_TAG_VALUES = {
     "layer4_transcript_quality_optional",
 }
 _IMPACT_VALUES = {"mapping_blocking", "transcript_quality_only"}
+_UNRESOLVED_STATES = {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
 _DECISION_PRIORITY: dict[str, int] = {
     "township": 0,
     "range": 1,
@@ -172,7 +173,7 @@ def update_ledger_from_orient_baseline(
         item["provenance"] = str(raw.get("provenance") or "orient_llm")
         item["verification_required"] = bool(raw.get("verification_required"))
         item["evidence_refs"] = evidence_refs
-        unresolved = state in {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
+        unresolved = state in _UNRESOLVED_STATES
         if unresolved:
             item["closure_requirement"] = {
                 "block_reason": block_reason,
@@ -267,6 +268,27 @@ def unresolved_closure_requirements(ledger: dict[str, Any] | None) -> list[dict[
     return unresolved
 
 
+def unresolved_mapping_blocking_requirements(ledger: dict[str, Any] | None) -> list[dict[str, Any]]:
+    unresolved = unresolved_closure_requirements(ledger)
+    filtered: list[dict[str, Any]] = []
+    for item in unresolved:
+        if not isinstance(item, dict):
+            continue
+        if not bool(item.get("mapping_blocking")):
+            continue
+        requirement = item.get("closure_requirement")
+        if not isinstance(requirement, dict):
+            continue
+        if not _is_material_mapping_blocking_requirement(item=item, requirement=requirement):
+            continue
+        filtered.append(item)
+    return filtered
+
+
+def has_unresolved_mapping_blocking_closure(ledger: dict[str, Any] | None) -> bool:
+    return len(unresolved_mapping_blocking_requirements(ledger)) > 0
+
+
 def choose_investigation_focus(ledger: dict[str, Any] | None) -> dict[str, Any] | None:
     normalized = _ensure_ledger_shape(ledger)
     candidates: list[dict[str, Any]] = []
@@ -274,7 +296,7 @@ def choose_investigation_focus(ledger: dict[str, Any] | None) -> dict[str, Any] 
         if not isinstance(item, dict):
             continue
         state = str(item.get("state") or "unknown")
-        if state not in {"unknown", "candidate_found", "disputed", "accepted_with_risk"}:
+        if state not in _UNRESOLVED_STATES:
             continue
         key = str(item.get("key") or "")
         blocking = bool(item.get("blocking"))
@@ -378,7 +400,7 @@ def _summary(items: list[dict[str, Any]]) -> dict[str, int]:
             disputed_count += 1
         if state == "unknown":
             unknown_count += 1
-        if blocking and state in {"unknown", "candidate_found", "disputed", "accepted_with_risk"}:
+        if blocking and state in _UNRESOLVED_STATES:
             blocking_open_count += 1
     return {
         "blocking_open_count": blocking_open_count,
@@ -524,7 +546,7 @@ def _attach_closure_requirements(items: list[dict[str, Any]], readiness_blocker:
             continue
         state = str(item.get("state") or "unknown")
         blocking = bool(item.get("blocking"))
-        unresolved = state in {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
+        unresolved = state in _UNRESOLVED_STATES
         requires = bool(unresolved)
         if not requires:
             item["closure_requirement"] = None
@@ -663,3 +685,21 @@ def _focus_reason_for_candidate(candidate: dict[str, Any]) -> tuple[str, str]:
     if state == "disputed":
         return ("highest_uncertainty", f"Prioritizing {label}: it has the highest unresolved uncertainty.")
     return ("next_open_item", f"Prioritizing {label}: it is the next unresolved checklist item.")
+
+
+def _is_material_mapping_blocking_requirement(*, item: dict[str, Any], requirement: dict[str, Any]) -> bool:
+    state = str(item.get("state") or "unknown").strip().lower()
+    if state in {"disputed", "accepted_with_risk"}:
+        return True
+    if isinstance(requirement.get("resolution_options"), list) and len(requirement.get("resolution_options") or []) > 0:
+        return True
+    if str(item.get("selected_value") or "").strip():
+        return True
+    if isinstance(requirement.get("evidence_refs"), list) and len(requirement.get("evidence_refs") or []) > 0:
+        return True
+    if bool(item.get("verification_required")):
+        return True
+    provenance = str(item.get("provenance") or "").strip().lower()
+    if provenance and provenance != "deterministic":
+        return True
+    return False

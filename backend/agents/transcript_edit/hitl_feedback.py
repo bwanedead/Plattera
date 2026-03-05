@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from services.agent_viewer import feedback_store
 
+from .decision_ledger import unresolved_mapping_blocking_requirements
 from .span_seeds import load_transcript_text_for_seeds
 
 
@@ -23,10 +24,8 @@ def build_human_feedback_prompt(
     decision_ledger: dict[str, Any],
     iteration: int,
 ) -> dict[str, Any] | None:
-    if not isinstance(decision_ledger, dict):
-        return None
-    items = decision_ledger.get("items")
-    if not isinstance(items, list):
+    unresolved_items = unresolved_mapping_blocking_requirements(decision_ledger)
+    if not unresolved_items:
         return None
     target = None
     priority = {
@@ -40,7 +39,7 @@ def build_human_feedback_prompt(
         "acreage": 100,
     }
     unresolved_states = {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
-    for item in items:
+    for item in unresolved_items:
         if not isinstance(item, dict):
             continue
         state = str(item.get("state") or "").strip().lower()

@@ -23,6 +23,7 @@ from .context_spans import (
 )
 from .disagreement_analysis import has_blocking_warnings, prioritized_findings_for_planning
 from .decision_ledger import (
+    has_unresolved_mapping_blocking_closure,
     initialize_decision_ledger,
     ledger_snapshot_for_payload,
     unresolved_closure_requirements,
@@ -340,6 +341,9 @@ def run_transcript_edit_controller_loop(
             ledger=state.decision_ledger,
             findings=top_findings,
         )
+        unresolved_items = unresolved_closure_requirements(state.decision_ledger)
+        has_open_closure = bool(unresolved_items)
+        has_mapping_blocking_closure = has_unresolved_mapping_blocking_closure(state.decision_ledger)
         _emit_progress(
             progress_cb,
             audit_result_payload(
@@ -362,8 +366,7 @@ def run_transcript_edit_controller_loop(
             state.no_progress_streak = 0
         state.previous_finding_signature = current_finding_signature
 
-        if error_count <= 0 and not blocking_warning_present:
-            has_open_closure = bool(unresolved_closure_requirements(state.decision_ledger))
+        if error_count <= 0 and not blocking_warning_present and not has_mapping_blocking_closure:
             decision = handle_clean_iteration(
                 state=state,
                 session_manager=session_manager,
@@ -416,7 +419,6 @@ def run_transcript_edit_controller_loop(
             top_findings=top_findings,
             findings_summary=findings_summary,
             source_transcript_hash=source_transcript_hash,
-            blocking_warning_present=blocking_warning_present,
             progress_cb=progress_cb,
             model=loop_model,
         )

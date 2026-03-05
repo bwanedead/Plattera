@@ -16,7 +16,7 @@ class TranscriptEditFacts:
     has_disagreements: bool
     has_images: bool
     min_iterations_before_complete: int
-    actionable_blocking_closure: bool
+    unresolved_mapping_blocking_closure: bool
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,7 @@ def should_attempt_promote(facts: TranscriptEditFacts, promote_mode: str) -> boo
         and not facts.applied_non_normalization
         and not facts.applied_requires_review
         and facts.error_count <= 0
-        and not facts.actionable_blocking_closure
+        and not facts.unresolved_mapping_blocking_closure
     )
 
 
@@ -62,7 +62,7 @@ def clean_promoted_decision() -> TranscriptEditDecision:
 
 
 def clean_no_promote_decision(facts: TranscriptEditFacts) -> TranscriptEditDecision:
-    if facts.actionable_blocking_closure:
+    if facts.unresolved_mapping_blocking_closure:
         return TranscriptEditDecision(
             status="needs_review",
             reason_code="tx_agent_closure_requirements_unresolved",

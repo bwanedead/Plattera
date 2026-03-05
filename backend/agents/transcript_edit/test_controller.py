@@ -183,11 +183,51 @@ class _OrientBaselinerStub:
         }
 
 
-def _session_manager(image_verifier=None) -> KernelSessionManager:
+class _OrientBaselinerStateStub:
+    def __init__(self, *, range_state: str) -> None:
+        self._range_state = range_state
+
+    def orient_and_baseline(self, inputs):  # type: ignore[no-untyped-def]
+        source_ref = str(
+            inputs.get("canonical_ref")
+            or inputs.get("source_transcript_ref")
+            or "in-memory://tx/source.json"
+        )
+        return {
+            "artifact_ref": {"artifact_path": "in-memory://tx/orient_baseline_state.json"},
+            "reason_codes": ["tx_orient_baseline_completed"],
+            "tx_source_transcript_ref": source_ref,
+            "tx_source_transcript_hash": "sha256:orient-state",
+            "tx_orient_items": [
+                {
+                    "key": "range",
+                    "state": self._range_state,
+                    "alternatives": ["Range 75 West"],
+                    "confidence": "medium",
+                    "layer_tag": "layer1_canonical_recovery",
+                    "operational_impact": "mapping_blocking",
+                    "block_reason": "ambiguity",
+                    "required_information": "Confirm exact range token.",
+                    "minimal_user_action": "Select the correct range token.",
+                    "resolution_options": ["Range 75 West"],
+                    "self_retrievable": "conditional",
+                    "retrieval_attempted": True,
+                    "retrieval_blocker": None,
+                    "verification_required": True,
+                    "attempt_summary": "Needs confirmation.",
+                    "evidence_refs": ["orient_llm"],
+                    "provenance": "orient_llm",
+                }
+            ],
+            "tx_span_seeds_ref": "in-memory://tx/span-seeds.json",
+        }
+
+
+def _session_manager(image_verifier=None, orient_baseliner=None) -> KernelSessionManager:
     executor = ActionExecutor(
         deps=ActionExecutorDeps(
             transcript_auditor=TranscriptAuditTool(),
-            transcript_orient_baseliner=_OrientBaselinerStub(),
+            transcript_orient_baseliner=orient_baseliner or _OrientBaselinerStub(),
             transcript_span_opener=TranscriptSpanOpenerTool(),
             transcript_image_verifier=image_verifier or _ImageVerifierStub(),
             transcript_plan_applier=TranscriptEditPlanApplyTool(),
@@ -201,7 +241,10 @@ def _session_manager(image_verifier=None) -> KernelSessionManager:
 def test_transcript_controller_audit_plan_apply_audit_promote() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         source = Path(tmp) / "source.json"
-        source.write_text(json.dumps({"sections": [{"id": "s1", "body": "Beginning at NW corner."}]}), encoding="utf-8")
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Beginning at Northwest corner to point of beginning."}]}),
+            encoding="utf-8",
+        )
         result = run_transcript_edit_controller_loop(
             session_manager=_session_manager(),
             request=TranscriptEditAgentRunRequest(
@@ -233,6 +276,11 @@ def test_transcript_controller_invalid_planner_stops_needs_review_no_promote() -
                 max_iterations=2,
                 max_invalid_plan_attempts=2,
                 auto_promote=True,
+                hitl_enabled=False,
+                candidate_texts=[
+                    "Range seventy-five (75) West",
+                    "Range seventy-four (74) West",
+                ],
             ),
             request_id_prefix="tx-test-bad",
             planner=_PlannerInvalid(),
@@ -307,6 +355,7 @@ def test_transcript_controller_planner_exception_degrades_to_needs_review() -> N
                 max_iterations=2,
                 max_invalid_plan_attempts=1,
                 auto_promote=True,
+                hitl_enabled=False,
                 candidate_texts=[
                     "Range seventy-five (75) West",
                     "Range seventy-four (74) West",
@@ -360,7 +409,7 @@ def test_transcript_controller_hitl_prompt_is_non_blocking_without_feedback() ->
                 ],
                 hitl_enabled=True,
             ),
-            request_id_prefix="tx-agent-hitl-nonblocking",
+            request_id_prefix="manual-hitl-nonblocking",
             planner=_PlannerNoOps(),
             progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
         )
@@ -368,3 +417,47 @@ def test_transcript_controller_hitl_prompt_is_non_blocking_without_feedback() ->
         assert result.reason_code == "tx_agent_closure_requirements_unresolved"
         assert result.reason_code != "human_feedback_timeout"
         assert any(isinstance(evt, dict) for evt in progress_events)
+        hitl_events = [evt for evt in progress_events if isinstance(evt, dict) and evt.get("event_type") == "human_feedback_needed"]
+        assert len(hitl_events) >= 1
+
+
+def test_transcript_controller_does_not_clean_complete_with_mapping_blocking_unknown() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}), encoding="utf-8")
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="unknown")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=1,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-unknown-blocker",
+            planner=_PlannerNoOps(),
+        )
+        assert result.status == "needs_review"
+        assert result.reason_code == "tx_agent_closure_requirements_unresolved"
+
+
+def test_transcript_controller_does_not_clean_complete_with_mapping_blocking_candidate_found() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}), encoding="utf-8")
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="candidate_found")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=1,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-candidate-blocker",
+            planner=_PlannerNoOps(),
+        )
+        assert result.status == "needs_review"
+        assert result.reason_code == "tx_agent_closure_requirements_unresolved"

@@ -10,7 +10,9 @@ from backend.agents.transcript_edit.decision_ledger import (
     closure_state_from_layers,
     derive_layer_statuses,
     has_blocking_dispute,
+    has_unresolved_mapping_blocking_closure,
     initialize_decision_ledger,
+    unresolved_mapping_blocking_requirements,
     unresolved_closure_requirements,
     update_ledger_from_iteration,
 )
@@ -119,3 +121,29 @@ def test_closure_requirement_marks_non_blocking_items_as_optional_for_mapping() 
     assert isinstance(closure, dict)
     assert closure.get("mapping_blocking") is False
     assert str(closure.get("operational_impact")) == "transcript_quality_only"
+
+
+def test_unresolved_mapping_blocking_predicate_covers_all_unresolved_states() -> None:
+    unresolved_states = ["unknown", "candidate_found", "disputed", "accepted_with_risk"]
+    for state in unresolved_states:
+        ledger = initialize_decision_ledger()
+        range_item = _item(ledger, "range")
+        range_item["state"] = state
+        range_item["blocking"] = True
+        range_item["operational_impact"] = "mapping_blocking"
+        range_item["closure_requirement"] = {
+            "block_reason": "ambiguity",
+            "mapping_blocking": True,
+            "operational_impact": "mapping_blocking",
+            "required_information": "Confirm range token.",
+            "self_retrievable": "conditional",
+            "retrieval_attempted": True,
+            "retrieval_blocker": None,
+            "minimal_user_action": "Select the correct range token.",
+            "resolution_options": ["Range 75 West"],
+            "evidence_refs": ["test"],
+            "attempt_summary": "needs confirmation",
+        }
+        assert has_unresolved_mapping_blocking_closure(ledger) is True
+        unresolved = unresolved_mapping_blocking_requirements(ledger)
+        assert any(isinstance(item, dict) and str(item.get("key")) == "range" for item in unresolved)
