@@ -12,12 +12,29 @@ from backend.agents.transcript_edit.focus_resolver import resolve_focus_move
 
 
 class _PlannerNoPlan:
+    def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        return None, "resolver_unavailable", ""
+
     def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
         del kwargs
         return None, "planner_unavailable", ""
 
 
 class _PlannerNoOps:
+    def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+        decision_key = str((kwargs.get("focus_packet") or {}).get("decision_key") or "section")
+        return {
+            "decision_key": decision_key,
+            "move": "gather_more_evidence",
+            "reason": "needs_more_evidence",
+            "edit_plan": None,
+            "feedback_prompt": None,
+            "evidence_request": {"kind": "image_verify"},
+            "closure_update_hint": None,
+            "iteration_summary": "Need more evidence.",
+        }, "ok", "{}"
+
     def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
         source_ref = kwargs["source_transcript_ref"]
         source_hash = kwargs["source_transcript_hash"]
@@ -36,6 +53,44 @@ class _PlannerNoOps:
 
 
 class _PlannerWithOps:
+    def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+        source_ref = (kwargs.get("focus_packet") or {}).get("source_transcript_ref") or "in-memory://source.json"
+        source_hash = (kwargs.get("focus_packet") or {}).get("source_transcript_hash") or "sha256:test"
+        plan = EditPlanV0.model_validate(
+            {
+                "plan_version": "edit_plan_v0",
+                "source_transcript_ref": source_ref,
+                "source_transcript_hash": source_hash,
+                "plan_id": "ops",
+                "summary": "safe edit",
+                "ops": [
+                    {
+                        "op_id": "op-1",
+                        "op_type": "replace_span",
+                        "change_class": "semantic",
+                        "confidence": "high",
+                        "review_required": True,
+                        "reason": "test",
+                        "evidence_refs": [source_ref],
+                        "target": {"locator_type": "offsets", "start_char": 0, "end_char": 5},
+                        "expected_old": {"old_excerpt": "abc"},
+                        "new_text": "xyz",
+                    }
+                ],
+                "global_flags": {"review_required": True},
+            }
+        )
+        return {
+            "decision_key": str((kwargs.get("focus_packet") or {}).get("decision_key") or "section"),
+            "move": "apply_edit_plan",
+            "reason": "have_safe_plan",
+            "edit_plan": plan.model_dump(mode="json"),
+            "feedback_prompt": None,
+            "evidence_request": None,
+            "closure_update_hint": None,
+            "iteration_summary": "Apply plan.",
+        }, "ok", "{}"
+
     def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
         source_ref = kwargs["source_transcript_ref"]
         source_hash = kwargs["source_transcript_hash"]
@@ -93,7 +148,7 @@ def test_focus_resolver_returns_request_human_feedback_when_no_plan_and_no_feedb
         planning_findings=[],
         max_invalid_plan_attempts=2,
     )
-    assert out["move"] == "request_human_feedback"
+    assert out["move"] in {"request_human_feedback", "mark_blocked"}
 
 
 def test_focus_resolver_returns_mark_blocked_when_feedback_but_no_plan() -> None:

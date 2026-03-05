@@ -7,6 +7,9 @@ from services.llm.openai import OpenAIService
 from transcript_edit.contracts import EditPlanV0
 
 from .prompting import (
+    build_focus_resolver_repair_user_message,
+    build_focus_resolver_system_message,
+    build_focus_resolver_user_message,
     build_plan_repair_user_message,
     build_planner_system_message,
     build_planner_user_message,
@@ -107,3 +110,130 @@ class TranscriptEditPlanPlanner:
                     source_transcript_hash=source_transcript_hash,
                 )
         return None, last_error, raw_content
+
+    def propose_focus_move(
+        self,
+        *,
+        model: str,
+        focus_packet: dict[str, Any],
+        max_attempts: int,
+    ) -> tuple[dict[str, Any] | None, str, str]:
+        if not self._service.is_available() or getattr(self._service, "client", None) is None:
+            return None, "resolver_unavailable", ""
+        api_model = self._service.models.get(model, {}).get("api_model_name", model)
+        client = self._service.client
+
+        system_msg = build_focus_resolver_system_message()
+        user_msg = build_focus_resolver_user_message(focus_packet=focus_packet)
+        decision_key = str(focus_packet.get("decision_key") or "decision")
+        raw_content = ""
+        last_error = "resolver_invalid_response"
+
+        for _attempt in range(1, max_attempts + 1):
+            params: dict[str, Any] = {
+                "model": api_model,
+                "messages": [
+                    {"role": "developer", "content": system_msg},
+                    {"role": "user", "content": user_msg},
+                ],
+                "response_format": {"type": "json_object"},
+            }
+            if "gpt-5" in str(api_model):
+                params["max_completion_tokens"] = 8000
+                params["reasoning_effort"] = "medium"
+            else:
+                params["max_tokens"] = 4000
+                params["temperature"] = 0
+            try:
+                completion = client.chat.completions.create(**params)
+            except Exception as exc:
+                last_error = f"resolver_api_error:{type(exc).__name__}"
+                user_msg = build_focus_resolver_repair_user_message(
+                    error_reason=last_error,
+                    raw_content="",
+                    decision_key=decision_key,
+                )
+                continue
+            message = completion.choices[0].message if completion.choices else None
+            content = message.content if message is not None else None
+            raw_content = content if isinstance(content, str) else ""
+            if not raw_content.strip():
+                last_error = "resolver_empty_response"
+                user_msg = build_focus_resolver_repair_user_message(
+                    error_reason=last_error,
+                    raw_content=raw_content,
+                    decision_key=decision_key,
+                )
+                continue
+            try:
+                parsed = json.loads(raw_content)
+                if not isinstance(parsed, dict):
+                    last_error = "resolver_non_object_json"
+                    raise ValueError(last_error)
+                validated = _coerce_focus_move(
+                    parsed=parsed,
+                    decision_key=decision_key,
+                    source_transcript_ref=str(focus_packet.get("source_transcript_ref") or ""),
+                    source_transcript_hash=str(focus_packet.get("source_transcript_hash") or ""),
+                )
+                return validated, "ok", raw_content
+            except Exception as exc:
+                last_error = f"resolver_invalid:{type(exc).__name__}"
+                user_msg = build_focus_resolver_repair_user_message(
+                    error_reason=last_error,
+                    raw_content=raw_content,
+                    decision_key=decision_key,
+                )
+        return None, last_error, raw_content
+
+
+def _coerce_focus_move(
+    *,
+    parsed: dict[str, Any],
+    decision_key: str,
+    source_transcript_ref: str,
+    source_transcript_hash: str,
+) -> dict[str, Any]:
+    allowed_moves = {
+        "apply_edit_plan",
+        "request_human_feedback",
+        "gather_more_evidence",
+        "mark_blocked",
+        "mark_resolved_no_edit",
+    }
+    move = str(parsed.get("move") or "").strip().lower()
+    if move not in allowed_moves:
+        raise ValueError("invalid_move")
+    out: dict[str, Any] = {
+        "decision_key": str(parsed.get("decision_key") or decision_key).strip().lower() or decision_key,
+        "move": move,
+        "reason": str(parsed.get("reason") or "").strip() or "resolver_reason_missing",
+        "edit_plan": None,
+        "feedback_prompt": None,
+        "evidence_request": None,
+        "closure_update_hint": None,
+        "iteration_summary": str(parsed.get("iteration_summary") or "").strip() or "Focus move selected.",
+    }
+    if move == "apply_edit_plan":
+        payload = parsed.get("edit_plan")
+        if not isinstance(payload, dict):
+            raise ValueError("missing_edit_plan_for_apply_move")
+        payload.setdefault("source_transcript_ref", source_transcript_ref)
+        payload.setdefault("source_transcript_hash", source_transcript_hash)
+        plan = EditPlanV0.model_validate(payload)
+        out["edit_plan"] = plan.model_dump(mode="json")
+    if move == "request_human_feedback":
+        prompt = parsed.get("feedback_prompt")
+        if isinstance(prompt, dict):
+            out["feedback_prompt"] = {
+                "line1": str(prompt.get("line1") or "").strip() or "Human feedback required.",
+                "line2": str(prompt.get("line2") or "").strip() or "Please choose the best-supported value.",
+                "choices": [str(v).strip() for v in list(prompt.get("choices") or []) if str(v).strip()][:6],
+            }
+    if move == "gather_more_evidence":
+        evidence = parsed.get("evidence_request")
+        if isinstance(evidence, dict):
+            out["evidence_request"] = dict(evidence)
+    if isinstance(parsed.get("closure_update_hint"), dict):
+        out["closure_update_hint"] = dict(parsed.get("closure_update_hint"))
+    return out

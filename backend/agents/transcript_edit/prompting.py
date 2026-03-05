@@ -111,3 +111,68 @@ def build_plan_repair_user_message(
         "note": "If no safe edit is justified, return ops=[] with rationale.",
     }
     return json.dumps(payload, ensure_ascii=False)
+
+
+def build_focus_resolver_system_message() -> str:
+    return (
+        "You are a transcript-edit focus resolver. "
+        "Return one bounded JSON move object for the current focus item. "
+        "Allowed move values: apply_edit_plan, request_human_feedback, gather_more_evidence, mark_blocked, mark_resolved_no_edit. "
+        "If move=apply_edit_plan, include a valid EditPlanV0 in edit_plan. "
+        "If move=request_human_feedback, include feedback_prompt with line1, line2, and bounded choices when available. "
+        "If move=gather_more_evidence, include evidence_request describing next evidence step. "
+        "Always include decision_key, move, reason, and iteration_summary. "
+        "Do not return markdown. Return JSON object only."
+    )
+
+
+def build_focus_resolver_user_message(
+    *,
+    focus_packet: dict[str, Any],
+) -> str:
+    payload = {
+        "task": "Choose one next move for this focus-cycle item.",
+        "allowed_moves": [
+            "apply_edit_plan",
+            "request_human_feedback",
+            "gather_more_evidence",
+            "mark_blocked",
+            "mark_resolved_no_edit",
+        ],
+        "required_fields": ["decision_key", "move", "reason", "iteration_summary"],
+        "focus_packet": focus_packet,
+        "output_shape": {
+            "decision_key": "range",
+            "move": "apply_edit_plan",
+            "reason": "short reason",
+            "edit_plan": {"plan_version": "edit_plan_v0", "ops": []},
+            "feedback_prompt": None,
+            "evidence_request": None,
+            "closure_update_hint": None,
+            "iteration_summary": "short summary",
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def build_focus_resolver_repair_user_message(
+    *,
+    error_reason: str,
+    raw_content: str,
+    decision_key: str,
+) -> str:
+    payload = {
+        "task": "Repair previous output and return one valid focus move object.",
+        "error_reason": error_reason,
+        "decision_key": decision_key,
+        "previous_output_excerpt": (raw_content or "")[:1200],
+        "required_fields": ["decision_key", "move", "reason", "iteration_summary"],
+        "allowed_moves": [
+            "apply_edit_plan",
+            "request_human_feedback",
+            "gather_more_evidence",
+            "mark_blocked",
+            "mark_resolved_no_edit",
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=False)

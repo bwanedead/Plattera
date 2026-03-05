@@ -1,0 +1,247 @@
+# Transcript Edit Loop Focus-Cycle Architecture
+
+Date: March 5, 2026
+Status: Active target architecture
+Audience: Internal and external planning/review agents
+
+## 1) Purpose
+This document describes the current target architecture for the transcript-edit loop after the shift away from deterministic HITL patching.
+
+It explains:
+- the loop's atomic process
+- the role of transcript, ledger, memory, evidence, and feedback
+- what remains deterministic versus semantic
+- how closure is accumulated iteratively
+- how human feedback re-enters the loop
+
+This is the operational architecture target, not a historical refactor log.
+
+## 2) Core design decision
+The transcript-edit loop should be:
+- ledger-guided
+- focus-cycle driven
+- agent-resolved
+- deterministically gated
+
+The active path should avoid deterministic regex-style edit drafting and brittle patch-shaping logic.
+
+The agent decides the semantic move.
+The deterministic runtime enforces rails, boundedness, persistence, and closure gates.
+
+## 3) Canonical entities
+### 3.1 Transcript
+The transcript is the mutable working document and current deed text being refined.
+
+### 3.2 Source evidence
+Source evidence includes:
+- deed image refs
+- opened transcript spans
+- image verification artifacts
+- candidate draft evidence
+- retrieval/dependency artifacts (as integrated)
+
+### 3.3 Decision ledger
+The decision ledger is the working case file and authoritative closure state.
+
+It stores:
+- per-decision item state
+- blocking vs optional status
+- selected value / alternatives
+- evidence refs
+- closure requirements
+- layer semantics
+- unresolved closure predicates
+
+It drives:
+- focus selection
+- closure gating
+- terminal interpretation
+
+### 3.4 Continuity memory
+Continuity memory is bounded runtime continuity, not canonical truth.
+
+Examples:
+- recent attempts for a focus item
+- recently failed strategies
+- newly arrived human feedback
+- why focus shifted
+
+Continuity memory must not replace artifacts, refs, or ledger truth.
+
+### 3.5 Human feedback
+Human feedback is evidence input, not a direct patch recipe.
+
+The loop persists feedback structurally and reinjects it into the next semantic focus-cycle.
+
+## 4) Deterministic vs semantic
+### 4.1 Deterministic runtime responsibilities
+The deterministic layer is responsible for:
+- phase ordering
+- idempotency
+- bounded contracts
+- payload validation
+- artifact persistence
+- tool execution
+- apply mechanics
+- ledger persistence
+- closure gating
+- terminalization
+
+### 4.2 Semantic agent responsibilities
+The resolver is responsible for:
+- interpreting transcript and source evidence
+- interpreting human feedback
+- selecting the next semantic move
+- deciding whether more evidence is needed
+- deciding whether an edit is safe
+- drafting a bounded edit plan when appropriate
+- deciding whether a blocker remains unresolved
+
+## 5) The atomic loop: focus-cycle
+One transcript-edit iteration should be one focus-cycle around one unresolved closure item.
+
+### 5.1 Reconcile state
+Read:
+- current transcript ref/hash
+- current ledger
+- latest evidence artifacts
+- newly arrived human feedback
+- bounded continuity memory
+
+### 5.2 Select focus
+Choose the highest-priority unresolved closure item from the ledger.
+
+Priority rules:
+- mapping-blocking items outrank optional items
+- newly answered human-feedback items should be prioritized
+- dependency-blocked items can be terminalized if no autonomous move remains
+
+### 5.3 Build focus packet
+Assemble a bounded packet for one decision item:
+- `decision_key`
+- focused ledger item
+- closure requirement
+- transcript ref/hash
+- bounded relevant spans
+- bounded relevant image verification results
+- latest feedback for this item
+- recent attempts for this item
+- bounded memory summary
+
+### 5.4 Semantic resolve
+Resolver receives focus packet and returns one move:
+- `apply_edit_plan`
+- `request_human_feedback`
+- `gather_more_evidence`
+- `mark_blocked`
+- `mark_resolved_no_edit`
+
+### 5.5 Deterministic execute
+Runtime executes selected move:
+- validate/apply edit plan
+- emit HITL prompt
+- gather spans
+- verify with image
+- retrieve external evidence
+- persist artifacts and refs
+
+### 5.6 Commit outcome
+Runtime:
+- updates ledger from new evidence/results
+- appends continuity memory
+- persists fresh state
+- re-audits/reconciles when edits were applied
+
+### 5.7 Terminal gate
+End when:
+- mapping-blocking closure is achieved, or
+- no autonomous closure move remains and blocked state must be reported
+
+## 6) Focus resolver contract
+Resolver should return a bounded object containing:
+- `decision_key`
+- `move`
+- `reason`
+- optional `edit_plan`
+- optional `feedback_prompt`
+- optional `evidence_request`
+- optional `closure_update_hint`
+- optional `iteration_summary`
+
+### 6.1 Move semantics
+`apply_edit_plan`: enough evidence for safe bounded edit.
+
+`request_human_feedback`: ambiguity remains; focused human input is next best action.
+
+`gather_more_evidence`: autonomous evidence gathering should continue before escalation/edit.
+
+`mark_blocked`: item cannot be autonomously resolved under current conditions.
+
+`mark_resolved_no_edit`: focused item no longer materially unresolved or no mutation needed.
+
+## 7) Human feedback lifecycle
+1. Backend emits authoritative prompt for one focused unresolved item.
+2. User submits structured response.
+3. Response is stored as feedback evidence.
+4. Next focus-cycle includes that feedback in focus packet.
+5. Resolver decides what feedback means and which move follows.
+6. Deterministic runtime executes selected move.
+
+Important:
+- feedback is not deterministically transformed into deed patch
+- feedback influences semantic resolution
+
+## 8) Ledger and 4-layer closure model
+The architecture preserves layer model:
+- Layer 1: canonical recovery
+- Layer 2: canonical sanity
+- Layer 3: dependency completeness
+- Layer 4: optional transcript quality
+
+Ledger is authoritative structured expression of closure states.
+
+Operationally:
+- Layers 1-3 mapping-blocking items drive loop
+- Layer 4 items are secondary
+- terminal summaries remain coherent with ledger closure state
+
+## 9) Role of memory
+Bounded continuity memory may include:
+- run summary log
+- recent focus attempts
+- compact iteration notes
+
+Memory reduces thrash and preserves continuity.
+Memory is not canonical transcript truth or closure truth.
+
+## 10) Current implementation status
+### 10.1 Completed foundations
+- closure-consistent gating
+- ledger-based unresolved mapping-blocking predicates
+- focus packet module
+- focus resolver module
+- iteration pipeline pivot toward focus-cycle handling
+
+### 10.2 Transitional areas
+- resolver contract is being upgraded toward explicit move-first semantics
+- focus packet remains intentionally bounded and can be enriched further
+- evidence request execution paths remain incrementally integrated
+
+### 10.3 Explicitly superseded direction
+Regex-style deterministic HITL override builders are not the intended active architecture.
+
+## 11) Near-term implementation target
+Next steps:
+- make move-returning resolver contract fully first-class
+- enrich focus packet where needed
+- keep orchestration thinner in iteration pipeline
+- continue deterministic rails for validation, persistence, and closure gates
+
+## 12) Summary
+Target architecture is:
+- deterministic rails
+- semantic focus resolution
+- ledger-guided iteration
+- continuity memory for bounded context
+- human feedback as evidence
+- repeated focus-cycle that accumulates closure over time

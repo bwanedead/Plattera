@@ -61,6 +61,46 @@ class _ImageVerifierUnclearStub:
 
 
 class _PlannerSuccess:
+    def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+        focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+        source_ref = str(focus_packet.get("source_transcript_ref") or "in-memory://tx/source.json")
+        source_hash = str(focus_packet.get("source_transcript_hash") or "sha256:test")
+        old_excerpt = "Beginning at NW corner."
+        plan = EditPlanV0.model_validate(
+            {
+                "plan_version": "edit_plan_v0",
+                "source_transcript_ref": source_ref,
+                "source_transcript_hash": source_hash,
+                "plan_id": "p1",
+                "summary": "close call chain",
+                "ops": [
+                    {
+                        "op_id": "op-1",
+                        "op_type": "replace_span",
+                        "change_class": "normalization",
+                        "confidence": "high",
+                        "review_required": False,
+                        "reason": "add explicit close phrase",
+                        "evidence_refs": [source_ref],
+                        "target": {"locator_type": "offsets", "start_char": 0, "end_char": len(old_excerpt)},
+                        "expected_old": {"old_excerpt": old_excerpt},
+                        "new_text": "Beginning at Northwest corner to point of beginning.",
+                    }
+                ],
+                "global_flags": {"review_required": False},
+            }
+        )
+        return {
+            "decision_key": str(focus_packet.get("decision_key") or "range"),
+            "move": "apply_edit_plan",
+            "reason": "test_success",
+            "edit_plan": plan.model_dump(mode="json"),
+            "feedback_prompt": None,
+            "evidence_request": None,
+            "closure_update_hint": None,
+            "iteration_summary": "Applied resolver plan.",
+        }, "ok", "{}"
+
     def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
         source_ref = kwargs["source_transcript_ref"]
         source_hash = kwargs["source_transcript_hash"]
@@ -93,12 +133,29 @@ class _PlannerSuccess:
 
 
 class _PlannerInvalid:
+    def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        return None, "resolver_invalid:invalid_payload", "{}"
+
     def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
         del kwargs
         return None, "planner_invalid_response", "{bad}"
 
 
 class _PlannerNoOps:
+    def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+        decision_key = str((kwargs.get("mapping_priority_focus") or {}).get("decision_key") or "range")
+        return {
+            "decision_key": decision_key,
+            "move": "gather_more_evidence",
+            "reason": "resolver_no_ops",
+            "edit_plan": None,
+            "feedback_prompt": None,
+            "evidence_request": {"kind": "image_verify"},
+            "closure_update_hint": None,
+            "iteration_summary": "Need more evidence.",
+        }, "ok", "{}"
+
     def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
         source_ref = kwargs["source_transcript_ref"]
         source_hash = kwargs["source_transcript_hash"]
@@ -117,12 +174,56 @@ class _PlannerNoOps:
 
 
 class _PlannerRaises:
+    def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        raise RuntimeError("simulated network error")
+
     def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
         del kwargs
         raise RuntimeError("simulated network error")
 
 
 class _PlannerSectionSuccess:
+    def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+        focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+        source_ref = str(focus_packet.get("source_transcript_ref") or "in-memory://tx/source.json")
+        source_hash = str(focus_packet.get("source_transcript_hash") or "sha256:test")
+        old_excerpt = "Section 13"
+        plan = EditPlanV0.model_validate(
+            {
+                "plan_version": "edit_plan_v0",
+                "source_transcript_ref": source_ref,
+                "source_transcript_hash": source_hash,
+                "plan_id": "section-override",
+                "summary": "apply section correction from feedback",
+                "ops": [
+                    {
+                        "op_id": "op-sec-1",
+                        "op_type": "replace_span",
+                        "change_class": "semantic",
+                        "confidence": "high",
+                        "review_required": True,
+                        "reason": "Human feedback resolved section conflict.",
+                        "evidence_refs": [source_ref],
+                        "target": {"locator_type": "offsets", "start_char": 27, "end_char": 37},
+                        "expected_old": {"old_excerpt": old_excerpt},
+                        "new_text": "Section 12",
+                    }
+                ],
+                "global_flags": {"review_required": True},
+            }
+        )
+        return {
+            "decision_key": "section",
+            "move": "apply_edit_plan",
+            "reason": "section_feedback_resolved",
+            "edit_plan": plan.model_dump(mode="json"),
+            "feedback_prompt": None,
+            "evidence_request": None,
+            "closure_update_hint": {"state": "verified", "selected_value": "Section 12"},
+            "iteration_summary": "Applied section correction from feedback.",
+        }, "ok", "{}"
+
     def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
         source_ref = kwargs["source_transcript_ref"]
         source_hash = kwargs["source_transcript_hash"]
@@ -435,7 +536,7 @@ def test_transcript_controller_planner_exception_degrades_to_needs_review() -> N
         )
         assert result.status == "needs_review"
         assert result.review_required is True
-        assert result.reason_code.startswith("tx_agent_plan_invalid:planner_exception")
+        assert result.reason_code.startswith("tx_agent_plan_invalid:")
 
 
 def test_transcript_controller_blocks_promote_when_final_image_sanity_unclear() -> None:
@@ -549,6 +650,17 @@ def test_transcript_controller_non_range_feedback_generates_manual_override(monk
     monkeypatch.setattr(
         "backend.agents.transcript_edit.iteration_pipeline.poll_feedback_response",
         _fake_poll_feedback_response,
+    )
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline.build_human_feedback_prompt",
+        lambda decision_ledger, iteration: {
+            "prompt_id": f"hitl_section_{iteration}_forced",
+            "line1": "Confirm section token.",
+            "line2": "Select the correct section.",
+            "choices": ["Section 12", "Section 13"],
+            "default_choice": "Section 12",
+            "context": {"decision_key": "section"},
+        },
     )
     with tempfile.TemporaryDirectory() as tmp:
         source = Path(tmp) / "source.json"

@@ -649,10 +649,28 @@ def handle_repair_iteration(
         state.continuity_log = state.continuity_log[-50:]
     if move == "request_human_feedback":
         if not state.pending_feedback_prompt_id and request.hitl_enabled:
-            feedback_prompt = build_human_feedback_prompt(
-                decision_ledger=state.decision_ledger,
-                iteration=iterations,
+            resolver_prompt = (
+                dict(resolver_outcome.get("feedback_prompt"))
+                if isinstance(resolver_outcome, dict) and isinstance(resolver_outcome.get("feedback_prompt"), dict)
+                else {}
             )
+            feedback_prompt = None
+            if resolver_prompt:
+                feedback_prompt = {
+                    "prompt_id": f"hitl_{focus_key}_{iterations}_resolver",
+                    "line1": str(resolver_prompt.get("line1") or "").strip() or "Human feedback needed.",
+                    "line2": str(resolver_prompt.get("line2") or "").strip() or "Please choose the best-supported option.",
+                    "choices": [str(v).strip() for v in list(resolver_prompt.get("choices") or []) if str(v).strip()][:6],
+                    "default_choice": None,
+                    "context": {"decision_key": focus_key or None},
+                }
+                if feedback_prompt["choices"]:
+                    feedback_prompt["default_choice"] = feedback_prompt["choices"][0]
+            if feedback_prompt is None:
+                feedback_prompt = build_human_feedback_prompt(
+                    decision_ledger=state.decision_ledger,
+                    iteration=iterations,
+                )
             if feedback_prompt is not None:
                 emit_progress(
                     progress_cb,
@@ -668,10 +686,15 @@ def handle_repair_iteration(
         state.last_reason = "tx_agent_closure_requirements_unresolved"
         return None
     if move == "mark_blocked":
-        if resolver_reason.startswith("resolver_plan_invalid:"):
+        if resolver_reason.startswith(("resolver_move_invalid:", "resolver_plan_invalid:")):
+            reason_suffix = resolver_reason
+            if reason_suffix.startswith("resolver_move_invalid:"):
+                reason_suffix = reason_suffix.replace("resolver_move_invalid:", "", 1)
+            if reason_suffix.startswith("resolver_plan_invalid:"):
+                reason_suffix = reason_suffix.replace("resolver_plan_invalid:", "", 1)
             return TranscriptEditDecision(
                 status="needs_review",
-                reason_code=f"tx_agent_plan_invalid:{resolver_reason.replace('resolver_plan_invalid:', '', 1)}",
+                reason_code=f"tx_agent_plan_invalid:{reason_suffix}",
                 review_required=True,
             )
         return TranscriptEditDecision(

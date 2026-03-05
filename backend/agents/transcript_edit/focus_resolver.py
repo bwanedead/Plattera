@@ -45,73 +45,74 @@ def resolve_focus_move(
             "iteration_summary": "Focused item is no longer mapping-blocking unresolved.",
         }
 
-    feedback_summary = {}
-    if isinstance(feedback, dict):
-        feedback_summary = {
-            "decision_key": feedback.get("decision_key"),
-            "selected_value": feedback.get("selected_value"),
-            "note": feedback.get("note"),
-        }
-    mapping_priority_focus = {
-        "decision_key": decision_key,
-        "focus_state": state,
-        "focus_reason": "human_feedback_available" if feedback_summary else "ledger_priority",
+    feedback_summary = feedback if isinstance(feedback, dict) else None
+    focus_payload = {
+        **focus_packet,
+        "findings_summary": findings_summary if isinstance(findings_summary, dict) else {},
+        "planning_findings": [f for f in planning_findings if isinstance(f, dict)][:12],
         "feedback": feedback_summary,
     }
-
     try:
-        plan, plan_reason, _raw_plan = planner_client.propose_plan(
+        move_payload, move_reason, _raw_move = planner_client.propose_focus_move(
             model=model,
-            source_transcript_ref=source_transcript_ref,
-            source_transcript_hash=source_transcript_hash,
-            findings_summary=findings_summary,
-            top_findings=[f for f in planning_findings if isinstance(f, dict)],
-            span_context=[s for s in span_context if isinstance(s, dict)],
-            image_verification=image_verification,
-            candidate_disagreement_hints={"human_feedback": feedback_summary} if feedback_summary else {},
-            mapping_priority_focus=mapping_priority_focus,
+            focus_packet=focus_payload,
             max_attempts=max_invalid_plan_attempts,
         )
     except Exception as exc:
-        plan = None
-        plan_reason = f"planner_exception:{type(exc).__name__}"
-    if plan is not None:
-        payload = plan.model_dump(mode="json")
-        ops = payload.get("ops") if isinstance(payload, dict) else []
-        if isinstance(ops, list) and len(ops) > 0:
-            return {
-                "decision_key": decision_key,
-                "move": "apply_edit_plan",
-                "reason": f"resolver_planner:{plan_reason}",
-                "edit_plan": payload,
-                "iteration_summary": f"Applying semantic plan for {decision_key}.",
-            }
-        return {
-            "decision_key": decision_key,
-            "move": "gather_more_evidence",
-            "reason": f"resolver_no_ops:{plan_reason}",
-            "iteration_summary": f"Planner returned no safe edit ops for {decision_key}; continuing evidence loop.",
-        }
+        move_payload = None
+        move_reason = f"resolver_exception:{type(exc).__name__}"
+    if isinstance(move_payload, dict):
+        out = dict(move_payload)
+        out.setdefault("decision_key", decision_key)
+        out.setdefault("reason", f"resolver_move:{move_reason}")
+        out.setdefault("iteration_summary", f"Focused on {decision_key}.")
+        out.setdefault("feedback_prompt", None)
+        out.setdefault("evidence_request", None)
+        out.setdefault("closure_update_hint", None)
+        move = str(out.get("move") or "").strip().lower()
+        if move == "apply_edit_plan":
+            payload = out.get("edit_plan") if isinstance(out.get("edit_plan"), dict) else {}
+            ops = payload.get("ops") if isinstance(payload, dict) else []
+            if not (isinstance(ops, list) and len(ops) > 0):
+                return {
+                    "decision_key": decision_key,
+                    "move": "gather_more_evidence",
+                    "reason": "resolver_apply_without_ops",
+                    "iteration_summary": f"Resolver proposed apply_edit_plan without safe ops for {decision_key}.",
+                    "feedback_prompt": None,
+                    "evidence_request": None,
+                    "closure_update_hint": None,
+                }
+        return out
 
-    if str(plan_reason).startswith(("plan_invalid", "planner_invalid", "planner_exception")):
+    if str(move_reason).startswith(("resolver_invalid", "resolver_exception", "resolver_api_error")):
         return {
             "decision_key": decision_key,
             "move": "mark_blocked",
-            "reason": f"resolver_plan_invalid:{plan_reason}",
-            "iteration_summary": f"Planner failed to produce a valid plan for {decision_key}.",
+            "reason": f"resolver_move_invalid:{move_reason}",
+            "iteration_summary": f"Resolver failed to return a valid move for {decision_key}.",
+            "feedback_prompt": None,
+            "evidence_request": None,
+            "closure_update_hint": None,
         }
 
     if feedback_summary:
         return {
             "decision_key": decision_key,
             "move": "mark_blocked",
-            "reason": f"resolver_feedback_no_plan:{plan_reason}",
-            "iteration_summary": f"Feedback was received for {decision_key}, but no safe semantic plan was available.",
+            "reason": f"resolver_no_move_after_feedback:{move_reason}",
+            "iteration_summary": f"Feedback was received for {decision_key}, but resolver did not produce a usable move.",
+            "feedback_prompt": None,
+            "evidence_request": None,
+            "closure_update_hint": None,
         }
 
     return {
         "decision_key": decision_key,
         "move": "request_human_feedback",
-        "reason": f"resolver_needs_feedback:{plan_reason}",
+        "reason": f"resolver_needs_feedback:{move_reason}",
         "iteration_summary": f"Further human feedback is needed to resolve {decision_key}.",
+        "feedback_prompt": None,
+        "evidence_request": None,
+        "closure_update_hint": None,
     }
