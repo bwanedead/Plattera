@@ -157,6 +157,7 @@ def terminal_summary(
         for row in human_resolution_tickets
         if str(row.get("lifecycle_state") or "").strip().lower() == "integrated"
     )
+    seam_state, seam_snapshot = _post_feedback_ticket_seam(human_resolution_tickets=human_resolution_tickets)
     superseded_prompt_ids = (
         [str(v) for v in list(hitl_state.get("superseded_prompt_ids") or []) if str(v).strip()]
         if isinstance(hitl_state, dict)
@@ -235,6 +236,8 @@ def terminal_summary(
         "answered_unintegrated_ticket_count": int(answered_unintegrated_ticket_count),
         "integration_failed_ticket_count": int(integration_failed_ticket_count),
         "integrated_ticket_count": int(integrated_ticket_count),
+        "post_feedback_ticket_seam_state": seam_state,
+        "post_feedback_ticket_snapshot": seam_snapshot,
         "superseded_feedback_prompt_ids": superseded_prompt_ids,
         "human_resolution_tickets": human_resolution_tickets,
         "hitl_lifecycle_log": hitl_lifecycle_log,
@@ -396,3 +399,33 @@ def _terminal_classification(
     if result_status == "failed":
         return "blocked_execution_failed"
     return "blocked_no_safe_autonomous_move"
+
+
+def _post_feedback_ticket_seam(*, human_resolution_tickets: list[dict[str, Any]]) -> tuple[str | None, dict[str, Any] | None]:
+    if not human_resolution_tickets:
+        return None, None
+    rows = [dict(row) for row in human_resolution_tickets if isinstance(row, dict)]
+    if not rows:
+        return None, None
+    rows.sort(key=lambda row: int(row.get("updated_at") or row.get("created_at") or 0), reverse=True)
+    preferred_order = {
+        "integration_attempted_failed": 0,
+        "answered_unintegrated": 1,
+        "integrated": 2,
+        "superseded": 3,
+        "stale": 4,
+        "issued_waiting_feedback": 5,
+    }
+    rows.sort(key=lambda row: preferred_order.get(str(row.get("lifecycle_state") or "").strip().lower(), 99))
+    top = rows[0]
+    state = str(top.get("lifecycle_state") or "").strip().lower() or None
+    snapshot = {
+        "ticket_id": str(top.get("ticket_id") or "").strip() or None,
+        "ticket_state": state,
+        "ticket_decision_key": str(top.get("decision_key") or "").strip().lower() or None,
+        "ticket_strength": str(top.get("strength") or "").strip().lower() or None,
+        "answered_at": top.get("answered_at"),
+        "integrated_at": top.get("integrated_at"),
+        "updated_at": top.get("updated_at"),
+    }
+    return state, snapshot

@@ -1056,6 +1056,7 @@ def test_transcript_controller_feedback_consumption_sets_answered_unintegrated_t
             json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}),
             encoding="utf-8",
         )
+        progress_events: list[dict[str, Any]] = []
         result = run_transcript_edit_controller_loop(
             session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
             request=TranscriptEditAgentRunRequest(
@@ -1068,6 +1069,7 @@ def test_transcript_controller_feedback_consumption_sets_answered_unintegrated_t
             ),
             request_id_prefix="manual-answered-unintegrated-ticket",
             planner=_PlannerMarkBlocked(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
         )
         runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
         assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) >= 1
@@ -1080,6 +1082,12 @@ def test_transcript_controller_feedback_consumption_sets_answered_unintegrated_t
             str(row.get("decision_key") or "") == "range"
             and str(row.get("lifecycle_state") or "") == "answered_unintegrated"
             for row in tickets
+        )
+        assert any(
+            isinstance(evt, dict)
+            and str(evt.get("phase") or "") == "ticket_answered_unintegrated"
+            and str(evt.get("decision_key") or "") == "range"
+            for evt in progress_events
         )
 
 
@@ -1206,7 +1214,29 @@ def test_transcript_controller_post_feedback_resolver_invalid_exhausts_with_spec
         )
         assert any(
             isinstance(evt, dict)
-            and str(evt.get("phase") or "") == "human_resolution_ticket_state"
+            and str(evt.get("phase") or "") == "resolver_attempt"
+            and isinstance(evt.get("detail"), dict)
+            and int((evt.get("detail") or {}).get("resolver_attempt_number") or 0) >= 1
+            for evt in progress_events
+        )
+        assert any(
+            isinstance(evt, dict)
+            and str(evt.get("phase") or "") == "resolver_outcome"
+            and isinstance(evt.get("detail"), dict)
+            and str((evt.get("detail") or {}).get("result_category") or "") in {"invalid_schema", "invalid_move"}
+            for evt in progress_events
+        )
+        assert any(
+            isinstance(evt, dict)
+            and str(evt.get("phase") or "") == "resolver_move_gate"
+            and isinstance(evt.get("detail"), dict)
+            and str((evt.get("detail") or {}).get("gate_reason") or "")
+            in {"accepted_mark_blocked", "resolver_invalid_retry_budget_remaining"}
+            for evt in progress_events
+        )
+        assert any(
+            isinstance(evt, dict)
+            and str(evt.get("phase") or "") == "ticket_integration_attempted_failed"
             and str(evt.get("lifecycle_state") or "") == "integration_attempted_failed"
             for evt in progress_events
         )

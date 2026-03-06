@@ -273,20 +273,21 @@ def human_resolution_ticket_state_payload(
     relevance: str | None = None,
     reason: str | None = None,
 ) -> dict[str, Any]:
+    normalized_state = str(lifecycle_state or "").strip().lower() or "unknown"
     return {
         "event_type": "human_resolution_ticket",
         **_base_payload(
             iteration=iteration,
-            phase="human_resolution_ticket_state",
+            phase=f"ticket_{normalized_state}",
             message=(
-                f"Human-resolution ticket state: {decision_key or 'decision'} -> {lifecycle_state}."
+                f"Human-resolution ticket state: {decision_key or 'decision'} -> {normalized_state}."
             ),
             latest_refs=latest_refs,
             execution_state="running",
         ),
         "ticket_id": ticket_id,
         "decision_key": decision_key,
-        "lifecycle_state": lifecycle_state,
+        "lifecycle_state": normalized_state,
         "strength": strength,
         "relevance": relevance,
         "reason": reason,
@@ -382,6 +383,102 @@ def resolver_invalid_payload(
             execution_state="retrying" if not exhausted else "failed",
         ),
         "detail": detail,
+    }
+
+
+def resolver_attempt_payload(
+    *,
+    iteration: int,
+    latest_refs: dict[str, Any],
+    decision_key: str,
+    resolver_attempt_number: int,
+    is_repair_attempt: bool,
+    ticket_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "event_type": "resolver_attempt",
+        **_base_payload(
+            iteration=iteration,
+            phase="resolver_attempt",
+            message=f"Resolver attempt {resolver_attempt_number} for {decision_key}.",
+            latest_refs=latest_refs,
+            execution_state="running",
+        ),
+        "detail": {
+            "decision_key": decision_key,
+            "resolver_attempt_number": int(resolver_attempt_number),
+            "is_repair_attempt": bool(is_repair_attempt),
+            "ticket_snapshot": dict(ticket_snapshot) if isinstance(ticket_snapshot, dict) else None,
+        },
+    }
+
+
+def resolver_outcome_payload(
+    *,
+    iteration: int,
+    latest_refs: dict[str, Any],
+    decision_key: str,
+    move: str | None,
+    result_category: str,
+    reason: str | None,
+    resolver_attempt_number: int,
+    is_repair_attempt: bool,
+    ticket_snapshot: dict[str, Any] | None = None,
+    validation_error_class: str | None = None,
+    raw_output_excerpt: str | None = None,
+) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "decision_key": decision_key,
+        "move": move,
+        "result_category": result_category,
+        "reason": reason,
+        "resolver_attempt_number": int(resolver_attempt_number),
+        "is_repair_attempt": bool(is_repair_attempt),
+        "ticket_snapshot": dict(ticket_snapshot) if isinstance(ticket_snapshot, dict) else None,
+        "validation_error_class": validation_error_class,
+    }
+    excerpt = str(raw_output_excerpt or "").strip()
+    if excerpt:
+        detail["raw_output_excerpt"] = excerpt[:600]
+    return {
+        "event_type": "resolver_outcome",
+        **_base_payload(
+            iteration=iteration,
+            phase="resolver_outcome",
+            message=f"Resolver outcome for {decision_key}: {result_category}.",
+            latest_refs=latest_refs,
+            execution_state="running",
+        ),
+        "detail": detail,
+    }
+
+
+def resolver_move_gate_payload(
+    *,
+    iteration: int,
+    latest_refs: dict[str, Any],
+    decision_key: str,
+    move: str,
+    gate_outcome: str,
+    gate_reason: str,
+    ticket_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "event_type": "resolver_move_gate",
+        **_base_payload(
+            iteration=iteration,
+            phase="resolver_move_gate",
+            message=f"Runtime move gate for {decision_key}: {gate_outcome} ({gate_reason}).",
+            latest_refs=latest_refs,
+            execution_state="running",
+        ),
+        "detail": {
+            "decision_key": decision_key,
+            "move": move,
+            "gate_outcome": gate_outcome,
+            "gate_reason": gate_reason,
+            "ticket_snapshot": dict(ticket_snapshot) if isinstance(ticket_snapshot, dict) else None,
+        },
     }
 
 

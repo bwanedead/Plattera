@@ -83,6 +83,9 @@ from .run_reporting import (
     plan_result_payload,
     promote_payload,
     resolver_invalid_payload,
+    resolver_attempt_payload,
+    resolver_move_gate_payload,
+    resolver_outcome_payload,
     stabilize_payload,
     ticker_payload,
 )
@@ -324,7 +327,7 @@ def handle_repair_iteration(
         _append_hitl_lifecycle_event(
             {
                 "iteration": iterations,
-                "phase": "human_resolution_ticket_state",
+                "phase": f"ticket_{str(lifecycle_state or '').strip().lower() or 'unknown'}",
                 "event_type": "human_resolution_ticket",
                 "ticket_id": str(ticket_id or "").strip() or None,
                 "decision_key": str(decision_key or "").strip().lower() or None,
@@ -1030,6 +1033,22 @@ def handle_repair_iteration(
         feedback=focus_feedback,
         continuity_log=state.continuity_log,
     )
+    active_ticket_snapshot = _active_ticket_snapshot(
+        decision_ledger=state.decision_ledger,
+        decision_key=focus_key,
+    )
+    resolver_attempt_number = int(state.invalid_plan_strikes) + 1
+    emit_progress(
+        progress_cb,
+        resolver_attempt_payload(
+            iteration=iterations,
+            latest_refs=state.latest_refs,
+            decision_key=focus_key or "",
+            resolver_attempt_number=resolver_attempt_number,
+            is_repair_attempt=bool(state.invalid_plan_strikes > 0),
+            ticket_snapshot=active_ticket_snapshot,
+        ),
+    )
     resolver_outcome = resolve_focus_move(
         focus_packet=focus_packet,
         planner_client=planner_client,
@@ -1045,6 +1064,30 @@ def handle_repair_iteration(
     if resolver_decision_key and resolver_decision_key != focus_key:
         move = "mark_blocked"
         resolver_reason = f"resolver_decision_key_mismatch:{resolver_decision_key}"
+    resolver_diag = (
+        (resolver_outcome or {}).get("resolver_invalid_diagnostic")
+        if isinstance(resolver_outcome, dict) and isinstance((resolver_outcome or {}).get("resolver_invalid_diagnostic"), dict)
+        else {}
+    )
+    raw_output_excerpt = str(resolver_diag.get("raw_output_excerpt") or "").strip() or None
+    validation_error_class = _extract_validation_error_class(resolver_reason)
+    result_category = _resolver_result_category(move=move, reason=resolver_reason)
+    emit_progress(
+        progress_cb,
+        resolver_outcome_payload(
+            iteration=iterations,
+            latest_refs=state.latest_refs,
+            decision_key=focus_key or "",
+            move=move or None,
+            result_category=result_category,
+            reason=resolver_reason,
+            resolver_attempt_number=resolver_attempt_number,
+            is_repair_attempt=bool(state.invalid_plan_strikes > 0),
+            ticket_snapshot=active_ticket_snapshot,
+            validation_error_class=validation_error_class,
+            raw_output_excerpt=raw_output_excerpt,
+        ),
+    )
     answered_ticket = _latest_human_resolution_ticket(
         decision_ledger=state.decision_ledger,
         decision_key=focus_key,
@@ -1115,6 +1158,18 @@ def handle_repair_iteration(
     if len(state.continuity_log) > 50:
         state.continuity_log = state.continuity_log[-50:]
     if move == "request_human_feedback":
+        emit_progress(
+            progress_cb,
+            resolver_move_gate_payload(
+                iteration=iterations,
+                latest_refs=state.latest_refs,
+                decision_key=focus_key,
+                move=move,
+                gate_outcome="accepted",
+                gate_reason="accepted_request_human_feedback",
+                ticket_snapshot=active_ticket_snapshot,
+            ),
+        )
         if not state.pending_feedback_prompt_id and request.hitl_enabled:
             resolver_prompt = (
                 dict(resolver_outcome.get("feedback_prompt"))
@@ -1163,7 +1218,31 @@ def handle_repair_iteration(
             hitl_enabled=request.hitl_enabled,
         ):
             state.last_reason = f"mark_blocked_rejected:{resolver_reason}"
+            emit_progress(
+                progress_cb,
+                resolver_move_gate_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    decision_key=focus_key,
+                    move=move,
+                    gate_outcome="rejected",
+                    gate_reason="mark_blocked_rejected_by_runtime_gate",
+                    ticket_snapshot=active_ticket_snapshot,
+                ),
+            )
             return None
+        emit_progress(
+            progress_cb,
+            resolver_move_gate_payload(
+                iteration=iterations,
+                latest_refs=state.latest_refs,
+                decision_key=focus_key,
+                move=move,
+                gate_outcome="accepted",
+                gate_reason="accepted_mark_blocked",
+                ticket_snapshot=active_ticket_snapshot,
+            ),
+        )
         if resolver_reason.startswith(("resolver_move_invalid:", "resolver_plan_invalid:")):
             reason_suffix = resolver_reason
             if reason_suffix.startswith("resolver_move_invalid:"):
@@ -1182,12 +1261,6 @@ def handle_repair_iteration(
                 if isinstance(resolver_outcome, dict)
                 else ""
             ) or (str((answered_ticket or {}).get("ticket_id") or "").strip() if isinstance(answered_ticket, dict) else None)
-            resolver_diag = (
-                (resolver_outcome or {}).get("resolver_invalid_diagnostic")
-                if isinstance(resolver_outcome, dict) and isinstance((resolver_outcome or {}).get("resolver_invalid_diagnostic"), dict)
-                else {}
-            )
-            raw_output_excerpt = str(resolver_diag.get("raw_output_excerpt") or "").strip() or None
             validation_error_class = _extract_validation_error_class(reason_suffix)
             emit_progress(
                 progress_cb,
@@ -1232,6 +1305,18 @@ def handle_repair_iteration(
                     review_required=True,
                 )
             state.last_reason = f"tx_agent_plan_invalid_retrying:{reason_suffix}"
+            emit_progress(
+                progress_cb,
+                resolver_move_gate_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    decision_key=focus_key,
+                    move=move,
+                    gate_outcome="retrying",
+                    gate_reason="resolver_invalid_retry_budget_remaining",
+                    ticket_snapshot=active_ticket_snapshot,
+                ),
+            )
             return None
         return TranscriptEditDecision(
             status="needs_review",
@@ -1243,9 +1328,33 @@ def handle_repair_iteration(
             decision_ledger=state.decision_ledger,
             decision_key=focus_key,
         ):
+            emit_progress(
+                progress_cb,
+                resolver_move_gate_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    decision_key=focus_key,
+                    move=move,
+                    gate_outcome="accepted",
+                    gate_reason="accepted_mark_resolved_no_edit",
+                    ticket_snapshot=active_ticket_snapshot,
+                ),
+            )
             state.last_reason = resolver_reason
             return None
         state.last_reason = f"mark_resolved_no_edit_rejected:{resolver_reason}"
+        emit_progress(
+            progress_cb,
+            resolver_move_gate_payload(
+                iteration=iterations,
+                latest_refs=state.latest_refs,
+                decision_key=focus_key,
+                move=move,
+                gate_outcome="rejected",
+                gate_reason="mark_resolved_no_edit_rejected_by_runtime_gate",
+                ticket_snapshot=active_ticket_snapshot,
+            ),
+        )
         return None
     if move == "gather_more_evidence":
         normalized_request, normalize_reason = normalize_evidence_request(
@@ -1258,7 +1367,31 @@ def handle_repair_iteration(
         )
         if normalized_request is None:
             state.last_reason = f"gather_more_evidence_rejected:{normalize_reason}"
+            emit_progress(
+                progress_cb,
+                resolver_move_gate_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    decision_key=focus_key,
+                    move=move,
+                    gate_outcome="rejected",
+                    gate_reason="invalid_evidence_request",
+                    ticket_snapshot=active_ticket_snapshot,
+                ),
+            )
             return None
+        emit_progress(
+            progress_cb,
+            resolver_move_gate_payload(
+                iteration=iterations,
+                latest_refs=state.latest_refs,
+                decision_key=focus_key,
+                move=move,
+                gate_outcome="accepted",
+                gate_reason=f"accepted_new_evidence_kind:{str(normalized_request.get('kind') or '')}",
+                ticket_snapshot=active_ticket_snapshot,
+            ),
+        )
         focused_findings = _findings_for_focus_key(top_findings=planning_findings, focus_key=focus_key)
         focus_findings = focused_findings if focused_findings else planning_findings
         evidence_result = execute_evidence_request(
@@ -1301,6 +1434,18 @@ def handle_repair_iteration(
         if len(state.continuity_log) > 50:
             state.continuity_log = state.continuity_log[-50:]
         if str(evidence_result.get("status") or "") == "repeat_blocked":
+            emit_progress(
+                progress_cb,
+                resolver_move_gate_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    decision_key=focus_key,
+                    move=move,
+                    gate_outcome="blocked",
+                    gate_reason="rejected_repeated_evidence_after_binding_feedback",
+                    ticket_snapshot=active_ticket_snapshot,
+                ),
+            )
             return TranscriptEditDecision(
                 status="needs_review",
                 reason_code="tx_agent_evidence_repeat_budget_exhausted",
@@ -1394,6 +1539,18 @@ def handle_repair_iteration(
         ):
             state.invalid_plan_strikes += 1
             if state.invalid_plan_strikes >= request.max_invalid_plan_attempts:
+                emit_progress(
+                    progress_cb,
+                    resolver_move_gate_payload(
+                        iteration=iterations,
+                        latest_refs=state.latest_refs,
+                        decision_key=focus_key,
+                        move="apply_edit_plan",
+                        gate_outcome="rejected",
+                        gate_reason="apply_scope_mismatch",
+                        ticket_snapshot=active_ticket_snapshot,
+                    ),
+                )
                 return TranscriptEditDecision(
                     status="needs_review",
                     reason_code="tx_agent_plan_invalid:focus_scope_mismatch",
@@ -1403,6 +1560,18 @@ def handle_repair_iteration(
         selected_plan_payload = manual_plan
         plan_reason = "resolver_edit_plan" if move == "apply_edit_plan" else "manual_plan"
         raw_plan_text = json.dumps(manual_plan, ensure_ascii=False)
+        emit_progress(
+            progress_cb,
+            resolver_move_gate_payload(
+                iteration=iterations,
+                latest_refs=state.latest_refs,
+                decision_key=focus_key,
+                move="apply_edit_plan",
+                gate_outcome="accepted",
+                gate_reason="accepted_apply_for_answered_ticket" if isinstance(answered_ticket, dict) else "accepted_apply_edit_plan",
+                ticket_snapshot=active_ticket_snapshot,
+            ),
+        )
     else:
         state.invalid_plan_strikes += 1
         if state.invalid_plan_strikes >= request.max_invalid_plan_attempts:
@@ -1684,6 +1853,49 @@ def _ticket_lifecycle_snapshot_for_key(
             }
         )
     return out
+
+
+def _active_ticket_snapshot(
+    *,
+    decision_ledger: dict[str, Any],
+    decision_key: str | None,
+) -> dict[str, Any] | None:
+    ticket = _latest_human_resolution_ticket(
+        decision_ledger=decision_ledger,
+        decision_key=decision_key,
+        lifecycle_states={"answered_unintegrated", "integration_attempted_failed", "integrated"},
+    )
+    if not isinstance(ticket, dict):
+        return None
+    return {
+        "ticket_id": str(ticket.get("ticket_id") or "").strip() or None,
+        "ticket_state": str(ticket.get("lifecycle_state") or "").strip().lower() or None,
+        "ticket_strength": str(ticket.get("strength") or "").strip().lower() or None,
+        "ticket_decision_key": str(ticket.get("decision_key") or "").strip().lower() or None,
+        "answered_at": ticket.get("answered_at"),
+        "integrated_at": ticket.get("integrated_at"),
+        "injected_count": len(
+            list_external_context_injections(
+                decision_ledger,
+                decision_key=str(decision_key or "").strip().lower(),
+                type_filter="human_resolution_ticket",
+            )
+        ),
+    }
+
+
+def _resolver_result_category(*, move: str, reason: str) -> str:
+    move_value = str(move or "").strip().lower()
+    reason_value = str(reason or "").strip().lower()
+    if reason_value.startswith("resolver_move_invalid:resolver_invalid"):
+        if "invalid_move" in reason_value:
+            return "invalid_move"
+        return "invalid_schema"
+    if reason_value.startswith("resolver_move_invalid:"):
+        return "invalid_schema"
+    if move_value:
+        return "valid"
+    return "exhausted"
 
 
 def _accept_mark_resolved_no_edit(*, decision_ledger: dict[str, Any], decision_key: str) -> bool:

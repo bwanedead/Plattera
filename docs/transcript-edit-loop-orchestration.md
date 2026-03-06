@@ -467,6 +467,12 @@ Event bus behavior:
 - SSE subscribers receive history then live events
 - timing markers log subscribe/publish/delivery
 
+Post-feedback diagnostics events:
+- `resolver_attempt`
+- `resolver_outcome`
+- `resolver_move_gate`
+- `ticket_<lifecycle_state>` for explicit ticket transitions
+
 ---
 
 ## 19) Current phase catalog (tx lane)
@@ -485,6 +491,15 @@ Common phases:
 - `human_feedback_needed`
 - `human_feedback_received`
 - `human_feedback_reused`
+- `ticket_issued_waiting_feedback`
+- `ticket_answered_unintegrated`
+- `ticket_integration_attempted_failed`
+- `ticket_integrated`
+- `ticket_superseded`
+- `ticket_stale`
+- `resolver_attempt`
+- `resolver_outcome`
+- `resolver_move_gate`
 - `plan`
 - `plan_result`
 - `apply`
@@ -889,6 +904,8 @@ Terminal payload includes:
 - `human_feedback_pending`
 - `pending_feedback_prompt_ids`
 - `terminal_classification`
+- `post_feedback_ticket_seam_state`
+- `post_feedback_ticket_snapshot`
 - initial/final findings
 
 Expected operator interpretation:
@@ -902,6 +919,7 @@ Expected operator interpretation:
 - `blocked_dependency_evidence_missing`
 - `blocked_human_feedback_needed`
 - `blocked_mapping_ambiguity_unresolved`
+- `blocked_post_feedback_resolver_invalid`
 - `blocked_no_safe_autonomous_move`
 
 ---

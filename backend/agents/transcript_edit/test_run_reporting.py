@@ -169,6 +169,51 @@ def test_resolver_invalid_payload_contract_shape() -> None:
     assert "raw_output_excerpt" in detail
 
 
+def test_resolver_attempt_and_outcome_payload_shapes() -> None:
+    attempt = run_reporting.resolver_attempt_payload(
+        iteration=2,
+        latest_refs={},
+        decision_key="range",
+        resolver_attempt_number=2,
+        is_repair_attempt=True,
+        ticket_snapshot={"ticket_id": "hitl_range_1", "ticket_state": "answered_unintegrated"},
+    )
+    outcome = run_reporting.resolver_outcome_payload(
+        iteration=2,
+        latest_refs={},
+        decision_key="range",
+        move="mark_blocked",
+        result_category="invalid_schema",
+        reason="resolver_move_invalid:resolver_invalid:ValidationError:invalid_move",
+        resolver_attempt_number=2,
+        is_repair_attempt=True,
+        ticket_snapshot={"ticket_id": "hitl_range_1", "ticket_state": "answered_unintegrated"},
+        validation_error_class="ValidationError",
+        raw_output_excerpt='{"move":"bad"}',
+    )
+    assert attempt["phase"] == "resolver_attempt"
+    assert (attempt.get("detail") or {}).get("resolver_attempt_number") == 2
+    assert outcome["phase"] == "resolver_outcome"
+    assert (outcome.get("detail") or {}).get("result_category") == "invalid_schema"
+    assert (outcome.get("detail") or {}).get("validation_error_class") == "ValidationError"
+
+
+def test_resolver_move_gate_payload_shape() -> None:
+    payload = run_reporting.resolver_move_gate_payload(
+        iteration=3,
+        latest_refs={},
+        decision_key="range",
+        move="gather_more_evidence",
+        gate_outcome="rejected",
+        gate_reason="rejected_repeated_evidence_after_binding_feedback",
+        ticket_snapshot={"ticket_id": "hitl_range_1", "ticket_state": "answered_unintegrated"},
+    )
+    assert payload["phase"] == "resolver_move_gate"
+    detail = payload.get("detail") or {}
+    assert detail.get("gate_outcome") == "rejected"
+    assert detail.get("gate_reason") == "rejected_repeated_evidence_after_binding_feedback"
+
+
 def test_human_resolution_ticket_state_payload_contract_shape() -> None:
     payload = run_reporting.human_resolution_ticket_state_payload(
         iteration=3,
@@ -181,7 +226,7 @@ def test_human_resolution_ticket_state_payload_contract_shape() -> None:
         reason="resolver_invalid_exhausted",
     )
     assert payload["event_type"] == "human_resolution_ticket"
-    assert payload["phase"] == "human_resolution_ticket_state"
+    assert payload["phase"] == "ticket_integration_attempted_failed"
     assert payload["ticket_id"] == "hitl_range_1_resolver"
     assert payload["lifecycle_state"] == "integration_attempted_failed"
 

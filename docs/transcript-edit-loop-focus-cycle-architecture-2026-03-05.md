@@ -310,6 +310,24 @@ Compact diagnostics are preserved for operator/debug use:
 - validation error class
 - bounded raw-output excerpt
 
+### 7.4 Post-feedback observability lane
+Live diagnostics now include explicit post-feedback seam events:
+- `resolver_attempt`
+- `resolver_outcome`
+- `resolver_move_gate`
+- ticket lifecycle transition events (`ticket_issued_waiting_feedback`, `ticket_answered_unintegrated`, `ticket_integration_attempted_failed`, `ticket_integrated`, `ticket_superseded`, `ticket_stale`)
+
+These events include compact ticket snapshot fields where relevant:
+- `ticket_id`
+- `ticket_state`
+- `ticket_strength`
+- `ticket_decision_key`
+- optional `answered_at` / `integrated_at`
+
+Terminal summary now exposes concise seam fields:
+- `post_feedback_ticket_seam_state`
+- `post_feedback_ticket_snapshot`
+
 ## 8) Ledger and 4-layer closure model
 The architecture preserves layer model:
 - Layer 1: canonical recovery

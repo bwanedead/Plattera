@@ -314,3 +314,40 @@ Validation coverage added:
 
 Verification:
 - `pytest backend/agents/transcript_edit -q` passed
+
+## 31) Post-feedback ticket observability and decision transparency
+Objective:
+- make post-feedback seam fully legible in live runs without changing architecture or adding new move types.
+
+Implementation summary:
+- Added explicit ticket transition events in run stream:
+  - `ticket_issued_waiting_feedback`
+  - `ticket_answered_unintegrated`
+  - `ticket_integration_attempted_failed`
+  - `ticket_integrated`
+  - `ticket_superseded`
+  - `ticket_stale`
+- Added resolver seam diagnostics events:
+  - `resolver_attempt`
+  - `resolver_outcome`
+  - `resolver_move_gate`
+- Added compact post-feedback diagnostics fields (no prompt dumps):
+  - decision key
+  - ticket id/state snapshot
+  - resolver attempt number / repair flag
+  - result category (`valid`, `invalid_schema`, `invalid_move`, `exhausted`)
+  - validation error class
+  - bounded raw output excerpt
+- Added move-gate reason visibility for accepted/rejected/retrying/blocked runtime decisions.
+- Strengthened terminal seam visibility:
+  - `post_feedback_ticket_seam_state`
+  - `post_feedback_ticket_snapshot`
+  - explicit terminal classification for post-feedback invalid exhaustion.
+
+Validation coverage:
+- controller tests assert ticket lifecycle transition events, resolver diagnostics, and move-gate events in live-style flows
+- run-reporting tests assert new payload contracts for resolver/ticket seam events
+- terminalization tests assert post-feedback seam classification/summary visibility
+
+Verification:
+- `pytest backend/agents/transcript_edit -q` passed
