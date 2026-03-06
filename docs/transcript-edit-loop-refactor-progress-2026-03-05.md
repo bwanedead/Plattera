@@ -207,3 +207,51 @@ Practice-deed validation target:
   - `backend/agents/transcript_edit/test_image_verification_runtime.py`
 - Verification:
   - `pytest backend/agents/transcript_edit -q` passed.
+
+## 24) Phase 7.2 objective
+Narrow corrective pass for two live gaps:
+- preserve known `Range 75` / `Range 74` contradiction identity through live ledger/focus/HITL behavior
+- provide one bounded pending-feedback consumption opportunity before no-progress terminalization
+
+## 25) Phase 7.2 implementation summary
+- Contradiction identity preservation hardening (`decision_ledger.py`):
+  - image-result reconciliation now prefers explicit result `decision_key` when present
+  - generic `plss` check ids no longer default to township
+  - existing disputed state is not auto-collapsed to verified from a single image match signal
+- Pending feedback grace handling (`iteration_pipeline.py`):
+  - added one bounded no-progress grace drain when a pending prompt exists
+  - if feedback is consumed in this grace window, loop resets no-progress streak and continues
+  - runtime counters/flags remain durable and truthful (`received`, `consumed`, `stale`, `superseded`)
+
+## 26) Phase 7.2 tests added/updated
+- Updated:
+  - `backend/agents/transcript_edit/test_decision_ledger.py`
+  - `backend/agents/transcript_edit/test_controller.py`
+- Verification:
+  - `pytest backend/agents/transcript_edit/test_decision_ledger.py backend/agents/transcript_edit/test_controller.py -q` passed
+  - `pytest backend/agents/transcript_edit -q` passed
+
+## 27) Real-case hardening follow-up (post-7.2 validation)
+- Observed in active real runs:
+  - contradiction identity correctly anchored to `range`
+  - feedback consumed, but baseline HITL could re-emit prompts too aggressively after fresh consumption
+- Narrow correction:
+  - baseline HITL emission now skips when fresh `focus_feedback` is present in the same iteration
+- Added regression coverage:
+  - `test_transcript_controller_does_not_reemit_baseline_prompt_immediately_after_feedback_consumed`
+- Verification:
+  - `pytest backend/agents/transcript_edit/test_controller.py backend/agents/transcript_edit/test_decision_ledger.py -q` passed
+  - `pytest backend/agents/transcript_edit -q` passed
+
+## 28) Post-feedback decisive-resolution hardening
+- Issue observed:
+  - repeated consistent consumed range feedback could still funnel into repeated evidence/HITL loops
+- Narrow runtime correction:
+  - when the same focused decision receives stable repeated consumed feedback and resolver still requests feedback/evidence, runtime attempts a bounded feedback-derived override plan
+  - if no safe localized plan can be produced, runtime exits with explicit `tx_agent_consistent_feedback_no_safe_plan`
+  - avoids defaulting this case to `tx_agent_evidence_repeat_budget_exhausted`
+- Added regression coverage:
+  - `test_transcript_controller_repeated_consistent_feedback_drives_decisive_outcome`
+- Verification:
+  - `pytest backend/agents/transcript_edit/test_controller.py -q` passed
+  - `pytest backend/agents/transcript_edit -q` passed

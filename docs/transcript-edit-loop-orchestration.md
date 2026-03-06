@@ -246,6 +246,7 @@ Contradiction-fidelity rule (Phase 7):
 - mapping-critical source contradictions must keep their real decision identity through this path
 - example: a `Range 75` vs `Range 74` contradiction must remain `range` in ledger, focus, evidence targeting, and HITL prompt selection
 - do not silently collapse such contradictions into broader PLSS/township narration
+- image-result reconciliation should prefer explicit `decision_key` on checks/results over generic `check_id` substrings when both are present
 
 Design rule now in place:
 - First HITL prompt is emitted only after baseline investigation result in that iteration.
@@ -261,6 +262,9 @@ Phase 5 convergence hardening:
 - no-progress is evaluated from material state change, not activity
 - pending HITL without new response is treated as no-progress
 - apply/edit requires later re-audit confirmation before counting as closure improvement
+- before no-progress terminalization with an active pending prompt, runtime performs one bounded grace feedback-drain check to consume newly arrived valid feedback
+- after fresh feedback is consumed for the active focus, baseline HITL escalation is suppressed for that same iteration so the resolver gets a chance to use the new feedback before emitting another prompt
+- if repeated consistent consumed feedback for the same focused key still produces resolver `request_human_feedback`/`gather_more_evidence`, runtime attempts one bounded feedback-derived decisive plan; if no safe localized plan can be formed, it terminalizes explicitly as `tx_agent_consistent_feedback_no_safe_plan` instead of cycling to evidence-repeat exhaustion
 
 ---
 

@@ -208,3 +208,88 @@ def test_choose_focus_prefers_range_contradiction_over_generic_township_unknown(
     focus = choose_investigation_focus(ledger)
     assert isinstance(focus, dict)
     assert str(focus.get("decision_key") or "") == "range"
+
+
+def test_image_match_does_not_auto_resolve_existing_range_dispute() -> None:
+    updated = update_ledger_from_iteration(
+        ledger=initialize_decision_ledger(),
+        findings=[
+            {
+                "finding_id": "plss_range_conflict_001",
+                "finding_type": "plss_consistency",
+                "message": "PLSS contradiction detected: Township 14 North appears with Range 75 West and Range 74 West.",
+            }
+        ],
+        image_results=[
+            {
+                "check_id": "plss_range_conflict_001",
+                "status": "match",
+                "observed_text": "tokens detected",
+                "decision_key": "range",
+            }
+        ],
+    )
+    range_item = _item(updated, "range")
+    assert str(range_item.get("state") or "") == "disputed"
+    assert str(range_item.get("layer_tag") or "") == "layer2_canonical_sanity"
+    alternatives = [str(v) for v in list(range_item.get("alternatives") or [])]
+    assert any("75" in v for v in alternatives)
+    assert any("74" in v for v in alternatives)
+
+
+def test_image_result_prefers_explicit_decision_key_over_generic_check_id() -> None:
+    updated = update_ledger_from_iteration(
+        ledger=initialize_decision_ledger(),
+        image_results=[
+            {
+                "check_id": "plss_conflict_001",
+                "status": "mismatch",
+                "observed_text": "Range 74 West",
+                "decision_key": "range",
+            }
+        ],
+    )
+    range_item = _item(updated, "range")
+    township_item = _item(updated, "township")
+    assert str(range_item.get("state") or "") == "disputed"
+    assert str(township_item.get("state") or "") == "unknown"
+
+
+def test_image_result_query_preserves_range_contradiction_alternatives() -> None:
+    updated = update_ledger_from_iteration(
+        ledger=initialize_decision_ledger(),
+        image_results=[
+            {
+                "check_id": "plss_range_conflict_001",
+                "status": "match",
+                "decision_key": "range",
+                "query": "Range contradiction detected between Range 75 West and Range 74 West.",
+                "observed_text": "tokens detected",
+            }
+        ],
+    )
+    range_item = _item(updated, "range")
+    assert str(range_item.get("state") or "") == "disputed"
+    assert str(range_item.get("layer_tag") or "") == "layer2_canonical_sanity"
+    alternatives = [str(v) for v in list(range_item.get("alternatives") or [])]
+    assert any("75" in v for v in alternatives)
+    assert any("74" in v for v in alternatives)
+
+
+def test_range_contradiction_extraction_supports_compact_r74w_tokens() -> None:
+    updated = update_ledger_from_iteration(
+        ledger=initialize_decision_ledger(),
+        findings=[
+            {
+                "finding_id": "plss_range_conflict_001",
+                "finding_type": "plss_consistency",
+                "message": "Multiple range tokens detected: r74w, r75w",
+            }
+        ],
+    )
+    range_item = _item(updated, "range")
+    assert str(range_item.get("state") or "") == "disputed"
+    assert str(range_item.get("layer_tag") or "") == "layer2_canonical_sanity"
+    alternatives = [str(v) for v in list(range_item.get("alternatives") or [])]
+    assert "Range 74 West" in alternatives
+    assert "Range 75 West" in alternatives

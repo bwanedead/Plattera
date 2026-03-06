@@ -173,6 +173,30 @@ class _PlannerNoOps:
         return plan, "ok", json.dumps(plan.model_dump(mode="json"))
 
 
+class _PlannerAlwaysFeedback:
+    def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+        focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+        decision_key = str(focus_packet.get("decision_key") or "range")
+        return {
+            "decision_key": decision_key,
+            "move": "request_human_feedback",
+            "reason": "need_human_confirmation",
+            "edit_plan": None,
+            "feedback_prompt": {
+                "line1": "Confirm exact range token (number and E/W suffix).",
+                "line2": "Select the correct range value.",
+                "choices": ["Range 75 West", "Range 74 West"],
+            },
+            "evidence_request": None,
+            "closure_update_hint": None,
+            "iteration_summary": "Need human confirmation for range contradiction.",
+        }, "ok", "{}"
+
+    def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        raise RuntimeError("not used in focus-move mode")
+
+
 class _PlannerRaises:
     def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
         del kwargs
@@ -770,6 +794,203 @@ def test_transcript_controller_repeated_closed_world_no_progress_halts() -> None
         )
         assert result.status == "needs_review"
         assert str(result.reason_code).startswith("tx_agent_no_progress:")
+
+
+def test_transcript_controller_pending_feedback_gets_grace_drain_before_no_progress(monkeypatch) -> None:
+    call_count = {"poll": 0}
+
+    def _fake_poll_feedback_response(*, run_id, prompt_id):  # type: ignore[no-untyped-def]
+        del run_id
+        call_count["poll"] += 1
+        if call_count["poll"] == 2:
+            return {
+                "prompt_id": prompt_id,
+                "choice": "Range 75 West",
+                "note": "Use Range 75 for this contradiction.",
+                "metadata": {
+                    "decision_key": "range",
+                    "resolved_value": "Range 75 West",
+                },
+            }
+        return None
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline.poll_feedback_response",
+        _fake_poll_feedback_response,
+    )
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline.build_human_feedback_prompt",
+        lambda decision_ledger, iteration: {
+            "prompt_id": f"hitl_range_{iteration}_abc12345",
+            "line1": "Resolve range contradiction.",
+            "line2": "Select the correct range token.",
+            "choices": ["Range 75 West", "Range 74 West"],
+            "default_choice": "Range 75 West",
+            "context": {"decision_key": "range"},
+        },
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}),
+            encoding="utf-8",
+        )
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                max_no_progress_iterations=1,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-no-progress-feedback-grace",
+            planner=_PlannerNoOps(),
+        )
+        runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
+        assert int(runtime_hitl_state.get("feedback_received_count") or 0) >= 1
+        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) >= 1
+        assert bool(runtime_hitl_state.get("used_human_feedback")) is True
+        assert not str(result.reason_code).startswith("tx_agent_no_progress:pending_human_feedback_no_new_signal")
+
+
+def test_transcript_controller_does_not_reemit_baseline_prompt_immediately_after_feedback_consumed(monkeypatch) -> None:
+    call_count = {"poll": 0}
+
+    def _fake_poll_feedback_response(*, run_id, prompt_id):  # type: ignore[no-untyped-def]
+        del run_id
+        call_count["poll"] += 1
+        if call_count["poll"] == 1:
+            return {
+                "prompt_id": prompt_id,
+                "choice": "Range 75 West",
+                "note": "Use Range 75.",
+                "metadata": {
+                    "decision_key": "range",
+                    "resolved_value": "Range 75 West",
+                },
+            }
+        return None
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline.poll_feedback_response",
+        _fake_poll_feedback_response,
+    )
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline.build_human_feedback_prompt",
+        lambda decision_ledger, iteration: {
+            "prompt_id": f"hitl_range_{iteration}_abc12345",
+            "line1": "Resolve range contradiction.",
+            "line2": "Select the correct range token.",
+            "choices": ["Range 75 West", "Range 74 West"],
+            "default_choice": "Range 75 West",
+            "context": {"decision_key": "range"},
+        },
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}),
+            encoding="utf-8",
+        )
+        progress_events: list[dict[str, Any]] = []
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                max_no_progress_iterations=2,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-hitl-reemit-guard",
+            planner=_PlannerNoOps(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+        prompt_events = [
+            evt
+            for evt in progress_events
+            if isinstance(evt, dict)
+            and str(evt.get("event_type") or "") == "human_feedback_needed"
+            and str(evt.get("prompt_id") or "").strip()
+        ]
+        assert len(prompt_events) == 1
+        runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
+        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) == 1
+
+
+def test_transcript_controller_repeated_consistent_feedback_drives_decisive_outcome(monkeypatch) -> None:
+    calls = {"poll": 0}
+
+    def _fake_poll_feedback_response(*, run_id, prompt_id):  # type: ignore[no-untyped-def]
+        del run_id
+        if calls["poll"] < 2:
+            calls["poll"] += 1
+            return {
+                "prompt_id": prompt_id,
+                "choice": "Range 75 West",
+                "note": "Use Range 75 West.",
+                "metadata": {
+                    "decision_key": "range",
+                    "resolved_value": "Range 75 West",
+                },
+            }
+        return None
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline.poll_feedback_response",
+        _fake_poll_feedback_response,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "sections": [
+                        {
+                            "id": "s1",
+                            "body": (
+                                "Beginning at a point on the west boundary, Township Fourteen (14) North, "
+                                "Range Seventy-four (74) West of the Sixth Principal Meridian."
+                            ),
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        progress_events: list[dict[str, Any]] = []
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=4,
+                max_no_progress_iterations=2,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-consistent-feedback-decisive",
+            planner=_PlannerAlwaysFeedback(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+        assert str(result.reason_code) != "tx_agent_evidence_repeat_budget_exhausted"
+        assert any(
+            isinstance(evt, dict)
+            and str(evt.get("phase") or "") == "apply_result"
+            and isinstance(evt.get("detail"), dict)
+            and int(evt["detail"].get("plan_op_count") or 0) > 0
+            for evt in progress_events
+        )
+        runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
+        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) >= 2
 
 
 def test_transcript_controller_apply_requires_reaudit_for_progress_claim() -> None:

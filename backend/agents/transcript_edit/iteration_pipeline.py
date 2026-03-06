@@ -23,6 +23,7 @@ from .draft_persistence import persist_agent_edit_draft
 from .focus_packet import build_focus_packet
 from .focus_resolver import resolve_focus_move
 from .hitl_feedback import (
+    build_feedback_override_plan,
     build_human_feedback_prompt,
     feedback_entry_signature,
     list_feedback_entries,
@@ -485,11 +486,17 @@ def handle_repair_iteration(
         )
         return normalized_feedback
 
+    def _apply_consumed_feedback(feedback_payload: dict[str, Any]) -> None:
+        nonlocal focus_feedback
+        focus_feedback = feedback_payload
+        state.latest_feedback = feedback_payload
+        state.evidence_signal_counter += 1
+        state.no_progress_streak = 0
+        state.last_progress_reason = "human_feedback_consumed"
+
     drained_plan = _drain_pending_feedback(checkpoint_label="iteration_start")
     if drained_plan is not None:
-        focus_feedback = drained_plan
-        state.latest_feedback = drained_plan
-        state.evidence_signal_counter += 1
+        _apply_consumed_feedback(drained_plan)
         emit_progress(
             progress_cb,
             human_feedback_reused_payload(
@@ -510,10 +517,26 @@ def handle_repair_iteration(
             ),
         )
     if state.no_progress_streak >= request.max_no_progress_iterations:
+        # One bounded last-chance drain before no-progress terminalization so
+        # newly posted feedback for an active pending prompt is not skipped.
+        if state.pending_feedback_prompt_id:
+            drained_plan = _drain_pending_feedback(checkpoint_label="no_progress_grace")
+            if drained_plan is not None:
+                _apply_consumed_feedback(drained_plan)
+                emit_progress(
+                    progress_cb,
+                    human_feedback_reused_payload(
+                        iteration=iterations,
+                        decision_key=str(drained_plan.get("decision_key") or "decision"),
+                        selected_value=str(drained_plan.get("selected_value") or "selected"),
+                        latest_refs=state.latest_refs,
+                    ),
+                )
         reason = "tx_agent_no_progress"
         if state.last_progress_reason and state.last_progress_reason != "not_evaluated":
             reason = f"{reason}:{state.last_progress_reason}"
-        return TranscriptEditDecision(status="needs_review", reason_code=reason, review_required=True)
+        if state.no_progress_streak >= request.max_no_progress_iterations:
+            return TranscriptEditDecision(status="needs_review", reason_code=reason, review_required=True)
     if not state.current_transcript_ref:
         return TranscriptEditDecision(
             status="needs_review",
@@ -607,9 +630,7 @@ def handle_repair_iteration(
         )
         drained_plan = _drain_pending_feedback(checkpoint_label="open_spans")
         if drained_plan is not None:
-            focus_feedback = drained_plan
-            state.latest_feedback = drained_plan
-            state.evidence_signal_counter += 1
+            _apply_consumed_feedback(drained_plan)
         emit_progress(
             progress_cb,
             image_verify_payload(
@@ -690,9 +711,7 @@ def handle_repair_iteration(
             )
         drained_plan = _drain_pending_feedback(checkpoint_label="image_verify")
         if drained_plan is not None:
-            focus_feedback = drained_plan
-            state.latest_feedback = drained_plan
-            state.evidence_signal_counter += 1
+            _apply_consumed_feedback(drained_plan)
     else:
         emit_progress(
             progress_cb,
@@ -776,9 +795,7 @@ def handle_repair_iteration(
             )
         drained_plan = _drain_pending_feedback(checkpoint_label="post_feedback_image_verify")
         if drained_plan is not None:
-            focus_feedback = drained_plan
-            state.latest_feedback = drained_plan
-            state.evidence_signal_counter += 1
+            _apply_consumed_feedback(drained_plan)
 
     baseline_unresolved = unresolved_closure_requirements(state.decision_ledger)
     baseline_mapping_blocking_unresolved = unresolved_mapping_blocking_requirements(state.decision_ledger)
@@ -821,6 +838,7 @@ def handle_repair_iteration(
         and has_mapping_blocking_residual
         and request.hitl_enabled
         and not state.pending_feedback_prompt_id
+        and focus_feedback is None
     ):
         feedback_prompt = build_human_feedback_prompt(
             decision_ledger=state.decision_ledger,
@@ -896,6 +914,37 @@ def handle_repair_iteration(
     if resolver_decision_key and resolver_decision_key != focus_key:
         move = "mark_blocked"
         resolver_reason = f"resolver_decision_key_mismatch:{resolver_decision_key}"
+    stable_feedback_count = _stable_feedback_confirmation_count(
+        hitl_lifecycle_log=state.hitl_lifecycle_log,
+        decision_key=focus_key,
+        selected_value=(
+            str((focus_feedback or {}).get("selected_value") or "").strip()
+            if isinstance(focus_feedback, dict)
+            else ""
+        ),
+    )
+    if (
+        move in {"request_human_feedback", "gather_more_evidence"}
+        and isinstance(focus_feedback, dict)
+        and stable_feedback_count >= 2
+    ):
+        decisive_plan = build_feedback_override_plan(
+            source_transcript_ref=state.current_transcript_ref or "",
+            source_transcript_hash=source_transcript_hash,
+            normalized_feedback=focus_feedback,
+        )
+        if isinstance(decisive_plan, dict):
+            if isinstance(resolver_outcome, dict):
+                resolver_outcome["move"] = "apply_edit_plan"
+                resolver_outcome["edit_plan"] = decisive_plan
+            move = "apply_edit_plan"
+            resolver_reason = f"stable_feedback_override_plan:{resolver_reason}"
+        else:
+            return TranscriptEditDecision(
+                status="needs_review",
+                reason_code="tx_agent_consistent_feedback_no_safe_plan",
+                review_required=True,
+            )
     state.continuity_log.append(
         {
             "decision_key": focus_key or "",
@@ -1266,6 +1315,53 @@ def _select_focus_decision_key(
         return key
     fallback = choose_investigation_focus(decision_ledger) or {}
     return str(fallback.get("decision_key") or "").strip().lower()
+
+
+def _normalize_feedback_selected_value(*, decision_key: str, selected_value: str) -> str:
+    key = str(decision_key or "").strip().lower()
+    value = str(selected_value or "").strip().lower()
+    if not value:
+        return ""
+    if key in {"range", "township", "section", "tie_distance"}:
+        import re
+
+        match = re.search(r"\b(\d{1,4})\b", value)
+        if match:
+            return f"{key}:{match.group(1)}"
+    return f"{key}:{value}"
+
+
+def _stable_feedback_confirmation_count(
+    *,
+    hitl_lifecycle_log: list[dict[str, Any]],
+    decision_key: str | None,
+    selected_value: str | None,
+) -> int:
+    key = str(decision_key or "").strip().lower()
+    normalized_target = _normalize_feedback_selected_value(
+        decision_key=key,
+        selected_value=str(selected_value or ""),
+    )
+    if not key or not normalized_target:
+        return 0
+    count = 0
+    for entry in reversed(hitl_lifecycle_log):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("phase") or "").strip().lower() != "human_feedback_consumed":
+            continue
+        entry_key = str(entry.get("decision_key") or "").strip().lower()
+        if entry_key != key:
+            continue
+        entry_value = _normalize_feedback_selected_value(
+            decision_key=key,
+            selected_value=str(entry.get("selected_value") or ""),
+        )
+        if entry_value == normalized_target:
+            count += 1
+            continue
+        break
+    return count
 
 
 def _accept_mark_resolved_no_edit(*, decision_ledger: dict[str, Any], decision_key: str) -> bool:

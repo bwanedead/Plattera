@@ -197,6 +197,7 @@ End when:
 Honest stop behavior:
 - repeated unchanged focus/evidence/transcript state increments no-progress handling
 - pending HITL without new feedback is not counted as progress
+- before no-progress terminalization with a pending prompt, runtime performs one bounded last-chance feedback drain so just-arrived valid feedback is not skipped
 - apply/edit is not treated as closure progress until a later re-audit/reconcile confirms improvement
 
 ## 6) Focus resolver contract
@@ -249,6 +250,7 @@ Important:
 - Prompt identity remains stable until one of:
   - consumed valid feedback for that prompt
   - explicit supersession with a recorded reason
+- Baseline escalation should not immediately re-emit a new prompt in the same iteration after fresh feedback is consumed for that focus item.
 - Late feedback for stale/superseded prompt ids is recorded as stale and not silently treated as active consumption.
 - Runtime tracks durable HITL counters/state:
   - feedback received

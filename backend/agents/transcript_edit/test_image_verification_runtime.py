@@ -116,6 +116,7 @@ def test_verify_mapping_critical_with_image_surfaces_focus_mismatch_context() ->
     row = results[0]
     assert str(row.get("decision_key") or "") == "range"
     assert str(row.get("focus_decision_key") or "") == "acreage"
+    assert isinstance(row.get("query"), str) and len(str(row.get("query"))) > 0
 
 
 def test_verify_mapping_critical_with_image_anchors_generic_plss_to_focus_when_key_missing() -> None:

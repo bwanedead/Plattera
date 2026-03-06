@@ -220,6 +220,7 @@ def verify_mapping_critical_with_image(
                     annotated = dict(row)
                     annotated.setdefault("decision_key", check_decision_key)
                     annotated.setdefault("focus_decision_key", str(focus_decision_key or "").strip().lower() or None)
+                    annotated.setdefault("query", str(check.get("query") or "").strip() or None)
                     annotated.setdefault("llm_call_seq", llm_call_seq)
                     annotated.setdefault("phase_attempt", phase_attempt)
                     all_results.append(annotated)

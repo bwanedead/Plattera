@@ -102,10 +102,21 @@ def update_ledger_from_iteration(
         check_id = str(result.get("check_id") or "").lower()
         status = str(result.get("status") or "").lower()
         observed = str(result.get("observed_text") or "").strip() or None
-        target_key = _key_for_check_id(check_id)
+        query = str(result.get("query") or "").strip()
+        result_key = str(result.get("decision_key") or "").strip().lower()
+        target_key = result_key if result_key in {spec[0] for spec in _DECISION_SPECS} else _key_for_check_id(check_id)
         if not target_key:
             continue
         item = by_key[target_key]
+        image_alternatives = _extract_alternatives_for_key(target_key, f"{query} {observed or ''}".strip())
+        if image_alternatives:
+            for alt in image_alternatives:
+                _append_unique(item, "alternatives", alt)
+        if len(image_alternatives) > 1:
+            _apply_observation(item=item, state="disputed", value=observed, evidence_ref=check_id or None)
+            if target_key in {"range", "township", "section"}:
+                item["layer_tag"] = "layer2_canonical_sanity"
+            continue
         if status in _CONFIRMED_STATUSES:
             _apply_observation(item=item, state="verified", value=observed, evidence_ref=check_id or None)
         elif status in _DISPUTED_STATUSES:
@@ -495,6 +506,10 @@ def _apply_observation(
 def _pick_state(*, current_state: str, observed_state: str) -> str:
     if observed_state == "disputed":
         return "disputed"
+    # Preserve unresolved contradiction state until deterministic reconciliation
+    # explicitly clears it; a single image "match" should not auto-collapse disputes.
+    if current_state == "disputed" and observed_state == "verified":
+        return "disputed"
     rank = {"unknown": 0, "candidate_found": 1, "verified": 2}
     current_rank = rank.get(current_state, 0)
     observed_rank = rank.get(observed_state, 0)
@@ -560,7 +575,9 @@ def _key_for_finding(finding: dict[str, Any]) -> str | None:
 
 def _extract_alternatives_for_key(key: str, text: str) -> list[str]:
     if key == "range":
-        matches = re.findall(r"\brange[^0-9]{0,20}(\d{1,3})\s*(west|east|w|e)\b", text, re.IGNORECASE)
+        long_matches = re.findall(r"\brange[^0-9]{0,20}(\d{1,3})\s*(west|east|w|e)\b", text, re.IGNORECASE)
+        short_matches = re.findall(r"\br\s*(\d{1,3})\s*([we])\b", text, re.IGNORECASE)
+        matches = [*long_matches, *short_matches]
         values = [f"Range {num} {'West' if str(dir_).lower().startswith('w') else 'East'}" for num, dir_ in matches]
         return _dedupe_keep_order(values)
     if key == "township":
@@ -590,16 +607,24 @@ def _dedupe_keep_order(values: list[str]) -> list[str]:
 
 
 def _key_for_check_id(check_id: str) -> str | None:
+    if "plss_range" in check_id:
+        return "range"
+    if "plss_township" in check_id:
+        return "township"
+    if "plss_section" in check_id:
+        return "section"
     if "range" in check_id:
         return "range"
+    if "township" in check_id:
+        return "township"
+    if "section" in check_id:
+        return "section"
     if "distance" in check_id:
         return "tie_distance"
     if "bearing" in check_id:
         return "tie_bearing"
     if "acreage" in check_id:
         return "acreage"
-    if "plss" in check_id:
-        return "township"
     return None
 
 
