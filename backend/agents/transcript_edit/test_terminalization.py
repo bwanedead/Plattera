@@ -313,3 +313,96 @@ def test_terminal_summary_pending_feedback_classification() -> None:
     assert summary["human_feedback_pending"] is True
     assert summary["terminal_classification"] == "blocked_human_feedback_needed"
     assert summary["pending_feedback_prompt_ids"] == ["hitl_range_2_abc123"]
+
+
+def test_terminal_summary_uses_runtime_hitl_state_when_progress_window_drops_feedback_events() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {"items": [], "summary": {"blocking_open_count": 0}},
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s7",
+        iterations=3,
+        status="needs_review",
+        reason_code="tx_agent_no_progress",
+        latest_refs={},
+        review_required=True,
+        runtime_hitl_state={
+            "used_human_feedback": True,
+            "feedback_received_count": 1,
+            "feedback_consumed_count": 1,
+            "feedback_stale_count": 0,
+            "feedback_superseded_count": 0,
+            "pending_feedback_prompt_id": None,
+            "superseded_prompt_ids": [],
+            "hitl_lifecycle_log": [{"phase": "human_feedback_consumed", "prompt_id": "hitl_range_1_resolver"}],
+        },
+    )
+    summary = terminal_summary(progress_log, result, critical_events=[])
+    assert summary["used_human_feedback"] is True
+    assert summary["feedback_received_count"] == 1
+    assert summary["feedback_consumed_count"] == 1
+    assert summary["human_feedback_pending"] is False
+
+
+def test_terminal_summary_prompt_supersession_excludes_old_prompt_from_pending() -> None:
+    progress_log = [
+        {
+            "event_type": "human_feedback_needed",
+            "phase": "human_feedback_needed",
+            "prompt_id": "hitl_range_1_resolver",
+            "detail": {
+                "decision_ledger": {
+                    "items": [
+                        {
+                            "key": "range",
+                            "label": "Range",
+                            "state": "disputed",
+                            "blocking": True,
+                            "closure_requirement": {"block_reason": "ambiguity", "mapping_blocking": True},
+                        }
+                    ],
+                    "summary": {"blocking_open_count": 1},
+                }
+            },
+        },
+        {
+            "phase": "human_feedback_prompt_superseded",
+            "prompt_id": "hitl_range_1_resolver",
+            "replacement_prompt_id": "hitl_range_2_resolver",
+        },
+        {
+            "event_type": "human_feedback_needed",
+            "phase": "human_feedback_needed",
+            "prompt_id": "hitl_range_2_resolver",
+        },
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s8",
+        iterations=4,
+        status="needs_review",
+        reason_code="tx_agent_closure_requirements_unresolved",
+        latest_refs={},
+        review_required=True,
+        runtime_hitl_state={
+            "used_human_feedback": False,
+            "feedback_received_count": 0,
+            "feedback_consumed_count": 0,
+            "feedback_stale_count": 1,
+            "feedback_superseded_count": 1,
+            "pending_feedback_prompt_id": "hitl_range_2_resolver",
+            "superseded_prompt_ids": ["hitl_range_1_resolver"],
+            "hitl_lifecycle_log": [],
+        },
+    )
+    summary = terminal_summary(progress_log, result, critical_events=[])
+    assert summary["pending_feedback_prompt_ids"] == ["hitl_range_2_resolver"]
+    assert summary["superseded_feedback_prompt_ids"] == ["hitl_range_1_resolver"]
+    assert summary["feedback_superseded_count"] == 1

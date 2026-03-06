@@ -116,6 +116,23 @@ def poll_feedback_response(
     )
 
 
+def list_feedback_entries(*, run_id: str) -> list[dict[str, Any]]:
+    entries = feedback_store.list_entries(loop_kind="transcript_edit", run_id=run_id)
+    if not isinstance(entries, list):
+        return []
+    return [entry for entry in entries if isinstance(entry, dict)]
+
+
+def feedback_entry_signature(entry: dict[str, Any]) -> str:
+    submitted = int(entry.get("submitted_at_epoch_seconds") or 0)
+    prompt_id = str(entry.get("prompt_id") or "").strip()
+    choice = str(entry.get("choice") or "").strip()
+    note = str(entry.get("note") or "").strip()
+    metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+    decision_key = str(metadata.get("decision_key") or "").strip().lower()
+    return f"{submitted}|{prompt_id}|{decision_key}|{choice}|{note}"
+
+
 def normalize_feedback_response(
     *,
     feedback_entry: dict[str, Any],

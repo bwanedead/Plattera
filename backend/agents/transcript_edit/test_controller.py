@@ -555,7 +555,7 @@ def test_transcript_controller_planner_exception_degrades_to_needs_review() -> N
         )
         assert result.status == "needs_review"
         assert result.review_required is True
-        assert result.reason_code.startswith("tx_agent_plan_invalid:")
+        assert result.reason_code.startswith("tx_agent_plan_invalid")
 
 
 def test_transcript_controller_blocks_promote_when_final_image_sanity_unclear() -> None:
@@ -718,6 +718,9 @@ def test_transcript_controller_non_range_feedback_generates_manual_override(monk
             and int(evt["detail"].get("plan_op_count") or 0) > 0
             for evt in progress_events
         )
+        runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
+        assert bool(runtime_hitl_state.get("used_human_feedback")) is True
+        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) >= 1
 
 
 def test_transcript_controller_closure_update_hint_does_not_override_ledger_truth() -> None:
@@ -791,3 +794,25 @@ def test_transcript_controller_apply_requires_reaudit_for_progress_claim() -> No
         )
         assert result.status == "needs_review"
         assert "waiting_reaudit" in str(result.reason_code)
+
+
+def test_transcript_controller_resolver_invalid_retries_then_exhausts() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(json.dumps({"sections": [{"id": "s1", "body": "Beginning at NW corner."}]}), encoding="utf-8")
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=3,
+                max_invalid_plan_attempts=2,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="manual-resolver-invalid-exhausted",
+            planner=_PlannerInvalid(),
+        )
+        assert result.status == "needs_review"
+        assert str(result.reason_code).startswith("tx_agent_plan_invalid_exhausted:")

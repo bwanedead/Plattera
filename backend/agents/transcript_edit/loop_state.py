@@ -30,6 +30,15 @@ class TranscriptEditLoopState:
     decision_ledger: dict[str, Any] = field(default_factory=dict)
     pending_feedback_prompt_id: str | None = None
     pending_feedback_prompt: dict[str, Any] | None = None
+    pending_feedback_decision_key: str | None = None
+    pending_feedback_emitted_iteration: int | None = None
+    feedback_received_count: int = 0
+    feedback_consumed_count: int = 0
+    feedback_stale_count: int = 0
+    feedback_superseded_count: int = 0
+    feedback_entry_seen_keys: set[str] = field(default_factory=set)
+    superseded_feedback_prompt_ids: set[str] = field(default_factory=set)
+    hitl_lifecycle_log: list[dict[str, Any]] = field(default_factory=list)
     continuity_log: list[dict[str, Any]] = field(default_factory=list)
     evidence_repeat_guard: dict[str, dict[str, Any]] = field(default_factory=dict)
     evidence_signal_counter: int = 0

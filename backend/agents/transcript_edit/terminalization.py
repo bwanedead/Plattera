@@ -21,6 +21,7 @@ def build_run_result(
     reason_code: str,
     latest_refs: dict[str, Any],
     review_required: bool,
+    runtime_hitl_state: dict[str, Any] | None = None,
 ) -> TranscriptEditAgentRunResult:
     return TranscriptEditAgentRunResult(
         run_artifact_ref=run_artifact_ref,
@@ -30,6 +31,7 @@ def build_run_result(
         reason_code=reason_code,
         latest_refs=latest_refs,
         review_required=review_required,
+        runtime_hitl_state=runtime_hitl_state if isinstance(runtime_hitl_state, dict) else None,
     )
 
 
@@ -65,13 +67,27 @@ def terminal_message(result: Any) -> str:
     return f"Run ended with status '{status}' after {iterations} iteration(s)."
 
 
-def terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[str, Any]:
+def terminal_summary(
+    progress_log: list[dict[str, Any]],
+    result: Any,
+    *,
+    critical_events: list[dict[str, Any]] | None = None,
+    runtime_hitl_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if runtime_hitl_state is None:
+        result_runtime_hitl_state = getattr(result, "runtime_hitl_state", None)
+        runtime_hitl_state = (
+            result_runtime_hitl_state
+            if isinstance(result_runtime_hitl_state, dict)
+            else None
+        )
+    events = _merge_terminal_events(progress_log=progress_log, critical_events=critical_events or [])
     first_audit = None
     final_audit = None
     edits_applied = 0
-    used_human_feedback = False
+    used_human_feedback = bool((runtime_hitl_state or {}).get("used_human_feedback"))
     decision_ledger = None
-    for entry in progress_log:
+    for entry in events:
         if not isinstance(entry, dict):
             continue
         phase = str(entry.get("phase") or "")
@@ -87,7 +103,7 @@ def terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[st
             final_audit = detail
         if phase == "apply_result":
             edits_applied += int(detail.get("plan_op_count") or 0)
-        if event_type == "human_feedback" or phase in {"human_feedback_received", "human_feedback_reused"}:
+        if event_type == "human_feedback" or phase in {"human_feedback_received", "human_feedback_reused", "human_feedback_consumed"}:
             used_human_feedback = True
     result_status = str(getattr(result, "status", "unknown"))
     reason_code = str(getattr(result, "reason_code", "") or "")
@@ -114,8 +130,27 @@ def terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[st
     unresolved_ambiguity_items = [
         item for item in unresolved_mapping_blocking_items if item not in unresolved_dependency_items
     ]
-    pending_feedback_prompt_ids = _pending_feedback_prompt_ids(progress_log=progress_log)
+    pending_feedback_prompt_ids = _pending_feedback_prompt_ids(events=events)
     human_feedback_pending = len(pending_feedback_prompt_ids) > 0
+    hitl_state = runtime_hitl_state if isinstance(runtime_hitl_state, dict) else {}
+    feedback_received_count = int(hitl_state.get("feedback_received_count") or 0)
+    feedback_consumed_count = int(hitl_state.get("feedback_consumed_count") or 0)
+    feedback_stale_count = int(hitl_state.get("feedback_stale_count") or 0)
+    feedback_superseded_count = int(hitl_state.get("feedback_superseded_count") or 0)
+    superseded_prompt_ids = (
+        [str(v) for v in list(hitl_state.get("superseded_prompt_ids") or []) if str(v).strip()]
+        if isinstance(hitl_state, dict)
+        else []
+    )
+    hitl_lifecycle_log = (
+        [evt for evt in list(hitl_state.get("hitl_lifecycle_log") or []) if isinstance(evt, dict)][-80:]
+        if isinstance(hitl_state, dict)
+        else []
+    )
+    runtime_pending_prompt_id = str(hitl_state.get("pending_feedback_prompt_id") or "").strip()
+    if runtime_pending_prompt_id and runtime_pending_prompt_id not in pending_feedback_prompt_ids:
+        pending_feedback_prompt_ids.append(runtime_pending_prompt_id)
+        human_feedback_pending = True
     optional_only_remaining = bool(
         len(unresolved_optional_items) > 0
         and len(unresolved_mapping_blocking_items) == 0
@@ -172,6 +207,12 @@ def terminal_summary(progress_log: list[dict[str, Any]], result: Any) -> dict[st
         "optional_only_remaining": optional_only_remaining,
         "human_feedback_pending": human_feedback_pending,
         "pending_feedback_prompt_ids": pending_feedback_prompt_ids,
+        "feedback_received_count": feedback_received_count,
+        "feedback_consumed_count": feedback_consumed_count,
+        "feedback_stale_count": feedback_stale_count,
+        "feedback_superseded_count": feedback_superseded_count,
+        "superseded_feedback_prompt_ids": superseded_prompt_ids,
+        "hitl_lifecycle_log": hitl_lifecycle_log,
         "decision_ledger_summary": (
             decision_ledger.get("summary")
             if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("summary"), dict)
@@ -250,10 +291,11 @@ def _attach_closure_history(*, decision_ledger: dict[str, Any], closure_history:
     return out
 
 
-def _pending_feedback_prompt_ids(*, progress_log: list[dict[str, Any]]) -> list[str]:
+def _pending_feedback_prompt_ids(*, events: list[dict[str, Any]]) -> list[str]:
     needed: list[str] = []
     answered: set[str] = set()
-    for entry in progress_log:
+    superseded: set[str] = set()
+    for entry in events:
         if not isinstance(entry, dict):
             continue
         event_type = str(entry.get("event_type") or "").strip().lower()
@@ -262,9 +304,11 @@ def _pending_feedback_prompt_ids(*, progress_log: list[dict[str, Any]]) -> list[
         if event_type == "human_feedback_needed" and prompt_id:
             needed.append(prompt_id)
             continue
-        if phase in {"human_feedback_received", "human_feedback_reused"} and prompt_id:
+        if phase in {"human_feedback_received", "human_feedback_reused", "human_feedback_consumed"} and prompt_id:
             answered.add(prompt_id)
-    pending = [pid for pid in needed if pid not in answered]
+        if phase == "human_feedback_prompt_superseded" and prompt_id:
+            superseded.add(prompt_id)
+    pending = [pid for pid in needed if pid not in answered and pid not in superseded]
     deduped: list[str] = []
     seen: set[str] = set()
     for pid in pending:
@@ -273,6 +317,33 @@ def _pending_feedback_prompt_ids(*, progress_log: list[dict[str, Any]]) -> list[
         seen.add(pid)
         deduped.append(pid)
     return deduped
+
+
+def _merge_terminal_events(
+    *,
+    progress_log: list[dict[str, Any]],
+    critical_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for entry in [*(progress_log or []), *(critical_events or [])]:
+        if not isinstance(entry, dict):
+            continue
+        key = "|".join(
+            [
+                str(entry.get("timestamp_epoch_seconds") or ""),
+                str(entry.get("iteration") or ""),
+                str(entry.get("phase") or ""),
+                str(entry.get("event_type") or ""),
+                str(entry.get("prompt_id") or ""),
+                str(entry.get("message") or "")[:120],
+            ]
+        )
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        merged.append(entry)
+    return merged
 
 
 def _terminal_classification(

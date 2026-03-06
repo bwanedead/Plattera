@@ -709,12 +709,14 @@ flowchart LR
   B -- yes --> D[Emit human_feedback_needed]
   D --> E[User submits feedback]
   E --> F[Feedback store append]
-  F --> G[Loop checkpoint poll/drain]
-  G --> H{Convertible to plan?}
-  H -- yes --> I[Manual override plan]
-  H -- no --> J[Record feedback as context]
-  I --> K[Apply + re-audit]
-  J --> K
+  F --> G[Loop checkpoint poll/drain active prompt]
+  G --> H{Matches active pending prompt?}
+  H -- no --> I[Mark stale/superseded feedback]
+  H -- yes --> J{Valid + consumable?}
+  J -- no --> K[Record invalid/stale; keep pending active]
+  J -- yes --> L[Mark feedback consumed]
+  L --> M[Resolver chooses next move]
+  M --> N[Apply or further evidence/HITL]
 ```
 
 ### 27.2 Submission and transport
@@ -730,7 +732,8 @@ Entry fields:
 On submit:
 - feedback is persisted
 - `human_feedback` event is published to stream
-- tx loop drains at checkpoints and may convert feedback into override plan
+- tx loop drains at checkpoints against the authoritative pending prompt id
+- stale/superseded prompt replies are recorded deterministically and not silently consumed
 
 ### 27.3 Checkpoints where feedback is consumed
 In repair iteration:
@@ -742,6 +745,7 @@ In repair iteration:
 ### 27.4 Prompt discipline rule
 Current intended rule:
 - Do not emit first actionable backend HITL prompt before baseline investigation result in the iteration.
+- keep one authoritative pending prompt id active until consumed or explicitly superseded.
 
 Known caveat:
 - frontend synthetic closure prompt path can still create earlier perceived prompts unless strictly disabled (see section 20).
@@ -751,12 +755,16 @@ Known caveat:
 ## 28) Exact prompting schemes in play
 ### 28.1 Backend authoritative HITL prompt
 Built by `build_human_feedback_prompt`:
-- prompt id: `hitl_<decision_key>_<iteration>_<suffix>`
+- prompt id: backend-generated `hitl_<decision_key>_<...>` token (stable while pending for that focused item)
 - decision selection: highest-priority unresolved mapping-blocking item from `decision_ledger`
 - line1 source: `closure_requirement.required_information`
 - line2 source: `closure_requirement.minimal_user_action`
 - choices source: `closure_requirement.resolution_options` (fallback: selected value)
 - evidence transparency: payload includes `evidence_attempts` counters (`open_spans_count`, `image_verify_count`, `retrieval_count`)
+
+Phase 6.2 runtime guardrails:
+- pending prompt lifecycle is explicit (`emitted`, `received`, `consumed`, `stale`, `superseded`)
+- terminal reporting does not rely only on last-40 progress window; critical HITL lifecycle events are retained separately
 
 ### 28.2 Planner prompt family
 1. system message
@@ -769,6 +777,7 @@ Built by `build_human_feedback_prompt`:
 
 3. repair message
 - used when planner output invalid/empty; supplies error + minimal valid shape
+- invalid resolver outputs are retry-bounded in runtime and classified as retrying vs exhausted
 
 ### 28.3 Image verify prompt
 - JSON task with strict schema:

@@ -33,6 +33,26 @@ router = APIRouter()
 
 _registry = TranscriptionEditRunRegistry()
 logger = logging.getLogger(__name__)
+_PROGRESS_LOG_LIMIT = 40
+_CRITICAL_EVENT_LIMIT = 200
+
+
+def _is_critical_progress_event(event: dict[str, Any]) -> bool:
+    event_type = str(event.get("event_type") or "").strip().lower()
+    phase = str(event.get("phase") or "").strip().lower()
+    if event_type in {"human_feedback_needed", "human_feedback", "resolver_invalid"}:
+        return True
+    if phase in {
+        "human_feedback_needed",
+        "human_feedback_received",
+        "human_feedback_consumed",
+        "human_feedback_reused",
+        "human_feedback_stale",
+        "human_feedback_prompt_superseded",
+        "resolver_invalid",
+    }:
+        return True
+    return False
 
 class TranscriptEditAgentApiRequest(TranscriptEditAgentRunRequest):
     background: bool = True
@@ -41,6 +61,7 @@ class TranscriptEditAgentApiRequest(TranscriptEditAgentRunRequest):
 def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
     try:
         progress_log: list[dict[str, Any]] = []
+        critical_events: list[dict[str, Any]] = []
         seq = 0
         loop_started_mono = _time.perf_counter()
         last_event_mono = loop_started_mono
@@ -96,8 +117,12 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                     **(event if isinstance(event, dict) else {}),
                 }
             )
-            if len(progress_log) > 40:
-                del progress_log[:-40]
+            if _is_critical_progress_event(progress_log[-1]):
+                critical_events.append(dict(progress_log[-1]))
+                if len(critical_events) > _CRITICAL_EVENT_LIMIT:
+                    del critical_events[:-_CRITICAL_EVENT_LIMIT]
+            if len(progress_log) > _PROGRESS_LOG_LIMIT:
+                del progress_log[:-_PROGRESS_LOG_LIMIT]
             latest = progress_log[-1] if progress_log else None
             _registry.update_run(
                 run_id=run_id,
@@ -108,6 +133,7 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                         "status": "running",
                         "live_status": latest,
                         "progress_log": list(progress_log),
+                        "critical_events": list(critical_events),
                     },
                 },
             )
@@ -148,7 +174,16 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             startup_countdown_seconds=15,
         )
         run_terminal_message = terminal_message(result)
-        run_terminal_summary = terminal_summary(progress_log, result)
+        run_terminal_summary = terminal_summary(
+            progress_log,
+            result,
+            critical_events=critical_events,
+            runtime_hitl_state=(
+                result.runtime_hitl_state
+                if isinstance(result.runtime_hitl_state, dict)
+                else None
+            ),
+        )
         handoff_packet = build_handoff_packet(
             run_id=run_id,
             request=request,
@@ -183,6 +218,7 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                     "terminal_summary": run_terminal_summary,
                     "live_status": progress_log[-1] if progress_log else None,
                     "progress_log": list(progress_log),
+                    "critical_events": list(critical_events),
                 },
             },
         )

@@ -198,6 +198,7 @@ def run_transcript_edit_controller_loop(
             reason=reason,
             latest_refs=state.latest_refs,
             review_required=True,
+            runtime_hitl_state=_runtime_hitl_state(state),
         )
     pre_audit_inline = _read_step_outputs_inline(pre_audit.step_record)
     pre_source_ref = _read_str(pre_audit_inline.get("tx_source_transcript_ref"))
@@ -236,6 +237,7 @@ def run_transcript_edit_controller_loop(
             reason=reason,
             latest_refs=state.latest_refs,
             review_required=True,
+            runtime_hitl_state=_runtime_hitl_state(state),
         )
     orient_inline = _read_step_outputs_inline(orient.step_record)
     orient_source_ref = _read_str(orient_inline.get("tx_source_transcript_ref"))
@@ -321,6 +323,7 @@ def run_transcript_edit_controller_loop(
                 reason=reason,
                 latest_refs=state.latest_refs,
                 review_required=True,
+                runtime_hitl_state=_runtime_hitl_state(state),
             )
         inline = _read_step_outputs_inline(audit.step_record)
         source_ref_candidate = _read_str(inline.get("tx_source_transcript_ref"))
@@ -411,6 +414,7 @@ def run_transcript_edit_controller_loop(
                 reason=decision.reason_code,
                 latest_refs=state.latest_refs,
                 review_required=decision.review_required,
+                runtime_hitl_state=_runtime_hitl_state(state),
             )
 
         if mode == _MODE_AUDIT_ONLY:
@@ -422,6 +426,7 @@ def run_transcript_edit_controller_loop(
                 reason="tx_agent_audit_only_findings_present",
                 latest_refs=state.latest_refs,
                 review_required=True,
+                runtime_hitl_state=_runtime_hitl_state(state),
             )
 
         decision = handle_repair_iteration(
@@ -449,6 +454,7 @@ def run_transcript_edit_controller_loop(
                 reason=decision.reason_code,
                 latest_refs=state.latest_refs,
                 review_required=decision.review_required,
+                runtime_hitl_state=_runtime_hitl_state(state),
             )
 
     terminal_decision = max_iterations_decision(state.last_reason)
@@ -468,6 +474,7 @@ def run_transcript_edit_controller_loop(
         reason=terminal_decision.reason_code,
         latest_refs=state.latest_refs,
         review_required=terminal_decision.review_required,
+        runtime_hitl_state=_runtime_hitl_state(state),
     )
 
 
@@ -606,6 +613,7 @@ def _result(
     reason: str,
     latest_refs: dict[str, Any],
     review_required: bool,
+    runtime_hitl_state: dict[str, Any] | None = None,
 ) -> TranscriptEditAgentRunResult:
     return build_run_result(
         run_artifact_ref=start.run_artifact_ref,
@@ -615,7 +623,22 @@ def _result(
         reason_code=reason,
         latest_refs=latest_refs,
         review_required=review_required,
+        runtime_hitl_state=runtime_hitl_state,
     )
+
+
+def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
+    return {
+        "used_human_feedback": bool(state.used_human_feedback),
+        "feedback_received_count": int(state.feedback_received_count),
+        "feedback_consumed_count": int(state.feedback_consumed_count),
+        "feedback_stale_count": int(state.feedback_stale_count),
+        "feedback_superseded_count": int(state.feedback_superseded_count),
+        "pending_feedback_prompt_id": state.pending_feedback_prompt_id,
+        "pending_feedback_decision_key": state.pending_feedback_decision_key,
+        "superseded_prompt_ids": sorted(list(state.superseded_feedback_prompt_ids)),
+        "hitl_lifecycle_log": list(state.hitl_lifecycle_log),
+    }
 
 
 def _normalized_mode(raw: str | None) -> str:

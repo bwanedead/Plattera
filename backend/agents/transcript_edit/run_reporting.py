@@ -235,6 +235,112 @@ def human_feedback_received_payload(
     }
 
 
+def human_feedback_consumed_payload(
+    *,
+    iteration: int,
+    latest_refs: dict[str, Any],
+    prompt_id: str | None,
+    decision_key: str | None,
+    selected_value: str | None,
+) -> dict[str, Any]:
+    value = str(selected_value or "").strip()
+    return {
+        "event_type": "human_feedback",
+        **_base_payload(
+            iteration=iteration,
+            phase="human_feedback_consumed",
+            message=(
+                f"Consumed human feedback for {decision_key or 'decision'}"
+                + (f": {value}" if value else ".")
+            ),
+            latest_refs=latest_refs,
+            execution_state="received",
+        ),
+        "prompt_id": prompt_id,
+        "decision_key": decision_key,
+        "selected_value": selected_value,
+    }
+
+
+def human_feedback_stale_payload(
+    *,
+    iteration: int,
+    latest_refs: dict[str, Any],
+    prompt_id: str | None,
+    active_prompt_id: str | None,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "event_type": "human_feedback",
+        **_base_payload(
+            iteration=iteration,
+            phase="human_feedback_stale",
+            message="Feedback received for a stale/superseded prompt and was not consumed.",
+            latest_refs=latest_refs,
+            execution_state="received",
+        ),
+        "prompt_id": prompt_id,
+        "active_prompt_id": active_prompt_id,
+        "reason": reason,
+    }
+
+
+def human_feedback_prompt_superseded_payload(
+    *,
+    iteration: int,
+    latest_refs: dict[str, Any],
+    superseded_prompt_id: str,
+    replacement_prompt_id: str | None,
+    decision_key: str | None,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "event_type": "human_feedback_needed",
+        **_base_payload(
+            iteration=iteration,
+            phase="human_feedback_prompt_superseded",
+            message="Superseded pending human-feedback prompt with a newer authoritative prompt.",
+            latest_refs=latest_refs,
+            execution_state="running",
+        ),
+        "prompt_id": superseded_prompt_id,
+        "replacement_prompt_id": replacement_prompt_id,
+        "decision_key": decision_key,
+        "reason": reason,
+    }
+
+
+def resolver_invalid_payload(
+    *,
+    iteration: int,
+    latest_refs: dict[str, Any],
+    reason: str,
+    invalid_plan_strikes: int,
+    max_invalid_plan_attempts: int,
+    exhausted: bool,
+) -> dict[str, Any]:
+    return {
+        "event_type": "resolver_invalid",
+        **_base_payload(
+            iteration=iteration,
+            phase="resolver_invalid",
+            message=(
+                "Resolver produced an invalid move payload; retrying."
+                if not exhausted
+                else "Resolver produced invalid payload repeatedly; retry budget exhausted."
+            ),
+            latest_refs=latest_refs,
+            execution_state="retrying" if not exhausted else "failed",
+        ),
+        "detail": {
+            "reason": reason,
+            "invalid_plan_strikes": int(invalid_plan_strikes),
+            "max_invalid_plan_attempts": int(max_invalid_plan_attempts),
+            "exhausted": bool(exhausted),
+        },
+    }
+
+
 def open_spans_payload(*, iteration: int, latest_refs: dict[str, Any]) -> dict[str, Any]:
     return _base_payload(
         iteration=iteration,

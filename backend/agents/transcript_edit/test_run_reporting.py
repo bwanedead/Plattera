@@ -108,6 +108,58 @@ def test_human_feedback_needed_payload_contract_shape() -> None:
     assert payload["evidence_attempts"]["image_verify_count"] == 2
 
 
+def test_human_feedback_consumed_payload_contract_shape() -> None:
+    payload = run_reporting.human_feedback_consumed_payload(
+        iteration=2,
+        latest_refs={},
+        prompt_id="hitl_range_2_resolver",
+        decision_key="range",
+        selected_value="Range 75 West",
+    )
+    assert payload["event_type"] == "human_feedback"
+    assert payload["phase"] == "human_feedback_consumed"
+    assert payload["prompt_id"] == "hitl_range_2_resolver"
+    assert payload["decision_key"] == "range"
+
+
+def test_human_feedback_stale_and_superseded_payload_shapes() -> None:
+    stale = run_reporting.human_feedback_stale_payload(
+        iteration=3,
+        latest_refs={},
+        prompt_id="hitl_range_1_resolver",
+        active_prompt_id="hitl_range_2_resolver",
+        reason="stale_prompt_reply",
+    )
+    superseded = run_reporting.human_feedback_prompt_superseded_payload(
+        iteration=3,
+        latest_refs={},
+        superseded_prompt_id="hitl_range_1_resolver",
+        replacement_prompt_id="hitl_range_2_resolver",
+        decision_key="range",
+        reason="resolver_requested_feedback",
+    )
+    assert stale["phase"] == "human_feedback_stale"
+    assert stale["active_prompt_id"] == "hitl_range_2_resolver"
+    assert superseded["phase"] == "human_feedback_prompt_superseded"
+    assert superseded["replacement_prompt_id"] == "hitl_range_2_resolver"
+
+
+def test_resolver_invalid_payload_contract_shape() -> None:
+    payload = run_reporting.resolver_invalid_payload(
+        iteration=2,
+        latest_refs={},
+        reason="ValidationError",
+        invalid_plan_strikes=2,
+        max_invalid_plan_attempts=3,
+        exhausted=False,
+    )
+    assert payload["event_type"] == "resolver_invalid"
+    assert payload["phase"] == "resolver_invalid"
+    detail = payload.get("detail") or {}
+    assert detail.get("reason") == "ValidationError"
+    assert detail.get("invalid_plan_strikes") == 2
+
+
 def test_open_spans_result_payload_contract_shape() -> None:
     payload = run_reporting.open_spans_result_payload(
         iteration=2,

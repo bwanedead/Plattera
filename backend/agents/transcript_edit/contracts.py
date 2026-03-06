@@ -41,3 +41,4 @@ class TranscriptEditAgentRunResult:
     reason_code: str
     latest_refs: dict[str, Any]
     review_required: bool
+    runtime_hitl_state: dict[str, Any] | None = None

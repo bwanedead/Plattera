@@ -24,6 +24,8 @@ from .focus_packet import build_focus_packet
 from .focus_resolver import resolve_focus_move
 from .hitl_feedback import (
     build_human_feedback_prompt,
+    feedback_entry_signature,
+    list_feedback_entries,
     normalize_feedback_response,
     poll_feedback_response,
     viewer_run_id_from_request_prefix,
@@ -60,8 +62,11 @@ from .run_reporting import (
     apply_result_payload,
     final_verify_retry_payload,
     human_feedback_needed_payload,
+    human_feedback_prompt_superseded_payload,
     human_feedback_received_payload,
     human_feedback_reused_payload,
+    human_feedback_stale_payload,
+    human_feedback_consumed_payload,
     investigation_baseline_payload,
     investigation_baseline_result_payload,
     image_verify_payload,
@@ -71,6 +76,7 @@ from .run_reporting import (
     open_spans_result_payload,
     plan_result_payload,
     promote_payload,
+    resolver_invalid_payload,
     stabilize_payload,
     ticker_payload,
 )
@@ -291,24 +297,157 @@ def handle_repair_iteration(
     focus_feedback: dict[str, Any] | None = state.latest_feedback if isinstance(state.latest_feedback, dict) else None
     viewer_run_id = viewer_run_id_from_request_prefix(request_id_prefix)
 
+    def _append_hitl_lifecycle_event(event: dict[str, Any]) -> None:
+        if not isinstance(event, dict):
+            return
+        state.hitl_lifecycle_log.append(event)
+        if len(state.hitl_lifecycle_log) > 120:
+            state.hitl_lifecycle_log = state.hitl_lifecycle_log[-120:]
+
+    def _set_pending_feedback_prompt(
+        *,
+        feedback_prompt: dict[str, Any],
+        decision_key: str,
+        supersession_reason: str,
+    ) -> None:
+        new_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
+        old_prompt_id = str(state.pending_feedback_prompt_id or "").strip() or None
+        if old_prompt_id and new_prompt_id and old_prompt_id != new_prompt_id:
+            state.feedback_superseded_count += 1
+            state.superseded_feedback_prompt_ids.add(old_prompt_id)
+            superseded_event = {
+                "iteration": iterations,
+                "phase": "human_feedback_prompt_superseded",
+                "event_type": "human_feedback_needed",
+                "prompt_id": old_prompt_id,
+                "replacement_prompt_id": new_prompt_id,
+                "decision_key": decision_key,
+                "reason": supersession_reason,
+            }
+            _append_hitl_lifecycle_event(superseded_event)
+            emit_progress(
+                progress_cb,
+                human_feedback_prompt_superseded_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    superseded_prompt_id=old_prompt_id,
+                    replacement_prompt_id=new_prompt_id,
+                    decision_key=decision_key or None,
+                    reason=supersession_reason,
+                ),
+            )
+        state.pending_feedback_prompt_id = new_prompt_id
+        state.pending_feedback_prompt = feedback_prompt if isinstance(feedback_prompt, dict) else None
+        state.pending_feedback_decision_key = decision_key or None
+        state.pending_feedback_emitted_iteration = iterations
+        _append_hitl_lifecycle_event(
+            {
+                "iteration": iterations,
+                "phase": "human_feedback_needed",
+                "event_type": "human_feedback_needed",
+                "prompt_id": new_prompt_id,
+                "decision_key": decision_key or None,
+            }
+        )
+
     def _drain_pending_feedback(*, checkpoint_label: str) -> dict[str, Any] | None:
         if not state.pending_feedback_prompt_id:
             return None
+        pending_prompt_id = str(state.pending_feedback_prompt_id or "").strip()
+        all_entries = list_feedback_entries(run_id=viewer_run_id)
+        if all_entries:
+            for entry in all_entries:
+                signature = feedback_entry_signature(entry)
+                if signature in state.feedback_entry_seen_keys:
+                    continue
+                entry_prompt_id = str(entry.get("prompt_id") or "").strip()
+                if not entry_prompt_id:
+                    continue
+                if entry_prompt_id == pending_prompt_id:
+                    continue
+                state.feedback_entry_seen_keys.add(signature)
+                state.feedback_stale_count += 1
+                stale_reason = (
+                    "superseded_prompt_reply"
+                    if entry_prompt_id in state.superseded_feedback_prompt_ids
+                    else "stale_prompt_reply"
+                )
+                stale_event = {
+                    "iteration": iterations,
+                    "phase": "human_feedback_stale",
+                    "event_type": "human_feedback",
+                    "prompt_id": entry_prompt_id,
+                    "active_prompt_id": pending_prompt_id,
+                    "reason": stale_reason,
+                }
+                _append_hitl_lifecycle_event(stale_event)
+                emit_progress(
+                    progress_cb,
+                    human_feedback_stale_payload(
+                        iteration=iterations,
+                        latest_refs=state.latest_refs,
+                        prompt_id=entry_prompt_id,
+                        active_prompt_id=pending_prompt_id,
+                        reason=stale_reason,
+                    ),
+                )
         feedback_entry = poll_feedback_response(
             run_id=viewer_run_id,
-            prompt_id=state.pending_feedback_prompt_id,
+            prompt_id=pending_prompt_id,
         )
         if feedback_entry is None:
             return None
+        signature = feedback_entry_signature(feedback_entry)
+        if signature in state.feedback_entry_seen_keys:
+            return None
+        state.feedback_entry_seen_keys.add(signature)
+        state.feedback_received_count += 1
+        _append_hitl_lifecycle_event(
+            {
+                "iteration": iterations,
+                "phase": "human_feedback_received",
+                "event_type": "human_feedback",
+                "prompt_id": pending_prompt_id,
+                "decision_key": state.pending_feedback_decision_key,
+            }
+        )
         emit_progress(
             progress_cb,
             human_feedback_received_payload(
                 iteration=iterations,
                 latest_refs=state.latest_refs,
-                prompt_id=state.pending_feedback_prompt_id,
+                prompt_id=pending_prompt_id,
                 feedback_entry=feedback_entry,
             ),
         )
+        normalized_feedback = normalize_feedback_response(
+            feedback_entry=feedback_entry,
+            prompt_id=pending_prompt_id,
+            prompt_context=state.pending_feedback_prompt,
+        )
+        if not isinstance(normalized_feedback, dict):
+            state.feedback_stale_count += 1
+            _append_hitl_lifecycle_event(
+                {
+                    "iteration": iterations,
+                    "phase": "human_feedback_stale",
+                    "event_type": "human_feedback",
+                    "prompt_id": pending_prompt_id,
+                    "active_prompt_id": pending_prompt_id,
+                    "reason": "invalid_feedback_payload",
+                }
+            )
+            emit_progress(
+                progress_cb,
+                human_feedback_stale_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    prompt_id=pending_prompt_id,
+                    active_prompt_id=pending_prompt_id,
+                    reason="invalid_feedback_payload",
+                ),
+            )
+            return None
         emit_progress(
             progress_cb,
             ticker_payload(
@@ -319,15 +458,32 @@ def handle_repair_iteration(
             ),
         )
         state.used_human_feedback = True
-        pending_prompt_id = state.pending_feedback_prompt_id
+        state.feedback_consumed_count += 1
         state.pending_feedback_prompt_id = None
-        normalized_feedback = normalize_feedback_response(
-            feedback_entry=feedback_entry,
-            prompt_id=pending_prompt_id,
-            prompt_context=state.pending_feedback_prompt,
-        )
         state.pending_feedback_prompt = None
-        return normalized_feedback if isinstance(normalized_feedback, dict) else None
+        state.pending_feedback_decision_key = None
+        state.pending_feedback_emitted_iteration = None
+        _append_hitl_lifecycle_event(
+            {
+                "iteration": iterations,
+                "phase": "human_feedback_consumed",
+                "event_type": "human_feedback",
+                "prompt_id": pending_prompt_id,
+                "decision_key": normalized_feedback.get("decision_key"),
+                "selected_value": normalized_feedback.get("selected_value"),
+            }
+        )
+        emit_progress(
+            progress_cb,
+            human_feedback_consumed_payload(
+                iteration=iterations,
+                latest_refs=state.latest_refs,
+                prompt_id=pending_prompt_id,
+                decision_key=str(normalized_feedback.get("decision_key") or "").strip() or None,
+                selected_value=str(normalized_feedback.get("selected_value") or "").strip() or None,
+            ),
+        )
+        return normalized_feedback
 
     drained_plan = _drain_pending_feedback(checkpoint_label="iteration_start")
     if drained_plan is not None:
@@ -689,8 +845,11 @@ def handle_repair_iteration(
                     evidence_attempts=evidence_attempts_counts,
                 ),
             )
-            state.pending_feedback_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
-            state.pending_feedback_prompt = feedback_prompt if isinstance(feedback_prompt, dict) else None
+            _set_pending_feedback_prompt(
+                feedback_prompt=feedback_prompt,
+                decision_key=str((feedback_prompt.get("context") or {}).get("decision_key") or "").strip().lower(),
+                supersession_reason="baseline_residual_mapping_blocker",
+            )
 
     if state.pending_feedback_prompt_id and focus_feedback is None:
         # Keep the loop alive for feedback ingestion instead of terminalizing immediately on no-safe-plan.
@@ -780,8 +939,11 @@ def handle_repair_iteration(
                         evidence_attempts=evidence_attempts_counts,
                     ),
                 )
-                state.pending_feedback_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
-                state.pending_feedback_prompt = feedback_prompt if isinstance(feedback_prompt, dict) else None
+                _set_pending_feedback_prompt(
+                    feedback_prompt=feedback_prompt,
+                    decision_key=str((feedback_prompt.get("context") or {}).get("decision_key") or "").strip().lower(),
+                    supersession_reason="resolver_requested_feedback",
+                )
         state.last_reason = "tx_agent_closure_requirements_unresolved"
         return None
     if move == "mark_blocked":
@@ -799,11 +961,27 @@ def handle_repair_iteration(
                 reason_suffix = reason_suffix.replace("resolver_move_invalid:", "", 1)
             if reason_suffix.startswith("resolver_plan_invalid:"):
                 reason_suffix = reason_suffix.replace("resolver_plan_invalid:", "", 1)
-            return TranscriptEditDecision(
-                status="needs_review",
-                reason_code=f"tx_agent_plan_invalid:{reason_suffix}",
-                review_required=True,
+            state.invalid_plan_strikes += 1
+            exhausted = state.invalid_plan_strikes >= request.max_invalid_plan_attempts
+            emit_progress(
+                progress_cb,
+                resolver_invalid_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    reason=reason_suffix,
+                    invalid_plan_strikes=state.invalid_plan_strikes,
+                    max_invalid_plan_attempts=request.max_invalid_plan_attempts,
+                    exhausted=exhausted,
+                ),
             )
+            if exhausted:
+                return TranscriptEditDecision(
+                    status="needs_review",
+                    reason_code=f"tx_agent_plan_invalid_exhausted:{reason_suffix}",
+                    review_required=True,
+                )
+            state.last_reason = f"tx_agent_plan_invalid_retrying:{reason_suffix}"
+            return None
         return TranscriptEditDecision(
             status="needs_review",
             reason_code="tx_agent_closure_requirements_unresolved",
@@ -1045,8 +1223,7 @@ def handle_repair_iteration(
         state.applied_any_edits = True
         state.pending_reaudit_after_apply = True
         state.apply_reaudit_baseline_blocking_count = blocking_unresolved_count(state.decision_ledger)
-    if manual_plan is None:
-        state.invalid_plan_strikes = 0
+    state.invalid_plan_strikes = 0
     state.last_reason = "tx_apply_completed_waiting_reaudit"
     if raw_plan_text:
         _ = raw_plan_text

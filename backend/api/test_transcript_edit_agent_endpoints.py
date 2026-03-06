@@ -154,3 +154,86 @@ def test_execute_run_emits_terminal_handoff_fields(monkeypatch) -> None:
         assert payload.get("handoff_summary") == "Mapping-ready."
         run = asyncio.run(transcript_edit_agent.get_run("r1"))
         assert run["snapshot"]["terminal_summary"]["handoff_packet_ref"] == "in-memory://handoff.json"
+
+
+def test_execute_run_preserves_critical_hitl_events_when_progress_log_is_truncated(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _reset_registry(Path(tmp))
+
+        def _fake_run_loop(**kwargs: Any) -> TranscriptEditAgentRunResult:
+            progress_cb = kwargs.get("progress_cb")
+            if callable(progress_cb):
+                progress_cb(
+                    {
+                        "iteration": 1,
+                        "phase": "human_feedback_received",
+                        "event_type": "human_feedback",
+                        "prompt_id": "hitl_range_1_resolver",
+                        "message": "Human feedback received.",
+                        "latest_refs": {},
+                    }
+                )
+                for idx in range(60):
+                    progress_cb(
+                        {
+                            "iteration": 1,
+                            "phase": "image_verify",
+                            "message": f"tick {idx}",
+                            "latest_refs": {},
+                        }
+                    )
+                progress_cb(
+                    {
+                        "iteration": 1,
+                        "phase": "audit_result",
+                        "message": "audit done",
+                        "detail": {"error_count": 0, "decision_ledger": {"items": [], "summary": {"blocking_open_count": 0}}},
+                        "latest_refs": {},
+                    }
+                )
+            return TranscriptEditAgentRunResult(
+                run_artifact_ref="in-memory://run",
+                session_id="s2",
+                iterations=1,
+                status="needs_review",
+                reason_code="tx_agent_no_progress",
+                latest_refs={},
+                review_required=True,
+                runtime_hitl_state={
+                    "used_human_feedback": True,
+                    "feedback_received_count": 1,
+                    "feedback_consumed_count": 1,
+                    "feedback_stale_count": 0,
+                    "feedback_superseded_count": 0,
+                    "pending_feedback_prompt_id": None,
+                    "superseded_prompt_ids": [],
+                    "hitl_lifecycle_log": [{"phase": "human_feedback_consumed", "prompt_id": "hitl_range_1_resolver"}],
+                },
+            )
+
+        monkeypatch.setattr(transcript_edit_agent, "run_transcript_edit_controller_loop", _fake_run_loop)
+        monkeypatch.setattr(
+            transcript_edit_agent,
+            "build_handoff_packet",
+            lambda **kwargs: {"handoff_summary": "test"},
+        )
+        monkeypatch.setattr(
+            transcript_edit_agent,
+            "persist_handoff_packet",
+            lambda **kwargs: "in-memory://handoff.json",
+        )
+        request = transcript_edit_agent.TranscriptEditAgentApiRequest(
+            source_text="Beginning at ...",
+            dossier_id="D1",
+            background=False,
+        )
+        transcript_edit_agent._registry.create_run(run_id="r2", request={"dossier_id": "D1"})  # type: ignore[attr-defined]
+        transcript_edit_agent._execute_run("r2", request)
+        run = asyncio.run(transcript_edit_agent.get_run("r2"))
+        snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}
+        progress_log = snapshot.get("progress_log") if isinstance(snapshot.get("progress_log"), list) else []
+        critical_events = snapshot.get("critical_events") if isinstance(snapshot.get("critical_events"), list) else []
+        terminal = snapshot.get("terminal_summary") if isinstance(snapshot.get("terminal_summary"), dict) else {}
+        assert len(progress_log) <= 40
+        assert len(critical_events) >= 1
+        assert terminal.get("used_human_feedback") is True

@@ -234,6 +234,19 @@ Important:
 - feedback is not deterministically transformed into deed patch
 - feedback influences semantic resolution
 
+### 7.1 Pending prompt and supersession semantics (Phase 6.2)
+- One authoritative pending prompt exists per active focused item.
+- Prompt identity remains stable until one of:
+  - consumed valid feedback for that prompt
+  - explicit supersession with a recorded reason
+- Late feedback for stale/superseded prompt ids is recorded as stale and not silently treated as active consumption.
+- Runtime tracks durable HITL counters/state:
+  - feedback received
+  - feedback consumed
+  - feedback stale
+  - feedback superseded
+- Terminal reporting uses durable HITL state in addition to rolling progress events.
+
 ## 8) Ledger and 4-layer closure model
 The architecture preserves layer model:
 - Layer 1: canonical recovery
@@ -270,6 +283,7 @@ Memory is not canonical transcript truth or closure truth.
 - resolver guidance still depends on prompt quality and bounded context quality
 - closed-world convergence proof is active: progress/no-progress and terminal classification are now explicit runtime concerns
 - live API behavior may still show transient upstream failures (for example provider 500s); runtime now classifies/retries/bounds these without treating every transient as a local logic bug
+- resolver-invalid outcomes are now retry-bounded and classified, but final quality still depends on model output stability under live load
 
 ### 10.3 Explicitly superseded direction
 Regex-style deterministic HITL override builders are not the intended active architecture.

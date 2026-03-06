@@ -134,3 +134,47 @@ Harden live-run runtime behavior for long evidence phases: focus/evidence cohere
 - Updated:
   - `backend/agents/transcript_edit/test_run_reporting.py`
 - Full transcript-edit suite remains green after these changes.
+
+## 16) Phase 6.1 correction (heartbeat threshold fix)
+- Fixed heartbeat emission regression in image verification runtime:
+  - removed unbound `stage` path before first threshold
+  - emit heartbeat updates only when configured thresholds are crossed
+- Added callback-path tests with non-`None` `progress_cb` to exercise threshold behavior directly.
+
+## 17) Phase 6.2 objective
+Harden live HITL consumption integrity and resolver-invalid operational behavior before evaluating practice-deed convergence.
+
+## 18) Phase 6.2 implementation summary
+- HITL lifecycle durability:
+  - expanded `TranscriptEditLoopState` with explicit counters/flags for feedback received/consumed/stale/superseded
+  - added bounded HITL lifecycle log and superseded-prompt tracking
+- Prompt lifecycle hardening:
+  - explicit pending prompt registration helper in `iteration_pipeline.py`
+  - supersession now emits explicit `human_feedback_prompt_superseded` lifecycle events
+  - stale or wrong-prompt replies are recorded as `human_feedback_stale` rather than silently ignored
+  - active prompt is not cleared on invalid feedback payload; it remains pending
+- Feedback consumption truth:
+  - explicit `human_feedback_consumed` payload/event emitted when normalized feedback is accepted into loop state
+  - durable counters drive terminal summary truth even when rolling progress windows truncate earlier events
+- Resolver-invalid robustness:
+  - `resolver_move_invalid`/`resolver_plan_invalid` now increments bounded strikes
+  - runtime emits `resolver_invalid` retry/exhausted diagnostics
+  - terminalization only occurs after invalid-output budget exhaustion (`tx_agent_plan_invalid_exhausted:*`)
+- Progress retention/diagnostics:
+  - transcript-edit endpoint now keeps:
+    - bounded rolling `progress_log` (unchanged lightweight lane)
+    - separate bounded `critical_events` lane for high-signal lifecycle events
+  - terminal summary merges both lanes plus durable runtime HITL state
+
+## 19) Phase 6.2 tests added/updated
+- Updated:
+  - `backend/agents/transcript_edit/test_controller.py`
+  - `backend/agents/transcript_edit/test_terminalization.py`
+  - `backend/agents/transcript_edit/test_run_reporting.py`
+  - `backend/api/test_transcript_edit_agent_endpoints.py`
+- Full transcript-edit suite verification:
+  - `pytest backend/agents/transcript_edit -q` passed.
+
+## 20) Remaining known risks (post-6.2)
+- Resolver output quality remains model-dependent; guardrails now classify and bound invalid behavior but cannot eliminate upstream instability.
+- Prompt supersession is explicit and diagnosable; operator workflows should still prefer responding to the currently active pending prompt id.
