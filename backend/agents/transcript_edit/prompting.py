@@ -176,6 +176,9 @@ def build_focus_resolver_repair_user_message(
     error_reason: str,
     raw_content: str,
     decision_key: str,
+    injection_context: dict[str, Any] | None = None,
+    attempt: int | None = None,
+    max_attempts: int | None = None,
 ) -> str:
     payload = {
         "task": "Repair previous output and return one valid focus move object.",
@@ -190,5 +193,21 @@ def build_focus_resolver_repair_user_message(
             "mark_blocked",
             "mark_resolved_no_edit",
         ],
+        "move_contract": {
+            "apply_edit_plan_requires": ["edit_plan"],
+            "request_human_feedback_requires": ["feedback_prompt"],
+            "gather_more_evidence_requires": ["evidence_request"],
+            "mark_blocked_requires": ["reason"],
+            "mark_resolved_no_edit_requires": ["reason"],
+        },
+        "attempt": int(attempt or 0),
+        "max_attempts": int(max_attempts or 0),
     }
+    if isinstance(injection_context, dict) and injection_context:
+        payload["injection_context"] = injection_context
+        if bool(injection_context.get("has_answered_unintegrated_ticket")):
+            payload["instruction"] = (
+                "Active binding answered_unintegrated human_resolution_ticket is present. "
+                "Return a valid move object that addresses integration directly."
+            )
     return json.dumps(payload, ensure_ascii=False)

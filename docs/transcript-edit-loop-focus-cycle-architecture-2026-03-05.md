@@ -298,6 +298,18 @@ Resolver/runtime must move toward one of:
 - tighter follow-up HITL question when first answer is demonstrably insufficient
 - materially different evidence request with remaining budget and explicit justification
 
+### 7.3 Post-feedback resolver-invalid robustness
+When a focused item has active answered/integration-pending ticket context:
+- resolver-invalid outputs use a tighter repair prompt including injected-context summary
+- retries remain bounded
+- if retries exhaust, runtime terminalizes with explicit post-feedback invalid classification (not generic no-progress ambiguity)
+
+Compact diagnostics are preserved for operator/debug use:
+- focused `decision_key`
+- ticket lifecycle state/id when present
+- validation error class
+- bounded raw-output excerpt
+
 ## 8) Ledger and 4-layer closure model
 The architecture preserves layer model:
 - Layer 1: canonical recovery

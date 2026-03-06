@@ -286,3 +286,31 @@ Validation coverage added:
 - prompting tests for explicit `external_context_injections` contract
 - controller tests for ticket lifecycle outcomes (`answered_unintegrated`, `integration_attempted_failed`, `integrated`)
 - terminal summary tests for ticket lifecycle counters
+
+## 30) Post-feedback resolver robustness + ticket observability
+Objective:
+- harden resolver-invalid handling specifically when answered-but-unintegrated HITL ticket context is active, and make lifecycle state/operator diagnostics clearer.
+
+Implementation summary:
+- Tightened resolver repair prompts in planner for injected-context cases:
+  - repair payload now includes bounded injection-context summary
+  - explicit move-contract reminders and bounded attempt metadata
+- Added compact resolver-invalid diagnostics flow:
+  - focused decision key
+  - post-feedback ticket state/id
+  - validation error class
+  - bounded raw output excerpt
+- Runtime now emits explicit `human_resolution_ticket_state` progress events on lifecycle transitions.
+- Invalid exhaustion in active post-feedback context now terminalizes with explicit reason family:
+  - `tx_agent_post_feedback_resolver_invalid_exhausted:*`
+- Terminal classification adds explicit post-feedback resolver-invalid blocked class.
+
+Validation coverage added:
+- planner retry path test: invalid once under answered-unintegrated context then repaired valid move
+- planner exhaustion test for repeated invalid outputs
+- controller test for explicit post-feedback invalid-exhausted reason and `integration_attempted_failed` transition
+- run-reporting tests for ticket-state event payload and enriched resolver-invalid payload
+- terminalization test for post-feedback resolver-invalid classification
+
+Verification:
+- `pytest backend/agents/transcript_edit -q` passed

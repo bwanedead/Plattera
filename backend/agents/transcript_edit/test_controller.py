@@ -142,6 +142,16 @@ class _PlannerInvalid:
         return None, "planner_invalid_response", "{bad}"
 
 
+class _PlannerAlwaysInvalidFocus:
+    def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        return None, "resolver_invalid:ValidationError:invalid_move", '{"move":"bad"}'
+
+    def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        return None, "planner_invalid_response", "{bad}"
+
+
 class _PlannerNoOps:
     def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
         decision_key = str((kwargs.get("mapping_priority_focus") or {}).get("decision_key") or "range")
@@ -1127,6 +1137,78 @@ def test_transcript_controller_sets_integration_attempted_failed_when_feedback_n
             str(row.get("decision_key") or "") == "range"
             and str(row.get("lifecycle_state") or "") == "integration_attempted_failed"
             for row in tickets
+        )
+
+
+def test_transcript_controller_post_feedback_resolver_invalid_exhausts_with_specific_reason(monkeypatch) -> None:
+    calls = {"poll": 0}
+
+    def _fake_poll_feedback_response(*, run_id, prompt_id):  # type: ignore[no-untyped-def]
+        del run_id
+        if calls["poll"] == 0:
+            calls["poll"] += 1
+            return {
+                "prompt_id": prompt_id,
+                "choice": "Range 75 West",
+                "note": "Use Range 75 West.",
+                "metadata": {
+                    "decision_key": "range",
+                    "resolved_value": "Range 75 West",
+                },
+            }
+        return None
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline.poll_feedback_response",
+        _fake_poll_feedback_response,
+    )
+    progress_events: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Range remains disputed."}]}),
+            encoding="utf-8",
+        )
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=3,
+                max_invalid_plan_attempts=1,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-post-feedback-invalid-exhausted",
+            planner=_PlannerAlwaysInvalidFocus(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+        assert result.status == "needs_review"
+        assert str(result.reason_code).startswith("tx_agent_post_feedback_resolver_invalid_exhausted:")
+        runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
+        tickets = [
+            dict(row)
+            for row in list(runtime_hitl_state.get("human_resolution_tickets") or [])
+            if isinstance(row, dict)
+        ]
+        assert any(
+            str(row.get("decision_key") or "") == "range"
+            and str(row.get("lifecycle_state") or "") == "integration_attempted_failed"
+            for row in tickets
+        )
+        assert any(
+            isinstance(evt, dict)
+            and str(evt.get("phase") or "") == "resolver_invalid"
+            and isinstance(evt.get("detail"), dict)
+            and str((evt.get("detail") or {}).get("post_feedback_ticket_state") or "") == "answered_unintegrated"
+            for evt in progress_events
+        )
+        assert any(
+            isinstance(evt, dict)
+            and str(evt.get("phase") or "") == "human_resolution_ticket_state"
+            and str(evt.get("lifecycle_state") or "") == "integration_attempted_failed"
+            for evt in progress_events
         )
 
 

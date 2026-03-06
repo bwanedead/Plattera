@@ -262,6 +262,37 @@ def human_feedback_consumed_payload(
     }
 
 
+def human_resolution_ticket_state_payload(
+    *,
+    iteration: int,
+    latest_refs: dict[str, Any],
+    ticket_id: str | None,
+    decision_key: str | None,
+    lifecycle_state: str,
+    strength: str | None = None,
+    relevance: str | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "event_type": "human_resolution_ticket",
+        **_base_payload(
+            iteration=iteration,
+            phase="human_resolution_ticket_state",
+            message=(
+                f"Human-resolution ticket state: {decision_key or 'decision'} -> {lifecycle_state}."
+            ),
+            latest_refs=latest_refs,
+            execution_state="running",
+        ),
+        "ticket_id": ticket_id,
+        "decision_key": decision_key,
+        "lifecycle_state": lifecycle_state,
+        "strength": strength,
+        "relevance": relevance,
+        "reason": reason,
+    }
+
+
 def human_feedback_stale_payload(
     *,
     iteration: int,
@@ -318,7 +349,25 @@ def resolver_invalid_payload(
     invalid_plan_strikes: int,
     max_invalid_plan_attempts: int,
     exhausted: bool,
+    decision_key: str | None = None,
+    post_feedback_ticket_state: str | None = None,
+    post_feedback_ticket_id: str | None = None,
+    validation_error_class: str | None = None,
+    raw_output_excerpt: str | None = None,
 ) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "reason": reason,
+        "invalid_plan_strikes": int(invalid_plan_strikes),
+        "max_invalid_plan_attempts": int(max_invalid_plan_attempts),
+        "exhausted": bool(exhausted),
+        "decision_key": decision_key,
+        "post_feedback_ticket_state": post_feedback_ticket_state,
+        "post_feedback_ticket_id": post_feedback_ticket_id,
+        "validation_error_class": validation_error_class,
+    }
+    excerpt = str(raw_output_excerpt or "").strip()
+    if excerpt:
+        detail["raw_output_excerpt"] = excerpt[:600]
     return {
         "event_type": "resolver_invalid",
         **_base_payload(
@@ -332,12 +381,7 @@ def resolver_invalid_payload(
             latest_refs=latest_refs,
             execution_state="retrying" if not exhausted else "failed",
         ),
-        "detail": {
-            "reason": reason,
-            "invalid_plan_strikes": int(invalid_plan_strikes),
-            "max_invalid_plan_attempts": int(max_invalid_plan_attempts),
-            "exhausted": bool(exhausted),
-        },
+        "detail": detail,
     }
 
 
@@ -557,7 +601,9 @@ def plan_result_payload(
     plan_reason: str,
     op_count: int,
     ops_preview: list[dict[str, Any]],
+    ticket_lifecycle_snapshot: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    snapshot = [dict(row) for row in list(ticket_lifecycle_snapshot or []) if isinstance(row, dict)][:6]
     return {
         **_base_payload(
             iteration=iteration,
@@ -570,6 +616,7 @@ def plan_result_payload(
             "plan_reason": plan_reason,
             "op_count": op_count,
             "ops_preview": ops_preview,
+            "ticket_lifecycle_snapshot": snapshot,
         },
     }
 

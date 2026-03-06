@@ -196,6 +196,7 @@ def terminal_summary(
         closure_history=closure_history,
     )
     terminal_classification = _terminal_classification(
+        reason_code=reason_code,
         mapping_ready=mapping_ready,
         unresolved_dependency_items=unresolved_dependency_items,
         unresolved_ambiguity_items=unresolved_ambiguity_items,
@@ -372,6 +373,7 @@ def _merge_terminal_events(
 
 def _terminal_classification(
     *,
+    reason_code: str,
     mapping_ready: bool,
     unresolved_dependency_items: list[dict[str, Any]],
     unresolved_ambiguity_items: list[dict[str, Any]],
@@ -385,6 +387,8 @@ def _terminal_classification(
         return "closure_achieved"
     if len(unresolved_dependency_items) > 0:
         return "blocked_dependency_evidence_missing"
+    if str(reason_code or "").startswith("tx_agent_post_feedback_resolver_invalid_exhausted:"):
+        return "blocked_post_feedback_resolver_invalid"
     if human_feedback_pending:
         return "blocked_human_feedback_needed"
     if len(unresolved_ambiguity_items) > 0:

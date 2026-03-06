@@ -465,3 +465,37 @@ def test_terminal_summary_includes_human_resolution_ticket_lifecycle_counts() ->
     assert summary["integration_failed_ticket_count"] == 1
     assert summary["integrated_ticket_count"] == 1
     assert len(summary["human_resolution_tickets"]) == 3
+
+
+def test_terminal_summary_classifies_post_feedback_resolver_invalid_exhausted() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [
+                        {
+                            "key": "range",
+                            "label": "Range",
+                            "state": "disputed",
+                            "blocking": True,
+                            "closure_requirement": {"block_reason": "ambiguity", "mapping_blocking": True},
+                        }
+                    ],
+                    "summary": {"blocking_open_count": 1},
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s10",
+        iterations=3,
+        status="needs_review",
+        reason_code="tx_agent_post_feedback_resolver_invalid_exhausted:resolver_invalid:ValidationError:invalid_move",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(progress_log, result, critical_events=[])
+    assert summary["terminal_classification"] == "blocked_post_feedback_resolver_invalid"

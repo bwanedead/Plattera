@@ -22,6 +22,10 @@ def resolve_focus_move(
     source_transcript_hash = str(focus_packet.get("source_transcript_hash") or "").strip()
     span_context = focus_packet.get("span_context") if isinstance(focus_packet.get("span_context"), list) else []
     image_verification = focus_packet.get("image_verification") if isinstance(focus_packet.get("image_verification"), dict) else {}
+    answered_ticket = _active_answered_unintegrated_ticket(
+        focus_packet=focus_packet,
+        decision_key=decision_key,
+    )
 
     if not decision_key or not source_transcript_ref or not source_transcript_hash:
         return {
@@ -61,6 +65,7 @@ def resolve_focus_move(
     except Exception as exc:
         move_payload = None
         move_reason = f"resolver_exception:{type(exc).__name__}"
+        _raw_move = ""
     if isinstance(move_payload, dict):
         out = dict(move_payload)
         out.setdefault("decision_key", decision_key)
@@ -86,7 +91,7 @@ def resolve_focus_move(
         return out
 
     if str(move_reason).startswith(("resolver_invalid", "resolver_exception", "resolver_api_error")):
-        return {
+        outcome = {
             "decision_key": decision_key,
             "move": "mark_blocked",
             "reason": f"resolver_move_invalid:{move_reason}",
@@ -95,6 +100,15 @@ def resolve_focus_move(
             "evidence_request": None,
             "closure_update_hint": None,
         }
+        if isinstance(answered_ticket, dict):
+            outcome["post_feedback_ticket_state"] = "answered_unintegrated"
+            outcome["post_feedback_ticket_id"] = str(answered_ticket.get("ticket_id") or "").strip() or None
+        outcome["resolver_invalid_diagnostic"] = {
+            "decision_key": decision_key,
+            "raw_output_excerpt": str(_raw_move or "")[:600] or None,
+            "reason": str(move_reason or ""),
+        }
+        return outcome
 
     if feedback_summary:
         return {
@@ -116,3 +130,25 @@ def resolve_focus_move(
         "evidence_request": None,
         "closure_update_hint": None,
     }
+
+
+def _active_answered_unintegrated_ticket(
+    *,
+    focus_packet: dict[str, Any],
+    decision_key: str,
+) -> dict[str, Any] | None:
+    rows = (
+        [row for row in list(focus_packet.get("external_context_injections") or []) if isinstance(row, dict)]
+        if isinstance(focus_packet, dict)
+        else []
+    )
+    key = str(decision_key or "").strip().lower()
+    for row in rows:
+        if str(row.get("type") or "").strip().lower() != "human_resolution_ticket":
+            continue
+        if str(row.get("decision_key") or "").strip().lower() != key:
+            continue
+        if str(row.get("lifecycle_state") or "").strip().lower() != "answered_unintegrated":
+            continue
+        return dict(row)
+    return None

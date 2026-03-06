@@ -126,10 +126,11 @@ class TranscriptEditPlanPlanner:
         system_msg = build_focus_resolver_system_message()
         user_msg = build_focus_resolver_user_message(focus_packet=focus_packet)
         decision_key = str(focus_packet.get("decision_key") or "decision")
+        injection_context = _resolver_injection_context(focus_packet=focus_packet, decision_key=decision_key)
         raw_content = ""
         last_error = "resolver_invalid_response"
 
-        for _attempt in range(1, max_attempts + 1):
+        for attempt in range(1, max_attempts + 1):
             params: dict[str, Any] = {
                 "model": api_model,
                 "messages": [
@@ -152,6 +153,9 @@ class TranscriptEditPlanPlanner:
                     error_reason=last_error,
                     raw_content="",
                     decision_key=decision_key,
+                    injection_context=injection_context,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
                 )
                 continue
             message = completion.choices[0].message if completion.choices else None
@@ -163,6 +167,9 @@ class TranscriptEditPlanPlanner:
                     error_reason=last_error,
                     raw_content=raw_content,
                     decision_key=decision_key,
+                    injection_context=injection_context,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
                 )
                 continue
             try:
@@ -178,13 +185,52 @@ class TranscriptEditPlanPlanner:
                 )
                 return validated, "ok", raw_content
             except Exception as exc:
-                last_error = f"resolver_invalid:{type(exc).__name__}"
+                message = str(exc).strip()
+                last_error = (
+                    f"resolver_invalid:{type(exc).__name__}:{message[:120]}"
+                    if message
+                    else f"resolver_invalid:{type(exc).__name__}"
+                )
                 user_msg = build_focus_resolver_repair_user_message(
                     error_reason=last_error,
                     raw_content=raw_content,
                     decision_key=decision_key,
+                    injection_context=injection_context,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
                 )
         return None, last_error, raw_content
+
+
+def _resolver_injection_context(*, focus_packet: dict[str, Any], decision_key: str) -> dict[str, Any]:
+    rows = (
+        [row for row in list(focus_packet.get("external_context_injections") or []) if isinstance(row, dict)]
+        if isinstance(focus_packet, dict)
+        else []
+    )
+    key = str(decision_key or "").strip().lower()
+    answered = next(
+        (
+            row
+            for row in rows
+            if str(row.get("type") or "").strip().lower() == "human_resolution_ticket"
+            and str(row.get("decision_key") or "").strip().lower() == key
+            and str(row.get("lifecycle_state") or "").strip().lower() == "answered_unintegrated"
+        ),
+        None,
+    )
+    if not isinstance(answered, dict):
+        return {"has_answered_unintegrated_ticket": False}
+    payload = answered.get("payload") if isinstance(answered.get("payload"), dict) else {}
+    return {
+        "has_answered_unintegrated_ticket": True,
+        "ticket_id": str(answered.get("ticket_id") or "").strip() or None,
+        "decision_key": key,
+        "lifecycle_state": "answered_unintegrated",
+        "strength": str(answered.get("strength") or "").strip().lower() or None,
+        "normalized_answer_summary": str(payload.get("normalized_answer_summary") or "").strip() or None,
+        "selected_choice": str(payload.get("selected_choice") or "").strip() or None,
+    }
 
 
 def _coerce_focus_move(

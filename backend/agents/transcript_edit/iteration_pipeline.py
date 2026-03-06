@@ -70,6 +70,7 @@ from .run_reporting import (
     human_feedback_prompt_superseded_payload,
     human_feedback_received_payload,
     human_feedback_reused_payload,
+    human_resolution_ticket_state_payload,
     human_feedback_stale_payload,
     human_feedback_consumed_payload,
     investigation_baseline_payload,
@@ -309,6 +310,44 @@ def handle_repair_iteration(
         if len(state.hitl_lifecycle_log) > 120:
             state.hitl_lifecycle_log = state.hitl_lifecycle_log[-120:]
 
+    def _emit_ticket_lifecycle_transition(
+        *,
+        ticket_id: str | None,
+        decision_key: str | None,
+        lifecycle_state: str,
+        strength: str | None = "binding",
+        relevance: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        if not str(ticket_id or "").strip():
+            return
+        _append_hitl_lifecycle_event(
+            {
+                "iteration": iterations,
+                "phase": "human_resolution_ticket_state",
+                "event_type": "human_resolution_ticket",
+                "ticket_id": str(ticket_id or "").strip() or None,
+                "decision_key": str(decision_key or "").strip().lower() or None,
+                "lifecycle_state": str(lifecycle_state or "").strip().lower() or None,
+                "strength": str(strength or "").strip().lower() or None,
+                "relevance": str(relevance or "").strip().lower() or None,
+                "reason": str(reason or "").strip() or None,
+            }
+        )
+        emit_progress(
+            progress_cb,
+            human_resolution_ticket_state_payload(
+                iteration=iterations,
+                latest_refs=state.latest_refs,
+                ticket_id=str(ticket_id or "").strip() or None,
+                decision_key=str(decision_key or "").strip().lower() or None,
+                lifecycle_state=str(lifecycle_state or "").strip().lower() or "unknown",
+                strength=str(strength or "").strip().lower() or None,
+                relevance=str(relevance or "").strip().lower() or None,
+                reason=str(reason or "").strip() or None,
+            ),
+        )
+
     def _set_pending_feedback_prompt(
         *,
         feedback_prompt: dict[str, Any],
@@ -326,6 +365,13 @@ def handle_repair_iteration(
                 decision_key=decision_key,
                 lifecycle_state="superseded",
                 relevance="inactive",
+            )
+            _emit_ticket_lifecycle_transition(
+                ticket_id=old_prompt_id,
+                decision_key=decision_key,
+                lifecycle_state="superseded",
+                relevance="inactive",
+                reason=supersession_reason,
             )
             superseded_event = {
                 "iteration": iterations,
@@ -412,6 +458,13 @@ def handle_repair_iteration(
                         decision_key=stale_decision_key,
                         lifecycle_state="stale",
                         relevance="inactive",
+                    )
+                    _emit_ticket_lifecycle_transition(
+                        ticket_id=entry_prompt_id,
+                        decision_key=stale_decision_key,
+                        lifecycle_state="stale",
+                        relevance="inactive",
+                        reason="stale_prompt_reply",
                     )
                 stale_reason = (
                     "superseded_prompt_reply"
@@ -534,6 +587,13 @@ def handle_repair_iteration(
             },
             answered_at=int(time.time()),
             relevance="active",
+        )
+        _emit_ticket_lifecycle_transition(
+            ticket_id=pending_prompt_id,
+            decision_key=str(normalized_feedback.get("decision_key") or "").strip().lower(),
+            lifecycle_state="answered_unintegrated",
+            relevance="active",
+            reason=checkpoint_label,
         )
         _append_hitl_lifecycle_event(
             {
@@ -1033,6 +1093,13 @@ def handle_repair_iteration(
                     lifecycle_state="integration_attempted_failed",
                     relevance="active",
                 )
+                _emit_ticket_lifecycle_transition(
+                    ticket_id=str(answered_ticket.get("ticket_id") or ""),
+                    decision_key=str(answered_ticket.get("decision_key") or ""),
+                    lifecycle_state="integration_attempted_failed",
+                    relevance="active",
+                    reason="no_safe_feedback_override_plan",
+                )
             return TranscriptEditDecision(
                 status="needs_review",
                 reason_code="tx_agent_consistent_feedback_no_safe_plan",
@@ -1105,6 +1172,23 @@ def handle_repair_iteration(
                 reason_suffix = reason_suffix.replace("resolver_plan_invalid:", "", 1)
             state.invalid_plan_strikes += 1
             exhausted = state.invalid_plan_strikes >= request.max_invalid_plan_attempts
+            post_feedback_ticket_state = (
+                str((resolver_outcome or {}).get("post_feedback_ticket_state") or "").strip().lower()
+                if isinstance(resolver_outcome, dict)
+                else ""
+            ) or ("answered_unintegrated" if isinstance(answered_ticket, dict) else None)
+            post_feedback_ticket_id = (
+                str((resolver_outcome or {}).get("post_feedback_ticket_id") or "").strip()
+                if isinstance(resolver_outcome, dict)
+                else ""
+            ) or (str((answered_ticket or {}).get("ticket_id") or "").strip() if isinstance(answered_ticket, dict) else None)
+            resolver_diag = (
+                (resolver_outcome or {}).get("resolver_invalid_diagnostic")
+                if isinstance(resolver_outcome, dict) and isinstance((resolver_outcome or {}).get("resolver_invalid_diagnostic"), dict)
+                else {}
+            )
+            raw_output_excerpt = str(resolver_diag.get("raw_output_excerpt") or "").strip() or None
+            validation_error_class = _extract_validation_error_class(reason_suffix)
             emit_progress(
                 progress_cb,
                 resolver_invalid_payload(
@@ -1114,12 +1198,37 @@ def handle_repair_iteration(
                     invalid_plan_strikes=state.invalid_plan_strikes,
                     max_invalid_plan_attempts=request.max_invalid_plan_attempts,
                     exhausted=exhausted,
+                    decision_key=focus_key,
+                    post_feedback_ticket_state=post_feedback_ticket_state,
+                    post_feedback_ticket_id=post_feedback_ticket_id,
+                    validation_error_class=validation_error_class,
+                    raw_output_excerpt=raw_output_excerpt,
                 ),
             )
             if exhausted:
+                if post_feedback_ticket_state in {"answered_unintegrated", "integration_attempted_failed"}:
+                    if post_feedback_ticket_id:
+                        state.decision_ledger = mark_human_resolution_ticket_state(
+                            ledger=state.decision_ledger,
+                            ticket_id=post_feedback_ticket_id,
+                            decision_key=focus_key,
+                            lifecycle_state="integration_attempted_failed",
+                            relevance="active",
+                        )
+                    _emit_ticket_lifecycle_transition(
+                        ticket_id=post_feedback_ticket_id,
+                        decision_key=focus_key,
+                        lifecycle_state="integration_attempted_failed",
+                        relevance="active",
+                        reason="resolver_invalid_exhausted",
+                    )
                 return TranscriptEditDecision(
                     status="needs_review",
-                    reason_code=f"tx_agent_plan_invalid_exhausted:{reason_suffix}",
+                    reason_code=(
+                        f"tx_agent_post_feedback_resolver_invalid_exhausted:{reason_suffix}"
+                        if post_feedback_ticket_state in {"answered_unintegrated", "integration_attempted_failed"}
+                        else f"tx_agent_plan_invalid_exhausted:{reason_suffix}"
+                    ),
                     review_required=True,
                 )
             state.last_reason = f"tx_agent_plan_invalid_retrying:{reason_suffix}"
@@ -1314,6 +1423,10 @@ def handle_repair_iteration(
             plan_reason=plan_reason,
             op_count=len(plan_ops),
             ops_preview=[plan_op_to_display_dict(op) for op in plan_ops[:6] if isinstance(op, dict)],
+            ticket_lifecycle_snapshot=_ticket_lifecycle_snapshot_for_key(
+                decision_ledger=state.decision_ledger,
+                decision_key=focus_key,
+            ),
         ),
     )
     emit_progress(
@@ -1391,6 +1504,13 @@ def handle_repair_iteration(
                 lifecycle_state="integrated",
                 integrated=True,
                 relevance="inactive",
+            )
+            _emit_ticket_lifecycle_transition(
+                ticket_id=ticket_prompt_id,
+                decision_key=ticket_decision_key,
+                lifecycle_state="integrated",
+                relevance="inactive",
+                reason="apply_edit_plan",
             )
     state.invalid_plan_strikes = 0
     state.last_reason = "tx_apply_completed_waiting_reaudit"
@@ -1527,6 +1647,43 @@ def _feedback_payload_from_ticket(
         "prompt_id": str(answered_ticket.get("ticket_id") or "").strip() or None,
         "metadata": {"ticket_id": str(answered_ticket.get("ticket_id") or "").strip() or None},
     }
+
+
+def _extract_validation_error_class(reason_suffix: str) -> str | None:
+    text = str(reason_suffix or "").strip()
+    if not text:
+        return None
+    parts = [segment.strip() for segment in text.split(":") if segment.strip()]
+    for segment in parts:
+        if segment.endswith("Error") or segment.endswith("Exception"):
+            return segment
+    return parts[0] if parts else None
+
+
+def _ticket_lifecycle_snapshot_for_key(
+    *,
+    decision_ledger: dict[str, Any],
+    decision_key: str | None,
+) -> list[dict[str, Any]]:
+    rows = list_external_context_injections(
+        decision_ledger,
+        decision_key=str(decision_key or "").strip().lower(),
+        type_filter="human_resolution_ticket",
+    )
+    out: list[dict[str, Any]] = []
+    for row in rows[:6]:
+        if not isinstance(row, dict):
+            continue
+        out.append(
+            {
+                "ticket_id": str(row.get("ticket_id") or "").strip() or None,
+                "decision_key": str(row.get("decision_key") or "").strip().lower() or None,
+                "lifecycle_state": str(row.get("lifecycle_state") or "").strip().lower() or None,
+                "strength": str(row.get("strength") or "").strip().lower() or None,
+                "updated_at": row.get("updated_at"),
+            }
+        )
+    return out
 
 
 def _accept_mark_resolved_no_edit(*, decision_ledger: dict[str, Any], decision_key: str) -> bool:

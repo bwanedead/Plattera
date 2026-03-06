@@ -152,12 +152,38 @@ def test_resolver_invalid_payload_contract_shape() -> None:
         invalid_plan_strikes=2,
         max_invalid_plan_attempts=3,
         exhausted=False,
+        decision_key="range",
+        post_feedback_ticket_state="answered_unintegrated",
+        post_feedback_ticket_id="hitl_range_1_resolver",
+        validation_error_class="ValidationError",
+        raw_output_excerpt='{"move":"bad"}',
     )
     assert payload["event_type"] == "resolver_invalid"
     assert payload["phase"] == "resolver_invalid"
     detail = payload.get("detail") or {}
     assert detail.get("reason") == "ValidationError"
     assert detail.get("invalid_plan_strikes") == 2
+    assert detail.get("decision_key") == "range"
+    assert detail.get("post_feedback_ticket_state") == "answered_unintegrated"
+    assert detail.get("validation_error_class") == "ValidationError"
+    assert "raw_output_excerpt" in detail
+
+
+def test_human_resolution_ticket_state_payload_contract_shape() -> None:
+    payload = run_reporting.human_resolution_ticket_state_payload(
+        iteration=3,
+        latest_refs={},
+        ticket_id="hitl_range_1_resolver",
+        decision_key="range",
+        lifecycle_state="integration_attempted_failed",
+        strength="binding",
+        relevance="active",
+        reason="resolver_invalid_exhausted",
+    )
+    assert payload["event_type"] == "human_resolution_ticket"
+    assert payload["phase"] == "human_resolution_ticket_state"
+    assert payload["ticket_id"] == "hitl_range_1_resolver"
+    assert payload["lifecycle_state"] == "integration_attempted_failed"
 
 
 def test_open_spans_result_payload_contract_shape() -> None:
@@ -178,10 +204,18 @@ def test_plan_result_payload_contract_shape() -> None:
         plan_reason="manual_plan",
         op_count=2,
         ops_preview=[{"op_type": "replace_span"}],
+        ticket_lifecycle_snapshot=[
+            {
+                "ticket_id": "hitl_range_1_resolver",
+                "decision_key": "range",
+                "lifecycle_state": "answered_unintegrated",
+            }
+        ],
     )
     assert payload["phase"] == "plan_result"
     assert payload["detail"]["op_count"] == 2
     assert isinstance(payload["detail"]["ops_preview"], list)
+    assert isinstance(payload["detail"]["ticket_lifecycle_snapshot"], list)
 
 
 def test_apply_result_payload_contract_shape() -> None:

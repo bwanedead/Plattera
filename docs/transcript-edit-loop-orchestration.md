@@ -361,6 +361,7 @@ Feedback handling:
   - `post_feedback_image_verify`
 - feedback is persisted as a `human_resolution_ticket` injection with lifecycle state (`issued_waiting_feedback`, `answered_unintegrated`, `integration_attempted_failed`, `integrated`, `superseded`, `stale`)
 - resolver sees relevant ticket injections every focus-cycle while still relevant
+- runtime emits explicit `human_resolution_ticket_state` events for lifecycle transitions so operators can trace answered-vs-integrated state directly
 
 ---
 
@@ -592,6 +593,7 @@ for i in 1..max_iterations:
   move = resolve_focus_move(focus_packet)
   # focus_packet includes external_context_injections[] for focused item
   if move invalid or off-focus: reject/downgrade deterministically
+  # on resolver-invalid, runtime emits compact diagnostics (decision_key, ticket state/id, validation class, raw excerpt)
   if move == gather_more_evidence:
     execute_typed_evidence_request_with_repeat_budget(move.evidence_request)
     continue
@@ -611,6 +613,10 @@ for i in 1..max_iterations:
 
 return max_iterations terminal
 ```
+
+If resolver-invalid exhausts while active answered/integration-pending ticket context exists, runtime uses explicit post-feedback reasoning path:
+- terminal reason code family: `tx_agent_post_feedback_resolver_invalid_exhausted:*`
+- terminal classification includes post-feedback resolver-invalid blocked outcome
 
 ---
 
@@ -776,6 +782,17 @@ Expected bounded outcomes:
 - explicit blocked state (for example no safe integration path), or
 - tighter follow-up prompt when prior answer is insufficient, or
 - materially different evidence request with remaining budget and rationale.
+
+### 27.6 Post-feedback resolver-invalid diagnostics
+For resolver-invalid outcomes in injected-context phases, runtime reporting includes bounded diagnostics:
+- focused `decision_key`
+- `post_feedback_ticket_state`
+- `post_feedback_ticket_id`
+- validation error class
+- bounded raw output excerpt
+
+Goal:
+- make post-feedback failures diagnosable without dumping full prompts.
 
 Known caveat:
 - frontend synthetic closure prompt path can still create earlier perceived prompts unless strictly disabled (see section 20).
