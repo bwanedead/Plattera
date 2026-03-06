@@ -232,6 +232,7 @@ Repair path (high-level order):
 10. `investigation_baseline_result` (residual blockers + next action)
 11. if still unresolved and blocking, emit HITL prompt
 12. build bounded focus packet for selected `decision_key`
+    - include `external_context_injections` relevant to this focused key (for example active HITL human-resolution tickets)
 13. resolver returns one move for current focus only
 14. runtime applies move-acceptance guardrails
 15. execute one accepted move:
@@ -358,7 +359,8 @@ Feedback handling:
   - `open_spans`
   - `image_verify`
   - `post_feedback_image_verify`
-- feedback can become a manual override edit plan
+- feedback is persisted as a `human_resolution_ticket` injection with lifecycle state (`issued_waiting_feedback`, `answered_unintegrated`, `integration_attempted_failed`, `integrated`, `superseded`, `stale`)
+- resolver sees relevant ticket injections every focus-cycle while still relevant
 
 ---
 
@@ -588,6 +590,7 @@ for i in 1..max_iterations:
 
   focus_packet = build_bounded_focus_packet(focus, transcript, ledger, evidence, feedback, continuity)
   move = resolve_focus_move(focus_packet)
+  # focus_packet includes external_context_injections[] for focused item
   if move invalid or off-focus: reject/downgrade deterministically
   if move == gather_more_evidence:
     execute_typed_evidence_request_with_repeat_budget(move.evidence_request)
@@ -763,6 +766,16 @@ In repair iteration:
 Current intended rule:
 - Do not emit first actionable backend HITL prompt before baseline investigation result in the iteration.
 - keep one authoritative pending prompt id active until consumed or explicitly superseded.
+- after feedback is consumed, semantic integration truth is tracked via ticket lifecycle state, not by counters alone.
+
+### 27.5 Answered-unintegrated guardrail
+If focused item has an active binding `human_resolution_ticket` in `answered_unintegrated`, runtime should not permit indefinite repetition of the same evidence loop with no new signal.
+
+Expected bounded outcomes:
+- apply safe bounded edit plan, or
+- explicit blocked state (for example no safe integration path), or
+- tighter follow-up prompt when prior answer is insufficient, or
+- materially different evidence request with remaining budget and rationale.
 
 Known caveat:
 - frontend synthetic closure prompt path can still create earlier perceived prompts unless strictly disabled (see section 20).

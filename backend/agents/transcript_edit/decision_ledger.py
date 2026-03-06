@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
 _DECISION_SPECS: list[tuple[str, str, bool]] = [
@@ -56,7 +57,11 @@ def initialize_decision_ledger() -> dict[str, Any]:
         }
         for key, label, blocking in _DECISION_SPECS
     ]
-    return {"items": items, "summary": _summary(items)}
+    return {
+        "items": items,
+        "summary": _summary(items),
+        "external_context_injections": [],
+    }
 
 
 def update_ledger_from_iteration(
@@ -218,7 +223,132 @@ def ledger_snapshot_for_payload(ledger: dict[str, Any] | None) -> dict[str, Any]
     return {
         "items": [dict(item) for item in normalized["items"]],
         "summary": dict(normalized["summary"]),
+        "external_context_injections": [
+            dict(row)
+            for row in list(normalized.get("external_context_injections") or [])
+            if isinstance(row, dict)
+        ],
     }
+
+
+def list_external_context_injections(
+    ledger: dict[str, Any] | None,
+    *,
+    decision_key: str | None = None,
+    type_filter: str | None = None,
+    lifecycle_states: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    normalized = _ensure_ledger_shape(ledger)
+    rows = normalized.get("external_context_injections")
+    if not isinstance(rows, list):
+        return []
+    key = str(decision_key or "").strip().lower()
+    type_value = str(type_filter or "").strip().lower()
+    states = {str(v).strip().lower() for v in (lifecycle_states or set()) if str(v).strip()}
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_key = str(row.get("decision_key") or "").strip().lower()
+        if key and row_key != key:
+            continue
+        row_type = str(row.get("type") or "").strip().lower()
+        if type_value and row_type != type_value:
+            continue
+        row_state = str(row.get("lifecycle_state") or "").strip().lower()
+        if states and row_state not in states:
+            continue
+        out.append(dict(row))
+    return out
+
+
+def upsert_human_resolution_ticket(
+    *,
+    ledger: dict[str, Any] | None,
+    ticket_id: str,
+    decision_key: str,
+    lifecycle_state: str,
+    strength: str = "binding",
+    payload: dict[str, Any] | None = None,
+    relevance: str | None = None,
+    answered_at: int | None = None,
+    integrated_at: int | None = None,
+) -> dict[str, Any]:
+    working = _ensure_ledger_shape(ledger)
+    rows = working.get("external_context_injections")
+    if not isinstance(rows, list):
+        rows = []
+        working["external_context_injections"] = rows
+    ticket = str(ticket_id or "").strip()
+    key = str(decision_key or "").strip().lower()
+    state = str(lifecycle_state or "").strip().lower()
+    if not ticket or not key or not state:
+        return working
+    now = int(time.time())
+    existing = None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("type") or "").strip().lower() != "human_resolution_ticket":
+            continue
+        if str(row.get("ticket_id") or "").strip() == ticket and str(row.get("decision_key") or "").strip().lower() == key:
+            existing = row
+            break
+    if existing is None:
+        existing = {
+            "type": "human_resolution_ticket",
+            "ticket_id": ticket,
+            "decision_key": key,
+            "created_at": now,
+        }
+        rows.append(existing)
+    existing["lifecycle_state"] = state
+    existing["strength"] = str(strength or "binding").strip().lower() or "binding"
+    existing["updated_at"] = now
+    existing["payload"] = dict(payload) if isinstance(payload, dict) else {}
+    if relevance is not None:
+        existing["relevance"] = str(relevance).strip().lower() or None
+    if answered_at is not None:
+        existing["answered_at"] = int(answered_at)
+    if integrated_at is not None:
+        existing["integrated_at"] = int(integrated_at)
+    return working
+
+
+def mark_human_resolution_ticket_state(
+    *,
+    ledger: dict[str, Any] | None,
+    ticket_id: str,
+    decision_key: str,
+    lifecycle_state: str,
+    integrated: bool = False,
+    relevance: str | None = None,
+) -> dict[str, Any]:
+    working = _ensure_ledger_shape(ledger)
+    rows = working.get("external_context_injections")
+    if not isinstance(rows, list):
+        return working
+    ticket = str(ticket_id or "").strip()
+    key = str(decision_key or "").strip().lower()
+    state = str(lifecycle_state or "").strip().lower()
+    now = int(time.time())
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("type") or "").strip().lower() != "human_resolution_ticket":
+            continue
+        if str(row.get("ticket_id") or "").strip() != ticket:
+            continue
+        if str(row.get("decision_key") or "").strip().lower() != key:
+            continue
+        row["lifecycle_state"] = state
+        row["updated_at"] = now
+        if integrated:
+            row["integrated_at"] = now
+        if relevance is not None:
+            row["relevance"] = str(relevance).strip().lower() or None
+        break
+    return working
 
 
 def derive_layer_statuses(
@@ -429,8 +559,14 @@ def _ensure_ledger_shape(ledger: dict[str, Any] | None) -> dict[str, Any]:
                 ),
             }
         )
+    raw_injections = ledger.get("external_context_injections") if isinstance(ledger, dict) else []
+    injections = [dict(row) for row in list(raw_injections or []) if isinstance(row, dict)][-60:]
     _attach_closure_requirements(items, readiness_blocker=None)
-    return {"items": items, "summary": _summary(items)}
+    return {
+        "items": items,
+        "summary": _summary(items),
+        "external_context_injections": injections,
+    }
 
 
 def _summary(items: list[dict[str, Any]]) -> dict[str, int]:

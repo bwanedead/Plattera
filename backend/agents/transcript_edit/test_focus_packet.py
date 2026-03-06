@@ -67,3 +67,40 @@ def test_focus_packet_filters_recent_attempts_to_focus_key() -> None:
     attempts = packet["recent_attempts"]
     assert len(attempts) == 2
     assert all(str(row.get("decision_key") or "") == "range" for row in attempts)
+
+
+def test_focus_packet_injects_answered_unintegrated_human_resolution_ticket() -> None:
+    packet = build_focus_packet(
+        decision_ledger={
+            "items": [{"key": "range", "state": "disputed", "blocking": True, "closure_requirement": {"mapping_blocking": True}}],
+            "external_context_injections": [
+                {
+                    "type": "human_resolution_ticket",
+                    "ticket_id": "hitl_range_1_x",
+                    "decision_key": "range",
+                    "lifecycle_state": "answered_unintegrated",
+                    "strength": "binding",
+                    "created_at": 1,
+                    "updated_at": 2,
+                    "payload": {
+                        "issue_summary": "Range contradiction",
+                        "normalized_answer_summary": "Range 75 West",
+                        "selected_choice": "Range 75 West",
+                    },
+                }
+            ],
+        },
+        decision_key="range",
+        source_transcript_ref="in-memory://source.json",
+        source_transcript_hash="sha256:test",
+        span_context=[],
+        image_verification_payload={},
+        feedback=None,
+        continuity_log=[],
+    )
+    injections = packet.get("external_context_injections")
+    assert isinstance(injections, list) and len(injections) == 1
+    row = injections[0]
+    assert str(row.get("type") or "") == "human_resolution_ticket"
+    assert str(row.get("lifecycle_state") or "") == "answered_unintegrated"
+    assert str((row.get("payload") or {}).get("normalized_answer_summary") or "") == "Range 75 West"

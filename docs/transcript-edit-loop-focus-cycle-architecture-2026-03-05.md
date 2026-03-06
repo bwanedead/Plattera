@@ -83,6 +83,25 @@ Human feedback is evidence input, not a direct patch recipe.
 
 The loop persists feedback structurally and reinjects it into the next semantic focus-cycle.
 
+### 3.6 External context injections
+Focus packets include a bounded `external_context_injections[]` lane for persistent external semantic state.
+
+Current first-class injected type:
+- `human_resolution_ticket`
+
+Structured fields include:
+- `type`
+- `ticket_id`
+- `decision_key`
+- `lifecycle_state`
+- `strength`
+- `payload`
+- `created_at` / `updated_at`
+- optional `answered_at` / `integrated_at`
+- optional `relevance`
+
+This is generic infrastructure; HITL tickets are the first concrete class.
+
 ## 4) Deterministic vs semantic
 ### 4.1 Deterministic runtime responsibilities
 The deterministic layer is responsible for:
@@ -141,6 +160,7 @@ Assemble a bounded packet for one decision item:
 - bounded relevant spans
 - bounded relevant image verification results
 - latest feedback for this item
+- relevant `external_context_injections` for this focused decision item
 - recent attempts for this item
 - bounded memory summary
 
@@ -237,9 +257,18 @@ Deterministic acceptance rules:
 1. Backend emits authoritative prompt for one focused unresolved item.
 2. User submits structured response.
 3. Response is stored as feedback evidence.
-4. Next focus-cycle includes that feedback in focus packet.
-5. Resolver decides what feedback means and which move follows.
-6. Deterministic runtime executes selected move.
+4. Runtime creates/updates `human_resolution_ticket` lifecycle state.
+5. Next focus-cycle includes ticket context via `external_context_injections`.
+6. Resolver decides what feedback means and which move follows.
+7. Deterministic runtime executes selected move and updates ticket lifecycle.
+
+Ticket lifecycle states:
+- `issued_waiting_feedback`
+- `answered_unintegrated`
+- `integration_attempted_failed`
+- `integrated`
+- `superseded`
+- `stale`
 
 Important:
 - feedback is not deterministically transformed into deed patch
@@ -257,7 +286,17 @@ Important:
   - feedback consumed
   - feedback stale
   - feedback superseded
+- Runtime also tracks durable ticket lifecycle truth in ledger-backed injections.
 - Terminal reporting uses durable HITL state in addition to rolling progress events.
+
+### 7.2 Answered-unintegrated guardrail
+If an active binding `human_resolution_ticket` for the focused decision is `answered_unintegrated`, runtime guardrails prevent silent indefinite ignoring.
+
+Resolver/runtime must move toward one of:
+- apply a safe bounded edit plan
+- explicit blocked outcome with clear reason
+- tighter follow-up HITL question when first answer is demonstrably insufficient
+- materially different evidence request with remaining budget and explicit justification
 
 ## 8) Ledger and 4-layer closure model
 The architecture preserves layer model:

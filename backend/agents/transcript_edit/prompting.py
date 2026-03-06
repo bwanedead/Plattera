@@ -123,6 +123,9 @@ def build_focus_resolver_system_message() -> str:
         "If move=request_human_feedback, include feedback_prompt with line1, line2, and bounded choices when available. "
         "If move=gather_more_evidence, include evidence_request with fields: kind, decision_key, reason, target. "
         "Allowed evidence_request.kind values: open_spans, image_verify, retrieve_dependency_evidence. "
+        "Treat external_context_injections as persistent semantic state. "
+        "If a binding human_resolution_ticket is answered_unintegrated for the focused decision_key, you must choose a move that addresses integration directly "
+        "(apply_edit_plan, explicit blocked reason, tighter follow-up feedback, or clearly justified different evidence). "
         "Always include decision_key, move, reason, and iteration_summary. "
         "Do not return markdown. Return JSON object only."
     )
@@ -132,6 +135,11 @@ def build_focus_resolver_user_message(
     *,
     focus_packet: dict[str, Any],
 ) -> str:
+    injections = (
+        [row for row in list(focus_packet.get("external_context_injections") or []) if isinstance(row, dict)]
+        if isinstance(focus_packet, dict)
+        else []
+    )
     payload = {
         "task": "Choose one next move for this focus-cycle item.",
         "allowed_moves": [
@@ -143,6 +151,7 @@ def build_focus_resolver_user_message(
         ],
         "required_fields": ["decision_key", "move", "reason", "iteration_summary"],
         "focus_packet": focus_packet,
+        "external_context_injections": injections,
         "output_shape": {
             "decision_key": "range",
             "move": "apply_edit_plan",

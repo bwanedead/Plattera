@@ -406,3 +406,62 @@ def test_terminal_summary_prompt_supersession_excludes_old_prompt_from_pending()
     assert summary["pending_feedback_prompt_ids"] == ["hitl_range_2_resolver"]
     assert summary["superseded_feedback_prompt_ids"] == ["hitl_range_1_resolver"]
     assert summary["feedback_superseded_count"] == 1
+
+
+def test_terminal_summary_includes_human_resolution_ticket_lifecycle_counts() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [],
+                    "summary": {"blocking_open_count": 0},
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s9",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_no_progress",
+        latest_refs={},
+        review_required=True,
+        runtime_hitl_state={
+            "used_human_feedback": True,
+            "feedback_received_count": 2,
+            "feedback_consumed_count": 2,
+            "feedback_stale_count": 0,
+            "feedback_superseded_count": 0,
+            "pending_feedback_prompt_id": None,
+            "superseded_prompt_ids": [],
+            "hitl_lifecycle_log": [],
+            "human_resolution_tickets": [
+                {
+                    "type": "human_resolution_ticket",
+                    "ticket_id": "hitl_range_1_a",
+                    "decision_key": "range",
+                    "lifecycle_state": "answered_unintegrated",
+                },
+                {
+                    "type": "human_resolution_ticket",
+                    "ticket_id": "hitl_range_2_b",
+                    "decision_key": "range",
+                    "lifecycle_state": "integration_attempted_failed",
+                },
+                {
+                    "type": "human_resolution_ticket",
+                    "ticket_id": "hitl_range_3_c",
+                    "decision_key": "range",
+                    "lifecycle_state": "integrated",
+                },
+            ],
+        },
+    )
+    summary = terminal_summary(progress_log, result, critical_events=[])
+    assert summary["answered_unintegrated_ticket_count"] == 1
+    assert summary["integration_failed_ticket_count"] == 1
+    assert summary["integrated_ticket_count"] == 1
+    assert len(summary["human_resolution_tickets"]) == 3

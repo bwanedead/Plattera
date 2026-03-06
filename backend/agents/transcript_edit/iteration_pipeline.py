@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -14,6 +15,9 @@ from .decision_ledger import (
     has_unresolved_mapping_blocking_closure,
     is_unresolved_mapping_blocking_decision,
     ledger_snapshot_for_payload,
+    list_external_context_injections,
+    mark_human_resolution_ticket_state,
+    upsert_human_resolution_ticket,
     unresolved_mapping_blocking_requirements,
     unresolved_closure_requirements,
     update_ledger_from_iteration,
@@ -316,6 +320,13 @@ def handle_repair_iteration(
         if old_prompt_id and new_prompt_id and old_prompt_id != new_prompt_id:
             state.feedback_superseded_count += 1
             state.superseded_feedback_prompt_ids.add(old_prompt_id)
+            state.decision_ledger = mark_human_resolution_ticket_state(
+                ledger=state.decision_ledger,
+                ticket_id=old_prompt_id,
+                decision_key=decision_key,
+                lifecycle_state="superseded",
+                relevance="inactive",
+            )
             superseded_event = {
                 "iteration": iterations,
                 "phase": "human_feedback_prompt_superseded",
@@ -341,6 +352,27 @@ def handle_repair_iteration(
         state.pending_feedback_prompt = feedback_prompt if isinstance(feedback_prompt, dict) else None
         state.pending_feedback_decision_key = decision_key or None
         state.pending_feedback_emitted_iteration = iterations
+        if new_prompt_id:
+            state.decision_ledger = upsert_human_resolution_ticket(
+                ledger=state.decision_ledger,
+                ticket_id=new_prompt_id,
+                decision_key=decision_key,
+                lifecycle_state="issued_waiting_feedback",
+                strength="binding",
+                payload={
+                    "issue_summary": str(feedback_prompt.get("line1") or "").strip(),
+                    "original_prompt_summary": str(feedback_prompt.get("line2") or "").strip(),
+                    "selected_choice": None,
+                    "normalized_answer_summary": None,
+                    "note": None,
+                    "alternatives": [
+                        str(v).strip()
+                        for v in list(feedback_prompt.get("choices") or [])
+                        if str(v).strip()
+                    ][:6],
+                },
+                relevance="active",
+            )
         _append_hitl_lifecycle_event(
             {
                 "iteration": iterations,
@@ -368,6 +400,19 @@ def handle_repair_iteration(
                     continue
                 state.feedback_entry_seen_keys.add(signature)
                 state.feedback_stale_count += 1
+                stale_decision_key = (
+                    str(entry.get("metadata", {}).get("decision_key") or "").strip().lower()
+                    if isinstance(entry.get("metadata"), dict)
+                    else ""
+                ) or str(state.pending_feedback_decision_key or "").strip().lower()
+                if entry_prompt_id and stale_decision_key:
+                    state.decision_ledger = mark_human_resolution_ticket_state(
+                        ledger=state.decision_ledger,
+                        ticket_id=entry_prompt_id,
+                        decision_key=stale_decision_key,
+                        lifecycle_state="stale",
+                        relevance="inactive",
+                    )
                 stale_reason = (
                     "superseded_prompt_reply"
                     if entry_prompt_id in state.superseded_feedback_prompt_ids
@@ -458,12 +503,38 @@ def handle_repair_iteration(
                 latest_refs=state.latest_refs,
             ),
         )
+        active_prompt_context = (
+            dict(state.pending_feedback_prompt)
+            if isinstance(state.pending_feedback_prompt, dict)
+            else {}
+        )
         state.used_human_feedback = True
         state.feedback_consumed_count += 1
         state.pending_feedback_prompt_id = None
         state.pending_feedback_prompt = None
         state.pending_feedback_decision_key = None
         state.pending_feedback_emitted_iteration = None
+        state.decision_ledger = upsert_human_resolution_ticket(
+            ledger=state.decision_ledger,
+            ticket_id=pending_prompt_id,
+            decision_key=str(normalized_feedback.get("decision_key") or "").strip().lower(),
+            lifecycle_state="answered_unintegrated",
+            strength="binding",
+            payload={
+                "issue_summary": str(active_prompt_context.get("line1") or "").strip(),
+                "original_prompt_summary": str(active_prompt_context.get("line2") or "").strip(),
+                "selected_choice": str(normalized_feedback.get("choice") or "").strip() or None,
+                "normalized_answer_summary": str(normalized_feedback.get("selected_value") or "").strip() or None,
+                "note": str(normalized_feedback.get("note") or "").strip() or None,
+                "alternatives": [
+                    str(v).strip()
+                    for v in list(active_prompt_context.get("choices") or [])
+                    if str(v).strip()
+                ][:6],
+            },
+            answered_at=int(time.time()),
+            relevance="active",
+        )
         _append_hitl_lifecycle_event(
             {
                 "iteration": iterations,
@@ -914,24 +985,38 @@ def handle_repair_iteration(
     if resolver_decision_key and resolver_decision_key != focus_key:
         move = "mark_blocked"
         resolver_reason = f"resolver_decision_key_mismatch:{resolver_decision_key}"
+    answered_ticket = _latest_human_resolution_ticket(
+        decision_ledger=state.decision_ledger,
+        decision_key=focus_key,
+        lifecycle_states={"answered_unintegrated"},
+    )
     stable_feedback_count = _stable_feedback_confirmation_count(
         hitl_lifecycle_log=state.hitl_lifecycle_log,
         decision_key=focus_key,
         selected_value=(
             str((focus_feedback or {}).get("selected_value") or "").strip()
             if isinstance(focus_feedback, dict)
-            else ""
+            else (
+                str(((answered_ticket or {}).get("payload") or {}).get("normalized_answer_summary") or "").strip()
+                if isinstance((answered_ticket or {}).get("payload"), dict)
+                else ""
+            )
         ),
+    )
+    decisive_feedback_payload = (
+        dict(focus_feedback)
+        if isinstance(focus_feedback, dict)
+        else _feedback_payload_from_ticket(answered_ticket=answered_ticket, decision_key=focus_key)
     )
     if (
         move in {"request_human_feedback", "gather_more_evidence"}
-        and isinstance(focus_feedback, dict)
-        and stable_feedback_count >= 2
+        and isinstance(decisive_feedback_payload, dict)
+        and (answered_ticket is not None or stable_feedback_count >= 2)
     ):
         decisive_plan = build_feedback_override_plan(
             source_transcript_ref=state.current_transcript_ref or "",
             source_transcript_hash=source_transcript_hash,
-            normalized_feedback=focus_feedback,
+            normalized_feedback=decisive_feedback_payload,
         )
         if isinstance(decisive_plan, dict):
             if isinstance(resolver_outcome, dict):
@@ -940,6 +1025,14 @@ def handle_repair_iteration(
             move = "apply_edit_plan"
             resolver_reason = f"stable_feedback_override_plan:{resolver_reason}"
         else:
+            if isinstance(answered_ticket, dict):
+                state.decision_ledger = mark_human_resolution_ticket_state(
+                    ledger=state.decision_ledger,
+                    ticket_id=str(answered_ticket.get("ticket_id") or ""),
+                    decision_key=str(answered_ticket.get("decision_key") or ""),
+                    lifecycle_state="integration_attempted_failed",
+                    relevance="active",
+                )
             return TranscriptEditDecision(
                 status="needs_review",
                 reason_code="tx_agent_consistent_feedback_no_safe_plan",
@@ -1272,6 +1365,33 @@ def handle_repair_iteration(
         state.applied_any_edits = True
         state.pending_reaudit_after_apply = True
         state.apply_reaudit_baseline_blocking_count = blocking_unresolved_count(state.decision_ledger)
+        ticket_prompt_id = (
+            str((focus_feedback or {}).get("prompt_id") or "").strip()
+            if isinstance(focus_feedback, dict)
+            else ""
+        )
+        ticket_decision_key = (
+            str((focus_feedback or {}).get("decision_key") or "").strip().lower()
+            if isinstance(focus_feedback, dict)
+            else str(focus_key or "").strip().lower()
+        )
+        if not ticket_prompt_id:
+            answered_ticket = _latest_human_resolution_ticket(
+                decision_ledger=state.decision_ledger,
+                decision_key=ticket_decision_key,
+                lifecycle_states={"answered_unintegrated", "integration_attempted_failed"},
+            )
+            ticket_prompt_id = str((answered_ticket or {}).get("ticket_id") or "").strip()
+            ticket_decision_key = str((answered_ticket or {}).get("decision_key") or ticket_decision_key).strip().lower()
+        if ticket_prompt_id and ticket_decision_key:
+            state.decision_ledger = mark_human_resolution_ticket_state(
+                ledger=state.decision_ledger,
+                ticket_id=ticket_prompt_id,
+                decision_key=ticket_decision_key,
+                lifecycle_state="integrated",
+                integrated=True,
+                relevance="inactive",
+            )
     state.invalid_plan_strikes = 0
     state.last_reason = "tx_apply_completed_waiting_reaudit"
     if raw_plan_text:
@@ -1362,6 +1482,51 @@ def _stable_feedback_confirmation_count(
             continue
         break
     return count
+
+
+def _latest_human_resolution_ticket(
+    *,
+    decision_ledger: dict[str, Any],
+    decision_key: str | None,
+    lifecycle_states: set[str],
+) -> dict[str, Any] | None:
+    rows = list_external_context_injections(
+        decision_ledger,
+        decision_key=str(decision_key or "").strip().lower(),
+        type_filter="human_resolution_ticket",
+        lifecycle_states={str(v).strip().lower() for v in lifecycle_states if str(v).strip()},
+    )
+    if not rows:
+        return None
+    rows.sort(key=lambda row: int(row.get("updated_at") or row.get("created_at") or 0), reverse=True)
+    return dict(rows[0]) if isinstance(rows[0], dict) else None
+
+
+def _feedback_payload_from_ticket(
+    *,
+    answered_ticket: dict[str, Any] | None,
+    decision_key: str | None,
+) -> dict[str, Any] | None:
+    if not isinstance(answered_ticket, dict):
+        return None
+    payload = answered_ticket.get("payload") if isinstance(answered_ticket.get("payload"), dict) else {}
+    selected_value = (
+        str(payload.get("normalized_answer_summary") or "").strip()
+        or str(payload.get("selected_choice") or "").strip()
+    )
+    if not selected_value:
+        return None
+    key = str(answered_ticket.get("decision_key") or decision_key or "").strip().lower()
+    if not key:
+        return None
+    return {
+        "decision_key": key,
+        "selected_value": selected_value,
+        "choice": str(payload.get("selected_choice") or "").strip() or None,
+        "note": str(payload.get("note") or "").strip() or None,
+        "prompt_id": str(answered_ticket.get("ticket_id") or "").strip() or None,
+        "metadata": {"ticket_id": str(answered_ticket.get("ticket_id") or "").strip() or None},
+    }
 
 
 def _accept_mark_resolved_no_edit(*, decision_ledger: dict[str, Any], decision_key: str) -> bool:

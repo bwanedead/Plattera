@@ -137,6 +137,26 @@ def terminal_summary(
     feedback_consumed_count = int(hitl_state.get("feedback_consumed_count") or 0)
     feedback_stale_count = int(hitl_state.get("feedback_stale_count") or 0)
     feedback_superseded_count = int(hitl_state.get("feedback_superseded_count") or 0)
+    human_resolution_tickets = (
+        [dict(row) for row in list(hitl_state.get("human_resolution_tickets") or []) if isinstance(row, dict)][-40:]
+        if isinstance(hitl_state, dict)
+        else []
+    )
+    answered_unintegrated_ticket_count = sum(
+        1
+        for row in human_resolution_tickets
+        if str(row.get("lifecycle_state") or "").strip().lower() == "answered_unintegrated"
+    )
+    integration_failed_ticket_count = sum(
+        1
+        for row in human_resolution_tickets
+        if str(row.get("lifecycle_state") or "").strip().lower() == "integration_attempted_failed"
+    )
+    integrated_ticket_count = sum(
+        1
+        for row in human_resolution_tickets
+        if str(row.get("lifecycle_state") or "").strip().lower() == "integrated"
+    )
     superseded_prompt_ids = (
         [str(v) for v in list(hitl_state.get("superseded_prompt_ids") or []) if str(v).strip()]
         if isinstance(hitl_state, dict)
@@ -211,7 +231,11 @@ def terminal_summary(
         "feedback_consumed_count": feedback_consumed_count,
         "feedback_stale_count": feedback_stale_count,
         "feedback_superseded_count": feedback_superseded_count,
+        "answered_unintegrated_ticket_count": int(answered_unintegrated_ticket_count),
+        "integration_failed_ticket_count": int(integration_failed_ticket_count),
+        "integrated_ticket_count": int(integrated_ticket_count),
         "superseded_feedback_prompt_ids": superseded_prompt_ids,
+        "human_resolution_tickets": human_resolution_tickets,
         "hitl_lifecycle_log": hitl_lifecycle_log,
         "decision_ledger_summary": (
             decision_ledger.get("summary")

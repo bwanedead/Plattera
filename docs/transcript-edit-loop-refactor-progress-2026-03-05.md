@@ -255,3 +255,34 @@ Narrow corrective pass for two live gaps:
 - Verification:
   - `pytest backend/agents/transcript_edit/test_controller.py -q` passed
   - `pytest backend/agents/transcript_edit -q` passed
+
+## 29) Injected-context lane for HITL resolution state
+Objective:
+- keep atomic focus-cycle unchanged while making consumed HITL answers persist as semantic state until integrated/superseded/stale.
+
+Implementation summary:
+- Added generic ledger-backed `external_context_injections` lane (`decision_ledger.py`).
+- Added first concrete injection class: `human_resolution_ticket`.
+- Added lifecycle helpers:
+  - upsert/update ticket
+  - list/filter ticket rows by decision key/type/state
+- Focus packet now includes bounded per-focus `external_context_injections`.
+- Resolver prompting now has explicit injected-context semantics and guardrail language for binding `answered_unintegrated` tickets.
+- Iteration runtime now transitions ticket lifecycle through:
+  - `issued_waiting_feedback`
+  - `answered_unintegrated`
+  - `integration_attempted_failed`
+  - `integrated`
+  - `superseded`
+  - `stale`
+- Runtime HITL/terminal payloads now include durable ticket state and lifecycle counts.
+
+Behavioral seam addressed:
+- fixes the gap where feedback could be counted as consumed but still disappear from semantic awareness in later cycles.
+
+Validation coverage added:
+- ledger lifecycle helper roundtrip tests
+- focus packet injection tests
+- prompting tests for explicit `external_context_injections` contract
+- controller tests for ticket lifecycle outcomes (`answered_unintegrated`, `integration_attempted_failed`, `integrated`)
+- terminal summary tests for ticket lifecycle counters

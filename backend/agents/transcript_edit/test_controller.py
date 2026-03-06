@@ -991,6 +991,143 @@ def test_transcript_controller_repeated_consistent_feedback_drives_decisive_outc
         )
         runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
         assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) >= 2
+        tickets = [
+            dict(row)
+            for row in list(runtime_hitl_state.get("human_resolution_tickets") or [])
+            if isinstance(row, dict)
+        ]
+        assert any(str(row.get("lifecycle_state") or "") == "integrated" for row in tickets)
+
+
+def test_transcript_controller_feedback_consumption_sets_answered_unintegrated_ticket(monkeypatch) -> None:
+    class _PlannerMarkBlocked:
+        def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+            focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+            return {
+                "decision_key": str(focus_packet.get("decision_key") or "range"),
+                "move": "mark_blocked",
+                "reason": "insufficient_autonomous_path",
+                "edit_plan": None,
+                "feedback_prompt": None,
+                "evidence_request": None,
+                "closure_update_hint": None,
+                "iteration_summary": "Blocked after consuming feedback.",
+            }, "ok", "{}"
+
+        def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            raise RuntimeError("not used in focus-move mode")
+
+    calls = {"poll": 0}
+
+    def _fake_poll_feedback_response(*, run_id, prompt_id):  # type: ignore[no-untyped-def]
+        del run_id
+        if calls["poll"] == 0:
+            calls["poll"] += 1
+            return {
+                "prompt_id": prompt_id,
+                "choice": "Range 75 West",
+                "note": "Use Range 75 West.",
+                "metadata": {
+                    "decision_key": "range",
+                    "resolved_value": "Range 75 West",
+                },
+            }
+        return None
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline.poll_feedback_response",
+        _fake_poll_feedback_response,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}),
+            encoding="utf-8",
+        )
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-answered-unintegrated-ticket",
+            planner=_PlannerMarkBlocked(),
+        )
+        runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
+        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) >= 1
+        tickets = [
+            dict(row)
+            for row in list(runtime_hitl_state.get("human_resolution_tickets") or [])
+            if isinstance(row, dict)
+        ]
+        assert any(
+            str(row.get("decision_key") or "") == "range"
+            and str(row.get("lifecycle_state") or "") == "answered_unintegrated"
+            for row in tickets
+        )
+
+
+def test_transcript_controller_sets_integration_attempted_failed_when_feedback_no_safe_plan(monkeypatch) -> None:
+    calls = {"poll": 0}
+
+    def _fake_poll_feedback_response(*, run_id, prompt_id):  # type: ignore[no-untyped-def]
+        del run_id
+        if calls["poll"] == 0:
+            calls["poll"] += 1
+            return {
+                "prompt_id": prompt_id,
+                "choice": "Range 75 West",
+                "note": "Use Range 75 West.",
+                "metadata": {
+                    "decision_key": "range",
+                    "resolved_value": "Range 75 West",
+                },
+            }
+        return None
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline.poll_feedback_response",
+        _fake_poll_feedback_response,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Beginning at a point in Township only."}]}),
+            encoding="utf-8",
+        )
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=3,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-ticket-integration-failed",
+            planner=_PlannerAlwaysFeedback(),
+        )
+        assert result.status == "needs_review"
+        assert result.reason_code == "tx_agent_consistent_feedback_no_safe_plan"
+        runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
+        tickets = [
+            dict(row)
+            for row in list(runtime_hitl_state.get("human_resolution_tickets") or [])
+            if isinstance(row, dict)
+        ]
+        assert any(
+            str(row.get("decision_key") or "") == "range"
+            and str(row.get("lifecycle_state") or "") == "integration_attempted_failed"
+            for row in tickets
+        )
 
 
 def test_transcript_controller_apply_requires_reaudit_for_progress_claim() -> None:

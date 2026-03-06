@@ -11,6 +11,8 @@ MAX_ATTEMPT_REASON_CHARS = 120
 MAX_FEEDBACK_VALUE_CHARS = 160
 MAX_FEEDBACK_NOTE_CHARS = 240
 MAX_MEMORY_SUMMARY_CHARS = 420
+MAX_EXTERNAL_CONTEXT_INJECTIONS = 6
+MAX_EXTERNAL_PAYLOAD_CHARS = 320
 
 
 def build_focus_packet(
@@ -39,6 +41,10 @@ def build_focus_packet(
     bounded_spans = _bounded_span_context(span_context)
     bounded_image = _bounded_image_verification(image_verification_payload=image_verification_payload, decision_key=key)
     bounded_feedback = _bounded_feedback(feedback=feedback, decision_key=key)
+    external_injections = _bounded_external_context_injections(
+        decision_ledger=decision_ledger,
+        decision_key=key,
+    )
     return {
         "decision_key": key,
         "ledger_item": ledger_item or {},
@@ -48,6 +54,7 @@ def build_focus_packet(
         "span_context": bounded_spans,
         "image_verification": bounded_image,
         "feedback": bounded_feedback,
+        "external_context_injections": external_injections,
         "recent_attempts": attempts,
         "memory_summary": _memory_summary(attempts),
     }
@@ -164,3 +171,52 @@ def _bounded_feedback(*, feedback: dict[str, Any] | None, decision_key: str) -> 
         "prompt_id": str(feedback.get("prompt_id") or "").strip()[:120] or None,
         "metadata": dict(feedback.get("metadata")) if isinstance(feedback.get("metadata"), dict) else {},
     }
+
+
+def _bounded_external_context_injections(
+    *,
+    decision_ledger: dict[str, Any],
+    decision_key: str,
+) -> list[dict[str, Any]]:
+    rows = decision_ledger.get("external_context_injections") if isinstance(decision_ledger, dict) else []
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, Any]] = []
+    key = str(decision_key or "").strip().lower()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_key = str(row.get("decision_key") or "").strip().lower()
+        if key and row_key and row_key != key:
+            continue
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        payload_summary = {
+            "issue_summary": str(payload.get("issue_summary") or "").strip()[:MAX_EXTERNAL_PAYLOAD_CHARS] or None,
+            "original_prompt_summary": str(payload.get("original_prompt_summary") or "").strip()[:MAX_EXTERNAL_PAYLOAD_CHARS] or None,
+            "selected_choice": str(payload.get("selected_choice") or "").strip()[:MAX_EXTERNAL_PAYLOAD_CHARS] or None,
+            "normalized_answer_summary": str(payload.get("normalized_answer_summary") or "").strip()[:MAX_EXTERNAL_PAYLOAD_CHARS] or None,
+            "note": str(payload.get("note") or "").strip()[:MAX_EXTERNAL_PAYLOAD_CHARS] or None,
+            "alternatives": [
+                str(v).strip()[:MAX_EXTERNAL_PAYLOAD_CHARS]
+                for v in list(payload.get("alternatives") or [])
+                if str(v).strip()
+            ][:6],
+        }
+        out.append(
+            {
+                "type": str(row.get("type") or "").strip().lower() or None,
+                "ticket_id": str(row.get("ticket_id") or "").strip() or None,
+                "decision_key": row_key or None,
+                "lifecycle_state": str(row.get("lifecycle_state") or "").strip().lower() or None,
+                "strength": str(row.get("strength") or "").strip().lower() or None,
+                "created_at": row.get("created_at"),
+                "updated_at": row.get("updated_at"),
+                "answered_at": row.get("answered_at"),
+                "integrated_at": row.get("integrated_at"),
+                "relevance": str(row.get("relevance") or "").strip().lower() or None,
+                "payload": payload_summary,
+            }
+        )
+        if len(out) >= MAX_EXTERNAL_CONTEXT_INJECTIONS:
+            break
+    return out

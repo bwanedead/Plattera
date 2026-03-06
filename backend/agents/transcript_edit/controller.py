@@ -26,6 +26,7 @@ from .decision_ledger import (
     has_unresolved_mapping_blocking_closure,
     initialize_decision_ledger,
     ledger_snapshot_for_payload,
+    list_external_context_injections,
     unresolved_closure_requirements,
     update_ledger_from_orient_baseline,
     update_ledger_from_iteration,
@@ -628,6 +629,10 @@ def _result(
 
 
 def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
+    tickets = list_external_context_injections(
+        state.decision_ledger,
+        type_filter="human_resolution_ticket",
+    )
     return {
         "used_human_feedback": bool(state.used_human_feedback),
         "feedback_received_count": int(state.feedback_received_count),
@@ -638,6 +643,7 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
         "pending_feedback_decision_key": state.pending_feedback_decision_key,
         "superseded_prompt_ids": sorted(list(state.superseded_feedback_prompt_ids)),
         "hitl_lifecycle_log": list(state.hitl_lifecycle_log),
+        "human_resolution_tickets": tickets,
     }
 
 

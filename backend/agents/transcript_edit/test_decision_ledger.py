@@ -13,8 +13,11 @@ from backend.agents.transcript_edit.decision_ledger import (
     has_unresolved_mapping_blocking_closure,
     initialize_decision_ledger,
     is_unresolved_mapping_blocking_decision,
+    list_external_context_injections,
+    mark_human_resolution_ticket_state,
     unresolved_mapping_blocking_requirements,
     unresolved_closure_requirements,
+    upsert_human_resolution_ticket,
     update_ledger_from_iteration,
 )
 
@@ -293,3 +296,37 @@ def test_range_contradiction_extraction_supports_compact_r74w_tokens() -> None:
     alternatives = [str(v) for v in list(range_item.get("alternatives") or [])]
     assert "Range 74 West" in alternatives
     assert "Range 75 West" in alternatives
+
+
+def test_human_resolution_ticket_lifecycle_helpers_roundtrip() -> None:
+    ledger = initialize_decision_ledger()
+    ledger = upsert_human_resolution_ticket(
+        ledger=ledger,
+        ticket_id="hitl_range_1_x",
+        decision_key="range",
+        lifecycle_state="answered_unintegrated",
+        payload={"normalized_answer_summary": "Range 75 West"},
+    )
+    rows = list_external_context_injections(
+        ledger,
+        decision_key="range",
+        type_filter="human_resolution_ticket",
+        lifecycle_states={"answered_unintegrated"},
+    )
+    assert len(rows) == 1
+    assert str(rows[0].get("ticket_id") or "") == "hitl_range_1_x"
+    ledger = mark_human_resolution_ticket_state(
+        ledger=ledger,
+        ticket_id="hitl_range_1_x",
+        decision_key="range",
+        lifecycle_state="integrated",
+        integrated=True,
+    )
+    rows2 = list_external_context_injections(
+        ledger,
+        decision_key="range",
+        type_filter="human_resolution_ticket",
+        lifecycle_states={"integrated"},
+    )
+    assert len(rows2) == 1
+    assert rows2[0].get("integrated_at") is not None
