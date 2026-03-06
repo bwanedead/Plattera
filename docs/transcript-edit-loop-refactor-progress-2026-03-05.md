@@ -109,3 +109,28 @@ Phase 5 establishes the closed-world proof point:
 - loop continuation now depends on material progress signals
 - apply is not treated as closure progress until re-audit confirms improvement
 - terminal outputs distinguish ambiguity blockers, dependency blockers, pending HITL, and optional-only leftovers
+
+## 13) Phase 6 objective
+Harden live-run runtime behavior for long evidence phases: focus/evidence coherence, wait-log sanity, bounded retries/timeouts, and clearer call accounting.
+
+## 14) Phase 6 implementation summary
+- Added richer evidence progress/result accounting in reporting payloads:
+  - `llm_call_seq`, `phase_attempt`, `decision_key`, `evidence_kind`, `check_id`
+- Hardened image verification runtime behavior:
+  - sparse thresholded wait updates (15/30/60/120s style) instead of frequent heartbeat spam
+  - explicit long-running/degraded/timeout/failed stage signaling
+  - bounded per-check retries with deterministic failure classification
+  - compact diagnostics payload for failures (decision/evidence/check/call/retry/error context)
+- Improved focus/evidence coherence visibility:
+  - check-level decision key + focus decision key are surfaced
+  - focus fallback to broader checks is explicitly logged when no direct focus findings exist
+- Preserved architectural boundary:
+  - no dependency retrieval expansion
+  - no major prompt redesign
+
+## 15) Phase 6 tests added/updated
+- Added:
+  - `backend/agents/transcript_edit/test_image_verification_runtime.py`
+- Updated:
+  - `backend/agents/transcript_edit/test_run_reporting.py`
+- Full transcript-edit suite remains green after these changes.

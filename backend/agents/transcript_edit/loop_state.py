@@ -33,3 +33,4 @@ class TranscriptEditLoopState:
     continuity_log: list[dict[str, Any]] = field(default_factory=list)
     evidence_repeat_guard: dict[str, dict[str, Any]] = field(default_factory=dict)
     evidence_signal_counter: int = 0
+    llm_call_seq: int = 0

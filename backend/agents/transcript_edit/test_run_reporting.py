@@ -42,6 +42,49 @@ def test_image_verify_result_payload_contract_shape() -> None:
     assert isinstance(payload["detail"]["results"], list)
 
 
+def test_image_verify_progress_payload_includes_call_accounting() -> None:
+    payload = run_reporting.image_verify_progress_payload(
+        iteration=2,
+        latest_refs={},
+        decision_key="acreage",
+        evidence_kind="image_verify",
+        check_id="1/1:plss_range_conflict_001",
+        check_decision_key="range",
+        llm_call_seq=7,
+        phase_attempt=2,
+        stage="long_running",
+        elapsed_seconds=61,
+    )
+    assert payload["iteration"] == 2
+    assert payload["phase"] == "image_verify"
+    detail = payload.get("detail") or {}
+    assert detail.get("llm_call_seq") == 7
+    assert detail.get("phase_attempt") == 2
+    assert detail.get("decision_key") == "acreage"
+    assert detail.get("check_decision_key") == "range"
+
+
+def test_image_verify_result_payload_includes_accounting_and_diagnostics() -> None:
+    payload = run_reporting.image_verify_result_payload(
+        iteration=1,
+        latest_refs={},
+        iv_payload={"summary": {"total_checks": 1}},
+        iv_results=[{"check_id": "c1", "status": "error"}],
+        iv_confirmed=0,
+        iv_rejected=0,
+        iv_total=1,
+        decision_key="range",
+        evidence_kind="image_verify",
+        llm_call_seq_end=4,
+        diagnostics=[{"error_code": "upstream_500"}],
+    )
+    detail = payload.get("detail") or {}
+    assert detail.get("decision_key") == "range"
+    assert detail.get("evidence_kind") == "image_verify"
+    assert detail.get("llm_call_seq_end") == 4
+    assert isinstance(detail.get("diagnostics"), list)
+
+
 def test_human_feedback_needed_payload_contract_shape() -> None:
     prompt = {
         "prompt_id": "hitl_1",

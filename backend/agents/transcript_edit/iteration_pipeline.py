@@ -65,6 +65,7 @@ from .run_reporting import (
     investigation_baseline_payload,
     investigation_baseline_result_payload,
     image_verify_payload,
+    image_verify_progress_payload,
     image_verify_result_payload,
     open_spans_payload,
     open_spans_result_payload,
@@ -414,6 +415,24 @@ def handle_repair_iteration(
         )
         focused_findings = _findings_for_focus_key(top_findings=planning_findings, focus_key=focus_key)
         focus_findings = focused_findings if focused_findings else planning_findings
+        if not focused_findings and focus_key:
+            emit_progress(
+                progress_cb,
+                ticker_payload(
+                    iteration=iterations,
+                    phase="investigate",
+                    message=(
+                        f"No direct findings matched focus {focus_key}; using broader mapping-critical image checks "
+                        "for this focus-cycle."
+                    ),
+                    latest_refs=state.latest_refs,
+                    detail={
+                        "decision_key": focus_key,
+                        "evidence_kind": "image_verify",
+                        "focus_fallback": True,
+                    },
+                ),
+            )
         span_context = _open_planner_context_spans(
             session_manager=session_manager,
             session_id=session_id,
@@ -441,6 +460,7 @@ def handle_repair_iteration(
                 iteration=iterations,
                 latest_refs=state.latest_refs,
                 message="Cross-referencing mapping-critical values (PLSS tokens, distances, bearings) against the source deed image.",
+                decision_key=focus_key or None,
             ),
         )
         emit_progress(
@@ -462,12 +482,16 @@ def handle_repair_iteration(
             source_image_refs=request.source_image_refs,
             model=model,
             progress_cb=progress_cb,
+            focus_decision_key=focus_key or None,
+            llm_call_seq_start=state.llm_call_seq,
         )
         if image_verification:
+            state.llm_call_seq = int(image_verification.get("llm_call_seq_end") or state.llm_call_seq)
             state.latest_refs = image_verification.get("latest_refs", state.latest_refs)
             iv_payload = image_verification.get("payload") or {}
             iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
             iv_results = iv_results if isinstance(iv_results, list) else []
+            iv_diagnostics = iv_payload.get("diagnostics") if isinstance(iv_payload.get("diagnostics"), list) else []
             before_sig = blocking_signature(state.decision_ledger)
             state.decision_ledger = update_ledger_from_iteration(
                 ledger=state.decision_ledger,
@@ -490,6 +514,10 @@ def handle_repair_iteration(
                         {
                             "check_id": r.get("check_id"),
                             "status": r.get("status"),
+                            "decision_key": r.get("decision_key"),
+                            "focus_decision_key": r.get("focus_decision_key"),
+                            "llm_call_seq": r.get("llm_call_seq"),
+                            "phase_attempt": r.get("phase_attempt"),
                             "observed_text": str(r.get("observed_text") or "")[:120],
                         }
                         for r in iv_results[:8]
@@ -499,6 +527,9 @@ def handle_repair_iteration(
                     iv_rejected=iv_rejected,
                     iv_total=iv_total,
                     decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
+                    decision_key=focus_key or None,
+                    llm_call_seq_end=state.llm_call_seq,
+                    diagnostics=[d for d in iv_diagnostics if isinstance(d, dict)],
                 ),
             )
         drained_plan = _drain_pending_feedback(checkpoint_label="image_verify")
@@ -513,6 +544,7 @@ def handle_repair_iteration(
                 iteration=iterations,
                 latest_refs=state.latest_refs,
                 message="Running post-feedback image verification before applying the override plan.",
+                decision_key=focus_key if 'focus_key' in locals() else None,
             ),
         )
         emit_progress(
@@ -534,12 +566,16 @@ def handle_repair_iteration(
             source_image_refs=request.source_image_refs,
             model=model,
             progress_cb=progress_cb,
+            focus_decision_key=focus_key if 'focus_key' in locals() else None,
+            llm_call_seq_start=state.llm_call_seq,
         )
         if image_verification:
+            state.llm_call_seq = int(image_verification.get("llm_call_seq_end") or state.llm_call_seq)
             state.latest_refs = image_verification.get("latest_refs", state.latest_refs)
             iv_payload = image_verification.get("payload") or {}
             iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
             iv_results = iv_results if isinstance(iv_results, list) else []
+            iv_diagnostics = iv_payload.get("diagnostics") if isinstance(iv_payload.get("diagnostics"), list) else []
             before_sig = blocking_signature(state.decision_ledger)
             state.decision_ledger = update_ledger_from_iteration(
                 ledger=state.decision_ledger,
@@ -549,6 +585,39 @@ def handle_repair_iteration(
             after_sig = blocking_signature(state.decision_ledger)
             if iv_results and before_sig != after_sig:
                 state.evidence_signal_counter += 1
+            emit_progress(
+                progress_cb,
+                image_verify_result_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    iv_payload=iv_payload,
+                    iv_results=[
+                        {
+                            "check_id": r.get("check_id"),
+                            "status": r.get("status"),
+                            "decision_key": r.get("decision_key"),
+                            "observed_text": str(r.get("observed_text") or "")[:120],
+                        }
+                        for r in iv_results[:8]
+                        if isinstance(r, dict)
+                    ],
+                    iv_confirmed=sum(
+                        1
+                        for r in iv_results
+                        if isinstance(r, dict) and str(r.get("status") or "").lower() in {"confirmed", "match"}
+                    ),
+                    iv_rejected=sum(
+                        1
+                        for r in iv_results
+                        if isinstance(r, dict) and str(r.get("status") or "").lower() in {"rejected", "mismatch"}
+                    ),
+                    iv_total=len(iv_results),
+                    decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
+                    decision_key=focus_key if 'focus_key' in locals() else None,
+                    llm_call_seq_end=state.llm_call_seq,
+                    diagnostics=[d for d in iv_diagnostics if isinstance(d, dict)],
+                ),
+            )
         drained_plan = _drain_pending_feedback(checkpoint_label="post_feedback_image_verify")
         if drained_plan is not None:
             focus_feedback = drained_plan
@@ -661,6 +730,7 @@ def handle_repair_iteration(
         planning_findings=planning_findings,
         max_invalid_plan_attempts=request.max_invalid_plan_attempts,
     )
+    state.llm_call_seq += 1
     move = str((resolver_outcome or {}).get("move") or "").strip().lower()
     resolver_reason = str((resolver_outcome or {}).get("reason") or "").strip() or "resolver_no_reason"
     resolver_decision_key = str((resolver_outcome or {}).get("decision_key") or "").strip().lower()
@@ -786,6 +856,8 @@ def handle_repair_iteration(
                 source_image_refs=request.source_image_refs,
                 model=model,
                 progress_cb=progress_cb,
+                focus_decision_key=focus_key,
+                llm_call_seq_start=state.llm_call_seq,
             ),
             retrieve_dependency_runner=None,
         )
@@ -827,10 +899,12 @@ def handle_repair_iteration(
         )
         if extra_image_verification:
             image_verification = extra_image_verification
+            state.llm_call_seq = int(image_verification.get("llm_call_seq_end") or state.llm_call_seq)
             state.latest_refs = image_verification.get("latest_refs", state.latest_refs)
             iv_payload = image_verification.get("payload") if isinstance(image_verification.get("payload"), dict) else {}
             iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
             iv_results = iv_results if isinstance(iv_results, list) else []
+            iv_diagnostics = iv_payload.get("diagnostics") if isinstance(iv_payload.get("diagnostics"), list) else []
             before_sig = blocking_signature(state.decision_ledger)
             state.decision_ledger = update_ledger_from_iteration(
                 ledger=state.decision_ledger,
@@ -867,6 +941,9 @@ def handle_repair_iteration(
                     ),
                     iv_total=len(iv_results),
                     decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
+                    decision_key=focus_key,
+                    llm_call_seq_end=state.llm_call_seq,
+                    diagnostics=[d for d in iv_diagnostics if isinstance(d, dict)],
                 ),
             )
         state.last_reason = resolver_reason
@@ -1105,23 +1182,32 @@ def _verify_mapping_critical_with_image(
     source_image_refs: list[str],
     model: str,
     progress_cb: Callable[[dict[str, Any]], None] | None,
+    focus_decision_key: str | None = None,
+    llm_call_seq_start: int = 0,
 ) -> dict[str, Any]:
     def _emit_check_progress(update: dict[str, Any]) -> None:
         check_index = int(update.get("check_index") or 0)
         check_total = int(update.get("check_total") or 0)
         check_id = str(update.get("check_id") or "").strip() or "unknown_check"
         stage = str(update.get("stage") or "running")
-        if stage == "waiting":
-            elapsed_seconds = int(update.get("elapsed_seconds") or 0)
-            message = f"Image check {check_index}/{check_total} ({check_id}) still running ({elapsed_seconds}s elapsed)."
-        else:
-            message = f"Image check {check_index}/{check_total} ({check_id}) {stage}."
+        elapsed_seconds = int(update.get("elapsed_seconds") or 0)
+        llm_call_seq = int(update.get("llm_call_seq") or 0)
+        phase_attempt = int(update.get("phase_attempt") or 1)
+        check_decision_key = str(update.get("check_decision_key") or "").strip().lower() or None
+        focus_key = str(update.get("focus_decision_key") or focus_decision_key or "").strip().lower() or None
         emit_progress(
             progress_cb,
-            ticker_payload(
+            image_verify_progress_payload(
                 iteration=iteration,
-                phase="image_verify",
-                message=message,
+                decision_key=focus_key,
+                evidence_kind="image_verify",
+                check_id=f"{check_index}/{check_total}:{check_id}",
+                check_decision_key=check_decision_key,
+                llm_call_seq=llm_call_seq,
+                phase_attempt=phase_attempt,
+                stage=stage,
+                elapsed_seconds=elapsed_seconds,
+                diagnostic=(update.get("diagnostic") if isinstance(update.get("diagnostic"), dict) else None),
                 latest_refs={},
             ),
         )
@@ -1140,6 +1226,8 @@ def _verify_mapping_critical_with_image(
         read_step_outputs_inline_fn=read_step_outputs_inline,
         read_str_fn=read_str,
         progress_cb=_emit_check_progress,
+        focus_decision_key=focus_decision_key,
+        llm_call_seq_start=llm_call_seq_start,
     )
 
 

@@ -434,6 +434,14 @@ Event envelope fields:
 - `artifact_refs`
 - `payload`
 
+Phase 6 accounting fields (where applicable, especially evidence progress/result events):
+- `iteration` (focus-cycle index)
+- `llm_call_seq` (API/model call sequence for run)
+- `phase_attempt` (retry/attempt counter inside phase)
+- `decision_key`
+- `evidence_kind`
+- `check_id`
+
 Event bus behavior:
 - per-stream in-memory history replay (maxlen 300)
 - SSE subscribers receive history then live events
@@ -498,6 +506,11 @@ Common markers:
 
 Timing summary endpoint:
 - `/api/agent-viewer/timing-summary/{run_id}`
+
+Wait-state emission discipline (Phase 6):
+- main stream is thresholded/sparse, not per-few-seconds spam
+- emit at start/state transitions and coarse thresholds (for example 15/30/60/120s)
+- classify long evidence states as `long_running`, `degraded`, `timeout`, or `failed`
 
 ---
 
@@ -587,8 +600,9 @@ The system is now designed around:
 - explicit baseline investigation before escalation
 - decision-ledger-driven closure semantics
 - bounded iterative repair with terminal triage
+- bounded live-run behavior during slow evidence steps (throttled wait logs + retry/timeout classification)
 
-The main remaining behavioral risk is divergence between backend authoritative prompt timing and frontend synthetic prompt behavior.
+The main remaining behavioral risks are provider/transient API instability and focus-quality constraints, not unbounded wait-loop behavior.
 
 ---
 

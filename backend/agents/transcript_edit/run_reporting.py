@@ -64,8 +64,9 @@ def ticker_payload(
     phase: str,
     message: str,
     latest_refs: dict[str, Any],
+    detail: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return _base_payload(
+    payload = _base_payload(
         iteration=iteration,
         phase=phase,
         message=message,
@@ -73,6 +74,9 @@ def ticker_payload(
         execution_state="running",
         stream_kind="ticker",
     )
+    if isinstance(detail, dict) and detail:
+        payload["detail"] = detail
+    return payload
 
 
 def audit_payload(
@@ -321,14 +325,76 @@ def image_verify_payload(
     iteration: int,
     latest_refs: dict[str, Any],
     message: str,
+    decision_key: str | None = None,
+    evidence_kind: str = "image_verify",
 ) -> dict[str, Any]:
-    return _base_payload(
+    payload = _base_payload(
         iteration=iteration,
         phase="image_verify",
         message=message,
         latest_refs=latest_refs,
         execution_state="running",
     )
+    payload["detail"] = {
+        "decision_key": decision_key,
+        "evidence_kind": evidence_kind,
+    }
+    return payload
+
+
+def image_verify_progress_payload(
+    *,
+    iteration: int,
+    latest_refs: dict[str, Any],
+    decision_key: str | None,
+    evidence_kind: str,
+    check_id: str,
+    check_decision_key: str | None,
+    llm_call_seq: int,
+    phase_attempt: int,
+    stage: str,
+    elapsed_seconds: int | None = None,
+    diagnostic: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if stage == "running":
+        message = f"Image check started ({check_id})."
+    elif stage == "completed":
+        message = f"Image check completed ({check_id})."
+    elif stage == "retrying":
+        message = f"Image check retrying ({check_id}), attempt {phase_attempt}."
+    elif stage == "timeout":
+        message = f"Image check timed out ({check_id}) after {int(elapsed_seconds or 0)}s."
+    elif stage == "failed":
+        message = f"Image check failed ({check_id})."
+    elif stage == "long_running":
+        message = f"Image check long-running ({check_id}) at {int(elapsed_seconds or 0)}s."
+    else:
+        message = f"Image check waiting ({check_id}) at {int(elapsed_seconds or 0)}s."
+    payload = _base_payload(
+        iteration=iteration,
+        phase="image_verify",
+        message=message,
+        latest_refs=latest_refs,
+        execution_state="running",
+        stream_kind="ticker",
+    )
+    payload["detail"] = {
+        "decision_key": decision_key,
+        "evidence_kind": evidence_kind,
+        "check_id": check_id,
+        "check_decision_key": check_decision_key,
+        "focus_coherent": (
+            bool(decision_key and check_decision_key)
+            and str(decision_key).strip().lower() == str(check_decision_key).strip().lower()
+        ) if decision_key and check_decision_key else None,
+        "llm_call_seq": int(llm_call_seq),
+        "phase_attempt": int(phase_attempt),
+        "stage": stage,
+        "elapsed_seconds": int(elapsed_seconds or 0),
+    }
+    if isinstance(diagnostic, dict) and diagnostic:
+        payload["detail"]["diagnostic"] = diagnostic
+    return payload
 
 
 def image_verify_result_payload(
@@ -341,6 +407,10 @@ def image_verify_result_payload(
     iv_rejected: int,
     iv_total: int,
     decision_ledger: dict[str, Any] | None = None,
+    decision_key: str | None = None,
+    evidence_kind: str = "image_verify",
+    llm_call_seq_end: int | None = None,
+    diagnostics: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         **_base_payload(
@@ -355,6 +425,10 @@ def image_verify_result_payload(
             "rejected": iv_rejected,
             "total": iv_total,
             "results": iv_results,
+            "decision_key": decision_key,
+            "evidence_kind": evidence_kind,
+            "llm_call_seq_end": llm_call_seq_end,
+            "diagnostics": [d for d in list(diagnostics or []) if isinstance(d, dict)][:8],
             "decision_ledger": decision_ledger,
         },
     }

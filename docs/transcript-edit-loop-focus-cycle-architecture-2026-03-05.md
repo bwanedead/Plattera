@@ -91,6 +91,11 @@ The deterministic layer is responsible for:
 - ledger persistence
 - closure gating
 - terminalization
+- live-run behavior sanity:
+  - bounded evidence waits/timeouts
+  - bounded retries
+  - throttled wait-state reporting
+  - call/accounting visibility
 
 ### 4.2 Semantic agent responsibilities
 The resolver is responsible for:
@@ -162,6 +167,11 @@ Runtime executes selected move:
 - `image_verify`
 - `retrieve_dependency_evidence` (explicitly unsupported until wired)
 
+Runtime observability model (Phase 6):
+- `iteration` remains one focus-cycle
+- `llm_call_seq` tracks API/model calls inside the run
+- `phase_attempt` tracks retries for repeated evidence attempts
+
 ### 5.6 Commit outcome
 Runtime:
 - updates ledger from new evidence/results
@@ -197,6 +207,7 @@ Deterministic acceptance rules:
 - `mark_blocked` is accepted only under deterministic conditions (invalid move, dependency blocker, budget exhaustion, no autonomous path)
 - `apply_edit_plan` is accepted only when bounded plan validation passes and scope checks hold
 - repeated identical evidence requests are budget-limited unless new signal arrives
+- long-running evidence emits sparse thresholded status transitions and a deterministic timeout/failure classification
 
 `closure_update_hint` is advisory only and does not directly mutate ledger truth.
 
@@ -258,6 +269,7 @@ Memory is not canonical transcript truth or closure truth.
 - dependency retrieval execution remains explicitly unsupported pending retrieval-stage wiring
 - resolver guidance still depends on prompt quality and bounded context quality
 - closed-world convergence proof is active: progress/no-progress and terminal classification are now explicit runtime concerns
+- live API behavior may still show transient upstream failures (for example provider 500s); runtime now classifies/retries/bounds these without treating every transient as a local logic bug
 
 ### 10.3 Explicitly superseded direction
 Regex-style deterministic HITL override builders are not the intended active architecture.
