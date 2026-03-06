@@ -118,6 +118,40 @@ def test_verify_mapping_critical_with_image_surfaces_focus_mismatch_context() ->
     assert str(row.get("focus_decision_key") or "") == "acreage"
 
 
+def test_verify_mapping_critical_with_image_anchors_generic_plss_to_focus_when_key_missing() -> None:
+    def _step_fn(**kwargs):  # type: ignore[no-untyped-def]
+        return _executed_step()
+
+    out = verify_mapping_critical_with_image(
+        session_manager=object(),
+        session_id="s1",
+        iteration=1,
+        dossier_id="D1",
+        source_transcript_ref="in-memory://source.json",
+        top_findings=[
+            {
+                "finding_id": "plss_conflict_001",
+                "finding_type": "plss_consistency",
+                "message": "PLSS token contradiction near location clause.",
+            }
+        ],
+        disagreement_hints={},
+        source_image_refs=["in-memory://img.png"],
+        model="gpt-5.2",
+        step_fn=_step_fn,
+        read_step_outputs_inline_fn=lambda record: (record.get("outputs_inline") if isinstance(record, dict) else {}),
+        read_str_fn=lambda value: str(value) if isinstance(value, str) else None,
+        progress_cb=None,
+        focus_decision_key="range",
+        llm_call_seq_start=20,
+    )
+    results = (out.get("payload") or {}).get("results") if isinstance(out.get("payload"), dict) else []
+    assert isinstance(results, list) and len(results) >= 1
+    row = results[0]
+    assert str(row.get("decision_key") or "") == "range"
+    assert str(row.get("focus_decision_key") or "") == "range"
+
+
 def test_run_step_with_heartbeat_emits_no_events_before_first_threshold(monkeypatch) -> None:
     monkeypatch.setattr(image_verification, "_IMAGE_VERIFY_HEARTBEAT_THRESHOLDS_SECONDS", (3,))
     monkeypatch.setattr(image_verification, "_IMAGE_VERIFY_HEARTBEAT_EVERY_SECONDS", 60)

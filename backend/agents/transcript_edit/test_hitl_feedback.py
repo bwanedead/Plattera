@@ -9,6 +9,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.hitl_feedback import (
+    build_human_feedback_prompt,
     build_feedback_override_plan,
     normalize_feedback_response,
 )
@@ -49,3 +50,45 @@ def test_build_feedback_override_plan_fails_safely_when_no_target_match() -> Non
             normalized_feedback=normalized,
         )
         assert plan is None
+
+
+def test_build_human_feedback_prompt_targets_range_contradiction() -> None:
+    ledger = {
+        "items": [
+            {
+                "key": "township",
+                "label": "Township",
+                "state": "unknown",
+                "blocking": True,
+                "closure_requirement": {
+                    "block_reason": "ambiguity",
+                    "mapping_blocking": True,
+                    "required_information": "Confirm township.",
+                    "minimal_user_action": "Choose township.",
+                    "resolution_options": ["Township 14 North"],
+                    "evidence_refs": [],
+                },
+            },
+            {
+                "key": "range",
+                "label": "Range",
+                "state": "disputed",
+                "blocking": True,
+                "closure_requirement": {
+                    "block_reason": "contradiction",
+                    "mapping_blocking": True,
+                    "required_information": "Reconcile conflicting range tokens.",
+                    "minimal_user_action": "Choose between Range 75 West and Range 74 West.",
+                    "resolution_options": ["Range 75 West", "Range 74 West"],
+                    "evidence_refs": ["plss_range_conflict_001"],
+                },
+            },
+        ],
+        "summary": {"blocking_open_count": 2},
+    }
+    prompt = build_human_feedback_prompt(decision_ledger=ledger, iteration=2)
+    assert isinstance(prompt, dict)
+    assert str((prompt.get("context") or {}).get("decision_key") or "") == "range"
+    choices = [str(v) for v in list(prompt.get("choices") or [])]
+    assert any("75" in v for v in choices)
+    assert any("74" in v for v in choices)

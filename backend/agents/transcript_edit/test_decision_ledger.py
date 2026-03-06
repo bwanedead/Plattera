@@ -163,3 +163,48 @@ def test_is_unresolved_mapping_blocking_decision_is_key_specific() -> None:
     }
     assert is_unresolved_mapping_blocking_decision(ledger, "range") is True
     assert is_unresolved_mapping_blocking_decision(ledger, "section") is False
+
+
+def test_range_contradiction_identity_preserved_from_plss_finding() -> None:
+    updated = update_ledger_from_iteration(
+        ledger=initialize_decision_ledger(),
+        findings=[
+            {
+                "finding_id": "plss_range_conflict_001",
+                "finding_type": "plss_consistency",
+                "message": "PLSS contradiction detected: Township 14 North appears with Range 75 West and Range 74 West.",
+            }
+        ],
+    )
+    range_item = _item(updated, "range")
+    township_item = _item(updated, "township")
+    assert str(range_item.get("state") or "") == "disputed"
+    assert str(range_item.get("layer_tag") or "") == "layer2_canonical_sanity"
+    alternatives = [str(v) for v in list(range_item.get("alternatives") or [])]
+    assert any("75" in v for v in alternatives)
+    assert any("74" in v for v in alternatives)
+    # Township should not absorb the range contradiction identity.
+    assert str(township_item.get("state") or "") == "unknown"
+
+
+def test_choose_focus_prefers_range_contradiction_over_generic_township_unknown() -> None:
+    ledger = initialize_decision_ledger()
+    range_item = _item(ledger, "range")
+    range_item["state"] = "disputed"
+    range_item["alternatives"] = ["Range 75 West", "Range 74 West"]
+    range_item["closure_requirement"] = {
+        "block_reason": "contradiction",
+        "mapping_blocking": True,
+        "operational_impact": "mapping_blocking",
+        "required_information": "Reconcile Range 75 vs Range 74.",
+        "self_retrievable": "conditional",
+        "retrieval_attempted": True,
+        "retrieval_blocker": None,
+        "minimal_user_action": "Select the correct range token.",
+        "resolution_options": ["Range 75 West", "Range 74 West"],
+        "evidence_refs": ["plss_range_conflict_001"],
+        "attempt_summary": "Conflicting range tokens remain.",
+    }
+    focus = choose_investigation_focus(ledger)
+    assert isinstance(focus, dict)
+    assert str(focus.get("decision_key") or "") == "range"

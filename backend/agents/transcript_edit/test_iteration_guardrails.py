@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.iteration_pipeline import (
     _accept_apply_edit_plan,
+    _findings_for_focus_key,
     _accept_mark_blocked,
     _accept_mark_resolved_no_edit,
     _select_focus_decision_key,
@@ -73,3 +74,21 @@ def test_apply_edit_plan_acceptance_requires_focus_scope_and_ops() -> None:
     assert _accept_apply_edit_plan(resolver_decision_key="range", focus_key="range", plan_payload=good_plan) is True
     assert _accept_apply_edit_plan(resolver_decision_key="section", focus_key="range", plan_payload=good_plan) is False
     assert _accept_apply_edit_plan(resolver_decision_key="range", focus_key="range", plan_payload=bad_plan) is False
+
+
+def test_findings_for_focus_key_preserves_range_identity_over_generic_plss() -> None:
+    findings = [
+        {
+            "finding_id": "plss_range_conflict_001",
+            "finding_type": "plss_consistency",
+            "message": "PLSS contradiction between Range 75 West and Range 74 West.",
+        },
+        {
+            "finding_id": "plss_township_conflict_001",
+            "finding_type": "plss_consistency",
+            "message": "Township token mismatch.",
+        },
+    ]
+    focused_range = _findings_for_focus_key(top_findings=findings, focus_key="range")
+    assert len(focused_range) == 1
+    assert str(focused_range[0].get("finding_id") or "") == "plss_range_conflict_001"

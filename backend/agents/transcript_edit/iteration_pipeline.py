@@ -1420,26 +1420,36 @@ def _findings_for_focus_key(*, top_findings: list[dict[str, Any]], focus_key: st
     key = str(focus_key or "").strip().lower()
     if not key:
         return []
-    keyword_map: dict[str, tuple[str, ...]] = {
-        "township": ("township", "plss"),
-        "range": ("range", "plss"),
-        "section": ("section", "plss"),
-        "tie_distance": ("distance", "tie distance"),
-        "tie_bearing": ("bearing",),
-        "acreage": ("acre", "acreage"),
-        "closure_or_pob": ("closure", "point of beginning", "pob"),
-    }
-    keywords = keyword_map.get(key, ())
-    if not keywords:
-        return []
     focused: list[dict[str, Any]] = []
     for finding in top_findings:
         if not isinstance(finding, dict):
             continue
-        blob = f"{str(finding.get('finding_type') or '')} {str(finding.get('message') or '')}".lower()
-        if any(token in blob for token in keywords):
+        inferred_key = _decision_key_for_finding(finding)
+        if inferred_key == key:
             focused.append(finding)
     return focused
+
+
+def _decision_key_for_finding(finding: dict[str, Any]) -> str:
+    finding_id = str(finding.get("finding_id") or "").strip().lower()
+    finding_type = str(finding.get("finding_type") or "").strip().lower()
+    message = str(finding.get("message") or "").strip().lower()
+    blob = f"{finding_id} {finding_type} {message}"
+    if "range" in blob:
+        return "range"
+    if "township" in blob:
+        return "township"
+    if "section" in blob:
+        return "section"
+    if "distance" in blob:
+        return "tie_distance"
+    if "bearing" in blob:
+        return "tie_bearing"
+    if "acre" in blob:
+        return "acreage"
+    if "closure" in blob or "point of beginning" in blob or "pob" in blob:
+        return "closure_or_pob"
+    return ""
 
 
 def _conflict_map_from_ledger(ledger: dict[str, Any] | None) -> list[dict[str, Any]]:

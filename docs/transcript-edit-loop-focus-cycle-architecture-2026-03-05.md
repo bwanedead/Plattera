@@ -62,6 +62,11 @@ It drives:
 - closure gating
 - terminal interpretation
 
+Contradiction identity rule (Phase 7):
+- mapping-critical source-internal contradictions (for example `Range 75` vs `Range 74`) must stay attached to their real decision key
+- contradiction identity should not be blurred into neighboring PLSS keys during focus/evidence/HITL flow
+- Layer 2 canonical-sanity contradictions are first-class blockers until resolved or explicitly accepted with risk
+
 ### 3.4 Continuity memory
 Continuity memory is bounded runtime continuity, not canonical truth.
 
@@ -125,6 +130,7 @@ Priority rules:
 - mapping-blocking items outrank optional items
 - newly answered human-feedback items should be prioritized
 - dependency-blocked items can be terminalized if no autonomous move remains
+- when contradiction evidence exists, focus should remain anchored to that contradiction key (for example `range`) rather than generic PLSS narration
 
 ### 5.3 Build focus packet
 Assemble a bounded packet for one decision item:
@@ -152,6 +158,10 @@ Resolver receives focus packet and returns one move:
 - `gather_more_evidence`
 - `mark_blocked`
 - `mark_resolved_no_edit`
+
+Focus/evidence fidelity expectation:
+- evidence checks should align to the focused contradiction key by default
+- if fallback checks are broader, runtime should report that fallback explicitly
 
 ### 5.5 Deterministic execute
 Runtime executes selected move:

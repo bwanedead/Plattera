@@ -26,8 +26,8 @@ _LAYER_TAG_VALUES = {
 _IMPACT_VALUES = {"mapping_blocking", "transcript_quality_only"}
 _UNRESOLVED_STATES = {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
 _DECISION_PRIORITY: dict[str, int] = {
-    "township": 0,
-    "range": 1,
+    "range": 0,
+    "township": 1,
     "section": 2,
     "tie_distance": 3,
     "tie_bearing": 4,
@@ -78,13 +78,20 @@ def update_ledger_from_iteration(
         if not isinstance(finding, dict):
             continue
         message = str(finding.get("message") or "")
-        target_key = _key_for_text(message)
+        target_key = _key_for_finding(finding)
         if not target_key:
             continue
         item = by_key[target_key]
+        alternatives = _extract_alternatives_for_key(target_key, message)
+        if alternatives:
+            for alt in alternatives:
+                _append_unique(item, "alternatives", alt)
         value = _extract_value_for_key(target_key, message)
-        state = "disputed" if _looks_disputed(message) else "candidate_found"
+        state = "disputed" if (_looks_disputed(message) or len(alternatives) > 1) else "candidate_found"
         _apply_observation(item=item, state=state, value=value, evidence_ref=str(finding.get("finding_id") or "").strip() or None)
+        finding_type = str(finding.get("finding_type") or "").strip().lower()
+        if finding_type == "plss_consistency" and state == "disputed":
+            item["layer_tag"] = "layer2_canonical_sanity"
 
     # Candidate disagreement hints are no longer authoritative decision-path input.
     del disagreement_hints
@@ -306,6 +313,11 @@ def is_unresolved_mapping_blocking_decision(
 def choose_investigation_focus(ledger: dict[str, Any] | None) -> dict[str, Any] | None:
     normalized = _ensure_ledger_shape(ledger)
     candidates: list[dict[str, Any]] = []
+    mapping_blocking_by_key = {
+        str(item.get("key") or ""): item
+        for item in unresolved_mapping_blocking_requirements(normalized)
+        if isinstance(item, dict)
+    }
     for item in normalized["items"]:
         if not isinstance(item, dict):
             continue
@@ -313,7 +325,14 @@ def choose_investigation_focus(ledger: dict[str, Any] | None) -> dict[str, Any] 
         if state not in _UNRESOLVED_STATES:
             continue
         key = str(item.get("key") or "")
-        blocking = bool(item.get("blocking"))
+        requirement = item.get("closure_requirement") if isinstance(item.get("closure_requirement"), dict) else {}
+        mapped_item = mapping_blocking_by_key.get(key)
+        blocking = bool((mapped_item or {}).get("mapping_blocking")) if isinstance(mapped_item, dict) else bool(item.get("blocking"))
+        if mapped_item is None and blocking:
+            # Prefer materially mapped blockers first; unknown placeholders come after.
+            blocking = False
+        block_reason = str(requirement.get("block_reason") or "").strip().lower()
+        contradiction_rank = 1 if block_reason == "contradiction" else 0
         candidates.append(
             {
                 "key": key,
@@ -323,6 +342,8 @@ def choose_investigation_focus(ledger: dict[str, Any] | None) -> dict[str, Any] 
                 "alternatives": list(item.get("alternatives") or []),
                 "priority": _DECISION_PRIORITY.get(key, 99),
                 "evidence_count": len(list(item.get("evidence_refs") or [])),
+                "block_reason": block_reason,
+                "contradiction_rank": contradiction_rank,
             }
         )
     if not candidates:
@@ -330,9 +351,10 @@ def choose_investigation_focus(ledger: dict[str, Any] | None) -> dict[str, Any] 
     candidates.sort(
         key=lambda c: (
             0 if c["blocking"] else 1,
+            -int(c["contradiction_rank"]),
             -_uncertainty_rank(str(c["state"])),
             int(c["priority"]),
-            int(c["evidence_count"]),
+            -int(c["evidence_count"]),
         )
     )
     winner = candidates[0]
@@ -497,10 +519,10 @@ def _looks_disputed(message: str) -> bool:
 
 def _key_for_text(message: str) -> str | None:
     lower = message.lower()
-    if "township" in lower:
-        return "township"
     if " range " in f" {lower} ":
         return "range"
+    if "township" in lower:
+        return "township"
     if "section" in lower:
         return "section"
     if "tie distance" in lower or "distance" in lower:
@@ -512,6 +534,59 @@ def _key_for_text(message: str) -> str | None:
     if "point of beginning" in lower or "pob" in lower or "closure" in lower:
         return "closure_or_pob"
     return None
+
+
+def _key_for_finding(finding: dict[str, Any]) -> str | None:
+    finding_id = str(finding.get("finding_id") or "").strip().lower()
+    finding_type = str(finding.get("finding_type") or "").strip().lower()
+    message = str(finding.get("message") or "")
+    blob = f"{finding_id} {finding_type} {message}".lower()
+    if "range" in blob:
+        return "range"
+    if "township" in blob:
+        return "township"
+    if "section" in blob:
+        return "section"
+    if "bearing" in blob:
+        return "tie_bearing"
+    if "distance" in blob:
+        return "tie_distance"
+    if "acre" in blob:
+        return "acreage"
+    if "point of beginning" in blob or "closure" in blob or "pob" in blob:
+        return "closure_or_pob"
+    return _key_for_text(message)
+
+
+def _extract_alternatives_for_key(key: str, text: str) -> list[str]:
+    if key == "range":
+        matches = re.findall(r"\brange[^0-9]{0,20}(\d{1,3})\s*(west|east|w|e)\b", text, re.IGNORECASE)
+        values = [f"Range {num} {'West' if str(dir_).lower().startswith('w') else 'East'}" for num, dir_ in matches]
+        return _dedupe_keep_order(values)
+    if key == "township":
+        matches = re.findall(r"\btownship[^0-9]{0,20}(\d{1,3})\s*(north|south|n|s)\b", text, re.IGNORECASE)
+        values = [f"Township {num} {'North' if str(dir_).lower().startswith('n') else 'South'}" for num, dir_ in matches]
+        return _dedupe_keep_order(values)
+    if key == "section":
+        matches = re.findall(r"\bsection[^0-9]{0,12}(\d{1,2})\b", text, re.IGNORECASE)
+        values = [f"Section {num}" for num in matches]
+        return _dedupe_keep_order(values)
+    return []
+
+
+def _dedupe_keep_order(values: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        key = value.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(value)
+    return out
 
 
 def _key_for_check_id(check_id: str) -> str | None:

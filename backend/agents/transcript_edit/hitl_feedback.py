@@ -29,8 +29,8 @@ def build_human_feedback_prompt(
         return None
     target = None
     priority = {
-        "township": 0,
-        "range": 1,
+        "range": 0,
+        "township": 1,
         "section": 2,
         "tie_distance": 3,
         "tie_bearing": 4,
@@ -56,6 +56,18 @@ def build_human_feedback_prompt(
             continue
         target_key = str(target.get("key") or "")
         key = str(item.get("key") or "")
+        target_req = target.get("closure_requirement") if isinstance(target.get("closure_requirement"), dict) else {}
+        item_req = requirement if isinstance(requirement, dict) else {}
+        target_is_contradiction = str(target_req.get("block_reason") or "").strip().lower() == "contradiction"
+        item_is_contradiction = str(item_req.get("block_reason") or "").strip().lower() == "contradiction"
+        if item_is_contradiction and not target_is_contradiction:
+            target = item
+            continue
+        if item_is_contradiction == target_is_contradiction and state == "disputed":
+            target_state = str(target.get("state") or "").strip().lower()
+            if target_state != "disputed":
+                target = item
+                continue
         if priority.get(key, 50) < priority.get(target_key, 50):
             target = item
     if not isinstance(target, dict):

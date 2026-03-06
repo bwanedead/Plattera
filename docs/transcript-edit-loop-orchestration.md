@@ -242,6 +242,11 @@ Repair path (high-level order):
    - `mark_resolved_no_edit` -> accepted only if deterministic closure state agrees
 16. next iteration re-audit/reconcile
 
+Contradiction-fidelity rule (Phase 7):
+- mapping-critical source contradictions must keep their real decision identity through this path
+- example: a `Range 75` vs `Range 74` contradiction must remain `range` in ledger, focus, evidence targeting, and HITL prompt selection
+- do not silently collapse such contradictions into broader PLSS/township narration
+
 Design rule now in place:
 - First HITL prompt is emitted only after baseline investigation result in that iteration.
 - In startup, semantic baseline now comes from `tx_orient_and_baseline`, not deterministic disagreement hints.
@@ -307,6 +312,10 @@ Closure requirement fields:
 - `evidence_refs`
 - `attempt_summary`
 
+Identity expectation for contradictions:
+- when contradiction evidence exists, `alternatives` should preserve contradictory values where available
+- contradiction-class blockers should retain Layer 2 canonical-sanity semantics through focus and terminal reporting
+
 ---
 
 ## 13) Investigation baseline outputs
@@ -329,6 +338,10 @@ Prompt builder is ledger-driven:
 - selects highest-priority unresolved mapping-blocking decision item from `decision_ledger`
 - builds options from `closure_requirement.resolution_options` (or selected value fallback)
 - prompt id format: `hitl_<decision_key>_<iteration>_<suffix>`
+
+Contradiction targeting expectation:
+- if unresolved blocker is a range contradiction, prompt target should be `range` with contradiction-aligned options/context
+- neighboring keys (for example `township`) should not be selected unless ledger truth actually re-prioritized
 
 Prompt text source:
 - `line1`: closure requirement `required_information`

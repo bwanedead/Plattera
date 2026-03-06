@@ -43,12 +43,14 @@ def verify_mapping_critical_with_image(
         if finding_type not in {"plss_consistency", "bearing_parse", "numeric_unit_sanity", "call_chain_structure"}:
             continue
         check_id = str(finding.get("finding_id") or f"finding_{len(checks) + 1}")
+        inferred_decision_key = _decision_key_for_finding(finding)
+        check_decision_key = inferred_decision_key or (str(focus_decision_key or "").strip().lower() or None)
         checks.append(
             {
                 "check_id": check_id,
                 "query": str(finding.get("message") or "")[:320],
                 "expected_text": first_expected_token_from_message(str(finding.get("message") or "")),
-                "decision_key": _decision_key_for_finding(finding),
+                "decision_key": check_decision_key,
             }
         )
     del disagreement_hints
@@ -360,6 +362,12 @@ def _decision_key_for_finding(finding: dict[str, Any]) -> str | None:
     message = str(finding.get("message") or "").strip().lower()
     finding_id = str(finding.get("finding_id") or "").strip().lower()
     blob = f"{finding_type} {message} {finding_id}"
+    if "plss_range" in blob:
+        return "range"
+    if "plss_township" in blob:
+        return "township"
+    if "plss_section" in blob:
+        return "section"
     if "acreage" in blob or "acre" in blob:
         return "acreage"
     if "bearing" in blob:
@@ -370,7 +378,7 @@ def _decision_key_for_finding(finding: dict[str, Any]) -> str | None:
         return "section"
     if "range" in blob:
         return "range"
-    if "township" in blob or "plss" in blob:
+    if "township" in blob:
         return "township"
     if "closure" in blob or "pob" in blob:
         return "closure_or_pob"

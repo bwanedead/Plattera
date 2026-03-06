@@ -178,3 +178,32 @@ Harden live HITL consumption integrity and resolver-invalid operational behavior
 ## 20) Remaining known risks (post-6.2)
 - Resolver output quality remains model-dependent; guardrails now classify and bound invalid behavior but cannot eliminate upstream instability.
 - Prompt supersession is explicit and diagnosable; operator workflows should still prefer responding to the currently active pending prompt id.
+
+## 21) Phase 7 objective
+Contradiction identity and focus fidelity:
+- keep mapping-critical source contradictions attached to their real decision key through ledger, focus, evidence, HITL, and terminal reporting.
+
+Practice-deed validation target:
+- `practice_deeds/legal_text_image.jpg` contains a real source-internal contradiction (`Range 75` vs `Range 74`), intended reconciliation `Range 75`.
+
+## 22) Phase 7 implementation summary
+- Ledger contradiction identity hardening (`decision_ledger.py`):
+  - stronger finding-to-decision key mapping using finding id/type/message together
+  - contradiction alternatives extraction for PLSS keys (range/township/section)
+  - contradiction-class PLSS disputes tagged to Layer 2 canonical sanity
+  - focus selection now prefers material contradiction blockers over generic unknown placeholders
+- Focus/evidence fidelity hardening:
+  - focus finding filter now uses decision-key inference (not broad keyword matching on generic `plss`)
+  - image verification finding-key fallback anchors unresolved generic PLSS checks to current focus key when explicit key is missing
+- HITL fidelity hardening:
+  - prompt targeting prioritizes contradiction-class unresolved items before generic ambiguity items
+  - range precedes township in contradiction-oriented prompt priority
+
+## 23) Phase 7 tests added/updated
+- Updated:
+  - `backend/agents/transcript_edit/test_decision_ledger.py`
+  - `backend/agents/transcript_edit/test_hitl_feedback.py`
+  - `backend/agents/transcript_edit/test_iteration_guardrails.py`
+  - `backend/agents/transcript_edit/test_image_verification_runtime.py`
+- Verification:
+  - `pytest backend/agents/transcript_edit -q` passed.
