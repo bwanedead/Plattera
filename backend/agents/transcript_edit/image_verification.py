@@ -325,19 +325,19 @@ def _run_step_with_heartbeat(
                     stage = "degraded"
                 elif elapsed_seconds >= 60:
                     stage = "long_running"
-            progress_cb(
-                {
-                    "check_index": check_index,
-                    "check_total": check_total,
-                    "check_id": check_id,
-                    "check_decision_key": check_decision_key,
-                    "focus_decision_key": focus_decision_key,
-                    "stage": stage,
-                    "elapsed_seconds": elapsed_seconds,
-                    "llm_call_seq": llm_call_seq,
-                    "phase_attempt": phase_attempt,
-                }
-            )
+                progress_cb(
+                    {
+                        "check_index": check_index,
+                        "check_total": check_total,
+                        "check_id": check_id,
+                        "check_decision_key": check_decision_key,
+                        "focus_decision_key": focus_decision_key,
+                        "stage": stage,
+                        "elapsed_seconds": elapsed_seconds,
+                        "llm_call_seq": llm_call_seq,
+                        "phase_attempt": phase_attempt,
+                    }
+                )
     if "error" in error_box:
         raise error_box["error"]
     return result_box.get("step")

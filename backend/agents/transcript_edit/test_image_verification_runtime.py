@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,8 +9,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from agent_kernel.models import StepExecutionState
 
+import backend.agents.transcript_edit.image_verification as image_verification
 from backend.agents.transcript_edit.image_verification import (
     _next_wait_heartbeat_threshold,
+    _run_step_with_heartbeat,
     verify_mapping_critical_with_image,
 )
 
@@ -113,3 +116,62 @@ def test_verify_mapping_critical_with_image_surfaces_focus_mismatch_context() ->
     row = results[0]
     assert str(row.get("decision_key") or "") == "range"
     assert str(row.get("focus_decision_key") or "") == "acreage"
+
+
+def test_run_step_with_heartbeat_emits_no_events_before_first_threshold(monkeypatch) -> None:
+    monkeypatch.setattr(image_verification, "_IMAGE_VERIFY_HEARTBEAT_THRESHOLDS_SECONDS", (3,))
+    monkeypatch.setattr(image_verification, "_IMAGE_VERIFY_HEARTBEAT_EVERY_SECONDS", 60)
+    events: list[dict] = []
+
+    def _step_fn(**kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        time.sleep(1.2)
+        return _executed_step()
+
+    _ = _run_step_with_heartbeat(
+        session_manager=object(),
+        session_id="s1",
+        iteration=1,
+        check_index=1,
+        check_total=1,
+        check_id="c1",
+        step_fn=_step_fn,
+        step_inputs={},
+        progress_cb=lambda evt: events.append(evt if isinstance(evt, dict) else {}),
+        llm_call_seq=1,
+        phase_attempt=1,
+        focus_decision_key="range",
+        check_decision_key="range",
+        timeout_seconds=10,
+    )
+    assert events == []
+
+
+def test_run_step_with_heartbeat_emits_only_thresholded_events(monkeypatch) -> None:
+    monkeypatch.setattr(image_verification, "_IMAGE_VERIFY_HEARTBEAT_THRESHOLDS_SECONDS", (1,))
+    monkeypatch.setattr(image_verification, "_IMAGE_VERIFY_HEARTBEAT_EVERY_SECONDS", 60)
+    events: list[dict] = []
+
+    def _step_fn(**kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        time.sleep(2.2)
+        return _executed_step()
+
+    _ = _run_step_with_heartbeat(
+        session_manager=object(),
+        session_id="s1",
+        iteration=1,
+        check_index=1,
+        check_total=1,
+        check_id="c1",
+        step_fn=_step_fn,
+        step_inputs={},
+        progress_cb=lambda evt: events.append(evt if isinstance(evt, dict) else {}),
+        llm_call_seq=2,
+        phase_attempt=1,
+        focus_decision_key="range",
+        check_decision_key="range",
+        timeout_seconds=10,
+    )
+    assert len(events) == 1
+    assert str(events[0].get("stage") or "") == "waiting"
