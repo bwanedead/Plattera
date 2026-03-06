@@ -638,35 +638,37 @@ stateDiagram-v2
   [*] --> Detect
   Detect --> InvestigateBaseline
   InvestigateBaseline --> SelfResolved: evidence converges
-  InvestigateBaseline --> DependencyAttempt: external dependency suspected
-  DependencyAttempt --> SelfResolved: dependency retrieved + verified
-  DependencyAttempt --> HumanEscalation: dependency unresolved
+  InvestigateBaseline --> DependencyClassified: external dependency suspected
+  DependencyClassified --> BlockedTerminal: retrieval deferred in closed-world mode
+  DependencyClassified --> HumanEscalation: user supplies dependency evidence/hints
   InvestigateBaseline --> HumanEscalation: contradictory/ambiguous after local checks
   HumanEscalation --> Applied: feedback accepted and applied
   Applied --> Reaudit
   Reaudit --> Closed: no unresolved mapping-blocking requirements
-  Reaudit --> Detect: residual blockers remain
+  Reaudit --> Detect: residual blockers remain with viable next move
+  Reaudit --> BlockedTerminal: no safe autonomous move remains
   Closed --> [*]
 ```
 
 ---
 
 ## 26) Evidence acquisition waterfall (machine first)
-This is the intended ordering of closure information acquisition.
+This is the active closed-world ordering of closure information acquisition.
 
 ### 26.1 Step order
-1. Deterministic transcript audit and disagreement extraction
+1. Deterministic transcript audit and focused closure detection
 2. Local span context opening around focused blockers
 3. Source-image verification checks (with zoom/crop support)
 4. Ledger update and blocker reclassification
-5. Optional deterministic consensus plan if blocking dispute cleared
-6. Planner proposal + apply + re-audit
+5. Semantic resolver chooses one bounded move for current focus
+6. If move is `apply_edit_plan`, validate/apply then re-audit + reconcile
 7. Human escalation only if unresolved blockers remain
 
 ### 26.2 Dependency/RAG closure path
 Current implementation status:
 - There is no dedicated tx-loop direct `RETRIEVE_EVIDENCE` action call wired today.
-- Dependency handling is represented in closure requirements and terminalization semantics, but automated retrieval attempts for external deeds are not yet fully integrated in tx iteration orchestration.
+- Dependency handling is represented in closure requirements and terminalization semantics only.
+- Automated retrieval attempts for external deeds are intentionally deferred in current closed-world scope.
 
 What exists now:
 - `closure_requirement.block_reason` can be `dependency`
@@ -677,7 +679,7 @@ Recommended operational interpretation (current):
 - If a blocker is dependency-classified and unresolved, system should surface precise required information and minimal user action.
 - Human can provide dependency hints/values via feedback channel; loop can continue with next checkpoints.
 
-Target/next integration (not yet fully wired):
+Target/next integration (future, not active):
 - Explicit dependency retrieval stage in iteration pipeline using dossier/RAG sources before HITL for dependency blockers.
 
 ---
@@ -862,7 +864,7 @@ If another agent/system must reason about this loop externally, it should verify
 
 ## 33) Recommended policy hardening (if strict discipline desired)
 1. Disable synthetic actionable prompting in frontend; keep backend authoritative prompts only.
-2. Add explicit dependency retrieval stage before human escalation for dependency blockers.
+2. Keep dependency retrieval explicitly deferred in closed-world mode; only classify/report dependency blockers.
 3. Require evidence-attempt counters in prompt payload so each escalation proves prior machine effort.
 4. Add per-decision closure history timeline (attempts, outcomes, escalations) to terminal summary.
 
