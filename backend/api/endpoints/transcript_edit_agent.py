@@ -36,6 +36,7 @@ _registry = TranscriptionEditRunRegistry()
 logger = logging.getLogger(__name__)
 _PROGRESS_LOG_LIMIT = 40
 _CRITICAL_EVENT_LIMIT = 200
+_NONCRITICAL_PROGRESS_PERSIST_INTERVAL_SECONDS = 2.0
 
 
 def _is_critical_progress_event(event: dict[str, Any]) -> bool:
@@ -54,6 +55,31 @@ def _is_critical_progress_event(event: dict[str, Any]) -> bool:
     }:
         return True
     return False
+
+
+def _progress_material_signature(event: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        str(event.get("phase") or "").strip().lower(),
+        str(event.get("event_type") or "").strip().lower(),
+        event.get("iteration"),
+        str(event.get("execution_state") or "").strip().lower(),
+    )
+
+
+def _safe_registry_update_run(*, run_id: str, patch: dict[str, Any], context: str) -> bool:
+    try:
+        _registry.update_run(run_id=run_id, patch=patch)
+        return True
+    except Exception as exc:
+        logger.warning(
+            "TX_REGISTRY_UPDATE_FAILED ► run_id=%s context=%s error_type=%s error=%s",
+            run_id,
+            context,
+            type(exc).__name__,
+            str(exc)[:220],
+        )
+        return False
+
 
 class TranscriptEditAgentApiRequest(TranscriptEditAgentRunRequest):
     background: bool = True
@@ -157,7 +183,7 @@ def request_run_resume_if_waiting(*, run_id: str, trigger: str | None, backgroun
     if status != "waiting_feedback":
         return {"resumed": False, "reason": f"not_waiting_feedback:{status or 'unknown'}"}
     request = _build_resume_request_for_run(run=run, trigger=trigger, background=background)
-    _registry.update_run(
+    updated = _safe_registry_update_run(
         run_id=run_id,
         patch={
             "status": "running",
@@ -166,9 +192,18 @@ def request_run_resume_if_waiting(*, run_id: str, trigger: str | None, backgroun
                 "run_id": run_id,
                 "status": "running",
                 "resume_trigger": str(trigger or "").strip() or "resume",
+                "live_status": {
+                    "phase": "resume_starting",
+                    "message": "Resuming transcript edit run.",
+                    "execution_state": "running",
+                    "timestamp_epoch_seconds": int(time()),
+                },
             },
         },
+        context="resume_mark_running",
     )
+    if not updated:
+        return {"resumed": False, "reason": "resume_registry_update_failed"}
     thread = Thread(target=_execute_run, args=(run_id, request), daemon=True)
     thread.start()
     return {"resumed": True, "run_id": run_id, "status": "running"}
@@ -181,6 +216,8 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
         seq = 0
         loop_started_mono = _time.perf_counter()
         last_event_mono = loop_started_mono
+        last_registry_persist_mono = loop_started_mono
+        last_registry_material_signature: tuple[Any, ...] | None = None
 
         def _to_artifact_ref_map(obj: Any) -> dict[str, dict[str, str]]:
             if not isinstance(obj, dict):
@@ -220,39 +257,54 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             seq += 1
 
         def _progress_update(event: dict[str, Any]) -> None:
-            nonlocal last_event_mono
+            nonlocal last_event_mono, last_registry_persist_mono, last_registry_material_signature
             now_mono = _time.perf_counter()
             elapsed_ms = int((now_mono - loop_started_mono) * 1000)
             since_prev_ms = int((now_mono - last_event_mono) * 1000)
             last_event_mono = now_mono
-            progress_log.append(
-                {
-                    "timestamp_epoch_seconds": int(time()),
-                    "elapsed_ms": elapsed_ms,
-                    "since_prev_ms": since_prev_ms,
-                    **(event if isinstance(event, dict) else {}),
-                }
-            )
-            if _is_critical_progress_event(progress_log[-1]):
-                critical_events.append(dict(progress_log[-1]))
+            latest = {
+                "timestamp_epoch_seconds": int(time()),
+                "elapsed_ms": elapsed_ms,
+                "since_prev_ms": since_prev_ms,
+                **(event if isinstance(event, dict) else {}),
+            }
+            progress_log.append(latest)
+            is_critical = _is_critical_progress_event(latest)
+            if is_critical:
+                critical_events.append(dict(latest))
                 if len(critical_events) > _CRITICAL_EVENT_LIMIT:
                     del critical_events[:-_CRITICAL_EVENT_LIMIT]
             if len(progress_log) > _PROGRESS_LOG_LIMIT:
                 del progress_log[:-_PROGRESS_LOG_LIMIT]
-            latest = progress_log[-1] if progress_log else None
-            _registry.update_run(
-                run_id=run_id,
-                patch={
-                    "status": "running",
-                    "snapshot": {
-                        "run_id": run_id,
-                        "status": "running",
-                        "live_status": latest,
-                        "progress_log": list(progress_log),
-                        "critical_events": list(critical_events),
-                    },
-                },
+            current_signature = _progress_material_signature(latest)
+            signature_changed = current_signature != last_registry_material_signature
+            persist_due_to_time = (
+                (now_mono - last_registry_persist_mono) >= _NONCRITICAL_PROGRESS_PERSIST_INTERVAL_SECONDS
             )
+            should_persist = bool(
+                is_critical
+                or last_registry_material_signature is None
+                or persist_due_to_time
+                or signature_changed
+            )
+            if should_persist:
+                persisted = _safe_registry_update_run(
+                    run_id=run_id,
+                    patch={
+                        "status": "running",
+                        "snapshot": {
+                            "run_id": run_id,
+                            "status": "running",
+                            "live_status": latest,
+                            "progress_log": list(progress_log),
+                            "critical_events": list(critical_events),
+                        },
+                    },
+                    context="progress_update",
+                )
+                if persisted:
+                    last_registry_persist_mono = now_mono
+                    last_registry_material_signature = current_signature
             event_type = str(event.get("event_type") or "status")
             phase = str(event.get("phase") or "status")
             iter_value = event.get("iteration")
@@ -320,7 +372,7 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
         }
         waiting_feedback = _should_wait_feedback(result=result, summary=run_terminal_summary)
         final_status = "waiting_feedback" if waiting_feedback else result.status
-        _registry.update_run(
+        _safe_registry_update_run(
             run_id=run_id,
             patch={
                 "status": final_status,
@@ -344,6 +396,7 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                     "resumable": bool(waiting_feedback),
                 },
             },
+            context="finalize_run",
         )
         if waiting_feedback:
             _publish_viewer_event(
@@ -387,7 +440,11 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             result.reason_code,
         )
     except Exception as exc:
-        _registry.update_run(run_id=run_id, patch={"status": "failed", "error": str(exc)})
+        _safe_registry_update_run(
+            run_id=run_id,
+            patch={"status": "failed", "error": str(exc)},
+            context="exception_path_mark_failed",
+        )
         viewer_event_bus.publish_sync(
             f"transcript_edit:{run_id}",
             {

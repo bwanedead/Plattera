@@ -11,6 +11,10 @@ from typing import Any, Sequence
 
 from api.endpoints import transcript_edit_agent
 
+_EXIT_FAILED = 1
+_EXIT_NEEDS_REVIEW = 2
+_EXIT_WAITING_FEEDBACK = 3
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -66,26 +70,85 @@ async def _run_async(args: argparse.Namespace) -> int:
     start = await transcript_edit_agent.start_run(request)
     run_id = str(start["run_id"])
     if not args.json_only:
-        print(f"[tx-agent] started run_id={run_id}")
-    final = await _poll_until_terminal(run_id=run_id, poll_interval=max(0.1, float(args.poll_interval)))
-    print(json.dumps(final, ensure_ascii=False, indent=2))
-
+        _safe_print(f"[tx-agent] started run_id={run_id}")
+    final = await _poll_until_terminal(
+        run_id=run_id,
+        poll_interval=max(0.1, float(args.poll_interval)),
+        print_progress=not bool(args.json_only),
+    )
     status = str(final.get("status") or "")
+    if status == "waiting_feedback" and not args.json_only:
+        _safe_print("[tx-agent] run paused: waiting for human feedback (resumable; not failed).")
+    _print_json_safely(final)
+
     if status == "failed":
-        return 1
+        return _EXIT_FAILED
+    if status == "waiting_feedback":
+        return _EXIT_WAITING_FEEDBACK
     snapshot = final.get("snapshot") if isinstance(final.get("snapshot"), dict) else {}
     if status == "needs_review" or str(snapshot.get("status") or "") == "needs_review":
-        return 2
+        return _EXIT_NEEDS_REVIEW
     return 0
 
 
-async def _poll_until_terminal(*, run_id: str, poll_interval: float) -> dict[str, Any]:
+async def _poll_until_terminal(*, run_id: str, poll_interval: float, print_progress: bool) -> dict[str, Any]:
+    last_progress_key: tuple[Any, ...] | None = None
     while True:
         snapshot = await transcript_edit_agent.get_run(run_id)
         status = str(snapshot.get("status") or "")
-        if status in {"completed", "failed", "needs_review"}:
+        if print_progress:
+            progress_data = _progress_data(snapshot)
+            if progress_data is not None:
+                display_key, dedupe_key = progress_data
+                if dedupe_key != last_progress_key:
+                    _print_progress(display_key)
+                    last_progress_key = dedupe_key
+        if status in {"completed", "failed", "needs_review", "waiting_feedback"}:
             return snapshot
         await asyncio.sleep(poll_interval)
+
+
+def _progress_data(snapshot: dict[str, Any]) -> tuple[tuple[Any, ...], tuple[Any, ...]] | None:
+    body = snapshot.get("snapshot") if isinstance(snapshot.get("snapshot"), dict) else {}
+    live = body.get("live_status") if isinstance(body.get("live_status"), dict) else {}
+    if not live:
+        return None
+    phase = str(live.get("phase") or "").strip() or "status"
+    iteration = live.get("iteration")
+    event_type = str(live.get("event_type") or "").strip()
+    execution_state = str(live.get("execution_state") or "").strip()
+    message = str(live.get("message") or "").strip()
+    elapsed_ms = live.get("elapsed_ms")
+    display_key = (phase, iteration, event_type, execution_state, message, elapsed_ms)
+    dedupe_key = (phase, iteration, event_type, execution_state, message)
+    return display_key, dedupe_key
+
+
+def _print_progress(progress_key: tuple[Any, ...]) -> None:
+    phase, iteration, _event_type, _execution_state, message, elapsed_ms, *_ = progress_key
+    iter_text = f"iter={iteration}" if isinstance(iteration, int) else "iter=n/a"
+    elapsed_text = ""
+    if isinstance(elapsed_ms, int) and elapsed_ms >= 0:
+        elapsed_text = f" elapsed={elapsed_ms/1000:.1f}s"
+    line = f"[tx-agent] phase={phase} {iter_text}{elapsed_text}"
+    msg = str(message or "").strip()
+    if msg:
+        line = f"{line} :: {msg}"
+    _safe_print(line)
+
+
+def _print_json_safely(payload: dict[str, Any]) -> None:
+    text = json.dumps(payload, ensure_ascii=False, indent=2)
+    _safe_print(text)
+
+
+def _safe_print(text: str) -> None:
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoding = str(getattr(sys.stdout, "encoding", None) or "utf-8")
+        safe_text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+        print(safe_text)
 
 
 def _resolve_text(*, inline_text: str | None, text_file: str | None) -> str | None:

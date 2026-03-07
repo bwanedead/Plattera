@@ -126,6 +126,79 @@ def test_feedback_endpoint_validation_rules(monkeypatch) -> None:
     assert out["auto_resume"]["resumed"] is True
 
 
+def test_feedback_endpoint_preserves_non_error_auto_resume_reason(monkeypatch) -> None:
+    captured: list[dict[str, Any]] = []
+
+    def _append_entry(**kwargs):
+        entry = {
+            "submitted_at_epoch_seconds": 1,
+            "prompt_id": kwargs.get("prompt_id"),
+            "choice": kwargs.get("choice"),
+            "note": kwargs.get("note"),
+            "metadata": kwargs.get("metadata") or {},
+        }
+        captured.append(entry)
+        return entry
+
+    monkeypatch.setattr(agent_viewer.feedback_store, "append_entry", _append_entry)
+    monkeypatch.setattr(agent_viewer.feedback_store, "list_entries", lambda **_: list(captured))
+    monkeypatch.setattr(
+        "api.endpoints.transcript_edit_agent.request_run_resume_if_waiting",
+        lambda **kwargs: {"resumed": False, "reason": "not_waiting_feedback:needs_review", "run_id": kwargs.get("run_id")},
+    )
+    out = asyncio.run(
+        agent_viewer.post_agent_viewer_feedback(
+            loop_kind="transcript_edit",
+            run_id="tx_agent_2",
+            request=agent_viewer.AgentViewerFeedbackRequest(prompt_id="p-2", choice="Range 75"),
+        )
+    )
+    assert out["ok"] is True
+    assert out["auto_resume"]["resumed"] is False
+    assert out["auto_resume"]["reason"] == "not_waiting_feedback:needs_review"
+
+
+def test_feedback_endpoint_returns_structured_auto_resume_error(monkeypatch) -> None:
+    captured: list[dict[str, Any]] = []
+
+    def _append_entry(**kwargs):
+        entry = {
+            "submitted_at_epoch_seconds": 1,
+            "prompt_id": kwargs.get("prompt_id"),
+            "choice": kwargs.get("choice"),
+            "note": kwargs.get("note"),
+            "metadata": kwargs.get("metadata") or {},
+        }
+        captured.append(entry)
+        return entry
+
+    monkeypatch.setattr(agent_viewer.feedback_store, "append_entry", _append_entry)
+    monkeypatch.setattr(agent_viewer.feedback_store, "list_entries", lambda **_: list(captured))
+
+    def _raise_resume(**kwargs):
+        del kwargs
+        raise RuntimeError("registry_write_failed")
+
+    monkeypatch.setattr("api.endpoints.transcript_edit_agent.request_run_resume_if_waiting", _raise_resume)
+    monkeypatch.setattr(
+        "api.endpoints.transcript_edit_agent._registry.get_run",
+        lambda _run_id: {"run_id": "tx_agent_3", "status": "waiting_feedback"},
+    )
+    out = asyncio.run(
+        agent_viewer.post_agent_viewer_feedback(
+            loop_kind="transcript_edit",
+            run_id="tx_agent_3",
+            request=agent_viewer.AgentViewerFeedbackRequest(prompt_id="p-3", choice="Range 75"),
+        )
+    )
+    assert out["ok"] is True
+    assert out["auto_resume"]["resumed"] is False
+    assert out["auto_resume"]["reason"] == "resume_trigger_error"
+    assert out["auto_resume"]["error_type"] == "RuntimeError"
+    assert "registry_write_failed" in str(out["auto_resume"]["error_message"])
+    assert out["auto_resume"]["run_status"] == "waiting_feedback"
+
+
 def test_artifact_image_endpoint_serves_image_under_dossiers_root(monkeypatch, tmp_path: Path) -> None:
     artifacts_root = tmp_path / "artifacts"
     views_root = tmp_path / "views" / "transcriptions"

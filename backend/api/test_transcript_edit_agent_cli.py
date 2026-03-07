@@ -46,3 +46,60 @@ def test_cli_nonzero_for_failed(monkeypatch) -> None:
     code = transcript_edit_agent_cli.run_cli(["--text", "x", "--json-only"])
     assert code == 1
 
+
+def test_cli_exits_for_waiting_feedback_with_distinct_code_and_pause_message(monkeypatch, capsys) -> None:
+    async def _fake_start(request):
+        del request
+        return {"run_id": "tx_run_wait", "status": "running"}
+
+    async def _fake_get(run_id: str):
+        return {
+            "run_id": run_id,
+            "status": "waiting_feedback",
+            "snapshot": {
+                "status": "waiting_feedback",
+                "live_status": {
+                    "phase": "human_feedback_needed",
+                    "iteration": 2,
+                    "message": "Waiting for human feedback while continuing other checks.",
+                    "elapsed_ms": 12345,
+                },
+            },
+        }
+
+    monkeypatch.setattr(transcript_edit_agent_cli.transcript_edit_agent, "start_run", _fake_start)
+    monkeypatch.setattr(transcript_edit_agent_cli.transcript_edit_agent, "get_run", _fake_get)
+
+    code = transcript_edit_agent_cli.run_cli(["--text", "x"])
+    out = capsys.readouterr().out
+    assert code == 3
+    assert "phase=human_feedback_needed" in out
+    assert "paused: waiting for human feedback" in out
+
+
+def test_cli_waiting_feedback_unicode_output_does_not_crash(monkeypatch, capsys) -> None:
+    async def _fake_start(request):
+        del request
+        return {"run_id": "tx_run_wait_unicode", "status": "running"}
+
+    async def _fake_get(run_id: str):
+        return {
+            "run_id": run_id,
+            "status": "waiting_feedback",
+            "snapshot": {
+                "status": "waiting_feedback",
+                "live_status": {
+                    "phase": "human_feedback_needed",
+                    "iteration": 1,
+                    "message": "Bearing token includes 4° 00′ W.",
+                    "elapsed_ms": 1200,
+                },
+            },
+        }
+
+    monkeypatch.setattr(transcript_edit_agent_cli.transcript_edit_agent, "start_run", _fake_start)
+    monkeypatch.setattr(transcript_edit_agent_cli.transcript_edit_agent, "get_run", _fake_get)
+    code = transcript_edit_agent_cli.run_cli(["--text", "x"])
+    out = capsys.readouterr().out
+    assert code == 3
+    assert "waiting for human feedback" in out

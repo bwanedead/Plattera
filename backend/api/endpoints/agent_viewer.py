@@ -184,8 +184,27 @@ async def post_agent_viewer_feedback(
                 trigger="feedback_post",
                 background=True,
             )
-        except Exception:
-            auto_resume = {"resumed": False, "reason": "resume_trigger_error"}
+        except Exception as exc:
+            logger.exception(
+                "AGENT_VIEWER_FEEDBACK ► auto_resume_error loop_kind=%s run_id=%s error_type=%s",
+                loop_kind,
+                run_id,
+                type(exc).__name__,
+            )
+            auto_resume = {
+                "resumed": False,
+                "reason": "resume_trigger_error",
+                "error_type": type(exc).__name__,
+                "error_message": str(exc)[:240],
+            }
+            try:
+                from api.endpoints import transcript_edit_agent as tx_agent
+
+                run = tx_agent._registry.get_run(run_id)  # type: ignore[attr-defined]
+                if isinstance(run, dict):
+                    auto_resume["run_status"] = str(run.get("status") or "").strip() or None
+            except Exception:
+                pass
     count = len(feedback_store.list_entries(loop_kind=loop_kind, run_id=run_id))
     return {"ok": True, "entry": entry, "count": count, "auto_resume": auto_resume}
 

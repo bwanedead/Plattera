@@ -327,6 +327,90 @@ def test_execute_run_transitions_to_waiting_feedback_when_pending_human_feedback
         )
 
 
+def test_execute_run_throttles_noncritical_progress_persistence(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _reset_registry(Path(tmp))
+
+        def _fake_run_loop(**kwargs: Any) -> TranscriptEditAgentRunResult:
+            progress_cb = kwargs.get("progress_cb")
+            if callable(progress_cb):
+                for idx in range(20):
+                    progress_cb(
+                        {
+                            "iteration": 1,
+                            "phase": "image_verify",
+                            "message": f"tick {idx}",
+                            "latest_refs": {},
+                        }
+                    )
+                progress_cb(
+                    {
+                        "iteration": 1,
+                        "phase": "human_feedback_needed",
+                        "event_type": "human_feedback_needed",
+                        "message": "Need feedback.",
+                        "latest_refs": {},
+                    }
+                )
+            return TranscriptEditAgentRunResult(
+                run_artifact_ref="in-memory://run",
+                session_id="s4",
+                iterations=1,
+                status="needs_review",
+                reason_code="tx_agent_no_progress:pending_human_feedback_no_new_signal",
+                latest_refs={},
+                review_required=True,
+                runtime_hitl_state={"pending_feedback_prompt_id": "hitl_range_1_wait"},
+            )
+
+        monkeypatch.setattr(transcript_edit_agent, "run_transcript_edit_controller_loop", _fake_run_loop)
+        monkeypatch.setattr(
+            transcript_edit_agent,
+            "build_handoff_packet",
+            lambda **kwargs: {"handoff_summary": "waiting"},
+        )
+        monkeypatch.setattr(
+            transcript_edit_agent,
+            "persist_handoff_packet",
+            lambda **kwargs: "in-memory://handoff_waiting.json",
+        )
+        monkeypatch.setattr(
+            transcript_edit_agent,
+            "terminal_summary",
+            lambda *args, **kwargs: {
+                "human_feedback_pending": True,
+                "pending_feedback_prompt_ids": ["hitl_range_1_wait"],
+                "terminal_classification": "blocked_human_feedback_needed",
+            },
+        )
+
+        persisted_snapshots: list[dict[str, Any]] = []
+        original_update_run = transcript_edit_agent._registry.update_run  # type: ignore[attr-defined]
+
+        def _tracking_update_run(*, run_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+            snapshot = patch.get("snapshot") if isinstance(patch.get("snapshot"), dict) else None
+            if snapshot is not None and str(patch.get("status") or "") == "running":
+                persisted_snapshots.append(dict(snapshot))
+            return original_update_run(run_id=run_id, patch=patch)
+
+        monkeypatch.setattr(transcript_edit_agent._registry, "update_run", _tracking_update_run)  # type: ignore[attr-defined]
+
+        request = transcript_edit_agent.TranscriptEditAgentApiRequest(
+            source_text="Beginning at ...",
+            dossier_id="D1",
+            background=False,
+        )
+        transcript_edit_agent._registry.create_run(run_id="r_throttle", request={"dossier_id": "D1"})  # type: ignore[attr-defined]
+        transcript_edit_agent._execute_run("r_throttle", request)
+
+        # 21 progress events were emitted; throttling should persist materially fewer running snapshots.
+        assert len(persisted_snapshots) < 21
+        assert any(
+            str((snap.get("live_status") or {}).get("phase") or "") == "human_feedback_needed"
+            for snap in persisted_snapshots
+        )
+
+
 def test_resume_run_carries_pending_prompt_identity_from_waiting_snapshot(monkeypatch) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         _reset_registry(Path(tmp))
@@ -453,3 +537,38 @@ def test_resume_run_endpoint_resumes_waiting_feedback_run(monkeypatch) -> None:
         assert out["resumed"] is True
         run = asyncio.run(transcript_edit_agent.get_run("r_resume"))
         assert run["status"] == "completed"
+
+
+def test_request_run_resume_if_waiting_returns_registry_update_failed_when_mark_running_fails(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _reset_registry(Path(tmp))
+        transcript_edit_agent._registry.create_run(  # type: ignore[attr-defined]
+            run_id="r_resume_fail",
+            request={
+                "dossier_id": "D1",
+                "resume_request": {
+                    "dossier_id": "D1",
+                    "source_text": "Beginning at ...",
+                },
+            },
+        )
+        transcript_edit_agent._registry.update_run(  # type: ignore[attr-defined]
+            run_id="r_resume_fail",
+            patch={
+                "status": "waiting_feedback",
+                "snapshot": {"run_id": "r_resume_fail", "status": "waiting_feedback"},
+            },
+        )
+
+        def _fail_update_run(*, run_id: str, patch: dict[str, Any]):
+            del run_id, patch
+            raise PermissionError(13, "Access is denied")
+
+        monkeypatch.setattr(transcript_edit_agent._registry, "update_run", _fail_update_run)  # type: ignore[attr-defined]
+        out = transcript_edit_agent.request_run_resume_if_waiting(
+            run_id="r_resume_fail",
+            trigger="feedback_post",
+            background=True,
+        )
+        assert out["resumed"] is False
+        assert out["reason"] == "resume_registry_update_failed"
