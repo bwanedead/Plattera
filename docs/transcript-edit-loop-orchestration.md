@@ -808,6 +808,10 @@ For resolver-invalid outcomes in injected-context phases, runtime reporting incl
 
 Goal:
 - make post-feedback failures diagnosable without dumping full prompts.
+- ensure move-gate reporting is consistent: invalid resolver payloads should report invalid/retrying/blocked gate reasons, not `accepted_mark_blocked`.
+
+### 27.7 Malformed apply fallback (post-feedback)
+If resolver returns `move=apply_edit_plan` but the embedded plan fails schema validation in an answered-unintegrated ticket context, runtime/planner repair now prefers a valid bounded blocked move fallback instead of repeatedly re-surfacing malformed apply payloads.
 
 Known caveat:
 - frontend synthetic closure prompt path can still create earlier perceived prompts unless strictly disabled (see section 20).

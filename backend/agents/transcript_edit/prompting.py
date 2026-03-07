@@ -120,6 +120,7 @@ def build_focus_resolver_system_message() -> str:
         "The runtime preselects the focus decision_key; do not switch focus to any other item. "
         "Allowed move values: apply_edit_plan, request_human_feedback, gather_more_evidence, mark_blocked, mark_resolved_no_edit. "
         "If move=apply_edit_plan, include a valid EditPlanV0 in edit_plan. "
+        "For EditPlanV0 ops, each op must include discriminator field op_type with one of: replace_span, replace_line, replace_clause, rewrite_section. "
         "If move=request_human_feedback, include feedback_prompt with line1, line2, and bounded choices when available. "
         "If move=gather_more_evidence, include evidence_request with fields: kind, decision_key, reason, target. "
         "Allowed evidence_request.kind values: open_spans, image_verify, retrieve_dependency_evidence. "
@@ -200,6 +201,11 @@ def build_focus_resolver_repair_user_message(
             "mark_blocked_requires": ["reason"],
             "mark_resolved_no_edit_requires": ["reason"],
         },
+        "edit_plan_requirements": {
+            "ops_item_requires": ["op_type"],
+            "allowed_op_type": ["replace_span", "replace_line", "replace_clause", "rewrite_section"],
+        },
+        "fallback_rule": "If you cannot produce a valid EditPlanV0, return move=mark_blocked with a clear reason. Do not return malformed apply_edit_plan.",
         "attempt": int(attempt or 0),
         "max_attempts": int(max_attempts or 0),
     }

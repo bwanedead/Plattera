@@ -177,6 +177,23 @@ class TranscriptEditPlanPlanner:
                 if not isinstance(parsed, dict):
                     last_error = "resolver_non_object_json"
                     raise ValueError(last_error)
+            except Exception as exc:
+                message = str(exc).strip()
+                last_error = (
+                    f"resolver_invalid:{type(exc).__name__}:{message[:120]}"
+                    if message
+                    else f"resolver_invalid:{type(exc).__name__}"
+                )
+                user_msg = build_focus_resolver_repair_user_message(
+                    error_reason=last_error,
+                    raw_content=raw_content,
+                    decision_key=decision_key,
+                    injection_context=injection_context,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                )
+                continue
+            try:
                 validated = _coerce_focus_move(
                     parsed=parsed,
                     decision_key=decision_key,
@@ -191,6 +208,13 @@ class TranscriptEditPlanPlanner:
                     if message
                     else f"resolver_invalid:{type(exc).__name__}"
                 )
+                fallback = _post_feedback_invalid_apply_fallback(
+                    parsed=parsed,
+                    decision_key=decision_key,
+                    injection_context=injection_context,
+                )
+                if isinstance(fallback, dict):
+                    return fallback, "ok_post_feedback_fallback", raw_content
                 user_msg = build_focus_resolver_repair_user_message(
                     error_reason=last_error,
                     raw_content=raw_content,
@@ -230,6 +254,34 @@ def _resolver_injection_context(*, focus_packet: dict[str, Any], decision_key: s
         "strength": str(answered.get("strength") or "").strip().lower() or None,
         "normalized_answer_summary": str(payload.get("normalized_answer_summary") or "").strip() or None,
         "selected_choice": str(payload.get("selected_choice") or "").strip() or None,
+    }
+
+
+def _post_feedback_invalid_apply_fallback(
+    *,
+    parsed: dict[str, Any],
+    decision_key: str,
+    injection_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not bool(injection_context.get("has_answered_unintegrated_ticket")):
+        return None
+    move = str(parsed.get("move") or "").strip().lower()
+    if move != "apply_edit_plan":
+        return None
+    ticket_id = str(injection_context.get("ticket_id") or "").strip() or None
+    return {
+        "decision_key": decision_key,
+        "move": "mark_blocked",
+        "reason": "blocked_no_safe_integration_after_feedback:invalid_apply_payload",
+        "edit_plan": None,
+        "feedback_prompt": None,
+        "evidence_request": None,
+        "closure_update_hint": None,
+        "iteration_summary": (
+            "Human answer is present, but resolver apply payload was invalid; blocked pending safe integration decision."
+        ),
+        "post_feedback_ticket_state": "answered_unintegrated",
+        "post_feedback_ticket_id": ticket_id,
     }
 
 

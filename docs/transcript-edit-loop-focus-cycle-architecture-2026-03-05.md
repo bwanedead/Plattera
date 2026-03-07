@@ -309,6 +309,7 @@ Compact diagnostics are preserved for operator/debug use:
 - ticket lifecycle state/id when present
 - validation error class
 - bounded raw-output excerpt
+- malformed post-feedback `apply_edit_plan` attempts are repair-hardened; if safe plan schema cannot be produced, runtime can fall back to an explicit bounded blocked move rather than repeatedly cycling malformed apply payloads
 
 ### 7.4 Post-feedback observability lane
 Live diagnostics now include explicit post-feedback seam events:

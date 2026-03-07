@@ -1230,8 +1230,14 @@ def test_transcript_controller_post_feedback_resolver_invalid_exhausts_with_spec
             isinstance(evt, dict)
             and str(evt.get("phase") or "") == "resolver_move_gate"
             and isinstance(evt.get("detail"), dict)
-            and str((evt.get("detail") or {}).get("gate_reason") or "")
-            in {"accepted_mark_blocked", "resolver_invalid_retry_budget_remaining"}
+            and str((evt.get("detail") or {}).get("gate_reason") or "") == "resolver_invalid_payload"
+            for evt in progress_events
+        )
+        assert not any(
+            isinstance(evt, dict)
+            and str(evt.get("phase") or "") == "resolver_move_gate"
+            and isinstance(evt.get("detail"), dict)
+            and str((evt.get("detail") or {}).get("gate_reason") or "") == "accepted_mark_blocked"
             for evt in progress_events
         )
         assert any(

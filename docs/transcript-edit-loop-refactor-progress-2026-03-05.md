@@ -351,3 +351,22 @@ Validation coverage:
 
 Verification:
 - `pytest backend/agents/transcript_edit -q` passed
+
+## 32) Post-feedback schema-validity hardening and gate consistency
+Objective:
+- tighten the specific seam where post-feedback resolver outputs attempted `apply_edit_plan` with malformed op schema, and keep move-gate narration consistent with final validity.
+
+Implementation summary:
+- Strengthened resolver repair prompt contract with explicit `op_type` discriminator requirements.
+- Added bounded fallback path for answered-unintegrated context:
+  - malformed `apply_edit_plan` payload can be converted into a valid `mark_blocked` fallback (`blocked_no_safe_integration_after_feedback:*`) instead of looping through repeated malformed apply attempts.
+- Move-gate consistency fix:
+  - invalid resolver payload paths no longer emit misleading `accepted_mark_blocked`.
+  - gate events now report invalid/retrying/blocked reasons consistently on those paths.
+
+Validation coverage:
+- planner test for malformed post-feedback apply payload fallback to valid blocked move
+- controller test asserting no false `accepted_mark_blocked` on invalid payload path
+
+Verification:
+- `pytest backend/agents/transcript_edit -q` passed

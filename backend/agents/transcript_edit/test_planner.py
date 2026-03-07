@@ -91,3 +91,28 @@ def test_planner_focus_move_exhausts_after_repeated_invalid_output() -> None:
     assert reason.startswith("resolver_invalid:")
     assert "invalid_move" in reason or "missing" in reason.lower()
     assert raw.strip().startswith("{")
+
+
+def test_planner_focus_move_falls_back_to_mark_blocked_for_invalid_apply_under_answered_ticket() -> None:
+    service = _FakeService(
+        outputs=[
+            (
+                '{"decision_key":"range","move":"apply_edit_plan","reason":"try_apply","iteration_summary":"x",'
+                '"edit_plan":{"plan_version":"edit_plan_v0","source_transcript_ref":"in-memory://source.json",'
+                '"source_transcript_hash":"sha256:test","plan_id":"p1","summary":"s",'
+                '"ops":[{"op_id":"op-1","change_class":"semantic","confidence":"high","review_required":true,'
+                '"reason":"r","evidence_refs":[],"target":{"locator_type":"offsets","start_char":0,"end_char":1},'
+                '"expected_old":{"old_excerpt":"a"},"new_text":"b"}],"global_flags":{"review_required":true}}}'
+            )
+        ]
+    )
+    planner = TranscriptEditPlanPlanner(service=service)
+    payload, reason, _raw = planner.propose_focus_move(
+        model="gpt-5.2",
+        focus_packet=_focus_packet_with_answered_ticket(),
+        max_attempts=2,
+    )
+    assert reason == "ok_post_feedback_fallback"
+    assert isinstance(payload, dict)
+    assert payload.get("move") == "mark_blocked"
+    assert str(payload.get("reason") or "").startswith("blocked_no_safe_integration_after_feedback")

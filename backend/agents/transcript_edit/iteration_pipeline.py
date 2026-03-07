@@ -1211,6 +1211,19 @@ def handle_repair_iteration(
         state.last_reason = "tx_agent_closure_requirements_unresolved"
         return None
     if move == "mark_blocked":
+        if resolver_reason.startswith(("resolver_move_invalid:", "resolver_plan_invalid:")):
+            emit_progress(
+                progress_cb,
+                resolver_move_gate_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    decision_key=focus_key,
+                    move=move,
+                    gate_outcome="retrying" if state.invalid_plan_strikes + 1 < request.max_invalid_plan_attempts else "blocked",
+                    gate_reason="resolver_invalid_payload",
+                    ticket_snapshot=active_ticket_snapshot,
+                ),
+            )
         if not _accept_mark_blocked(
             decision_ledger=state.decision_ledger,
             decision_key=focus_key,
@@ -1231,18 +1244,23 @@ def handle_repair_iteration(
                 ),
             )
             return None
-        emit_progress(
-            progress_cb,
-            resolver_move_gate_payload(
-                iteration=iterations,
-                latest_refs=state.latest_refs,
-                decision_key=focus_key,
-                move=move,
-                gate_outcome="accepted",
-                gate_reason="accepted_mark_blocked",
-                ticket_snapshot=active_ticket_snapshot,
-            ),
-        )
+        if not resolver_reason.startswith(("resolver_move_invalid:", "resolver_plan_invalid:")):
+            emit_progress(
+                progress_cb,
+                resolver_move_gate_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    decision_key=focus_key,
+                    move=move,
+                    gate_outcome="accepted",
+                    gate_reason=(
+                        "blocked_no_safe_integration_after_feedback"
+                        if resolver_reason.startswith("blocked_no_safe_integration_after_feedback")
+                        else "accepted_mark_blocked"
+                    ),
+                    ticket_snapshot=active_ticket_snapshot,
+                ),
+            )
         if resolver_reason.startswith(("resolver_move_invalid:", "resolver_plan_invalid:")):
             reason_suffix = resolver_reason
             if reason_suffix.startswith("resolver_move_invalid:"):
@@ -1320,7 +1338,11 @@ def handle_repair_iteration(
             return None
         return TranscriptEditDecision(
             status="needs_review",
-            reason_code="tx_agent_closure_requirements_unresolved",
+            reason_code=(
+                "tx_agent_consistent_feedback_no_safe_plan"
+                if resolver_reason.startswith("blocked_no_safe_integration_after_feedback")
+                else "tx_agent_closure_requirements_unresolved"
+            ),
             review_required=True,
         )
     if move == "mark_resolved_no_edit":
@@ -1918,6 +1940,8 @@ def _accept_mark_blocked(
             "resolver_plan_invalid",
         )
     ):
+        return True
+    if reason.startswith("blocked_no_safe_integration_after_feedback"):
         return True
     unresolved = unresolved_mapping_blocking_requirements(decision_ledger)
     focus_item = next(
