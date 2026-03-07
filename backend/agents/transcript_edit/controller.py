@@ -147,6 +147,17 @@ def run_transcript_edit_controller_loop(
         latest_refs=start.dashboard.latest_refs.model_dump(mode="json") if start.dashboard else {},
         current_transcript_ref=request.source_transcript_ref,
         decision_ledger=initialize_decision_ledger(),
+        pending_feedback_prompt_id=(
+            str(request.resume_pending_feedback_prompt_id or "").strip() or None
+        ),
+        pending_feedback_decision_key=(
+            str(request.resume_pending_feedback_decision_key or "").strip().lower() or None
+        ),
+        pending_feedback_prompt=(
+            dict(request.resume_pending_feedback_prompt)
+            if isinstance(request.resume_pending_feedback_prompt, dict)
+            else None
+        ),
     )
     candidate_count = (
         len(request.candidate_refs)

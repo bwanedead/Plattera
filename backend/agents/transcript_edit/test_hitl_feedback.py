@@ -92,3 +92,112 @@ def test_build_human_feedback_prompt_targets_range_contradiction() -> None:
     choices = [str(v) for v in list(prompt.get("choices") or [])]
     assert any("75" in v for v in choices)
     assert any("74" in v for v in choices)
+
+
+def test_build_feedback_override_plan_range_targets_conflicting_occurrence() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "sections": [
+                        {
+                            "id": "s1",
+                            "body": (
+                                "Situated in Section Two (2), Township Fourteen (14) North, "
+                                "Range seventy-five (75) West; thence ... "
+                                "also in Section Two (2), Township Fourteen (14) North, "
+                                "Range seventy-four (74) West."
+                            ),
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        normalized = {
+            "decision_key": "range",
+            "selected_value": "Range 75 West",
+            "note": None,
+        }
+        plan = build_feedback_override_plan(
+            source_transcript_ref=str(source),
+            source_transcript_hash="sha256:test",
+            normalized_feedback=normalized,
+        )
+        assert isinstance(plan, dict)
+        ops = plan.get("ops") if isinstance(plan.get("ops"), list) else []
+        assert len(ops) == 1
+        op = ops[0] if isinstance(ops[0], dict) else {}
+        assert op.get("op_type") == "replace_span"
+        assert (op.get("expected_old") or {}).get("old_excerpt") == "74"
+        assert op.get("new_text") == "75"
+
+
+def test_build_feedback_override_plan_range_supports_compact_r74w_tokens() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "sections": [
+                        {
+                            "id": "s1",
+                            "body": "PLSS tie cites T14N R75W in situate clause but later call cites T14N R74W.",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        normalized = {
+            "decision_key": "range",
+            "selected_value": "Range 75 West",
+            "note": None,
+        }
+        plan = build_feedback_override_plan(
+            source_transcript_ref=str(source),
+            source_transcript_hash="sha256:test",
+            normalized_feedback=normalized,
+        )
+        assert isinstance(plan, dict)
+        ops = plan.get("ops") if isinstance(plan.get("ops"), list) else []
+        assert len(ops) == 1
+        op = ops[0] if isinstance(ops[0], dict) else {}
+        assert (op.get("expected_old") or {}).get("old_excerpt") == "74"
+        assert op.get("new_text") == "75"
+
+
+def test_build_feedback_override_plan_range_parses_selected_value_with_75w_shorthand() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "sections": [
+                        {
+                            "id": "s1",
+                            "body": (
+                                "Situated in T14N Range Seventy-five (75) West, "
+                                "but later calls cite Range Seventy-four (74) West."
+                            ),
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        normalized = {
+            "decision_key": "range",
+            "selected_value": "Use Range 75W as controlling and treat Range 74W as clerical error.",
+            "note": None,
+        }
+        plan = build_feedback_override_plan(
+            source_transcript_ref=str(source),
+            source_transcript_hash="sha256:test",
+            normalized_feedback=normalized,
+        )
+        assert isinstance(plan, dict)
+        op = plan["ops"][0]
+        assert (op.get("expected_old") or {}).get("old_excerpt") == "74"
+        assert op.get("new_text") == "75"

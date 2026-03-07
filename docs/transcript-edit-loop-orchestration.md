@@ -511,6 +511,10 @@ Common phases:
 Terminal event:
 - `event_type=done` with status in payload (`completed|needs_review|failed`)
 
+Waiting/resume events:
+- when blocked specifically on pending HITL, tx run can emit `status` event with `phase=waiting_feedback` and `resumable=true`
+- feedback post can trigger resume for waiting runs (bounded continuation) rather than forcing a brand-new disconnected run
+
 ---
 
 ## 20) UX Prompting Status (March 2026)
@@ -916,6 +920,7 @@ Expected operator interpretation:
 - `completed` means closure achieved under current policy.
 - `needs_review` means unresolved blockers/constraints remain.
 - `failed` means execution failure, not epistemic uncertainty.
+- `waiting_feedback` means unresolved blocker is waiting on human input and run is resumable.
 
 `terminal_classification` currently distinguishes:
 - `closure_achieved`

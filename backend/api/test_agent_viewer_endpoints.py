@@ -108,6 +108,10 @@ def test_feedback_endpoint_validation_rules(monkeypatch) -> None:
         assert "choice_or_note" in str(exc.detail)
 
     # actionable prompt response is accepted
+    monkeypatch.setattr(
+        "api.endpoints.transcript_edit_agent.request_run_resume_if_waiting",
+        lambda **kwargs: {"resumed": True, "status": "running", "run_id": kwargs.get("run_id")},
+    )
     out = asyncio.run(
         agent_viewer.post_agent_viewer_feedback(
             loop_kind="transcript_edit",
@@ -118,6 +122,8 @@ def test_feedback_endpoint_validation_rules(monkeypatch) -> None:
     assert out["ok"] is True
     assert out["entry"]["prompt_id"] == "p-1"
     assert out["entry"]["choice"] == "Range 75"
+    assert isinstance(out.get("auto_resume"), dict)
+    assert out["auto_resume"]["resumed"] is True
 
 
 def test_artifact_image_endpoint_serves_image_under_dossiers_root(monkeypatch, tmp_path: Path) -> None:

@@ -1091,6 +1091,101 @@ def test_transcript_controller_feedback_consumption_sets_answered_unintegrated_t
         )
 
 
+def test_transcript_controller_post_feedback_mark_blocked_invalid_apply_can_recover_with_override(monkeypatch) -> None:
+    class _PlannerMarkBlockedPostFeedbackInvalid:
+        def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+            focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+            return {
+                "decision_key": str(focus_packet.get("decision_key") or "range"),
+                "move": "mark_blocked",
+                "reason": "blocked_no_safe_integration_after_feedback:invalid_apply_payload",
+                "edit_plan": None,
+                "feedback_prompt": None,
+                "evidence_request": None,
+                "closure_update_hint": None,
+                "iteration_summary": "Fallback blocked after invalid apply payload.",
+            }, "ok", "{}"
+
+        def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            raise RuntimeError("not used in focus-move mode")
+
+    calls = {"poll": 0}
+
+    def _fake_poll_feedback_response(*, run_id, prompt_id):  # type: ignore[no-untyped-def]
+        del run_id
+        if calls["poll"] == 0:
+            calls["poll"] += 1
+            return {
+                "prompt_id": prompt_id,
+                "choice": "Range 75 West",
+                "note": "Use Range 75 West.",
+                "metadata": {
+                    "decision_key": "range",
+                    "resolved_value": "Range 75 West",
+                },
+            }
+        return None
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline.poll_feedback_response",
+        _fake_poll_feedback_response,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "sections": [
+                        {
+                            "id": "s1",
+                            "body": (
+                                "Situated in Section Two (2), Township Fourteen (14) North, "
+                                "Range Seventy-five (75) West; then calls refer to "
+                                "Range Seventy-four (74) West."
+                            ),
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        progress_events: list[dict[str, Any]] = []
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=3,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-post-feedback-blocked-fallback-apply",
+            planner=_PlannerMarkBlockedPostFeedbackInvalid(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+        assert any(
+            isinstance(evt, dict)
+            and str(evt.get("phase") or "") == "apply_result"
+            and isinstance(evt.get("detail"), dict)
+            and int(evt["detail"].get("plan_op_count") or 0) > 0
+            for evt in progress_events
+        )
+        runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
+        tickets = [
+            dict(row)
+            for row in list(runtime_hitl_state.get("human_resolution_tickets") or [])
+            if isinstance(row, dict)
+        ]
+        assert any(
+            str(row.get("decision_key") or "") == "range"
+            and str(row.get("lifecycle_state") or "") == "integrated"
+            for row in tickets
+        )
+
+
 def test_transcript_controller_sets_integration_attempted_failed_when_feedback_no_safe_plan(monkeypatch) -> None:
     calls = {"poll": 0}
 

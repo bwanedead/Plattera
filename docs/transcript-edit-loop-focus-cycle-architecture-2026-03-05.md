@@ -214,6 +214,11 @@ End when:
 - mapping-blocking closure is achieved, or
 - no autonomous closure move remains and blocked state must be reported
 
+Lifecycle refinement for HITL:
+- if no autonomous move remains and active blocker is waiting on human feedback, run transitions to `waiting_feedback` (resumable) instead of final dead-end terminalization
+- feedback arrival can trigger bounded continuation/resume on the same run context
+- active execution remains bounded; process is not kept hot while waiting
+
 Honest stop behavior:
 - repeated unchanged focus/evidence/transcript state increments no-progress handling
 - pending HITL without new feedback is not counted as progress

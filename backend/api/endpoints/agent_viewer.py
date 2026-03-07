@@ -174,8 +174,20 @@ async def post_agent_viewer_feedback(
             run_id,
             {"event_type": "agent_viewer_feedback", "run_id": run_id, "entry": entry},
         )
+    auto_resume: dict[str, Any] | None = None
+    if loop_kind == "transcript_edit":
+        try:
+            from api.endpoints.transcript_edit_agent import request_run_resume_if_waiting
+
+            auto_resume = request_run_resume_if_waiting(
+                run_id=run_id,
+                trigger="feedback_post",
+                background=True,
+            )
+        except Exception:
+            auto_resume = {"resumed": False, "reason": "resume_trigger_error"}
     count = len(feedback_store.list_entries(loop_kind=loop_kind, run_id=run_id))
-    return {"ok": True, "entry": entry, "count": count}
+    return {"ok": True, "entry": entry, "count": count, "auto_resume": auto_resume}
 
 
 @router.get("/timing-summary/{run_id}")

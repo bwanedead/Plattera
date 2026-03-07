@@ -370,3 +370,96 @@ Validation coverage:
 
 Verification:
 - `pytest backend/agents/transcript_edit -q` passed
+
+## 33) HITL waiting-state and resume semantics
+Objective:
+- stop treating HITL-blocked runs as fully ended; represent them as resumable waiting state.
+
+Implementation summary:
+- transcript-edit API run lifecycle now maps HITL-pending blocked outcomes to `waiting_feedback` status.
+- waiting runs persist resumable context in run registry (`resume_request` payload + latest refs snapshot).
+- added explicit resume endpoint:
+  - `POST /api/transcript-edit-agent/run/{run_id}/resume`
+- feedback post path attempts auto-resume for transcript-edit waiting runs.
+- waiting runs emit viewer `status` update with `phase=waiting_feedback`, `terminal=false`, `resumable=true`.
+
+Behavioral impact:
+- feedback arriving after autonomous exhaustion can continue same run lineage instead of forcing disconnected rerun.
+
+Verification:
+- endpoint tests updated for waiting transition and resume path.
+
+## 34) Waiting-resume prompt continuity + CLI validation pass
+Objective:
+- fix waiting/resume seam where feedback posted against the waiting prompt could miss consumption after resume because prompt identity was not carried into resumed controller state.
+
+Implementation summary:
+- Added resume-seed fields to run request contract:
+  - `resume_pending_feedback_prompt_id`
+  - `resume_pending_feedback_decision_key`
+  - `resume_pending_feedback_prompt`
+- Resume request builder now extracts pending prompt identity from waiting snapshot (`runtime_hitl_state` first, then `terminal_summary.pending_feedback_prompt_ids`) and injects it into the resumed request.
+- Controller state initialization now hydrates pending feedback fields from those resume-seed fields so `iteration_start` feedback drain can consume immediately before any re-emission.
+- Final run snapshot now persists `runtime_hitl_state` (not only `terminal_summary`) so pending HITL state is visible in CLI polling while waiting/resumable.
+
+CLI run validation (practice deed):
+- Source: `practice_deeds/legal_text_image.jpg` + existing transcript ref `draft_legal_text_image_v2.json`.
+- Run: `tx_agent_1772846352_caa5920f`.
+- Observed sequence:
+  - transitioned to `waiting_feedback` with visible pending prompt id `hitl_range_1_acc828c1`
+  - feedback posted via terminal harness
+  - auto-resume triggered
+  - feedback transitioned to received/consumed (`feedback_received_count=1`, `feedback_consumed_count=1`, `used_human_feedback=true`)
+  - terminalized as `needs_review` with `tx_agent_consistent_feedback_no_safe_plan` (no longer stuck at waiting/no-consume seam)
+
+Remaining seam (narrow, confirmed):
+- post-feedback consumption is now working under waiting/resume.
+- unresolved behavior is now semantic closure quality:
+  - resolver/runtime ends with `consistent_feedback_no_safe_plan` on this contradiction case rather than converging to a safe applied correction.
+
+Verification:
+- `pytest backend/api/test_transcript_edit_agent_endpoints.py backend/api/test_agent_viewer_endpoints.py -q` passed
+- `pytest backend/agents/transcript_edit -q` passed
+
+## 35) Real-run polish: post-feedback override recovery for blocked-invalid resolver outputs
+Objective:
+- reduce `tx_agent_consistent_feedback_no_safe_plan` outcomes in the known range-contradiction case when feedback was consumed but resolver returned `mark_blocked` from invalid-apply fallback.
+
+Implementation summary:
+- Expanded decisive feedback-override trigger in `iteration_pipeline.py`:
+  - now also attempts deterministic override when resolver returns:
+    - `move=mark_blocked`
+    - `reason` prefixed by `blocked_no_safe_integration_after_feedback`
+- Added source-ref fallback attempts for override plan build:
+  - tries `state.current_transcript_ref`
+  - then `request.source_transcript_ref` if distinct
+- Added explicit diagnostic progress event:
+  - `phase=feedback_override_plan`
+  - includes attempted source refs, selected value snapshot, and stability context when override plan cannot be built.
+- Hardened range override matcher in `hitl_override_plans.py`:
+  - resolves contradiction by targeting first mismatched range occurrence, not only first occurrence
+  - supports multiple range token shapes:
+    - `Range ... (74) West`
+    - `Range 74 West` / `Range 74W`
+    - compact `R74W`
+  - improved integer extraction from selected value to handle shorthand like `75W`.
+
+Validation coverage added/updated:
+- `test_build_feedback_override_plan_range_targets_conflicting_occurrence`
+- `test_build_feedback_override_plan_range_supports_compact_r74w_tokens`
+- `test_build_feedback_override_plan_range_parses_selected_value_with_75w_shorthand`
+- `test_transcript_controller_post_feedback_mark_blocked_invalid_apply_can_recover_with_override`
+
+Live CLI validation (practice deed):
+- Run: `tx_agent_1772851075_f9e1377c`
+- Observed:
+  - feedback posted/received/consumed
+  - ticket seam reached `integrated`
+  - `edits_applied_total` moved to `1`
+  - no terminal `consistent_feedback_no_safe_plan`; final reason shifted to `tx_agent_no_progress:no_material_change`
+- Remaining seam:
+  - after one successful post-feedback apply, loop still exits blocked on no-material-change with unresolved mapping blockers.
+
+Verification:
+- `pytest backend/agents/transcript_edit/test_hitl_feedback.py backend/agents/transcript_edit/test_controller.py -q` passed
+- `pytest backend/agents/transcript_edit -q` passed

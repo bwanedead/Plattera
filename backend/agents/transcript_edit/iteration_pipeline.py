@@ -1111,16 +1111,36 @@ def handle_repair_iteration(
         if isinstance(focus_feedback, dict)
         else _feedback_payload_from_ticket(answered_ticket=answered_ticket, decision_key=focus_key)
     )
-    if (
+    should_attempt_decisive_feedback_override = (
         move in {"request_human_feedback", "gather_more_evidence"}
+        or (
+            move == "mark_blocked"
+            and resolver_reason.startswith("blocked_no_safe_integration_after_feedback")
+        )
+    )
+    if (
+        should_attempt_decisive_feedback_override
         and isinstance(decisive_feedback_payload, dict)
         and (answered_ticket is not None or stable_feedback_count >= 2)
     ):
-        decisive_plan = build_feedback_override_plan(
-            source_transcript_ref=state.current_transcript_ref or "",
-            source_transcript_hash=source_transcript_hash,
-            normalized_feedback=decisive_feedback_payload,
-        )
+        source_candidates: list[str] = []
+        for candidate in (
+            str(state.current_transcript_ref or "").strip(),
+            str(request.source_transcript_ref or "").strip(),
+        ):
+            if candidate and candidate not in source_candidates:
+                source_candidates.append(candidate)
+        decisive_plan = None
+        attempted_refs: list[str] = []
+        for source_candidate in source_candidates:
+            attempted_refs.append(source_candidate)
+            decisive_plan = build_feedback_override_plan(
+                source_transcript_ref=source_candidate,
+                source_transcript_hash=source_transcript_hash,
+                normalized_feedback=decisive_feedback_payload,
+            )
+            if isinstance(decisive_plan, dict):
+                break
         if isinstance(decisive_plan, dict):
             if isinstance(resolver_outcome, dict):
                 resolver_outcome["move"] = "apply_edit_plan"
@@ -1128,6 +1148,23 @@ def handle_repair_iteration(
             move = "apply_edit_plan"
             resolver_reason = f"stable_feedback_override_plan:{resolver_reason}"
         else:
+            emit_progress(
+                progress_cb,
+                {
+                    "iteration": iterations,
+                    "phase": "feedback_override_plan",
+                    "event_type": "resolver_outcome",
+                    "message": "No safe deterministic override plan could be built from consumed feedback.",
+                    "detail": {
+                        "decision_key": str(decisive_feedback_payload.get("decision_key") or "").strip().lower() or focus_key,
+                        "selected_value": str(decisive_feedback_payload.get("selected_value") or "").strip()[:120] or None,
+                        "attempted_source_refs": attempted_refs,
+                        "source_transcript_hash_present": bool(str(source_transcript_hash or "").strip()),
+                        "stable_feedback_count": stable_feedback_count,
+                    },
+                    "latest_refs": state.latest_refs,
+                },
+            )
             if isinstance(answered_ticket, dict):
                 state.decision_ledger = mark_human_resolution_ticket_state(
                     ledger=state.decision_ledger,

@@ -30,6 +30,9 @@ class TranscriptEditAgentRunRequest(BaseModel):
     hitl_enabled: bool = True
     hitl_wait_timeout_seconds: int = Field(default=120, ge=10, le=900)
     hitl_poll_interval_seconds: int = Field(default=2, ge=1, le=30)
+    resume_pending_feedback_prompt_id: Optional[str] = None
+    resume_pending_feedback_decision_key: Optional[str] = None
+    resume_pending_feedback_prompt: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

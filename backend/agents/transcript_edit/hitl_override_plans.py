@@ -67,21 +67,56 @@ def _build_range_op(*, text: str, selected_value: str) -> dict[str, Any] | None:
     selected_num = _extract_int_token(selected_value)
     if selected_num is None:
         return None
-    pattern = re.compile(r"\bRange\b[^()\n]{0,100}\((\d{1,3})\)\s*(West|East)\b", re.IGNORECASE)
-    match = pattern.search(text)
-    if not match:
+    selected_str = str(selected_num)
+    matches = _range_number_matches(text=text)
+    if not matches:
         return None
-    current = str(match.group(1))
-    if current == str(selected_num):
+    # Prefer patching the first conflicting range token so contradiction cases
+    # (e.g., Range 75 in one clause and Range 74 in another) can converge.
+    match = next((m for m in matches if str(m.get("number") or "") != selected_str), None)
+    if match is None:
+        return None
+    start_char = int(match.get("start_char") or 0)
+    end_char = int(match.get("end_char") or start_char)
+    current = str(match.get("number") or "")
+    if not current:
         return None
     return _replace_span_op(
         op_id="hitl-range-1",
         reason="Human selected range token to resolve blocking conflict.",
-        start_char=int(match.start(1)),
-        end_char=int(match.end(1)),
+        start_char=start_char,
+        end_char=end_char,
         old_excerpt=current,
         new_text=str(selected_num),
     )
+
+
+def _range_number_matches(*, text: str) -> list[dict[str, Any]]:
+    patterns: list[tuple[re.Pattern[str], int]] = [
+        # Full deed form: "Range seventy-four (74) West"
+        (re.compile(r"\bRange\b[^()\n]{0,120}\((\d{1,3})\)\s*(West|East)\b", re.IGNORECASE), 1),
+        # Numeric deed form: "Range 74 West" / "Range 74W"
+        (re.compile(r"\bRange\s+(\d{1,3})\s*(West|East|W|E)\b", re.IGNORECASE), 1),
+        # Compact PLSS form: "R74W"
+        (re.compile(r"\bR\s*[- ]?(\d{1,3})\s*([WE])\b", re.IGNORECASE), 1),
+    ]
+    out: list[dict[str, Any]] = []
+    seen_spans: set[tuple[int, int]] = set()
+    for pattern, group_idx in patterns:
+        for match in pattern.finditer(text):
+            try:
+                start_char = int(match.start(group_idx))
+                end_char = int(match.end(group_idx))
+                number = str(match.group(group_idx))
+            except Exception:
+                continue
+            span_key = (start_char, end_char)
+            if span_key in seen_spans:
+                continue
+            seen_spans.add(span_key)
+            out.append({"start_char": start_char, "end_char": end_char, "number": number})
+    out.sort(key=lambda row: int(row.get("start_char") or 0))
+    return out
 
 
 def _build_township_op(*, text: str, selected_value: str) -> dict[str, Any] | None:
@@ -246,7 +281,12 @@ def _plan_from_ops(
 
 
 def _extract_int_token(text: str) -> int | None:
-    match = re.search(r"\b(\d{1,3})\b", str(text or ""))
+    raw = str(text or "")
+    match = re.search(r"\b(\d{1,3})\b", raw)
+    if not match:
+        # Accept compact PLSS shorthand such as "75W"/"74E" that lacks
+        # whitespace between the number and direction token.
+        match = re.search(r"(?<!\d)(\d{1,3})(?=\s*[WE]\b)", raw, re.IGNORECASE)
     if not match:
         return None
     try:

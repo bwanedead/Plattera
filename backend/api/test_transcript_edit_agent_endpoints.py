@@ -237,3 +237,219 @@ def test_execute_run_preserves_critical_hitl_events_when_progress_log_is_truncat
         assert len(progress_log) <= 40
         assert len(critical_events) >= 1
         assert terminal.get("used_human_feedback") is True
+
+
+def test_execute_run_transitions_to_waiting_feedback_when_pending_human_feedback(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _reset_registry(Path(tmp))
+        captured_events: list[dict[str, Any]] = []
+
+        def _fake_run_loop(**kwargs: Any) -> TranscriptEditAgentRunResult:
+            progress_cb = kwargs.get("progress_cb")
+            if callable(progress_cb):
+                progress_cb(
+                    {
+                        "iteration": 1,
+                        "phase": "human_feedback_needed",
+                        "event_type": "human_feedback_needed",
+                        "prompt_id": "hitl_range_1_wait",
+                        "message": "Need human confirmation.",
+                        "latest_refs": {},
+                    }
+                )
+            return TranscriptEditAgentRunResult(
+                run_artifact_ref="in-memory://run",
+                session_id="s3",
+                iterations=1,
+                status="needs_review",
+                reason_code="tx_agent_closure_requirements_unresolved",
+                latest_refs={},
+                review_required=True,
+                runtime_hitl_state={
+                    "pending_feedback_prompt_id": "hitl_range_1_wait",
+                    "pending_feedback_decision_key": "range",
+                    "used_human_feedback": False,
+                    "feedback_received_count": 0,
+                    "feedback_consumed_count": 0,
+                    "feedback_stale_count": 0,
+                    "feedback_superseded_count": 0,
+                    "hitl_lifecycle_log": [],
+                },
+            )
+
+        class _Bus:
+            def publish_sync(self, channel: str, event: dict[str, Any]) -> None:
+                del channel
+                captured_events.append(event)
+
+        monkeypatch.setattr(transcript_edit_agent, "run_transcript_edit_controller_loop", _fake_run_loop)
+        monkeypatch.setattr(transcript_edit_agent, "viewer_event_bus", _Bus())
+        monkeypatch.setattr(
+            transcript_edit_agent,
+            "build_handoff_packet",
+            lambda **kwargs: {"handoff_summary": "waiting"},
+        )
+        monkeypatch.setattr(
+            transcript_edit_agent,
+            "persist_handoff_packet",
+            lambda **kwargs: "in-memory://handoff_waiting.json",
+        )
+        monkeypatch.setattr(
+            transcript_edit_agent,
+            "terminal_summary",
+            lambda *args, **kwargs: {
+                "human_feedback_pending": True,
+                "pending_feedback_prompt_ids": ["hitl_range_1_wait"],
+                "terminal_classification": "blocked_human_feedback_needed",
+            },
+        )
+
+        request = transcript_edit_agent.TranscriptEditAgentApiRequest(
+            source_text="Beginning at ...",
+            dossier_id="D1",
+            background=False,
+        )
+        transcript_edit_agent._registry.create_run(run_id="r_wait", request={"dossier_id": "D1"})  # type: ignore[attr-defined]
+        transcript_edit_agent._execute_run("r_wait", request)
+        run = asyncio.run(transcript_edit_agent.get_run("r_wait"))
+        assert run["status"] == "waiting_feedback"
+        snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}
+        assert bool(snapshot.get("waiting_feedback")) is True
+        assert bool(snapshot.get("resumable")) is True
+        runtime_hitl_state = snapshot.get("runtime_hitl_state") if isinstance(snapshot.get("runtime_hitl_state"), dict) else {}
+        assert runtime_hitl_state.get("pending_feedback_prompt_id") == "hitl_range_1_wait"
+        assert any(
+            isinstance(evt, dict)
+            and str(evt.get("event_type") or "") == "status"
+            and isinstance(evt.get("payload"), dict)
+            and str((evt.get("payload") or {}).get("phase") or "") == "waiting_feedback"
+            for evt in captured_events
+        )
+
+
+def test_resume_run_carries_pending_prompt_identity_from_waiting_snapshot(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _reset_registry(Path(tmp))
+        transcript_edit_agent._registry.create_run(  # type: ignore[attr-defined]
+            run_id="r_resume_pending",
+            request={
+                "dossier_id": "D1",
+                "resume_request": {
+                    "dossier_id": "D1",
+                    "source_text": "Beginning at ...",
+                    "mode": "audit_then_repair_then_promote",
+                    "auto_promote": False,
+                    "hitl_enabled": True,
+                },
+            },
+        )
+        transcript_edit_agent._registry.update_run(  # type: ignore[attr-defined]
+            run_id="r_resume_pending",
+            patch={
+                "status": "waiting_feedback",
+                "snapshot": {
+                    "run_id": "r_resume_pending",
+                    "status": "waiting_feedback",
+                    "waiting_feedback": True,
+                    "resumable": True,
+                    "latest_refs": {},
+                    "terminal_summary": {
+                        "pending_feedback_prompt_ids": ["hitl_range_1_wait"],
+                    },
+                },
+            },
+        )
+
+        captured_request: dict[str, Any] = {}
+
+        def _fake_execute(run_id: str, request: Any) -> None:
+            captured_request["run_id"] = run_id
+            captured_request["request"] = request
+            transcript_edit_agent._registry.update_run(  # type: ignore[attr-defined]
+                run_id=run_id,
+                patch={"status": "completed", "snapshot": {"status": "completed"}},
+            )
+
+        class _ImmediateThread:
+            def __init__(self, target, args, daemon) -> None:
+                self._target = target
+                self._args = args
+                self._daemon = daemon
+
+            def start(self) -> None:
+                self._target(*self._args)
+
+        monkeypatch.setattr(transcript_edit_agent, "_execute_run", _fake_execute)
+        monkeypatch.setattr(transcript_edit_agent, "Thread", _ImmediateThread)
+
+        out = asyncio.run(
+            transcript_edit_agent.resume_run(
+                run_id="r_resume_pending",
+                request=transcript_edit_agent.TranscriptEditAgentResumeRequest(background=True, trigger="feedback_post"),
+            )
+        )
+        assert out["resumed"] is True
+        request = captured_request.get("request")
+        assert request is not None
+        assert str(request.resume_pending_feedback_prompt_id) == "hitl_range_1_wait"
+        assert str(request.resume_pending_feedback_decision_key) == "range"
+
+
+def test_resume_run_endpoint_resumes_waiting_feedback_run(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _reset_registry(Path(tmp))
+        transcript_edit_agent._registry.create_run(  # type: ignore[attr-defined]
+            run_id="r_resume",
+            request={
+                "dossier_id": "D1",
+                "resume_request": {
+                    "dossier_id": "D1",
+                    "source_text": "Beginning at ...",
+                    "mode": "audit_then_repair_then_promote",
+                    "auto_promote": False,
+                    "hitl_enabled": True,
+                },
+            },
+        )
+        transcript_edit_agent._registry.update_run(  # type: ignore[attr-defined]
+            run_id="r_resume",
+            patch={
+                "status": "waiting_feedback",
+                "snapshot": {
+                    "run_id": "r_resume",
+                    "status": "waiting_feedback",
+                    "waiting_feedback": True,
+                    "resumable": True,
+                    "latest_refs": {},
+                },
+            },
+        )
+
+        def _fake_execute(run_id: str, request: Any) -> None:
+            del request
+            transcript_edit_agent._registry.update_run(  # type: ignore[attr-defined]
+                run_id=run_id,
+                patch={"status": "completed", "snapshot": {"status": "completed"}},
+            )
+
+        class _ImmediateThread:
+            def __init__(self, target, args, daemon) -> None:
+                self._target = target
+                self._args = args
+                self._daemon = daemon
+
+            def start(self) -> None:
+                self._target(*self._args)
+
+        monkeypatch.setattr(transcript_edit_agent, "_execute_run", _fake_execute)
+        monkeypatch.setattr(transcript_edit_agent, "Thread", _ImmediateThread)
+
+        out = asyncio.run(
+            transcript_edit_agent.resume_run(
+                run_id="r_resume",
+                request=transcript_edit_agent.TranscriptEditAgentResumeRequest(background=True, trigger="manual_resume"),
+            )
+        )
+        assert out["resumed"] is True
+        run = asyncio.run(transcript_edit_agent.get_run("r_resume"))
+        assert run["status"] == "completed"

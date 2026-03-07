@@ -10,9 +10,10 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from agents.transcript_edit.controller import run_transcript_edit_controller_loop
-from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
+from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
 from agents.transcript_edit.handoff_packet import build_handoff_packet, persist_handoff_packet
 from agents.transcript_edit.terminalization import terminal_message, terminal_summary
 from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
@@ -56,6 +57,121 @@ def _is_critical_progress_event(event: dict[str, Any]) -> bool:
 
 class TranscriptEditAgentApiRequest(TranscriptEditAgentRunRequest):
     background: bool = True
+
+
+class TranscriptEditAgentResumeRequest(BaseModel):
+    background: bool = True
+    trigger: str | None = "manual_resume"
+
+
+def _should_wait_feedback(*, result: TranscriptEditAgentRunResult, summary: dict[str, Any]) -> bool:
+    if str(result.status or "").strip().lower() != "needs_review":
+        return False
+    if bool(summary.get("human_feedback_pending")):
+        return True
+    return str(summary.get("terminal_classification") or "").strip().lower() == "blocked_human_feedback_needed"
+
+
+def _build_resume_request_payload(request: TranscriptEditAgentApiRequest) -> dict[str, Any]:
+    payload = request.model_dump(mode="json")
+    payload.pop("background", None)
+    return payload
+
+
+def _extract_resume_source_ref(*, run: dict[str, Any]) -> str | None:
+    snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}
+    latest_refs = snapshot.get("latest_refs") if isinstance(snapshot.get("latest_refs"), dict) else {}
+    for key in ("tx_edited_transcript_ref", "tx_source_transcript_ref"):
+        row = latest_refs.get(key)
+        if isinstance(row, dict):
+            path = str(row.get("artifact_path") or "").strip()
+            if path:
+                return path
+        if isinstance(row, str) and str(row).strip():
+            return str(row).strip()
+    return None
+
+
+def _extract_resume_pending_feedback(run: dict[str, Any]) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}
+    runtime_hitl = snapshot.get("runtime_hitl_state") if isinstance(snapshot.get("runtime_hitl_state"), dict) else {}
+    summary = snapshot.get("terminal_summary") if isinstance(snapshot.get("terminal_summary"), dict) else {}
+
+    prompt_id = str(runtime_hitl.get("pending_feedback_prompt_id") or "").strip() or None
+    decision_key = str(runtime_hitl.get("pending_feedback_decision_key") or "").strip().lower() or None
+
+    if not prompt_id:
+        pending_ids = [str(v).strip() for v in list(summary.get("pending_feedback_prompt_ids") or []) if str(v).strip()]
+        if pending_ids:
+            prompt_id = pending_ids[0]
+
+    if not decision_key and prompt_id:
+        body = str(prompt_id).strip().lower()
+        if body.startswith("hitl_"):
+            body = body[len("hitl_") :]
+            parts = body.split("_")
+            if parts:
+                maybe = parts[0]
+                if maybe in {"township", "range", "section", "tie", "closure", "acreage"}:
+                    if maybe == "tie" and len(parts) > 1 and parts[1] in {"distance", "bearing"}:
+                        decision_key = f"tie_{parts[1]}"
+                    elif maybe == "closure" and len(parts) > 2 and parts[1] == "or" and parts[2] == "pob":
+                        decision_key = "closure_or_pob"
+                    elif maybe in {"township", "range", "section", "acreage"}:
+                        decision_key = maybe
+
+    prompt_context: dict[str, Any] | None = None
+    if decision_key:
+        prompt_context = {"decision_key": decision_key}
+    return prompt_id, decision_key, prompt_context
+
+
+def _build_resume_request_for_run(*, run: dict[str, Any], trigger: str | None, background: bool) -> TranscriptEditAgentApiRequest:
+    request_meta = run.get("request") if isinstance(run.get("request"), dict) else {}
+    payload = request_meta.get("resume_request") if isinstance(request_meta.get("resume_request"), dict) else {}
+    base_payload = dict(payload)
+    source_ref = _extract_resume_source_ref(run=run)
+    if source_ref:
+        base_payload["source_transcript_ref"] = source_ref
+        base_payload["source_text"] = None
+    if trigger:
+        base_payload["trigger"] = trigger
+    pending_prompt_id, pending_decision_key, prompt_context = _extract_resume_pending_feedback(run)
+    if pending_prompt_id:
+        base_payload["resume_pending_feedback_prompt_id"] = pending_prompt_id
+    if pending_decision_key:
+        base_payload["resume_pending_feedback_decision_key"] = pending_decision_key
+    if isinstance(prompt_context, dict):
+        base_payload["resume_pending_feedback_prompt"] = prompt_context
+    base_payload["background"] = bool(background)
+    return TranscriptEditAgentApiRequest.model_validate(base_payload)
+
+
+def request_run_resume_if_waiting(*, run_id: str, trigger: str | None, background: bool = True) -> dict[str, Any]:
+    run = _registry.get_run(run_id)
+    if not isinstance(run, dict):
+        return {"resumed": False, "reason": "run_not_found"}
+    status = str(run.get("status") or "").strip().lower()
+    if status == "running":
+        return {"resumed": False, "reason": "already_running"}
+    if status != "waiting_feedback":
+        return {"resumed": False, "reason": f"not_waiting_feedback:{status or 'unknown'}"}
+    request = _build_resume_request_for_run(run=run, trigger=trigger, background=background)
+    _registry.update_run(
+        run_id=run_id,
+        patch={
+            "status": "running",
+            "snapshot": {
+                **(run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}),
+                "run_id": run_id,
+                "status": "running",
+                "resume_trigger": str(trigger or "").strip() or "resume",
+            },
+        },
+    )
+    thread = Thread(target=_execute_run, args=(run_id, request), daemon=True)
+    thread.start()
+    return {"resumed": True, "run_id": run_id, "status": "running"}
 
 
 def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
@@ -202,13 +318,15 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             "handoff_packet_ref": handoff_packet_ref,
             "handoff_summary": handoff_packet.get("handoff_summary"),
         }
+        waiting_feedback = _should_wait_feedback(result=result, summary=run_terminal_summary)
+        final_status = "waiting_feedback" if waiting_feedback else result.status
         _registry.update_run(
             run_id=run_id,
             patch={
-                "status": result.status,
+                "status": final_status,
                 "snapshot": {
                     "run_id": run_id,
-                    "status": result.status,
+                    "status": final_status,
                     "reason_code": result.reason_code,
                     "iterations": result.iterations,
                     "session_id": result.session_id,
@@ -216,31 +334,54 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                     "latest_refs": result.latest_refs,
                     "review_required": result.review_required,
                     "terminal_summary": run_terminal_summary,
+                    "runtime_hitl_state": (
+                        result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else None
+                    ),
                     "live_status": progress_log[-1] if progress_log else None,
                     "progress_log": list(progress_log),
                     "critical_events": list(critical_events),
+                    "waiting_feedback": bool(waiting_feedback),
+                    "resumable": bool(waiting_feedback),
                 },
             },
         )
-        _publish_viewer_event(
-            "done",
-            {
-                "phase": result.status,
-                "message": run_terminal_message,
-                "execution_state": result.status,
-                "iteration": result.iterations,
-                "latest_refs": result.latest_refs,
-                "review_required": result.review_required,
-                "summary": run_terminal_summary,
-                "handoff_packet_ref": handoff_packet_ref,
-                "handoff_summary": handoff_packet.get("handoff_summary"),
-                "terminal": True,
-            },
-        )
+        if waiting_feedback:
+            _publish_viewer_event(
+                "status",
+                {
+                    "phase": "waiting_feedback",
+                    "message": "Paused waiting for human feedback. Run is resumable.",
+                    "execution_state": "waiting",
+                    "iteration": result.iterations,
+                    "latest_refs": result.latest_refs,
+                    "review_required": result.review_required,
+                    "summary": run_terminal_summary,
+                    "handoff_packet_ref": handoff_packet_ref,
+                    "handoff_summary": handoff_packet.get("handoff_summary"),
+                    "terminal": False,
+                    "resumable": True,
+                },
+            )
+        else:
+            _publish_viewer_event(
+                "done",
+                {
+                    "phase": result.status,
+                    "message": run_terminal_message,
+                    "execution_state": result.status,
+                    "iteration": result.iterations,
+                    "latest_refs": result.latest_refs,
+                    "review_required": result.review_required,
+                    "summary": run_terminal_summary,
+                    "handoff_packet_ref": handoff_packet_ref,
+                    "handoff_summary": handoff_packet.get("handoff_summary"),
+                    "terminal": True,
+                },
+            )
         logger.info(
             "TX_LOOP_DONE ► run_id=%s status=%s iterations=%s elapsed_ms=%s reason=%s",
             run_id,
-            result.status,
+            final_status,
             result.iterations,
             int((_time.perf_counter() - loop_started_mono) * 1000),
             result.reason_code,
@@ -283,6 +424,7 @@ async def start_run(request: TranscriptEditAgentApiRequest) -> dict[str, Any]:
             "has_source_text": bool(request.source_text),
             "source_image_refs_count": len(request.source_image_refs or []),
             "has_edit_plan": isinstance(request.edit_plan, dict),
+            "resume_request": _build_resume_request_payload(request),
         },
     )
     if request.background:
@@ -306,3 +448,20 @@ async def get_run(run_id: str) -> dict[str, Any]:
 async def list_runs(limit: int = Query(default=20, ge=1, le=200)) -> dict[str, Any]:
     runs = _registry.list_runs(limit=limit)
     return {"runs": runs, "count": len(runs)}
+
+
+@router.post("/run/{run_id}/resume")
+async def resume_run(run_id: str, request: TranscriptEditAgentResumeRequest) -> dict[str, Any]:
+    result = request_run_resume_if_waiting(
+        run_id=run_id,
+        trigger=request.trigger,
+        background=request.background,
+    )
+    if not bool(result.get("resumed")):
+        reason = str(result.get("reason") or "resume_not_allowed")
+        if reason == "run_not_found":
+            raise HTTPException(status_code=404, detail=reason)
+        if reason == "already_running":
+            raise HTTPException(status_code=409, detail=reason)
+        raise HTTPException(status_code=409, detail=reason)
+    return result
