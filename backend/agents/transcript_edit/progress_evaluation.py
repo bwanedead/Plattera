@@ -38,11 +38,19 @@ def classify_iteration_progress(
     pending_feedback_prompt_id: str | None,
     pending_reaudit_after_apply: bool,
     apply_reaudit_baseline_blocking_count: int | None,
+    apply_reaudit_baseline_blocking_signature: str | None,
 ) -> tuple[bool, str, bool]:
     if pending_reaudit_after_apply:
         baseline = int(apply_reaudit_baseline_blocking_count if apply_reaudit_baseline_blocking_count is not None else current_blocking_count)
+        baseline_signature = str(
+            apply_reaudit_baseline_blocking_signature
+            if isinstance(apply_reaudit_baseline_blocking_signature, str)
+            else current_blocking_signature
+        )
         if current_blocking_count < baseline:
             return True, "apply_reaudit_improved_blocking_closure", True
+        if baseline_signature and current_blocking_signature != baseline_signature:
+            return True, "apply_reaudit_blocking_signature_changed", True
         return False, "apply_reaudit_no_blocking_improvement", True
 
     if current_signal_counter > previous_signal_counter:

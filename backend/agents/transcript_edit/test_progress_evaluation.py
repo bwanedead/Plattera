@@ -51,6 +51,7 @@ def test_classify_iteration_progress_requires_apply_reaudit_improvement() -> Non
         pending_feedback_prompt_id=None,
         pending_reaudit_after_apply=True,
         apply_reaudit_baseline_blocking_count=1,
+        apply_reaudit_baseline_blocking_signature="range:disputed:ambiguity:",
     )
     assert progressed is False
     assert reason == "apply_reaudit_no_blocking_improvement"
@@ -70,6 +71,27 @@ def test_classify_iteration_progress_pending_feedback_is_not_progress_without_si
         pending_feedback_prompt_id="hitl_range_1_x",
         pending_reaudit_after_apply=False,
         apply_reaudit_baseline_blocking_count=None,
+        apply_reaudit_baseline_blocking_signature=None,
     )
     assert progressed is False
     assert reason == "pending_human_feedback_no_new_signal"
+
+
+def test_classify_iteration_progress_apply_reaudit_signature_change_counts_as_progress() -> None:
+    progressed, reason, clear_pending = classify_iteration_progress(
+        previous_finding_signature="a",
+        current_finding_signature="a",
+        previous_blocking_signature="range:disputed:ambiguity:",
+        current_blocking_signature="township:disputed:ambiguity:",
+        previous_blocking_count=1,
+        current_blocking_count=1,
+        previous_signal_counter=3,
+        current_signal_counter=3,
+        pending_feedback_prompt_id=None,
+        pending_reaudit_after_apply=True,
+        apply_reaudit_baseline_blocking_count=1,
+        apply_reaudit_baseline_blocking_signature="range:disputed:ambiguity:",
+    )
+    assert progressed is True
+    assert reason == "apply_reaudit_blocking_signature_changed"
+    assert clear_pending is True

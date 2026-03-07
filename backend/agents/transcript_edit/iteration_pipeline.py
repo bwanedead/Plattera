@@ -695,6 +695,7 @@ def handle_repair_iteration(
         focus_reason_code = str((focus or {}).get("next_check_reason_code") or "next_open_item")
         focus_key = str((focus or {}).get("decision_key") or "").strip()
         prior_focus_key = str(state.last_focus_key or "").strip().lower()
+        focus_advanced = bool(focus_key and prior_focus_key and focus_key.lower() != prior_focus_key)
         if focus_key and focus_key.lower() == prior_focus_key:
             state.focus_stagnation_streak += 1
         else:
@@ -708,6 +709,13 @@ def handle_repair_iteration(
                     phase="investigate",
                     message=focus_reason,
                     latest_refs=state.latest_refs,
+                    detail={
+                        "focus_decision_key": focus_key.lower() if focus_key else None,
+                        "previous_focus_decision_key": prior_focus_key or None,
+                        "focus_advanced": bool(focus_advanced),
+                        "focus_reason_code": focus_reason_code,
+                        "focus_stagnation_streak": int(state.focus_stagnation_streak),
+                    },
                 ),
             )
         emit_progress(
@@ -1706,6 +1714,7 @@ def handle_repair_iteration(
         state.applied_any_edits = True
         state.pending_reaudit_after_apply = True
         state.apply_reaudit_baseline_blocking_count = blocking_unresolved_count(state.decision_ledger)
+        state.apply_reaudit_baseline_blocking_signature = blocking_signature(state.decision_ledger)
         ticket_prompt_id = (
             str((focus_feedback or {}).get("prompt_id") or "").strip()
             if isinstance(focus_feedback, dict)

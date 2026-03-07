@@ -1367,6 +1367,53 @@ def test_transcript_controller_apply_requires_reaudit_for_progress_claim() -> No
         assert "waiting_reaudit" in str(result.reason_code)
 
 
+def test_transcript_controller_emits_post_apply_progress_and_focus_diagnostics() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Beginning at NW corner."}]}),
+            encoding="utf-8",
+        )
+        progress_events: list[dict[str, Any]] = []
+        _ = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                max_no_progress_iterations=2,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="manual-post-apply-progress-diagnostics",
+            planner=_PlannerSuccess(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+        progress_eval_events = [
+            evt
+            for evt in progress_events
+            if isinstance(evt, dict) and str(evt.get("phase") or "") == "progress_evaluation"
+        ]
+        assert progress_eval_events
+        assert any(
+            isinstance(evt.get("detail"), dict)
+            and evt["detail"].get("pre_apply_blocker_signature")
+            and evt["detail"].get("post_apply_blocker_signature") is not None
+            for evt in progress_eval_events
+        )
+        investigate_events = [
+            evt
+            for evt in progress_events
+            if isinstance(evt, dict)
+            and str(evt.get("phase") or "") == "investigate"
+            and isinstance(evt.get("detail"), dict)
+            and "focus_advanced" in evt["detail"]
+        ]
+        assert investigate_events
+        assert all(isinstance(evt["detail"].get("focus_advanced"), bool) for evt in investigate_events)
+
+
 def test_transcript_controller_resolver_invalid_retries_then_exhausts() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         source = Path(tmp) / "source.json"

@@ -18,6 +18,7 @@ class TranscriptEditLoopState:
     previous_signal_counter: int = 0
     pending_reaudit_after_apply: bool = False
     apply_reaudit_baseline_blocking_count: int | None = None
+    apply_reaudit_baseline_blocking_signature: str | None = None
     last_focus_key: str | None = None
     focus_stagnation_streak: int = 0
     applied_non_normalization: bool = False

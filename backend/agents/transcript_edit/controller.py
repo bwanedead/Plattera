@@ -74,6 +74,7 @@ from .run_reporting import (
     investigation_baseline_result_payload,
     preflight_countdown_payload,
     starting_payload,
+    ticker_payload,
 )
 from .planner import TranscriptEditPlanPlanner
 
@@ -376,6 +377,8 @@ def run_transcript_edit_controller_loop(
         current_finding_signature = finding_signature(summary=findings_summary, findings=top_findings)
         current_blocking_signature = blocking_signature(state.decision_ledger)
         current_blocking_count = blocking_unresolved_count(state.decision_ledger)
+        apply_reaudit_baseline_count = state.apply_reaudit_baseline_blocking_count
+        apply_reaudit_baseline_signature = state.apply_reaudit_baseline_blocking_signature
         progressed, progress_reason, clear_pending_reaudit = classify_iteration_progress(
             previous_finding_signature=state.previous_finding_signature,
             current_finding_signature=current_finding_signature,
@@ -387,11 +390,39 @@ def run_transcript_edit_controller_loop(
             current_signal_counter=state.evidence_signal_counter,
             pending_feedback_prompt_id=state.pending_feedback_prompt_id,
             pending_reaudit_after_apply=state.pending_reaudit_after_apply,
-            apply_reaudit_baseline_blocking_count=state.apply_reaudit_baseline_blocking_count,
+            apply_reaudit_baseline_blocking_count=apply_reaudit_baseline_count,
+            apply_reaudit_baseline_blocking_signature=apply_reaudit_baseline_signature,
+        )
+        _emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="progress_evaluation",
+                message=f"Progress evaluation: {progress_reason}.",
+                latest_refs=state.latest_refs,
+                detail={
+                    "progressed": bool(progressed),
+                    "progress_reason": progress_reason,
+                    "pre_apply_blocker_signature": (
+                        apply_reaudit_baseline_signature
+                        if state.pending_reaudit_after_apply
+                        else None
+                    ),
+                    "post_apply_blocker_signature": current_blocking_signature,
+                    "pre_apply_blocker_count": (
+                        int(apply_reaudit_baseline_count)
+                        if state.pending_reaudit_after_apply and apply_reaudit_baseline_count is not None
+                        else None
+                    ),
+                    "post_apply_blocker_count": int(current_blocking_count),
+                    "pending_reaudit_after_apply": bool(state.pending_reaudit_after_apply),
+                },
+            ),
         )
         if clear_pending_reaudit:
             state.pending_reaudit_after_apply = False
             state.apply_reaudit_baseline_blocking_count = None
+            state.apply_reaudit_baseline_blocking_signature = None
         state.no_progress_streak = 0 if progressed else state.no_progress_streak + 1
         state.last_progress_reason = progress_reason
         state.previous_finding_signature = current_finding_signature

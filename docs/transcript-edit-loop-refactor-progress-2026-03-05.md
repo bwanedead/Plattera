@@ -463,3 +463,39 @@ Live CLI validation (practice deed):
 Verification:
 - `pytest backend/agents/transcript_edit/test_hitl_feedback.py backend/agents/transcript_edit/test_controller.py -q` passed
 - `pytest backend/agents/transcript_edit -q` passed
+
+## 36) Post-apply progress recognition and focus reprioritization diagnostics
+Objective:
+- ensure post-feedback apply + re-audit can register material progress when a targeted blocker advances, even if total unresolved blocking count does not drop.
+
+Implementation summary:
+- Tightened `progress_evaluation.classify_iteration_progress(...)` for `pending_reaudit_after_apply`:
+  - still counts progress when unresolved blocking count decreases.
+  - now also counts progress when unresolved blocker signature changes from the apply baseline.
+  - added reason code: `apply_reaudit_blocking_signature_changed`.
+- Added apply baseline signature tracking:
+  - `loop_state.py`: `apply_reaudit_baseline_blocking_signature`
+  - `iteration_pipeline.py`: captures baseline signature at apply time.
+- Added explicit run diagnostics in `controller.py`:
+  - emits `phase=progress_evaluation` ticker with:
+    - `pre_apply_blocker_signature`
+    - `post_apply_blocker_signature`
+    - pre/post blocker counts
+    - progress reason + progressed boolean
+- Added focus-advance diagnostics in `iteration_pipeline.py`:
+  - `investigate` events now include:
+    - `focus_decision_key`
+    - `previous_focus_decision_key`
+    - `focus_advanced`
+    - `focus_reason_code`
+    - `focus_stagnation_streak`
+
+Validation coverage added/updated:
+- `test_progress_evaluation.py`:
+  - `test_classify_iteration_progress_apply_reaudit_signature_change_counts_as_progress`
+- `test_controller.py`:
+  - `test_transcript_controller_emits_post_apply_progress_and_focus_diagnostics`
+
+Verification:
+- `pytest backend/agents/transcript_edit/test_progress_evaluation.py backend/agents/transcript_edit/test_controller.py -q` passed
+- `pytest backend/agents/transcript_edit -q` passed
