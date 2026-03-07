@@ -92,3 +92,24 @@ def test_findings_for_focus_key_preserves_range_identity_over_generic_plss() -> 
     focused_range = _findings_for_focus_key(top_findings=findings, focus_key="range")
     assert len(focused_range) == 1
     assert str(focused_range[0].get("finding_id") or "") == "plss_range_conflict_001"
+
+
+def test_select_focus_decision_key_does_not_prioritize_outside_scope_feedback() -> None:
+    ledger = {
+        "items": [
+            _ledger_item(key="range", state="disputed"),
+            _ledger_item(key="section", state="disputed"),
+        ]
+    }
+    ledger["items"][0]["scope_id"] = "target_scope"
+    ledger["items"][0]["in_target_scope"] = True
+    ledger["items"][1]["scope_id"] = "outside_target_scope"
+    ledger["items"][1]["in_target_scope"] = False
+    ledger["items"][1]["closure_requirement"]["scope_status"] = "outside_target"
+    ledger["items"][1]["closure_requirement"]["scope_proof"] = ["explicit_outside_target_text"]
+    selected = _select_focus_decision_key(
+        decision_ledger=ledger,
+        fallback_focus={"decision_key": "range"},
+        focus_feedback={"decision_key": "section", "selected_value": "Section 12"},
+    )
+    assert selected == "range"

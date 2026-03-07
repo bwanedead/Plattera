@@ -104,3 +104,31 @@ def test_focus_packet_injects_answered_unintegrated_human_resolution_ticket() ->
     assert str(row.get("type") or "") == "human_resolution_ticket"
     assert str(row.get("lifecycle_state") or "") == "answered_unintegrated"
     assert str((row.get("payload") or {}).get("normalized_answer_summary") or "") == "Range 75 West"
+
+
+def test_focus_packet_preserves_unknown_scope_as_none_for_in_target_flag() -> None:
+    packet = build_focus_packet(
+        decision_ledger={
+            "items": [
+                {
+                    "key": "range",
+                    "state": "disputed",
+                    "blocking": True,
+                    "in_target_scope": None,
+                    "closure_requirement": {
+                        "mapping_blocking": True,
+                        "scope_status": "unknown",
+                        "scope_proof": [],
+                    },
+                }
+            ]
+        },
+        decision_key="range",
+        source_transcript_ref="in-memory://source.json",
+        source_transcript_hash="sha256:test",
+        span_context=[],
+        image_verification_payload={},
+        feedback=None,
+        continuity_log=[],
+    )
+    assert packet["scope_context"]["in_target_scope"] is None

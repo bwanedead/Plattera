@@ -22,6 +22,7 @@ from backend.agents.transcript_edit.controller import (
     run_transcript_edit_controller_loop,
 )
 from backend.agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
+from backend.agents.transcript_edit.terminalization import terminal_summary
 from backend.transcript_edit.contracts import EditPlanV0
 
 
@@ -441,6 +442,111 @@ class _OrientBaselinerSectionConflictStub:
                     "evidence_refs": ["orient_llm"],
                     "provenance": "orient_llm",
                 }
+            ],
+            "tx_span_seeds_ref": "in-memory://tx/span-seeds.json",
+        }
+
+
+class _OrientBaselinerPartialTruncatedScopedStub:
+    def orient_and_baseline(self, inputs):  # type: ignore[no-untyped-def]
+        source_ref = str(
+            inputs.get("canonical_ref")
+            or inputs.get("source_transcript_ref")
+            or "in-memory://tx/source.json"
+        )
+        return {
+            "artifact_ref": {"artifact_path": "in-memory://tx/orient_baseline_partial_scope.json"},
+            "reason_codes": ["tx_orient_baseline_completed"],
+            "tx_source_transcript_ref": source_ref,
+            "tx_source_transcript_hash": "sha256:orient-partial",
+            "tx_orient_items": [
+                {
+                    "key": "range",
+                    "state": "verified",
+                    "alternatives": ["Range 75 West"],
+                    "confidence": "high",
+                    "layer_tag": "layer1_canonical_recovery",
+                    "operational_impact": "mapping_blocking",
+                    "scope_id": "target_scope",
+                    "scope_label": "Target Scope",
+                    "scope_priority": 0,
+                    "in_target_scope": True,
+                    "source_completeness": "partial_truncated",
+                    "source_completeness_reason": "Lower page is cut off in source image.",
+                    "source_limitations": ["Lower-page content outside target plot is unavailable."],
+                    "evidence_refs": ["orient_llm"],
+                    "provenance": "orient_llm",
+                },
+                {
+                    "key": "closure_or_pob",
+                    "state": "disputed",
+                    "alternatives": ["Call A", "Call B"],
+                    "confidence": "low",
+                    "layer_tag": "layer1_canonical_recovery",
+                    "operational_impact": "mapping_blocking",
+                    "block_reason": "ambiguity",
+                    "required_information": "Missing lower-page closure language.",
+                    "minimal_user_action": "Provide uncropped source image.",
+                    "resolution_options": ["Call A", "Call B"],
+                    "self_retrievable": "conditional",
+                    "retrieval_attempted": True,
+                    "retrieval_blocker": "source_truncated",
+                    "verification_required": True,
+                    "attempt_summary": "Outside target scope content is truncated in source.",
+                    "scope_id": "outside_target_scope",
+                    "scope_label": "Outside Target Scope",
+                    "scope_priority": 90,
+                    "in_target_scope": False,
+                    "scope_status": "outside_target",
+                    "scope_proof": ["source_truncation_boundary"],
+                    "source_completeness": "partial_truncated",
+                    "source_completeness_reason": "Lower page is cut off in source image.",
+                    "source_limitations": ["Lower-page content outside target plot is unavailable."],
+                    "evidence_refs": ["orient_llm"],
+                    "provenance": "orient_llm",
+                },
+            ],
+            "tx_span_seeds_ref": "in-memory://tx/span-seeds.json",
+        }
+
+
+class _OrientBaselinerPartialTruncatedUnknownScopeStub:
+    def orient_and_baseline(self, inputs):  # type: ignore[no-untyped-def]
+        source_ref = str(
+            inputs.get("canonical_ref")
+            or inputs.get("source_transcript_ref")
+            or "in-memory://tx/source.json"
+        )
+        return {
+            "artifact_ref": {"artifact_path": "in-memory://tx/orient_baseline_partial_unknown.json"},
+            "reason_codes": ["tx_orient_baseline_completed"],
+            "tx_source_transcript_ref": source_ref,
+            "tx_source_transcript_hash": "sha256:orient-partial-unknown",
+            "tx_orient_items": [
+                {
+                    "key": "range",
+                    "state": "verified",
+                    "alternatives": ["Range 75 West"],
+                    "operational_impact": "mapping_blocking",
+                    "scope_id": "target_scope",
+                    "in_target_scope": True,
+                    "source_completeness": "partial_truncated",
+                    "source_completeness_reason": "Lower page is cut off in source image.",
+                    "evidence_refs": ["orient_llm"],
+                    "provenance": "orient_llm",
+                },
+                {
+                    "key": "closure_or_pob",
+                    "state": "disputed",
+                    "alternatives": ["Call A", "Call B"],
+                    "operational_impact": "mapping_blocking",
+                    "scope_status": "unknown",
+                    "scope_proof": [],
+                    "source_completeness": "partial_truncated",
+                    "source_completeness_reason": "Lower page is cut off in source image.",
+                    "evidence_refs": ["orient_llm"],
+                    "provenance": "orient_llm",
+                },
             ],
             "tx_span_seeds_ref": "in-memory://tx/span-seeds.json",
         }
@@ -1412,6 +1518,67 @@ def test_transcript_controller_emits_post_apply_progress_and_focus_diagnostics()
         ]
         assert investigate_events
         assert all(isinstance(evt["detail"].get("focus_advanced"), bool) for evt in investigate_events)
+
+
+def test_transcript_controller_partial_source_allows_scoped_success() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Subject target plot calls are complete."}]}),
+            encoding="utf-8",
+        )
+        progress_events: list[dict[str, Any]] = []
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerPartialTruncatedScopedStub()),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-partial-source-scoped-success",
+            planner=_PlannerAlwaysFeedback(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+        assert result.status == "completed"
+        summary = terminal_summary(progress_events, result, critical_events=[])
+        assert summary["target_scope_status"] == "achieved"
+        assert summary["source_completeness"] == "partial_truncated"
+        assert summary["terminal_classification"] == "target_scope_complete_with_incomplete_source_context"
+        assert any(
+            isinstance(item, dict) and str(item.get("key") or "") == "closure_or_pob"
+            for item in summary["unresolved_outside_target_scope_items"]
+        )
+
+
+def test_transcript_controller_partial_source_unknown_scope_blocker_does_not_complete() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Subject target plot calls are complete."}]}),
+            encoding="utf-8",
+        )
+        progress_events: list[dict[str, Any]] = []
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerPartialTruncatedUnknownScopeStub()),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-partial-source-unknown-scope-blocker",
+            planner=_PlannerAlwaysFeedback(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+        assert result.status == "needs_review"
+        summary = terminal_summary(progress_events, result, critical_events=[])
+        assert summary["scoped_success_eligible"] is False
+        assert int((summary.get("scope_summary") or {}).get("unknown_scope_unresolved_mapping_blockers") or 0) >= 1
 
 
 def test_transcript_controller_resolver_invalid_retries_then_exhausts() -> None:

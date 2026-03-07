@@ -45,10 +45,45 @@ def build_focus_packet(
         decision_ledger=decision_ledger,
         decision_key=key,
     )
+    scope_summaries = (
+        dict(decision_ledger.get("scope_summaries"))
+        if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("scope_summaries"), dict)
+        else {}
+    )
     return {
         "decision_key": key,
         "ledger_item": ledger_item or {},
         "closure_requirement": closure_requirement,
+        "scope_context": {
+            "scope_id": str((ledger_item or {}).get("scope_id") or "unknown_scope"),
+            "scope_label": str((ledger_item or {}).get("scope_label") or "Unknown Scope"),
+            "scope_priority": int((ledger_item or {}).get("scope_priority") or 50),
+            "in_target_scope": _tri_state_in_target_scope(
+                (ledger_item or {}).get("in_target_scope"),
+                str((closure_requirement or {}).get("scope_status") or "unknown"),
+            ),
+            "scope_status": str((closure_requirement or {}).get("scope_status") or "unknown"),
+            "scope_proof": [
+                str(v)
+                for v in list((closure_requirement or {}).get("scope_proof") or [])
+                if str(v).strip()
+            ][:6],
+            "target_scope_status": str((scope_summaries.get("target_scope") or {}).get("scope_closure_state") or "not_attempted"),
+            "outside_target_scope_status": str((scope_summaries.get("outside_target_scope") or {}).get("scope_closure_state") or "not_attempted"),
+        },
+        "source_completeness": str(decision_ledger.get("source_completeness") or "unknown") if isinstance(decision_ledger, dict) else "unknown",
+        "source_completeness_reason": (
+            str(decision_ledger.get("source_completeness_reason") or "").strip() or None
+            if isinstance(decision_ledger, dict)
+            else None
+        ),
+        "source_limitations": [
+            str(v)
+            for v in list(decision_ledger.get("source_limitations") or [])
+            if str(v).strip()
+        ][:6]
+        if isinstance(decision_ledger, dict)
+        else [],
         "source_transcript_ref": source_transcript_ref,
         "source_transcript_hash": source_transcript_hash,
         "span_context": bounded_spans,
@@ -157,6 +192,17 @@ def _bounded_image_verification(
             break
     out["results"] = bounded_results
     return out
+
+
+def _tri_state_in_target_scope(raw_value: Any, scope_status: str) -> bool | None:
+    if isinstance(raw_value, bool):
+        return raw_value
+    status = str(scope_status or "").strip().lower()
+    if status == "in_target":
+        return True
+    if status == "outside_target":
+        return False
+    return None
 
 
 def _bounded_feedback(*, feedback: dict[str, Any] | None, decision_key: str) -> dict[str, Any] | None:

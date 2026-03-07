@@ -6,7 +6,10 @@ from .contracts import TranscriptEditAgentRunResult
 from .decision_ledger import (
     closure_state_from_layers,
     derive_layer_statuses,
-    has_unresolved_mapping_blocking_closure,
+    has_unresolved_target_scope_mapping_blocking_closure,
+    scope_summaries_from_ledger,
+    unresolved_outside_target_scope_mapping_blocking_requirements,
+    unresolved_target_scope_mapping_blocking_requirements,
     unresolved_mapping_blocking_requirements,
     unresolved_closure_requirements,
 )
@@ -93,10 +96,12 @@ def terminal_summary(
         phase = str(entry.get("phase") or "")
         event_type = str(entry.get("event_type") or "")
         detail = entry.get("detail") if isinstance(entry.get("detail"), dict) else {}
-        if decision_ledger is None and isinstance(detail.get("decision_ledger"), dict):
-            decision_ledger = detail.get("decision_ledger")
-        elif isinstance(detail.get("decision_ledger"), dict):
-            decision_ledger = detail.get("decision_ledger")
+        detail_ledger = detail.get("decision_ledger") if isinstance(detail.get("decision_ledger"), dict) else None
+        if isinstance(detail_ledger, dict):
+            has_items = isinstance(detail_ledger.get("items"), list) and len(detail_ledger.get("items") or []) > 0
+            has_summary = isinstance(detail_ledger.get("summary"), dict) and len(detail_ledger.get("summary") or {}) > 0
+            if has_items or has_summary:
+                decision_ledger = detail_ledger
         if phase == "audit_result":
             if first_audit is None:
                 first_audit = detail
@@ -118,8 +123,25 @@ def terminal_summary(
     unresolved_optional_items = [
         item for item in unresolved_requirements if isinstance(item, dict) and not bool(item.get("mapping_blocking"))
     ]
-    blocking_unresolved = has_unresolved_mapping_blocking_closure(decision_ledger)
+    source_completeness = (
+        str(decision_ledger.get("source_completeness") or "unknown").strip().lower()
+        if isinstance(decision_ledger, dict)
+        else "unknown"
+    )
+    source_completeness_reason = (
+        str(decision_ledger.get("source_completeness_reason") or "").strip() or None
+        if isinstance(decision_ledger, dict)
+        else None
+    )
+    source_limitations = (
+        [str(v) for v in list(decision_ledger.get("source_limitations") or []) if str(v).strip()][:12]
+        if isinstance(decision_ledger, dict)
+        else []
+    )
+    blocking_unresolved = has_unresolved_target_scope_mapping_blocking_closure(decision_ledger)
     unresolved_mapping_blocking_items = unresolved_mapping_blocking_requirements(decision_ledger)
+    unresolved_target_scope_items = unresolved_target_scope_mapping_blocking_requirements(decision_ledger)
+    unresolved_outside_target_scope_items = unresolved_outside_target_scope_mapping_blocking_requirements(decision_ledger)
     unresolved_dependency_items = [
         item
         for item in unresolved_mapping_blocking_items
@@ -129,6 +151,26 @@ def terminal_summary(
     ]
     unresolved_ambiguity_items = [
         item for item in unresolved_mapping_blocking_items if item not in unresolved_dependency_items
+    ]
+    unresolved_ambiguity_target_scope_items = [
+        item
+        for item in unresolved_target_scope_items
+        if item in unresolved_ambiguity_items
+    ]
+    unresolved_unknown_scope_items = [
+        item
+        for item in unresolved_mapping_blocking_items
+        if _scope_status_for_unresolved_item(item) == "unknown"
+    ]
+    unresolved_in_target_scope_items = [
+        item
+        for item in unresolved_mapping_blocking_items
+        if _scope_status_for_unresolved_item(item) == "in_target"
+    ]
+    unresolved_outside_target_scope_items_with_proof = [
+        item
+        for item in unresolved_outside_target_scope_items
+        if len(_scope_proof_for_unresolved_item(item)) > 0
     ]
     pending_feedback_prompt_ids = _pending_feedback_prompt_ids(events=events)
     human_feedback_pending = len(pending_feedback_prompt_ids) > 0
@@ -176,6 +218,23 @@ def terminal_summary(
         len(unresolved_optional_items) > 0
         and len(unresolved_mapping_blocking_items) == 0
     )
+    scope_summaries = scope_summaries_from_ledger(decision_ledger if isinstance(decision_ledger, dict) else None)
+    target_scope_status = str((scope_summaries.get("target_scope") or {}).get("scope_closure_state") or "not_attempted")
+    outside_target_scope_status = str((scope_summaries.get("outside_target_scope") or {}).get("scope_closure_state") or "not_attempted")
+    unknown_scope_status = str((scope_summaries.get("unknown_scope") or {}).get("scope_closure_state") or "not_attempted")
+    run_healthy = _run_is_healthy_for_scoped_success(
+        result_status=result_status,
+        reason_code=reason_code,
+    )
+    scoped_success_eligible = _eligible_for_scoped_success(
+        run_healthy=run_healthy,
+        in_target_unresolved_count=len(unresolved_in_target_scope_items),
+        unknown_scope_unresolved_count=len(unresolved_unknown_scope_items),
+        target_validator_clean=validator_clean,
+        target_scope_status=target_scope_status,
+        source_completeness=source_completeness,
+        outside_target_proved_count=len(unresolved_outside_target_scope_items_with_proof),
+    )
     mapping_ready = False
     readiness_blocker: str | None = None
     if promoted:
@@ -185,6 +244,9 @@ def terminal_summary(
     elif reason_code.startswith("tx_agent_final_image_verify_failed"):
         mapping_ready = False
         readiness_blocker = "mapping_critical_image_verification_unresolved"
+    if not mapping_ready and scoped_success_eligible and result_status == "completed":
+        mapping_ready = True
+        readiness_blocker = None
     layer_statuses = derive_layer_statuses(
         mapping_ready=mapping_ready,
         validator_clean=validator_clean,
@@ -199,8 +261,14 @@ def terminal_summary(
     terminal_classification = _terminal_classification(
         reason_code=reason_code,
         mapping_ready=mapping_ready,
+        scoped_success_eligible=scoped_success_eligible,
+        run_healthy=run_healthy,
+        target_scope_status=target_scope_status,
+        source_completeness=source_completeness,
+        unresolved_outside_target_scope_items=unresolved_outside_target_scope_items_with_proof,
         unresolved_dependency_items=unresolved_dependency_items,
         unresolved_ambiguity_items=unresolved_ambiguity_items,
+        unresolved_ambiguity_target_scope_items=unresolved_ambiguity_target_scope_items,
         optional_only_remaining=optional_only_remaining,
         human_feedback_pending=human_feedback_pending,
         result_status=result_status,
@@ -218,6 +286,20 @@ def terminal_summary(
         "readiness_blocker": readiness_blocker,
         "closure_state": closure_state,
         "terminal_classification": terminal_classification,
+        "source_completeness": source_completeness,
+        "source_completeness_reason": source_completeness_reason,
+        "source_limitations": source_limitations,
+        "scope_summaries": scope_summaries,
+        "scope_summary": {
+            "in_target_unresolved_mapping_blockers": len(unresolved_in_target_scope_items),
+            "unknown_scope_unresolved_mapping_blockers": len(unresolved_unknown_scope_items),
+            "outside_target_unresolved_mapping_blockers": len(unresolved_outside_target_scope_items_with_proof),
+        },
+        "target_scope_status": target_scope_status,
+        "outside_target_scope_status": outside_target_scope_status,
+        "unknown_scope_status": unknown_scope_status,
+        "scoped_success_eligible": scoped_success_eligible,
+        "run_healthy_for_scoped_success": run_healthy,
         **layer_statuses,
         "decision_ledger": decision_ledger_with_history,
         "closure_history": closure_history,
@@ -225,6 +307,22 @@ def terminal_summary(
         "unresolved_mapping_blocking_closure_requirements": unresolved_mapping_blocking_items,
         "unresolved_dependency_items": unresolved_dependency_items,
         "unresolved_ambiguity_items": unresolved_ambiguity_items,
+        "unresolved_target_scope_items": unresolved_target_scope_items,
+        "unresolved_outside_target_scope_items": unresolved_outside_target_scope_items,
+        "unresolved_unknown_scope_items": unresolved_unknown_scope_items,
+        "outside_target_items_with_scope_proof": [
+            {
+                **item,
+                "scope_proof": _scope_proof_for_unresolved_item(item),
+            }
+            for item in unresolved_outside_target_scope_items_with_proof
+            if isinstance(item, dict)
+        ],
+        "unresolved_by_scope": {
+            "target_scope": unresolved_in_target_scope_items,
+            "outside_target_scope": unresolved_outside_target_scope_items_with_proof,
+            "unknown_scope": unresolved_unknown_scope_items,
+        },
         "unresolved_optional_items": unresolved_optional_items,
         "optional_only_remaining": optional_only_remaining,
         "human_feedback_pending": human_feedback_pending,
@@ -378,12 +476,29 @@ def _terminal_classification(
     *,
     reason_code: str,
     mapping_ready: bool,
+    scoped_success_eligible: bool,
+    run_healthy: bool,
+    target_scope_status: str,
+    source_completeness: str,
+    unresolved_outside_target_scope_items: list[dict[str, Any]],
     unresolved_dependency_items: list[dict[str, Any]],
     unresolved_ambiguity_items: list[dict[str, Any]],
+    unresolved_ambiguity_target_scope_items: list[dict[str, Any]],
     optional_only_remaining: bool,
     human_feedback_pending: bool,
     result_status: str,
 ) -> str:
+    scoped_incomplete_source = bool(
+        scoped_success_eligible
+        and run_healthy
+        and target_scope_status == "achieved"
+        and source_completeness in {"partial_truncated", "partial_missing_context"}
+        and len(unresolved_outside_target_scope_items) > 0
+    )
+    if scoped_incomplete_source:
+        if result_status == "completed":
+            return "target_scope_complete_with_incomplete_source_context"
+        return "partial_success_incomplete_source"
     if mapping_ready:
         if optional_only_remaining:
             return "optional_quality_remaining_only"
@@ -394,11 +509,93 @@ def _terminal_classification(
         return "blocked_post_feedback_resolver_invalid"
     if human_feedback_pending:
         return "blocked_human_feedback_needed"
+    if len(unresolved_ambiguity_target_scope_items) > 0:
+        return "blocked_target_scope_ambiguity"
     if len(unresolved_ambiguity_items) > 0:
         return "blocked_mapping_ambiguity_unresolved"
     if result_status == "failed":
         return "blocked_execution_failed"
     return "blocked_no_safe_autonomous_move"
+
+
+def _scope_status_for_unresolved_item(item: dict[str, Any]) -> str:
+    requirement = item.get("closure_requirement") if isinstance(item.get("closure_requirement"), dict) else {}
+    raw_status = str(requirement.get("scope_status") or item.get("scope_status") or "").strip().lower()
+    if raw_status in {"in_target", "outside_target", "unknown"}:
+        return raw_status
+    raw_scope_id = str(item.get("scope_id") or "").strip().lower()
+    if raw_scope_id == "target_scope":
+        return "in_target"
+    if raw_scope_id == "outside_target_scope":
+        return "outside_target"
+    return "unknown"
+
+
+def _scope_proof_for_unresolved_item(item: dict[str, Any]) -> list[str]:
+    requirement = item.get("closure_requirement") if isinstance(item.get("closure_requirement"), dict) else {}
+    rows = [
+        str(v).strip().lower()
+        for v in list(requirement.get("scope_proof") or item.get("scope_proof") or [])
+        if str(v).strip()
+    ]
+    out: list[str] = []
+    for code in rows:
+        if code not in {
+            "explicit_outside_target_text",
+            "source_truncation_boundary",
+            "image_confirms_post_target_cutoff",
+            "operator_marked_outside_target",
+        }:
+            continue
+        if code in out:
+            continue
+        out.append(code)
+    return out[:6]
+
+
+def _run_is_healthy_for_scoped_success(*, result_status: str, reason_code: str) -> bool:
+    status = str(result_status or "").strip().lower()
+    reason = str(reason_code or "").strip().lower()
+    if status == "failed":
+        return False
+    unhealthy_prefixes = (
+        "tx_agent_post_feedback_resolver_invalid_exhausted",
+        "tx_agent_plan_invalid_exhausted",
+        "tx_audit_refused",
+        "tx_pre_audit_refused",
+        "tx_orient_baseline_refused",
+        "tx_apply_refused",
+        "tx_promote_refused",
+        "tx_agent_execution_failed",
+    )
+    return not any(reason.startswith(prefix) for prefix in unhealthy_prefixes)
+
+
+def _eligible_for_scoped_success(
+    *,
+    run_healthy: bool,
+    in_target_unresolved_count: int,
+    unknown_scope_unresolved_count: int,
+    target_validator_clean: bool,
+    target_scope_status: str,
+    source_completeness: str,
+    outside_target_proved_count: int,
+) -> bool:
+    if not run_healthy:
+        return False
+    if not target_validator_clean:
+        return False
+    if int(in_target_unresolved_count) > 0:
+        return False
+    if int(unknown_scope_unresolved_count) > 0:
+        return False
+    if str(target_scope_status or "").strip().lower() != "achieved":
+        return False
+    if str(source_completeness or "").strip().lower() not in {"partial_truncated", "partial_missing_context"}:
+        return False
+    if int(outside_target_proved_count) <= 0:
+        return False
+    return True
 
 
 def _post_feedback_ticket_seam(*, human_resolution_tickets: list[dict[str, Any]]) -> tuple[str | None, dict[str, Any] | None]:

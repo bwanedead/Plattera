@@ -11,8 +11,11 @@ from backend.agents.transcript_edit.decision_ledger import (
     derive_layer_statuses,
     has_blocking_dispute,
     has_unresolved_mapping_blocking_closure,
+    has_unresolved_target_scope_mapping_blocking_closure,
     initialize_decision_ledger,
     is_unresolved_mapping_blocking_decision,
+    unresolved_target_scope_mapping_blocking_requirements,
+    unresolved_outside_target_scope_mapping_blocking_requirements,
     list_external_context_injections,
     mark_human_resolution_ticket_state,
     unresolved_mapping_blocking_requirements,
@@ -330,3 +333,152 @@ def test_human_resolution_ticket_lifecycle_helpers_roundtrip() -> None:
     )
     assert len(rows2) == 1
     assert rows2[0].get("integrated_at") is not None
+
+
+def test_scope_partitioning_and_target_scope_predicate() -> None:
+    ledger = initialize_decision_ledger()
+    range_item = _item(ledger, "range")
+    range_item["state"] = "disputed"
+    range_item["blocking"] = True
+    range_item["scope_id"] = "target_scope"
+    range_item["in_target_scope"] = True
+    range_item["closure_requirement"] = {
+        "mapping_blocking": True,
+        "operational_impact": "mapping_blocking",
+        "resolution_options": ["Range 75 West", "Range 74 West"],
+        "evidence_refs": ["orient_llm"],
+    }
+    closure_item = _item(ledger, "closure_or_pob")
+    closure_item["state"] = "disputed"
+    closure_item["blocking"] = True
+    closure_item["scope_id"] = "outside_target_scope"
+    closure_item["in_target_scope"] = False
+    closure_item["closure_requirement"] = {
+        "scope_status": "outside_target",
+        "scope_proof": ["explicit_outside_target_text"],
+        "mapping_blocking": True,
+        "operational_impact": "mapping_blocking",
+        "resolution_options": ["Closure phrase A", "Closure phrase B"],
+        "evidence_refs": ["truncated_page"],
+    }
+    target_items = unresolved_target_scope_mapping_blocking_requirements(ledger)
+    outside_items = unresolved_outside_target_scope_mapping_blocking_requirements(ledger)
+    assert any(str(item.get("key")) == "range" for item in target_items if isinstance(item, dict))
+    assert any(str(item.get("key")) == "closure_or_pob" for item in outside_items if isinstance(item, dict))
+    assert has_unresolved_target_scope_mapping_blocking_closure(ledger) is True
+
+
+def test_source_completeness_metadata_propagates_from_signals() -> None:
+    ledger = update_ledger_from_iteration(
+        ledger=initialize_decision_ledger(),
+        findings=[
+            {
+                "finding_id": "f-cutoff",
+                "message": "Lower page is truncated and outside target scope text is cut off.",
+                "source_completeness": "partial_truncated",
+                "source_completeness_reason": "Image cutoff below target plot.",
+                "source_limitations": ["Lower page missing from source image."],
+            }
+        ],
+    )
+    assert str(ledger.get("source_completeness") or "") == "partial_truncated"
+    assert "cutoff" in str(ledger.get("source_completeness_reason") or "").lower()
+    limitations = [str(v) for v in list(ledger.get("source_limitations") or [])]
+    assert any("missing" in text.lower() for text in limitations)
+
+
+def test_focus_selection_prefers_target_scope_over_outside_scope() -> None:
+    ledger = initialize_decision_ledger()
+    range_item = _item(ledger, "range")
+    range_item["state"] = "disputed"
+    range_item["blocking"] = True
+    range_item["scope_id"] = "target_scope"
+    range_item["in_target_scope"] = True
+    range_item["closure_requirement"] = {
+        "block_reason": "contradiction",
+        "mapping_blocking": True,
+        "operational_impact": "mapping_blocking",
+        "resolution_options": ["Range 75 West", "Range 74 West"],
+        "evidence_refs": ["orient_llm"],
+    }
+    closure_item = _item(ledger, "closure_or_pob")
+    closure_item["state"] = "disputed"
+    closure_item["blocking"] = True
+    closure_item["scope_id"] = "outside_target_scope"
+    closure_item["in_target_scope"] = False
+    closure_item["closure_requirement"] = {
+        "block_reason": "ambiguity",
+        "mapping_blocking": True,
+        "operational_impact": "mapping_blocking",
+        "resolution_options": ["A", "B"],
+        "evidence_refs": ["truncated_page"],
+    }
+    focus = choose_investigation_focus(ledger)
+    assert isinstance(focus, dict)
+    assert str(focus.get("decision_key") or "") == "range"
+
+
+def test_partial_source_without_scope_proof_stays_unknown_scope() -> None:
+    ledger = update_ledger_from_iteration(
+        ledger=initialize_decision_ledger(),
+        findings=[
+            {
+                "finding_id": "f-closure",
+                "message": "Closure language unresolved; source appears truncated.",
+                "source_completeness": "partial_truncated",
+                "source_completeness_reason": "Lower page cut off.",
+            }
+        ],
+    )
+    unresolved = unresolved_closure_requirements(ledger)
+    closure_rows = [row for row in unresolved if isinstance(row, dict) and str(row.get("key") or "") == "closure_or_pob"]
+    assert closure_rows
+    row = closure_rows[0]
+    assert str(row.get("scope_status") or "") == "unknown"
+    assert list(row.get("scope_proof") or []) == []
+
+
+def test_unresolved_with_approved_scope_proof_is_outside_target() -> None:
+    ledger = update_ledger_from_iteration(
+        ledger=initialize_decision_ledger(),
+        findings=[
+            {
+                "finding_id": "f-closure",
+                "message": "Outside target scope text is unresolved below the cutoff boundary.",
+                "scope_status": "outside_target",
+                "scope_proof": ["explicit_outside_target_text", "source_truncation_boundary"],
+                "source_completeness": "partial_truncated",
+            }
+        ],
+    )
+    outside_items = unresolved_outside_target_scope_mapping_blocking_requirements(ledger)
+    assert any(str(item.get("key") or "") == "closure_or_pob" for item in outside_items if isinstance(item, dict))
+
+
+def test_scope_status_can_reclassify_from_prior_outside_to_in_target_on_new_signal() -> None:
+    ledger = initialize_decision_ledger()
+    closure = _item(ledger, "closure_or_pob")
+    closure["state"] = "disputed"
+    closure["closure_requirement"] = {
+        "block_reason": "ambiguity",
+        "mapping_blocking": True,
+        "scope_status": "outside_target",
+        "scope_proof": ["explicit_outside_target_text"],
+        "resolution_options": ["A", "B"],
+        "evidence_refs": ["test"],
+    }
+    updated = update_ledger_from_iteration(
+        ledger=ledger,
+        findings=[
+            {
+                "finding_id": "f-closure",
+                "message": "Closure language belongs to subject target plot.",
+                "scope_status": "in_target",
+                "scope_proof": [],
+                "in_target_scope": True,
+            }
+        ],
+    )
+    unresolved = unresolved_closure_requirements(updated)
+    row = next(item for item in unresolved if isinstance(item, dict) and str(item.get("key") or "") == "closure_or_pob")
+    assert str(row.get("scope_status") or "") == "in_target"

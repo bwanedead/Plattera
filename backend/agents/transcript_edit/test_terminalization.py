@@ -499,3 +499,263 @@ def test_terminal_summary_classifies_post_feedback_resolver_invalid_exhausted() 
     )
     summary = terminal_summary(progress_log, result, critical_events=[])
     assert summary["terminal_classification"] == "blocked_post_feedback_resolver_invalid"
+
+
+def test_terminal_summary_scoped_success_with_incomplete_source_context() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [
+                        {
+                            "key": "range",
+                            "label": "Range",
+                            "state": "verified",
+                            "blocking": True,
+                            "scope_id": "target_scope",
+                            "in_target_scope": True,
+                            "closure_requirement": None,
+                        },
+                        {
+                            "key": "closure_or_pob",
+                            "label": "Closure / POB",
+                            "state": "disputed",
+                            "blocking": True,
+                            "scope_id": "outside_target_scope",
+                            "in_target_scope": False,
+                                "closure_requirement": {
+                                    "block_reason": "ambiguity",
+                                    "mapping_blocking": True,
+                                    "operational_impact": "mapping_blocking",
+                                    "scope_status": "outside_target",
+                                    "scope_proof": ["source_truncation_boundary"],
+                                    "required_information": "Missing lower-page closure text.",
+                                    "minimal_user_action": "Provide uncropped source.",
+                                    "evidence_refs": [],
+                                },
+                        },
+                    ],
+                    "summary": {"blocking_open_count": 1},
+                    "source_completeness": "partial_truncated",
+                    "source_completeness_reason": "Lower page is cut off.",
+                    "source_limitations": ["Lower-page deed content unavailable."],
+                    "scope_summaries": {
+                        "target_scope": {"scope_closure_state": "achieved"},
+                        "outside_target_scope": {"scope_closure_state": "partial"},
+                        "unknown_scope": {"scope_closure_state": "not_attempted"},
+                    },
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s11",
+        iterations=2,
+        status="completed",
+        reason_code="tx_agent_clean_no_promote",
+        latest_refs={},
+        review_required=False,
+    )
+    summary = terminal_summary(progress_log, result, critical_events=[])
+    assert summary["target_scope_status"] == "achieved"
+    assert summary["outside_target_scope_status"] in {"partial", "blocked"}
+    assert summary["source_completeness"] == "partial_truncated"
+    assert summary["terminal_classification"] == "target_scope_complete_with_incomplete_source_context"
+    assert summary["mapping_ready"] is True
+    assert any(str(item.get("key")) == "closure_or_pob" for item in summary["unresolved_outside_target_scope_items"])
+
+
+def test_terminal_summary_classifies_blocked_target_scope_ambiguity() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [
+                        {
+                            "key": "range",
+                            "label": "Range",
+                            "state": "disputed",
+                            "blocking": True,
+                            "scope_id": "target_scope",
+                            "in_target_scope": True,
+                            "closure_requirement": {
+                                "block_reason": "ambiguity",
+                                "mapping_blocking": True,
+                                "operational_impact": "mapping_blocking",
+                                "required_information": "Resolve target range token.",
+                                "minimal_user_action": "Choose range token.",
+                                "evidence_refs": ["orient_llm"],
+                            },
+                        }
+                    ],
+                    "summary": {"blocking_open_count": 1},
+                    "source_completeness": "complete",
+                    "scope_summaries": {
+                        "target_scope": {"scope_closure_state": "blocked"},
+                        "outside_target_scope": {"scope_closure_state": "not_attempted"},
+                        "unknown_scope": {"scope_closure_state": "not_attempted"},
+                    },
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s12",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_closure_requirements_unresolved",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(progress_log, result, critical_events=[])
+    assert summary["terminal_classification"] == "blocked_target_scope_ambiguity"
+
+
+def test_terminal_summary_partial_source_with_unknown_scope_blocker_not_scoped_success() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [
+                        {
+                            "key": "range",
+                            "label": "Range",
+                            "state": "verified",
+                            "blocking": True,
+                            "closure_requirement": None,
+                        },
+                        {
+                            "key": "closure_or_pob",
+                            "label": "Closure / POB",
+                            "state": "disputed",
+                            "blocking": True,
+                            "closure_requirement": {
+                                "block_reason": "ambiguity",
+                                "mapping_blocking": True,
+                                "scope_status": "unknown",
+                                "scope_proof": [],
+                            },
+                        },
+                    ],
+                    "source_completeness": "partial_truncated",
+                    "scope_summaries": {
+                        "target_scope": {"scope_closure_state": "achieved"},
+                        "outside_target_scope": {"scope_closure_state": "not_attempted"},
+                        "unknown_scope": {"scope_closure_state": "blocked"},
+                    },
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s13",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_closure_requirements_unresolved",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(progress_log, result, critical_events=[])
+    assert summary["scoped_success_eligible"] is False
+    assert summary["terminal_classification"] != "target_scope_complete_with_incomplete_source_context"
+
+
+def test_terminal_summary_run_failed_blocks_scoped_success() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [
+                        {"key": "range", "label": "Range", "state": "verified", "blocking": True, "closure_requirement": None},
+                        {
+                            "key": "closure_or_pob",
+                            "label": "Closure / POB",
+                            "state": "disputed",
+                            "blocking": True,
+                            "closure_requirement": {
+                                "mapping_blocking": True,
+                                "scope_status": "outside_target",
+                                "scope_proof": ["source_truncation_boundary"],
+                            },
+                        },
+                    ],
+                    "source_completeness": "partial_truncated",
+                    "scope_summaries": {
+                        "target_scope": {"scope_closure_state": "achieved"},
+                        "outside_target_scope": {"scope_closure_state": "partial"},
+                        "unknown_scope": {"scope_closure_state": "not_attempted"},
+                    },
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s14",
+        iterations=2,
+        status="failed",
+        reason_code="tx_apply_refused",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(progress_log, result, critical_events=[])
+    assert summary["run_healthy_for_scoped_success"] is False
+    assert summary["scoped_success_eligible"] is False
+    assert summary["terminal_classification"] != "target_scope_complete_with_incomplete_source_context"
+
+
+def test_terminal_summary_validator_dirty_blocks_scoped_success() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 2,
+                "decision_ledger": {
+                    "items": [
+                        {"key": "range", "label": "Range", "state": "verified", "blocking": True, "closure_requirement": None},
+                        {
+                            "key": "closure_or_pob",
+                            "label": "Closure / POB",
+                            "state": "disputed",
+                            "blocking": True,
+                            "closure_requirement": {
+                                "mapping_blocking": True,
+                                "scope_status": "outside_target",
+                                "scope_proof": ["explicit_outside_target_text"],
+                            },
+                        },
+                    ],
+                    "source_completeness": "partial_truncated",
+                    "scope_summaries": {
+                        "target_scope": {"scope_closure_state": "achieved"},
+                        "outside_target_scope": {"scope_closure_state": "partial"},
+                        "unknown_scope": {"scope_closure_state": "not_attempted"},
+                    },
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s15",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_closure_requirements_unresolved",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(progress_log, result, critical_events=[])
+    assert summary["validator_clean"] is False
+    assert summary["scoped_success_eligible"] is False
+    assert summary["terminal_classification"] != "target_scope_complete_with_incomplete_source_context"

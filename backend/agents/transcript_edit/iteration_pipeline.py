@@ -12,13 +12,15 @@ from transcript_edit.persistence import TranscriptionEditPersistenceService
 from .contracts import TranscriptEditAgentRunRequest
 from .decision_ledger import (
     choose_investigation_focus,
-    has_unresolved_mapping_blocking_closure,
+    has_unresolved_target_scope_mapping_blocking_closure,
     is_unresolved_mapping_blocking_decision,
+    is_unresolved_target_scope_mapping_blocking_decision,
     ledger_snapshot_for_payload,
     list_external_context_injections,
     mark_human_resolution_ticket_state,
     upsert_human_resolution_ticket,
     unresolved_mapping_blocking_requirements,
+    unresolved_target_scope_mapping_blocking_requirements,
     unresolved_closure_requirements,
     update_ledger_from_iteration,
 )
@@ -110,7 +112,7 @@ def handle_clean_iteration(
     progress_cb: Callable[[dict[str, Any]], None] | None,
     model: str,
 ) -> TranscriptEditDecision | None:
-    unresolved_mapping_blocking_closure = has_unresolved_mapping_blocking_closure(state.decision_ledger)
+    unresolved_mapping_blocking_closure = has_unresolved_target_scope_mapping_blocking_closure(state.decision_ledger)
     policy_facts = TranscriptEditFacts(
         iterations=iterations,
         mode=mode,
@@ -940,7 +942,7 @@ def handle_repair_iteration(
             _apply_consumed_feedback(drained_plan)
 
     baseline_unresolved = unresolved_closure_requirements(state.decision_ledger)
-    baseline_mapping_blocking_unresolved = unresolved_mapping_blocking_requirements(state.decision_ledger)
+    baseline_mapping_blocking_unresolved = unresolved_target_scope_mapping_blocking_requirements(state.decision_ledger)
     baseline_residual = [_baseline_residual_from_unresolved(item) for item in baseline_unresolved]
     mapping_blocking_count = len(baseline_mapping_blocking_unresolved)
     optional_count = max(0, len(baseline_residual) - mapping_blocking_count)
@@ -1785,7 +1787,7 @@ def _select_focus_decision_key(
 ) -> str:
     if isinstance(focus_feedback, dict):
         feedback_key = str(focus_feedback.get("decision_key") or "").strip().lower()
-        if feedback_key and is_unresolved_mapping_blocking_decision(decision_ledger, feedback_key):
+        if feedback_key and is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, feedback_key):
             return feedback_key
     key = str((fallback_focus or {}).get("decision_key") or "").strip().lower()
     if key:
@@ -1967,7 +1969,7 @@ def _resolver_result_category(*, move: str, reason: str) -> str:
 
 
 def _accept_mark_resolved_no_edit(*, decision_ledger: dict[str, Any], decision_key: str) -> bool:
-    return not is_unresolved_mapping_blocking_decision(decision_ledger, decision_key)
+    return not is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, decision_key)
 
 
 def _accept_mark_blocked(
@@ -2004,7 +2006,7 @@ def _accept_mark_blocked(
         return True
     if "repeat_budget" in reason or "evidence_budget" in reason:
         return True
-    if not hitl_enabled and is_unresolved_mapping_blocking_decision(decision_ledger, decision_key):
+    if not hitl_enabled and is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, decision_key):
         return True
     return False
 
@@ -2185,6 +2187,13 @@ def _baseline_residual_from_unresolved(item: dict[str, Any]) -> dict[str, Any]:
         "label": str(item.get("label") or item.get("key") or "decision"),
         "state": str(item.get("state") or "unknown"),
         "mapping_blocking": bool(item.get("mapping_blocking")),
+        "scope_id": str(item.get("scope_id") or "unknown_scope"),
+        "scope_label": str(item.get("scope_label") or "Unknown Scope"),
+        "scope_priority": int(item.get("scope_priority") or 50),
+        "in_target_scope": bool(item.get("in_target_scope")),
+        "scope_status": str(item.get("scope_status") or "unknown"),
+        "scope_proof": [str(v) for v in list(item.get("scope_proof") or []) if str(v).strip()][:6],
+        "incomplete_source_residual": bool(item.get("incomplete_source_residual")),
         "required_information": str(requirement.get("required_information") or "").strip(),
         "minimal_user_action": str(requirement.get("minimal_user_action") or "").strip(),
     }
@@ -2215,9 +2224,18 @@ def _baseline_evidence_attempts(
 def _next_recommended_action_text(residual_blockers: list[dict[str, Any]]) -> str:
     if not residual_blockers:
         return "Proceed with plan/apply stage."
-    for item in residual_blockers:
-        if not isinstance(item, dict):
-            continue
+    prioritized = sorted(
+        [item for item in residual_blockers if isinstance(item, dict)],
+        key=lambda item: (
+            0
+            if str(item.get("scope_status") or "").strip().lower() == "in_target"
+            else 1
+            if str(item.get("scope_status") or "").strip().lower() == "unknown"
+            else 2,
+            int(item.get("scope_priority") or 50),
+        ),
+    )
+    for item in prioritized:
         if not bool(item.get("mapping_blocking")):
             continue
         label = str(item.get("label") or item.get("decision_key") or "decision")
@@ -2225,6 +2243,6 @@ def _next_recommended_action_text(residual_blockers: list[dict[str, Any]]) -> st
         if action:
             return f"{label}: {action}"
         return f"Resolve {label}."
-    first = residual_blockers[0] if isinstance(residual_blockers[0], dict) else {}
+    first = prioritized[0] if prioritized else {}
     label = str(first.get("label") or first.get("decision_key") or "decision")
     return f"Review optional transcript-quality issue: {label}."

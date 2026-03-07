@@ -23,7 +23,7 @@ from .context_spans import (
 )
 from .disagreement_analysis import has_blocking_warnings, prioritized_findings_for_planning
 from .decision_ledger import (
-    has_unresolved_mapping_blocking_closure,
+    has_unresolved_target_scope_mapping_blocking_closure,
     initialize_decision_ledger,
     ledger_snapshot_for_payload,
     list_external_context_injections,
@@ -358,7 +358,9 @@ def run_transcript_edit_controller_loop(
         )
         unresolved_items = unresolved_closure_requirements(state.decision_ledger)
         has_open_closure = bool(unresolved_items)
-        has_mapping_blocking_closure = has_unresolved_mapping_blocking_closure(state.decision_ledger)
+        has_mapping_blocking_closure = has_unresolved_target_scope_mapping_blocking_closure(state.decision_ledger)
+        # Warnings outside the target scope should not block scoped closure gates.
+        blocking_warning_present = bool(blocking_warning_present and has_mapping_blocking_closure)
         _emit_progress(
             progress_cb,
             audit_result_payload(
@@ -686,6 +688,14 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
         "superseded_prompt_ids": sorted(list(state.superseded_feedback_prompt_ids)),
         "hitl_lifecycle_log": list(state.hitl_lifecycle_log),
         "human_resolution_tickets": tickets,
+        "source_completeness": str(state.decision_ledger.get("source_completeness") or "unknown"),
+        "source_completeness_reason": state.decision_ledger.get("source_completeness_reason"),
+        "source_limitations": [
+            str(v)
+            for v in list(state.decision_ledger.get("source_limitations") or [])
+            if str(v).strip()
+        ][:12],
+        "scope_summaries": dict(state.decision_ledger.get("scope_summaries") or {}),
     }
 
 
