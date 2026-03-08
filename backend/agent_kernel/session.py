@@ -657,6 +657,8 @@ def _build_dashboard(
         tx_source_transcript_ref=_dump_ref(run_artifact.tx_source_transcript_artifact_ref),
         tx_open_spans_ref=_dump_ref(run_artifact.tx_open_spans_artifact_ref),
         tx_image_verify_ref=_dump_ref(run_artifact.tx_image_verify_artifact_ref),
+        tx_image_evidence_region_ref=_dump_ref(run_artifact.tx_image_evidence_region_artifact_ref),
+        tx_image_evidence_context_ref=_dump_ref(run_artifact.tx_image_evidence_context_artifact_ref),
         tx_validator_report_ref=_dump_ref(run_artifact.tx_validator_report_artifact_ref),
         tx_orient_baseline_ref=_dump_ref(run_artifact.tx_orient_baseline_artifact_ref),
         tx_edit_plan_ref=_dump_ref(run_artifact.tx_edit_plan_artifact_ref),
@@ -769,6 +771,12 @@ def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord) -> None:
         source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
         if source_ref is not None:
             run_artifact.tx_source_transcript_artifact_ref = source_ref
+        region_ref = _extract_ref_from_inline(step.outputs_inline, "tx_image_evidence_region_ref")
+        if region_ref is not None:
+            run_artifact.tx_image_evidence_region_artifact_ref = region_ref
+        context_ref = _extract_ref_from_inline(step.outputs_inline, "tx_image_evidence_context_ref")
+        if context_ref is not None:
+            run_artifact.tx_image_evidence_context_artifact_ref = context_ref
     if step.action == ActionType.TX_APPLY_EDIT_PLAN:
         run_artifact.tx_apply_report_artifact_ref = _extract_ref(step.outputs, "tx_apply_report_ref")
         plan_ref = _extract_ref_from_inline(step.outputs_inline, "tx_edit_plan_ref")

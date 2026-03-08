@@ -23,6 +23,7 @@ def build_human_feedback_prompt(
     *,
     decision_ledger: dict[str, Any],
     iteration: int,
+    image_verification_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     unresolved_items = unresolved_mapping_blocking_requirements(decision_ledger)
     if not unresolved_items:
@@ -92,8 +93,61 @@ def build_human_feedback_prompt(
         "context": {
             "decision_key": key,
             "closure_requirement": requirement,
+            "focused_image_evidence": _pick_focused_image_evidence(
+                image_verification_payload=image_verification_payload,
+                decision_key=key,
+            ),
         },
     }
+
+
+def _pick_focused_image_evidence(
+    *,
+    image_verification_payload: dict[str, Any] | None,
+    decision_key: str,
+) -> dict[str, Any] | None:
+    if not isinstance(image_verification_payload, dict):
+        return None
+    results = image_verification_payload.get("results")
+    if not isinstance(results, list):
+        return None
+    key = str(decision_key or "").strip().lower()
+    matches: list[dict[str, Any]] = []
+    for row in results:
+        if not isinstance(row, dict):
+            continue
+        row_key = str(row.get("decision_key") or "").strip().lower()
+        focus_key = str(row.get("focus_decision_key") or "").strip().lower()
+        if key and row_key not in {"", key} and focus_key not in {"", key}:
+            continue
+        region_ref = row.get("tx_image_evidence_region_ref")
+        context_ref = row.get("tx_image_evidence_context_ref")
+        if not isinstance(region_ref, (dict, str)) and not isinstance(context_ref, (dict, str)):
+            continue
+        matches.append(row)
+    if not matches:
+        return None
+    latest = matches[-1]
+    return {
+        "check_id": str(latest.get("check_id") or "").strip() or None,
+        "status": str(latest.get("status") or "").strip().lower() or None,
+        "query": str(latest.get("query") or "").strip()[:220] or None,
+        "observed_text": str(latest.get("observed_text") or "").strip()[:220] or None,
+        "tx_image_evidence_region_ref": _coerce_prompt_ref(latest.get("tx_image_evidence_region_ref")),
+        "tx_image_evidence_context_ref": _coerce_prompt_ref(latest.get("tx_image_evidence_context_ref")),
+    }
+
+
+def _coerce_prompt_ref(raw: Any) -> dict[str, Any] | None:
+    if isinstance(raw, dict):
+        value = str(raw.get("artifact_path") or "").strip()
+        if value:
+            return {"artifact_path": value}
+    if isinstance(raw, str):
+        value = raw.strip()
+        if value:
+            return {"artifact_path": value}
+    return None
 
 
 def wait_for_feedback_response(

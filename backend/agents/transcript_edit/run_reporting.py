@@ -601,6 +601,12 @@ def image_verify_progress_payload(
     phase_attempt: int,
     stage: str,
     elapsed_seconds: int | None = None,
+    wait_reason: str | None = None,
+    phase_started_at_epoch_seconds: int | None = None,
+    timeout_seconds: int | None = None,
+    max_attempts_per_check: int | None = None,
+    check_index: int | None = None,
+    check_total: int | None = None,
     diagnostic: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if stage == "running":
@@ -638,6 +644,12 @@ def image_verify_progress_payload(
         "phase_attempt": int(phase_attempt),
         "stage": stage,
         "elapsed_seconds": int(elapsed_seconds or 0),
+        "wait_reason": str(wait_reason or "").strip().lower() or None,
+        "phase_started_at_epoch_seconds": int(phase_started_at_epoch_seconds or 0) or None,
+        "timeout_seconds": int(timeout_seconds or 0) or None,
+        "max_attempts_per_check": int(max_attempts_per_check or 0) or None,
+        "check_index": int(check_index or 0) or None,
+        "check_total": int(check_total or 0) or None,
     }
     if isinstance(diagnostic, dict) and diagnostic:
         payload["detail"]["diagnostic"] = diagnostic
@@ -659,6 +671,11 @@ def image_verify_result_payload(
     llm_call_seq_end: int | None = None,
     diagnostics: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    evidence_regions = (
+        iv_payload.get("image_evidence_regions")
+        if isinstance(iv_payload, dict) and isinstance(iv_payload.get("image_evidence_regions"), list)
+        else []
+    )
     return {
         **_base_payload(
             iteration=iteration,
@@ -676,6 +693,7 @@ def image_verify_result_payload(
             "evidence_kind": evidence_kind,
             "llm_call_seq_end": llm_call_seq_end,
             "diagnostics": [d for d in list(diagnostics or []) if isinstance(d, dict)][:8],
+            "image_evidence_regions": [item for item in evidence_regions if isinstance(item, dict)][:8],
             "decision_ledger": decision_ledger,
         },
     }

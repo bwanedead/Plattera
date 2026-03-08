@@ -8,7 +8,11 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from backend.agent_kernel.tooling import TranscriptOrientBaselineTool, TranscriptSpanOpenerTool
+from backend.agent_kernel.tooling import (
+    TranscriptImageVerificationTool,
+    TranscriptOrientBaselineTool,
+    TranscriptSpanOpenerTool,
+)
 from backend.transcript_edit.persistence import TranscriptionEditPersistenceService
 
 
@@ -192,3 +196,149 @@ def test_tx_orient_baseline_ref_budget_exhausted_refuses() -> None:
         refusal = result.get("kernel_refusal")
         assert isinstance(refusal, dict)
         assert refusal.get("reason_code") == "orient_hydration_budget_exhausted"
+
+
+class _FakeImageVisionService:
+    def __init__(self) -> None:
+        self.models = {"gpt-5.2": {"api_model_name": "gpt-5.2"}}
+        self.client = object()
+        self.calls: list[str] = []
+
+    def is_available(self) -> bool:
+        return True
+
+    def call_vision(self, *, prompt: str, image_data: str, model: str, json_mode: str, max_tokens: int, detail: str) -> dict[str, Any]:
+        del image_data, model, json_mode, max_tokens, detail
+        self.calls.append(prompt)
+        if "Locate where likely visual evidence appears" in prompt:
+            return {
+                "success": True,
+                "text": json.dumps(
+                    {
+                        "status": "located",
+                        "confidence": "medium",
+                        "crop_box": {"x": 8, "y": 10, "width": 60, "height": 30},
+                        "context_crop_box": {"x": 0, "y": 0, "width": 90, "height": 60},
+                        "reason": "Likely clause with numeric token.",
+                    }
+                ),
+            }
+        return {
+            "success": True,
+            "text": json.dumps(
+                {
+                    "status": "match",
+                    "confidence": "high",
+                    "observed_text": "Range 74 West",
+                    "reason": "Token visible in focused crop.",
+                }
+            ),
+        }
+
+
+def _write_sample_image(path: Path) -> None:
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", (120, 90), color=(255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle((5, 8, 110, 78), outline=(0, 0, 0), width=2)
+    draw.text((10, 15), "Range 74 West", fill=(0, 0, 0))
+    img.save(path, format="PNG")
+
+
+def test_tx_image_verify_creates_evidence_region_artifacts_and_surfaces_refs() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        image_path = root / "source.png"
+        transcript_path = root / "source.json"
+        _write_sample_image(image_path)
+        transcript_path.write_text(json.dumps({"sections": [{"id": "s1", "body": "Range token."}]}), encoding="utf-8")
+        tool = TranscriptImageVerificationTool(service=_FakeImageVisionService())
+        result = tool.verify_transcript_with_image(
+            {
+                "dossier_id": "D1",
+                "source_transcript_ref": str(transcript_path),
+                "image_ref": str(image_path),
+                "checks": [{"check_id": "range_check_1", "query": "Does this show Range 74 West?", "decision_key": "range"}],
+                "model": "gpt-5.2",
+            }
+        )
+        assert result["reason_codes"] == ["tx_image_verified"]
+        assert isinstance(result.get("tx_image_evidence_region_ref"), dict)
+        assert isinstance(result.get("tx_image_evidence_context_ref"), dict)
+        regions = result.get("tx_image_evidence_regions")
+        assert isinstance(regions, list) and regions
+        first = regions[0]
+        assert str(first.get("status") or "") == "located"
+        assert isinstance(first.get("crop_box"), dict)
+        region_ref = first.get("tx_image_evidence_region_ref")
+        assert isinstance(region_ref, dict)
+        assert Path(str(region_ref.get("artifact_path") or "")).exists()
+
+
+def test_tx_image_verify_falls_back_to_full_image_when_locator_unclear() -> None:
+    class _UnclearLocatorService(_FakeImageVisionService):
+        def call_vision(self, *, prompt: str, image_data: str, model: str, json_mode: str, max_tokens: int, detail: str) -> dict[str, Any]:
+            del image_data, model, json_mode, max_tokens, detail
+            self.calls.append(prompt)
+            if "Locate where likely visual evidence appears" in prompt:
+                return {"success": True, "text": json.dumps({"status": "unclear", "confidence": "low", "reason": "Not enough contrast."})}
+            return {
+                "success": True,
+                "text": json.dumps({"status": "unclear", "confidence": "low", "observed_text": "", "reason": "Cannot read token."}),
+            }
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        image_path = root / "source.png"
+        transcript_path = root / "source.json"
+        _write_sample_image(image_path)
+        transcript_path.write_text(json.dumps({"sections": [{"id": "s1", "body": "Range token."}]}), encoding="utf-8")
+        tool = TranscriptImageVerificationTool(service=_UnclearLocatorService())
+        result = tool.verify_transcript_with_image(
+            {
+                "dossier_id": "D1",
+                "source_transcript_ref": str(transcript_path),
+                "image_ref": str(image_path),
+                "checks": [{"check_id": "range_check_1", "query": "Find range token.", "decision_key": "range"}],
+                "model": "gpt-5.2",
+            }
+        )
+        assert result["reason_codes"] == ["tx_image_verified"]
+        regions = result.get("tx_image_evidence_regions")
+        assert isinstance(regions, list) and regions
+        assert str((regions[0] or {}).get("status") or "") == "unclear"
+
+
+def test_tx_image_verify_does_not_double_crop_when_region_artifact_is_used() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        image_path = root / "source.png"
+        transcript_path = root / "source.json"
+        _write_sample_image(image_path)
+        transcript_path.write_text(json.dumps({"sections": [{"id": "s1", "body": "Range token."}]}), encoding="utf-8")
+        tool = TranscriptImageVerificationTool(service=_FakeImageVisionService())
+        result = tool.verify_transcript_with_image(
+            {
+                "dossier_id": "D1",
+                "source_transcript_ref": str(transcript_path),
+                "image_ref": str(image_path),
+                "checks": [{"check_id": "range_check_1", "query": "Does this show Range 74 West?", "decision_key": "range"}],
+                "model": "gpt-5.2",
+            }
+        )
+        artifact_ref = result.get("artifact_ref")
+        artifact_path = (
+            str(artifact_ref.get("artifact_path") or "")
+            if isinstance(artifact_ref, dict)
+            else str(getattr(artifact_ref, "artifact_path", "") or "")
+        )
+        assert artifact_path
+        payload = json.loads(Path(artifact_path).read_text(encoding="utf-8"))
+        rows = payload.get("results")
+        assert isinstance(rows, list) and rows
+        render_meta = rows[0].get("render_meta") if isinstance(rows[0], dict) else {}
+        assert isinstance(render_meta, dict)
+        assert render_meta.get("crop_box") is None
+        # Locator crop is 60x30, isolated artifact default zoom is 2.2 -> 132x66.
+        assert render_meta.get("rendered_size") == [132, 66]

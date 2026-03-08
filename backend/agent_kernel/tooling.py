@@ -779,6 +779,7 @@ class TranscriptImageVerificationTool:
 
         zoom_default = _bounded_float(inputs.get("zoom_factor"), default=2.2, minimum=1.0, maximum=6.0)
         results: list[dict[str, Any]] = []
+        evidence_regions: list[dict[str, Any]] = []
         for index, check in enumerate(checks):
             check_id = _read_str(check.get("check_id")) or f"check_{index + 1}"
             query = _read_str(check.get("query")) or _read_str(check.get("message"))
@@ -793,12 +794,66 @@ class TranscriptImageVerificationTool:
                 (expected or "n/a")[:80],
                 query[:120],
             )
-            crop_box = _coerce_crop_box(check.get("crop_box"))
+            decision_key = _read_str(check.get("decision_key"))
             zoom_factor = _bounded_float(check.get("zoom_factor"), default=zoom_default, minimum=1.0, maximum=6.0)
-            image_b64, render_meta = _encode_image_for_verification(
+            expected_text = expected or None
+            precomputed_region_ref = _coerce_artifact_ref(check.get("tx_image_evidence_region_ref") or check.get("image_evidence_region_ref"))
+            precomputed_region_path = (
+                Path(precomputed_region_ref.artifact_path)
+                if isinstance(precomputed_region_ref, ArtifactRef)
+                else None
+            )
+            locator_result = _locate_image_evidence_region(
+                service=self.service,
                 image_path=image_file,
-                crop_box=crop_box,
+                model=model,
+                check_id=check_id,
+                query=query,
+                expected_text=expected_text,
+                decision_key=decision_key,
+                fallback_crop_box=_coerce_crop_box(check.get("crop_box")),
+                precomputed_region_path=precomputed_region_path,
+            )
+            isolate = _create_image_evidence_artifacts(
+                source_image_path=image_file,
+                dossier_id=dossier_id,
+                check_id=check_id,
+                decision_key=decision_key,
                 zoom_factor=zoom_factor,
+                locator_result=locator_result,
+            )
+            evidence_regions.append(
+                {
+                    "check_id": check_id,
+                    "decision_key": decision_key,
+                    "status": str(locator_result.get("status") or "unclear"),
+                    "confidence": str(locator_result.get("confidence") or "low"),
+                    "reason": str(locator_result.get("reason") or "")[:240],
+                    "crop_box": locator_result.get("crop_box"),
+                    "context_crop_box": locator_result.get("context_crop_box"),
+                    "tx_image_evidence_region_ref": (
+                        isolate.get("tx_image_evidence_region_ref").model_dump(mode="json")
+                        if isinstance(isolate.get("tx_image_evidence_region_ref"), ArtifactRef)
+                        else None
+                    ),
+                    "tx_image_evidence_context_ref": (
+                        isolate.get("tx_image_evidence_context_ref").model_dump(mode="json")
+                        if isinstance(isolate.get("tx_image_evidence_context_ref"), ArtifactRef)
+                        else None
+                    ),
+                }
+            )
+            verify_image_path = (
+                Path(isolate.get("region_image_path"))
+                if isinstance(isolate.get("region_image_path"), str) and str(isolate.get("region_image_path")).strip()
+                else image_file
+            )
+            crop_box = _coerce_crop_box(locator_result.get("crop_box")) if verify_image_path == image_file else None
+            verify_zoom_factor = zoom_factor if verify_image_path == image_file else 1.0
+            image_b64, render_meta = _encode_image_for_verification(
+                image_path=verify_image_path,
+                crop_box=crop_box,
+                zoom_factor=verify_zoom_factor,
             )
             prompt = _build_transcript_image_verify_prompt(
                 check_id=check_id,
@@ -820,6 +875,18 @@ class TranscriptImageVerificationTool:
                 response=response,
             )
             result_item["render_meta"] = render_meta
+            result_item["decision_key"] = decision_key
+            result_item["locator"] = locator_result
+            result_item["tx_image_evidence_region_ref"] = (
+                isolate.get("tx_image_evidence_region_ref").model_dump(mode="json")
+                if isinstance(isolate.get("tx_image_evidence_region_ref"), ArtifactRef)
+                else None
+            )
+            result_item["tx_image_evidence_context_ref"] = (
+                isolate.get("tx_image_evidence_context_ref").model_dump(mode="json")
+                if isinstance(isolate.get("tx_image_evidence_context_ref"), ArtifactRef)
+                else None
+            )
             results.append(result_item)
             logger.info(
                 "TX_IMAGE_VERIFY_RESULT ► model=%s check_id=%s status=%s confidence=%s observed=%s",
@@ -843,11 +910,28 @@ class TranscriptImageVerificationTool:
             "model": model,
             "summary": summary,
             "results": results,
+            "image_evidence_regions": evidence_regions,
         }
         artifact_ref = _persist_json_artifact(
             category="transcript_image_verify",
             dossier_id=dossier_id,
             payload=payload,
+        )
+        first_region_ref = next(
+            (
+                item.get("tx_image_evidence_region_ref")
+                for item in evidence_regions
+                if isinstance(item, dict) and isinstance(item.get("tx_image_evidence_region_ref"), dict)
+            ),
+            None,
+        )
+        first_context_ref = next(
+            (
+                item.get("tx_image_evidence_context_ref")
+                for item in evidence_regions
+                if isinstance(item, dict) and isinstance(item.get("tx_image_evidence_context_ref"), dict)
+            ),
+            None,
         )
         compact_results = []
         for item in results[:8]:
@@ -855,9 +939,13 @@ class TranscriptImageVerificationTool:
                 {
                     "check_id": item.get("check_id"),
                     "status": item.get("status"),
+                    "decision_key": item.get("decision_key"),
                     "confidence": item.get("confidence"),
                     "observed_text": _summarize_text(str(item.get("observed_text") or ""))[:220],
                     "reason": _summarize_text(str(item.get("reason") or ""))[:220],
+                    "locator_status": str((item.get("locator") or {}).get("status") or "unclear"),
+                    "tx_image_evidence_region_ref": item.get("tx_image_evidence_region_ref"),
+                    "tx_image_evidence_context_ref": item.get("tx_image_evidence_context_ref"),
                 }
             )
         return {
@@ -867,6 +955,9 @@ class TranscriptImageVerificationTool:
             "tx_image_path": str(image_file),
             "tx_image_verify_summary": summary,
             "tx_image_verify_results": compact_results,
+            "tx_image_evidence_regions": evidence_regions[:8],
+            "tx_image_evidence_region_ref": first_region_ref,
+            "tx_image_evidence_context_ref": first_context_ref,
         }
 
 
@@ -2542,6 +2633,241 @@ def _coerce_crop_box(raw: Any) -> dict[str, int] | None:
     return {"x": x, "y": y, "width": width, "height": height}
 
 
+def _locate_image_evidence_region(
+    *,
+    service: OpenAIService,
+    image_path: Path,
+    model: str,
+    check_id: str,
+    query: str,
+    expected_text: str | None,
+    decision_key: str | None,
+    fallback_crop_box: dict[str, int] | None,
+    precomputed_region_path: Path | None = None,
+) -> dict[str, Any]:
+    if isinstance(precomputed_region_path, Path) and precomputed_region_path.exists():
+        image_size = _read_image_size(precomputed_region_path)
+        if image_size is not None:
+            return {
+                "check_id": check_id,
+                "decision_key": decision_key,
+                "status": "located",
+                "crop_box": {"x": 0, "y": 0, "width": int(image_size[0]), "height": int(image_size[1])},
+                "context_crop_box": None,
+                "confidence": "high",
+                "reason": "Reusing precomputed focused evidence region artifact.",
+                "source": "precomputed_region_ref",
+                "precomputed_region_path": str(precomputed_region_path),
+            }
+    if isinstance(fallback_crop_box, dict):
+        return {
+            "check_id": check_id,
+            "decision_key": decision_key,
+            "status": "located",
+            "crop_box": dict(fallback_crop_box),
+            "context_crop_box": None,
+            "confidence": "medium",
+            "reason": "Using provided crop box for focused verification.",
+            "source": "provided_crop_box",
+        }
+    try:
+        image_b64, render_meta = _encode_image_for_verification(
+            image_path=image_path,
+            crop_box=None,
+            zoom_factor=1.0,
+        )
+        prompt = _build_transcript_image_locator_prompt(
+            check_id=check_id,
+            query=query,
+            expected_text=expected_text,
+            decision_key=decision_key,
+            image_size=render_meta.get("rendered_size"),
+        )
+        response = service.call_vision(
+            prompt=prompt,
+            image_data=image_b64,
+            model=model,
+            json_mode="relaxed",
+            max_tokens=1600,
+            detail="high",
+        )
+        normalized = _coerce_image_evidence_locator_result(
+            check_id=check_id,
+            decision_key=decision_key,
+            response=response,
+            image_width=int((render_meta.get("rendered_size") or [0, 0])[0] or 0),
+            image_height=int((render_meta.get("rendered_size") or [0, 0])[1] or 0),
+        )
+        return normalized
+    except Exception as exc:
+        return {
+            "check_id": check_id,
+            "decision_key": decision_key,
+            "status": "unclear",
+            "crop_box": None,
+            "context_crop_box": None,
+            "confidence": "low",
+            "reason": f"locator_failed:{_summarize_text(str(exc))[:120]}",
+            "source": "locator_error",
+        }
+
+
+def _create_image_evidence_artifacts(
+    *,
+    source_image_path: Path,
+    dossier_id: str,
+    check_id: str,
+    decision_key: str | None,
+    zoom_factor: float,
+    locator_result: dict[str, Any],
+) -> dict[str, Any]:
+    precomputed_region_path = _read_str(locator_result.get("precomputed_region_path"))
+    if precomputed_region_path and Path(precomputed_region_path).exists():
+        region_ref = ArtifactRef(artifact_path=precomputed_region_path)
+        return {
+            "tx_image_evidence_region_ref": region_ref,
+            "tx_image_evidence_context_ref": None,
+            "region_image_path": precomputed_region_path,
+            "context_image_path": None,
+        }
+    crop_box = _coerce_crop_box(locator_result.get("crop_box"))
+    context_crop_box = _coerce_crop_box(locator_result.get("context_crop_box"))
+    if crop_box is None:
+        return {
+            "tx_image_evidence_region_ref": None,
+            "tx_image_evidence_context_ref": None,
+            "region_image_path": None,
+            "context_image_path": None,
+        }
+    region_ref, region_path = _persist_image_crop_artifact(
+        source_image_path=source_image_path,
+        dossier_id=dossier_id,
+        category="transcript_image_evidence_region",
+        crop_box=crop_box,
+        zoom_factor=zoom_factor,
+    )
+    context_ref = None
+    context_path = None
+    if context_crop_box is not None:
+        context_ref, context_path = _persist_image_crop_artifact(
+            source_image_path=source_image_path,
+            dossier_id=dossier_id,
+            category="transcript_image_evidence_context",
+            crop_box=context_crop_box,
+            zoom_factor=1.0,
+        )
+    metadata_payload = {
+        "artifact_type": "transcript_image_evidence_region",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "source_image_path": str(source_image_path),
+        "check_id": check_id,
+        "decision_key": decision_key,
+        "crop_box": crop_box,
+        "context_crop_box": context_crop_box,
+        "zoom_factor": float(round(zoom_factor, 3)),
+        "locator_status": str(locator_result.get("status") or "unclear"),
+        "locator_confidence": str(locator_result.get("confidence") or "low"),
+        "locator_reason": str(locator_result.get("reason") or "")[:320],
+        "tx_image_evidence_region_ref": region_ref.model_dump(mode="json"),
+        "tx_image_evidence_context_ref": context_ref.model_dump(mode="json") if isinstance(context_ref, ArtifactRef) else None,
+    }
+    _persist_json_artifact(
+        category="transcript_image_evidence_regions",
+        dossier_id=dossier_id,
+        payload=metadata_payload,
+    )
+    return {
+        "tx_image_evidence_region_ref": region_ref,
+        "tx_image_evidence_context_ref": context_ref,
+        "region_image_path": region_path,
+        "context_image_path": context_path,
+    }
+
+
+def _persist_image_crop_artifact(
+    *,
+    source_image_path: Path,
+    dossier_id: str,
+    category: str,
+    crop_box: dict[str, int],
+    zoom_factor: float,
+) -> tuple[ArtifactRef, str]:
+    try:
+        from PIL import Image
+    except Exception as exc:
+        raise RuntimeError(f"pillow_unavailable:{exc}") from exc
+    with Image.open(source_image_path) as img:
+        img = img.convert("RGB")
+        x = max(0, int(crop_box.get("x", 0)))
+        y = max(0, int(crop_box.get("y", 0)))
+        width = max(1, int(crop_box.get("width", 1)))
+        height = max(1, int(crop_box.get("height", 1)))
+        x2 = min(img.width, x + width)
+        y2 = min(img.height, y + height)
+        if x2 <= x or y2 <= y:
+            x = 0
+            y = 0
+            x2 = img.width
+            y2 = img.height
+        cropped = img.crop((x, y, x2, y2))
+        bounded_zoom = _bounded_float(zoom_factor, default=1.0, minimum=1.0, maximum=6.0)
+        if bounded_zoom > 1.0:
+            target_w = max(1, int(round(cropped.width * bounded_zoom)))
+            target_h = max(1, int(round(cropped.height * bounded_zoom)))
+            cropped = cropped.resize((target_w, target_h), Image.Resampling.LANCZOS)
+        out = io.BytesIO()
+        cropped.save(out, format="JPEG", quality=95)
+    ref = _persist_binary_artifact(
+        category=category,
+        dossier_id=dossier_id,
+        data=out.getvalue(),
+        suffix=".jpg",
+    )
+    return ref, ref.artifact_path
+
+
+def _persist_binary_artifact(
+    *,
+    category: str,
+    dossier_id: str | None,
+    data: bytes,
+    suffix: str,
+) -> ArtifactRef:
+    root = agent_kernel_artifacts_root() / "tool_outputs" / category / str(dossier_id or "unknown")
+    root.mkdir(parents=True, exist_ok=True)
+    artifact_name = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}_{uuid4().hex[:8]}{suffix}"
+    path = root / artifact_name
+    fd, tmp_path = tempfile.mkstemp(prefix="kernel_tool_", suffix=suffix, dir=str(root))
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.replace(tmp_path, str(path))
+        except PermissionError:
+            path.write_bytes(data)
+    finally:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+    return ArtifactRef(artifact_path=str(path))
+
+
+def _read_image_size(image_path: Path) -> tuple[int, int] | None:
+    try:
+        from PIL import Image
+    except Exception:
+        return None
+    try:
+        with Image.open(image_path) as img:
+            return int(img.width), int(img.height)
+    except Exception:
+        return None
+
+
 def _encode_image_for_verification(
     *,
     image_path: Path,
@@ -2608,6 +2934,113 @@ def _build_transcript_image_verify_prompt(
         },
     }
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _build_transcript_image_locator_prompt(
+    *,
+    check_id: str,
+    query: str,
+    expected_text: str | None,
+    decision_key: str | None,
+    image_size: Any,
+) -> str:
+    payload = {
+        "task": "Locate where likely visual evidence appears for a transcript verification query.",
+        "instructions": [
+            "Return JSON only.",
+            "If you cannot confidently localize, return status='unclear' or status='not_found'.",
+            "Crop coordinates must be pixel integers in the source image coordinate system.",
+        ],
+        "output_schema": {
+            "check_id": "string",
+            "decision_key": "string|null",
+            "status": "located|unclear|not_found",
+            "crop_box": {"x": 0, "y": 0, "width": 0, "height": 0},
+            "context_crop_box": {"x": 0, "y": 0, "width": 0, "height": 0},
+            "confidence": "low|medium|high",
+            "anchor_snippet": "string|null",
+            "reason": "string",
+        },
+        "check": {
+            "check_id": check_id,
+            "decision_key": decision_key,
+            "query": query,
+            "expected_text": expected_text or "",
+            "image_size": image_size,
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _coerce_image_evidence_locator_result(
+    *,
+    check_id: str,
+    decision_key: str | None,
+    response: Mapping[str, Any],
+    image_width: int,
+    image_height: int,
+) -> dict[str, Any]:
+    if not bool(response.get("success")):
+        return {
+            "check_id": check_id,
+            "decision_key": decision_key,
+            "status": "unclear",
+            "crop_box": None,
+            "context_crop_box": None,
+            "confidence": "low",
+            "reason": _summarize_text(str(response.get("error") or "locator_vision_call_failed"))[:260],
+            "source": "vision_error",
+        }
+    raw_text = _read_str(response.get("text")) or ""
+    parsed: dict[str, Any] = {}
+    try:
+        loaded = json.loads(raw_text)
+        if isinstance(loaded, dict):
+            parsed = loaded
+    except Exception:
+        parsed = {}
+    status = str(parsed.get("status") or "").strip().lower()
+    if status not in {"located", "unclear", "not_found"}:
+        status = "unclear"
+    confidence = str(parsed.get("confidence") or "").strip().lower()
+    if confidence not in {"low", "medium", "high"}:
+        confidence = "low" if status != "located" else "medium"
+    crop_box = _coerce_crop_box(parsed.get("crop_box"))
+    context_crop_box = _coerce_crop_box(parsed.get("context_crop_box"))
+    if isinstance(crop_box, dict):
+        crop_box = _clamp_crop_box(crop_box=crop_box, image_width=image_width, image_height=image_height)
+    if isinstance(context_crop_box, dict):
+        context_crop_box = _clamp_crop_box(crop_box=context_crop_box, image_width=image_width, image_height=image_height)
+    if status == "located" and not isinstance(crop_box, dict):
+        status = "unclear"
+        confidence = "low"
+    reason = _summarize_text(str(parsed.get("reason") or ""))[:320]
+    anchor_snippet = _summarize_text(str(parsed.get("anchor_snippet") or ""))[:160] or None
+    return {
+        "check_id": check_id,
+        "decision_key": decision_key,
+        "status": status,
+        "crop_box": crop_box,
+        "context_crop_box": context_crop_box,
+        "confidence": confidence,
+        "anchor_snippet": anchor_snippet,
+        "reason": reason or None,
+        "source": "vision_locator",
+    }
+
+
+def _clamp_crop_box(*, crop_box: dict[str, int], image_width: int, image_height: int) -> dict[str, int] | None:
+    width_limit = max(1, int(image_width))
+    height_limit = max(1, int(image_height))
+    x = max(0, min(width_limit - 1, int(crop_box.get("x", 0))))
+    y = max(0, min(height_limit - 1, int(crop_box.get("y", 0))))
+    width = max(1, int(crop_box.get("width", 1)))
+    height = max(1, int(crop_box.get("height", 1)))
+    x2 = min(width_limit, x + width)
+    y2 = min(height_limit, y + height)
+    if x2 <= x or y2 <= y:
+        return None
+    return {"x": x, "y": y, "width": int(x2 - x), "height": int(y2 - y)}
 
 
 def _coerce_image_verify_result(

@@ -54,6 +54,12 @@ def test_image_verify_progress_payload_includes_call_accounting() -> None:
         phase_attempt=2,
         stage="long_running",
         elapsed_seconds=61,
+        wait_reason="awaiting_image_verify_step_response",
+        phase_started_at_epoch_seconds=1773000001,
+        timeout_seconds=90,
+        max_attempts_per_check=1,
+        check_index=1,
+        check_total=1,
     )
     assert payload["iteration"] == 2
     assert payload["phase"] == "image_verify"
@@ -62,13 +68,19 @@ def test_image_verify_progress_payload_includes_call_accounting() -> None:
     assert detail.get("phase_attempt") == 2
     assert detail.get("decision_key") == "acreage"
     assert detail.get("check_decision_key") == "range"
+    assert detail.get("wait_reason") == "awaiting_image_verify_step_response"
+    assert detail.get("phase_started_at_epoch_seconds") == 1773000001
+    assert detail.get("timeout_seconds") == 90
+    assert detail.get("max_attempts_per_check") == 1
+    assert detail.get("check_index") == 1
+    assert detail.get("check_total") == 1
 
 
 def test_image_verify_result_payload_includes_accounting_and_diagnostics() -> None:
     payload = run_reporting.image_verify_result_payload(
         iteration=1,
         latest_refs={},
-        iv_payload={"summary": {"total_checks": 1}},
+        iv_payload={"summary": {"total_checks": 1}, "image_evidence_regions": [{"check_id": "c1"}]},
         iv_results=[{"check_id": "c1", "status": "error"}],
         iv_confirmed=0,
         iv_rejected=0,
@@ -83,6 +95,7 @@ def test_image_verify_result_payload_includes_accounting_and_diagnostics() -> No
     assert detail.get("evidence_kind") == "image_verify"
     assert detail.get("llm_call_seq_end") == 4
     assert isinstance(detail.get("diagnostics"), list)
+    assert isinstance(detail.get("image_evidence_regions"), list)
 
 
 def test_human_feedback_needed_payload_contract_shape() -> None:

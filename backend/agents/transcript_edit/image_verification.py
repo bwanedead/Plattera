@@ -15,6 +15,7 @@ _IMAGE_VERIFY_HEARTBEAT_THRESHOLDS_SECONDS: tuple[int, ...] = (15, 30, 60)
 _IMAGE_VERIFY_HEARTBEAT_EVERY_SECONDS = 60
 _IMAGE_VERIFY_STEP_TIMEOUT_SECONDS = 240
 _IMAGE_VERIFY_MAX_ATTEMPTS_PER_CHECK = 2
+_IMAGE_VERIFY_MAX_CHECKS = 4
 
 
 def verify_mapping_critical_with_image(
@@ -34,6 +35,11 @@ def verify_mapping_critical_with_image(
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
     focus_decision_key: str | None = None,
     llm_call_seq_start: int = 0,
+    max_checks: int = _IMAGE_VERIFY_MAX_CHECKS,
+    step_timeout_seconds: int = _IMAGE_VERIFY_STEP_TIMEOUT_SECONDS,
+    max_attempts_per_check: int = _IMAGE_VERIFY_MAX_ATTEMPTS_PER_CHECK,
+    heartbeat_thresholds_seconds: tuple[int, ...] = _IMAGE_VERIFY_HEARTBEAT_THRESHOLDS_SECONDS,
+    heartbeat_every_seconds: int = _IMAGE_VERIFY_HEARTBEAT_EVERY_SECONDS,
 ) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     for finding in top_findings[:6]:
@@ -51,6 +57,11 @@ def verify_mapping_critical_with_image(
                 "query": str(finding.get("message") or "")[:320],
                 "expected_text": first_expected_token_from_message(str(finding.get("message") or "")),
                 "decision_key": check_decision_key,
+                "locator_context": {
+                    "finding_id": check_id,
+                    "finding_type": finding_type,
+                    "finding_message": str(finding.get("message") or "")[:320],
+                },
             }
         )
     del disagreement_hints
@@ -69,7 +80,7 @@ def verify_mapping_critical_with_image(
         if first_image:
             inputs["image_ref"] = first_image
 
-    selected_checks = checks[:4]
+    selected_checks = checks[: max(1, int(max_checks))]
     all_results: list[dict[str, Any]] = []
     diagnostics: list[dict[str, Any]] = []
     latest_refs: dict[str, Any] = {}
@@ -81,8 +92,9 @@ def verify_mapping_critical_with_image(
         check_id = str(check.get("check_id") or f"check_{check_index}")
         check_decision_key = str(check.get("decision_key") or "").strip().lower() or None
         succeeded = False
-        for phase_attempt in range(1, _IMAGE_VERIFY_MAX_ATTEMPTS_PER_CHECK + 1):
+        for phase_attempt in range(1, max(1, int(max_attempts_per_check)) + 1):
             llm_call_seq += 1
+            phase_started_at_epoch_seconds = int(time.time())
             if progress_cb is not None:
                 progress_cb(
                     {
@@ -94,6 +106,10 @@ def verify_mapping_critical_with_image(
                         "stage": "running",
                         "llm_call_seq": llm_call_seq,
                         "phase_attempt": phase_attempt,
+                        "phase_started_at_epoch_seconds": phase_started_at_epoch_seconds,
+                        "timeout_seconds": int(step_timeout_seconds),
+                        "max_attempts_per_check": int(max_attempts_per_check),
+                        "wait_reason": "awaiting_image_verify_step_response",
                     }
                 )
             step_inputs = dict(inputs)
@@ -113,7 +129,11 @@ def verify_mapping_critical_with_image(
                     phase_attempt=phase_attempt,
                     focus_decision_key=(str(focus_decision_key or "").strip().lower() or None),
                     check_decision_key=check_decision_key,
-                    timeout_seconds=_IMAGE_VERIFY_STEP_TIMEOUT_SECONDS,
+                    timeout_seconds=int(step_timeout_seconds),
+                    heartbeat_thresholds_seconds=heartbeat_thresholds_seconds,
+                    heartbeat_every_seconds=int(heartbeat_every_seconds),
+                    phase_started_at_epoch_seconds=phase_started_at_epoch_seconds,
+                    max_attempts_per_check=int(max_attempts_per_check),
                 )
             except TimeoutError:
                 diagnostic = {
@@ -125,7 +145,7 @@ def verify_mapping_critical_with_image(
                     "phase_attempt": phase_attempt,
                     "error_class": "timeout",
                     "error_code": "image_verify_step_timeout",
-                    "timeout_seconds": _IMAGE_VERIFY_STEP_TIMEOUT_SECONDS,
+                    "timeout_seconds": int(step_timeout_seconds),
                     "checks_in_request": 1,
                     "image_count": 1 if isinstance(inputs.get("image_ref"), str) else 0,
                 }
@@ -141,10 +161,14 @@ def verify_mapping_critical_with_image(
                             "stage": "timeout",
                             "llm_call_seq": llm_call_seq,
                             "phase_attempt": phase_attempt,
+                            "phase_started_at_epoch_seconds": phase_started_at_epoch_seconds,
+                            "timeout_seconds": int(step_timeout_seconds),
+                            "max_attempts_per_check": int(max_attempts_per_check),
+                            "wait_reason": "step_timeout",
                             "diagnostic": diagnostic,
                         }
                     )
-                if phase_attempt < _IMAGE_VERIFY_MAX_ATTEMPTS_PER_CHECK:
+                if phase_attempt < max(1, int(max_attempts_per_check)):
                     if progress_cb is not None:
                         progress_cb(
                             {
@@ -156,6 +180,10 @@ def verify_mapping_critical_with_image(
                                 "stage": "retrying",
                                 "llm_call_seq": llm_call_seq,
                                 "phase_attempt": phase_attempt + 1,
+                                "phase_started_at_epoch_seconds": int(time.time()),
+                                "timeout_seconds": int(step_timeout_seconds),
+                                "max_attempts_per_check": int(max_attempts_per_check),
+                                "wait_reason": "retry_after_timeout",
                             }
                         )
                     continue
@@ -187,10 +215,14 @@ def verify_mapping_critical_with_image(
                             "stage": "failed",
                             "llm_call_seq": llm_call_seq,
                             "phase_attempt": phase_attempt,
+                            "phase_started_at_epoch_seconds": phase_started_at_epoch_seconds,
+                            "timeout_seconds": int(step_timeout_seconds),
+                            "max_attempts_per_check": int(max_attempts_per_check),
+                            "wait_reason": "step_refused_or_failed",
                             "diagnostic": diagnostic,
                         }
                     )
-                if phase_attempt < _IMAGE_VERIFY_MAX_ATTEMPTS_PER_CHECK:
+                if phase_attempt < max(1, int(max_attempts_per_check)):
                     if progress_cb is not None:
                         progress_cb(
                             {
@@ -202,12 +234,22 @@ def verify_mapping_critical_with_image(
                                 "stage": "retrying",
                                 "llm_call_seq": llm_call_seq,
                                 "phase_attempt": phase_attempt + 1,
+                                "phase_started_at_epoch_seconds": int(time.time()),
+                                "timeout_seconds": int(step_timeout_seconds),
+                                "max_attempts_per_check": int(max_attempts_per_check),
+                                "wait_reason": "retry_after_failure",
                             }
                         )
                     continue
                 break
 
             inline = read_step_outputs_inline_fn(step.step_record)
+            region_ref = _read_inline_ref(inline.get("tx_image_evidence_region_ref"))
+            context_ref = _read_inline_ref(inline.get("tx_image_evidence_context_ref"))
+            if region_ref is not None:
+                latest_refs["tx_image_evidence_region_ref"] = region_ref
+            if context_ref is not None:
+                latest_refs["tx_image_evidence_context_ref"] = context_ref
             step_results = _read_full_image_verify_results(latest_refs=latest_refs)
             if not step_results:
                 inline_results = inline.get("tx_image_verify_results")
@@ -223,6 +265,8 @@ def verify_mapping_critical_with_image(
                     annotated.setdefault("query", str(check.get("query") or "").strip() or None)
                     annotated.setdefault("llm_call_seq", llm_call_seq)
                     annotated.setdefault("phase_attempt", phase_attempt)
+                    annotated.setdefault("tx_image_evidence_region_ref", region_ref)
+                    annotated.setdefault("tx_image_evidence_context_ref", context_ref)
                     all_results.append(annotated)
             image_path = read_str_fn(inline.get("tx_image_path")) or image_path
             if progress_cb is not None:
@@ -236,6 +280,10 @@ def verify_mapping_critical_with_image(
                         "stage": "completed",
                         "llm_call_seq": llm_call_seq,
                         "phase_attempt": phase_attempt,
+                        "phase_started_at_epoch_seconds": phase_started_at_epoch_seconds,
+                        "timeout_seconds": int(step_timeout_seconds),
+                        "max_attempts_per_check": int(max_attempts_per_check),
+                        "wait_reason": "step_completed",
                     }
                 )
             succeeded = True
@@ -250,7 +298,7 @@ def verify_mapping_critical_with_image(
                     "confidence": "low",
                     "reason": "image_verify_check_failed_after_retries",
                     "llm_call_seq": llm_call_seq,
-                    "phase_attempt": _IMAGE_VERIFY_MAX_ATTEMPTS_PER_CHECK,
+                    "phase_attempt": max(1, int(max_attempts_per_check)),
                 }
             )
 
@@ -269,6 +317,7 @@ def verify_mapping_critical_with_image(
         "results": all_results,
         "image_path": image_path,
         "diagnostics": diagnostics,
+        "image_evidence_regions": _collect_image_evidence_regions(all_results),
     }
     return {"latest_refs": latest_refs, "payload": payload, "llm_call_seq_end": llm_call_seq}
 
@@ -289,6 +338,10 @@ def _run_step_with_heartbeat(
     focus_decision_key: str | None,
     check_decision_key: str | None,
     timeout_seconds: int,
+    heartbeat_thresholds_seconds: tuple[int, ...] = _IMAGE_VERIFY_HEARTBEAT_THRESHOLDS_SECONDS,
+    heartbeat_every_seconds: int = _IMAGE_VERIFY_HEARTBEAT_EVERY_SECONDS,
+    phase_started_at_epoch_seconds: int | None = None,
+    max_attempts_per_check: int = _IMAGE_VERIFY_MAX_ATTEMPTS_PER_CHECK,
 ) -> Any:
     result_box: dict[str, Any] = {}
     error_box: dict[str, BaseException] = {}
@@ -310,6 +363,7 @@ def _run_step_with_heartbeat(
     worker.start()
     started = time.monotonic()
     emitted_thresholds: set[int] = set()
+    started_epoch = int(phase_started_at_epoch_seconds or time.time())
     while worker.is_alive():
         worker.join(timeout=0.4)
         now = time.monotonic()
@@ -320,6 +374,8 @@ def _run_step_with_heartbeat(
             threshold = _next_wait_heartbeat_threshold(
                 elapsed_seconds=elapsed_seconds,
                 emitted_thresholds=emitted_thresholds,
+                thresholds=heartbeat_thresholds_seconds,
+                heartbeat_every_seconds=heartbeat_every_seconds,
             )
             if threshold is not None:
                 emitted_thresholds.add(threshold)
@@ -339,6 +395,10 @@ def _run_step_with_heartbeat(
                         "elapsed_seconds": elapsed_seconds,
                         "llm_call_seq": llm_call_seq,
                         "phase_attempt": phase_attempt,
+                        "phase_started_at_epoch_seconds": started_epoch,
+                        "timeout_seconds": int(timeout_seconds),
+                        "max_attempts_per_check": int(max_attempts_per_check),
+                        "wait_reason": "awaiting_image_verify_step_response",
                     }
                 )
     if "error" in error_box:
@@ -346,13 +406,20 @@ def _run_step_with_heartbeat(
     return result_box.get("step")
 
 
-def _next_wait_heartbeat_threshold(*, elapsed_seconds: int, emitted_thresholds: set[int]) -> int | None:
-    for threshold in _IMAGE_VERIFY_HEARTBEAT_THRESHOLDS_SECONDS:
+def _next_wait_heartbeat_threshold(
+    *,
+    elapsed_seconds: int,
+    emitted_thresholds: set[int],
+    thresholds: tuple[int, ...] = _IMAGE_VERIFY_HEARTBEAT_THRESHOLDS_SECONDS,
+    heartbeat_every_seconds: int = _IMAGE_VERIFY_HEARTBEAT_EVERY_SECONDS,
+) -> int | None:
+    for threshold in tuple(int(v) for v in thresholds if int(v) > 0):
         if elapsed_seconds >= threshold and threshold not in emitted_thresholds:
             return int(threshold)
     if elapsed_seconds < 60:
         return None
-    coarse = (int(elapsed_seconds) // _IMAGE_VERIFY_HEARTBEAT_EVERY_SECONDS) * _IMAGE_VERIFY_HEARTBEAT_EVERY_SECONDS
+    cadence = max(1, int(heartbeat_every_seconds))
+    coarse = (int(elapsed_seconds) // cadence) * cadence
     if coarse >= 60 and coarse not in emitted_thresholds:
         return int(coarse)
     return None
@@ -407,6 +474,39 @@ def _read_full_image_verify_results(*, latest_refs: dict[str, Any]) -> list[dict
     if not isinstance(results, list):
         return []
     return [item for item in results if isinstance(item, dict)]
+
+
+def _read_inline_ref(raw: object) -> dict[str, Any] | None:
+    if isinstance(raw, dict):
+        artifact_path = raw.get("artifact_path")
+        if isinstance(artifact_path, str) and artifact_path.strip():
+            return {"artifact_path": artifact_path}
+    if isinstance(raw, str) and raw.strip():
+        return {"artifact_path": raw}
+    return None
+
+
+def _collect_image_evidence_regions(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in results:
+        if not isinstance(row, dict):
+            continue
+        region_ref = _read_inline_ref(row.get("tx_image_evidence_region_ref"))
+        context_ref = _read_inline_ref(row.get("tx_image_evidence_context_ref"))
+        if region_ref is None and context_ref is None:
+            continue
+        out.append(
+            {
+                "check_id": str(row.get("check_id") or "").strip() or None,
+                "decision_key": str(row.get("decision_key") or "").strip().lower() or None,
+                "status": str(row.get("status") or "").strip().lower() or None,
+                "tx_image_evidence_region_ref": region_ref,
+                "tx_image_evidence_context_ref": context_ref,
+            }
+        )
+        if len(out) >= 12:
+            break
+    return out
 
 
 def final_image_sanity_pass_before_promote(

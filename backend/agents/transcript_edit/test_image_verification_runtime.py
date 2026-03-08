@@ -178,6 +178,8 @@ def test_run_step_with_heartbeat_emits_no_events_before_first_threshold(monkeypa
         focus_decision_key="range",
         check_decision_key="range",
         timeout_seconds=10,
+        heartbeat_thresholds_seconds=(1,),
+        heartbeat_every_seconds=60,
     )
     assert events == []
 
@@ -207,6 +209,84 @@ def test_run_step_with_heartbeat_emits_only_thresholded_events(monkeypatch) -> N
         focus_decision_key="range",
         check_decision_key="range",
         timeout_seconds=10,
+        heartbeat_thresholds_seconds=(1,),
+        heartbeat_every_seconds=60,
     )
     assert len(events) == 1
     assert str(events[0].get("stage") or "") == "waiting"
+
+
+def test_run_step_with_heartbeat_emits_wait_metadata(monkeypatch) -> None:
+    monkeypatch.setattr(image_verification, "_IMAGE_VERIFY_HEARTBEAT_THRESHOLDS_SECONDS", (1,))
+    events: list[dict] = []
+
+    def _step_fn(**kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        time.sleep(1.3)
+        return _executed_step()
+
+    _ = _run_step_with_heartbeat(
+        session_manager=object(),
+        session_id="s1",
+        iteration=1,
+        check_index=1,
+        check_total=1,
+        check_id="c1",
+        step_fn=_step_fn,
+        step_inputs={},
+        progress_cb=lambda evt: events.append(evt if isinstance(evt, dict) else {}),
+        llm_call_seq=3,
+        phase_attempt=1,
+        focus_decision_key="range",
+        check_decision_key="range",
+        timeout_seconds=10,
+        heartbeat_thresholds_seconds=(1,),
+        heartbeat_every_seconds=60,
+        phase_started_at_epoch_seconds=1773000001,
+        max_attempts_per_check=1,
+    )
+    assert len(events) >= 1
+    detail = events[0]
+    assert detail.get("wait_reason") == "awaiting_image_verify_step_response"
+    assert int(detail.get("timeout_seconds") or 0) == 10
+    assert int(detail.get("max_attempts_per_check") or 0) == 1
+    assert int(detail.get("phase_started_at_epoch_seconds") or 0) == 1773000001
+
+
+def test_verify_mapping_critical_with_image_surfaces_region_refs_from_inline_outputs() -> None:
+    def _step_fn(**kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        return SimpleNamespace(
+            execution_state=StepExecutionState.EXECUTED,
+            dashboard=_Dash({"tx_image_verify_ref": {"artifact_path": "in-memory://none"}}),
+            refusal=None,
+            step_record={
+                "outputs_inline": {
+                    "tx_image_verify_results": [{"check_id": "c1", "status": "match"}],
+                    "tx_image_evidence_region_ref": {"artifact_path": "in-memory://region.jpg"},
+                    "tx_image_evidence_context_ref": {"artifact_path": "in-memory://context.jpg"},
+                }
+            },
+        )
+
+    out = verify_mapping_critical_with_image(
+        session_manager=object(),
+        session_id="s1",
+        iteration=1,
+        dossier_id="D1",
+        source_transcript_ref="in-memory://source.json",
+        top_findings=[{"finding_id": "plss_range_conflict_001", "finding_type": "plss_consistency", "message": "Range token conflict"}],
+        disagreement_hints={},
+        source_image_refs=["in-memory://img.png"],
+        model="gpt-5.2",
+        step_fn=_step_fn,
+        read_step_outputs_inline_fn=lambda record: (record.get("outputs_inline") if isinstance(record, dict) else {}),
+        read_str_fn=lambda value: str(value) if isinstance(value, str) else None,
+        progress_cb=None,
+        focus_decision_key="range",
+    )
+    results = (out.get("payload") or {}).get("results") if isinstance(out.get("payload"), dict) else []
+    assert isinstance(results, list) and results
+    row = results[0]
+    assert isinstance(row.get("tx_image_evidence_region_ref"), dict)
+    assert str((row.get("tx_image_evidence_region_ref") or {}).get("artifact_path") or "") == "in-memory://region.jpg"

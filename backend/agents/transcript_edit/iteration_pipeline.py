@@ -314,6 +314,7 @@ def handle_repair_iteration(
     source_transcript_hash: str,
     progress_cb: Callable[[dict[str, Any]], None] | None,
     model: str,
+    validation_mode: str,
 ) -> TranscriptEditDecision | None:
     blocker_registry_before_iteration = registry_snapshot_for_payload(state.blocker_registry)
     state.blocker_registry = sync_registry_from_ledger(
@@ -956,6 +957,7 @@ def handle_repair_iteration(
             progress_cb=progress_cb,
             focus_decision_key=focus_key or None,
             llm_call_seq_start=state.llm_call_seq,
+            validation_mode=validation_mode,
         )
         if image_verification:
             state.llm_call_seq = int(image_verification.get("llm_call_seq_end") or state.llm_call_seq)
@@ -996,6 +998,9 @@ def handle_repair_iteration(
                             "llm_call_seq": r.get("llm_call_seq"),
                             "phase_attempt": r.get("phase_attempt"),
                             "observed_text": str(r.get("observed_text") or "")[:120],
+                            "locator_status": str((r.get("locator") or {}).get("status") or ""),
+                            "tx_image_evidence_region_ref": r.get("tx_image_evidence_region_ref"),
+                            "tx_image_evidence_context_ref": r.get("tx_image_evidence_context_ref"),
                         }
                         for r in iv_results[:8]
                         if isinstance(r, dict)
@@ -1043,6 +1048,7 @@ def handle_repair_iteration(
             progress_cb=progress_cb,
             focus_decision_key=focus_key if 'focus_key' in locals() else None,
             llm_call_seq_start=state.llm_call_seq,
+            validation_mode=validation_mode,
         )
         if image_verification:
             state.llm_call_seq = int(image_verification.get("llm_call_seq_end") or state.llm_call_seq)
@@ -1077,6 +1083,9 @@ def handle_repair_iteration(
                             "status": r.get("status"),
                             "decision_key": r.get("decision_key"),
                             "observed_text": str(r.get("observed_text") or "")[:120],
+                            "locator_status": str((r.get("locator") or {}).get("status") or ""),
+                            "tx_image_evidence_region_ref": r.get("tx_image_evidence_region_ref"),
+                            "tx_image_evidence_context_ref": r.get("tx_image_evidence_context_ref"),
                         }
                         for r in iv_results[:8]
                         if isinstance(r, dict)
@@ -1148,6 +1157,7 @@ def handle_repair_iteration(
         feedback_prompt = build_human_feedback_prompt(
             decision_ledger=state.decision_ledger,
             iteration=iterations,
+            image_verification_payload=(image_verification.get("payload") if isinstance(image_verification, dict) else None),
         )
         if feedback_prompt is not None:
             emit_progress(
@@ -1414,6 +1424,7 @@ def handle_repair_iteration(
                 feedback_prompt = build_human_feedback_prompt(
                     decision_ledger=state.decision_ledger,
                     iteration=iterations,
+                    image_verification_payload=(image_verification.get("payload") if isinstance(image_verification, dict) else None),
                 )
             if feedback_prompt is not None:
                 emit_progress(
@@ -1676,6 +1687,7 @@ def handle_repair_iteration(
                 progress_cb=progress_cb,
                 focus_decision_key=focus_key,
                 llm_call_seq_start=state.llm_call_seq,
+                validation_mode=validation_mode,
             ),
             retrieve_dependency_runner=None,
         )
@@ -1760,6 +1772,9 @@ def handle_repair_iteration(
                             "check_id": r.get("check_id"),
                             "status": r.get("status"),
                             "observed_text": str(r.get("observed_text") or "")[:120],
+                            "locator_status": str((r.get("locator") or {}).get("status") or ""),
+                            "tx_image_evidence_region_ref": r.get("tx_image_evidence_region_ref"),
+                            "tx_image_evidence_context_ref": r.get("tx_image_evidence_context_ref"),
                         }
                         for r in iv_results[:8]
                         if isinstance(r, dict)
@@ -2306,7 +2321,10 @@ def _verify_mapping_critical_with_image(
     progress_cb: Callable[[dict[str, Any]], None] | None,
     focus_decision_key: str | None = None,
     llm_call_seq_start: int = 0,
+    validation_mode: str = "off",
 ) -> dict[str, Any]:
+    verify_runtime = _image_verify_runtime_config(validation_mode)
+
     def _emit_check_progress(update: dict[str, Any]) -> None:
         check_index = int(update.get("check_index") or 0)
         check_total = int(update.get("check_total") or 0)
@@ -2315,6 +2333,10 @@ def _verify_mapping_critical_with_image(
         elapsed_seconds = int(update.get("elapsed_seconds") or 0)
         llm_call_seq = int(update.get("llm_call_seq") or 0)
         phase_attempt = int(update.get("phase_attempt") or 1)
+        wait_reason = str(update.get("wait_reason") or "").strip().lower() or None
+        phase_started_at_epoch_seconds = int(update.get("phase_started_at_epoch_seconds") or 0) or None
+        timeout_seconds = int(update.get("timeout_seconds") or 0) or None
+        max_attempts_per_check = int(update.get("max_attempts_per_check") or 0) or None
         check_decision_key = str(update.get("check_decision_key") or "").strip().lower() or None
         focus_key = str(update.get("focus_decision_key") or focus_decision_key or "").strip().lower() or None
         emit_progress(
@@ -2329,6 +2351,12 @@ def _verify_mapping_critical_with_image(
                 phase_attempt=phase_attempt,
                 stage=stage,
                 elapsed_seconds=elapsed_seconds,
+                wait_reason=wait_reason,
+                phase_started_at_epoch_seconds=phase_started_at_epoch_seconds,
+                timeout_seconds=timeout_seconds,
+                max_attempts_per_check=max_attempts_per_check,
+                check_index=int(update.get("check_index") or 0),
+                check_total=int(update.get("check_total") or 0),
                 diagnostic=(update.get("diagnostic") if isinstance(update.get("diagnostic"), dict) else None),
                 latest_refs={},
             ),
@@ -2350,7 +2378,31 @@ def _verify_mapping_critical_with_image(
         progress_cb=_emit_check_progress,
         focus_decision_key=focus_decision_key,
         llm_call_seq_start=llm_call_seq_start,
+        max_checks=int(verify_runtime.get("max_checks") or 4),
+        step_timeout_seconds=int(verify_runtime.get("step_timeout_seconds") or 240),
+        max_attempts_per_check=int(verify_runtime.get("max_attempts_per_check") or 2),
+        heartbeat_thresholds_seconds=tuple(verify_runtime.get("heartbeat_thresholds_seconds") or (15, 30, 60)),
+        heartbeat_every_seconds=int(verify_runtime.get("heartbeat_every_seconds") or 60),
     )
+
+
+def _image_verify_runtime_config(validation_mode: str | None) -> dict[str, Any]:
+    mode = str(validation_mode or "").strip().lower()
+    if mode == "live_hitl":
+        return {
+            "max_checks": 1,
+            "step_timeout_seconds": 90,
+            "max_attempts_per_check": 1,
+            "heartbeat_thresholds_seconds": (10, 20, 30, 60),
+            "heartbeat_every_seconds": 30,
+        }
+    return {
+        "max_checks": 4,
+        "step_timeout_seconds": 240,
+        "max_attempts_per_check": 2,
+        "heartbeat_thresholds_seconds": (15, 30, 60),
+        "heartbeat_every_seconds": 60,
+    }
 
 
 def _span_to_display_dict(span: dict[str, Any]) -> dict[str, Any]:

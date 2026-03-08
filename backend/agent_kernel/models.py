@@ -162,6 +162,8 @@ class KernelLatestRefs(BaseModel):
     tx_source_transcript_ref: Optional[dict[str, object]] = None
     tx_open_spans_ref: Optional[dict[str, object]] = None
     tx_image_verify_ref: Optional[dict[str, object]] = None
+    tx_image_evidence_region_ref: Optional[dict[str, object]] = None
+    tx_image_evidence_context_ref: Optional[dict[str, object]] = None
     tx_validator_report_ref: Optional[dict[str, object]] = None
     tx_orient_baseline_ref: Optional[dict[str, object]] = None
     tx_edit_plan_ref: Optional[dict[str, object]] = None
