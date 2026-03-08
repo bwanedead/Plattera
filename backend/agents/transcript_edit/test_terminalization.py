@@ -501,6 +501,122 @@ def test_terminal_summary_classifies_post_feedback_resolver_invalid_exhausted() 
     assert summary["terminal_classification"] == "blocked_post_feedback_resolver_invalid"
 
 
+def test_terminal_classification_precedence_keeps_dependency_over_blocker_fallback() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [
+                        {
+                            "key": "closure_or_pob",
+                            "label": "Closure / POB",
+                            "state": "disputed",
+                            "blocking": True,
+                            "closure_requirement": {
+                                "block_reason": "dependency",
+                                "mapping_blocking": True,
+                            },
+                        }
+                    ],
+                    "summary": {"blocking_open_count": 1},
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s_dep_precedence",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_closure_requirements_unresolved",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(
+        progress_log,
+        result,
+        runtime_hitl_state={
+            "blocker_registry": {
+                "counts": {"waiting_feedback": 1, "answered_unintegrated": 1, "open": 1},
+                "active_blocker_id": "blocker:closure_or_pob",
+                "rows": [
+                    {
+                        "blocker_id": "blocker:closure_or_pob",
+                        "decision_key": "closure_or_pob",
+                        "state": "open",
+                        "scope_status": "in_target",
+                    }
+                ],
+            }
+        },
+    )
+    assert summary["terminal_classification"] == "blocked_dependency_evidence_missing"
+
+
+def test_terminal_classification_precedence_keeps_post_feedback_resolver_invalid_over_blocker_fallback() -> None:
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s_resolver_precedence",
+        iterations=3,
+        status="needs_review",
+        reason_code="tx_agent_post_feedback_resolver_invalid_exhausted:resolver_invalid:ValidationError:invalid_move",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(
+        [],
+        result,
+        runtime_hitl_state={
+            "blocker_registry": {
+                "counts": {"answered_unintegrated": 1, "waiting_feedback": 0, "open": 0},
+                "active_blocker_id": "blocker:range",
+                "rows": [
+                    {
+                        "blocker_id": "blocker:range",
+                        "decision_key": "range",
+                        "state": "answered_unintegrated",
+                        "scope_status": "in_target",
+                    }
+                ],
+            }
+        },
+    )
+    assert summary["terminal_classification"] == "blocked_post_feedback_resolver_invalid"
+
+
+def test_terminal_classification_blocker_fallback_applies_without_more_specific_reason() -> None:
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s_blocker_fallback",
+        iterations=1,
+        status="needs_review",
+        reason_code="tx_agent_closure_requirements_unresolved",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(
+        [],
+        result,
+        runtime_hitl_state={
+            "blocker_registry": {
+                "counts": {"waiting_feedback": 1, "answered_unintegrated": 0, "open": 0},
+                "active_blocker_id": "blocker:range",
+                "rows": [
+                    {
+                        "blocker_id": "blocker:range",
+                        "decision_key": "range",
+                        "state": "waiting_feedback",
+                        "scope_status": "in_target",
+                    }
+                ],
+            }
+        },
+    )
+    assert summary["terminal_classification"] == "blocked_waiting_feedback"
+
+
 def test_terminal_summary_scoped_success_with_incomplete_source_context() -> None:
     progress_log = [
         {
@@ -954,3 +1070,67 @@ def test_terminal_summary_includes_blocker_registry_waiting_feedback_owner() -> 
     assert str(owner.get("decision_key") or "") == "range"
     assert str(owner.get("linked_prompt_id") or "") == "hitl_range_4_resolver"
     assert str(summary.get("active_blocker_id") or "") == "blocker:range"
+
+
+def test_terminal_summary_classifies_blocked_answered_unintegrated_no_safe_plan() -> None:
+    result = build_run_result(
+        run_artifact_ref="ref://run",
+        session_id="session-1",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_consistent_feedback_no_safe_plan",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(
+        [],
+        result,
+        runtime_hitl_state={
+            "blocker_registry": {
+                "counts": {"answered_unintegrated": 1, "waiting_feedback": 0, "open": 0},
+                "active_blocker_id": "blocker:range",
+                "rows": [
+                    {
+                        "blocker_id": "blocker:range",
+                        "decision_key": "range",
+                        "state": "answered_unintegrated",
+                        "scope_status": "in_target",
+                    }
+                ],
+                "history": [{"iteration": 2, "result": "feedback_present_no_safe_plan"}],
+            }
+        },
+    )
+    assert summary["terminal_classification"] == "blocked_answered_unintegrated_no_safe_plan"
+    assert summary["actionable_returned_feedback_pending_integration"] is True
+
+
+def test_terminal_summary_failed_status_not_masked_by_blocker_friendly_state() -> None:
+    result = build_run_result(
+        run_artifact_ref="ref://run",
+        session_id="session-1",
+        iterations=2,
+        status="failed",
+        reason_code="tx_agent_execution_failed",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(
+        [],
+        result,
+        runtime_hitl_state={
+            "blocker_registry": {
+                "counts": {"answered_unintegrated": 1, "waiting_feedback": 0, "open": 0},
+                "active_blocker_id": "blocker:range",
+                "rows": [
+                    {
+                        "blocker_id": "blocker:range",
+                        "decision_key": "range",
+                        "state": "answered_unintegrated",
+                        "scope_status": "in_target",
+                    }
+                ],
+            }
+        },
+    )
+    assert summary["terminal_classification"] == "blocked_execution_failed"

@@ -26,8 +26,12 @@ from .decision_ledger import (
 )
 from .blocker_registry import (
     append_iteration_recap,
+    blocker_registry_delta,
     link_prompt_to_blocker,
     mark_feedback_received,
+    mark_feedback_stale,
+    registry_snapshot_for_payload,
+    select_primary_blocker_with_reason,
     select_primary_blocker,
     supersede_prompt_link,
     sync_registry_from_ledger,
@@ -311,12 +315,19 @@ def handle_repair_iteration(
     progress_cb: Callable[[dict[str, Any]], None] | None,
     model: str,
 ) -> TranscriptEditDecision | None:
+    blocker_registry_before_iteration = registry_snapshot_for_payload(state.blocker_registry)
     state.blocker_registry = sync_registry_from_ledger(
         registry=state.blocker_registry,
         decision_ledger=state.decision_ledger,
         source_transcript_ref=state.current_transcript_ref,
     )
-    primary_registry_blocker = select_primary_blocker(state.blocker_registry) or {}
+    selection = select_primary_blocker_with_reason(state.blocker_registry)
+    primary_registry_blocker = (
+        dict(selection.get("row"))
+        if isinstance(selection.get("row"), dict)
+        else {}
+    )
+    selection_reason_code = str(selection.get("reason_code") or "no_active_blockers")
     primary_registry_state = str(primary_registry_blocker.get("state") or "").strip().lower()
     mapping_focus: dict[str, Any] = (
         {"decision_key": str(primary_registry_blocker.get("decision_key") or "").strip().lower()}
@@ -344,6 +355,10 @@ def handle_repair_iteration(
             decision_key=decision_key,
         )
         new_state = str((row or {}).get("state") or "").strip().lower() or None
+        delta = blocker_registry_delta(
+            before_registry=blocker_registry_before_iteration,
+            after_registry=state.blocker_registry,
+        )
         state.blocker_registry = append_iteration_recap(
             registry=state.blocker_registry,
             iteration=iterations,
@@ -353,6 +368,7 @@ def handle_repair_iteration(
             result=result,
             new_state=new_state,
             reason=reason,
+            blocker_delta=delta,
         )
         emit_progress(
             progress_cb,
@@ -368,6 +384,8 @@ def handle_repair_iteration(
                     "new_state": new_state,
                     "reason": str(reason or "").strip() or None,
                     "counts": dict((state.blocker_registry or {}).get("counts") or {}),
+                    "selection_reason_code": selection_reason_code,
+                    "blocker_delta": delta,
                 },
             ),
         )
@@ -378,6 +396,29 @@ def handle_repair_iteration(
         state.hitl_lifecycle_log.append(event)
         if len(state.hitl_lifecycle_log) > 120:
             state.hitl_lifecycle_log = state.hitl_lifecycle_log[-120:]
+
+    if (
+        isinstance(primary_registry_blocker, dict)
+        and str(primary_registry_blocker.get("state") or "").strip().lower() == "answered_unintegrated"
+        and not isinstance(focus_feedback, dict)
+    ):
+        focus_feedback = _feedback_payload_from_registry_row(primary_registry_blocker)
+        if isinstance(focus_feedback, dict):
+            state.latest_feedback = dict(focus_feedback)
+            emit_progress(
+                progress_cb,
+                ticker_payload(
+                    iteration=iterations,
+                    phase="feedback_integration_branch",
+                    message="Prioritizing answered_unintegrated blocker feedback integration before fresh evidence gathering.",
+                    latest_refs=state.latest_refs,
+                    detail={
+                        "decision_key": str(focus_feedback.get("decision_key") or "").strip().lower() or None,
+                        "blocker_id": str(primary_registry_blocker.get("blocker_id") or "").strip() or None,
+                        "selection_reason_code": selection_reason_code,
+                    },
+                ),
+            )
 
     def _emit_ticket_lifecycle_transition(
         *,
@@ -534,6 +575,11 @@ def handle_repair_iteration(
                     if isinstance(entry.get("metadata"), dict)
                     else ""
                 ) or str(state.pending_feedback_decision_key or "").strip().lower()
+                stale_reason = (
+                    "superseded_prompt_reply"
+                    if entry_prompt_id in state.superseded_feedback_prompt_ids
+                    else "stale_prompt_reply"
+                )
                 if entry_prompt_id and stale_decision_key:
                     state.decision_ledger = mark_human_resolution_ticket_state(
                         ledger=state.decision_ledger,
@@ -549,11 +595,12 @@ def handle_repair_iteration(
                         relevance="inactive",
                         reason="stale_prompt_reply",
                     )
-                stale_reason = (
-                    "superseded_prompt_reply"
-                    if entry_prompt_id in state.superseded_feedback_prompt_ids
-                    else "stale_prompt_reply"
-                )
+                    state.blocker_registry = mark_feedback_stale(
+                        registry=state.blocker_registry,
+                        decision_key=stale_decision_key,
+                        prompt_id=entry_prompt_id,
+                        reason=stale_reason,
+                    )
                 stale_event = {
                     "iteration": iterations,
                     "phase": "human_feedback_stale",
@@ -572,6 +619,12 @@ def handle_repair_iteration(
                         active_prompt_id=pending_prompt_id,
                         reason=stale_reason,
                     ),
+                )
+                _append_blocker_iteration_recap(
+                    action_attempted="consume_feedback",
+                    result="feedback_stale_ignored",
+                    decision_key=stale_decision_key,
+                    reason=stale_reason,
                 )
         feedback_entry = poll_feedback_response(
             run_id=viewer_run_id,
@@ -609,6 +662,12 @@ def handle_repair_iteration(
         )
         if not isinstance(normalized_feedback, dict):
             state.feedback_stale_count += 1
+            state.blocker_registry = mark_feedback_stale(
+                registry=state.blocker_registry,
+                decision_key=str(state.pending_feedback_decision_key or "").strip().lower(),
+                prompt_id=pending_prompt_id,
+                reason="invalid_feedback_payload",
+            )
             _append_hitl_lifecycle_event(
                 {
                     "iteration": iterations,
@@ -1302,7 +1361,7 @@ def handle_repair_iteration(
                 )
             _append_blocker_iteration_recap(
                 action_attempted="integrate_feedback",
-                result="needs_review",
+                result="feedback_present_no_safe_plan",
                 decision_key=focus_key,
                 reason="no_safe_feedback_override_plan",
             )
@@ -1884,6 +1943,27 @@ def handle_repair_iteration(
                 relevance="inactive",
                 reason="apply_edit_plan",
             )
+        state.blocker_registry = sync_registry_from_ledger(
+            registry=state.blocker_registry,
+            decision_ledger=state.decision_ledger,
+            source_transcript_ref=state.current_transcript_ref,
+        )
+        remaining_for_focus = _registry_row_for_decision_key(
+            registry=state.blocker_registry,
+            decision_key=focus_key,
+        )
+        outcome_code = (
+            "feedback_integrated_blocker_still_open"
+            if isinstance(remaining_for_focus, dict)
+            and str(remaining_for_focus.get("state") or "").strip().lower() in {"open", "waiting_feedback", "answered_unintegrated"}
+            else "feedback_integrated_blocker_cleared"
+        )
+        _append_blocker_iteration_recap(
+            action_attempted="integrate_feedback",
+            result=outcome_code,
+            decision_key=focus_key,
+            reason="apply_edit_plan",
+        )
     state.invalid_plan_strikes = 0
     state.last_reason = "tx_apply_completed_waiting_reaudit"
     if raw_plan_text:
@@ -2028,6 +2108,26 @@ def _feedback_payload_from_ticket(
         "note": str(payload.get("note") or "").strip() or None,
         "prompt_id": str(answered_ticket.get("ticket_id") or "").strip() or None,
         "metadata": {"ticket_id": str(answered_ticket.get("ticket_id") or "").strip() or None},
+    }
+
+
+def _feedback_payload_from_registry_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    decision_key = str(row.get("decision_key") or "").strip().lower()
+    selected_value = str(row.get("feedback_value") or "").strip()
+    if not decision_key or not selected_value:
+        return None
+    return {
+        "decision_key": decision_key,
+        "selected_value": selected_value,
+        "choice": None,
+        "note": str(row.get("feedback_note") or "").strip() or None,
+        "prompt_id": str(row.get("linked_prompt_id") or "").strip() or None,
+        "metadata": {
+            "source": "blocker_registry",
+            "blocker_id": str(row.get("blocker_id") or "").strip() or None,
+        },
     }
 
 

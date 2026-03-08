@@ -32,6 +32,7 @@ from .decision_ledger import (
     update_ledger_from_iteration,
 )
 from .blocker_registry import (
+    blocker_health_snapshot,
     initialize_blocker_registry,
     registry_snapshot_for_payload,
     select_primary_blocker,
@@ -292,6 +293,41 @@ def run_transcript_edit_controller_loop(
         session_id=session_id,
         source_transcript_ref=state.current_transcript_ref,
     )
+    blocker_health = blocker_health_snapshot(
+        registry=state.blocker_registry,
+        decision_ledger=state.decision_ledger,
+    )
+    _emit_progress(
+        progress_cb,
+        ticker_payload(
+            iteration=0,
+            phase="blocker_health_check",
+            message="Blocker registry health snapshot completed.",
+            latest_refs=state.latest_refs,
+            detail=blocker_health,
+        ),
+    )
+    if bool(blocker_health.get("ledger_registry_mismatch")):
+        state.blocker_registry = sync_registry_from_ledger(
+            registry=state.blocker_registry,
+            decision_ledger=state.decision_ledger,
+            run_id=request_id_prefix,
+            session_id=session_id,
+            source_transcript_ref=state.current_transcript_ref,
+        )
+        _emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=0,
+                phase="blocker_health_reconcile",
+                message="Detected ledger/registry mismatch; projection resynced from ledger.",
+                latest_refs=state.latest_refs,
+                detail=blocker_health_snapshot(
+                    registry=state.blocker_registry,
+                    decision_ledger=state.decision_ledger,
+                ),
+            ),
+        )
     baseline_unresolved = unresolved_closure_requirements(state.decision_ledger)
     baseline_residual = [item for item in baseline_unresolved if isinstance(item, dict)]
     mapping_blocking_count = sum(1 for item in baseline_residual if bool(item.get("mapping_blocking")))
@@ -727,6 +763,10 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
         "scope_summaries": dict(state.decision_ledger.get("scope_summaries") or {}),
         "blocker_registry": registry_snapshot_for_payload(state.blocker_registry),
         "active_blocker": select_primary_blocker(state.blocker_registry),
+        "blocker_health": blocker_health_snapshot(
+            registry=state.blocker_registry,
+            decision_ledger=state.decision_ledger,
+        ),
     }
 
 

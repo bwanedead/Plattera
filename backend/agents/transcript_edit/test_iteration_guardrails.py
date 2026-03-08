@@ -113,3 +113,24 @@ def test_select_focus_decision_key_does_not_prioritize_outside_scope_feedback() 
         focus_feedback={"decision_key": "section", "selected_value": "Section 12"},
     )
     assert selected == "range"
+
+
+def test_select_focus_decision_key_prioritizes_answered_unintegrated_registry_blocker() -> None:
+    ledger = {"items": [_ledger_item(key="range", state="disputed"), _ledger_item(key="section", state="disputed")]}
+    selected = _select_focus_decision_key(
+        decision_ledger=ledger,
+        fallback_focus={"decision_key": "range"},
+        focus_feedback=None,
+        blocker_registry={
+            "rows": [
+                {
+                    "blocker_id": "blocker:section",
+                    "decision_key": "section",
+                    "state": "answered_unintegrated",
+                    "mapping_blocking": True,
+                    "scope_status": "in_target",
+                }
+            ]
+        },
+    )
+    assert selected == "section"

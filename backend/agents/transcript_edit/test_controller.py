@@ -1037,6 +1037,39 @@ def test_transcript_controller_resume_restores_blocker_registry_projection_state
         assert any(str(row.get("action_attempted") or "") == "request_hitl" for row in history)
 
 
+def test_transcript_controller_emits_blocker_health_check_event() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Range token remains unresolved in candidates."}]}),
+            encoding="utf-8",
+        )
+        progress_events: list[dict[str, Any]] = []
+        _ = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=1,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="manual-blocker-health-check",
+            planner=_PlannerNoOps(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+        health_events = [
+            evt
+            for evt in progress_events
+            if isinstance(evt, dict) and str(evt.get("phase") or "") == "blocker_health_check"
+        ]
+        assert health_events
+        detail = health_events[-1].get("detail") if isinstance(health_events[-1].get("detail"), dict) else {}
+        assert "answered_unintegrated_count" in detail
+        assert "ledger_registry_mismatch" in detail
+
+
 def test_transcript_controller_does_not_reemit_baseline_prompt_immediately_after_feedback_consumed(monkeypatch) -> None:
     call_count = {"poll": 0}
 

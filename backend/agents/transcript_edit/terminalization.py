@@ -312,7 +312,22 @@ def terminal_summary(
         optional_only_remaining=optional_only_remaining,
         human_feedback_pending=human_feedback_pending,
         result_status=result_status,
+        blocker_counts=blocker_counts,
+        active_blocker=active_blocker,
     )
+    last_blocker_transition = (
+        next(
+            (
+                dict(row)
+                for row in reversed(list(blocker_registry.get("history") or []))
+                if isinstance(row, dict)
+            ),
+            None,
+        )
+        if isinstance(blocker_registry, dict)
+        else None
+    )
+    actionable_returned_feedback_pending_integration = int((blocker_counts or {}).get("answered_unintegrated") or 0) > 0
     final_decision_rationale = _final_decision_rationale(
         events=events,
         result_status=result_status,
@@ -410,6 +425,8 @@ def terminal_summary(
         "active_blocker": active_blocker,
         "waiting_feedback_owner": waiting_feedback_owner,
         "answered_unintegrated_owner": answered_unintegrated_owner,
+        "last_blocker_transition": last_blocker_transition,
+        "actionable_returned_feedback_pending_integration": actionable_returned_feedback_pending_integration,
         "decision_ledger_summary": (
             decision_ledger.get("summary")
             if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("summary"), dict)
@@ -559,7 +576,16 @@ def _terminal_classification(
     optional_only_remaining: bool,
     human_feedback_pending: bool,
     result_status: str,
+    blocker_counts: dict[str, Any] | None = None,
+    active_blocker: dict[str, Any] | None = None,
 ) -> str:
+    if str(result_status or "").strip().lower() == "failed":
+        return "blocked_execution_failed"
+    counts = dict(blocker_counts or {})
+    waiting_feedback_count = int(counts.get("waiting_feedback") or 0)
+    answered_unintegrated_count = int(counts.get("answered_unintegrated") or 0)
+    active_scope = str((active_blocker or {}).get("scope_status") or "").strip().lower()
+    active_state = str((active_blocker or {}).get("state") or "").strip().lower()
     scoped_incomplete_source = bool(
         scoped_success_eligible
         and run_healthy
@@ -579,14 +605,26 @@ def _terminal_classification(
         return "blocked_dependency_evidence_missing"
     if str(reason_code or "").startswith("tx_agent_post_feedback_resolver_invalid_exhausted:"):
         return "blocked_post_feedback_resolver_invalid"
+    if str(reason_code or "").startswith(
+        (
+            "tx_agent_post_feedback_plan_invalid_exhausted:",
+            "tx_agent_plan_invalid_exhausted:",
+        )
+    ):
+        return "blocked_post_feedback_plan_invalid"
     if human_feedback_pending:
         return "blocked_human_feedback_needed"
     if len(unresolved_ambiguity_target_scope_items) > 0:
         return "blocked_target_scope_ambiguity"
     if len(unresolved_ambiguity_items) > 0:
         return "blocked_mapping_ambiguity_unresolved"
-    if result_status == "failed":
-        return "blocked_execution_failed"
+    has_registry_counts = len(counts) > 0
+    if has_registry_counts and waiting_feedback_count > 0:
+        return "blocked_waiting_feedback"
+    if has_registry_counts and answered_unintegrated_count > 0:
+        return "blocked_answered_unintegrated_no_safe_plan"
+    if has_registry_counts and active_state == "open" and active_scope in {"in_target", "unknown"}:
+        return "blocked_target_scope_open"
     return "blocked_no_safe_autonomous_move"
 
 
@@ -909,10 +947,16 @@ def _closure_not_reached_reason(
     human_feedback_pending: bool,
     unresolved_mapping_blocking_count: int,
 ) -> str:
-    if human_feedback_pending:
+    if human_feedback_pending or terminal_classification == "blocked_waiting_feedback":
         return "Pending human feedback remained unresolved at terminalization."
+    if terminal_classification == "blocked_answered_unintegrated_no_safe_plan":
+        return "Returned human feedback was present but no safe integration path cleared the blocker."
+    if terminal_classification == "blocked_target_scope_open":
+        return "A target-scope mapping blocker remained open at terminalization."
     if terminal_classification == "blocked_dependency_evidence_missing":
         return "Required dependency evidence was unavailable, so closure gates remained blocked."
+    if terminal_classification == "blocked_post_feedback_plan_invalid":
+        return "Post-feedback plan payloads remained invalid after bounded retries."
     if terminal_classification in {"blocked_target_scope_ambiguity", "blocked_mapping_ambiguity_unresolved"}:
         return "Ambiguity remained unresolved after bounded autonomous attempts."
     if reason_code.startswith("tx_agent_no_progress:"):
@@ -923,13 +967,15 @@ def _closure_not_reached_reason(
 
 
 def _next_action_for_terminal_classification(*, terminal_classification: str, human_feedback_pending: bool) -> str:
-    if human_feedback_pending or terminal_classification == "blocked_human_feedback_needed":
+    if human_feedback_pending or terminal_classification in {"blocked_human_feedback_needed", "blocked_waiting_feedback"}:
         return "Provide feedback to the active prompt and resume the run."
+    if terminal_classification == "blocked_answered_unintegrated_no_safe_plan":
+        return "Review returned feedback integration constraints and provide refined guidance or corrected source evidence."
     if terminal_classification == "blocked_dependency_evidence_missing":
         return "Provide missing dependency evidence/source material, then resume."
     if terminal_classification in {"blocked_target_scope_ambiguity", "blocked_mapping_ambiguity_unresolved"}:
         return "Provide explicit disambiguation (or corrected source text), then rerun."
-    if terminal_classification == "blocked_post_feedback_resolver_invalid":
+    if terminal_classification in {"blocked_post_feedback_resolver_invalid", "blocked_post_feedback_plan_invalid"}:
         return "Inspect resolver diagnostics and repair move-contract/prompting before rerun."
     if terminal_classification in {"closure_achieved", "target_scope_complete_with_incomplete_source_context"}:
         return "Proceed to downstream mapping workflow."
