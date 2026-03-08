@@ -125,7 +125,7 @@ def build_focus_resolver_system_message() -> str:
         "If move=gather_more_evidence, include evidence_request with fields: kind, decision_key, reason, target. "
         "Allowed evidence_request.kind values: open_spans, image_verify, retrieve_dependency_evidence. "
         "Treat external_context_injections as persistent semantic state. "
-        "Treat blocker_feedback_state as authoritative loop-state context for blocker counts, HITL pairing, and feedback integration readiness. "
+        "Treat blocker_registry and blocker_feedback_state as authoritative loop-state context for blocker counts, HITL pairing, and feedback integration readiness. "
         "Prioritize removing open mapping blockers before optional work; when focused_blocker_feedback_pair.ready_for_resolution=true, your next move must directly integrate or safely escalate that blocker-ticket pair. "
         "If HITL feedback is present for the focused decision_key, you must explicitly use that feedback when selecting the move. "
         "Do not ignore provided human feedback. "

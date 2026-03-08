@@ -122,9 +122,25 @@ def _extract_resume_pending_feedback(run: dict[str, Any]) -> tuple[str | None, s
     snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}
     runtime_hitl = snapshot.get("runtime_hitl_state") if isinstance(snapshot.get("runtime_hitl_state"), dict) else {}
     summary = snapshot.get("terminal_summary") if isinstance(snapshot.get("terminal_summary"), dict) else {}
+    blocker_registry = runtime_hitl.get("blocker_registry") if isinstance(runtime_hitl.get("blocker_registry"), dict) else {}
+    blocker_rows = [row for row in list(blocker_registry.get("rows") or []) if isinstance(row, dict)]
 
-    prompt_id = str(runtime_hitl.get("pending_feedback_prompt_id") or "").strip() or None
-    decision_key = str(runtime_hitl.get("pending_feedback_decision_key") or "").strip().lower() or None
+    waiting_owner = next(
+        (
+            row
+            for row in blocker_rows
+            if str(row.get("state") or "").strip().lower() == "waiting_feedback"
+        ),
+        None,
+    )
+
+    prompt_id = str((waiting_owner or {}).get("linked_prompt_id") or "").strip() or None
+    decision_key = str((waiting_owner or {}).get("decision_key") or "").strip().lower() or None
+
+    if not prompt_id:
+        prompt_id = str(runtime_hitl.get("pending_feedback_prompt_id") or "").strip() or None
+    if not decision_key:
+        decision_key = str(runtime_hitl.get("pending_feedback_decision_key") or "").strip().lower() or None
 
     if not prompt_id:
         pending_ids = [str(v).strip() for v in list(summary.get("pending_feedback_prompt_ids") or []) if str(v).strip()]
@@ -155,6 +171,8 @@ def _extract_resume_pending_feedback(run: dict[str, Any]) -> tuple[str | None, s
 def _build_resume_request_for_run(*, run: dict[str, Any], trigger: str | None, background: bool) -> TranscriptEditAgentApiRequest:
     request_meta = run.get("request") if isinstance(run.get("request"), dict) else {}
     payload = request_meta.get("resume_request") if isinstance(request_meta.get("resume_request"), dict) else {}
+    snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}
+    summary = snapshot.get("terminal_summary") if isinstance(snapshot.get("terminal_summary"), dict) else {}
     base_payload = dict(payload)
     source_ref = _extract_resume_source_ref(run=run)
     if source_ref:
@@ -163,12 +181,24 @@ def _build_resume_request_for_run(*, run: dict[str, Any], trigger: str | None, b
     if trigger:
         base_payload["trigger"] = trigger
     pending_prompt_id, pending_decision_key, prompt_context = _extract_resume_pending_feedback(run)
+    runtime_hitl = snapshot.get("runtime_hitl_state") if isinstance(snapshot.get("runtime_hitl_state"), dict) else {}
+    blocker_registry = (
+        dict(runtime_hitl.get("blocker_registry"))
+        if isinstance(runtime_hitl.get("blocker_registry"), dict)
+        else (
+            dict(summary.get("blocker_registry"))
+            if isinstance(summary.get("blocker_registry"), dict)
+            else None
+        )
+    )
     if pending_prompt_id:
         base_payload["resume_pending_feedback_prompt_id"] = pending_prompt_id
     if pending_decision_key:
         base_payload["resume_pending_feedback_decision_key"] = pending_decision_key
     if isinstance(prompt_context, dict):
         base_payload["resume_pending_feedback_prompt"] = prompt_context
+    if isinstance(blocker_registry, dict):
+        base_payload["resume_blocker_registry"] = blocker_registry
     base_payload["background"] = bool(background)
     return TranscriptEditAgentApiRequest.model_validate(base_payload)
 

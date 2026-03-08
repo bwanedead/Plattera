@@ -437,6 +437,22 @@ def test_resume_run_carries_pending_prompt_identity_from_waiting_snapshot(monkey
                     "waiting_feedback": True,
                     "resumable": True,
                     "latest_refs": {},
+                    "runtime_hitl_state": {
+                        "blocker_registry": {
+                            "version": 1,
+                            "active_blocker_id": "blocker:range",
+                            "counts": {"answered_unintegrated": 1, "total": 1},
+                            "rows": [
+                                {
+                                    "blocker_id": "blocker:range",
+                                    "decision_key": "range",
+                                    "state": "answered_unintegrated",
+                                    "linked_prompt_id": "hitl_range_1_wait",
+                                }
+                            ],
+                            "history": [{"iteration": 1, "action_attempted": "request_hitl"}],
+                        }
+                    },
                     "terminal_summary": {
                         "pending_feedback_prompt_ids": ["hitl_range_1_wait"],
                     },
@@ -477,6 +493,8 @@ def test_resume_run_carries_pending_prompt_identity_from_waiting_snapshot(monkey
         assert request is not None
         assert str(request.resume_pending_feedback_prompt_id) == "hitl_range_1_wait"
         assert str(request.resume_pending_feedback_decision_key) == "range"
+        assert isinstance(request.resume_blocker_registry, dict)
+        assert str(request.resume_blocker_registry.get("active_blocker_id") or "") == "blocker:range"
 
 
 def test_resume_run_endpoint_resumes_waiting_feedback_run(monkeypatch) -> None:

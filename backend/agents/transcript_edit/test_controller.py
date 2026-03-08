@@ -973,6 +973,70 @@ def test_transcript_controller_pending_feedback_gets_grace_drain_before_no_progr
         assert not str(result.reason_code).startswith("tx_agent_no_progress:pending_human_feedback_no_new_signal")
 
 
+def test_transcript_controller_resume_restores_blocker_registry_projection_state() -> None:
+    resume_registry = {
+        "version": 1,
+        "run_id": "prior-run",
+        "session_id": "prior-session",
+        "active_blocker_id": "blocker:range",
+        "counts": {"answered_unintegrated": 1, "total": 1},
+        "rows": [
+            {
+                "blocker_id": "blocker:range",
+                "decision_key": "range",
+                "mapping_blocking": True,
+                "scope_status": "in_target",
+                "state": "answered_unintegrated",
+                "linked_prompt_id": "hitl_range_1_resume",
+                "feedback_status": "received",
+                "feedback_value": "Range 75 West",
+                "last_transition_reason": "feedback_received",
+                "created_at": 1,
+                "updated_at": 2,
+            }
+        ],
+        "history": [
+            {
+                "iteration": 3,
+                "active_blocker_id": "blocker:range",
+                "action_attempted": "request_hitl",
+                "result": "waiting_feedback",
+            }
+        ],
+        "updated_at": 2,
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Range token remains unresolved in candidates."}]}),
+            encoding="utf-8",
+        )
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=1,
+                auto_promote=False,
+                hitl_enabled=False,
+                resume_blocker_registry=resume_registry,
+            ),
+            request_id_prefix="manual-resume-blocker-registry",
+            planner=_PlannerNoOps(),
+        )
+        runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
+        restored = runtime_hitl_state.get("blocker_registry") if isinstance(runtime_hitl_state.get("blocker_registry"), dict) else {}
+        rows = [row for row in list(restored.get("rows") or []) if isinstance(row, dict)]
+        assert any(
+            str(row.get("decision_key") or "") == "range"
+            and str(row.get("state") or "") == "answered_unintegrated"
+            for row in rows
+        )
+        history = [row for row in list(restored.get("history") or []) if isinstance(row, dict)]
+        assert any(str(row.get("action_attempted") or "") == "request_hitl" for row in history)
+
+
 def test_transcript_controller_does_not_reemit_baseline_prompt_immediately_after_feedback_consumed(monkeypatch) -> None:
     call_count = {"poll": 0}
 

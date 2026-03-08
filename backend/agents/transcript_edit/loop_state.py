@@ -29,6 +29,7 @@ class TranscriptEditLoopState:
     applied_any_edits: bool = False
     used_human_feedback: bool = False
     decision_ledger: dict[str, Any] = field(default_factory=dict)
+    blocker_registry: dict[str, Any] = field(default_factory=dict)
     pending_feedback_prompt_id: str | None = None
     pending_feedback_prompt: dict[str, Any] | None = None
     pending_feedback_decision_key: str | None = None

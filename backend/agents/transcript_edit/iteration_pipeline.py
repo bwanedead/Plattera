@@ -24,6 +24,14 @@ from .decision_ledger import (
     unresolved_closure_requirements,
     update_ledger_from_iteration,
 )
+from .blocker_registry import (
+    append_iteration_recap,
+    link_prompt_to_blocker,
+    mark_feedback_received,
+    select_primary_blocker,
+    supersede_prompt_link,
+    sync_registry_from_ledger,
+)
 from .evidence_executor import execute_evidence_request, normalize_evidence_request
 from .draft_persistence import persist_agent_edit_draft
 from .focus_packet import build_focus_packet
@@ -303,10 +311,66 @@ def handle_repair_iteration(
     progress_cb: Callable[[dict[str, Any]], None] | None,
     model: str,
 ) -> TranscriptEditDecision | None:
-    mapping_focus: dict[str, Any] = choose_investigation_focus(state.decision_ledger) or {}
+    state.blocker_registry = sync_registry_from_ledger(
+        registry=state.blocker_registry,
+        decision_ledger=state.decision_ledger,
+        source_transcript_ref=state.current_transcript_ref,
+    )
+    primary_registry_blocker = select_primary_blocker(state.blocker_registry) or {}
+    primary_registry_state = str(primary_registry_blocker.get("state") or "").strip().lower()
+    mapping_focus: dict[str, Any] = (
+        {"decision_key": str(primary_registry_blocker.get("decision_key") or "").strip().lower()}
+        if (
+            str(primary_registry_blocker.get("decision_key") or "").strip()
+            and primary_registry_state in {"answered_unintegrated", "waiting_feedback"}
+        )
+        else (choose_investigation_focus(state.decision_ledger) or {})
+    )
     manual_plan_override: dict[str, Any] | None = None
     focus_feedback: dict[str, Any] | None = state.latest_feedback if isinstance(state.latest_feedback, dict) else None
     viewer_run_id = viewer_run_id_from_request_prefix(request_id_prefix)
+    active_blocker_id = str((primary_registry_blocker or {}).get("blocker_id") or "").strip() or None
+    active_blocker_prior_state = str((primary_registry_blocker or {}).get("state") or "").strip().lower() or None
+
+    def _append_blocker_iteration_recap(
+        *,
+        action_attempted: str,
+        result: str,
+        decision_key: str | None,
+        reason: str | None = None,
+    ) -> None:
+        row = _registry_row_for_decision_key(
+            registry=state.blocker_registry,
+            decision_key=decision_key,
+        )
+        new_state = str((row or {}).get("state") or "").strip().lower() or None
+        state.blocker_registry = append_iteration_recap(
+            registry=state.blocker_registry,
+            iteration=iterations,
+            active_blocker_id=active_blocker_id,
+            prior_state=active_blocker_prior_state,
+            action_attempted=action_attempted,
+            result=result,
+            new_state=new_state,
+            reason=reason,
+        )
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="blocker_registry_iteration",
+                message=f"Blocker iteration recap: action={action_attempted}, result={result}.",
+                latest_refs=state.latest_refs,
+                detail={
+                    "active_blocker_id": active_blocker_id,
+                    "prior_state": active_blocker_prior_state,
+                    "decision_key": str(decision_key or "").strip().lower() or None,
+                    "new_state": new_state,
+                    "reason": str(reason or "").strip() or None,
+                    "counts": dict((state.blocker_registry or {}).get("counts") or {}),
+                },
+            ),
+        )
 
     def _append_hitl_lifecycle_event(event: dict[str, Any]) -> None:
         if not isinstance(event, dict):
@@ -399,6 +463,13 @@ def handle_repair_iteration(
                     reason=supersession_reason,
                 ),
             )
+            state.blocker_registry = supersede_prompt_link(
+                registry=state.blocker_registry,
+                decision_key=decision_key,
+                old_prompt_id=old_prompt_id,
+                new_prompt_id=new_prompt_id,
+                reason=supersession_reason,
+            )
         state.pending_feedback_prompt_id = new_prompt_id
         state.pending_feedback_prompt = feedback_prompt if isinstance(feedback_prompt, dict) else None
         state.pending_feedback_decision_key = decision_key or None
@@ -423,6 +494,13 @@ def handle_repair_iteration(
                     ][:6],
                 },
                 relevance="active",
+            )
+            state.blocker_registry = link_prompt_to_blocker(
+                registry=state.blocker_registry,
+                decision_key=decision_key,
+                prompt_id=new_prompt_id,
+                ticket_id=new_prompt_id,
+                reason="hitl_prompt_issued",
             )
         _append_hitl_lifecycle_event(
             {
@@ -593,6 +671,14 @@ def handle_repair_iteration(
             answered_at=int(time.time()),
             relevance="active",
         )
+        state.blocker_registry = mark_feedback_received(
+            registry=state.blocker_registry,
+            decision_key=str(normalized_feedback.get("decision_key") or "").strip().lower(),
+            prompt_id=pending_prompt_id,
+            feedback_value=str(normalized_feedback.get("selected_value") or "").strip() or None,
+            feedback_note=str(normalized_feedback.get("note") or "").strip() or None,
+            reason="feedback_received_for_pending_prompt",
+        )
         _emit_ticket_lifecycle_transition(
             ticket_id=pending_prompt_id,
             decision_key=str(normalized_feedback.get("decision_key") or "").strip().lower(),
@@ -672,6 +758,12 @@ def handle_repair_iteration(
         if state.last_progress_reason and state.last_progress_reason != "not_evaluated":
             reason = f"{reason}:{state.last_progress_reason}"
         if state.no_progress_streak >= request.max_no_progress_iterations:
+            _append_blocker_iteration_recap(
+                action_attempted="no_progress_guard",
+                result="needs_review",
+                decision_key=state.last_focus_key,
+                reason=reason,
+            )
             return TranscriptEditDecision(status="needs_review", reason_code=reason, review_required=True)
     if not state.current_transcript_ref:
         return TranscriptEditDecision(
@@ -819,6 +911,11 @@ def handle_repair_iteration(
                 findings=planning_findings,
                 image_results=[result for result in iv_results if isinstance(result, dict)],
             )
+            state.blocker_registry = sync_registry_from_ledger(
+                registry=state.blocker_registry,
+                decision_ledger=state.decision_ledger,
+                source_transcript_ref=state.current_transcript_ref,
+            )
             after_sig = blocking_signature(state.decision_ledger)
             if iv_results and before_sig != after_sig:
                 state.evidence_signal_counter += 1
@@ -900,6 +997,11 @@ def handle_repair_iteration(
                 ledger=state.decision_ledger,
                 findings=planning_findings,
                 image_results=[result for result in iv_results if isinstance(result, dict)],
+            )
+            state.blocker_registry = sync_registry_from_ledger(
+                registry=state.blocker_registry,
+                decision_ledger=state.decision_ledger,
+                source_transcript_ref=state.current_transcript_ref,
             )
             after_sig = blocking_signature(state.decision_ledger)
             if iv_results and before_sig != after_sig:
@@ -1025,9 +1127,16 @@ def handle_repair_iteration(
             ),
         )
         state.last_reason = "tx_agent_closure_requirements_unresolved"
+        _append_blocker_iteration_recap(
+            action_attempted="await_feedback",
+            result="no_advance",
+            decision_key=state.pending_feedback_decision_key,
+            reason="pending_feedback_prompt",
+        )
         return None
 
     focus_key = _select_focus_decision_key(
+        blocker_registry=state.blocker_registry,
         decision_ledger=state.decision_ledger,
         fallback_focus=mapping_focus,
         focus_feedback=focus_feedback,
@@ -1035,6 +1144,7 @@ def handle_repair_iteration(
     mapping_focus = mapping_focus or {"decision_key": focus_key}
     focus_packet = build_focus_packet(
         decision_ledger=state.decision_ledger,
+        blocker_registry=state.blocker_registry,
         decision_key=focus_key or None,
         source_transcript_ref=state.current_transcript_ref,
         source_transcript_hash=source_transcript_hash,
@@ -1190,6 +1300,12 @@ def handle_repair_iteration(
                     relevance="active",
                     reason="no_safe_feedback_override_plan",
                 )
+            _append_blocker_iteration_recap(
+                action_attempted="integrate_feedback",
+                result="needs_review",
+                decision_key=focus_key,
+                reason="no_safe_feedback_override_plan",
+            )
             return TranscriptEditDecision(
                 status="needs_review",
                 reason_code="tx_agent_consistent_feedback_no_safe_plan",
@@ -1256,6 +1372,12 @@ def handle_repair_iteration(
                     supersession_reason="resolver_requested_feedback",
                 )
         state.last_reason = "tx_agent_closure_requirements_unresolved"
+        _append_blocker_iteration_recap(
+            action_attempted="request_hitl",
+            result="waiting_feedback",
+            decision_key=focus_key,
+            reason=resolver_reason,
+        )
         return None
     if move == "mark_blocked":
         if resolver_reason.startswith(("resolver_move_invalid:", "resolver_plan_invalid:")):
@@ -1289,6 +1411,12 @@ def handle_repair_iteration(
                     gate_reason="mark_blocked_rejected_by_runtime_gate",
                     ticket_snapshot=active_ticket_snapshot,
                 ),
+            )
+            _append_blocker_iteration_recap(
+                action_attempted="mark_blocked",
+                result="rejected",
+                decision_key=focus_key,
+                reason=resolver_reason,
             )
             return None
         if not resolver_reason.startswith(("resolver_move_invalid:", "resolver_plan_invalid:")):
@@ -1554,6 +1682,11 @@ def handle_repair_iteration(
                 findings=planning_findings,
                 image_results=[result for result in iv_results if isinstance(result, dict)],
             )
+            state.blocker_registry = sync_registry_from_ledger(
+                registry=state.blocker_registry,
+                decision_ledger=state.decision_ledger,
+                source_transcript_ref=state.current_transcript_ref,
+            )
             after_sig = blocking_signature(state.decision_ledger)
             if iv_results and before_sig != after_sig:
                 state.evidence_signal_counter += 1
@@ -1784,7 +1917,17 @@ def _select_focus_decision_key(
     decision_ledger: dict[str, Any],
     fallback_focus: dict[str, Any] | None,
     focus_feedback: dict[str, Any] | None,
+    blocker_registry: dict[str, Any] | None = None,
 ) -> str:
+    primary = select_primary_blocker(blocker_registry if isinstance(blocker_registry, dict) else None) or {}
+    primary_key = str(primary.get("decision_key") or "").strip().lower()
+    primary_state = str(primary.get("state") or "").strip().lower()
+    if (
+        primary_key
+        and primary_state in {"answered_unintegrated", "waiting_feedback"}
+        and is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, primary_key)
+    ):
+        return primary_key
     if isinstance(focus_feedback, dict):
         feedback_key = str(focus_feedback.get("decision_key") or "").strip().lower()
         if feedback_key and is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, feedback_key):
@@ -2246,3 +2389,28 @@ def _next_recommended_action_text(residual_blockers: list[dict[str, Any]]) -> st
     first = prioritized[0] if prioritized else {}
     label = str(first.get("label") or first.get("decision_key") or "decision")
     return f"Review optional transcript-quality issue: {label}."
+
+
+def _registry_row_for_decision_key(
+    *,
+    registry: dict[str, Any] | None,
+    decision_key: str | None,
+) -> dict[str, Any] | None:
+    if not isinstance(registry, dict):
+        return None
+    key = str(decision_key or "").strip().lower()
+    if not key:
+        return None
+    rows = [row for row in list(registry.get("rows") or []) if isinstance(row, dict)]
+    matches = [
+        row
+        for row in rows
+        if str(row.get("decision_key") or "").strip().lower() == key
+    ]
+    if not matches:
+        return None
+    matches.sort(
+        key=lambda row: int(row.get("updated_at") or row.get("created_at") or 0),
+        reverse=True,
+    )
+    return dict(matches[0])

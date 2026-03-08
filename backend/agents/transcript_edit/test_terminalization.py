@@ -897,3 +897,60 @@ def test_terminal_summary_final_decision_rationale_hitl_state_consumed_but_block
     assert hitl_state.get("hitl_feedback_provided") is True
     assert hitl_state.get("hitl_feedback_consumed") is True
     assert hitl_state.get("integration_status") == "consumed_but_blockers_remain"
+
+
+def test_terminal_summary_includes_blocker_registry_waiting_feedback_owner() -> None:
+    progress_log = [
+        {
+            "iteration": 1,
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [],
+                    "summary": {"blocking_open_count": 1},
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref="ref://run",
+        session_id="session-1",
+        iterations=1,
+        status="needs_review",
+        reason_code="tx_agent_closure_requirements_unresolved",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(
+        progress_log,
+        result,
+        runtime_hitl_state={
+            "used_human_feedback": False,
+            "feedback_received_count": 0,
+            "feedback_consumed_count": 0,
+            "feedback_stale_count": 0,
+            "feedback_superseded_count": 0,
+            "pending_feedback_prompt_id": "hitl_range_4_resolver",
+            "pending_feedback_decision_key": "range",
+            "human_resolution_tickets": [],
+            "blocker_registry": {
+                "active_blocker_id": "blocker:range",
+                "counts": {"waiting_feedback": 1},
+                "rows": [
+                    {
+                        "blocker_id": "blocker:range",
+                        "decision_key": "range",
+                        "state": "waiting_feedback",
+                        "linked_prompt_id": "hitl_range_4_resolver",
+                        "scope_status": "in_target",
+                    }
+                ],
+            },
+        },
+    )
+    owner = summary.get("waiting_feedback_owner")
+    assert isinstance(owner, dict)
+    assert str(owner.get("decision_key") or "") == "range"
+    assert str(owner.get("linked_prompt_id") or "") == "hitl_range_4_resolver"
+    assert str(summary.get("active_blocker_id") or "") == "blocker:range"

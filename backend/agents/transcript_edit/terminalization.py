@@ -175,6 +175,46 @@ def terminal_summary(
     pending_feedback_prompt_ids = _pending_feedback_prompt_ids(events=events)
     human_feedback_pending = len(pending_feedback_prompt_ids) > 0
     hitl_state = runtime_hitl_state if isinstance(runtime_hitl_state, dict) else {}
+    blocker_registry = (
+        dict(hitl_state.get("blocker_registry"))
+        if isinstance(hitl_state.get("blocker_registry"), dict)
+        else {}
+    )
+    blocker_rows = [
+        dict(row)
+        for row in list(blocker_registry.get("rows") or [])
+        if isinstance(row, dict)
+    ]
+    blocker_counts = (
+        dict(blocker_registry.get("counts") or {})
+        if isinstance(blocker_registry.get("counts"), dict)
+        else {}
+    )
+    active_blocker_id = str(blocker_registry.get("active_blocker_id") or "").strip() or None
+    active_blocker = next(
+        (
+            row
+            for row in blocker_rows
+            if str(row.get("blocker_id") or "").strip() == str(active_blocker_id or "").strip()
+        ),
+        None,
+    )
+    waiting_feedback_owner = next(
+        (
+            row
+            for row in blocker_rows
+            if str(row.get("state") or "").strip().lower() == "waiting_feedback"
+        ),
+        None,
+    )
+    answered_unintegrated_owner = next(
+        (
+            row
+            for row in blocker_rows
+            if str(row.get("state") or "").strip().lower() == "answered_unintegrated"
+        ),
+        None,
+    )
     feedback_received_count = int(hitl_state.get("feedback_received_count") or 0)
     feedback_consumed_count = int(hitl_state.get("feedback_consumed_count") or 0)
     feedback_stale_count = int(hitl_state.get("feedback_stale_count") or 0)
@@ -364,6 +404,12 @@ def terminal_summary(
         "superseded_feedback_prompt_ids": superseded_prompt_ids,
         "human_resolution_tickets": human_resolution_tickets,
         "hitl_lifecycle_log": hitl_lifecycle_log,
+        "blocker_registry": blocker_registry,
+        "blocker_registry_counts": blocker_counts,
+        "active_blocker_id": active_blocker_id,
+        "active_blocker": active_blocker,
+        "waiting_feedback_owner": waiting_feedback_owner,
+        "answered_unintegrated_owner": answered_unintegrated_owner,
         "decision_ledger_summary": (
             decision_ledger.get("summary")
             if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("summary"), dict)

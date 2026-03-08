@@ -19,6 +19,7 @@ def build_focus_packet(
     *,
     decision_ledger: dict[str, Any],
     decision_key: str | None,
+    blocker_registry: dict[str, Any] | None = None,
     source_transcript_ref: str | None,
     source_transcript_hash: str,
     span_context: list[dict[str, Any]],
@@ -51,8 +52,25 @@ def build_focus_packet(
         else {}
     )
     blocker_feedback_state = (
-        dict(decision_ledger.get("blocker_feedback_state"))
-        if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("blocker_feedback_state"), dict)
+        dict((blocker_registry or {}).get("counts"))
+        if isinstance(blocker_registry, dict) and isinstance((blocker_registry or {}).get("counts"), dict)
+        else (
+            dict(decision_ledger.get("blocker_feedback_state"))
+            if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("blocker_feedback_state"), dict)
+            else {}
+        )
+    )
+    blocker_registry_view = (
+        {
+            "active_blocker_id": str(blocker_registry.get("active_blocker_id") or "").strip() or None,
+            "counts": dict(blocker_registry.get("counts") or {}),
+            "rows": [
+                dict(row)
+                for row in list(blocker_registry.get("rows") or [])
+                if isinstance(row, dict)
+            ][:12],
+        }
+        if isinstance(blocker_registry, dict)
         else {}
     )
     focused_blocker_pair = _focused_blocker_pair(
@@ -107,6 +125,7 @@ def build_focus_packet(
         "feedback": bounded_feedback,
         "external_context_injections": external_injections,
         "blocker_feedback_state": blocker_feedback_state,
+        "blocker_registry": blocker_registry_view,
         "focused_blocker_feedback_pair": focused_blocker_pair,
         "recent_attempts": attempts,
         "memory_summary": _memory_summary(attempts),

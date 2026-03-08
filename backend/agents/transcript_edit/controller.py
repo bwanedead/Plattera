@@ -31,6 +31,12 @@ from .decision_ledger import (
     update_ledger_from_orient_baseline,
     update_ledger_from_iteration,
 )
+from .blocker_registry import (
+    initialize_blocker_registry,
+    registry_snapshot_for_payload,
+    select_primary_blocker,
+    sync_registry_from_ledger,
+)
 from .hitl_feedback import (
     build_human_feedback_prompt,
     build_range_feedback_plan,
@@ -148,6 +154,15 @@ def run_transcript_edit_controller_loop(
         latest_refs=start.dashboard.latest_refs.model_dump(mode="json") if start.dashboard else {},
         current_transcript_ref=request.source_transcript_ref,
         decision_ledger=initialize_decision_ledger(),
+        blocker_registry=(
+            dict(request.resume_blocker_registry)
+            if isinstance(request.resume_blocker_registry, dict)
+            else initialize_blocker_registry(
+                run_id=request_id_prefix,
+                session_id=session_id,
+                source_transcript_ref=request.source_transcript_ref,
+            )
+        ),
         pending_feedback_prompt_id=(
             str(request.resume_pending_feedback_prompt_id or "").strip() or None
         ),
@@ -270,6 +285,13 @@ def run_transcript_edit_controller_loop(
             if isinstance(item, dict)
         ],
     )
+    state.blocker_registry = sync_registry_from_ledger(
+        registry=state.blocker_registry,
+        decision_ledger=state.decision_ledger,
+        run_id=request_id_prefix,
+        session_id=session_id,
+        source_transcript_ref=state.current_transcript_ref,
+    )
     baseline_unresolved = unresolved_closure_requirements(state.decision_ledger)
     baseline_residual = [item for item in baseline_unresolved if isinstance(item, dict)]
     mapping_blocking_count = sum(1 for item in baseline_residual if bool(item.get("mapping_blocking")))
@@ -355,6 +377,13 @@ def run_transcript_edit_controller_loop(
         state.decision_ledger = update_ledger_from_iteration(
             ledger=state.decision_ledger,
             findings=top_findings,
+        )
+        state.blocker_registry = sync_registry_from_ledger(
+            registry=state.blocker_registry,
+            decision_ledger=state.decision_ledger,
+            run_id=request_id_prefix,
+            session_id=session_id,
+            source_transcript_ref=state.current_transcript_ref,
         )
         unresolved_items = unresolved_closure_requirements(state.decision_ledger)
         has_open_closure = bool(unresolved_items)
@@ -696,6 +725,8 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
             if str(v).strip()
         ][:12],
         "scope_summaries": dict(state.decision_ledger.get("scope_summaries") or {}),
+        "blocker_registry": registry_snapshot_for_payload(state.blocker_registry),
+        "active_blocker": select_primary_blocker(state.blocker_registry),
     }
 
 

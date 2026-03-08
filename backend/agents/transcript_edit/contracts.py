@@ -33,6 +33,7 @@ class TranscriptEditAgentRunRequest(BaseModel):
     resume_pending_feedback_prompt_id: Optional[str] = None
     resume_pending_feedback_decision_key: Optional[str] = None
     resume_pending_feedback_prompt: dict[str, Any] | None = None
+    resume_blocker_registry: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
