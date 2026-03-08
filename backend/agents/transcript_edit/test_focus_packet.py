@@ -104,6 +104,15 @@ def test_focus_packet_injects_answered_unintegrated_human_resolution_ticket() ->
     assert str(row.get("type") or "") == "human_resolution_ticket"
     assert str(row.get("lifecycle_state") or "") == "answered_unintegrated"
     assert str((row.get("payload") or {}).get("normalized_answer_summary") or "") == "Range 75 West"
+    blocker_state = packet.get("blocker_feedback_state")
+    assert isinstance(blocker_state, dict)
+    focused_pair = packet.get("focused_blocker_feedback_pair")
+    assert isinstance(focused_pair, dict)
+    assert str(focused_pair.get("decision_key") or "") == "range"
+    assert str(focused_pair.get("pair_state") or "") in {
+        "feedback_ready_for_integration",
+        "answered_unintegrated",
+    }
 
 
 def test_focus_packet_preserves_unknown_scope_as_none_for_in_target_flag() -> None:

@@ -335,6 +335,52 @@ def test_human_resolution_ticket_lifecycle_helpers_roundtrip() -> None:
     assert rows2[0].get("integrated_at") is not None
 
 
+def test_blocker_feedback_state_tracks_ready_pairing_for_unresolved_blocker() -> None:
+    ledger = initialize_decision_ledger()
+    range_item = _item(ledger, "range")
+    range_item["state"] = "disputed"
+    range_item["blocking"] = True
+    range_item["closure_requirement"] = {
+        "mapping_blocking": True,
+        "operational_impact": "mapping_blocking",
+        "resolution_options": ["Range 75 West", "Range 74 West"],
+    }
+    ledger = upsert_human_resolution_ticket(
+        ledger=ledger,
+        ticket_id="hitl_range_2_resolver",
+        decision_key="range",
+        lifecycle_state="answered_unintegrated",
+        payload={"normalized_answer_summary": "Range 75 West"},
+    )
+    state = dict(ledger.get("blocker_feedback_state") or {})
+    assert int(state.get("unresolved_mapping_blocker_count") or 0) >= 1
+    assert bool(state.get("feedback_ready_for_blocker_resolution")) is True
+    pairs = [row for row in list(state.get("unresolved_blocker_ticket_pairs") or []) if isinstance(row, dict)]
+    assert len(pairs) >= 1
+    pair = next(row for row in pairs if str(row.get("decision_key") or "") == "range")
+    assert str(pair.get("associated_ticket_id") or "") == "hitl_range_2_resolver"
+    assert str(pair.get("pair_state") or "") == "feedback_ready_for_integration"
+    assert bool(pair.get("ready_for_resolution")) is True
+
+
+def test_blocker_feedback_state_detects_hitl_removed_blocker_when_integrated() -> None:
+    ledger = initialize_decision_ledger()
+    range_item = _item(ledger, "range")
+    range_item["state"] = "verified"
+    range_item["blocking"] = True
+    range_item["closure_requirement"] = None
+    ledger = upsert_human_resolution_ticket(
+        ledger=ledger,
+        ticket_id="hitl_range_3_resolver",
+        decision_key="range",
+        lifecycle_state="integrated",
+        payload={"normalized_answer_summary": "Range 75 West"},
+    )
+    state = dict(ledger.get("blocker_feedback_state") or {})
+    assert bool(state.get("hitl_used_to_remove_blocker")) is True
+    assert int(state.get("resolved_blockers_via_hitl_count") or 0) >= 1
+
+
 def test_scope_partitioning_and_target_scope_predicate() -> None:
     ledger = initialize_decision_ledger()
     range_item = _item(ledger, "range")

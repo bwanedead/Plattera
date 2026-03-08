@@ -50,6 +50,22 @@ def build_focus_packet(
         if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("scope_summaries"), dict)
         else {}
     )
+    blocker_feedback_state = (
+        dict(decision_ledger.get("blocker_feedback_state"))
+        if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("blocker_feedback_state"), dict)
+        else {}
+    )
+    focused_blocker_pair = _focused_blocker_pair(
+        blocker_feedback_state=blocker_feedback_state,
+        decision_key=key,
+    )
+    if focused_blocker_pair is None:
+        focused_blocker_pair = _focused_blocker_pair_fallback(
+            decision_key=key,
+            ledger_item=ledger_item or {},
+            closure_requirement=closure_requirement,
+            external_injections=external_injections,
+        )
     return {
         "decision_key": key,
         "ledger_item": ledger_item or {},
@@ -90,6 +106,8 @@ def build_focus_packet(
         "image_verification": bounded_image,
         "feedback": bounded_feedback,
         "external_context_injections": external_injections,
+        "blocker_feedback_state": blocker_feedback_state,
+        "focused_blocker_feedback_pair": focused_blocker_pair,
         "recent_attempts": attempts,
         "memory_summary": _memory_summary(attempts),
     }
@@ -266,3 +284,64 @@ def _bounded_external_context_injections(
         if len(out) >= MAX_EXTERNAL_CONTEXT_INJECTIONS:
             break
     return out
+
+
+def _focused_blocker_pair(
+    *,
+    blocker_feedback_state: dict[str, Any],
+    decision_key: str,
+) -> dict[str, Any] | None:
+    if not decision_key:
+        return None
+    pairs = (
+        blocker_feedback_state.get("unresolved_blocker_ticket_pairs")
+        if isinstance(blocker_feedback_state, dict)
+        else []
+    )
+    if not isinstance(pairs, list):
+        return None
+    key = str(decision_key or "").strip().lower()
+    for row in pairs:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("decision_key") or "").strip().lower() != key:
+            continue
+        return dict(row)
+    return None
+
+
+def _focused_blocker_pair_fallback(
+    *,
+    decision_key: str,
+    ledger_item: dict[str, Any],
+    closure_requirement: dict[str, Any],
+    external_injections: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not decision_key:
+        return None
+    state = str(ledger_item.get("state") or "unknown").strip().lower()
+    mapping_blocking = bool(closure_requirement.get("mapping_blocking", ledger_item.get("blocking")))
+    if not mapping_blocking or state not in {"unknown", "candidate_found", "disputed", "accepted_with_risk"}:
+        return None
+    latest_ticket = None
+    for row in external_injections:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("type") or "").strip().lower() != "human_resolution_ticket":
+            continue
+        if str(row.get("decision_key") or "").strip().lower() != decision_key:
+            continue
+        latest_ticket = row
+        break
+    lifecycle_state = str((latest_ticket or {}).get("lifecycle_state") or "").strip().lower() or None
+    pair_state = "feedback_ready_for_integration" if lifecycle_state == "answered_unintegrated" else lifecycle_state or "no_ticket"
+    return {
+        "decision_key": decision_key,
+        "decision_label": str(ledger_item.get("label") or decision_key),
+        "blocker_state": "open",
+        "associated_ticket_id": str((latest_ticket or {}).get("ticket_id") or "").strip() or None,
+        "associated_ticket_state": lifecycle_state,
+        "associated_ticket_relevance": str((latest_ticket or {}).get("relevance") or "").strip().lower() or None,
+        "pair_state": pair_state,
+        "ready_for_resolution": lifecycle_state in {"answered_unintegrated", "integration_attempted_failed"},
+    }

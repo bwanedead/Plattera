@@ -273,6 +273,31 @@ def terminal_summary(
         human_feedback_pending=human_feedback_pending,
         result_status=result_status,
     )
+    final_decision_rationale = _final_decision_rationale(
+        events=events,
+        result_status=result_status,
+        reason_code=reason_code,
+        terminal_classification=terminal_classification,
+        mapping_ready=mapping_ready,
+        scoped_success_eligible=scoped_success_eligible,
+        run_healthy=run_healthy,
+        closure_state=closure_state,
+        validator_clean=validator_clean,
+        human_feedback_pending=human_feedback_pending,
+        unresolved_mapping_blocking_items=unresolved_mapping_blocking_items,
+        unresolved_dependency_items=unresolved_dependency_items,
+        unresolved_ambiguity_items=unresolved_ambiguity_items,
+        unresolved_target_scope_items=unresolved_target_scope_items,
+        unresolved_outside_target_scope_items=unresolved_outside_target_scope_items_with_proof,
+        unresolved_unknown_scope_items=unresolved_unknown_scope_items,
+        unresolved_optional_items=unresolved_optional_items,
+        edits_applied=edits_applied,
+        feedback_received_count=feedback_received_count,
+        feedback_consumed_count=feedback_consumed_count,
+        feedback_stale_count=feedback_stale_count,
+        feedback_superseded_count=feedback_superseded_count,
+        pending_feedback_prompt_ids=pending_feedback_prompt_ids,
+    )
     return {
         "status": result_status,
         "reason_code": reason_code or None,
@@ -344,6 +369,7 @@ def terminal_summary(
             if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("summary"), dict)
             else {}
         ),
+        "final_decision_rationale": final_decision_rationale,
         "initial_findings": first_audit or {},
         "final_findings": final_audit or {},
     }
@@ -626,3 +652,287 @@ def _post_feedback_ticket_seam(*, human_resolution_tickets: list[dict[str, Any]]
         "updated_at": top.get("updated_at"),
     }
     return state, snapshot
+
+
+def _final_decision_rationale(
+    *,
+    events: list[dict[str, Any]],
+    result_status: str,
+    reason_code: str,
+    terminal_classification: str,
+    mapping_ready: bool,
+    scoped_success_eligible: bool,
+    run_healthy: bool,
+    closure_state: str,
+    validator_clean: bool,
+    human_feedback_pending: bool,
+    unresolved_mapping_blocking_items: list[dict[str, Any]],
+    unresolved_dependency_items: list[dict[str, Any]],
+    unresolved_ambiguity_items: list[dict[str, Any]],
+    unresolved_target_scope_items: list[dict[str, Any]],
+    unresolved_outside_target_scope_items: list[dict[str, Any]],
+    unresolved_unknown_scope_items: list[dict[str, Any]],
+    unresolved_optional_items: list[dict[str, Any]],
+    edits_applied: int,
+    feedback_received_count: int,
+    feedback_consumed_count: int,
+    feedback_stale_count: int,
+    feedback_superseded_count: int,
+    pending_feedback_prompt_ids: list[str],
+) -> dict[str, Any]:
+    summary_blockers = _summarize_unresolved_items(unresolved_mapping_blocking_items, limit=8)
+    summary_optional = _summarize_unresolved_items(unresolved_optional_items, limit=6)
+    attempts = _attempts_summary(
+        events=events,
+        edits_applied=edits_applied,
+        feedback_received_count=feedback_received_count,
+        feedback_consumed_count=feedback_consumed_count,
+        feedback_stale_count=feedback_stale_count,
+        feedback_superseded_count=feedback_superseded_count,
+    )
+    progress_reason = _last_progress_reason(events)
+    closure_not_reached_reason = None
+    if result_status != "completed" or not mapping_ready:
+        closure_not_reached_reason = _closure_not_reached_reason(
+            terminal_classification=terminal_classification,
+            reason_code=reason_code,
+            human_feedback_pending=human_feedback_pending,
+            unresolved_mapping_blocking_count=len(unresolved_mapping_blocking_items),
+        )
+    return {
+        "decision_statement": terminal_message(
+            type(
+                "_ResultView",
+                (),
+                {
+                    "status": result_status,
+                    "reason_code": reason_code,
+                    "iterations": _max_iteration(events),
+                },
+            )
+        ),
+        "result_status": result_status,
+        "reason_code": reason_code or None,
+        "terminal_classification": terminal_classification,
+        "mapping_ready": bool(mapping_ready),
+        "closure_state": closure_state,
+        "validator_clean": bool(validator_clean),
+        "run_healthy_for_scoped_success": bool(run_healthy),
+        "scoped_success_eligible": bool(scoped_success_eligible),
+        "why_this_decision": _decision_why_text(
+            result_status=result_status,
+            terminal_classification=terminal_classification,
+            reason_code=reason_code,
+            mapping_ready=mapping_ready,
+            unresolved_mapping_blocking_count=len(unresolved_mapping_blocking_items),
+            progress_reason=progress_reason,
+        ),
+        "closure_not_reached_reason": closure_not_reached_reason,
+        "blocking_items_count": int(len(unresolved_mapping_blocking_items)),
+        "blocking_items_summary": summary_blockers,
+        "blocking_breakdown": {
+            "dependency_count": int(len(unresolved_dependency_items)),
+            "ambiguity_count": int(len(unresolved_ambiguity_items)),
+            "target_scope_count": int(len(unresolved_target_scope_items)),
+            "outside_target_scope_count": int(len(unresolved_outside_target_scope_items)),
+            "unknown_scope_count": int(len(unresolved_unknown_scope_items)),
+            "optional_unresolved_count": int(len(unresolved_optional_items)),
+        },
+        "optional_items_summary": summary_optional,
+        "what_was_tried": attempts,
+        "hitl_feedback_state": _hitl_feedback_state_summary(
+            feedback_received_count=feedback_received_count,
+            feedback_consumed_count=feedback_consumed_count,
+            feedback_stale_count=feedback_stale_count,
+            feedback_superseded_count=feedback_superseded_count,
+            pending_feedback_prompt_ids=pending_feedback_prompt_ids,
+            unresolved_mapping_blocking_items=unresolved_mapping_blocking_items,
+        ),
+        "pending_feedback_prompt_ids": [str(v) for v in pending_feedback_prompt_ids if str(v).strip()],
+        "next_action": _next_action_for_terminal_classification(
+            terminal_classification=terminal_classification,
+            human_feedback_pending=human_feedback_pending,
+        ),
+    }
+
+
+def _summarize_unresolved_items(items: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        closure = item.get("closure_requirement") if isinstance(item.get("closure_requirement"), dict) else {}
+        out.append(
+            {
+                "key": str(item.get("key") or "").strip() or None,
+                "state": str(item.get("state") or "").strip() or None,
+                "scope_status": _scope_status_for_unresolved_item(item),
+                "block_reason": str(closure.get("block_reason") or "").strip() or None,
+                "required_information": str(closure.get("required_information") or "").strip() or None,
+                "minimal_user_action": str(closure.get("minimal_user_action") or "").strip() or None,
+                "evidence_refs": [
+                    str(v)
+                    for v in list(item.get("evidence_refs") or closure.get("evidence_refs") or [])
+                    if str(v).strip()
+                ][:6],
+            }
+        )
+        if len(out) >= max(1, int(limit)):
+            break
+    return out
+
+
+def _attempts_summary(
+    *,
+    events: list[dict[str, Any]],
+    edits_applied: int,
+    feedback_received_count: int,
+    feedback_consumed_count: int,
+    feedback_stale_count: int,
+    feedback_superseded_count: int,
+) -> dict[str, Any]:
+    phase_counts: dict[str, int] = {
+        "audit_result": 0,
+        "open_spans": 0,
+        "image_verify": 0,
+        "plan_result": 0,
+        "apply_result": 0,
+        "resolver_attempt": 0,
+    }
+    for entry in events:
+        if not isinstance(entry, dict):
+            continue
+        phase = str(entry.get("phase") or "").strip().lower()
+        if phase in phase_counts:
+            phase_counts[phase] += 1
+    return {
+        "audit_passes": int(phase_counts["audit_result"]),
+        "open_spans_attempts": int(phase_counts["open_spans"]),
+        "image_verify_attempts": int(phase_counts["image_verify"]),
+        "resolver_attempts": int(phase_counts["resolver_attempt"]),
+        "plan_attempts": int(phase_counts["plan_result"]),
+        "apply_attempts": int(phase_counts["apply_result"]),
+        "edits_applied_total": int(edits_applied),
+        "feedback_received_count": int(feedback_received_count),
+        "feedback_consumed_count": int(feedback_consumed_count),
+        "feedback_stale_count": int(feedback_stale_count),
+        "feedback_superseded_count": int(feedback_superseded_count),
+    }
+
+
+def _last_progress_reason(events: list[dict[str, Any]]) -> str | None:
+    for entry in reversed(events):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("phase") or "").strip().lower() != "progress_evaluation":
+            continue
+        detail = entry.get("detail") if isinstance(entry.get("detail"), dict) else {}
+        reason = str(detail.get("progress_reason") or "").strip()
+        if reason:
+            return reason
+    return None
+
+
+def _decision_why_text(
+    *,
+    result_status: str,
+    terminal_classification: str,
+    reason_code: str,
+    mapping_ready: bool,
+    unresolved_mapping_blocking_count: int,
+    progress_reason: str | None,
+) -> str:
+    if mapping_ready and result_status == "completed":
+        return (
+            "Run ended as completed because mapping readiness gates were satisfied and no target-scope "
+            "mapping-blocking closure requirements remained."
+        )
+    reason_bits = [f"classification={terminal_classification}"]
+    if reason_code:
+        reason_bits.append(f"reason_code={reason_code}")
+    reason_bits.append(f"unresolved_mapping_blockers={int(unresolved_mapping_blocking_count)}")
+    if progress_reason:
+        reason_bits.append(f"last_progress_reason={progress_reason}")
+    return "Run ended without full closure because " + ", ".join(reason_bits) + "."
+
+
+def _closure_not_reached_reason(
+    *,
+    terminal_classification: str,
+    reason_code: str,
+    human_feedback_pending: bool,
+    unresolved_mapping_blocking_count: int,
+) -> str:
+    if human_feedback_pending:
+        return "Pending human feedback remained unresolved at terminalization."
+    if terminal_classification == "blocked_dependency_evidence_missing":
+        return "Required dependency evidence was unavailable, so closure gates remained blocked."
+    if terminal_classification in {"blocked_target_scope_ambiguity", "blocked_mapping_ambiguity_unresolved"}:
+        return "Ambiguity remained unresolved after bounded autonomous attempts."
+    if reason_code.startswith("tx_agent_no_progress:"):
+        return "Loop exhausted no-progress tolerance without material blocker-state change."
+    if reason_code:
+        return f"Closure not reached due to terminal reason code: {reason_code}."
+    return f"Closure not reached; unresolved mapping-blocking requirements={int(unresolved_mapping_blocking_count)}."
+
+
+def _next_action_for_terminal_classification(*, terminal_classification: str, human_feedback_pending: bool) -> str:
+    if human_feedback_pending or terminal_classification == "blocked_human_feedback_needed":
+        return "Provide feedback to the active prompt and resume the run."
+    if terminal_classification == "blocked_dependency_evidence_missing":
+        return "Provide missing dependency evidence/source material, then resume."
+    if terminal_classification in {"blocked_target_scope_ambiguity", "blocked_mapping_ambiguity_unresolved"}:
+        return "Provide explicit disambiguation (or corrected source text), then rerun."
+    if terminal_classification == "blocked_post_feedback_resolver_invalid":
+        return "Inspect resolver diagnostics and repair move-contract/prompting before rerun."
+    if terminal_classification in {"closure_achieved", "target_scope_complete_with_incomplete_source_context"}:
+        return "Proceed to downstream mapping workflow."
+    return "Review terminal blockers and rerun with additional evidence or operator input."
+
+
+def _max_iteration(events: list[dict[str, Any]]) -> int:
+    max_it = 0
+    for entry in events:
+        if not isinstance(entry, dict):
+            continue
+        value = entry.get("iteration")
+        if isinstance(value, int) and value > max_it:
+            max_it = value
+    return max_it
+
+
+def _hitl_feedback_state_summary(
+    *,
+    feedback_received_count: int,
+    feedback_consumed_count: int,
+    feedback_stale_count: int,
+    feedback_superseded_count: int,
+    pending_feedback_prompt_ids: list[str],
+    unresolved_mapping_blocking_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    provided = int(feedback_received_count) > 0
+    consumed = int(feedback_consumed_count) > 0
+    pending = len([str(v) for v in pending_feedback_prompt_ids if str(v).strip()]) > 0
+    integrated_status = "unknown"
+    if consumed and len(unresolved_mapping_blocking_items) == 0:
+        integrated_status = "consumed_and_blocker_cleared"
+    elif consumed and len(unresolved_mapping_blocking_items) > 0:
+        integrated_status = "consumed_but_blockers_remain"
+    elif provided and not consumed:
+        integrated_status = "provided_not_consumed"
+    elif pending:
+        integrated_status = "awaiting_feedback"
+    return {
+        "hitl_feedback_provided": bool(provided),
+        "hitl_feedback_consumed": bool(consumed),
+        "hitl_feedback_pending": bool(pending),
+        "consumed_definition": (
+            "Consumed means the runtime matched a pending prompt response, normalized it, "
+            "accepted it into loop state, and used it in focus-cycle decision processing."
+        ),
+        "integration_status": integrated_status,
+        "feedback_received_count": int(feedback_received_count),
+        "feedback_consumed_count": int(feedback_consumed_count),
+        "feedback_stale_count": int(feedback_stale_count),
+        "feedback_superseded_count": int(feedback_superseded_count),
+    }

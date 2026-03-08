@@ -759,3 +759,141 @@ def test_terminal_summary_validator_dirty_blocks_scoped_success() -> None:
     assert summary["validator_clean"] is False
     assert summary["scoped_success_eligible"] is False
     assert summary["terminal_classification"] != "target_scope_complete_with_incomplete_source_context"
+
+
+def test_terminal_summary_includes_detailed_final_decision_rationale_for_needs_review() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [
+                        {
+                            "key": "range",
+                            "label": "Range",
+                            "state": "disputed",
+                            "blocking": True,
+                            "closure_requirement": {
+                                "block_reason": "ambiguity",
+                                "mapping_blocking": True,
+                                "required_information": "Confirm exact range token.",
+                                "minimal_user_action": "Choose the correct range.",
+                            },
+                        }
+                    ],
+                    "summary": {"blocking_open_count": 1},
+                },
+            },
+        },
+        {
+            "phase": "progress_evaluation",
+            "detail": {"progress_reason": "no_material_change"},
+        },
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s16",
+        iterations=3,
+        status="needs_review",
+        reason_code="tx_agent_no_progress:no_material_change",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(progress_log, result, critical_events=[])
+    rationale = summary.get("final_decision_rationale")
+    assert isinstance(rationale, dict)
+    assert rationale.get("result_status") == "needs_review"
+    assert "Run paused for review" in str(rationale.get("decision_statement") or "")
+    assert isinstance(rationale.get("why_this_decision"), str) and rationale.get("why_this_decision")
+    assert isinstance(rationale.get("closure_not_reached_reason"), str) and rationale.get("closure_not_reached_reason")
+    assert int(rationale.get("blocking_items_count") or 0) >= 1
+    assert isinstance(rationale.get("blocking_items_summary"), list)
+    assert isinstance(rationale.get("what_was_tried"), dict)
+    assert rationale.get("next_action")
+    hitl_state = rationale.get("hitl_feedback_state")
+    assert isinstance(hitl_state, dict)
+    assert hitl_state.get("hitl_feedback_provided") is False
+    assert hitl_state.get("hitl_feedback_consumed") is False
+    assert isinstance(hitl_state.get("consumed_definition"), str) and hitl_state.get("consumed_definition")
+
+
+def test_terminal_summary_includes_detailed_final_decision_rationale_for_completed() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [],
+                    "summary": {"blocking_open_count": 0},
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s17",
+        iterations=1,
+        status="completed",
+        reason_code="tx_agent_clean_no_promote",
+        latest_refs={},
+        review_required=False,
+    )
+    summary = terminal_summary(progress_log, result, critical_events=[])
+    rationale = summary.get("final_decision_rationale")
+    assert isinstance(rationale, dict)
+    assert rationale.get("result_status") == "completed"
+    assert rationale.get("closure_not_reached_reason") is None
+    assert isinstance(rationale.get("why_this_decision"), str) and rationale.get("why_this_decision")
+    assert rationale.get("next_action")
+
+
+def test_terminal_summary_final_decision_rationale_hitl_state_consumed_but_blockers_remain() -> None:
+    progress_log = [
+        {
+            "phase": "audit_result",
+            "detail": {
+                "error_count": 0,
+                "decision_ledger": {
+                    "items": [
+                        {
+                            "key": "range",
+                            "label": "Range",
+                            "state": "disputed",
+                            "blocking": True,
+                            "closure_requirement": {"block_reason": "ambiguity", "mapping_blocking": True},
+                        }
+                    ],
+                    "summary": {"blocking_open_count": 1},
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="s18",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_no_progress:no_material_change",
+        latest_refs={},
+        review_required=True,
+        runtime_hitl_state={
+            "used_human_feedback": True,
+            "feedback_received_count": 1,
+            "feedback_consumed_count": 1,
+            "feedback_stale_count": 0,
+            "feedback_superseded_count": 0,
+            "pending_feedback_prompt_id": None,
+            "superseded_prompt_ids": [],
+            "hitl_lifecycle_log": [],
+        },
+    )
+    summary = terminal_summary(progress_log, result, critical_events=[])
+    rationale = summary.get("final_decision_rationale")
+    assert isinstance(rationale, dict)
+    hitl_state = rationale.get("hitl_feedback_state")
+    assert isinstance(hitl_state, dict)
+    assert hitl_state.get("hitl_feedback_provided") is True
+    assert hitl_state.get("hitl_feedback_consumed") is True
+    assert hitl_state.get("integration_status") == "consumed_but_blockers_remain"

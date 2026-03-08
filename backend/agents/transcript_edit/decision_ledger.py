@@ -81,8 +81,10 @@ def initialize_decision_ledger() -> dict[str, Any]:
         "source_completeness_reason": None,
         "source_limitations": [],
         "scope_summaries": {},
+        "blocker_feedback_state": {},
     }
     ledger["scope_summaries"] = _compute_scope_summaries(ledger)
+    ledger["blocker_feedback_state"] = _compute_blocker_feedback_state(ledger)
     return ledger
 
 
@@ -196,6 +198,7 @@ def update_ledger_from_iteration(
     working["source_limitations"] = source_limitations[:12]
     working["summary"] = _summary(working["items"])
     working["scope_summaries"] = _compute_scope_summaries(working)
+    working["blocker_feedback_state"] = _compute_blocker_feedback_state(working)
     return working
 
 
@@ -296,6 +299,7 @@ def update_ledger_from_orient_baseline(
     working["source_limitations"] = source_limitations[:12]
     working["summary"] = _summary(working["items"])
     working["scope_summaries"] = _compute_scope_summaries(working)
+    working["blocker_feedback_state"] = _compute_blocker_feedback_state(working)
     return working
 
 
@@ -312,6 +316,7 @@ def ledger_snapshot_for_payload(ledger: dict[str, Any] | None) -> dict[str, Any]
             if str(v).strip()
         ][:12],
         "scope_summaries": dict(normalized.get("scope_summaries") or {}),
+        "blocker_feedback_state": dict(normalized.get("blocker_feedback_state") or {}),
         "external_context_injections": [
             dict(row)
             for row in list(normalized.get("external_context_injections") or [])
@@ -372,6 +377,7 @@ def upsert_human_resolution_ticket(
     key = str(decision_key or "").strip().lower()
     state = str(lifecycle_state or "").strip().lower()
     if not ticket or not key or not state:
+        working["blocker_feedback_state"] = _compute_blocker_feedback_state(working)
         return working
     now = int(time.time())
     existing = None
@@ -401,6 +407,7 @@ def upsert_human_resolution_ticket(
         existing["answered_at"] = int(answered_at)
     if integrated_at is not None:
         existing["integrated_at"] = int(integrated_at)
+    working["blocker_feedback_state"] = _compute_blocker_feedback_state(working)
     return working
 
 
@@ -416,6 +423,7 @@ def mark_human_resolution_ticket_state(
     working = _ensure_ledger_shape(ledger)
     rows = working.get("external_context_injections")
     if not isinstance(rows, list):
+        working["blocker_feedback_state"] = _compute_blocker_feedback_state(working)
         return working
     ticket = str(ticket_id or "").strip()
     key = str(decision_key or "").strip().lower()
@@ -437,6 +445,7 @@ def mark_human_resolution_ticket_state(
         if relevance is not None:
             row["relevance"] = str(relevance).strip().lower() or None
         break
+    working["blocker_feedback_state"] = _compute_blocker_feedback_state(working)
     return working
 
 
@@ -766,8 +775,10 @@ def _ensure_ledger_shape(ledger: dict[str, Any] | None) -> dict[str, Any]:
         ),
         "source_limitations": source_limitations,
         "scope_summaries": {},
+        "blocker_feedback_state": {},
     }
     out["scope_summaries"] = _compute_scope_summaries(out)
+    out["blocker_feedback_state"] = _compute_blocker_feedback_state(out)
     return out
 
 
@@ -1536,6 +1547,127 @@ def _compute_scope_summaries(ledger: dict[str, Any]) -> dict[str, Any]:
             scope_state = "partial"
         row["scope_closure_state"] = scope_state
     return rows
+
+
+def _compute_blocker_feedback_state(ledger: dict[str, Any]) -> dict[str, Any]:
+    items = ledger.get("items") if isinstance(ledger, dict) else []
+    rows = ledger.get("external_context_injections") if isinstance(ledger, dict) else []
+    if not isinstance(items, list):
+        items = []
+    if not isinstance(rows, list):
+        rows = []
+    unresolved_blockers: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip().lower()
+        if not key:
+            continue
+        state = str(item.get("state") or "unknown").strip().lower()
+        if state not in _UNRESOLVED_STATES:
+            continue
+        requirement = item.get("closure_requirement") if isinstance(item.get("closure_requirement"), dict) else {}
+        mapping_blocking = bool(requirement.get("mapping_blocking", item.get("blocking")))
+        if not mapping_blocking:
+            continue
+        unresolved_blockers[key] = {
+            "decision_key": key,
+            "decision_label": str(item.get("label") or key),
+            "blocker_state": "open",
+            "scope_id": _scope_id_for_item(item),
+            "scope_label": str(item.get("scope_label") or _scope_label(_scope_id_for_item(item))),
+        }
+
+    by_decision: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("type") or "").strip().lower() != "human_resolution_ticket":
+            continue
+        key = str(row.get("decision_key") or "").strip().lower()
+        if not key:
+            continue
+        by_decision.setdefault(key, []).append(row)
+
+    unresolved_pairs: list[dict[str, Any]] = []
+    unresolved_with_feedback_count = 0
+    unresolved_waiting_feedback_count = 0
+    unresolved_without_ticket_count = 0
+    resolved_blockers_via_hitl_count = 0
+    for key, blocker in unresolved_blockers.items():
+        related = by_decision.get(key, [])
+        latest_ticket = _latest_ticket_for_decision(related)
+        lifecycle_state = str((latest_ticket or {}).get("lifecycle_state") or "").strip().lower() or None
+        pair_state = "no_ticket"
+        ready_for_resolution = False
+        if lifecycle_state == "issued_waiting_feedback":
+            pair_state = "waiting_feedback"
+            unresolved_waiting_feedback_count += 1
+        elif lifecycle_state == "answered_unintegrated":
+            pair_state = "feedback_ready_for_integration"
+            ready_for_resolution = True
+            unresolved_with_feedback_count += 1
+        elif lifecycle_state == "integration_attempted_failed":
+            pair_state = "feedback_received_needs_refined_ticket"
+            ready_for_resolution = True
+            unresolved_with_feedback_count += 1
+        elif lifecycle_state == "integrated":
+            pair_state = "integrated_but_blocker_still_open"
+        elif lifecycle_state == "superseded":
+            pair_state = "superseded_waiting_reissue"
+        elif lifecycle_state:
+            pair_state = lifecycle_state
+        else:
+            unresolved_without_ticket_count += 1
+
+        unresolved_pairs.append(
+            {
+                **blocker,
+                "associated_ticket_id": str((latest_ticket or {}).get("ticket_id") or "").strip() or None,
+                "associated_ticket_state": lifecycle_state,
+                "associated_ticket_relevance": str((latest_ticket or {}).get("relevance") or "").strip().lower() or None,
+                "pair_state": pair_state,
+                "ready_for_resolution": ready_for_resolution,
+            }
+        )
+
+    for key, related in by_decision.items():
+        if key in unresolved_blockers:
+            continue
+        latest_ticket = _latest_ticket_for_decision(related)
+        lifecycle_state = str((latest_ticket or {}).get("lifecycle_state") or "").strip().lower()
+        if lifecycle_state == "integrated":
+            resolved_blockers_via_hitl_count += 1
+
+    return {
+        "unresolved_mapping_blocker_count": int(len(unresolved_pairs)),
+        "unresolved_blockers_with_feedback_count": int(unresolved_with_feedback_count),
+        "unresolved_blockers_waiting_feedback_count": int(unresolved_waiting_feedback_count),
+        "unresolved_blockers_without_ticket_count": int(unresolved_without_ticket_count),
+        "hitl_present": int(len(by_decision)) > 0,
+        "feedback_ready_for_blocker_resolution": int(unresolved_with_feedback_count) > 0,
+        "hitl_used_to_remove_blocker": int(resolved_blockers_via_hitl_count) > 0,
+        "resolved_blockers_via_hitl_count": int(resolved_blockers_via_hitl_count),
+        "unresolved_blocker_ticket_pairs": unresolved_pairs[:12],
+    }
+
+
+def _latest_ticket_for_decision(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not rows:
+        return None
+
+    def _sort_key(row: dict[str, Any]) -> tuple[int, int, int]:
+        updated = int(row.get("updated_at") or 0)
+        answered = int(row.get("answered_at") or 0)
+        created = int(row.get("created_at") or 0)
+        return (updated, answered, created)
+
+    ordered = sorted(
+        [dict(row) for row in rows if isinstance(row, dict)],
+        key=_sort_key,
+        reverse=True,
+    )
+    return ordered[0] if ordered else None
 
 
 def _is_material_mapping_blocking_requirement(*, item: dict[str, Any], requirement: dict[str, Any]) -> bool:

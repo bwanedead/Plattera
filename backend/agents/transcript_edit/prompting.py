@@ -125,6 +125,12 @@ def build_focus_resolver_system_message() -> str:
         "If move=gather_more_evidence, include evidence_request with fields: kind, decision_key, reason, target. "
         "Allowed evidence_request.kind values: open_spans, image_verify, retrieve_dependency_evidence. "
         "Treat external_context_injections as persistent semantic state. "
+        "Treat blocker_feedback_state as authoritative loop-state context for blocker counts, HITL pairing, and feedback integration readiness. "
+        "Prioritize removing open mapping blockers before optional work; when focused_blocker_feedback_pair.ready_for_resolution=true, your next move must directly integrate or safely escalate that blocker-ticket pair. "
+        "If HITL feedback is present for the focused decision_key, you must explicitly use that feedback when selecting the move. "
+        "Do not ignore provided human feedback. "
+        "If prior ticket wording no longer matches the blocker reason, close/supersede that ticket and emit a refined replacement feedback request with explicit reason change. "
+        "When feedback is present, your reason and iteration_summary must state how the selected move incorporates the feedback. "
         "If a binding human_resolution_ticket is answered_unintegrated for the focused decision_key, you must choose a move that addresses integration directly "
         "(apply_edit_plan, explicit blocked reason, tighter follow-up feedback, or clearly justified different evidence). "
         "Always include decision_key, move, reason, and iteration_summary. "
@@ -141,6 +147,22 @@ def build_focus_resolver_user_message(
         if isinstance(focus_packet, dict)
         else []
     )
+    feedback = focus_packet.get("feedback") if isinstance(focus_packet, dict) and isinstance(focus_packet.get("feedback"), dict) else None
+    has_feedback = isinstance(feedback, dict)
+    feedback_decision_key = str((feedback or {}).get("decision_key") or "").strip().lower()
+    feedback_selected_value = str((feedback or {}).get("selected_value") or "").strip()
+    feedback_note = str((feedback or {}).get("note") or "").strip()
+    feedback_prompt_id = str((feedback or {}).get("prompt_id") or "").strip()
+    blocker_feedback_state = (
+        dict(focus_packet.get("blocker_feedback_state"))
+        if isinstance(focus_packet, dict) and isinstance(focus_packet.get("blocker_feedback_state"), dict)
+        else {}
+    )
+    focused_blocker_pair = (
+        dict(focus_packet.get("focused_blocker_feedback_pair"))
+        if isinstance(focus_packet, dict) and isinstance(focus_packet.get("focused_blocker_feedback_pair"), dict)
+        else {}
+    )
     payload = {
         "task": "Choose one next move for this focus-cycle item.",
         "allowed_moves": [
@@ -153,6 +175,41 @@ def build_focus_resolver_user_message(
         "required_fields": ["decision_key", "move", "reason", "iteration_summary"],
         "focus_packet": focus_packet,
         "external_context_injections": injections,
+        "blocker_feedback_state": blocker_feedback_state,
+        "focused_blocker_feedback_pair": focused_blocker_pair or None,
+        "hitl_alert": (
+            {
+                "severity": "high",
+                "code": "HITL_FEEDBACK_PRESENT",
+                "message": (
+                    "ALERT: HITL feedback received. You must incorporate this feedback to resolve the focused blocker."
+                ),
+                "decision_key": feedback_decision_key or str(focus_packet.get("decision_key") or "").strip().lower(),
+                "selected_value": feedback_selected_value or None,
+                "prompt_id": feedback_prompt_id or None,
+                "note": feedback_note or None,
+            }
+            if has_feedback
+            else {
+                "severity": "info",
+                "code": "NO_HITL_FEEDBACK_PRESENT",
+                "message": "No HITL feedback currently attached to the focused item.",
+            }
+        ),
+        "blocker_resolution_protocol": [
+            "Resolve mapping blockers before non-blocking cleanup.",
+            "Use focused_blocker_feedback_pair + ticket state to decide whether to integrate feedback now, wait for feedback, or issue refined ticket.",
+            "If blocker reason changed and prior ticket is stale/superseded, request new focused feedback and explain why prior ticket is being replaced.",
+        ],
+        "required_feedback_handling": (
+            [
+                "Use provided HITL feedback as authoritative operator signal for the focused decision unless directly contradicted by stronger explicit source evidence.",
+                "State in reason/iteration_summary how the move uses the feedback.",
+                "If feedback cannot be safely integrated, return mark_blocked with explicit integration-failure reason.",
+            ]
+            if has_feedback
+            else []
+        ),
         "output_shape": {
             "decision_key": "range",
             "move": "apply_edit_plan",
