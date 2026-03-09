@@ -773,6 +773,17 @@ class TranscriptImageVerificationTool:
             return _tool_refusal_result("tx_image_verify_source_image_not_found")
 
         model = _read_str(inputs.get("model")) or "gpt-5.2"
+        mode = (_read_str(inputs.get("mode")) or "locate").strip().lower()
+        if mode in {"inspection_reference", "select_region", "refine_region", "verify_region"}:
+            return _execute_explicit_image_evidence_mode(
+                service=self.service,
+                inputs=inputs,
+                dossier_id=dossier_id,
+                source_ref=source_ref,
+                image_file=image_file,
+                model=model,
+                mode=mode,
+            )
         checks = _coerce_image_verify_checks(inputs)
         if not checks:
             return _tool_refusal_result("tx_image_verify_missing_checks")
@@ -2600,6 +2611,533 @@ def _bounded_float(raw: Any, *, default: float, minimum: float, maximum: float) 
     except Exception:
         return default
     return max(minimum, min(maximum, value))
+
+
+def _execute_explicit_image_evidence_mode(
+    *,
+    service: OpenAIService,
+    inputs: Mapping[str, Any],
+    dossier_id: str,
+    source_ref: str,
+    image_file: Path,
+    model: str,
+    mode: str,
+) -> Mapping[str, Any]:
+    if mode == "inspection_reference":
+        image_size = _read_image_size(image_file)
+        if image_size is None:
+            return _tool_refusal_result("tx_image_inspection_source_image_unreadable")
+        grid_spec = _coerce_grid_spec(inputs.get("grid_spec"))
+        grid_overlay_ref = _persist_grid_overlay_artifact(
+            source_image_path=image_file,
+            dossier_id=dossier_id,
+            grid_spec=grid_spec,
+        )
+        inspection_payload = {
+            "artifact_type": "transcript_image_inspection",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "source_image_path": str(image_file),
+            "source_transcript_ref": source_ref,
+            "image_width": int(image_size[0]),
+            "image_height": int(image_size[1]),
+            "grid_spec": grid_spec,
+            "grid_overlay_ref": grid_overlay_ref.model_dump(mode="json"),
+        }
+        inspection_ref = _persist_json_artifact(
+            category="transcript_image_inspection",
+            dossier_id=dossier_id,
+            payload=inspection_payload,
+        )
+        return {
+            "artifact_ref": inspection_ref,
+            "reason_codes": ["tx_image_inspection_ready"],
+            "tx_source_transcript_ref": source_ref,
+            "tx_image_path": str(image_file),
+            "tx_image_inspection_ref": inspection_ref.model_dump(mode="json"),
+            "image_width": int(image_size[0]),
+            "image_height": int(image_size[1]),
+            "grid_spec": grid_spec,
+            "grid_overlay_ref": grid_overlay_ref.model_dump(mode="json"),
+        }
+
+    if mode == "select_region":
+        image_size = _read_image_size(image_file)
+        if image_size is None:
+            return _tool_refusal_result("tx_image_select_region_source_image_unreadable")
+        target = inputs.get("target") if isinstance(inputs.get("target"), Mapping) else {}
+        crop_box = _coerce_requested_crop_box(
+            target=target,
+            image_width=int(image_size[0]),
+            image_height=int(image_size[1]),
+        )
+        if crop_box is None:
+            return _tool_refusal_result("tx_image_select_region_invalid_crop")
+        zoom_factor = _bounded_float(
+            (target.get("zoom_factor") if isinstance(target, Mapping) else inputs.get("zoom_factor")),
+            default=2.2,
+            minimum=1.0,
+            maximum=6.0,
+        )
+        check_id = _read_str(inputs.get("check_id") or (target.get("check_id") if isinstance(target, Mapping) else None)) or "select_region"
+        decision_key = _read_str(inputs.get("decision_key") or (target.get("decision_key") if isinstance(target, Mapping) else None))
+        isolate = _create_image_evidence_artifacts(
+            source_image_path=image_file,
+            dossier_id=dossier_id,
+            check_id=check_id,
+            decision_key=decision_key,
+            zoom_factor=zoom_factor,
+            locator_result={
+                "status": "located",
+                "confidence": "high",
+                "reason": "Agent-selected crop.",
+                "crop_box": crop_box,
+                "context_crop_box": None,
+            },
+        )
+        lineage_ref = _persist_region_lineage_metadata(
+            dossier_id=dossier_id,
+            region_ref=(isolate.get("tx_image_evidence_region_ref") if isinstance(isolate.get("tx_image_evidence_region_ref"), ArtifactRef) else None),
+            source_image_path=image_file,
+            parent_region_ref=None,
+            crop_box=crop_box,
+            zoom_factor=zoom_factor,
+            creation_mode="select_region",
+        )
+        region_ref = isolate.get("tx_image_evidence_region_ref")
+        return {
+            "artifact_ref": lineage_ref,
+            "reason_codes": ["tx_image_region_selected"],
+            "tx_source_transcript_ref": source_ref,
+            "tx_image_path": str(image_file),
+            "tx_image_evidence_region_ref": (
+                region_ref.model_dump(mode="json")
+                if isinstance(region_ref, ArtifactRef)
+                else None
+            ),
+            "tx_image_evidence_context_ref": (
+                isolate.get("tx_image_evidence_context_ref").model_dump(mode="json")
+                if isinstance(isolate.get("tx_image_evidence_context_ref"), ArtifactRef)
+                else None
+            ),
+            "crop_box": crop_box,
+            "zoom_factor": zoom_factor,
+            "tx_image_region_lineage_ref": lineage_ref.model_dump(mode="json"),
+            "tx_image_region_lineage": {
+                "creation_mode": "select_region",
+                "crop_box": crop_box,
+                "zoom_factor": zoom_factor,
+            },
+        }
+
+    if mode == "refine_region":
+        target = inputs.get("target") if isinstance(inputs.get("target"), Mapping) else {}
+        parent_region_ref = _coerce_artifact_ref(target.get("region_ref") if isinstance(target, Mapping) else None)
+        if parent_region_ref is None:
+            return _tool_refusal_result("tx_image_refine_region_missing_parent")
+        parent_path = Path(parent_region_ref.artifact_path)
+        if not parent_path.exists():
+            return _tool_refusal_result("tx_image_refine_region_parent_not_found")
+        parent_lineage = _load_region_lineage_for_ref(parent_region_ref)
+        source_image_path = Path(
+            _read_str((parent_lineage or {}).get("source_image_path"))
+            or str(parent_path)
+        )
+        image_size = _read_image_size(source_image_path)
+        if image_size is None:
+            return _tool_refusal_result("tx_image_refine_region_source_unreadable")
+        base_crop = _coerce_crop_box((parent_lineage or {}).get("crop_box"))
+        if base_crop is None:
+            base_crop = {"x": 0, "y": 0, "width": int(image_size[0]), "height": int(image_size[1])}
+        transform = _read_str(target.get("transform") if isinstance(target, Mapping) else None) or "expand"
+        amount = _bounded_float(target.get("amount") if isinstance(target, Mapping) else None, default=0.2, minimum=0.01, maximum=3.0)
+        refined_crop = _apply_region_transform(
+            crop_box=base_crop,
+            transform=transform,
+            amount=amount,
+            image_width=int(image_size[0]),
+            image_height=int(image_size[1]),
+        )
+        if refined_crop is None:
+            return _tool_refusal_result("tx_image_refine_region_invalid_transform")
+        parent_zoom = _bounded_float((parent_lineage or {}).get("zoom_factor"), default=1.0, minimum=1.0, maximum=6.0)
+        zoom_factor = parent_zoom
+        if transform == "set_zoom":
+            zoom_factor = _bounded_float(amount, default=parent_zoom, minimum=1.0, maximum=6.0)
+        check_id = _read_str(target.get("check_id") if isinstance(target, Mapping) else None) or "refine_region"
+        decision_key = _read_str(target.get("decision_key") if isinstance(target, Mapping) else None)
+        isolate = _create_image_evidence_artifacts(
+            source_image_path=source_image_path,
+            dossier_id=dossier_id,
+            check_id=check_id,
+            decision_key=decision_key,
+            zoom_factor=zoom_factor,
+            locator_result={
+                "status": "located",
+                "confidence": "high",
+                "reason": "Agent-refined crop.",
+                "crop_box": refined_crop,
+                "context_crop_box": None,
+            },
+        )
+        lineage_ref = _persist_region_lineage_metadata(
+            dossier_id=dossier_id,
+            region_ref=(isolate.get("tx_image_evidence_region_ref") if isinstance(isolate.get("tx_image_evidence_region_ref"), ArtifactRef) else None),
+            source_image_path=source_image_path,
+            parent_region_ref=parent_region_ref,
+            crop_box=refined_crop,
+            zoom_factor=zoom_factor,
+            creation_mode="refine_region",
+        )
+        region_ref = isolate.get("tx_image_evidence_region_ref")
+        return {
+            "artifact_ref": lineage_ref,
+            "reason_codes": ["tx_image_region_refined"],
+            "tx_source_transcript_ref": source_ref,
+            "tx_image_path": str(source_image_path),
+            "tx_image_evidence_region_ref": (
+                region_ref.model_dump(mode="json")
+                if isinstance(region_ref, ArtifactRef)
+                else None
+            ),
+            "tx_image_evidence_context_ref": (
+                isolate.get("tx_image_evidence_context_ref").model_dump(mode="json")
+                if isinstance(isolate.get("tx_image_evidence_context_ref"), ArtifactRef)
+                else None
+            ),
+            "crop_box": refined_crop,
+            "zoom_factor": zoom_factor,
+            "parent_region_ref": parent_region_ref.model_dump(mode="json"),
+            "tx_image_region_lineage_ref": lineage_ref.model_dump(mode="json"),
+            "tx_image_region_lineage": {
+                "creation_mode": "refine_region",
+                "crop_box": refined_crop,
+                "zoom_factor": zoom_factor,
+                "parent_region_ref": parent_region_ref.model_dump(mode="json"),
+            },
+        }
+
+    if mode == "verify_region":
+        target = inputs.get("target") if isinstance(inputs.get("target"), Mapping) else {}
+        region_ref = _coerce_artifact_ref(target.get("region_ref") if isinstance(target, Mapping) else None)
+        if region_ref is None:
+            return _tool_refusal_result("tx_image_verify_region_missing_region_ref")
+        region_path = Path(region_ref.artifact_path)
+        if not region_path.exists():
+            return _tool_refusal_result("tx_image_verify_region_not_found")
+        query = _read_str(target.get("query") if isinstance(target, Mapping) else None) or _read_str(inputs.get("query"))
+        if not query:
+            return _tool_refusal_result("tx_image_verify_region_missing_query")
+        check_id = _read_str(target.get("check_id") if isinstance(target, Mapping) else None) or "verify_region"
+        expected_text = _read_str(target.get("expected_text") if isinstance(target, Mapping) else None) or _read_str(inputs.get("expected_text"))
+        image_b64, render_meta = _encode_image_for_verification(
+            image_path=region_path,
+            crop_box=None,
+            zoom_factor=1.0,
+        )
+        prompt = _build_transcript_image_verify_prompt(
+            check_id=check_id,
+            query=query,
+            expected_text=expected_text,
+        )
+        response = service.call_vision(
+            prompt=prompt,
+            image_data=image_b64,
+            model=model,
+            json_mode="relaxed",
+            max_tokens=1600,
+            detail="high",
+        )
+        result_item = _coerce_image_verify_result(
+            check_id=check_id,
+            query=query,
+            expected_text=expected_text,
+            response=response,
+        )
+        result_item["render_meta"] = render_meta
+        result_item["locator"] = {"status": "located", "source": "agent_selected_region_ref"}
+        result_item["tx_image_evidence_region_ref"] = region_ref.model_dump(mode="json")
+        summary = _summarize_image_verify_results([result_item])
+        payload = {
+            "artifact_type": "transcript_image_verification",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "dossier_id": dossier_id,
+            "source_transcript_ref": source_ref,
+            "image_path": str(region_path),
+            "model": model,
+            "summary": summary,
+            "results": [result_item],
+            "image_evidence_regions": [
+                {
+                    "check_id": check_id,
+                    "status": "located",
+                    "confidence": "high",
+                    "reason": "Agent-selected region.",
+                    "crop_box": None,
+                    "context_crop_box": None,
+                    "tx_image_evidence_region_ref": region_ref.model_dump(mode="json"),
+                    "tx_image_evidence_context_ref": None,
+                }
+            ],
+        }
+        artifact_ref = _persist_json_artifact(
+            category="transcript_image_verify",
+            dossier_id=dossier_id,
+            payload=payload,
+        )
+        return {
+            "artifact_ref": artifact_ref,
+            "reason_codes": ["tx_image_verified"],
+            "tx_source_transcript_ref": source_ref,
+            "tx_image_path": str(region_path),
+            "tx_image_verify_summary": summary,
+            "tx_image_verify_results": [
+                {
+                    "check_id": result_item.get("check_id"),
+                    "status": result_item.get("status"),
+                    "confidence": result_item.get("confidence"),
+                    "observed_text": _summarize_text(str(result_item.get("observed_text") or ""))[:220],
+                    "reason": _summarize_text(str(result_item.get("reason") or ""))[:220],
+                    "locator_status": "located",
+                    "tx_image_evidence_region_ref": region_ref.model_dump(mode="json"),
+                    "tx_image_evidence_context_ref": None,
+                }
+            ],
+            "tx_image_evidence_region_ref": region_ref.model_dump(mode="json"),
+            "tx_image_evidence_context_ref": None,
+        }
+
+    return _tool_refusal_result("tx_image_evidence_mode_unsupported")
+
+
+def _coerce_grid_spec(raw: Any) -> dict[str, int]:
+    value = raw if isinstance(raw, Mapping) else {}
+    rows = _bounded_int(value.get("rows"), default=6, minimum=2, maximum=20)
+    cols = _bounded_int(value.get("cols"), default=6, minimum=2, maximum=20)
+    return {"rows": rows, "cols": cols}
+
+
+def _persist_grid_overlay_artifact(
+    *,
+    source_image_path: Path,
+    dossier_id: str,
+    grid_spec: dict[str, int],
+) -> ArtifactRef:
+    try:
+        from PIL import Image, ImageDraw
+    except Exception as exc:
+        raise RuntimeError(f"pillow_unavailable:{exc}") from exc
+    with Image.open(source_image_path) as img:
+        img = img.convert("RGB")
+        draw = ImageDraw.Draw(img)
+        rows = max(2, int(grid_spec.get("rows", 6)))
+        cols = max(2, int(grid_spec.get("cols", 6)))
+        cell_w = max(1, img.width // cols)
+        cell_h = max(1, img.height // rows)
+        for c in range(1, cols):
+            x = c * cell_w
+            draw.line((x, 0, x, img.height), fill=(255, 0, 0), width=1)
+        for r in range(1, rows):
+            y = r * cell_h
+            draw.line((0, y, img.width, y), fill=(255, 0, 0), width=1)
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=92)
+    return _persist_binary_artifact(
+        category="transcript_image_inspection_grid",
+        dossier_id=dossier_id,
+        data=out.getvalue(),
+        suffix=".jpg",
+    )
+
+
+def _coerce_requested_crop_box(
+    *,
+    target: Mapping[str, Any],
+    image_width: int,
+    image_height: int,
+) -> dict[str, int] | None:
+    crop_pixels = _coerce_crop_box(target.get("crop_box_pixels"))
+    if crop_pixels is not None:
+        clamped = _clamp_crop_box(crop_box=crop_pixels, image_width=image_width, image_height=image_height)
+        return _enforce_min_crop_size(clamped, image_width=image_width, image_height=image_height)
+    normalized = target.get("crop_box_normalized")
+    crop_from_norm = _coerce_normalized_crop_box(
+        normalized=normalized,
+        image_width=image_width,
+        image_height=image_height,
+    )
+    if crop_from_norm is not None:
+        return _enforce_min_crop_size(crop_from_norm, image_width=image_width, image_height=image_height)
+    selection = target.get("grid_selection")
+    crop_from_grid = _coerce_grid_selection_crop_box(
+        selection=selection,
+        image_width=image_width,
+        image_height=image_height,
+        grid_spec=_coerce_grid_spec(target.get("grid_spec")),
+    )
+    if crop_from_grid is not None:
+        return _enforce_min_crop_size(crop_from_grid, image_width=image_width, image_height=image_height)
+    return None
+
+
+def _enforce_min_crop_size(
+    crop_box: dict[str, int] | None,
+    *,
+    image_width: int,
+    image_height: int,
+    min_size: int = 20,
+) -> dict[str, int] | None:
+    if not isinstance(crop_box, dict):
+        return None
+    x = int(crop_box.get("x", 0))
+    y = int(crop_box.get("y", 0))
+    width = max(min_size, int(crop_box.get("width", min_size)))
+    height = max(min_size, int(crop_box.get("height", min_size)))
+    return _clamp_crop_box(
+        crop_box={"x": x, "y": y, "width": width, "height": height},
+        image_width=image_width,
+        image_height=image_height,
+    )
+
+
+def _coerce_normalized_crop_box(
+    *,
+    normalized: Any,
+    image_width: int,
+    image_height: int,
+) -> dict[str, int] | None:
+    if not isinstance(normalized, Mapping):
+        return None
+    try:
+        x = float(normalized.get("x", 0.0))
+        y = float(normalized.get("y", 0.0))
+        width = float(normalized.get("width", 0.0))
+        height = float(normalized.get("height", 0.0))
+    except Exception:
+        return None
+    if width <= 0.0 or height <= 0.0:
+        return None
+    box = {
+        "x": int(round(max(0.0, x) * image_width)),
+        "y": int(round(max(0.0, y) * image_height)),
+        "width": int(round(width * image_width)),
+        "height": int(round(height * image_height)),
+    }
+    return _clamp_crop_box(crop_box=box, image_width=image_width, image_height=image_height)
+
+
+def _coerce_grid_selection_crop_box(
+    *,
+    selection: Any,
+    image_width: int,
+    image_height: int,
+    grid_spec: dict[str, int],
+) -> dict[str, int] | None:
+    if not isinstance(selection, Mapping):
+        return None
+    rows = max(2, int(grid_spec.get("rows", 6)))
+    cols = max(2, int(grid_spec.get("cols", 6)))
+    row_start = _bounded_int(selection.get("row_start"), default=0, minimum=0, maximum=rows - 1)
+    row_end = _bounded_int(selection.get("row_end"), default=row_start, minimum=row_start, maximum=rows - 1)
+    col_start = _bounded_int(selection.get("col_start"), default=0, minimum=0, maximum=cols - 1)
+    col_end = _bounded_int(selection.get("col_end"), default=col_start, minimum=col_start, maximum=cols - 1)
+    cell_w = image_width / float(cols)
+    cell_h = image_height / float(rows)
+    box = {
+        "x": int(round(col_start * cell_w)),
+        "y": int(round(row_start * cell_h)),
+        "width": int(round((col_end - col_start + 1) * cell_w)),
+        "height": int(round((row_end - row_start + 1) * cell_h)),
+    }
+    return _clamp_crop_box(crop_box=box, image_width=image_width, image_height=image_height)
+
+
+def _apply_region_transform(
+    *,
+    crop_box: dict[str, int],
+    transform: str,
+    amount: float,
+    image_width: int,
+    image_height: int,
+) -> dict[str, int] | None:
+    t = str(transform or "").strip().lower()
+    x = int(crop_box.get("x", 0))
+    y = int(crop_box.get("y", 0))
+    w = int(crop_box.get("width", 0))
+    h = int(crop_box.get("height", 0))
+    if w <= 0 or h <= 0:
+        return None
+    if t in {"expand", "shrink"}:
+        factor = 1.0 + float(amount) if t == "expand" else max(0.2, 1.0 - float(amount))
+        new_w = int(round(w * factor))
+        new_h = int(round(h * factor))
+        cx = x + (w // 2)
+        cy = y + (h // 2)
+        x = cx - (new_w // 2)
+        y = cy - (new_h // 2)
+        w = new_w
+        h = new_h
+    elif t in {"shift_up", "shift_down", "shift_left", "shift_right"}:
+        shift_x = int(round(w * float(amount)))
+        shift_y = int(round(h * float(amount)))
+        if t == "shift_up":
+            y -= shift_y
+        elif t == "shift_down":
+            y += shift_y
+        elif t == "shift_left":
+            x -= shift_x
+        elif t == "shift_right":
+            x += shift_x
+    elif t == "set_zoom":
+        # No geometry change; zoom handled by caller.
+        pass
+    else:
+        return None
+    return _clamp_crop_box(crop_box={"x": x, "y": y, "width": w, "height": h}, image_width=image_width, image_height=image_height)
+
+
+def _persist_region_lineage_metadata(
+    *,
+    dossier_id: str,
+    region_ref: ArtifactRef | None,
+    source_image_path: Path,
+    parent_region_ref: ArtifactRef | None,
+    crop_box: dict[str, int],
+    zoom_factor: float,
+    creation_mode: str,
+) -> ArtifactRef:
+    payload = {
+        "artifact_type": "transcript_image_region_lineage",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "region_ref": region_ref.model_dump(mode="json") if isinstance(region_ref, ArtifactRef) else None,
+        "source_image_path": str(source_image_path),
+        "parent_region_ref": parent_region_ref.model_dump(mode="json") if isinstance(parent_region_ref, ArtifactRef) else None,
+        "crop_box": dict(crop_box),
+        "zoom_factor": float(round(zoom_factor, 3)),
+        "creation_mode": str(creation_mode or "").strip().lower() or None,
+    }
+    return _persist_json_artifact(
+        category="transcript_image_region_lineage",
+        dossier_id=dossier_id,
+        payload=payload,
+    )
+
+
+def _load_region_lineage_for_ref(region_ref: ArtifactRef) -> dict[str, Any] | None:
+    try:
+        root = agent_kernel_artifacts_root() / "tool_outputs" / "transcript_image_region_lineage"
+        if not root.exists():
+            return None
+        region_path = str(region_ref.artifact_path)
+        for path in root.rglob("*.json"):
+            data = _read_json_dict(path)
+            if not isinstance(data, dict):
+                continue
+            ref = data.get("region_ref") if isinstance(data.get("region_ref"), dict) else {}
+            if str(ref.get("artifact_path") or "").strip() == region_path:
+                return data
+    except Exception:
+        return None
+    return None
 
 
 def _coerce_image_verify_checks(inputs: Mapping[str, Any]) -> list[dict[str, Any]]:

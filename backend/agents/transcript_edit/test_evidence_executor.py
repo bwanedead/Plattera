@@ -49,16 +49,16 @@ def test_execute_evidence_request_runs_image_verify() -> None:
     assert result["kind"] == "image_verify"
 
 
-def test_normalize_image_evidence_locate_request_accepts_mode_and_target() -> None:
+def test_normalize_image_evidence_select_region_request_accepts_mode_and_target() -> None:
     request, reason = normalize_evidence_request(
         evidence_request={
             "kind": "image_evidence",
-            "mode": "locate",
+            "mode": "select_region",
             "decision_key": "range",
             "target": {
-                "query": "Find range clause.",
+                "crop_box_normalized": {"x": 0.25, "y": 0.2, "width": 0.3, "height": 0.2},
+                "zoom_factor": 2.4,
                 "expected_fields": ["range"],
-                "anchor_hint": "Township Fourteen North",
             },
         },
         decision_key="range",
@@ -66,9 +66,9 @@ def test_normalize_image_evidence_locate_request_accepts_mode_and_target() -> No
     assert reason == "ok"
     assert isinstance(request, dict)
     assert request.get("kind") == "image_evidence"
-    assert request.get("mode") == "locate"
+    assert request.get("mode") == "select_region"
     target = request.get("target") if isinstance(request.get("target"), dict) else {}
-    assert str(target.get("query") or "") == "Find range clause."
+    assert isinstance(target.get("crop_box_normalized"), dict)
 
 
 def test_normalize_image_evidence_rejects_invalid_mode() -> None:
@@ -84,27 +84,82 @@ def test_normalize_image_evidence_rejects_invalid_mode() -> None:
     assert reason == "image_evidence_mode_invalid"
 
 
-def test_normalize_image_evidence_rejects_expand_context_until_implemented() -> None:
+def test_normalize_image_evidence_refine_region_accepts_transform_fields() -> None:
     request, reason = normalize_evidence_request(
         evidence_request={
             "kind": "image_evidence",
-            "mode": "expand_context",
+            "mode": "refine_region",
             "decision_key": "range",
-            "target": {"region_ref": {"artifact_path": "in-memory://region.jpg"}},
+            "target": {
+                "region_ref": {"artifact_path": "in-memory://region.jpg"},
+                "transform": "expand",
+                "amount": 0.2,
+            },
+        },
+        decision_key="range",
+    )
+    assert reason == "ok"
+    assert isinstance(request, dict)
+    target = request.get("target") if isinstance(request.get("target"), dict) else {}
+    assert str(target.get("transform") or "") == "expand"
+
+
+def test_normalize_image_evidence_select_region_rejects_missing_selector() -> None:
+    request, reason = normalize_evidence_request(
+        evidence_request={
+            "kind": "image_evidence",
+            "mode": "select_region",
+            "decision_key": "range",
+            "target": {
+                "zoom_factor": 2.0,
+            },
         },
         decision_key="range",
     )
     assert request is None
-    assert reason == "image_evidence_mode_not_implemented:expand_context"
+    assert reason == "image_evidence_select_region_target_missing"
+
+
+def test_normalize_image_evidence_refine_region_rejects_missing_region_ref() -> None:
+    request, reason = normalize_evidence_request(
+        evidence_request={
+            "kind": "image_evidence",
+            "mode": "refine_region",
+            "decision_key": "range",
+            "target": {
+                "transform": "expand",
+                "amount": 0.15,
+            },
+        },
+        decision_key="range",
+    )
+    assert request is None
+    assert reason == "image_evidence_refine_region_region_ref_missing"
+
+
+def test_normalize_image_evidence_verify_region_rejects_missing_query() -> None:
+    request, reason = normalize_evidence_request(
+        evidence_request={
+            "kind": "image_evidence",
+            "mode": "verify_region",
+            "decision_key": "range",
+            "target": {
+                "region_ref": {"artifact_path": "in-memory://region.jpg"},
+            },
+        },
+        decision_key="range",
+    )
+    assert request is None
+    assert reason == "image_evidence_verify_region_query_missing"
 
 
 def test_execute_evidence_request_runs_image_evidence_mode() -> None:
     request, reason = normalize_evidence_request(
         evidence_request={
             "kind": "image_evidence",
-            "mode": "verify",
+            "mode": "verify_region",
             "decision_key": "range",
-            "target": {"query": "Verify Range 75 West."},
+            "target": {"region_ref": {"artifact_path": "in-memory://region.jpg"}, "query": "Verify Range 75 West."},
         },
         decision_key="range",
     )
@@ -119,14 +174,14 @@ def test_execute_evidence_request_runs_image_evidence_mode() -> None:
         open_spans_runner=lambda _req: [],
         image_verify_runner=lambda _req: {},
         image_evidence_runner=lambda _req: {
-            "mode": "verify",
-            "image_evidence": {"mode": "verify", "status": "match"},
+            "mode": "verify_region",
+            "image_evidence": {"mode": "verify_region", "status": "match"},
             "image_verification": {"payload": {"results": [{"check_id": "c1", "status": "match"}]}},
         },
     )
     assert result["status"] == "executed"
     assert result["kind"] == "image_evidence"
-    assert result["mode"] == "verify"
+    assert result["mode"] == "verify_region"
 
 
 def test_execute_evidence_request_blocks_repeats_without_new_signal() -> None:

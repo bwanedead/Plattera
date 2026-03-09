@@ -239,6 +239,9 @@ json_drafts_section_normalizer/
 # Large geospatial files (10MB+ per state) downloaded on-demand
 /plss/
 
+# Local operator run inspection mirror (derived from runtime events)
+backend/run_inspection/
+
 # Tile Cache - Downloaded map tiles for performance
 # Generated at runtime, can be recreated
 tiles/

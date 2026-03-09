@@ -2336,6 +2336,8 @@ def _run_image_evidence_mode(
     latest_visual_evidence: dict[str, Any] | None,
 ) -> dict[str, Any]:
     mode = str(normalized_request.get("mode") or "").strip().lower()
+    if mode == "verify":
+        mode = "verify_region"
     target = normalized_request.get("target") if isinstance(normalized_request.get("target"), dict) else {}
     decision_key = str(normalized_request.get("decision_key") or focus_decision_key or "").strip().lower()
     source_image_ref = str(target.get("source_image_ref") or "").strip()
@@ -2360,23 +2362,18 @@ def _run_image_evidence_mode(
     if not expected_text and expected_fields:
         expected_text = ", ".join(expected_fields[:2])
 
+    region_ref = _coerce_artifact_ref_for_state(target.get("region_ref"))
+    if mode in {"verify_region", "refine_region"} and region_ref is None and isinstance(latest_visual_evidence, dict):
+        region_ref = _coerce_artifact_ref_for_state(latest_visual_evidence.get("tx_image_evidence_region_ref"))
+
+    check_id = f"image_evidence_{mode}_{decision_key or 'focus'}_{iteration}"
     check: dict[str, Any] = {
-        "check_id": f"image_evidence_{mode}_{decision_key or 'focus'}_{iteration}",
+        "check_id": check_id,
         "query": query[:320],
         "expected_text": expected_text[:180] or None,
         "decision_key": decision_key or None,
-        "focus_decision_key": str(focus_decision_key or "").strip().lower() or None,
-        "locator_context": {
-            "mode": mode,
-            "anchor_hint": str(target.get("anchor_hint") or "").strip()[:220] or None,
-            "expected_fields": expected_fields,
-            "requested_by": "agent_evidence_request",
-        },
     }
-    region_ref = _coerce_artifact_ref_for_state(target.get("region_ref"))
-    if mode == "verify" and region_ref is None and isinstance(latest_visual_evidence, dict):
-        region_ref = _coerce_artifact_ref_for_state(latest_visual_evidence.get("tx_image_evidence_region_ref"))
-    if mode in {"verify", "expand_context"} and region_ref is not None:
+    if isinstance(region_ref, dict):
         check["tx_image_evidence_region_ref"] = region_ref
 
     emit_progress(
@@ -2385,7 +2382,7 @@ def _run_image_evidence_mode(
             iteration=iteration,
             decision_key=decision_key or None,
             evidence_kind=f"image_evidence:{mode}",
-            check_id=str(check.get("check_id") or ""),
+            check_id=check_id,
             check_decision_key=decision_key or None,
             llm_call_seq=int(llm_call_seq_start) + 1,
             phase_attempt=1,
@@ -2405,9 +2402,42 @@ def _run_image_evidence_mode(
             "dossier_id": dossier_id,
             "source_transcript_ref": source_transcript_ref,
             "image_ref": source_image_ref,
-            "checks": [check],
             "model": model,
-            "zoom_factor": 3.2,
+            "mode": mode,
+            "target": {
+                "region_ref": region_ref,
+                "query": query[:320],
+                "expected_text": expected_text[:180] or None,
+                "expected_fields": expected_fields,
+                "anchor_hint": str(target.get("anchor_hint") or "").strip()[:220] or None,
+                "crop_box_pixels": (
+                    dict(target.get("crop_box_pixels"))
+                    if isinstance(target.get("crop_box_pixels"), dict)
+                    else None
+                ),
+                "crop_box_normalized": (
+                    dict(target.get("crop_box_normalized"))
+                    if isinstance(target.get("crop_box_normalized"), dict)
+                    else None
+                ),
+                "grid_selection": (
+                    dict(target.get("grid_selection"))
+                    if isinstance(target.get("grid_selection"), dict)
+                    else None
+                ),
+                "grid_spec": (
+                    dict(target.get("grid_spec"))
+                    if isinstance(target.get("grid_spec"), dict)
+                    else None
+                ),
+                "zoom_factor": target.get("zoom_factor"),
+                "transform": str(target.get("transform") or "").strip().lower() or None,
+                "amount": target.get("amount"),
+                "decision_key": decision_key or None,
+                "check_id": check_id,
+            },
+            "checks": [check] if mode == "locate" else None,
+            "decision_key": decision_key or None,
         },
     )
     latest_refs = step.dashboard.latest_refs.model_dump(mode="json")
@@ -2419,6 +2449,10 @@ def _run_image_evidence_mode(
     results = inline.get("tx_image_verify_results") if isinstance(inline.get("tx_image_verify_results"), list) else []
     results = [dict(row) for row in results if isinstance(row, dict)]
     first = dict(results[0]) if results else {}
+    selected_crop = inline.get("crop_box") if isinstance(inline.get("crop_box"), dict) else None
+    selected_zoom = inline.get("zoom_factor")
+    lineage = inline.get("tx_image_region_lineage") if isinstance(inline.get("tx_image_region_lineage"), dict) else {}
+    inspection_ref = inline.get("tx_image_inspection_ref") if isinstance(inline.get("tx_image_inspection_ref"), dict) else None
     region = _coerce_artifact_ref_for_state(
         first.get("tx_image_evidence_region_ref") or inline.get("tx_image_evidence_region_ref")
     )
@@ -2442,11 +2476,20 @@ def _run_image_evidence_mode(
         "tx_image_evidence_region_ref": region,
         "tx_image_evidence_context_ref": context,
         "verify_summary": dict(summary),
+        "crop_box": selected_crop,
+        "zoom_factor": selected_zoom,
+        "inspection_ref": inspection_ref,
+        "region_lineage": lineage,
+        "tx_image_region_lineage_ref": _coerce_artifact_ref_for_state(inline.get("tx_image_region_lineage_ref")),
+        "image_width": inline.get("image_width"),
+        "image_height": inline.get("image_height"),
+        "grid_spec": (dict(inline.get("grid_spec")) if isinstance(inline.get("grid_spec"), dict) else None),
+        "grid_overlay_ref": _coerce_artifact_ref_for_state(inline.get("grid_overlay_ref")),
         "latest_refs": latest_refs,
         "llm_call_seq_end": int(llm_call_seq_start) + 1,
     }
     image_verification = {}
-    if mode == "verify":
+    if mode == "verify_region":
         image_verification = {
             "latest_refs": latest_refs,
             "llm_call_seq_end": int(llm_call_seq_start) + 1,
@@ -2776,6 +2819,15 @@ def _coerce_visual_evidence_state(raw: dict[str, Any] | None) -> dict[str, Any]:
             "reason": str(locator.get("reason") or "").strip()[:220] or None,
         },
         "verify_summary": dict(data.get("verify_summary")) if isinstance(data.get("verify_summary"), dict) else {},
+        "crop_box": dict(data.get("crop_box")) if isinstance(data.get("crop_box"), dict) else None,
+        "zoom_factor": data.get("zoom_factor"),
+        "inspection_ref": _coerce_artifact_ref_for_state(data.get("inspection_ref")),
+        "tx_image_region_lineage_ref": _coerce_artifact_ref_for_state(data.get("tx_image_region_lineage_ref")),
+        "region_lineage": dict(data.get("region_lineage")) if isinstance(data.get("region_lineage"), dict) else {},
+        "image_width": data.get("image_width"),
+        "image_height": data.get("image_height"),
+        "grid_spec": dict(data.get("grid_spec")) if isinstance(data.get("grid_spec"), dict) else None,
+        "grid_overlay_ref": _coerce_artifact_ref_for_state(data.get("grid_overlay_ref")),
         "tx_image_evidence_region_ref": _coerce_artifact_ref_for_state(data.get("tx_image_evidence_region_ref")),
         "tx_image_evidence_context_ref": _coerce_artifact_ref_for_state(data.get("tx_image_evidence_context_ref")),
     }

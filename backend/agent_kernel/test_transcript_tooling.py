@@ -342,3 +342,87 @@ def test_tx_image_verify_does_not_double_crop_when_region_artifact_is_used() -> 
         assert render_meta.get("crop_box") is None
         # Locator crop is 60x30, isolated artifact default zoom is 2.2 -> 132x66.
         assert render_meta.get("rendered_size") == [132, 66]
+
+
+def test_tx_image_inspection_reference_and_select_refine_verify_region_modes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        image_path = root / "source.png"
+        transcript_path = root / "source.json"
+        _write_sample_image(image_path)
+        transcript_path.write_text(json.dumps({"sections": [{"id": "s1", "body": "Range token."}]}), encoding="utf-8")
+        tool = TranscriptImageVerificationTool(service=_FakeImageVisionService())
+
+        inspection = tool.verify_transcript_with_image(
+            {
+                "dossier_id": "D1",
+                "source_transcript_ref": str(transcript_path),
+                "image_ref": str(image_path),
+                "mode": "inspection_reference",
+                "grid_spec": {"rows": 4, "cols": 4},
+                "model": "gpt-5.2",
+            }
+        )
+        assert inspection["reason_codes"] == ["tx_image_inspection_ready"]
+        assert isinstance(inspection.get("tx_image_inspection_ref"), dict)
+        assert int(inspection.get("image_width") or 0) > 0
+        assert int(inspection.get("image_height") or 0) > 0
+
+        selected = tool.verify_transcript_with_image(
+            {
+                "dossier_id": "D1",
+                "source_transcript_ref": str(transcript_path),
+                "image_ref": str(image_path),
+                "mode": "select_region",
+                "target": {
+                    "crop_box_pixels": {"x": 8, "y": 10, "width": 60, "height": 30},
+                    "zoom_factor": 2.0,
+                    "decision_key": "range",
+                },
+                "model": "gpt-5.2",
+            }
+        )
+        assert selected["reason_codes"] == ["tx_image_region_selected"]
+        region_ref = selected.get("tx_image_evidence_region_ref")
+        assert isinstance(region_ref, dict)
+        assert Path(str(region_ref.get("artifact_path") or "")).exists()
+        assert isinstance(selected.get("tx_image_region_lineage_ref"), dict)
+
+        refined = tool.verify_transcript_with_image(
+            {
+                "dossier_id": "D1",
+                "source_transcript_ref": str(transcript_path),
+                "image_ref": str(image_path),
+                "mode": "refine_region",
+                "target": {
+                    "region_ref": region_ref,
+                    "transform": "expand",
+                    "amount": 0.25,
+                    "decision_key": "range",
+                },
+                "model": "gpt-5.2",
+            }
+        )
+        assert refined["reason_codes"] == ["tx_image_region_refined"]
+        refined_ref = refined.get("tx_image_evidence_region_ref")
+        assert isinstance(refined_ref, dict)
+        assert str(refined_ref.get("artifact_path") or "") != str(region_ref.get("artifact_path") or "")
+        assert isinstance(refined.get("parent_region_ref"), dict)
+
+        verified = tool.verify_transcript_with_image(
+            {
+                "dossier_id": "D1",
+                "source_transcript_ref": str(transcript_path),
+                "image_ref": str(image_path),
+                "mode": "verify_region",
+                "target": {
+                    "region_ref": refined_ref,
+                    "query": "Does this show Range 74 West?",
+                    "expected_text": "Range 74 West",
+                },
+                "model": "gpt-5.2",
+            }
+        )
+        assert verified["reason_codes"] == ["tx_image_verified"]
+        rows = verified.get("tx_image_verify_results")
+        assert isinstance(rows, list) and rows

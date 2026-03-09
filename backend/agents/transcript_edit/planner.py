@@ -340,7 +340,7 @@ def _coerce_focus_move(
             raise ValueError("evidence_request_decision_key_mismatch")
         target = evidence.get("target") if isinstance(evidence.get("target"), dict) else {}
         evidence_mode = str(evidence.get("mode") or "").strip().lower()
-        if evidence_kind == "image_evidence" and evidence_mode not in {"locate", "verify"}:
+        if evidence_kind == "image_evidence" and evidence_mode not in {"select_region", "refine_region", "verify_region", "locate"}:
             raise ValueError("invalid_image_evidence_mode")
         out["evidence_request"] = {
             "kind": evidence_kind,

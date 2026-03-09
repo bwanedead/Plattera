@@ -10,8 +10,20 @@ SUPPORTED_EVIDENCE_KINDS = {
 }
 
 SUPPORTED_IMAGE_EVIDENCE_MODES = {
+    "select_region",
+    "refine_region",
+    "verify_region",
     "locate",
-    "verify",
+}
+
+SUPPORTED_REFINE_TRANSFORMS = {
+    "expand",
+    "shrink",
+    "shift_up",
+    "shift_down",
+    "shift_left",
+    "shift_right",
+    "set_zoom",
 }
 
 
@@ -42,8 +54,6 @@ def normalize_evidence_request(
     mode = str(evidence_request.get("mode") or "").strip().lower()
     if kind == "image_evidence":
         if mode not in SUPPORTED_IMAGE_EVIDENCE_MODES:
-            if mode == "expand_context":
-                return None, "image_evidence_mode_not_implemented:expand_context"
             return None, "image_evidence_mode_invalid"
     else:
         mode = ""
@@ -51,25 +61,90 @@ def normalize_evidence_request(
     target_context_ref = target.get("context_ref")
     normalized_target_region_ref = target_region_ref if isinstance(target_region_ref, dict) else None
     normalized_target_context_ref = target_context_ref if isinstance(target_context_ref, dict) else None
+    normalized_target = {
+        "span_ids": span_ids,
+        "expected_fields": expected_fields,
+        "region_ref": normalized_target_region_ref,
+        "context_ref": normalized_target_context_ref,
+        "query": str(target.get("query") or "").strip()[:320] or None,
+        "expected_text": str(target.get("expected_text") or "").strip()[:180] or None,
+        "anchor_hint": str(target.get("anchor_hint") or "").strip()[:220] or None,
+        "source_image_ref": str(target.get("source_image_ref") or "").strip() or None,
+        "crop_box_pixels": (
+            dict(target.get("crop_box_pixels"))
+            if isinstance(target.get("crop_box_pixels"), dict)
+            else None
+        ),
+        "crop_box_normalized": (
+            dict(target.get("crop_box_normalized"))
+            if isinstance(target.get("crop_box_normalized"), dict)
+            else None
+        ),
+        "grid_selection": (
+            dict(target.get("grid_selection"))
+            if isinstance(target.get("grid_selection"), dict)
+            else None
+        ),
+        "grid_spec": (
+            dict(target.get("grid_spec"))
+            if isinstance(target.get("grid_spec"), dict)
+            else None
+        ),
+        "zoom_factor": target.get("zoom_factor"),
+        "transform": str(target.get("transform") or "").strip().lower() or None,
+        "amount": target.get("amount"),
+    }
+    if kind == "image_evidence":
+        image_reason = _validate_image_evidence_mode_target(mode=mode, target=normalized_target)
+        if image_reason is not None:
+            return None, image_reason
     return (
         {
             "kind": kind,
             "mode": mode or None,
             "decision_key": request_key,
             "reason": str(evidence_request.get("reason") or "").strip(),
-            "target": {
-                "span_ids": span_ids,
-                "expected_fields": expected_fields,
-                "region_ref": normalized_target_region_ref,
-                "context_ref": normalized_target_context_ref,
-                "query": str(target.get("query") or "").strip()[:320] or None,
-                "expected_text": str(target.get("expected_text") or "").strip()[:180] or None,
-                "anchor_hint": str(target.get("anchor_hint") or "").strip()[:220] or None,
-                "source_image_ref": str(target.get("source_image_ref") or "").strip() or None,
-            },
+            "target": normalized_target,
         },
         "ok",
     )
+
+
+def _validate_image_evidence_mode_target(*, mode: str, target: dict[str, Any]) -> str | None:
+    if mode == "select_region":
+        selectors = (
+            1 if isinstance(target.get("crop_box_pixels"), dict) else 0,
+            1 if isinstance(target.get("crop_box_normalized"), dict) else 0,
+            1 if isinstance(target.get("grid_selection"), dict) else 0,
+        )
+        selector_count = sum(selectors)
+        if selector_count == 0:
+            return "image_evidence_select_region_target_missing"
+        if selector_count > 1:
+            return "image_evidence_select_region_target_ambiguous"
+        return None
+    if mode == "refine_region":
+        if not isinstance(target.get("region_ref"), dict):
+            return "image_evidence_refine_region_region_ref_missing"
+        transform = str(target.get("transform") or "").strip().lower()
+        if transform not in SUPPORTED_REFINE_TRANSFORMS:
+            return "image_evidence_refine_region_transform_invalid"
+        amount_value = target.get("amount")
+        try:
+            amount = float(amount_value)
+        except (TypeError, ValueError):
+            return "image_evidence_refine_region_amount_invalid"
+        if amount <= 0:
+            return "image_evidence_refine_region_amount_invalid"
+        return None
+    if mode == "verify_region":
+        if not isinstance(target.get("region_ref"), dict):
+            return "image_evidence_verify_region_region_ref_missing"
+        query = str(target.get("query") or "").strip()
+        if not query:
+            return "image_evidence_verify_region_query_missing"
+        return None
+    return None
 
 
 def execute_evidence_request(

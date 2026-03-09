@@ -124,7 +124,7 @@ def build_focus_resolver_system_message() -> str:
         "If move=request_human_feedback, include feedback_prompt with line1, line2, and bounded choices when available. "
         "If move=gather_more_evidence, include evidence_request with fields: kind, decision_key, reason, target. "
         "Allowed evidence_request.kind values: open_spans, image_verify, image_evidence, retrieve_dependency_evidence. "
-        "If evidence_request.kind=image_evidence, include mode with one of: locate, verify. "
+        "If evidence_request.kind=image_evidence, prefer modes: select_region, refine_region, verify_region; locate is optional fallback. "
         "Treat external_context_injections as persistent semantic state. "
         "Treat blocker_registry and blocker_feedback_state as authoritative loop-state context for blocker counts, HITL pairing, and feedback integration readiness. "
         "Prioritize removing open mapping blockers before optional work; when focused_blocker_feedback_pair.ready_for_resolution=true, your next move must directly integrate or safely escalate that blocker-ticket pair. "
@@ -219,14 +219,13 @@ def build_focus_resolver_user_message(
             "feedback_prompt": None,
             "evidence_request": {
                 "kind": "image_evidence",
-                "mode": "locate",
+                "mode": "select_region",
                 "decision_key": "range",
-                "reason": "Locate the range clause before verification.",
+                "reason": "Select a precise region around the range clause before verification.",
                 "target": {
-                    "span_ids": ["span_1"],
+                    "crop_box_normalized": {"x": 0.35, "y": 0.20, "width": 0.35, "height": 0.15},
+                    "zoom_factor": 2.4,
                     "expected_fields": ["range"],
-                    "query": "Find the township/range clause mentioning Range 74 West or Range 75 West.",
-                    "anchor_hint": "Township Fourteen North",
                 },
             },
             "closure_update_hint": None,

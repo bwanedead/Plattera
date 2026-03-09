@@ -1861,8 +1861,8 @@ def test_resolver_can_chain_image_evidence_locate_then_verify(monkeypatch) -> No
                     "feedback_prompt": None,
                     "evidence_request": {
                         "kind": "image_evidence",
-                        "mode": "verify",
-                        "target": {"region_ref": region_ref},
+                        "mode": "verify_region",
+                        "target": {"region_ref": region_ref, "query": "Verify the range value in this region."},
                     },
                     "closure_update_hint": None,
                     "iteration_summary": "Verify on the located region.",
@@ -1909,12 +1909,12 @@ def test_resolver_can_chain_image_evidence_locate_then_verify(monkeypatch) -> No
             }
         verify_received_region_ref["value"] = isinstance(target.get("region_ref"), dict)
         return {
-            "mode": "verify",
+            "mode": "verify_region",
             "status": "executed",
             "latest_refs": {},
             "llm_call_seq_end": int(kwargs.get("llm_call_seq_start") or 0) + 1,
             "image_evidence": {
-                "mode": "verify",
+                "mode": "verify_region",
                 "status": "match",
                 "query": "Verify range",
                 "tx_image_evidence_region_ref": target.get("region_ref"),

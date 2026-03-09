@@ -28,6 +28,7 @@ from agent_kernel.tooling import (
 )
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from services.agent_viewer.event_bus import event_bus as viewer_event_bus
+from services.run_inspection_service import RunInspectionMirror
 from transcript_edit.run_registry import TranscriptionEditRunRegistry
 
 router = APIRouter()
@@ -254,6 +255,7 @@ def request_run_resume_if_waiting(*, run_id: str, trigger: str | None, backgroun
 
 
 def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
+    inspection_mirror: RunInspectionMirror | None = None
     try:
         progress_log: list[dict[str, Any]] = []
         critical_events: list[dict[str, Any]] = []
@@ -262,6 +264,7 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
         last_event_mono = loop_started_mono
         last_registry_persist_mono = loop_started_mono
         last_registry_material_signature: tuple[Any, ...] | None = None
+        inspection_mirror = RunInspectionMirror(run_id=run_id, max_runs=5)
 
         def _to_artifact_ref_map(obj: Any) -> dict[str, dict[str, str]]:
             if not isinstance(obj, dict):
@@ -363,6 +366,15 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                 message[:220] if message else "n/a",
             )
             _publish_viewer_event(event_type, event)
+            if inspection_mirror is not None:
+                try:
+                    inspection_mirror.capture_event(event=latest)
+                except Exception:
+                    logger.warning(
+                        "TX_RUN_INSPECTION_CAPTURE_FAILED ► run_id=%s phase=%s",
+                        run_id,
+                        str(latest.get("phase") or "unknown"),
+                    )
 
         persistence = RunArtifactPersistenceService()
         session_manager = KernelSessionManager(
@@ -483,6 +495,11 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             int((_time.perf_counter() - loop_started_mono) * 1000),
             result.reason_code,
         )
+        if inspection_mirror is not None:
+            try:
+                inspection_mirror.finalize(status=final_status, reason_code=result.reason_code)
+            except Exception:
+                logger.warning("TX_RUN_INSPECTION_FINALIZE_FAILED ► run_id=%s", run_id)
     except Exception as exc:
         _safe_registry_update_run(
             run_id=run_id,
@@ -504,6 +521,11 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                 "payload": {"error": str(exc), "terminal": True},
             },
         )
+        if inspection_mirror is not None:
+            try:
+                inspection_mirror.finalize(status="failed", reason_code=str(exc))
+            except Exception:
+                logger.warning("TX_RUN_INSPECTION_FINALIZE_FAILED ► run_id=%s", run_id)
 
 
 @router.post("/run")
