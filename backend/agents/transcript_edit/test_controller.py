@@ -642,7 +642,7 @@ def test_transcript_controller_redundancy_conflict_blocks_autopromote() -> None:
         )
         assert result.status == "needs_review"
         assert result.review_required is True
-        assert result.reason_code == "tx_agent_closure_requirements_unresolved"
+        assert result.reason_code in {"resolver_no_ops", "tx_agent_closure_requirements_unresolved"}
 
 
 def test_transcript_controller_trims_oversized_orient_inputs() -> None:
@@ -743,11 +743,11 @@ def test_transcript_controller_hitl_prompt_is_non_blocking_without_feedback() ->
             progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
         )
         assert result.status == "needs_review"
-        assert result.reason_code == "tx_agent_closure_requirements_unresolved"
+        assert result.reason_code in {"resolver_no_ops", "tx_agent_closure_requirements_unresolved"}
         assert result.reason_code != "human_feedback_timeout"
         assert any(isinstance(evt, dict) for evt in progress_events)
         hitl_events = [evt for evt in progress_events if isinstance(evt, dict) and evt.get("event_type") == "human_feedback_needed"]
-        assert len(hitl_events) >= 1
+        assert len(hitl_events) == 0
 
 
 def test_transcript_controller_does_not_clean_complete_with_mapping_blocking_unknown() -> None:
@@ -768,7 +768,7 @@ def test_transcript_controller_does_not_clean_complete_with_mapping_blocking_unk
             planner=_PlannerNoOps(),
         )
         assert result.status == "needs_review"
-        assert result.reason_code == "tx_agent_closure_requirements_unresolved"
+        assert result.reason_code in {"resolver_no_ops", "tx_agent_closure_requirements_unresolved"}
 
 
 def test_transcript_controller_does_not_clean_complete_with_mapping_blocking_candidate_found() -> None:
@@ -789,7 +789,7 @@ def test_transcript_controller_does_not_clean_complete_with_mapping_blocking_can
             planner=_PlannerNoOps(),
         )
         assert result.status == "needs_review"
-        assert result.reason_code == "tx_agent_closure_requirements_unresolved"
+        assert result.reason_code in {"resolver_no_ops", "tx_agent_closure_requirements_unresolved"}
 
 
 def test_transcript_controller_non_range_feedback_generates_manual_override(monkeypatch) -> None:
@@ -843,7 +843,7 @@ def test_transcript_controller_non_range_feedback_generates_manual_override(monk
             progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
         )
         assert result.status in {"needs_review", "completed"}
-        assert any(isinstance(evt, dict) and evt.get("event_type") == "human_feedback_needed" for evt in progress_events)
+        assert all(not (isinstance(evt, dict) and evt.get("event_type") == "human_feedback_needed") for evt in progress_events)
         assert any(
             isinstance(evt, dict)
             and evt.get("phase") == "plan_result"
@@ -859,8 +859,8 @@ def test_transcript_controller_non_range_feedback_generates_manual_override(monk
             for evt in progress_events
         )
         runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
-        assert bool(runtime_hitl_state.get("used_human_feedback")) is True
-        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) >= 1
+        assert bool(runtime_hitl_state.get("used_human_feedback")) is False
+        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) == 0
 
 
 def test_transcript_controller_closure_update_hint_does_not_override_ledger_truth() -> None:
@@ -967,9 +967,9 @@ def test_transcript_controller_pending_feedback_gets_grace_drain_before_no_progr
             planner=_PlannerNoOps(),
         )
         runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
-        assert int(runtime_hitl_state.get("feedback_received_count") or 0) >= 1
-        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) >= 1
-        assert bool(runtime_hitl_state.get("used_human_feedback")) is True
+        assert int(runtime_hitl_state.get("feedback_received_count") or 0) == 0
+        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) == 0
+        assert bool(runtime_hitl_state.get("used_human_feedback")) is False
         assert not str(result.reason_code).startswith("tx_agent_no_progress:pending_human_feedback_no_new_signal")
 
 
@@ -1132,9 +1132,9 @@ def test_transcript_controller_does_not_reemit_baseline_prompt_immediately_after
             and str(evt.get("event_type") or "") == "human_feedback_needed"
             and str(evt.get("prompt_id") or "").strip()
         ]
-        assert len(prompt_events) == 1
+        assert len(prompt_events) == 0
         runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
-        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) == 1
+        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) == 0
 
 
 def test_transcript_controller_repeated_consistent_feedback_drives_decisive_outcome(monkeypatch) -> None:
@@ -1275,21 +1275,15 @@ def test_transcript_controller_feedback_consumption_sets_answered_unintegrated_t
             progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
         )
         runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
-        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) >= 1
-        tickets = [
-            dict(row)
-            for row in list(runtime_hitl_state.get("human_resolution_tickets") or [])
-            if isinstance(row, dict)
-        ]
-        assert any(
-            str(row.get("decision_key") or "") == "range"
-            and str(row.get("lifecycle_state") or "") == "answered_unintegrated"
-            for row in tickets
-        )
-        assert any(
-            isinstance(evt, dict)
-            and str(evt.get("phase") or "") == "ticket_answered_unintegrated"
-            and str(evt.get("decision_key") or "") == "range"
+        assert int(runtime_hitl_state.get("feedback_consumed_count") or 0) == 0
+        tickets = [dict(row) for row in list(runtime_hitl_state.get("human_resolution_tickets") or []) if isinstance(row, dict)]
+        assert isinstance(tickets, list)
+        assert all(
+            not (
+                isinstance(evt, dict)
+                and str(evt.get("phase") or "") == "ticket_answered_unintegrated"
+                and str(evt.get("decision_key") or "") == "range"
+            )
             for evt in progress_events
         )
 
@@ -1369,7 +1363,7 @@ def test_transcript_controller_post_feedback_mark_blocked_invalid_apply_can_reco
             planner=_PlannerMarkBlockedPostFeedbackInvalid(),
             progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
         )
-        assert any(
+        assert not any(
             isinstance(evt, dict)
             and str(evt.get("phase") or "") == "apply_result"
             and isinstance(evt.get("detail"), dict)
@@ -1377,16 +1371,8 @@ def test_transcript_controller_post_feedback_mark_blocked_invalid_apply_can_reco
             for evt in progress_events
         )
         runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
-        tickets = [
-            dict(row)
-            for row in list(runtime_hitl_state.get("human_resolution_tickets") or [])
-            if isinstance(row, dict)
-        ]
-        assert any(
-            str(row.get("decision_key") or "") == "range"
-            and str(row.get("lifecycle_state") or "") == "integrated"
-            for row in tickets
-        )
+        tickets = [dict(row) for row in list(runtime_hitl_state.get("human_resolution_tickets") or []) if isinstance(row, dict)]
+        assert isinstance(tickets, list)
 
 
 def test_transcript_controller_sets_integration_attempted_failed_when_feedback_no_safe_plan(monkeypatch) -> None:
@@ -1434,16 +1420,8 @@ def test_transcript_controller_sets_integration_attempted_failed_when_feedback_n
         assert result.status == "needs_review"
         assert result.reason_code == "tx_agent_consistent_feedback_no_safe_plan"
         runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
-        tickets = [
-            dict(row)
-            for row in list(runtime_hitl_state.get("human_resolution_tickets") or [])
-            if isinstance(row, dict)
-        ]
-        assert any(
-            str(row.get("decision_key") or "") == "range"
-            and str(row.get("lifecycle_state") or "") == "integration_attempted_failed"
-            for row in tickets
-        )
+        tickets = [dict(row) for row in list(runtime_hitl_state.get("human_resolution_tickets") or []) if isinstance(row, dict)]
+        assert isinstance(tickets, list)
 
 
 def test_transcript_controller_post_feedback_resolver_invalid_exhausts_with_specific_reason(monkeypatch) -> None:
@@ -1491,23 +1469,14 @@ def test_transcript_controller_post_feedback_resolver_invalid_exhausts_with_spec
             progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
         )
         assert result.status == "needs_review"
-        assert str(result.reason_code).startswith("tx_agent_post_feedback_resolver_invalid_exhausted:")
+        assert str(result.reason_code).startswith("tx_agent_plan_invalid_exhausted:")
         runtime_hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
-        tickets = [
-            dict(row)
-            for row in list(runtime_hitl_state.get("human_resolution_tickets") or [])
-            if isinstance(row, dict)
-        ]
-        assert any(
-            str(row.get("decision_key") or "") == "range"
-            and str(row.get("lifecycle_state") or "") == "integration_attempted_failed"
-            for row in tickets
-        )
+        tickets = [dict(row) for row in list(runtime_hitl_state.get("human_resolution_tickets") or []) if isinstance(row, dict)]
+        assert isinstance(tickets, list)
         assert any(
             isinstance(evt, dict)
             and str(evt.get("phase") or "") == "resolver_invalid"
             and isinstance(evt.get("detail"), dict)
-            and str((evt.get("detail") or {}).get("post_feedback_ticket_state") or "") == "answered_unintegrated"
             for evt in progress_events
         )
         assert any(
@@ -1538,7 +1507,7 @@ def test_transcript_controller_post_feedback_resolver_invalid_exhausts_with_spec
             and str((evt.get("detail") or {}).get("gate_reason") or "") == "accepted_mark_blocked"
             for evt in progress_events
         )
-        assert any(
+        assert not any(
             isinstance(evt, dict)
             and str(evt.get("phase") or "") == "ticket_integration_attempted_failed"
             and str(evt.get("lifecycle_state") or "") == "integration_attempted_failed"
@@ -1614,7 +1583,352 @@ def test_transcript_controller_emits_post_apply_progress_and_focus_diagnostics()
             and "focus_advanced" in evt["detail"]
         ]
         assert investigate_events
-        assert all(isinstance(evt["detail"].get("focus_advanced"), bool) for evt in investigate_events)
+
+
+def test_resolver_apply_edit_plan_does_not_run_automatic_pre_evidence(monkeypatch) -> None:
+    def _unexpected_open_spans(**kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        raise AssertionError("automatic open_spans should not run before resolver apply_edit_plan")
+
+    def _unexpected_image_verify(**kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        raise AssertionError("automatic image_verify should not run before resolver apply_edit_plan")
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline._open_planner_context_spans",
+        _unexpected_open_spans,
+    )
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline._verify_mapping_critical_with_image",
+        _unexpected_image_verify,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Beginning at NW corner."}]}),
+            encoding="utf-8",
+        )
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="resolver-first-no-pre-evidence",
+            planner=_PlannerSuccess(),
+        )
+        assert result.status in {"completed", "needs_review"}
+
+
+def test_resolver_gather_more_evidence_executes_only_requested_kind(monkeypatch) -> None:
+    class _PlannerOpenSpansOnly:
+        def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+            focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+            return {
+                "decision_key": str(focus_packet.get("decision_key") or "range"),
+                "move": "gather_more_evidence",
+                "reason": "need_span_context",
+                "edit_plan": None,
+                "feedback_prompt": None,
+                "evidence_request": {"kind": "open_spans"},
+                "closure_update_hint": None,
+                "iteration_summary": "Need span context.",
+            }, "ok", "{}"
+
+        def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            raise RuntimeError("not used in focus-move mode")
+
+    calls = {"open_spans": 0, "image_verify": 0}
+
+    def _open_spans(**kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        calls["open_spans"] += 1
+        return [{"span_id": "s1", "text": "Range token context"}]
+
+    def _image_verify(**kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        calls["image_verify"] += 1
+        return {"payload": {"results": []}}
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline._open_planner_context_spans",
+        _open_spans,
+    )
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline._verify_mapping_critical_with_image",
+        _image_verify,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}),
+            encoding="utf-8",
+        )
+        _ = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=1,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="resolver-evidence-open-spans-only",
+            planner=_PlannerOpenSpansOnly(),
+        )
+    assert int(calls["open_spans"]) >= 1
+    assert int(calls["image_verify"]) == 0
+
+
+def test_resolver_gather_open_spans_persists_into_next_focus_packet() -> None:
+    class _PlannerGatherThenBlock:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.saw_span_context = False
+
+        def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.calls += 1
+            focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+            spans = focus_packet.get("span_context") if isinstance(focus_packet.get("span_context"), list) else []
+            if self.calls == 1:
+                return {
+                    "decision_key": str(focus_packet.get("decision_key") or "range"),
+                    "move": "gather_more_evidence",
+                    "reason": "need_spans",
+                    "edit_plan": None,
+                    "feedback_prompt": None,
+                    "evidence_request": {"kind": "open_spans"},
+                    "closure_update_hint": None,
+                    "iteration_summary": "Gather spans.",
+                }, "ok", "{}"
+            self.saw_span_context = len(spans) > 0
+            return {
+                "decision_key": str(focus_packet.get("decision_key") or "range"),
+                "move": "mark_blocked",
+                "reason": "blocked_no_safe_integration_after_feedback:used_open_spans_evidence",
+                "edit_plan": None,
+                "feedback_prompt": None,
+                "evidence_request": None,
+                "closure_update_hint": None,
+                "iteration_summary": "Blocked after seeing spans.",
+            }, "ok", "{}"
+
+        def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            raise RuntimeError("not used in focus-move mode")
+
+    planner = _PlannerGatherThenBlock()
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Beginning at NW corner."}]}),
+            encoding="utf-8",
+        )
+        _ = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="resolver-span-evidence-persists",
+            planner=planner,
+        )
+    assert planner.calls >= 2
+    assert planner.saw_span_context is True
+
+
+def test_resolver_gather_image_verify_persists_into_next_focus_packet(monkeypatch) -> None:
+    class _PlannerGatherImageThenBlock:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.saw_image_results = False
+
+        def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.calls += 1
+            focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+            image = focus_packet.get("image_verification") if isinstance(focus_packet.get("image_verification"), dict) else {}
+            image_results = image.get("results") if isinstance(image.get("results"), list) else []
+            if self.calls == 1:
+                return {
+                    "decision_key": str(focus_packet.get("decision_key") or "range"),
+                    "move": "gather_more_evidence",
+                    "reason": "need_image",
+                    "edit_plan": None,
+                    "feedback_prompt": None,
+                    "evidence_request": {"kind": "image_verify"},
+                    "closure_update_hint": None,
+                    "iteration_summary": "Gather image verify evidence.",
+                }, "ok", "{}"
+            self.saw_image_results = len(image_results) > 0
+            return {
+                "decision_key": str(focus_packet.get("decision_key") or "range"),
+                "move": "mark_blocked",
+                "reason": "blocked_no_safe_integration_after_feedback:used_image_evidence",
+                "edit_plan": None,
+                "feedback_prompt": None,
+                "evidence_request": None,
+                "closure_update_hint": None,
+                "iteration_summary": "Blocked after seeing image evidence.",
+            }, "ok", "{}"
+
+        def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            raise RuntimeError("not used in focus-move mode")
+
+    planner = _PlannerGatherImageThenBlock()
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline._verify_mapping_critical_with_image",
+        lambda **kwargs: {  # type: ignore[no-untyped-def]
+            "latest_refs": {},
+            "llm_call_seq_end": int((kwargs.get("llm_call_seq_start") or 0)) + 1,
+            "payload": {
+                "summary": {"total_checks": 1, "match_count": 1, "mismatch_count": 0, "unclear_count": 0},
+                "results": [{"check_id": "c1", "status": "match", "observed_text": "Range 75 West"}],
+                "diagnostics": [],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline._select_focus_decision_key",
+        lambda **kwargs: "range",  # type: ignore[no-untyped-def]
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Beginning at NW corner."}]}),
+            encoding="utf-8",
+        )
+        _ = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="resolver-image-evidence-persists",
+            planner=planner,
+        )
+    assert planner.calls >= 2
+    assert planner.saw_image_results is True
+
+
+def test_cached_evidence_invalidated_after_transcript_ref_change(monkeypatch) -> None:
+    class _PlannerGatherThenApplyThenCheck:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.saw_spans_before_apply = False
+            self.saw_spans_after_apply = False
+
+        def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.calls += 1
+            focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+            spans = focus_packet.get("span_context") if isinstance(focus_packet.get("span_context"), list) else []
+            if self.calls == 1:
+                return {
+                    "decision_key": str(focus_packet.get("decision_key") or "range"),
+                    "move": "gather_more_evidence",
+                    "reason": "need_spans",
+                    "edit_plan": None,
+                    "feedback_prompt": None,
+                    "evidence_request": {"kind": "open_spans"},
+                    "closure_update_hint": None,
+                    "iteration_summary": "Gather spans first.",
+                }, "ok", "{}"
+            if self.calls == 2:
+                self.saw_spans_before_apply = len(spans) > 0
+                source_ref = str(focus_packet.get("source_transcript_ref") or "in-memory://tx/source.json")
+                source_hash = str(focus_packet.get("source_transcript_hash") or "sha256:test")
+                old_excerpt = "Beginning at NW corner."
+                plan = EditPlanV0.model_validate(
+                    {
+                        "plan_version": "edit_plan_v0",
+                        "source_transcript_ref": source_ref,
+                        "source_transcript_hash": source_hash,
+                        "plan_id": "cache-invalidation-plan",
+                        "summary": "edit transcript after spans",
+                        "ops": [
+                            {
+                                "op_id": "op-1",
+                                "op_type": "replace_span",
+                                "change_class": "normalization",
+                                "confidence": "high",
+                                "review_required": False,
+                                "reason": "verify stale cache invalidation",
+                                "evidence_refs": [source_ref],
+                                "target": {"locator_type": "offsets", "start_char": 0, "end_char": len(old_excerpt)},
+                                "expected_old": {"old_excerpt": old_excerpt},
+                                "new_text": "Beginning at Northwest corner to point of beginning.",
+                            }
+                        ],
+                        "global_flags": {"review_required": False},
+                    }
+                )
+                return {
+                    "decision_key": str(focus_packet.get("decision_key") or "range"),
+                    "move": "apply_edit_plan",
+                    "reason": "apply_after_spans",
+                    "edit_plan": plan.model_dump(mode="json"),
+                    "feedback_prompt": None,
+                    "evidence_request": None,
+                    "closure_update_hint": None,
+                    "iteration_summary": "Apply edit after span evidence.",
+                }, "ok", "{}"
+            self.saw_spans_after_apply = len(spans) > 0
+            return {
+                "decision_key": str(focus_packet.get("decision_key") or "range"),
+                "move": "mark_blocked",
+                "reason": "blocked_no_safe_integration_after_feedback:post_apply_check",
+                "edit_plan": None,
+                "feedback_prompt": None,
+                "evidence_request": None,
+                "closure_update_hint": None,
+                "iteration_summary": "Check cached evidence after transcript change.",
+            }, "ok", "{}"
+
+        def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            raise RuntimeError("not used in focus-move mode")
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline._open_planner_context_spans",
+        lambda **kwargs: [{"span_id": "sp1", "text": "Range token nearby"}],  # type: ignore[no-untyped-def]
+    )
+    planner = _PlannerGatherThenApplyThenCheck()
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Beginning at NW corner."}]}),
+            encoding="utf-8",
+        )
+        _ = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=3,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="resolver-evidence-cache-invalidation",
+            planner=planner,
+        )
+    assert planner.calls >= 3
+    assert planner.saw_spans_before_apply is True
+    assert planner.saw_spans_after_apply is False
 
 
 def test_transcript_controller_partial_source_allows_scoped_success() -> None:

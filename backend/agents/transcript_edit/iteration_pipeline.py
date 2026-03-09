@@ -336,8 +336,9 @@ def handle_repair_iteration(
             str(primary_registry_blocker.get("decision_key") or "").strip()
             and primary_registry_state in {"answered_unintegrated", "waiting_feedback"}
         )
-        else (choose_investigation_focus(state.decision_ledger) or {})
+        else {}
     )
+    ledger_focus_fallback: dict[str, Any] = choose_investigation_focus(state.decision_ledger) or {}
     manual_plan_override: dict[str, Any] | None = None
     focus_feedback: dict[str, Any] | None = state.latest_feedback if isinstance(state.latest_feedback, dict) else None
     viewer_run_id = viewer_run_id_from_request_prefix(request_id_prefix)
@@ -776,6 +777,20 @@ def handle_repair_iteration(
         state.no_progress_streak = 0
         state.last_progress_reason = "human_feedback_consumed"
 
+    def _build_feedback_prompt_with_optional_image() -> dict[str, Any] | None:
+        image_payload = image_verification.get("payload") if isinstance(image_verification, dict) else None
+        try:
+            return build_human_feedback_prompt(
+                decision_ledger=state.decision_ledger,
+                iteration=iterations,
+                image_verification_payload=image_payload,
+            )
+        except TypeError:
+            return build_human_feedback_prompt(
+                decision_ledger=state.decision_ledger,
+                iteration=iterations,
+            )
+
     drained_plan = _drain_pending_feedback(checkpoint_label="iteration_start")
     if drained_plan is not None:
         _apply_consumed_feedback(drained_plan)
@@ -834,289 +849,31 @@ def handle_repair_iteration(
 
     span_context: list[dict[str, Any]] = []
     image_verification: dict[str, Any] = {}
-    if manual_plan_override is None:
-        conflict_map = _conflict_map_from_ledger(state.decision_ledger)
-        emit_progress(
-            progress_cb,
-            investigation_baseline_payload(
-                iteration=iterations,
-                latest_refs=state.latest_refs,
-                conflict_map=conflict_map,
-            ),
-        )
-        focus = choose_investigation_focus(state.decision_ledger)
-        focus_reason = str((focus or {}).get("next_check_reason") or "Prioritizing highest-risk unresolved item.")
-        focus_reason_code = str((focus or {}).get("next_check_reason_code") or "next_open_item")
-        focus_key = str((focus or {}).get("decision_key") or "").strip()
-        prior_focus_key = str(state.last_focus_key or "").strip().lower()
-        focus_advanced = bool(focus_key and prior_focus_key and focus_key.lower() != prior_focus_key)
-        if focus_key and focus_key.lower() == prior_focus_key:
-            state.focus_stagnation_streak += 1
-        else:
-            state.focus_stagnation_streak = 0
-        state.last_focus_key = focus_key.lower() or state.last_focus_key
-        if focus:
-            emit_progress(
-                progress_cb,
-                ticker_payload(
-                    iteration=iterations,
-                    phase="investigate",
-                    message=focus_reason,
-                    latest_refs=state.latest_refs,
-                    detail={
-                        "focus_decision_key": focus_key.lower() if focus_key else None,
-                        "previous_focus_decision_key": prior_focus_key or None,
-                        "focus_advanced": bool(focus_advanced),
-                        "focus_reason_code": focus_reason_code,
-                        "focus_stagnation_streak": int(state.focus_stagnation_streak),
-                    },
-                ),
-            )
-        emit_progress(
-            progress_cb,
-            open_spans_payload(
-                iteration=iterations,
-                latest_refs=state.latest_refs,
-            ),
-        )
+    conflict_map = _conflict_map_from_ledger(state.decision_ledger)
+    emit_progress(
+        progress_cb,
+        investigation_baseline_payload(
+            iteration=iterations,
+            latest_refs=state.latest_refs,
+            conflict_map=conflict_map,
+        ),
+    )
+    if manual_plan_override is not None:
         emit_progress(
             progress_cb,
             ticker_payload(
                 iteration=iterations,
-                phase="open_spans",
-                message=f"Gathering localized spans for {focus_key or 'priority findings'} ({focus_reason_code}).",
+                phase="investigate",
+                message="Manual plan override present; skipping automatic evidence gathering and proceeding to resolver/runtime gates.",
                 latest_refs=state.latest_refs,
             ),
         )
-        focused_findings = _findings_for_focus_key(top_findings=planning_findings, focus_key=focus_key)
-        focus_findings = focused_findings if focused_findings else planning_findings
-        if not focused_findings and focus_key:
-            emit_progress(
-                progress_cb,
-                ticker_payload(
-                    iteration=iterations,
-                    phase="investigate",
-                    message=(
-                        f"No direct findings matched focus {focus_key}; using broader mapping-critical image checks "
-                        "for this focus-cycle."
-                    ),
-                    latest_refs=state.latest_refs,
-                    detail={
-                        "decision_key": focus_key,
-                        "evidence_kind": "image_verify",
-                        "focus_fallback": True,
-                    },
-                ),
-            )
-        span_context = _open_planner_context_spans(
-            session_manager=session_manager,
-            session_id=session_id,
-            iteration=iterations,
-            dossier_id=request.dossier_id,
-            source_transcript_ref=state.current_transcript_ref,
-            top_findings=focus_findings,
-        )
-        emit_progress(
-            progress_cb,
-            open_spans_result_payload(
-                iteration=iterations,
-                latest_refs=state.latest_refs,
-                spans_display=[_span_to_display_dict(s) for s in span_context[:6]],
-            ),
-        )
-        drained_plan = _drain_pending_feedback(checkpoint_label="open_spans")
-        if drained_plan is not None:
-            _apply_consumed_feedback(drained_plan)
-        emit_progress(
-            progress_cb,
-            image_verify_payload(
-                iteration=iterations,
-                latest_refs=state.latest_refs,
-                message="Cross-referencing mapping-critical values (PLSS tokens, distances, bearings) against the source deed image.",
-                decision_key=focus_key or None,
-            ),
-        )
-        emit_progress(
-            progress_cb,
-            ticker_payload(
-                iteration=iterations,
-                phase="image_verify",
-                message="Verifying mapping-critical tokens against source imagery.",
-                latest_refs=state.latest_refs,
-            ),
-        )
-        image_verification = _verify_mapping_critical_with_image(
-            session_manager=session_manager,
-            session_id=session_id,
-            iteration=iterations,
-            dossier_id=request.dossier_id,
-            source_transcript_ref=state.current_transcript_ref,
-            top_findings=focus_findings,
-            source_image_refs=request.source_image_refs,
-            model=model,
-            progress_cb=progress_cb,
-            focus_decision_key=focus_key or None,
-            llm_call_seq_start=state.llm_call_seq,
-            validation_mode=validation_mode,
-        )
-        if image_verification:
-            state.llm_call_seq = int(image_verification.get("llm_call_seq_end") or state.llm_call_seq)
-            state.latest_refs = image_verification.get("latest_refs", state.latest_refs)
-            iv_payload = image_verification.get("payload") or {}
-            iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
-            iv_results = iv_results if isinstance(iv_results, list) else []
-            iv_diagnostics = iv_payload.get("diagnostics") if isinstance(iv_payload.get("diagnostics"), list) else []
-            before_sig = blocking_signature(state.decision_ledger)
-            state.decision_ledger = update_ledger_from_iteration(
-                ledger=state.decision_ledger,
-                findings=planning_findings,
-                image_results=[result for result in iv_results if isinstance(result, dict)],
-            )
-            state.blocker_registry = sync_registry_from_ledger(
-                registry=state.blocker_registry,
-                decision_ledger=state.decision_ledger,
-                source_transcript_ref=state.current_transcript_ref,
-            )
-            after_sig = blocking_signature(state.decision_ledger)
-            if iv_results and before_sig != after_sig:
-                state.evidence_signal_counter += 1
-            iv_confirmed = sum(1 for r in iv_results if isinstance(r, dict) and str(r.get("status") or "").lower() in {"confirmed", "match"})
-            iv_rejected = sum(1 for r in iv_results if isinstance(r, dict) and str(r.get("status") or "").lower() in {"rejected", "mismatch"})
-            iv_total = len(iv_results)
-            emit_progress(
-                progress_cb,
-                image_verify_result_payload(
-                    iteration=iterations,
-                    latest_refs=state.latest_refs,
-                    iv_payload=iv_payload,
-                    iv_results=[
-                        {
-                            "check_id": r.get("check_id"),
-                            "status": r.get("status"),
-                            "decision_key": r.get("decision_key"),
-                            "focus_decision_key": r.get("focus_decision_key"),
-                            "llm_call_seq": r.get("llm_call_seq"),
-                            "phase_attempt": r.get("phase_attempt"),
-                            "observed_text": str(r.get("observed_text") or "")[:120],
-                            "locator_status": str((r.get("locator") or {}).get("status") or ""),
-                            "tx_image_evidence_region_ref": r.get("tx_image_evidence_region_ref"),
-                            "tx_image_evidence_context_ref": r.get("tx_image_evidence_context_ref"),
-                        }
-                        for r in iv_results[:8]
-                        if isinstance(r, dict)
-                    ],
-                    iv_confirmed=iv_confirmed,
-                    iv_rejected=iv_rejected,
-                    iv_total=iv_total,
-                    decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
-                    decision_key=focus_key or None,
-                    llm_call_seq_end=state.llm_call_seq,
-                    diagnostics=[d for d in iv_diagnostics if isinstance(d, dict)],
-                ),
-            )
-        drained_plan = _drain_pending_feedback(checkpoint_label="image_verify")
-        if drained_plan is not None:
-            _apply_consumed_feedback(drained_plan)
-    else:
-        emit_progress(
-            progress_cb,
-            image_verify_payload(
-                iteration=iterations,
-                latest_refs=state.latest_refs,
-                message="Running post-feedback image verification before applying the override plan.",
-                decision_key=focus_key if 'focus_key' in locals() else None,
-            ),
-        )
-        emit_progress(
-            progress_cb,
-            ticker_payload(
-                iteration=iterations,
-                phase="image_verify",
-                message="Running image verification for the human-selected override path.",
-                latest_refs=state.latest_refs,
-            ),
-        )
-        image_verification = _verify_mapping_critical_with_image(
-            session_manager=session_manager,
-            session_id=session_id,
-            iteration=iterations,
-            dossier_id=request.dossier_id,
-            source_transcript_ref=state.current_transcript_ref,
-            top_findings=planning_findings,
-            source_image_refs=request.source_image_refs,
-            model=model,
-            progress_cb=progress_cb,
-            focus_decision_key=focus_key if 'focus_key' in locals() else None,
-            llm_call_seq_start=state.llm_call_seq,
-            validation_mode=validation_mode,
-        )
-        if image_verification:
-            state.llm_call_seq = int(image_verification.get("llm_call_seq_end") or state.llm_call_seq)
-            state.latest_refs = image_verification.get("latest_refs", state.latest_refs)
-            iv_payload = image_verification.get("payload") or {}
-            iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
-            iv_results = iv_results if isinstance(iv_results, list) else []
-            iv_diagnostics = iv_payload.get("diagnostics") if isinstance(iv_payload.get("diagnostics"), list) else []
-            before_sig = blocking_signature(state.decision_ledger)
-            state.decision_ledger = update_ledger_from_iteration(
-                ledger=state.decision_ledger,
-                findings=planning_findings,
-                image_results=[result for result in iv_results if isinstance(result, dict)],
-            )
-            state.blocker_registry = sync_registry_from_ledger(
-                registry=state.blocker_registry,
-                decision_ledger=state.decision_ledger,
-                source_transcript_ref=state.current_transcript_ref,
-            )
-            after_sig = blocking_signature(state.decision_ledger)
-            if iv_results and before_sig != after_sig:
-                state.evidence_signal_counter += 1
-            emit_progress(
-                progress_cb,
-                image_verify_result_payload(
-                    iteration=iterations,
-                    latest_refs=state.latest_refs,
-                    iv_payload=iv_payload,
-                    iv_results=[
-                        {
-                            "check_id": r.get("check_id"),
-                            "status": r.get("status"),
-                            "decision_key": r.get("decision_key"),
-                            "observed_text": str(r.get("observed_text") or "")[:120],
-                            "locator_status": str((r.get("locator") or {}).get("status") or ""),
-                            "tx_image_evidence_region_ref": r.get("tx_image_evidence_region_ref"),
-                            "tx_image_evidence_context_ref": r.get("tx_image_evidence_context_ref"),
-                        }
-                        for r in iv_results[:8]
-                        if isinstance(r, dict)
-                    ],
-                    iv_confirmed=sum(
-                        1
-                        for r in iv_results
-                        if isinstance(r, dict) and str(r.get("status") or "").lower() in {"confirmed", "match"}
-                    ),
-                    iv_rejected=sum(
-                        1
-                        for r in iv_results
-                        if isinstance(r, dict) and str(r.get("status") or "").lower() in {"rejected", "mismatch"}
-                    ),
-                    iv_total=len(iv_results),
-                    decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
-                    decision_key=focus_key if 'focus_key' in locals() else None,
-                    llm_call_seq_end=state.llm_call_seq,
-                    diagnostics=[d for d in iv_diagnostics if isinstance(d, dict)],
-                ),
-            )
-        drained_plan = _drain_pending_feedback(checkpoint_label="post_feedback_image_verify")
-        if drained_plan is not None:
-            _apply_consumed_feedback(drained_plan)
 
     baseline_unresolved = unresolved_closure_requirements(state.decision_ledger)
     baseline_mapping_blocking_unresolved = unresolved_target_scope_mapping_blocking_requirements(state.decision_ledger)
     baseline_residual = [_baseline_residual_from_unresolved(item) for item in baseline_unresolved]
     mapping_blocking_count = len(baseline_mapping_blocking_unresolved)
     optional_count = max(0, len(baseline_residual) - mapping_blocking_count)
-    has_mapping_blocking_residual = mapping_blocking_count > 0
     next_recommended_action = _next_recommended_action_text(baseline_residual)
     baseline_attempts_list = _baseline_evidence_attempts(
         span_context=span_context,
@@ -1147,43 +904,6 @@ def handle_repair_iteration(
         ),
     )
 
-    if (
-        manual_plan_override is None
-        and has_mapping_blocking_residual
-        and request.hitl_enabled
-        and not state.pending_feedback_prompt_id
-        and focus_feedback is None
-    ):
-        feedback_prompt = build_human_feedback_prompt(
-            decision_ledger=state.decision_ledger,
-            iteration=iterations,
-            image_verification_payload=(image_verification.get("payload") if isinstance(image_verification, dict) else None),
-        )
-        if feedback_prompt is not None:
-            emit_progress(
-                progress_cb,
-                ticker_payload(
-                    iteration=iterations,
-                    phase="human_feedback_needed",
-                    message="Unable to self-resolve a mapping-blocking decision after evidence checks; requesting your confirmation.",
-                    latest_refs=state.latest_refs,
-                ),
-            )
-            emit_progress(
-                progress_cb,
-                human_feedback_needed_payload(
-                    iteration=iterations,
-                    latest_refs=state.latest_refs,
-                    feedback_prompt=feedback_prompt,
-                    evidence_attempts=evidence_attempts_counts,
-                ),
-            )
-            _set_pending_feedback_prompt(
-                feedback_prompt=feedback_prompt,
-                decision_key=str((feedback_prompt.get("context") or {}).get("decision_key") or "").strip().lower(),
-                supersession_reason="baseline_residual_mapping_blocker",
-            )
-
     if state.pending_feedback_prompt_id and focus_feedback is None:
         # Keep the loop alive for feedback ingestion instead of terminalizing immediately on no-safe-plan.
         emit_progress(
@@ -1204,13 +924,85 @@ def handle_repair_iteration(
         )
         return None
 
+    fallback_focus = mapping_focus or ledger_focus_fallback
     focus_key = _select_focus_decision_key(
         blocker_registry=state.blocker_registry,
         decision_ledger=state.decision_ledger,
-        fallback_focus=mapping_focus,
+        fallback_focus=fallback_focus,
         focus_feedback=focus_feedback,
     )
-    mapping_focus = mapping_focus or {"decision_key": focus_key}
+    if (
+        not str((mapping_focus or {}).get("decision_key") or "").strip()
+        and str((ledger_focus_fallback or {}).get("decision_key") or "").strip()
+        and str((ledger_focus_fallback or {}).get("decision_key") or "").strip().lower() == str(focus_key or "").strip().lower()
+    ):
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="investigate",
+                message="Resolver focus fallback applied from ledger helper due missing explicit primary focus context.",
+                latest_refs=state.latest_refs,
+                detail={
+                    "focus_decision_key": str(focus_key or "").strip().lower() or None,
+                    "fallback_driven": True,
+                    "fallback_source": "choose_investigation_focus",
+                },
+            ),
+        )
+    mapping_focus = fallback_focus or {"decision_key": focus_key}
+    if not str(focus_key or "").strip():
+        _append_blocker_iteration_recap(
+            action_attempted="resolver_focus_selection",
+            result="needs_review",
+            decision_key=None,
+            reason="resolver_focus_missing",
+        )
+        return TranscriptEditDecision(
+            status="needs_review",
+            reason_code="tx_agent_focus_selection_failed",
+            review_required=True,
+        )
+    prior_focus_key = str(state.last_focus_key or "").strip().lower()
+    normalized_focus_key = str(focus_key or "").strip().lower()
+    focus_advanced = bool(normalized_focus_key and prior_focus_key and normalized_focus_key != prior_focus_key)
+    if normalized_focus_key and normalized_focus_key == prior_focus_key:
+        state.focus_stagnation_streak += 1
+    else:
+        state.focus_stagnation_streak = 0
+    state.last_focus_key = normalized_focus_key or state.last_focus_key
+    emit_progress(
+        progress_cb,
+        ticker_payload(
+            iteration=iterations,
+            phase="investigate",
+            message=f"Resolver focus selected: {normalized_focus_key or 'unknown'}.",
+            latest_refs=state.latest_refs,
+            detail={
+                "focus_decision_key": normalized_focus_key or None,
+                "previous_focus_decision_key": prior_focus_key or None,
+                "focus_advanced": bool(focus_advanced),
+                "focus_reason_code": (
+                    "blocker_registry_primary"
+                    if str((mapping_focus or {}).get("decision_key") or "").strip().lower() == normalized_focus_key
+                    else "fallback_focus"
+                ),
+                "focus_stagnation_streak": int(state.focus_stagnation_streak),
+            },
+        ),
+    )
+    span_context = _cached_span_context_for_key(
+        state=state,
+        decision_key=focus_key,
+        source_transcript_ref=state.current_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+    )
+    image_verification = _cached_image_verification_for_key(
+        state=state,
+        decision_key=focus_key,
+        source_transcript_ref=state.current_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+    )
     focus_packet = build_focus_packet(
         decision_ledger=state.decision_ledger,
         blocker_registry=state.blocker_registry,
@@ -1218,7 +1010,7 @@ def handle_repair_iteration(
         source_transcript_ref=state.current_transcript_ref,
         source_transcript_hash=source_transcript_hash,
         span_context=span_context,
-        image_verification_payload=(image_verification.get("payload") if isinstance(image_verification, dict) else {}),
+        image_verification_payload=(image_verification if isinstance(image_verification, dict) else {}),
         feedback=focus_feedback,
         continuity_log=state.continuity_log,
     )
@@ -1277,6 +1069,62 @@ def handle_repair_iteration(
             raw_output_excerpt=raw_output_excerpt,
         ),
     )
+    supported_moves = {"gather_more_evidence", "apply_edit_plan", "request_human_feedback", "mark_blocked", "mark_resolved_no_edit"}
+    if move not in supported_moves:
+        fallback_requested_hitl = (
+            request.hitl_enabled
+            and not state.pending_feedback_prompt_id
+            and focus_feedback is None
+            and mapping_blocking_count > 0
+        )
+        if fallback_requested_hitl:
+            feedback_prompt = _build_feedback_prompt_with_optional_image()
+            if feedback_prompt is not None:
+                emit_progress(
+                    progress_cb,
+                    ticker_payload(
+                        iteration=iterations,
+                        phase="human_feedback_needed",
+                        message="Fallback HITL prompt issued after resolver returned no usable move.",
+                        latest_refs=state.latest_refs,
+                        detail={
+                            "decision_key": str((feedback_prompt.get("context") or {}).get("decision_key") or "").strip().lower() or None,
+                            "fallback_driven": True,
+                            "fallback_reason": "resolver_move_unusable",
+                            "resolver_reason": resolver_reason,
+                        },
+                    ),
+                )
+                emit_progress(
+                    progress_cb,
+                    human_feedback_needed_payload(
+                        iteration=iterations,
+                        latest_refs=state.latest_refs,
+                        feedback_prompt=feedback_prompt,
+                        evidence_attempts=evidence_attempts_counts,
+                    ),
+                )
+                _set_pending_feedback_prompt(
+                    feedback_prompt=feedback_prompt,
+                    decision_key=str((feedback_prompt.get("context") or {}).get("decision_key") or "").strip().lower(),
+                    supersession_reason="fallback_resolver_unusable_move",
+                )
+                state.last_reason = "tx_agent_closure_requirements_unresolved"
+                _append_blocker_iteration_recap(
+                    action_attempted="resolver_unusable_move",
+                    result="waiting_feedback",
+                    decision_key=focus_key,
+                    reason=resolver_reason,
+                )
+                return None
+        state.last_reason = "tx_agent_closure_requirements_unresolved"
+        _append_blocker_iteration_recap(
+            action_attempted="resolver_unusable_move",
+            result="no_advance",
+            decision_key=focus_key,
+            reason=resolver_reason,
+        )
+        return None
     answered_ticket = _latest_human_resolution_ticket(
         decision_ledger=state.decision_ledger,
         decision_key=focus_key,
@@ -1421,11 +1269,7 @@ def handle_repair_iteration(
                 if feedback_prompt["choices"]:
                     feedback_prompt["default_choice"] = feedback_prompt["choices"][0]
             if feedback_prompt is None:
-                feedback_prompt = build_human_feedback_prompt(
-                    decision_ledger=state.decision_ledger,
-                    iteration=iterations,
-                    image_verification_payload=(image_verification.get("payload") if isinstance(image_verification, dict) else None),
-                )
+                feedback_prompt = _build_feedback_prompt_with_optional_image()
             if feedback_prompt is not None:
                 emit_progress(
                     progress_cb,
@@ -1725,6 +1569,13 @@ def handle_repair_iteration(
         extra_spans = evidence_result.get("span_context") if isinstance(evidence_result.get("span_context"), list) else []
         if extra_spans:
             span_context = [s for s in extra_spans if isinstance(s, dict)]
+            _cache_span_context_for_key(
+                state=state,
+                decision_key=focus_key,
+                span_context=span_context,
+                source_transcript_ref=state.current_transcript_ref,
+                source_transcript_hash=source_transcript_hash,
+            )
             state.evidence_signal_counter += 1
             emit_progress(
                 progress_cb,
@@ -1741,6 +1592,13 @@ def handle_repair_iteration(
         )
         if extra_image_verification:
             image_verification = extra_image_verification
+            _cache_image_verification_for_key(
+                state=state,
+                decision_key=focus_key,
+                image_verification=image_verification,
+                source_transcript_ref=state.current_transcript_ref,
+                source_transcript_hash=source_transcript_hash,
+            )
             state.llm_call_seq = int(image_verification.get("llm_call_seq_end") or state.llm_call_seq)
             state.latest_refs = image_verification.get("latest_refs", state.latest_refs)
             iv_payload = image_verification.get("payload") if isinstance(image_verification.get("payload"), dict) else {}
@@ -1913,6 +1771,10 @@ def handle_repair_iteration(
     apply_inline = read_step_outputs_inline(apply.step_record)
     edited_ref = read_str(apply_inline.get("tx_edited_transcript_ref"))
     if edited_ref:
+        prior_ref = str(state.current_transcript_ref or "").strip()
+        next_ref = str(edited_ref).strip()
+        if next_ref and next_ref != prior_ref:
+            _clear_cached_focus_evidence(state=state)
         state.current_transcript_ref = edited_ref
     plan_cc = max_change_class_from_plan(selected_plan_payload or {})
     if plan_cc in {"semantic", "structural"}:
@@ -2030,8 +1892,7 @@ def _select_focus_decision_key(
     key = str((fallback_focus or {}).get("decision_key") or "").strip().lower()
     if key:
         return key
-    fallback = choose_investigation_focus(decision_ledger) or {}
-    return str(fallback.get("decision_key") or "").strip().lower()
+    return ""
 
 
 def _normalize_feedback_selected_value(*, decision_key: str, selected_value: str) -> str:
@@ -2541,6 +2402,120 @@ def _next_recommended_action_text(residual_blockers: list[dict[str, Any]]) -> st
     first = prioritized[0] if prioritized else {}
     label = str(first.get("label") or first.get("decision_key") or "decision")
     return f"Review optional transcript-quality issue: {label}."
+
+
+def _cached_span_context_for_key(
+    *,
+    state: TranscriptEditLoopState,
+    decision_key: str | None,
+    source_transcript_ref: str | None,
+    source_transcript_hash: str | None,
+) -> list[dict[str, Any]]:
+    key = str(decision_key or "").strip().lower()
+    if not key:
+        return []
+    entry = state.span_context_by_decision_key.get(key)
+    if not isinstance(entry, dict):
+        return []
+    if not _cache_entry_matches_transcript(
+        entry=entry,
+        source_transcript_ref=source_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+    ):
+        return []
+    rows = entry.get("span_context")
+    if not isinstance(rows, list):
+        return []
+    return [dict(item) for item in rows if isinstance(item, dict)][:12]
+
+
+def _cache_span_context_for_key(
+    *,
+    state: TranscriptEditLoopState,
+    decision_key: str | None,
+    span_context: list[dict[str, Any]],
+    source_transcript_ref: str | None,
+    source_transcript_hash: str | None,
+) -> None:
+    key = str(decision_key or "").strip().lower()
+    if not key:
+        return
+    bounded = [dict(item) for item in span_context if isinstance(item, dict)][:12]
+    state.span_context_by_decision_key[key] = {
+        "source_transcript_ref": str(source_transcript_ref or "").strip() or None,
+        "source_transcript_hash": str(source_transcript_hash or "").strip() or None,
+        "span_context": bounded,
+    }
+
+
+def _cached_image_verification_for_key(
+    *,
+    state: TranscriptEditLoopState,
+    decision_key: str | None,
+    source_transcript_ref: str | None,
+    source_transcript_hash: str | None,
+) -> dict[str, Any]:
+    key = str(decision_key or "").strip().lower()
+    if not key:
+        return {}
+    entry = state.image_verification_payload_by_decision_key.get(key)
+    if not isinstance(entry, dict):
+        return {}
+    if not _cache_entry_matches_transcript(
+        entry=entry,
+        source_transcript_ref=source_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+    ):
+        return {}
+    payload = entry.get("image_verification_payload")
+    if not isinstance(payload, dict):
+        return {}
+    return dict(payload)
+
+
+def _cache_image_verification_for_key(
+    *,
+    state: TranscriptEditLoopState,
+    decision_key: str | None,
+    image_verification: dict[str, Any],
+    source_transcript_ref: str | None,
+    source_transcript_hash: str | None,
+) -> None:
+    key = str(decision_key or "").strip().lower()
+    if not key:
+        return
+    payload = image_verification.get("payload") if isinstance(image_verification, dict) else None
+    if isinstance(payload, dict):
+        state.image_verification_payload_by_decision_key[key] = {
+            "source_transcript_ref": str(source_transcript_ref or "").strip() or None,
+            "source_transcript_hash": str(source_transcript_hash or "").strip() or None,
+            "image_verification_payload": dict(payload),
+        }
+
+
+def _cache_entry_matches_transcript(
+    *,
+    entry: dict[str, Any],
+    source_transcript_ref: str | None,
+    source_transcript_hash: str | None,
+) -> bool:
+    requested_ref = str(source_transcript_ref or "").strip()
+    requested_hash = str(source_transcript_hash or "").strip()
+    entry_ref = str(entry.get("source_transcript_ref") or "").strip()
+    entry_hash = str(entry.get("source_transcript_hash") or "").strip()
+    if requested_ref and entry_ref and requested_ref != entry_ref:
+        return False
+    if requested_hash and entry_hash and requested_hash != entry_hash:
+        return False
+    return True
+
+
+def _clear_cached_focus_evidence(
+    *,
+    state: TranscriptEditLoopState,
+) -> None:
+    state.span_context_by_decision_key = {}
+    state.image_verification_payload_by_decision_key = {}
 
 
 def _registry_row_for_decision_key(

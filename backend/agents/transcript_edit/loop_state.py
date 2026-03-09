@@ -42,6 +42,8 @@ class TranscriptEditLoopState:
     superseded_feedback_prompt_ids: set[str] = field(default_factory=set)
     hitl_lifecycle_log: list[dict[str, Any]] = field(default_factory=list)
     continuity_log: list[dict[str, Any]] = field(default_factory=list)
+    span_context_by_decision_key: dict[str, dict[str, Any]] = field(default_factory=dict)
+    image_verification_payload_by_decision_key: dict[str, dict[str, Any]] = field(default_factory=dict)
     evidence_repeat_guard: dict[str, dict[str, Any]] = field(default_factory=dict)
     evidence_signal_counter: int = 0
     llm_call_seq: int = 0
