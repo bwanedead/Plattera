@@ -242,3 +242,49 @@ def test_build_human_feedback_prompt_includes_focused_image_evidence_refs_when_a
     evidence = context.get("focused_image_evidence") if isinstance(context.get("focused_image_evidence"), dict) else {}
     assert isinstance(evidence.get("tx_image_evidence_region_ref"), dict)
     assert str((evidence.get("tx_image_evidence_region_ref") or {}).get("artifact_path") or "") == "in-memory://region.jpg"
+
+
+def test_build_human_feedback_prompt_prefers_visual_evidence_state_refs_when_available() -> None:
+    ledger = {
+        "items": [
+            {
+                "key": "range",
+                "label": "Range",
+                "state": "disputed",
+                "blocking": True,
+                "closure_requirement": {
+                    "block_reason": "contradiction",
+                    "mapping_blocking": True,
+                    "required_information": "Reconcile range token.",
+                    "minimal_user_action": "Pick the correct range value.",
+                    "resolution_options": ["Range 74 West", "Range 75 West"],
+                    "evidence_refs": ["plss_range_conflict_001"],
+                },
+            }
+        ]
+    }
+    prompt = build_human_feedback_prompt(
+        decision_ledger=ledger,
+        iteration=4,
+        image_verification_payload={
+            "results": [
+                {
+                    "check_id": "plss_range_conflict_001",
+                    "decision_key": "range",
+                    "status": "unclear",
+                    "tx_image_evidence_region_ref": {"artifact_path": "in-memory://old-region.jpg"},
+                }
+            ]
+        },
+        visual_evidence_state={
+            "check_id": "locate_range_2",
+            "status": "located",
+            "query": "Locate range clause",
+            "tx_image_evidence_region_ref": {"artifact_path": "in-memory://new-region.jpg"},
+            "tx_image_evidence_context_ref": {"artifact_path": "in-memory://new-context.jpg"},
+        },
+    )
+    assert isinstance(prompt, dict)
+    context = prompt.get("context") if isinstance(prompt.get("context"), dict) else {}
+    evidence = context.get("focused_image_evidence") if isinstance(context.get("focused_image_evidence"), dict) else {}
+    assert str((evidence.get("tx_image_evidence_region_ref") or {}).get("artifact_path") or "") == "in-memory://new-region.jpg"

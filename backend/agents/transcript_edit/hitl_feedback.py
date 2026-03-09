@@ -24,6 +24,7 @@ def build_human_feedback_prompt(
     decision_ledger: dict[str, Any],
     iteration: int,
     image_verification_payload: dict[str, Any] | None = None,
+    visual_evidence_state: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     unresolved_items = unresolved_mapping_blocking_requirements(decision_ledger)
     if not unresolved_items:
@@ -95,6 +96,7 @@ def build_human_feedback_prompt(
             "closure_requirement": requirement,
             "focused_image_evidence": _pick_focused_image_evidence(
                 image_verification_payload=image_verification_payload,
+                visual_evidence_state=visual_evidence_state,
                 decision_key=key,
             ),
         },
@@ -104,8 +106,21 @@ def build_human_feedback_prompt(
 def _pick_focused_image_evidence(
     *,
     image_verification_payload: dict[str, Any] | None,
+    visual_evidence_state: dict[str, Any] | None,
     decision_key: str,
 ) -> dict[str, Any] | None:
+    if isinstance(visual_evidence_state, dict):
+        region_ref = _coerce_prompt_ref(visual_evidence_state.get("tx_image_evidence_region_ref"))
+        context_ref = _coerce_prompt_ref(visual_evidence_state.get("tx_image_evidence_context_ref"))
+        if region_ref is not None or context_ref is not None:
+            return {
+                "check_id": str(visual_evidence_state.get("check_id") or "").strip() or None,
+                "status": str(visual_evidence_state.get("status") or "").strip().lower() or None,
+                "query": str(visual_evidence_state.get("query") or "").strip()[:220] or None,
+                "observed_text": str(visual_evidence_state.get("observed_text") or "").strip()[:220] or None,
+                "tx_image_evidence_region_ref": region_ref,
+                "tx_image_evidence_context_ref": context_ref,
+            }
     if not isinstance(image_verification_payload, dict):
         return None
     results = image_verification_payload.get("results")

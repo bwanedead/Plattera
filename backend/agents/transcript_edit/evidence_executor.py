@@ -5,7 +5,13 @@ from typing import Any, Callable
 SUPPORTED_EVIDENCE_KINDS = {
     "open_spans",
     "image_verify",
+    "image_evidence",
     "retrieve_dependency_evidence",
+}
+
+SUPPORTED_IMAGE_EVIDENCE_MODES = {
+    "locate",
+    "verify",
 }
 
 
@@ -33,14 +39,33 @@ def normalize_evidence_request(
         for v in list(target.get("expected_fields") or [])
         if str(v).strip()
     ][:6]
+    mode = str(evidence_request.get("mode") or "").strip().lower()
+    if kind == "image_evidence":
+        if mode not in SUPPORTED_IMAGE_EVIDENCE_MODES:
+            if mode == "expand_context":
+                return None, "image_evidence_mode_not_implemented:expand_context"
+            return None, "image_evidence_mode_invalid"
+    else:
+        mode = ""
+    target_region_ref = target.get("region_ref")
+    target_context_ref = target.get("context_ref")
+    normalized_target_region_ref = target_region_ref if isinstance(target_region_ref, dict) else None
+    normalized_target_context_ref = target_context_ref if isinstance(target_context_ref, dict) else None
     return (
         {
             "kind": kind,
+            "mode": mode or None,
             "decision_key": request_key,
             "reason": str(evidence_request.get("reason") or "").strip(),
             "target": {
                 "span_ids": span_ids,
                 "expected_fields": expected_fields,
+                "region_ref": normalized_target_region_ref,
+                "context_ref": normalized_target_context_ref,
+                "query": str(target.get("query") or "").strip()[:320] or None,
+                "expected_text": str(target.get("expected_text") or "").strip()[:180] or None,
+                "anchor_hint": str(target.get("anchor_hint") or "").strip()[:220] or None,
+                "source_image_ref": str(target.get("source_image_ref") or "").strip() or None,
             },
         },
         "ok",
@@ -56,14 +81,16 @@ def execute_evidence_request(
     max_repeats_per_signature: int,
     open_spans_runner: Callable[[dict[str, Any]], list[dict[str, Any]]],
     image_verify_runner: Callable[[dict[str, Any]], dict[str, Any]],
+    image_evidence_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     retrieve_dependency_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     kind = str(normalized_request.get("kind") or "").strip().lower()
+    mode = str(normalized_request.get("mode") or "").strip().lower()
     decision_key = str(normalized_request.get("decision_key") or "").strip().lower()
     signature = _evidence_signature(
         decision_key=decision_key,
         source_transcript_hash=source_transcript_hash,
-        kind=kind,
+        kind=f"{kind}:{mode}" if kind == "image_evidence" and mode else kind,
     )
     repeat_entry = repeat_guard.get(signature)
     if not isinstance(repeat_entry, dict):
@@ -104,6 +131,36 @@ def execute_evidence_request(
             "signature": signature,
             "span_context": [],
             "image_verification": image_verification if isinstance(image_verification, dict) else {},
+        }
+    if kind == "image_evidence":
+        if image_evidence_runner is None:
+            return {
+                "status": "unsupported",
+                "reason": "image_evidence_runner_not_wired",
+                "decision_key": decision_key,
+                "kind": kind,
+                "mode": mode or None,
+                "signature": signature,
+            }
+        image_evidence = image_evidence_runner(normalized_request)
+        image_evidence_payload = image_evidence if isinstance(image_evidence, dict) else {}
+        if isinstance(image_evidence_payload.get("image_evidence"), dict):
+            image_evidence_payload = image_evidence_payload.get("image_evidence")  # type: ignore[assignment]
+        image_verification = (
+            image_evidence.get("image_verification")  # type: ignore[union-attr]
+            if isinstance(image_evidence, dict) and isinstance(image_evidence.get("image_verification"), dict)
+            else {}
+        )
+        return {
+            "status": "executed",
+            "reason": f"evidence_image_evidence_{mode or 'unknown'}_executed",
+            "decision_key": decision_key,
+            "kind": kind,
+            "mode": mode or None,
+            "signature": signature,
+            "span_context": [],
+            "image_evidence": image_evidence_payload,
+            "image_verification": image_verification,
         }
     if kind == "retrieve_dependency_evidence":
         if retrieve_dependency_runner is None:

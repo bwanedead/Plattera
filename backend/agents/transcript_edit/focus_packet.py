@@ -26,6 +26,7 @@ def build_focus_packet(
     image_verification_payload: dict[str, Any],
     feedback: dict[str, Any] | None,
     continuity_log: list[dict[str, Any]] | None,
+    visual_evidence_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     key = str(decision_key or "").strip().lower()
     ledger_item = _ledger_item_for_key(decision_ledger=decision_ledger, decision_key=key)
@@ -41,6 +42,7 @@ def build_focus_packet(
     )
     bounded_spans = _bounded_span_context(span_context)
     bounded_image = _bounded_image_verification(image_verification_payload=image_verification_payload, decision_key=key)
+    bounded_visual = _bounded_visual_evidence(visual_evidence_state=visual_evidence_state, decision_key=key)
     bounded_feedback = _bounded_feedback(feedback=feedback, decision_key=key)
     external_injections = _bounded_external_context_injections(
         decision_ledger=decision_ledger,
@@ -122,6 +124,7 @@ def build_focus_packet(
         "source_transcript_hash": source_transcript_hash,
         "span_context": bounded_spans,
         "image_verification": bounded_image,
+        "visual_evidence": bounded_visual,
         "feedback": bounded_feedback,
         "external_context_injections": external_injections,
         "blocker_feedback_state": blocker_feedback_state,
@@ -229,6 +232,39 @@ def _bounded_image_verification(
             break
     out["results"] = bounded_results
     return out
+
+
+def _bounded_visual_evidence(
+    *,
+    visual_evidence_state: dict[str, Any] | None,
+    decision_key: str,
+) -> dict[str, Any]:
+    state = visual_evidence_state if isinstance(visual_evidence_state, dict) else {}
+    locator = state.get("locator") if isinstance(state.get("locator"), dict) else {}
+    verify_summary = state.get("verify_summary") if isinstance(state.get("verify_summary"), dict) else {}
+    return {
+        "decision_key": decision_key,
+        "mode": str(state.get("mode") or "").strip().lower() or None,
+        "status": str(state.get("status") or "").strip().lower() or None,
+        "query": str(state.get("query") or "").strip()[:MAX_IMAGE_OBSERVED_TEXT_CHARS] or None,
+        "expected_text": str(state.get("expected_text") or "").strip()[:MAX_IMAGE_OBSERVED_TEXT_CHARS] or None,
+        "tx_image_evidence_region_ref": _bounded_ref(state.get("tx_image_evidence_region_ref")),
+        "tx_image_evidence_context_ref": _bounded_ref(state.get("tx_image_evidence_context_ref")),
+        "locator": {
+            "status": str(locator.get("status") or "").strip().lower() or None,
+            "confidence": str(locator.get("confidence") or "").strip().lower() or None,
+            "reason": str(locator.get("reason") or "").strip()[:MAX_IMAGE_OBSERVED_TEXT_CHARS] or None,
+        },
+        "verify_summary": dict(verify_summary),
+    }
+
+
+def _bounded_ref(raw: Any) -> dict[str, Any] | None:
+    if isinstance(raw, dict):
+        artifact_path = str(raw.get("artifact_path") or "").strip()
+        if artifact_path:
+            return {"artifact_path": artifact_path}
+    return None
 
 
 def _tri_state_in_target_scope(raw_value: Any, scope_status: str) -> bool | None:

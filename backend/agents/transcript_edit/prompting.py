@@ -123,7 +123,8 @@ def build_focus_resolver_system_message() -> str:
         "For EditPlanV0 ops, each op must include discriminator field op_type with one of: replace_span, replace_line, replace_clause, rewrite_section. "
         "If move=request_human_feedback, include feedback_prompt with line1, line2, and bounded choices when available. "
         "If move=gather_more_evidence, include evidence_request with fields: kind, decision_key, reason, target. "
-        "Allowed evidence_request.kind values: open_spans, image_verify, retrieve_dependency_evidence. "
+        "Allowed evidence_request.kind values: open_spans, image_verify, image_evidence, retrieve_dependency_evidence. "
+        "If evidence_request.kind=image_evidence, include mode with one of: locate, verify. "
         "Treat external_context_injections as persistent semantic state. "
         "Treat blocker_registry and blocker_feedback_state as authoritative loop-state context for blocker counts, HITL pairing, and feedback integration readiness. "
         "Prioritize removing open mapping blockers before optional work; when focused_blocker_feedback_pair.ready_for_resolution=true, your next move must directly integrate or safely escalate that blocker-ticket pair. "
@@ -217,10 +218,16 @@ def build_focus_resolver_user_message(
             "edit_plan": {"plan_version": "edit_plan_v0", "ops": []},
             "feedback_prompt": None,
             "evidence_request": {
-                "kind": "image_verify",
+                "kind": "image_evidence",
+                "mode": "locate",
                 "decision_key": "range",
-                "reason": "Need image confirmation of range token near focused span.",
-                "target": {"span_ids": ["span_1"], "expected_fields": ["range"]},
+                "reason": "Locate the range clause before verification.",
+                "target": {
+                    "span_ids": ["span_1"],
+                    "expected_fields": ["range"],
+                    "query": "Find the township/range clause mentioning Range 74 West or Range 75 West.",
+                    "anchor_hint": "Township Fourteen North",
+                },
             },
             "closure_update_hint": None,
             "iteration_summary": "short summary",

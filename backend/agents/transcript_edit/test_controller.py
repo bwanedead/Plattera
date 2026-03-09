@@ -1825,6 +1825,147 @@ def test_resolver_gather_image_verify_persists_into_next_focus_packet(monkeypatc
     assert planner.saw_image_results is True
 
 
+def test_resolver_can_chain_image_evidence_locate_then_verify(monkeypatch) -> None:
+    class _PlannerLocateThenVerify:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.saw_located_region = False
+
+        def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.calls += 1
+            focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+            visual = focus_packet.get("visual_evidence") if isinstance(focus_packet.get("visual_evidence"), dict) else {}
+            region_ref = visual.get("tx_image_evidence_region_ref") if isinstance(visual.get("tx_image_evidence_region_ref"), dict) else None
+            if self.calls == 1:
+                return {
+                    "decision_key": str(focus_packet.get("decision_key") or "range"),
+                    "move": "gather_more_evidence",
+                    "reason": "locate_first",
+                    "edit_plan": None,
+                    "feedback_prompt": None,
+                    "evidence_request": {
+                        "kind": "image_evidence",
+                        "mode": "locate",
+                        "target": {"query": "Locate range clause", "expected_fields": ["range"]},
+                    },
+                    "closure_update_hint": None,
+                    "iteration_summary": "Locate image evidence first.",
+                }, "ok", "{}"
+            if self.calls == 2:
+                self.saw_located_region = isinstance(region_ref, dict)
+                return {
+                    "decision_key": str(focus_packet.get("decision_key") or "range"),
+                    "move": "gather_more_evidence",
+                    "reason": "verify_on_region",
+                    "edit_plan": None,
+                    "feedback_prompt": None,
+                    "evidence_request": {
+                        "kind": "image_evidence",
+                        "mode": "verify",
+                        "target": {"region_ref": region_ref},
+                    },
+                    "closure_update_hint": None,
+                    "iteration_summary": "Verify on the located region.",
+                }, "ok", "{}"
+            return {
+                "decision_key": str(focus_packet.get("decision_key") or "range"),
+                "move": "mark_blocked",
+                "reason": "blocked_no_safe_integration_after_feedback:image_chain_complete",
+                "edit_plan": None,
+                "feedback_prompt": None,
+                "evidence_request": None,
+                "closure_update_hint": None,
+                "iteration_summary": "Stop after verify check.",
+            }, "ok", "{}"
+
+        def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            raise RuntimeError("not used in focus-move mode")
+
+    verify_received_region_ref = {"value": False}
+
+    def _image_mode_stub(**kwargs):  # type: ignore[no-untyped-def]
+        req = kwargs.get("normalized_request") if isinstance(kwargs.get("normalized_request"), dict) else {}
+        mode = str(req.get("mode") or "").strip().lower()
+        target = req.get("target") if isinstance(req.get("target"), dict) else {}
+        if mode == "locate":
+            return {
+                "mode": "locate",
+                "status": "executed",
+                "latest_refs": {},
+                "llm_call_seq_end": int(kwargs.get("llm_call_seq_start") or 0) + 1,
+                "image_evidence": {
+                    "mode": "locate",
+                    "status": "located",
+                    "query": "Locate range clause",
+                    "locator": {"status": "located", "confidence": "high", "reason": "found clause"},
+                    "tx_image_evidence_region_ref": {"artifact_path": "in-memory://region.jpg"},
+                    "tx_image_evidence_context_ref": {"artifact_path": "in-memory://context.jpg"},
+                    "verify_summary": {},
+                    "latest_refs": {},
+                    "llm_call_seq_end": int(kwargs.get("llm_call_seq_start") or 0) + 1,
+                },
+                "image_verification": {},
+            }
+        verify_received_region_ref["value"] = isinstance(target.get("region_ref"), dict)
+        return {
+            "mode": "verify",
+            "status": "executed",
+            "latest_refs": {},
+            "llm_call_seq_end": int(kwargs.get("llm_call_seq_start") or 0) + 1,
+            "image_evidence": {
+                "mode": "verify",
+                "status": "match",
+                "query": "Verify range",
+                "tx_image_evidence_region_ref": target.get("region_ref"),
+                "verify_summary": {"total_checks": 1, "match_count": 1, "mismatch_count": 0, "unclear_count": 0},
+                "latest_refs": {},
+                "llm_call_seq_end": int(kwargs.get("llm_call_seq_start") or 0) + 1,
+            },
+            "image_verification": {
+                "latest_refs": {},
+                "llm_call_seq_end": int(kwargs.get("llm_call_seq_start") or 0) + 1,
+                "payload": {
+                    "summary": {"total_checks": 1, "match_count": 1, "mismatch_count": 0, "unclear_count": 0},
+                    "results": [{"check_id": "c1", "status": "match", "observed_text": "Range 75 West"}],
+                    "diagnostics": [],
+                },
+            },
+        }
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline._run_image_evidence_mode",
+        _image_mode_stub,
+    )
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline._select_focus_decision_key",
+        lambda **kwargs: "range",  # type: ignore[no-untyped-def]
+    )
+    planner = _PlannerLocateThenVerify()
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Beginning at NW corner."}]}),
+            encoding="utf-8",
+        )
+        _ = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=2,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="resolver-image-evidence-chain",
+            planner=planner,
+        )
+    assert planner.calls >= 2
+    assert planner.saw_located_region is True
+    assert verify_received_region_ref["value"] is True
+
+
 def test_cached_evidence_invalidated_after_transcript_ref_change(monkeypatch) -> None:
     class _PlannerGatherThenApplyThenCheck:
         def __init__(self) -> None:

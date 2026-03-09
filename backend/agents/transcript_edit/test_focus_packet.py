@@ -33,6 +33,15 @@ def test_focus_packet_caps_spans_image_results_and_feedback() -> None:
         source_transcript_hash="sha256:test",
         span_context=span_context,
         image_verification_payload=image_payload,
+        visual_evidence_state={
+            "mode": "locate",
+            "status": "located",
+            "query": "q" * 500,
+            "tx_image_evidence_region_ref": {"artifact_path": "in-memory://region.jpg"},
+            "tx_image_evidence_context_ref": {"artifact_path": "in-memory://context.jpg"},
+            "locator": {"status": "located", "confidence": "high", "reason": "r" * 500},
+            "verify_summary": {"total_checks": 1},
+        },
         feedback={
             "decision_key": "section",
             "selected_value": "Section 12",
@@ -46,6 +55,9 @@ def test_focus_packet_caps_spans_image_results_and_feedback() -> None:
     results = packet["image_verification"]["results"]
     assert len(results) <= 8
     assert all(str(row.get("decision_key") or "") == "section" for row in results)
+    visual = packet.get("visual_evidence") if isinstance(packet.get("visual_evidence"), dict) else {}
+    assert str((visual.get("tx_image_evidence_region_ref") or {}).get("artifact_path") or "") == "in-memory://region.jpg"
+    assert len(str(visual.get("query") or "")) <= 180
     assert len(str(packet["feedback"]["note"] or "")) <= 240
 
 

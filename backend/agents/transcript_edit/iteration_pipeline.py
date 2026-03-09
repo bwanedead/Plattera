@@ -779,17 +779,12 @@ def handle_repair_iteration(
 
     def _build_feedback_prompt_with_optional_image() -> dict[str, Any] | None:
         image_payload = image_verification.get("payload") if isinstance(image_verification, dict) else None
-        try:
-            return build_human_feedback_prompt(
-                decision_ledger=state.decision_ledger,
-                iteration=iterations,
-                image_verification_payload=image_payload,
-            )
-        except TypeError:
-            return build_human_feedback_prompt(
-                decision_ledger=state.decision_ledger,
-                iteration=iterations,
-            )
+        return build_human_feedback_prompt(
+            decision_ledger=state.decision_ledger,
+            iteration=iterations,
+            image_verification_payload=image_payload,
+            visual_evidence_state=visual_evidence,
+        )
 
     drained_plan = _drain_pending_feedback(checkpoint_label="iteration_start")
     if drained_plan is not None:
@@ -849,6 +844,7 @@ def handle_repair_iteration(
 
     span_context: list[dict[str, Any]] = []
     image_verification: dict[str, Any] = {}
+    visual_evidence: dict[str, Any] = {}
     conflict_map = _conflict_map_from_ledger(state.decision_ledger)
     emit_progress(
         progress_cb,
@@ -1003,6 +999,12 @@ def handle_repair_iteration(
         source_transcript_ref=state.current_transcript_ref,
         source_transcript_hash=source_transcript_hash,
     )
+    visual_evidence = _cached_visual_evidence_for_key(
+        state=state,
+        decision_key=focus_key,
+        source_transcript_ref=state.current_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+    )
     focus_packet = build_focus_packet(
         decision_ledger=state.decision_ledger,
         blocker_registry=state.blocker_registry,
@@ -1011,6 +1013,7 @@ def handle_repair_iteration(
         source_transcript_hash=source_transcript_hash,
         span_context=span_context,
         image_verification_payload=(image_verification if isinstance(image_verification, dict) else {}),
+        visual_evidence_state=visual_evidence,
         feedback=focus_feedback,
         continuity_log=state.continuity_log,
     )
@@ -1533,6 +1536,21 @@ def handle_repair_iteration(
                 llm_call_seq_start=state.llm_call_seq,
                 validation_mode=validation_mode,
             ),
+            image_evidence_runner=lambda _req: _run_image_evidence_mode(
+                normalized_request=_req,
+                session_manager=session_manager,
+                session_id=session_id,
+                iteration=iterations,
+                dossier_id=request.dossier_id,
+                source_transcript_ref=state.current_transcript_ref or "",
+                source_image_refs=request.source_image_refs,
+                model=model,
+                focus_decision_key=focus_key,
+                top_findings=focus_findings,
+                llm_call_seq_start=state.llm_call_seq,
+                progress_cb=progress_cb,
+                latest_visual_evidence=visual_evidence,
+            ),
             retrieve_dependency_runner=None,
         )
         state.continuity_log.append(
@@ -1540,7 +1558,9 @@ def handle_repair_iteration(
                 "decision_key": focus_key,
                 "move": "gather_more_evidence",
                 "outcome": str(evidence_result.get("reason") or "evidence_result_unknown"),
-                "evidence_kind": str(evidence_result.get("kind") or ""),
+                "evidence_kind": (
+                    f"{str(evidence_result.get('kind') or '')}:{str(evidence_result.get('mode') or '')}".rstrip(":")
+                ),
             }
         )
         if len(state.continuity_log) > 50:
@@ -1585,6 +1605,44 @@ def handle_repair_iteration(
                     spans_display=[_span_to_display_dict(s) for s in span_context[:6]],
                 ),
             )
+        extra_image_evidence = (
+            evidence_result.get("image_evidence")
+            if isinstance(evidence_result.get("image_evidence"), dict)
+            else {}
+        )
+        if extra_image_evidence:
+            visual_evidence = _coerce_visual_evidence_state(extra_image_evidence)
+            _cache_visual_evidence_for_key(
+                state=state,
+                decision_key=focus_key,
+                visual_evidence=visual_evidence,
+                source_transcript_ref=state.current_transcript_ref,
+                source_transcript_hash=source_transcript_hash,
+            )
+            state.latest_refs = (
+                dict(extra_image_evidence.get("latest_refs"))
+                if isinstance(extra_image_evidence.get("latest_refs"), dict)
+                else state.latest_refs
+            )
+            state.llm_call_seq = int(extra_image_evidence.get("llm_call_seq_end") or state.llm_call_seq)
+            mode = str(extra_image_evidence.get("mode") or "").strip().lower() or "unknown"
+            emit_progress(
+                progress_cb,
+                ticker_payload(
+                    iteration=iterations,
+                    phase="image_verify",
+                    message=f"Image evidence {mode} completed for {focus_key}.",
+                    latest_refs=state.latest_refs,
+                    detail={
+                        "evidence_kind": "image_evidence",
+                        "mode": mode,
+                        "decision_key": focus_key,
+                        "tx_image_evidence_region_ref": visual_evidence.get("tx_image_evidence_region_ref"),
+                        "tx_image_evidence_context_ref": visual_evidence.get("tx_image_evidence_context_ref"),
+                        "locator_status": str((visual_evidence.get("locator") or {}).get("status") or ""),
+                    },
+                ),
+            )
         extra_image_verification = (
             evidence_result.get("image_verification")
             if isinstance(evidence_result.get("image_verification"), dict)
@@ -1602,6 +1660,20 @@ def handle_repair_iteration(
             state.llm_call_seq = int(image_verification.get("llm_call_seq_end") or state.llm_call_seq)
             state.latest_refs = image_verification.get("latest_refs", state.latest_refs)
             iv_payload = image_verification.get("payload") if isinstance(image_verification.get("payload"), dict) else {}
+            if iv_payload:
+                merged_visual = _visual_evidence_from_verify_payload(
+                    verify_payload=iv_payload,
+                    existing_visual_evidence=visual_evidence,
+                )
+                if merged_visual:
+                    visual_evidence = merged_visual
+                    _cache_visual_evidence_for_key(
+                        state=state,
+                        decision_key=focus_key,
+                        visual_evidence=visual_evidence,
+                        source_transcript_ref=state.current_transcript_ref,
+                        source_transcript_hash=source_transcript_hash,
+                    )
             iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
             iv_results = iv_results if isinstance(iv_results, list) else []
             iv_diagnostics = iv_payload.get("diagnostics") if isinstance(iv_payload.get("diagnostics"), list) else []
@@ -2247,6 +2319,154 @@ def _verify_mapping_critical_with_image(
     )
 
 
+def _run_image_evidence_mode(
+    *,
+    normalized_request: dict[str, Any],
+    session_manager: KernelSessionManager,
+    session_id: str,
+    iteration: int,
+    dossier_id: str | None,
+    source_transcript_ref: str,
+    source_image_refs: list[str],
+    model: str,
+    focus_decision_key: str | None,
+    top_findings: list[dict[str, Any]],
+    llm_call_seq_start: int,
+    progress_cb: Callable[[dict[str, Any]], None] | None,
+    latest_visual_evidence: dict[str, Any] | None,
+) -> dict[str, Any]:
+    mode = str(normalized_request.get("mode") or "").strip().lower()
+    target = normalized_request.get("target") if isinstance(normalized_request.get("target"), dict) else {}
+    decision_key = str(normalized_request.get("decision_key") or focus_decision_key or "").strip().lower()
+    source_image_ref = str(target.get("source_image_ref") or "").strip()
+    if not source_image_ref and isinstance(source_image_refs, list) and source_image_refs:
+        source_image_ref = str(source_image_refs[0] or "").strip()
+    if not source_transcript_ref or not source_image_ref:
+        return {"mode": mode, "status": "invalid", "reason": "image_evidence_missing_source_inputs"}
+
+    expected_fields = [
+        str(v).strip().lower()
+        for v in list(target.get("expected_fields") or [])
+        if str(v).strip()
+    ][:6]
+    query = str(target.get("query") or "").strip()
+    if not query:
+        query = str(target.get("anchor_hint") or "").strip()
+    if not query:
+        query = str(((top_findings or [{}])[0] or {}).get("message") or "").strip()
+    if not query:
+        query = f"Inspect evidence for {decision_key or 'focused decision'}."
+    expected_text = str(target.get("expected_text") or "").strip()
+    if not expected_text and expected_fields:
+        expected_text = ", ".join(expected_fields[:2])
+
+    check: dict[str, Any] = {
+        "check_id": f"image_evidence_{mode}_{decision_key or 'focus'}_{iteration}",
+        "query": query[:320],
+        "expected_text": expected_text[:180] or None,
+        "decision_key": decision_key or None,
+        "focus_decision_key": str(focus_decision_key or "").strip().lower() or None,
+        "locator_context": {
+            "mode": mode,
+            "anchor_hint": str(target.get("anchor_hint") or "").strip()[:220] or None,
+            "expected_fields": expected_fields,
+            "requested_by": "agent_evidence_request",
+        },
+    }
+    region_ref = _coerce_artifact_ref_for_state(target.get("region_ref"))
+    if mode == "verify" and region_ref is None and isinstance(latest_visual_evidence, dict):
+        region_ref = _coerce_artifact_ref_for_state(latest_visual_evidence.get("tx_image_evidence_region_ref"))
+    if mode in {"verify", "expand_context"} and region_ref is not None:
+        check["tx_image_evidence_region_ref"] = region_ref
+
+    emit_progress(
+        progress_cb,
+        image_verify_progress_payload(
+            iteration=iteration,
+            decision_key=decision_key or None,
+            evidence_kind=f"image_evidence:{mode}",
+            check_id=str(check.get("check_id") or ""),
+            check_decision_key=decision_key or None,
+            llm_call_seq=int(llm_call_seq_start) + 1,
+            phase_attempt=1,
+            stage="running",
+            elapsed_seconds=0,
+            wait_reason="awaiting_image_evidence_step_response",
+            latest_refs={},
+        ),
+    )
+    step = _step_kernel_action(
+        session_manager=session_manager,
+        session_id=session_id,
+        prefix="tx_image_evidence",
+        iteration=iteration,
+        action_type=ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+        inputs={
+            "dossier_id": dossier_id,
+            "source_transcript_ref": source_transcript_ref,
+            "image_ref": source_image_ref,
+            "checks": [check],
+            "model": model,
+            "zoom_factor": 3.2,
+        },
+    )
+    latest_refs = step.dashboard.latest_refs.model_dump(mode="json")
+    if step.execution_state != StepExecutionState.EXECUTED:
+        refusal = step.refusal.reason_code if step.refusal is not None else "tx_image_evidence_refused"
+        return {"mode": mode, "status": "failed", "reason": refusal, "latest_refs": latest_refs}
+    inline = read_step_outputs_inline(step.step_record)
+    summary = inline.get("tx_image_verify_summary") if isinstance(inline.get("tx_image_verify_summary"), dict) else {}
+    results = inline.get("tx_image_verify_results") if isinstance(inline.get("tx_image_verify_results"), list) else []
+    results = [dict(row) for row in results if isinstance(row, dict)]
+    first = dict(results[0]) if results else {}
+    region = _coerce_artifact_ref_for_state(
+        first.get("tx_image_evidence_region_ref") or inline.get("tx_image_evidence_region_ref")
+    )
+    context = _coerce_artifact_ref_for_state(
+        first.get("tx_image_evidence_context_ref") or inline.get("tx_image_evidence_context_ref")
+    )
+    locator = first.get("locator") if isinstance(first.get("locator"), dict) else {}
+    visual_evidence = {
+        "mode": mode,
+        "status": str(first.get("status") or "executed").strip().lower() or "executed",
+        "check_id": str(first.get("check_id") or check.get("check_id") or "").strip() or None,
+        "decision_key": decision_key or None,
+        "query": str(first.get("query") or check.get("query") or "").strip()[:320] or None,
+        "expected_text": str(check.get("expected_text") or "").strip()[:180] or None,
+        "observed_text": str(first.get("observed_text") or "").strip()[:220] or None,
+        "locator": {
+            "status": str(locator.get("status") or "").strip().lower() or None,
+            "confidence": str(locator.get("confidence") or "").strip().lower() or None,
+            "reason": str(locator.get("reason") or "").strip()[:220] or None,
+        },
+        "tx_image_evidence_region_ref": region,
+        "tx_image_evidence_context_ref": context,
+        "verify_summary": dict(summary),
+        "latest_refs": latest_refs,
+        "llm_call_seq_end": int(llm_call_seq_start) + 1,
+    }
+    image_verification = {}
+    if mode == "verify":
+        image_verification = {
+            "latest_refs": latest_refs,
+            "llm_call_seq_end": int(llm_call_seq_start) + 1,
+            "payload": {
+                "summary": dict(summary),
+                "results": results,
+                "diagnostics": [],
+            },
+        }
+    return {
+        "mode": mode,
+        "status": "executed",
+        "reason": f"image_evidence_{mode}_executed",
+        "latest_refs": latest_refs,
+        "llm_call_seq_end": int(llm_call_seq_start) + 1,
+        "image_evidence": visual_evidence,
+        "image_verification": image_verification,
+    }
+
+
 def _image_verify_runtime_config(validation_mode: str | None) -> dict[str, Any]:
     mode = str(validation_mode or "").strip().lower()
     if mode == "live_hitl":
@@ -2473,6 +2693,31 @@ def _cached_image_verification_for_key(
     return dict(payload)
 
 
+def _cached_visual_evidence_for_key(
+    *,
+    state: TranscriptEditLoopState,
+    decision_key: str | None,
+    source_transcript_ref: str | None,
+    source_transcript_hash: str | None,
+) -> dict[str, Any]:
+    key = str(decision_key or "").strip().lower()
+    if not key:
+        return {}
+    entry = state.visual_evidence_by_decision_key.get(key)
+    if not isinstance(entry, dict):
+        return {}
+    if not _cache_entry_matches_transcript(
+        entry=entry,
+        source_transcript_ref=source_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+    ):
+        return {}
+    payload = entry.get("visual_evidence")
+    if not isinstance(payload, dict):
+        return {}
+    return _coerce_visual_evidence_state(payload)
+
+
 def _cache_image_verification_for_key(
     *,
     state: TranscriptEditLoopState,
@@ -2491,6 +2736,90 @@ def _cache_image_verification_for_key(
             "source_transcript_hash": str(source_transcript_hash or "").strip() or None,
             "image_verification_payload": dict(payload),
         }
+
+
+def _cache_visual_evidence_for_key(
+    *,
+    state: TranscriptEditLoopState,
+    decision_key: str | None,
+    visual_evidence: dict[str, Any],
+    source_transcript_ref: str | None,
+    source_transcript_hash: str | None,
+) -> None:
+    key = str(decision_key or "").strip().lower()
+    if not key:
+        return
+    bounded = _coerce_visual_evidence_state(visual_evidence)
+    if not bounded:
+        return
+    state.visual_evidence_by_decision_key[key] = {
+        "source_transcript_ref": str(source_transcript_ref or "").strip() or None,
+        "source_transcript_hash": str(source_transcript_hash or "").strip() or None,
+        "visual_evidence": bounded,
+    }
+
+
+def _coerce_visual_evidence_state(raw: dict[str, Any] | None) -> dict[str, Any]:
+    data = raw if isinstance(raw, dict) else {}
+    locator = data.get("locator") if isinstance(data.get("locator"), dict) else {}
+    return {
+        "mode": str(data.get("mode") or "").strip().lower() or None,
+        "status": str(data.get("status") or "").strip().lower() or None,
+        "check_id": str(data.get("check_id") or "").strip() or None,
+        "decision_key": str(data.get("decision_key") or "").strip().lower() or None,
+        "query": str(data.get("query") or "").strip()[:320] or None,
+        "expected_text": str(data.get("expected_text") or "").strip()[:180] or None,
+        "observed_text": str(data.get("observed_text") or "").strip()[:220] or None,
+        "locator": {
+            "status": str(locator.get("status") or "").strip().lower() or None,
+            "confidence": str(locator.get("confidence") or "").strip().lower() or None,
+            "reason": str(locator.get("reason") or "").strip()[:220] or None,
+        },
+        "verify_summary": dict(data.get("verify_summary")) if isinstance(data.get("verify_summary"), dict) else {},
+        "tx_image_evidence_region_ref": _coerce_artifact_ref_for_state(data.get("tx_image_evidence_region_ref")),
+        "tx_image_evidence_context_ref": _coerce_artifact_ref_for_state(data.get("tx_image_evidence_context_ref")),
+    }
+
+
+def _visual_evidence_from_verify_payload(
+    *,
+    verify_payload: dict[str, Any],
+    existing_visual_evidence: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(verify_payload, dict):
+        return _coerce_visual_evidence_state(existing_visual_evidence)
+    results = verify_payload.get("results") if isinstance(verify_payload.get("results"), list) else []
+    latest = dict(results[-1]) if results and isinstance(results[-1], dict) else {}
+    merged = _coerce_visual_evidence_state(existing_visual_evidence if isinstance(existing_visual_evidence, dict) else {})
+    merged.update(
+        {
+            "mode": merged.get("mode") or "verify",
+            "status": str(latest.get("status") or merged.get("status") or "").strip().lower() or None,
+            "check_id": str(latest.get("check_id") or merged.get("check_id") or "").strip() or None,
+            "query": str(latest.get("query") or merged.get("query") or "").strip()[:320] or merged.get("query"),
+            "observed_text": str(latest.get("observed_text") or merged.get("observed_text") or "").strip()[:220] or merged.get("observed_text"),
+            "verify_summary": dict(verify_payload.get("summary")) if isinstance(verify_payload.get("summary"), dict) else {},
+            "tx_image_evidence_region_ref": _coerce_artifact_ref_for_state(
+                latest.get("tx_image_evidence_region_ref") or merged.get("tx_image_evidence_region_ref")
+            ),
+            "tx_image_evidence_context_ref": _coerce_artifact_ref_for_state(
+                latest.get("tx_image_evidence_context_ref") or merged.get("tx_image_evidence_context_ref")
+            ),
+        }
+    )
+    return merged
+
+
+def _coerce_artifact_ref_for_state(raw: Any) -> dict[str, Any] | None:
+    if isinstance(raw, dict):
+        artifact_path = str(raw.get("artifact_path") or "").strip()
+        if artifact_path:
+            return {"artifact_path": artifact_path}
+    if isinstance(raw, str):
+        value = raw.strip()
+        if value:
+            return {"artifact_path": value}
+    return None
 
 
 def _cache_entry_matches_transcript(
@@ -2516,6 +2845,7 @@ def _clear_cached_focus_evidence(
 ) -> None:
     state.span_context_by_decision_key = {}
     state.image_verification_payload_by_decision_key = {}
+    state.visual_evidence_by_decision_key = {}
 
 
 def _registry_row_for_decision_key(
