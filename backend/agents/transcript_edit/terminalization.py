@@ -85,6 +85,7 @@ def terminal_summary(
             else None
         )
     events = _merge_terminal_events(progress_log=progress_log, critical_events=critical_events or [])
+    image_verify_observability = _latest_image_verify_observability(events=events)
     first_audit = None
     final_audit = None
     edits_applied = 0
@@ -432,6 +433,7 @@ def terminal_summary(
             if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("summary"), dict)
             else {}
         ),
+        "image_verify_observability": image_verify_observability,
         "final_decision_rationale": final_decision_rationale,
         "initial_findings": first_audit or {},
         "final_findings": final_audit or {},
@@ -561,6 +563,23 @@ def _merge_terminal_events(
     return merged
 
 
+def _latest_image_verify_observability(*, events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for entry in reversed(events):
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("phase") or "").strip().lower() != "image_verify":
+            continue
+        detail = entry.get("detail") if isinstance(entry.get("detail"), dict) else {}
+        return {
+            "phase": "image_verify",
+            "message": str(entry.get("message") or "").strip() or None,
+            "detail": dict(detail),
+            "timestamp_epoch_seconds": entry.get("timestamp_epoch_seconds"),
+            "iteration": entry.get("iteration"),
+        }
+    return None
+
+
 def _terminal_classification(
     *,
     reason_code: str,
@@ -580,6 +599,13 @@ def _terminal_classification(
     active_blocker: dict[str, Any] | None = None,
 ) -> str:
     if str(result_status or "").strip().lower() == "failed":
+        counts = dict(blocker_counts or {})
+        waiting_feedback_count = int(counts.get("waiting_feedback") or 0)
+        if (
+            "budget_wall_time_exceeded" in str(reason_code or "").strip().lower()
+            and (human_feedback_pending or waiting_feedback_count > 0)
+        ):
+            return "blocked_waiting_feedback_timeout"
         return "blocked_execution_failed"
     counts = dict(blocker_counts or {})
     waiting_feedback_count = int(counts.get("waiting_feedback") or 0)
@@ -947,7 +973,7 @@ def _closure_not_reached_reason(
     human_feedback_pending: bool,
     unresolved_mapping_blocking_count: int,
 ) -> str:
-    if human_feedback_pending or terminal_classification == "blocked_waiting_feedback":
+    if human_feedback_pending or terminal_classification in {"blocked_waiting_feedback", "blocked_waiting_feedback_timeout"}:
         return "Pending human feedback remained unresolved at terminalization."
     if terminal_classification == "blocked_answered_unintegrated_no_safe_plan":
         return "Returned human feedback was present but no safe integration path cleared the blocker."
@@ -967,7 +993,11 @@ def _closure_not_reached_reason(
 
 
 def _next_action_for_terminal_classification(*, terminal_classification: str, human_feedback_pending: bool) -> str:
-    if human_feedback_pending or terminal_classification in {"blocked_human_feedback_needed", "blocked_waiting_feedback"}:
+    if human_feedback_pending or terminal_classification in {
+        "blocked_human_feedback_needed",
+        "blocked_waiting_feedback",
+        "blocked_waiting_feedback_timeout",
+    }:
         return "Provide feedback to the active prompt and resume the run."
     if terminal_classification == "blocked_answered_unintegrated_no_safe_plan":
         return "Review returned feedback integration constraints and provide refined guidance or corrected source evidence."

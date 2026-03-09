@@ -34,6 +34,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default="audit_then_repair_then_promote",
         choices=["off", "audit_only", "audit_then_repair", "audit_then_repair_then_promote"],
     )
+    parser.add_argument(
+        "--validation-mode",
+        default="off",
+        choices=["off", "live_hitl"],
+        help="Opt-in bounded validation runtime profile for faster HITL lifecycle testing.",
+    )
     parser.add_argument("--no-auto-promote", action="store_true")
     parser.add_argument("--edit-plan-json", dest="edit_plan_json", help="Path to EditPlanV0 JSON.")
     parser.add_argument("--poll-interval", type=float, default=0.5)
@@ -63,6 +69,7 @@ async def _run_async(args: argparse.Namespace) -> int:
         model=args.model,
         max_iterations=args.max_iterations,
         mode=args.mode,
+        validation_mode=args.validation_mode,
         auto_promote=not bool(args.no_auto_promote),
         edit_plan=edit_plan,
         background=True,

@@ -1134,3 +1134,70 @@ def test_terminal_summary_failed_status_not_masked_by_blocker_friendly_state() -
         },
     )
     assert summary["terminal_classification"] == "blocked_execution_failed"
+
+
+def test_terminal_summary_failed_timeout_with_waiting_feedback_classifies_as_waiting_timeout() -> None:
+    result = build_run_result(
+        run_artifact_ref="ref://run",
+        session_id="session-1",
+        iterations=2,
+        status="failed",
+        reason_code="budget_wall_time_exceeded",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(
+        [],
+        result,
+        runtime_hitl_state={
+            "pending_feedback_prompt_id": "hitl_range_1_wait",
+            "blocker_registry": {
+                "counts": {"waiting_feedback": 1, "answered_unintegrated": 0, "open": 0},
+                "active_blocker_id": "blocker:range",
+                "rows": [
+                    {
+                        "blocker_id": "blocker:range",
+                        "decision_key": "range",
+                        "state": "waiting_feedback",
+                        "linked_prompt_id": "hitl_range_1_wait",
+                        "scope_status": "in_target",
+                    }
+                ],
+            },
+        },
+    )
+    assert summary["terminal_classification"] == "blocked_waiting_feedback_timeout"
+    assert summary["human_feedback_pending"] is True
+
+
+def test_terminal_summary_includes_image_verify_observability_snapshot() -> None:
+    result = build_run_result(
+        run_artifact_ref="ref://run",
+        session_id="session-1",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_no_progress:no_material_change",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(
+        [
+            {
+                "iteration": 2,
+                "phase": "image_verify",
+                "message": "Image check waiting (1/1:plss_range_conflict_001) at 30s.",
+                "timestamp_epoch_seconds": 1773006000,
+                "detail": {
+                    "check_id": "1/1:plss_range_conflict_001",
+                    "stage": "waiting",
+                    "elapsed_seconds": 30,
+                    "wait_reason": "awaiting_image_verify_step_response",
+                },
+            }
+        ],
+        result,
+    )
+    obs = summary.get("image_verify_observability")
+    assert isinstance(obs, dict)
+    assert str(obs.get("phase") or "") == "image_verify"
+    assert str((obs.get("detail") or {}).get("wait_reason") or "") == "awaiting_image_verify_step_response"

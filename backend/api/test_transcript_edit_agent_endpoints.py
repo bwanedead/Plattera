@@ -327,6 +327,79 @@ def test_execute_run_transitions_to_waiting_feedback_when_pending_human_feedback
         )
 
 
+def test_execute_run_timeout_with_active_hitl_wait_is_marked_resumable_waiting(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _reset_registry(Path(tmp))
+
+        def _fake_run_loop(**kwargs: Any) -> TranscriptEditAgentRunResult:
+            progress_cb = kwargs.get("progress_cb")
+            if callable(progress_cb):
+                progress_cb(
+                    {
+                        "iteration": 2,
+                        "phase": "human_feedback_needed",
+                        "event_type": "human_feedback_needed",
+                        "prompt_id": "hitl_range_1_wait",
+                        "message": "Need human confirmation.",
+                        "latest_refs": {},
+                    }
+                )
+            return TranscriptEditAgentRunResult(
+                run_artifact_ref="in-memory://run",
+                session_id="s_timeout",
+                iterations=2,
+                status="failed",
+                reason_code="budget_wall_time_exceeded",
+                latest_refs={},
+                review_required=True,
+                runtime_hitl_state={
+                    "pending_feedback_prompt_id": "hitl_range_1_wait",
+                    "pending_feedback_decision_key": "range",
+                    "feedback_received_count": 0,
+                    "feedback_consumed_count": 0,
+                    "feedback_stale_count": 0,
+                    "feedback_superseded_count": 0,
+                    "blocker_registry": {
+                        "counts": {"waiting_feedback": 1},
+                        "rows": [
+                            {
+                                "blocker_id": "blocker:range",
+                                "decision_key": "range",
+                                "state": "waiting_feedback",
+                                "linked_prompt_id": "hitl_range_1_wait",
+                            }
+                        ],
+                    },
+                },
+            )
+
+        monkeypatch.setattr(transcript_edit_agent, "run_transcript_edit_controller_loop", _fake_run_loop)
+        monkeypatch.setattr(
+            transcript_edit_agent,
+            "build_handoff_packet",
+            lambda **kwargs: {"handoff_summary": "waiting_timeout"},
+        )
+        monkeypatch.setattr(
+            transcript_edit_agent,
+            "persist_handoff_packet",
+            lambda **kwargs: "in-memory://handoff_timeout_waiting.json",
+        )
+
+        request = transcript_edit_agent.TranscriptEditAgentApiRequest(
+            source_text="Beginning at ...",
+            dossier_id="D1",
+            background=False,
+        )
+        transcript_edit_agent._registry.create_run(run_id="r_timeout_wait", request={"dossier_id": "D1"})  # type: ignore[attr-defined]
+        transcript_edit_agent._execute_run("r_timeout_wait", request)
+        run = asyncio.run(transcript_edit_agent.get_run("r_timeout_wait"))
+        snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}
+        terminal = snapshot.get("terminal_summary") if isinstance(snapshot.get("terminal_summary"), dict) else {}
+        assert run["status"] == "waiting_feedback"
+        assert bool(snapshot.get("resumable")) is True
+        assert terminal.get("terminal_classification") == "blocked_waiting_feedback_timeout"
+
+
 def test_execute_run_throttles_noncritical_progress_persistence(monkeypatch) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         _reset_registry(Path(tmp))

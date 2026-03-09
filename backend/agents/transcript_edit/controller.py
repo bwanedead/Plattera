@@ -92,6 +92,8 @@ _MODE_AUDIT_REPAIR_PROMOTE = "audit_then_repair_then_promote"
 _EDIT_LOOP_LLM_MODEL = "gpt-5.2"
 _KERNEL_STEP_INPUT_BUDGET_BYTES = 4096
 _MAX_CANDIDATES = 10
+_VALIDATION_MODE_OFF = "off"
+_VALIDATION_MODE_LIVE_HITL = "live_hitl"
 _LOG = logging.getLogger(__name__)
 
 
@@ -117,6 +119,8 @@ def run_transcript_edit_controller_loop(
             latest_refs={},
             review_required=False,
         )
+    validation_mode = _normalized_validation_mode(request.validation_mode)
+    validation_profile = _validation_runtime_profile(validation_mode)
     start = session_manager.start_session(
         KernelSessionStartRequest(
             request_id=f"{request_id_prefix}-kernel",
@@ -127,7 +131,7 @@ def run_transcript_edit_controller_loop(
             ),
             budgets=KernelBudgets(
                 max_steps=max(8, request.max_iterations * 4),
-                max_wall_time_seconds=600,
+                max_wall_time_seconds=int(validation_profile.get("max_wall_time_seconds") or 600),
                 max_retrieval_calls=100,
                 max_semantic_calls=100,
                 max_patch_calls=100,
@@ -193,14 +197,25 @@ def run_transcript_edit_controller_loop(
             latest_refs=state.latest_refs,
             countdown_seconds=countdown_seconds,
         )
-    _emit_progress(
-        progress_cb,
-        starting_payload(
-            mode=mode,
-            candidate_count=candidate_count,
-            latest_refs=state.latest_refs,
-        ),
-    )
+        _emit_progress(
+            progress_cb,
+            starting_payload(
+                mode=mode,
+                candidate_count=candidate_count,
+                latest_refs=state.latest_refs,
+            ),
+        )
+    if validation_mode != _VALIDATION_MODE_OFF:
+        _emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=0,
+                phase="validation_mode",
+                message=f"Validation mode active: {validation_mode}.",
+                latest_refs=state.latest_refs,
+                detail=dict(validation_profile),
+            ),
+        )
 
     # Deterministic canonical audit runs first for source/hash safety and advisory lints.
     pre_audit_inputs: dict[str, Any] = {"dossier_id": request.dossier_id}
@@ -219,11 +234,14 @@ def run_transcript_edit_controller_loop(
     state.latest_refs = pre_audit.dashboard.latest_refs.model_dump(mode="json")
     if pre_audit.execution_state != StepExecutionState.EXECUTED:
         reason = pre_audit.refusal.reason_code if pre_audit.refusal is not None else "tx_pre_audit_refused"
+        status = "failed"
+        if _should_convert_timeout_to_waiting_feedback(reason=reason, state=state):
+            status = "needs_review"
         return _result(
             start=start,
             session_id=session_id,
             iterations=0,
-            status="failed",
+            status=status,
             reason=reason,
             latest_refs=state.latest_refs,
             review_required=True,
@@ -386,11 +404,14 @@ def run_transcript_edit_controller_loop(
         )
         if audit.execution_state != StepExecutionState.EXECUTED:
             reason = audit.refusal.reason_code if audit.refusal is not None else "tx_audit_refused"
+            status = "failed"
+            if _should_convert_timeout_to_waiting_feedback(reason=reason, state=state):
+                status = "needs_review"
             return _result(
                 start=start,
                 session_id=session_id,
                 iterations=iterations,
-                status="failed",
+                status=status,
                 reason=reason,
                 latest_refs=state.latest_refs,
                 review_required=True,
@@ -554,6 +575,7 @@ def run_transcript_edit_controller_loop(
             source_transcript_hash=source_transcript_hash,
             progress_cb=progress_cb,
             model=loop_model,
+            validation_mode=validation_mode,
         )
         if decision is not None:
             return _result(
@@ -776,6 +798,53 @@ def _normalized_mode(raw: str | None) -> str:
         {_MODE_OFF, _MODE_AUDIT_ONLY, _MODE_AUDIT_REPAIR, _MODE_AUDIT_REPAIR_PROMOTE},
         _MODE_AUDIT_REPAIR_PROMOTE,
     )
+
+
+def _normalized_validation_mode(raw: str | None) -> str:
+    return normalized_mode(
+        raw,
+        {_VALIDATION_MODE_OFF, _VALIDATION_MODE_LIVE_HITL},
+        _VALIDATION_MODE_OFF,
+    )
+
+
+def _validation_runtime_profile(validation_mode: str) -> dict[str, Any]:
+    mode = _normalized_validation_mode(validation_mode)
+    if mode == _VALIDATION_MODE_LIVE_HITL:
+        return {
+            "validation_mode": mode,
+            "max_wall_time_seconds": 600,
+            "image_verify_max_checks": 1,
+            "image_verify_step_timeout_seconds": 90,
+            "image_verify_max_attempts_per_check": 1,
+            "image_verify_heartbeat_thresholds_seconds": [10, 20, 30, 60],
+            "image_verify_heartbeat_every_seconds": 30,
+        }
+    return {
+        "validation_mode": _VALIDATION_MODE_OFF,
+        "max_wall_time_seconds": 600,
+        "image_verify_max_checks": 4,
+        "image_verify_step_timeout_seconds": 240,
+        "image_verify_max_attempts_per_check": 2,
+        "image_verify_heartbeat_thresholds_seconds": [15, 30, 60],
+        "image_verify_heartbeat_every_seconds": 60,
+    }
+
+
+def _should_convert_timeout_to_waiting_feedback(*, reason: str | None, state: TranscriptEditLoopState) -> bool:
+    reason_text = str(reason or "").strip().lower()
+    if "budget_wall_time_exceeded" not in reason_text:
+        return False
+    if str(state.pending_feedback_prompt_id or "").strip():
+        return True
+    rows = [row for row in list((state.blocker_registry or {}).get("rows") or []) if isinstance(row, dict)]
+    waiting_rows = [
+        row
+        for row in rows
+        if str(row.get("state") or "").strip().lower() == "waiting_feedback"
+        and str(row.get("linked_prompt_id") or "").strip()
+    ]
+    return len(waiting_rows) > 0
 
 
 def _read_step_outputs_inline(step_record: dict[str, Any] | None) -> dict[str, Any]:

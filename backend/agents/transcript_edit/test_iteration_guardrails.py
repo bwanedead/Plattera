@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from backend.agents.transcript_edit.iteration_pipeline import (
     _accept_apply_edit_plan,
     _findings_for_focus_key,
+    _image_verify_runtime_config,
     _accept_mark_blocked,
     _accept_mark_resolved_no_edit,
     _select_focus_decision_key,
@@ -134,3 +135,17 @@ def test_select_focus_decision_key_prioritizes_answered_unintegrated_registry_bl
         },
     )
     assert selected == "section"
+
+
+def test_image_verify_runtime_config_defaults_unchanged_when_validation_mode_off() -> None:
+    cfg = _image_verify_runtime_config("off")
+    assert int(cfg.get("max_checks") or 0) == 4
+    assert int(cfg.get("step_timeout_seconds") or 0) == 240
+    assert int(cfg.get("max_attempts_per_check") or 0) == 2
+
+
+def test_image_verify_runtime_config_live_hitl_is_bounded() -> None:
+    cfg = _image_verify_runtime_config("live_hitl")
+    assert int(cfg.get("max_checks") or 0) == 1
+    assert int(cfg.get("step_timeout_seconds") or 0) == 90
+    assert int(cfg.get("max_attempts_per_check") or 0) == 1

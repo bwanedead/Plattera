@@ -91,11 +91,25 @@ class TranscriptEditAgentResumeRequest(BaseModel):
 
 
 def _should_wait_feedback(*, result: TranscriptEditAgentRunResult, summary: dict[str, Any]) -> bool:
-    if str(result.status or "").strip().lower() != "needs_review":
+    status = str(result.status or "").strip().lower()
+    if status not in {"needs_review", "failed"}:
         return False
     if bool(summary.get("human_feedback_pending")):
         return True
-    return str(summary.get("terminal_classification") or "").strip().lower() == "blocked_human_feedback_needed"
+    classification = str(summary.get("terminal_classification") or "").strip().lower()
+    if classification in {
+        "blocked_human_feedback_needed",
+        "blocked_waiting_feedback",
+        "blocked_waiting_feedback_timeout",
+    }:
+        return True
+    # Timeout can race with waiting-feedback ownership; treat it as resumable only with strong HITL evidence.
+    reason = str(getattr(result, "reason_code", "") or "").strip().lower()
+    if status == "failed" and "budget_wall_time_exceeded" in reason:
+        pending_ids = [str(v).strip() for v in list(summary.get("pending_feedback_prompt_ids") or []) if str(v).strip()]
+        waiting_owner = summary.get("waiting_feedback_owner")
+        return bool(pending_ids) or isinstance(waiting_owner, dict)
+    return False
 
 
 def _build_resume_request_payload(request: TranscriptEditAgentApiRequest) -> dict[str, Any]:
@@ -507,6 +521,7 @@ async def start_run(request: TranscriptEditAgentApiRequest) -> dict[str, Any]:
             "max_iterations": request.max_iterations,
             "auto_promote": request.auto_promote,
             "mode": request.mode,
+            "validation_mode": request.validation_mode,
             "has_source_transcript_ref": bool(request.source_transcript_ref),
             "has_source_text": bool(request.source_text),
             "source_image_refs_count": len(request.source_image_refs or []),
