@@ -284,3 +284,6 @@ ralph/runs/**/config.json
 ralph/runs/**/phases/
 ralph/runs/**/transcript*
 ralph/runs/**/logs/
+
+# Local transcript-edit live observation captures
+test_results/live_obs_refine_notation_*.txt
