@@ -141,3 +141,140 @@ def test_planner_preserves_image_evidence_select_region_target_fields() -> None:
     assert str(evidence.get("mode") or "") == "select_region"
     assert isinstance(target.get("crop_box_normalized"), dict)
     assert target.get("zoom_factor") == 2.2
+
+
+def test_planner_normalizes_image_evidence_target_mode_form() -> None:
+    service = _FakeService(
+        outputs=[
+            (
+                '{"decision_key":"range","move":"gather_more_evidence","reason":"inspect_range","iteration_summary":"select via target mode",'
+                '"evidence_request":{"kind":"image_evidence","decision_key":"range","reason":"pick region",'
+                '"target":{"mode":"select_region","crop_box_normalized":{"x":0.2,"y":0.3,"width":0.4,"height":0.2}}}}'
+            )
+        ]
+    )
+    planner = TranscriptEditPlanPlanner(service=service)
+    payload, reason, _raw = planner.propose_focus_move(
+        model="gpt-5.2",
+        focus_packet=_focus_packet_with_answered_ticket(),
+        max_attempts=2,
+    )
+    assert reason == "ok"
+    assert isinstance(payload, dict)
+    evidence = payload.get("evidence_request") if isinstance(payload.get("evidence_request"), dict) else {}
+    target = evidence.get("target") if isinstance(evidence.get("target"), dict) else {}
+    assert str(evidence.get("mode") or "") == "select_region"
+    assert target.get("mode") is None
+    assert isinstance(target.get("crop_box_normalized"), dict)
+
+
+def test_planner_normalizes_image_evidence_operation_key_form() -> None:
+    service = _FakeService(
+        outputs=[
+            (
+                '{"decision_key":"range","move":"gather_more_evidence","reason":"inspect_range","iteration_summary":"select via operation key",'
+                '"evidence_request":{"kind":"image_evidence","decision_key":"range","reason":"pick region",'
+                '"target":{"select_region":{"crop_box_normalized":{"x":0.15,"y":0.25,"width":0.35,"height":0.2}}}}}'
+            )
+        ]
+    )
+    planner = TranscriptEditPlanPlanner(service=service)
+    payload, reason, _raw = planner.propose_focus_move(
+        model="gpt-5.2",
+        focus_packet=_focus_packet_with_answered_ticket(),
+        max_attempts=2,
+    )
+    assert reason == "ok"
+    assert isinstance(payload, dict)
+    evidence = payload.get("evidence_request") if isinstance(payload.get("evidence_request"), dict) else {}
+    target = evidence.get("target") if isinstance(evidence.get("target"), dict) else {}
+    assert str(evidence.get("mode") or "") == "select_region"
+    assert isinstance(target.get("crop_box_normalized"), dict)
+
+
+def test_planner_normalizes_image_evidence_operation_key_refine_form() -> None:
+    service = _FakeService(
+        outputs=[
+            (
+                '{"decision_key":"range","move":"gather_more_evidence","reason":"refine_region","iteration_summary":"refine via operation key",'
+                '"evidence_request":{"kind":"image_evidence","decision_key":"range","reason":"tighten region",'
+                '"target":{"refine_region":{"region_ref":{"artifact_path":"in-memory://region.jpg"},"transform":"expand","amount":0.2}}}}'
+            )
+        ]
+    )
+    planner = TranscriptEditPlanPlanner(service=service)
+    payload, reason, _raw = planner.propose_focus_move(
+        model="gpt-5.2",
+        focus_packet=_focus_packet_with_answered_ticket(),
+        max_attempts=2,
+    )
+    assert reason == "ok"
+    assert isinstance(payload, dict)
+    evidence = payload.get("evidence_request") if isinstance(payload.get("evidence_request"), dict) else {}
+    target = evidence.get("target") if isinstance(evidence.get("target"), dict) else {}
+    assert str(evidence.get("mode") or "") == "refine_region"
+    assert isinstance(target.get("region_ref"), dict)
+    assert str(target.get("transform") or "") == "expand"
+
+
+def test_planner_normalizes_refine_region_crop_shorthand_to_select_region() -> None:
+    service = _FakeService(
+        outputs=[
+            (
+                '{"decision_key":"range","move":"gather_more_evidence","reason":"refine_with_crop","iteration_summary":"tighten crop",'
+                '"evidence_request":{"kind":"image_evidence","decision_key":"range","reason":"tighten around range token",'
+                '"target":{"mode":"refine_region","crop_box_normalized":{"x":0.4,"y":0.18,"width":0.32,"height":0.14},"zoom_factor":3.0,"expected_fields":["range"]}}}'
+            )
+        ]
+    )
+    planner = TranscriptEditPlanPlanner(service=service)
+    payload, reason, _raw = planner.propose_focus_move(
+        model="gpt-5.2",
+        focus_packet=_focus_packet_with_answered_ticket(),
+        max_attempts=2,
+    )
+    assert reason == "ok"
+    assert isinstance(payload, dict)
+    evidence = payload.get("evidence_request") if isinstance(payload.get("evidence_request"), dict) else {}
+    target = evidence.get("target") if isinstance(evidence.get("target"), dict) else {}
+    assert str(evidence.get("mode") or "") == "select_region"
+    assert isinstance(target.get("crop_box_normalized"), dict)
+    assert target.get("zoom_factor") == 3.0
+
+
+def test_planner_rejects_conflicting_image_evidence_mode_sources() -> None:
+    service = _FakeService(
+        outputs=[
+            (
+                '{"decision_key":"range","move":"gather_more_evidence","reason":"conflict","iteration_summary":"bad",'
+                '"evidence_request":{"kind":"image_evidence","mode":"verify_region","decision_key":"range","target":{"mode":"select_region","crop_box_normalized":{"x":0.2,"y":0.2,"width":0.3,"height":0.2}}}}'
+            )
+        ]
+    )
+    planner = TranscriptEditPlanPlanner(service=service)
+    payload, reason, _raw = planner.propose_focus_move(
+        model="gpt-5.2",
+        focus_packet=_focus_packet_with_answered_ticket(),
+        max_attempts=1,
+    )
+    assert payload is None
+    assert "image_evidence_mode_conflict" in reason
+
+
+def test_planner_rejects_multiple_nested_image_evidence_operation_keys() -> None:
+    service = _FakeService(
+        outputs=[
+            (
+                '{"decision_key":"range","move":"gather_more_evidence","reason":"ambiguous","iteration_summary":"bad",'
+                '"evidence_request":{"kind":"image_evidence","decision_key":"range","target":{"select_region":{"crop_box_normalized":{"x":0.2,"y":0.2,"width":0.3,"height":0.2}},"verify_region":{"region_ref":{"artifact_path":"in-memory://region.jpg"},"query":"verify"}}}}'
+            )
+        ]
+    )
+    planner = TranscriptEditPlanPlanner(service=service)
+    payload, reason, _raw = planner.propose_focus_move(
+        model="gpt-5.2",
+        focus_packet=_focus_packet_with_answered_ticket(),
+        max_attempts=1,
+    )
+    assert payload is None
+    assert "image_evidence_target_mode_ambiguous" in reason

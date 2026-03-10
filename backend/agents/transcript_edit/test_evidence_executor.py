@@ -71,6 +71,48 @@ def test_normalize_image_evidence_select_region_request_accepts_mode_and_target(
     assert isinstance(target.get("crop_box_normalized"), dict)
 
 
+def test_normalize_image_evidence_accepts_target_mode_form() -> None:
+    request, reason = normalize_evidence_request(
+        evidence_request={
+            "kind": "image_evidence",
+            "decision_key": "range",
+            "target": {
+                "mode": "select_region",
+                "crop_box_normalized": {"x": 0.25, "y": 0.2, "width": 0.3, "height": 0.2},
+            },
+        },
+        decision_key="range",
+    )
+    assert reason == "ok"
+    assert isinstance(request, dict)
+    assert str(request.get("mode") or "") == "select_region"
+    target = request.get("target") if isinstance(request.get("target"), dict) else {}
+    assert target.get("mode") is None
+    assert isinstance(target.get("crop_box_normalized"), dict)
+
+
+def test_normalize_image_evidence_accepts_operation_key_form() -> None:
+    request, reason = normalize_evidence_request(
+        evidence_request={
+            "kind": "image_evidence",
+            "decision_key": "range",
+            "target": {
+                "verify_region": {
+                    "region_ref": {"artifact_path": "in-memory://region.jpg"},
+                    "query": "Verify Range 75 West.",
+                }
+            },
+        },
+        decision_key="range",
+    )
+    assert reason == "ok"
+    assert isinstance(request, dict)
+    assert str(request.get("mode") or "") == "verify_region"
+    target = request.get("target") if isinstance(request.get("target"), dict) else {}
+    assert isinstance(target.get("region_ref"), dict)
+    assert str(target.get("query") or "") == "Verify Range 75 West."
+
+
 def test_normalize_image_evidence_rejects_invalid_mode() -> None:
     request, reason = normalize_evidence_request(
         evidence_request={
@@ -82,6 +124,57 @@ def test_normalize_image_evidence_rejects_invalid_mode() -> None:
     )
     assert request is None
     assert reason == "image_evidence_mode_invalid"
+
+
+def test_normalize_image_evidence_rejects_conflicting_mode_sources() -> None:
+    request, reason = normalize_evidence_request(
+        evidence_request={
+            "kind": "image_evidence",
+            "mode": "verify_region",
+            "decision_key": "range",
+            "target": {
+                "mode": "select_region",
+                "crop_box_normalized": {"x": 0.25, "y": 0.2, "width": 0.3, "height": 0.2},
+            },
+        },
+        decision_key="range",
+    )
+    assert request is None
+    assert reason == "image_evidence_mode_conflict"
+
+
+def test_normalize_image_evidence_rejects_multiple_operation_keys() -> None:
+    request, reason = normalize_evidence_request(
+        evidence_request={
+            "kind": "image_evidence",
+            "decision_key": "range",
+            "target": {
+                "select_region": {"crop_box_normalized": {"x": 0.25, "y": 0.2, "width": 0.3, "height": 0.2}},
+                "verify_region": {
+                    "region_ref": {"artifact_path": "in-memory://region.jpg"},
+                    "query": "Verify Range 75 West.",
+                },
+            },
+        },
+        decision_key="range",
+    )
+    assert request is None
+    assert reason == "image_evidence_target_mode_ambiguous"
+
+
+def test_normalize_image_evidence_rejects_invalid_nested_operation_name() -> None:
+    request, reason = normalize_evidence_request(
+        evidence_request={
+            "kind": "image_evidence",
+            "decision_key": "range",
+            "target": {
+                "pick_region": {"crop_box_normalized": {"x": 0.25, "y": 0.2, "width": 0.3, "height": 0.2}},
+            },
+        },
+        decision_key="range",
+    )
+    assert request is None
+    assert reason == "image_evidence_nested_operation_invalid"
 
 
 def test_normalize_image_evidence_refine_region_accepts_transform_fields() -> None:
@@ -102,6 +195,28 @@ def test_normalize_image_evidence_refine_region_accepts_transform_fields() -> No
     assert isinstance(request, dict)
     target = request.get("target") if isinstance(request.get("target"), dict) else {}
     assert str(target.get("transform") or "") == "expand"
+
+
+def test_normalize_image_evidence_refine_region_crop_shorthand_normalizes_to_select_region() -> None:
+    request, reason = normalize_evidence_request(
+        evidence_request={
+            "kind": "image_evidence",
+            "mode": "refine_region",
+            "decision_key": "range",
+            "target": {
+                "crop_box_normalized": {"x": 0.4, "y": 0.18, "width": 0.32, "height": 0.14},
+                "zoom_factor": 3.0,
+                "expected_fields": ["range"],
+            },
+        },
+        decision_key="range",
+    )
+    assert reason == "ok"
+    assert isinstance(request, dict)
+    assert str(request.get("mode") or "") == "select_region"
+    target = request.get("target") if isinstance(request.get("target"), dict) else {}
+    assert isinstance(target.get("crop_box_normalized"), dict)
+    assert target.get("zoom_factor") == 3.0
 
 
 def test_normalize_image_evidence_select_region_rejects_missing_selector() -> None:

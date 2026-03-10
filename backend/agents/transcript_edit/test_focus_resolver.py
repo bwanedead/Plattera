@@ -173,6 +173,8 @@ def test_focus_resolver_returns_gather_more_evidence_for_noop_plan() -> None:
         max_invalid_plan_attempts=2,
     )
     assert out["move"] == "gather_more_evidence"
+    assert isinstance(out.get("resolver_raw_output_excerpt"), str)
+    assert str(out.get("resolver_raw_output_excerpt") or "").startswith("{")
 
 
 def test_focus_resolver_returns_apply_edit_plan_for_valid_ops() -> None:

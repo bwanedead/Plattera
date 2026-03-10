@@ -227,6 +227,25 @@ def test_resolver_move_gate_payload_shape() -> None:
     assert detail.get("gate_reason") == "rejected_repeated_evidence_after_binding_feedback"
 
 
+def test_resolver_move_gate_payload_includes_normalize_diagnostics_when_provided() -> None:
+    payload = run_reporting.resolver_move_gate_payload(
+        iteration=2,
+        latest_refs={},
+        decision_key="range",
+        move="gather_more_evidence",
+        gate_outcome="rejected",
+        gate_reason="invalid_evidence_request",
+        normalize_reason="image_evidence_verify_region_query_missing",
+        evidence_request_kind="image_evidence",
+        evidence_request_mode="verify_region",
+    )
+    detail = payload.get("detail") or {}
+    assert detail.get("gate_reason") == "invalid_evidence_request"
+    assert detail.get("normalize_reason") == "image_evidence_verify_region_query_missing"
+    assert detail.get("evidence_request_kind") == "image_evidence"
+    assert detail.get("evidence_request_mode") == "verify_region"
+
+
 def test_human_resolution_ticket_state_payload_contract_shape() -> None:
     payload = run_reporting.human_resolution_ticket_state_payload(
         iteration=3,

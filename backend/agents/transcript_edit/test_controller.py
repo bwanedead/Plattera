@@ -1686,6 +1686,65 @@ def test_resolver_gather_more_evidence_executes_only_requested_kind(monkeypatch)
     assert int(calls["image_verify"]) == 0
 
 
+def test_invalid_evidence_request_gate_includes_normalize_reason_and_mode_hint() -> None:
+    class _PlannerInvalidVerifyRequest:
+        def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+            focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+            return {
+                "decision_key": str(focus_packet.get("decision_key") or "range"),
+                "move": "gather_more_evidence",
+                "reason": "need_verify_without_query",
+                "edit_plan": None,
+                "feedback_prompt": None,
+                "evidence_request": {
+                    "kind": "image_evidence",
+                    "mode": "verify_region",
+                    "target": {"region_ref": {"artifact_path": "in-memory://region.jpg"}},
+                },
+                "closure_update_hint": None,
+                "iteration_summary": "Attempt verify without query.",
+            }, "ok", "{}"
+
+        def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            raise RuntimeError("not used in focus-move mode")
+
+    progress_events: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}),
+            encoding="utf-8",
+        )
+        _ = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=1,
+                auto_promote=False,
+                hitl_enabled=False,
+            ),
+            request_id_prefix="resolver-invalid-evidence-request-diagnostics",
+            planner=_PlannerInvalidVerifyRequest(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+    rejected = [
+        evt
+        for evt in progress_events
+        if isinstance(evt, dict)
+        and str(evt.get("phase") or "") == "resolver_move_gate"
+        and isinstance(evt.get("detail"), dict)
+        and str((evt.get("detail") or {}).get("gate_reason") or "") == "invalid_evidence_request"
+    ]
+    assert rejected
+    detail = rejected[-1].get("detail") if isinstance(rejected[-1].get("detail"), dict) else {}
+    assert str(detail.get("normalize_reason") or "") == "image_evidence_verify_region_query_missing"
+    assert str(detail.get("evidence_request_kind") or "") == "image_evidence"
+    assert str(detail.get("evidence_request_mode") or "") == "verify_region"
+
+
 def test_resolver_gather_open_spans_persists_into_next_focus_packet() -> None:
     class _PlannerGatherThenBlock:
         def __init__(self) -> None:

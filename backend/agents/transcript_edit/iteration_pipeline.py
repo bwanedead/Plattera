@@ -1053,7 +1053,11 @@ def handle_repair_iteration(
         if isinstance(resolver_outcome, dict) and isinstance((resolver_outcome or {}).get("resolver_invalid_diagnostic"), dict)
         else {}
     )
-    raw_output_excerpt = str(resolver_diag.get("raw_output_excerpt") or "").strip() or None
+    raw_output_excerpt = (
+        str(resolver_diag.get("raw_output_excerpt") or "").strip()
+        or str((resolver_outcome or {}).get("resolver_raw_output_excerpt") or "").strip()
+        or None
+    )
     validation_error_class = _extract_validation_error_class(resolver_reason)
     result_category = _resolver_result_category(move=move, reason=resolver_reason)
     emit_progress(
@@ -1471,15 +1475,18 @@ def handle_repair_iteration(
         )
         return None
     if move == "gather_more_evidence":
+        evidence_request = (
+            resolver_outcome.get("evidence_request")
+            if isinstance(resolver_outcome, dict) and isinstance(resolver_outcome.get("evidence_request"), dict)
+            else None
+        )
         normalized_request, normalize_reason = normalize_evidence_request(
-            evidence_request=(
-                resolver_outcome.get("evidence_request")
-                if isinstance(resolver_outcome, dict) and isinstance(resolver_outcome.get("evidence_request"), dict)
-                else None
-            ),
+            evidence_request=evidence_request,
             decision_key=focus_key,
         )
         if normalized_request is None:
+            evidence_kind = str((evidence_request or {}).get("kind") or "").strip().lower() or None
+            evidence_mode = _evidence_request_mode_hint(evidence_request)
             state.last_reason = f"gather_more_evidence_rejected:{normalize_reason}"
             emit_progress(
                 progress_cb,
@@ -1491,6 +1498,9 @@ def handle_repair_iteration(
                     gate_outcome="rejected",
                     gate_reason="invalid_evidence_request",
                     ticket_snapshot=active_ticket_snapshot,
+                    normalize_reason=normalize_reason,
+                    evidence_request_kind=evidence_kind,
+                    evidence_request_mode=evidence_mode,
                 ),
             )
             return None
@@ -2857,6 +2867,26 @@ def _selector_type_from_target(target: dict[str, Any]) -> str | None:
         return "pixel_box"
     if isinstance(target.get("grid_selection"), dict):
         return "grid_selection"
+    return None
+
+
+def _evidence_request_mode_hint(evidence_request: dict[str, Any] | None) -> str | None:
+    if not isinstance(evidence_request, dict):
+        return None
+    top_level_mode = str(evidence_request.get("mode") or "").strip().lower()
+    if top_level_mode:
+        return top_level_mode
+    target = evidence_request.get("target") if isinstance(evidence_request.get("target"), dict) else {}
+    target_mode = str(target.get("mode") or "").strip().lower()
+    if target_mode:
+        return target_mode
+    operation_modes = [
+        mode
+        for mode in ("select_region", "refine_region", "verify_region", "locate")
+        if isinstance(target.get(mode), dict)
+    ]
+    if len(operation_modes) == 1:
+        return operation_modes[0]
     return None
 
 

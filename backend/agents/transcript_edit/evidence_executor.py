@@ -16,6 +16,15 @@ SUPPORTED_IMAGE_EVIDENCE_MODES = {
     "locate",
 }
 
+KNOWN_IMAGE_EVIDENCE_DICT_TARGET_FIELDS = {
+    "region_ref",
+    "context_ref",
+    "crop_box_pixels",
+    "crop_box_normalized",
+    "grid_selection",
+    "grid_spec",
+}
+
 SUPPORTED_REFINE_TRANSFORMS = {
     "expand",
     "shrink",
@@ -53,6 +62,12 @@ def normalize_evidence_request(
     ][:6]
     mode = str(evidence_request.get("mode") or "").strip().lower()
     if kind == "image_evidence":
+        mode, target, image_mode_reason = _normalize_image_evidence_shape(
+            mode=mode,
+            target=target,
+        )
+        if image_mode_reason is not None:
+            return None, image_mode_reason
         if mode not in SUPPORTED_IMAGE_EVIDENCE_MODES:
             return None, "image_evidence_mode_invalid"
     else:
@@ -145,6 +160,90 @@ def _validate_image_evidence_mode_target(*, mode: str, target: dict[str, Any]) -
             return "image_evidence_verify_region_query_missing"
         return None
     return None
+
+
+def _normalize_image_evidence_shape(
+    *,
+    mode: str,
+    target: dict[str, Any],
+) -> tuple[str, dict[str, Any], str | None]:
+    normalized_mode = str(mode or "").strip().lower()
+    normalized_target = dict(target) if isinstance(target, dict) else {}
+    target_mode_raw = str(normalized_target.get("mode") or "").strip().lower()
+    target_mode = target_mode_raw or ""
+    if target_mode and target_mode not in SUPPORTED_IMAGE_EVIDENCE_MODES:
+        return "", {}, "image_evidence_target_mode_invalid"
+    operation_keys = [
+        key
+        for key in SUPPORTED_IMAGE_EVIDENCE_MODES
+        if isinstance(normalized_target.get(key), dict)
+    ]
+    if len(operation_keys) > 1:
+        return "", {}, "image_evidence_target_mode_ambiguous"
+    unknown_nested_ops = [
+        str(key).strip().lower()
+        for key, value in normalized_target.items()
+        if isinstance(value, dict)
+        and str(key).strip().lower() not in SUPPORTED_IMAGE_EVIDENCE_MODES
+        and str(key).strip().lower() not in KNOWN_IMAGE_EVIDENCE_DICT_TARGET_FIELDS
+    ]
+    if unknown_nested_ops:
+        return "", {}, "image_evidence_nested_operation_invalid"
+    operation_mode = operation_keys[0] if operation_keys else ""
+    mode_sources = [m for m in (normalized_mode, target_mode, operation_mode) if m]
+    if len(set(mode_sources)) > 1:
+        return "", {}, "image_evidence_mode_conflict"
+    canonical_mode = mode_sources[0] if mode_sources else ""
+    if operation_mode:
+        nested_target = normalized_target.get(operation_mode)
+        if not isinstance(nested_target, dict):
+            return "", {}, "image_evidence_nested_operation_invalid"
+        extra_keys = [
+            str(key).strip().lower()
+            for key, value in normalized_target.items()
+            if str(key).strip().lower() not in {operation_mode, "mode"}
+            and value not in (None, "", [], {})
+        ]
+        if extra_keys:
+            return "", {}, "image_evidence_target_mode_ambiguous"
+        nested_mode, nested_target_out = _normalize_refine_region_crop_shorthand(
+            mode=canonical_mode,
+            target=dict(nested_target),
+        )
+        return nested_mode, nested_target_out, None
+    if target_mode:
+        normalized_target = {
+            key: value
+            for key, value in normalized_target.items()
+            if str(key).strip().lower() != "mode"
+        }
+    canonical_mode, normalized_target = _normalize_refine_region_crop_shorthand(
+        mode=canonical_mode,
+        target=normalized_target,
+    )
+    return canonical_mode, normalized_target, None
+
+
+def _normalize_refine_region_crop_shorthand(*, mode: str, target: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    canonical_mode = str(mode or "").strip().lower()
+    normalized_target = dict(target) if isinstance(target, dict) else {}
+    if canonical_mode != "refine_region":
+        return canonical_mode, normalized_target
+    if isinstance(normalized_target.get("region_ref"), dict):
+        return canonical_mode, normalized_target
+    selector_count = sum(
+        (
+            1 if isinstance(normalized_target.get("crop_box_pixels"), dict) else 0,
+            1 if isinstance(normalized_target.get("crop_box_normalized"), dict) else 0,
+            1 if isinstance(normalized_target.get("grid_selection"), dict) else 0,
+        )
+    )
+    transform = str(normalized_target.get("transform") or "").strip().lower()
+    amount = normalized_target.get("amount")
+    has_amount = amount not in (None, "")
+    if selector_count == 1 and not transform and not has_amount:
+        return "select_region", normalized_target
+    return canonical_mode, normalized_target
 
 
 def execute_evidence_request(

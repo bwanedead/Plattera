@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+_RESOLVER_RAW_OUTPUT_EXCERPT_MAX_CHARS = 4000
+
 
 def _base_payload(
     *,
@@ -368,7 +370,7 @@ def resolver_invalid_payload(
     }
     excerpt = str(raw_output_excerpt or "").strip()
     if excerpt:
-        detail["raw_output_excerpt"] = excerpt[:600]
+        detail["raw_output_excerpt"] = excerpt[:_RESOLVER_RAW_OUTPUT_EXCERPT_MAX_CHARS]
     return {
         "event_type": "resolver_invalid",
         **_base_payload(
@@ -439,7 +441,7 @@ def resolver_outcome_payload(
     }
     excerpt = str(raw_output_excerpt or "").strip()
     if excerpt:
-        detail["raw_output_excerpt"] = excerpt[:600]
+        detail["raw_output_excerpt"] = excerpt[:_RESOLVER_RAW_OUTPUT_EXCERPT_MAX_CHARS]
     return {
         "event_type": "resolver_outcome",
         **_base_payload(
@@ -462,7 +464,23 @@ def resolver_move_gate_payload(
     gate_outcome: str,
     gate_reason: str,
     ticket_snapshot: dict[str, Any] | None = None,
+    normalize_reason: str | None = None,
+    evidence_request_kind: str | None = None,
+    evidence_request_mode: str | None = None,
 ) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "decision_key": decision_key,
+        "move": move,
+        "gate_outcome": gate_outcome,
+        "gate_reason": gate_reason,
+        "ticket_snapshot": dict(ticket_snapshot) if isinstance(ticket_snapshot, dict) else None,
+    }
+    if str(normalize_reason or "").strip():
+        detail["normalize_reason"] = str(normalize_reason or "").strip()
+    if str(evidence_request_kind or "").strip():
+        detail["evidence_request_kind"] = str(evidence_request_kind or "").strip().lower()
+    if str(evidence_request_mode or "").strip():
+        detail["evidence_request_mode"] = str(evidence_request_mode or "").strip().lower()
     return {
         "event_type": "resolver_move_gate",
         **_base_payload(
@@ -472,13 +490,7 @@ def resolver_move_gate_payload(
             latest_refs=latest_refs,
             execution_state="running",
         ),
-        "detail": {
-            "decision_key": decision_key,
-            "move": move,
-            "gate_outcome": gate_outcome,
-            "gate_reason": gate_reason,
-            "ticket_snapshot": dict(ticket_snapshot) if isinstance(ticket_snapshot, dict) else None,
-        },
+        "detail": detail,
     }
 
 

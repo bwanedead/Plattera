@@ -4,6 +4,8 @@ from typing import Any
 
 from .planner import TranscriptEditPlanPlanner
 
+_RESOLVER_RAW_OUTPUT_CAPTURE_MAX_CHARS = 4000
+
 
 def resolve_focus_move(
     *,
@@ -74,6 +76,9 @@ def resolve_focus_move(
         out.setdefault("feedback_prompt", None)
         out.setdefault("evidence_request", None)
         out.setdefault("closure_update_hint", None)
+        raw_excerpt = str(_raw_move or "").strip()
+        if raw_excerpt:
+            out["resolver_raw_output_excerpt"] = raw_excerpt[:_RESOLVER_RAW_OUTPUT_CAPTURE_MAX_CHARS]
         move = str(out.get("move") or "").strip().lower()
         if move == "apply_edit_plan":
             payload = out.get("edit_plan") if isinstance(out.get("edit_plan"), dict) else {}
@@ -105,7 +110,7 @@ def resolve_focus_move(
             outcome["post_feedback_ticket_id"] = str(answered_ticket.get("ticket_id") or "").strip() or None
         outcome["resolver_invalid_diagnostic"] = {
             "decision_key": decision_key,
-            "raw_output_excerpt": str(_raw_move or "")[:600] or None,
+            "raw_output_excerpt": str(_raw_move or "")[:_RESOLVER_RAW_OUTPUT_CAPTURE_MAX_CHARS] or None,
             "reason": str(move_reason or ""),
         }
         return outcome
