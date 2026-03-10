@@ -124,7 +124,9 @@ def build_focus_resolver_system_message() -> str:
         "If move=request_human_feedback, include feedback_prompt with line1, line2, and bounded choices when available. "
         "If move=gather_more_evidence, include evidence_request with fields: kind, decision_key, reason, target. "
         "Allowed evidence_request.kind values: open_spans, image_verify, image_evidence, retrieve_dependency_evidence. "
-        "If evidence_request.kind=image_evidence, prefer modes: select_region, refine_region, verify_region; locate is optional fallback. "
+        "If evidence_request.kind=image_evidence, prefer direct normalized crop workflow: select_region with crop_box_normalized, then refine_region when close, then verify_region. "
+        "Use grid_selection only as fallback/debug orientation aid; use crop_box_pixels only when exact pixel coordinates are already known. "
+        "When an existing region is close but imperfect, prefer refine_region over issuing a brand-new select_region. "
         "Treat external_context_injections as persistent semantic state. "
         "Treat blocker_registry and blocker_feedback_state as authoritative loop-state context for blocker counts, HITL pairing, and feedback integration readiness. "
         "Prioritize removing open mapping blockers before optional work; when focused_blocker_feedback_pair.ready_for_resolution=true, your next move must directly integrate or safely escalate that blocker-ticket pair. "
@@ -221,7 +223,7 @@ def build_focus_resolver_user_message(
                 "kind": "image_evidence",
                 "mode": "select_region",
                 "decision_key": "range",
-                "reason": "Select a precise region around the range clause before verification.",
+                "reason": "Select a normalized region around the range clause, then refine if needed.",
                 "target": {
                     "crop_box_normalized": {"x": 0.35, "y": 0.20, "width": 0.35, "height": 0.15},
                     "zoom_factor": 2.4,

@@ -356,6 +356,29 @@ def _coerce_focus_move(
                 "expected_text": str(target.get("expected_text") or "").strip()[:180] or None,
                 "anchor_hint": str(target.get("anchor_hint") or "").strip()[:220] or None,
                 "source_image_ref": str(target.get("source_image_ref") or "").strip() or None,
+                "crop_box_pixels": (
+                    dict(target.get("crop_box_pixels"))
+                    if isinstance(target.get("crop_box_pixels"), dict)
+                    else None
+                ),
+                "crop_box_normalized": (
+                    dict(target.get("crop_box_normalized"))
+                    if isinstance(target.get("crop_box_normalized"), dict)
+                    else None
+                ),
+                "grid_selection": (
+                    dict(target.get("grid_selection"))
+                    if isinstance(target.get("grid_selection"), dict)
+                    else None
+                ),
+                "grid_spec": (
+                    dict(target.get("grid_spec"))
+                    if isinstance(target.get("grid_spec"), dict)
+                    else None
+                ),
+                "zoom_factor": target.get("zoom_factor"),
+                "transform": str(target.get("transform") or "").strip().lower() or None,
+                "amount": target.get("amount"),
             },
         }
     if isinstance(parsed.get("closure_update_hint"), dict):

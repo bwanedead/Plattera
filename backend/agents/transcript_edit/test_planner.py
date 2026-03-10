@@ -116,3 +116,28 @@ def test_planner_focus_move_falls_back_to_mark_blocked_for_invalid_apply_under_a
     assert isinstance(payload, dict)
     assert payload.get("move") == "mark_blocked"
     assert str(payload.get("reason") or "").startswith("blocked_no_safe_integration_after_feedback")
+
+
+def test_planner_preserves_image_evidence_select_region_target_fields() -> None:
+    service = _FakeService(
+        outputs=[
+            (
+                '{"decision_key":"range","move":"gather_more_evidence","reason":"inspect_range","iteration_summary":"select first",'
+                '"evidence_request":{"kind":"image_evidence","mode":"select_region","decision_key":"range","reason":"pick region",'
+                '"target":{"crop_box_normalized":{"x":0.2,"y":0.3,"width":0.4,"height":0.2},"zoom_factor":2.2,"expected_fields":["range"]}}}'
+            )
+        ]
+    )
+    planner = TranscriptEditPlanPlanner(service=service)
+    payload, reason, _raw = planner.propose_focus_move(
+        model="gpt-5.2",
+        focus_packet=_focus_packet_with_answered_ticket(),
+        max_attempts=2,
+    )
+    assert reason == "ok"
+    assert isinstance(payload, dict)
+    evidence = payload.get("evidence_request") if isinstance(payload.get("evidence_request"), dict) else {}
+    target = evidence.get("target") if isinstance(evidence.get("target"), dict) else {}
+    assert str(evidence.get("mode") or "") == "select_region"
+    assert isinstance(target.get("crop_box_normalized"), dict)
+    assert target.get("zoom_factor") == 2.2

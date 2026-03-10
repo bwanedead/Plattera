@@ -387,6 +387,7 @@ def test_tx_image_inspection_reference_and_select_refine_verify_region_modes() -
         assert isinstance(region_ref, dict)
         assert Path(str(region_ref.get("artifact_path") or "")).exists()
         assert isinstance(selected.get("tx_image_region_lineage_ref"), dict)
+        assert str(selected.get("selector_type") or "") == "pixel_box"
 
         refined = tool.verify_transcript_with_image(
             {
@@ -426,3 +427,58 @@ def test_tx_image_inspection_reference_and_select_refine_verify_region_modes() -
         assert verified["reason_codes"] == ["tx_image_verified"]
         rows = verified.get("tx_image_verify_results")
         assert isinstance(rows, list) and rows
+
+
+def test_tx_image_select_region_records_selector_type_for_normalized_pixel_and_grid() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        image_path = root / "source.png"
+        transcript_path = root / "source.json"
+        _write_sample_image(image_path)
+        transcript_path.write_text(json.dumps({"sections": [{"id": "s1", "body": "Range token."}]}), encoding="utf-8")
+        tool = TranscriptImageVerificationTool(service=_FakeImageVisionService())
+
+        def _select(target: dict[str, Any]) -> dict[str, Any]:
+            return tool.verify_transcript_with_image(
+                {
+                    "dossier_id": "D1",
+                    "source_transcript_ref": str(transcript_path),
+                    "image_ref": str(image_path),
+                    "mode": "select_region",
+                    "target": target,
+                    "model": "gpt-5.2",
+                }
+            )
+
+        normalized = _select(
+            {
+                "crop_box_normalized": {"x": 0.1, "y": 0.1, "width": 0.3, "height": 0.2},
+                "zoom_factor": 2.0,
+                "decision_key": "range",
+            }
+        )
+        pixel = _select(
+            {
+                "crop_box_pixels": {"x": 8, "y": 10, "width": 40, "height": 20},
+                "zoom_factor": 2.0,
+                "decision_key": "range",
+            }
+        )
+        grid = _select(
+            {
+                "grid_selection": {"row_start": 1, "row_end": 2, "col_start": 1, "col_end": 3},
+                "grid_spec": {"rows": 6, "cols": 6},
+                "zoom_factor": 2.0,
+                "decision_key": "range",
+            }
+        )
+
+        assert str(normalized.get("selector_type") or "") == "normalized_box"
+        assert str(pixel.get("selector_type") or "") == "pixel_box"
+        assert str(grid.get("selector_type") or "") == "grid_selection"
+
+        lineage_ref = normalized.get("tx_image_region_lineage_ref")
+        lineage_path = Path(str((lineage_ref or {}).get("artifact_path") or ""))
+        assert lineage_path.exists()
+        lineage_payload = json.loads(lineage_path.read_text(encoding="utf-8"))
+        assert str(lineage_payload.get("selector_type") or "") == "normalized_box"

@@ -41,6 +41,7 @@ class RunInspectionMirror:
         phase = str(event.get("phase") or "").strip().lower()
         detail = event.get("detail") if isinstance(event.get("detail"), dict) else {}
         iteration = int(event.get("iteration") or 0)
+        feedback_focus_meta = self._focused_image_metadata_from_feedback_event(event)
         refs: list[tuple[str, str]] = []
         refs.extend(self._extract_refs_from_detail(detail))
         refs.extend(self._extract_refs_from_latest_refs(event.get("latest_refs")))
@@ -51,6 +52,7 @@ class RunInspectionMirror:
             source_path = str(source or "").strip()
             if not source_path:
                 continue
+            detail_lineage = detail.get("region_lineage") if isinstance(detail.get("region_lineage"), dict) else {}
             mirrored = self._mirror_artifact(
                 source_path=source_path,
                 iteration=iteration,
@@ -72,8 +74,40 @@ class RunInspectionMirror:
                 "source_artifact_path": source_path,
                 "mirrored_path": str(mirrored),
                 "created_or_reused": "reused" if source_key in self._known_source_paths else "created",
-                "crop_box": detail.get("crop_box") if isinstance(detail.get("crop_box"), dict) else None,
                 "zoom_factor": detail.get("zoom_factor"),
+                "selector_type": (
+                    str(detail.get("selector_type") or "").strip().lower()
+                    or str(feedback_focus_meta.get("selector_type") or "").strip().lower()
+                    or None
+                ),
+                "source_image_path": (
+                    str(detail.get("source_image_path") or "").strip()
+                    or str(detail_lineage.get("source_image_path") or "").strip()
+                    or str(feedback_focus_meta.get("source_image_path") or "").strip()
+                    or None
+                ),
+                "parent_region_ref": (
+                    detail.get("parent_region_ref")
+                    if isinstance(detail.get("parent_region_ref"), dict)
+                    else (
+                        detail_lineage.get("parent_region_ref")
+                        if isinstance(detail_lineage.get("parent_region_ref"), dict)
+                        else (
+                            feedback_focus_meta.get("parent_region_ref")
+                            if isinstance(feedback_focus_meta.get("parent_region_ref"), dict)
+                            else None
+                        )
+                    )
+                ),
+                "crop_box": (
+                    detail.get("crop_box")
+                    if isinstance(detail.get("crop_box"), dict)
+                    else (
+                        detail_lineage.get("crop_box")
+                        if isinstance(detail_lineage.get("crop_box"), dict)
+                        else None
+                    )
+                ),
                 "ref_kind": ref_kind,
             }
             self._known_source_paths.add(source_key)
@@ -133,6 +167,35 @@ class RunInspectionMirror:
             if ref:
                 out.append((f"hitl_{key}", ref))
         return out
+
+    def _focused_image_metadata_from_feedback_event(self, event: dict[str, Any]) -> dict[str, Any]:
+        if str(event.get("phase") or "").strip().lower() != "human_feedback_needed":
+            return {}
+        context = event.get("context") if isinstance(event.get("context"), dict) else {}
+        if not context:
+            prompt = event.get("feedback_prompt") if isinstance(event.get("feedback_prompt"), dict) else {}
+            context = prompt.get("context") if isinstance(prompt.get("context"), dict) else {}
+        focused = context.get("focused_image_evidence") if isinstance(context.get("focused_image_evidence"), dict) else {}
+        if not focused:
+            return {}
+        region_lineage = focused.get("region_lineage") if isinstance(focused.get("region_lineage"), dict) else {}
+        return {
+            "selector_type": str(focused.get("selector_type") or "").strip().lower() or None,
+            "source_image_path": (
+                str(focused.get("source_image_path") or "").strip()
+                or str(region_lineage.get("source_image_path") or "").strip()
+                or None
+            ),
+            "parent_region_ref": (
+                focused.get("parent_region_ref")
+                if isinstance(focused.get("parent_region_ref"), dict)
+                else (
+                    region_lineage.get("parent_region_ref")
+                    if isinstance(region_lineage.get("parent_region_ref"), dict)
+                    else None
+                )
+            ),
+        }
 
     def _mirror_artifact(
         self,

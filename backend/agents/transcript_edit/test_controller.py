@@ -1830,6 +1830,7 @@ def test_resolver_can_chain_image_evidence_locate_then_verify(monkeypatch) -> No
         def __init__(self) -> None:
             self.calls = 0
             self.saw_located_region = False
+            self.saw_selector_type = False
 
         def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
             self.calls += 1
@@ -1853,6 +1854,7 @@ def test_resolver_can_chain_image_evidence_locate_then_verify(monkeypatch) -> No
                 }, "ok", "{}"
             if self.calls == 2:
                 self.saw_located_region = isinstance(region_ref, dict)
+                self.saw_selector_type = str(visual.get("selector_type") or "") == "normalized_box"
                 return {
                     "decision_key": str(focus_packet.get("decision_key") or "range"),
                     "move": "gather_more_evidence",
@@ -1898,6 +1900,7 @@ def test_resolver_can_chain_image_evidence_locate_then_verify(monkeypatch) -> No
                     "mode": "locate",
                     "status": "located",
                     "query": "Locate range clause",
+                    "selector_type": "normalized_box",
                     "locator": {"status": "located", "confidence": "high", "reason": "found clause"},
                     "tx_image_evidence_region_ref": {"artifact_path": "in-memory://region.jpg"},
                     "tx_image_evidence_context_ref": {"artifact_path": "in-memory://context.jpg"},
@@ -1942,6 +1945,7 @@ def test_resolver_can_chain_image_evidence_locate_then_verify(monkeypatch) -> No
         lambda **kwargs: "range",  # type: ignore[no-untyped-def]
     )
     planner = _PlannerLocateThenVerify()
+    progress_events: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as tmp:
         source = Path(tmp) / "source.json"
         source.write_text(
@@ -1960,10 +1964,18 @@ def test_resolver_can_chain_image_evidence_locate_then_verify(monkeypatch) -> No
             ),
             request_id_prefix="resolver-image-evidence-chain",
             planner=planner,
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
         )
     assert planner.calls >= 2
     assert planner.saw_located_region is True
+    assert planner.saw_selector_type is True
     assert verify_received_region_ref["value"] is True
+    assert any(
+        isinstance(evt.get("detail"), dict)
+        and str(evt.get("phase") or "") == "image_verify"
+        and str((evt.get("detail") or {}).get("selector_type") or "") == "normalized_box"
+        for evt in progress_events
+    )
 
 
 def test_cached_evidence_invalidated_after_transcript_ref_change(monkeypatch) -> None:

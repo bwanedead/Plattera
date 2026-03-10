@@ -47,6 +47,9 @@ def test_focus_resolver_system_message_mentions_binding_answered_unintegrated_gu
     assert "answered_unintegrated" in lower
     assert "binding human_resolution_ticket" in lower
     assert "do not ignore provided human feedback" in lower
+    assert "crop_box_normalized" in system_msg
+    assert "refine_region" in system_msg
+    assert "grid_selection only as fallback" in lower
 
 
 def test_focus_resolver_user_message_emits_hitl_alert_when_feedback_present() -> None:
@@ -94,3 +97,20 @@ def test_focus_resolver_repair_message_includes_injection_context_when_present()
     assert isinstance(payload.get("injection_context"), dict)
     assert payload["injection_context"]["has_answered_unintegrated_ticket"] is True
     assert "instruction" in payload
+
+
+def test_focus_resolver_user_message_output_shape_prefers_normalized_select_region() -> None:
+    payload = json.loads(
+        build_focus_resolver_user_message(
+            focus_packet={
+                "decision_key": "range",
+                "source_transcript_ref": "in-memory://source.json",
+                "source_transcript_hash": "sha256:test",
+            }
+        )
+    )
+    output_shape = payload.get("output_shape") if isinstance(payload.get("output_shape"), dict) else {}
+    evidence_request = output_shape.get("evidence_request") if isinstance(output_shape.get("evidence_request"), dict) else {}
+    target = evidence_request.get("target") if isinstance(evidence_request.get("target"), dict) else {}
+    assert str(evidence_request.get("mode") or "") == "select_region"
+    assert isinstance(target.get("crop_box_normalized"), dict)

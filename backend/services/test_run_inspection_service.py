@@ -92,6 +92,11 @@ def test_run_inspection_reads_focused_refs_from_flattened_human_feedback_needed_
                 "context": {
                     "decision_key": "range",
                     "focused_image_evidence": {
+                        "selector_type": "normalized_box",
+                        "source_image_path": "in-memory://source-image.jpg",
+                        "region_lineage": {
+                            "parent_region_ref": {"artifact_path": "in-memory://parent-region.jpg"},
+                        },
                         "tx_image_evidence_region_ref": {"artifact_path": str(region)},
                     },
                 },
@@ -107,3 +112,5 @@ def test_run_inspection_reads_focused_refs_from_flattened_human_feedback_needed_
         hitl_rows = [r for r in rows if str(r.get("ref_kind") or "").startswith("hitl_")]
         assert hitl_rows
         assert any(str(r.get("source_artifact_path") or "") == str(region) for r in hitl_rows)
+        assert any(str(r.get("selector_type") or "") == "normalized_box" for r in hitl_rows)
+        assert any(str(r.get("source_image_path") or "") == "in-memory://source-image.jpg" for r in hitl_rows)

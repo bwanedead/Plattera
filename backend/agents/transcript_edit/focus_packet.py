@@ -257,6 +257,8 @@ def _bounded_visual_evidence(
         "image_height": state.get("image_height"),
         "grid_spec": dict(state.get("grid_spec")) if isinstance(state.get("grid_spec"), dict) else None,
         "grid_overlay_ref": _bounded_ref(state.get("grid_overlay_ref")),
+        "selector_type": str(state.get("selector_type") or "").strip().lower() or None,
+        "source_image_path": str(state.get("source_image_path") or "").strip() or None,
         "tx_image_evidence_region_ref": _bounded_ref(state.get("tx_image_evidence_region_ref")),
         "tx_image_evidence_context_ref": _bounded_ref(state.get("tx_image_evidence_context_ref")),
         "locator": {

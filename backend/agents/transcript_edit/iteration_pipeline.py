@@ -1640,6 +1640,14 @@ def handle_repair_iteration(
                         "tx_image_evidence_region_ref": visual_evidence.get("tx_image_evidence_region_ref"),
                         "tx_image_evidence_context_ref": visual_evidence.get("tx_image_evidence_context_ref"),
                         "locator_status": str((visual_evidence.get("locator") or {}).get("status") or ""),
+                        "selector_type": visual_evidence.get("selector_type"),
+                        "crop_box": visual_evidence.get("crop_box"),
+                        "zoom_factor": visual_evidence.get("zoom_factor"),
+                        "region_lineage": (
+                            dict(visual_evidence.get("region_lineage"))
+                            if isinstance(visual_evidence.get("region_lineage"), dict)
+                            else {}
+                        ),
                     },
                 ),
             )
@@ -2339,6 +2347,7 @@ def _run_image_evidence_mode(
     if mode == "verify":
         mode = "verify_region"
     target = normalized_request.get("target") if isinstance(normalized_request.get("target"), dict) else {}
+    requested_selector_type = _selector_type_from_target(target)
     decision_key = str(normalized_request.get("decision_key") or focus_decision_key or "").strip().lower()
     source_image_ref = str(target.get("source_image_ref") or "").strip()
     if not source_image_ref and isinstance(source_image_refs, list) and source_image_refs:
@@ -2485,6 +2494,12 @@ def _run_image_evidence_mode(
         "image_height": inline.get("image_height"),
         "grid_spec": (dict(inline.get("grid_spec")) if isinstance(inline.get("grid_spec"), dict) else None),
         "grid_overlay_ref": _coerce_artifact_ref_for_state(inline.get("grid_overlay_ref")),
+        "selector_type": (
+            str(inline.get("selector_type") or "").strip().lower()
+            or str(lineage.get("selector_type") or "").strip().lower()
+            or (requested_selector_type if mode == "select_region" else None)
+        ),
+        "source_image_path": str(lineage.get("source_image_path") or "").strip() or None,
         "latest_refs": latest_refs,
         "llm_call_seq_end": int(llm_call_seq_start) + 1,
     }
@@ -2828,9 +2843,21 @@ def _coerce_visual_evidence_state(raw: dict[str, Any] | None) -> dict[str, Any]:
         "image_height": data.get("image_height"),
         "grid_spec": dict(data.get("grid_spec")) if isinstance(data.get("grid_spec"), dict) else None,
         "grid_overlay_ref": _coerce_artifact_ref_for_state(data.get("grid_overlay_ref")),
+        "selector_type": str(data.get("selector_type") or "").strip().lower() or None,
+        "source_image_path": str(data.get("source_image_path") or "").strip() or None,
         "tx_image_evidence_region_ref": _coerce_artifact_ref_for_state(data.get("tx_image_evidence_region_ref")),
         "tx_image_evidence_context_ref": _coerce_artifact_ref_for_state(data.get("tx_image_evidence_context_ref")),
     }
+
+
+def _selector_type_from_target(target: dict[str, Any]) -> str | None:
+    if isinstance(target.get("crop_box_normalized"), dict):
+        return "normalized_box"
+    if isinstance(target.get("crop_box_pixels"), dict):
+        return "pixel_box"
+    if isinstance(target.get("grid_selection"), dict):
+        return "grid_selection"
+    return None
 
 
 def _visual_evidence_from_verify_payload(

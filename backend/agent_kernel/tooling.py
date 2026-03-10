@@ -2665,6 +2665,7 @@ def _execute_explicit_image_evidence_mode(
         if image_size is None:
             return _tool_refusal_result("tx_image_select_region_source_image_unreadable")
         target = inputs.get("target") if isinstance(inputs.get("target"), Mapping) else {}
+        selector_type = _selector_type_from_target(target)
         crop_box = _coerce_requested_crop_box(
             target=target,
             image_width=int(image_size[0]),
@@ -2702,6 +2703,7 @@ def _execute_explicit_image_evidence_mode(
             crop_box=crop_box,
             zoom_factor=zoom_factor,
             creation_mode="select_region",
+            selector_type=selector_type,
         )
         region_ref = isolate.get("tx_image_evidence_region_ref")
         return {
@@ -2721,11 +2723,15 @@ def _execute_explicit_image_evidence_mode(
             ),
             "crop_box": crop_box,
             "zoom_factor": zoom_factor,
+            "selector_type": selector_type,
             "tx_image_region_lineage_ref": lineage_ref.model_dump(mode="json"),
             "tx_image_region_lineage": {
                 "creation_mode": "select_region",
+                "source_image_path": str(image_file),
                 "crop_box": crop_box,
                 "zoom_factor": zoom_factor,
+                "selector_type": selector_type,
+                "parent_region_ref": None,
             },
         }
 
@@ -2748,6 +2754,7 @@ def _execute_explicit_image_evidence_mode(
         base_crop = _coerce_crop_box((parent_lineage or {}).get("crop_box"))
         if base_crop is None:
             base_crop = {"x": 0, "y": 0, "width": int(image_size[0]), "height": int(image_size[1])}
+        parent_selector_type = _read_str((parent_lineage or {}).get("selector_type")) or "unknown"
         transform = _read_str(target.get("transform") if isinstance(target, Mapping) else None) or "expand"
         amount = _bounded_float(target.get("amount") if isinstance(target, Mapping) else None, default=0.2, minimum=0.01, maximum=3.0)
         refined_crop = _apply_region_transform(
@@ -2787,6 +2794,7 @@ def _execute_explicit_image_evidence_mode(
             crop_box=refined_crop,
             zoom_factor=zoom_factor,
             creation_mode="refine_region",
+            selector_type="refine_transform",
         )
         region_ref = isolate.get("tx_image_evidence_region_ref")
         return {
@@ -2806,12 +2814,16 @@ def _execute_explicit_image_evidence_mode(
             ),
             "crop_box": refined_crop,
             "zoom_factor": zoom_factor,
+            "selector_type": "refine_transform",
             "parent_region_ref": parent_region_ref.model_dump(mode="json"),
             "tx_image_region_lineage_ref": lineage_ref.model_dump(mode="json"),
             "tx_image_region_lineage": {
                 "creation_mode": "refine_region",
+                "source_image_path": str(source_image_path),
                 "crop_box": refined_crop,
                 "zoom_factor": zoom_factor,
+                "selector_type": "refine_transform",
+                "parent_selector_type": parent_selector_type,
                 "parent_region_ref": parent_region_ref.model_dump(mode="json"),
             },
         }
@@ -2829,6 +2841,7 @@ def _execute_explicit_image_evidence_mode(
             return _tool_refusal_result("tx_image_verify_region_missing_query")
         check_id = _read_str(target.get("check_id") if isinstance(target, Mapping) else None) or "verify_region"
         expected_text = _read_str(target.get("expected_text") if isinstance(target, Mapping) else None) or _read_str(inputs.get("expected_text"))
+        region_lineage = _load_region_lineage_for_ref(region_ref) or {}
         image_b64, render_meta = _encode_image_for_verification(
             image_path=region_path,
             crop_box=None,
@@ -2856,6 +2869,23 @@ def _execute_explicit_image_evidence_mode(
         result_item["render_meta"] = render_meta
         result_item["locator"] = {"status": "located", "source": "agent_selected_region_ref"}
         result_item["tx_image_evidence_region_ref"] = region_ref.model_dump(mode="json")
+        if isinstance(region_lineage, dict) and region_lineage:
+            result_item["region_lineage"] = {
+                "source_image_path": _read_str(region_lineage.get("source_image_path")),
+                "crop_box": (
+                    dict(region_lineage.get("crop_box"))
+                    if isinstance(region_lineage.get("crop_box"), Mapping)
+                    else None
+                ),
+                "selector_type": _read_str(region_lineage.get("selector_type")),
+                "parent_region_ref": (
+                    dict(region_lineage.get("parent_region_ref"))
+                    if isinstance(region_lineage.get("parent_region_ref"), Mapping)
+                    else None
+                ),
+                "creation_mode": _read_str(region_lineage.get("creation_mode")),
+                "zoom_factor": region_lineage.get("zoom_factor"),
+            }
         summary = _summarize_image_verify_results([result_item])
         payload = {
             "artifact_type": "transcript_image_verification",
@@ -2874,6 +2904,7 @@ def _execute_explicit_image_evidence_mode(
                     "reason": "Agent-selected region.",
                     "crop_box": None,
                     "context_crop_box": None,
+                    "selector_type": _read_str(region_lineage.get("selector_type")) or "unknown",
                     "tx_image_evidence_region_ref": region_ref.model_dump(mode="json"),
                     "tx_image_evidence_context_ref": None,
                 }
@@ -2977,6 +3008,16 @@ def _coerce_requested_crop_box(
     if crop_from_grid is not None:
         return _enforce_min_crop_size(crop_from_grid, image_width=image_width, image_height=image_height)
     return None
+
+
+def _selector_type_from_target(target: Mapping[str, Any]) -> str:
+    if isinstance(target.get("crop_box_normalized"), Mapping):
+        return "normalized_box"
+    if isinstance(target.get("crop_box_pixels"), Mapping):
+        return "pixel_box"
+    if isinstance(target.get("grid_selection"), Mapping):
+        return "grid_selection"
+    return "unknown"
 
 
 def _enforce_min_crop_size(
@@ -3104,6 +3145,7 @@ def _persist_region_lineage_metadata(
     crop_box: dict[str, int],
     zoom_factor: float,
     creation_mode: str,
+    selector_type: str | None,
 ) -> ArtifactRef:
     payload = {
         "artifact_type": "transcript_image_region_lineage",
@@ -3114,6 +3156,7 @@ def _persist_region_lineage_metadata(
         "crop_box": dict(crop_box),
         "zoom_factor": float(round(zoom_factor, 3)),
         "creation_mode": str(creation_mode or "").strip().lower() or None,
+        "selector_type": str(selector_type or "").strip().lower() or None,
     }
     return _persist_json_artifact(
         category="transcript_image_region_lineage",

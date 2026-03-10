@@ -118,6 +118,18 @@ def _pick_focused_image_evidence(
                 "status": str(visual_evidence_state.get("status") or "").strip().lower() or None,
                 "query": str(visual_evidence_state.get("query") or "").strip()[:220] or None,
                 "observed_text": str(visual_evidence_state.get("observed_text") or "").strip()[:220] or None,
+                "crop_box": (
+                    dict(visual_evidence_state.get("crop_box"))
+                    if isinstance(visual_evidence_state.get("crop_box"), dict)
+                    else None
+                ),
+                "zoom_factor": visual_evidence_state.get("zoom_factor"),
+                "selector_type": str(visual_evidence_state.get("selector_type") or "").strip().lower() or None,
+                "region_lineage": (
+                    dict(visual_evidence_state.get("region_lineage"))
+                    if isinstance(visual_evidence_state.get("region_lineage"), dict)
+                    else {}
+                ),
                 "tx_image_evidence_region_ref": region_ref,
                 "tx_image_evidence_context_ref": context_ref,
             }
@@ -148,6 +160,10 @@ def _pick_focused_image_evidence(
         "status": str(latest.get("status") or "").strip().lower() or None,
         "query": str(latest.get("query") or "").strip()[:220] or None,
         "observed_text": str(latest.get("observed_text") or "").strip()[:220] or None,
+        "crop_box": dict(latest.get("crop_box")) if isinstance(latest.get("crop_box"), dict) else None,
+        "zoom_factor": latest.get("zoom_factor"),
+        "selector_type": str(latest.get("selector_type") or "").strip().lower() or None,
+        "region_lineage": dict(latest.get("region_lineage")) if isinstance(latest.get("region_lineage"), dict) else {},
         "tx_image_evidence_region_ref": _coerce_prompt_ref(latest.get("tx_image_evidence_region_ref")),
         "tx_image_evidence_context_ref": _coerce_prompt_ref(latest.get("tx_image_evidence_context_ref")),
     }

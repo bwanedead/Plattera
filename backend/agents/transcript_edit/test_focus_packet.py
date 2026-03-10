@@ -37,6 +37,8 @@ def test_focus_packet_caps_spans_image_results_and_feedback() -> None:
             "mode": "locate",
             "status": "located",
             "query": "q" * 500,
+            "selector_type": "normalized_box",
+            "source_image_path": "in-memory://source-image.jpg",
             "tx_image_evidence_region_ref": {"artifact_path": "in-memory://region.jpg"},
             "tx_image_evidence_context_ref": {"artifact_path": "in-memory://context.jpg"},
             "locator": {"status": "located", "confidence": "high", "reason": "r" * 500},
@@ -57,6 +59,8 @@ def test_focus_packet_caps_spans_image_results_and_feedback() -> None:
     assert all(str(row.get("decision_key") or "") == "section" for row in results)
     visual = packet.get("visual_evidence") if isinstance(packet.get("visual_evidence"), dict) else {}
     assert str((visual.get("tx_image_evidence_region_ref") or {}).get("artifact_path") or "") == "in-memory://region.jpg"
+    assert str(visual.get("selector_type") or "") == "normalized_box"
+    assert str(visual.get("source_image_path") or "") == "in-memory://source-image.jpg"
     assert len(str(visual.get("query") or "")) <= 180
     assert len(str(packet["feedback"]["note"] or "")) <= 240
 
