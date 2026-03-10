@@ -777,14 +777,59 @@ def handle_repair_iteration(
         state.no_progress_streak = 0
         state.last_progress_reason = "human_feedback_consumed"
 
+    span_context: list[dict[str, Any]] = []
+    image_verification: dict[str, Any] = {}
+    visual_evidence: dict[str, Any] = {}
+
     def _build_feedback_prompt_with_optional_image() -> dict[str, Any] | None:
         image_payload = image_verification.get("payload") if isinstance(image_verification, dict) else None
-        return build_human_feedback_prompt(
+        prompt = build_human_feedback_prompt(
             decision_ledger=state.decision_ledger,
             iteration=iterations,
             image_verification_payload=image_payload,
             visual_evidence_state=visual_evidence,
         )
+        if not isinstance(prompt, dict):
+            return None
+        context = prompt.get("context")
+        if not isinstance(context, dict):
+            context = {}
+            prompt["context"] = context
+        focused = context.get("focused_image_evidence")
+        focused_dict = focused if isinstance(focused, dict) else {}
+        focused_region_ref = _coerce_artifact_ref_for_state(focused_dict.get("tx_image_evidence_region_ref"))
+        focused_context_ref = _coerce_artifact_ref_for_state(focused_dict.get("tx_image_evidence_context_ref"))
+        if focused_region_ref is not None or focused_context_ref is not None:
+            return prompt
+        visual_region_ref = _coerce_artifact_ref_for_state((visual_evidence or {}).get("tx_image_evidence_region_ref"))
+        visual_context_ref = _coerce_artifact_ref_for_state((visual_evidence or {}).get("tx_image_evidence_context_ref"))
+        latest_region_ref = _coerce_artifact_ref_for_state((state.latest_refs.get("tx_image_evidence_region_ref") or {}))
+        latest_context_ref = _coerce_artifact_ref_for_state((state.latest_refs.get("tx_image_evidence_context_ref") or {}))
+        region_ref = visual_region_ref or latest_region_ref
+        context_ref = visual_context_ref or latest_context_ref
+        if region_ref is None and context_ref is None:
+            return prompt
+        context["focused_image_evidence"] = {
+            "check_id": str((visual_evidence or {}).get("check_id") or "").strip() or None,
+            "status": str((visual_evidence or {}).get("status") or "").strip().lower() or None,
+            "query": str((visual_evidence or {}).get("query") or "").strip()[:220] or None,
+            "observed_text": str((visual_evidence or {}).get("observed_text") or "").strip()[:220] or None,
+            "crop_box": (
+                dict((visual_evidence or {}).get("crop_box"))
+                if isinstance((visual_evidence or {}).get("crop_box"), dict)
+                else None
+            ),
+            "zoom_factor": (visual_evidence or {}).get("zoom_factor"),
+            "selector_type": str((visual_evidence or {}).get("selector_type") or "").strip().lower() or None,
+            "region_lineage": (
+                dict((visual_evidence or {}).get("region_lineage"))
+                if isinstance((visual_evidence or {}).get("region_lineage"), dict)
+                else {}
+            ),
+            "tx_image_evidence_region_ref": region_ref,
+            "tx_image_evidence_context_ref": context_ref,
+        }
+        return prompt
 
     drained_plan = _drain_pending_feedback(checkpoint_label="iteration_start")
     if drained_plan is not None:
@@ -824,6 +869,78 @@ def handle_repair_iteration(
                         latest_refs=state.latest_refs,
                     ),
                 )
+        no_progress_focus_key = str(state.last_focus_key or "").strip().lower()
+        recent_image_attempts = _recent_image_evidence_attempt_count(
+            continuity_log=state.continuity_log,
+            decision_key=no_progress_focus_key,
+            window=8,
+        )
+        should_fallback_hitl_on_no_progress = (
+            request.hitl_enabled
+            and not state.pending_feedback_prompt_id
+            and bool(no_progress_focus_key)
+            and is_unresolved_target_scope_mapping_blocking_decision(state.decision_ledger, no_progress_focus_key)
+            and recent_image_attempts >= 2
+        )
+        if should_fallback_hitl_on_no_progress:
+            visual_evidence = _cached_visual_evidence_for_key(
+                state=state,
+                decision_key=no_progress_focus_key,
+                source_transcript_ref=state.current_transcript_ref,
+                source_transcript_hash=source_transcript_hash,
+            )
+            feedback_prompt = _build_feedback_prompt_with_optional_image()
+            if isinstance(feedback_prompt, dict):
+                emit_progress(
+                    progress_cb,
+                    ticker_payload(
+                        iteration=iterations,
+                        phase="human_feedback_needed",
+                        message="Fallback HITL prompt issued after repeated image-evidence attempts with no material progress.",
+                        latest_refs=state.latest_refs,
+                        detail={
+                            "fallback_driven": True,
+                            "fallback_reason": "no_progress_repeated_image_evidence",
+                            "decision_key": no_progress_focus_key,
+                            "recent_image_evidence_attempts": int(recent_image_attempts),
+                        },
+                    ),
+                )
+                emit_progress(
+                    progress_cb,
+                    human_feedback_needed_payload(
+                        iteration=iterations,
+                        latest_refs=state.latest_refs,
+                        feedback_prompt=feedback_prompt,
+                        evidence_attempts={
+                            "open_spans_count": 0,
+                            "image_verify_count": int(recent_image_attempts),
+                            "retrieval_count": 0,
+                        },
+                    ),
+                )
+                prompt_decision_key = (
+                    str((feedback_prompt.get("context") or {}).get("decision_key") or "").strip().lower()
+                    if isinstance(feedback_prompt.get("context"), dict)
+                    else ""
+                ) or no_progress_focus_key
+                _set_pending_feedback_prompt(
+                    feedback_prompt=feedback_prompt,
+                    decision_key=prompt_decision_key,
+                    supersession_reason="fallback_no_progress_repeated_image_evidence",
+                )
+                state.last_reason = "tx_agent_waiting_feedback_fallback_no_progress"
+                _append_blocker_iteration_recap(
+                    action_attempted="fallback_request_hitl",
+                    result="waiting_feedback",
+                    decision_key=prompt_decision_key,
+                    reason="tx_agent_no_progress_fallback:repeated_image_evidence",
+                )
+                return TranscriptEditDecision(
+                    status="waiting_feedback",
+                    reason_code="tx_agent_waiting_feedback",
+                    review_required=False,
+                )
         reason = "tx_agent_no_progress"
         if state.last_progress_reason and state.last_progress_reason != "not_evaluated":
             reason = f"{reason}:{state.last_progress_reason}"
@@ -842,9 +959,6 @@ def handle_repair_iteration(
             review_required=True,
         )
 
-    span_context: list[dict[str, Any]] = []
-    image_verification: dict[str, Any] = {}
-    visual_evidence: dict[str, Any] = {}
     conflict_map = _conflict_map_from_ledger(state.decision_ledger)
     emit_progress(
         progress_cb,
@@ -2218,6 +2332,28 @@ def _accept_mark_blocked(
     if not hitl_enabled and is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, decision_key):
         return True
     return False
+
+
+def _recent_image_evidence_attempt_count(
+    *,
+    continuity_log: list[dict[str, Any]],
+    decision_key: str | None,
+    window: int = 8,
+) -> int:
+    key = str(decision_key or "").strip().lower()
+    if not key or not isinstance(continuity_log, list):
+        return 0
+    bounded = [row for row in continuity_log[-max(1, int(window)) :] if isinstance(row, dict)]
+    count = 0
+    for row in bounded:
+        if str(row.get("decision_key") or "").strip().lower() != key:
+            continue
+        if str(row.get("move") or "").strip().lower() != "gather_more_evidence":
+            continue
+        evidence_kind = str(row.get("evidence_kind") or "").strip().lower()
+        if evidence_kind.startswith("image_evidence"):
+            count += 1
+    return count
 
 
 def _accept_apply_edit_plan(

@@ -912,6 +912,112 @@ def test_transcript_controller_repeated_closed_world_no_progress_halts() -> None
         assert str(result.reason_code).startswith("tx_agent_no_progress:")
 
 
+def test_no_progress_with_repeated_image_evidence_falls_back_to_waiting_feedback(monkeypatch) -> None:
+    class _PlannerRepeatImageEvidence:
+        def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+            focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+            return {
+                "decision_key": str(focus_packet.get("decision_key") or "range"),
+                "move": "gather_more_evidence",
+                "reason": "repeat_image_evidence",
+                "edit_plan": None,
+                "feedback_prompt": None,
+                "evidence_request": {
+                    "kind": "image_evidence",
+                    "mode": "select_region",
+                    "target": {
+                        "crop_box_normalized": {"x": 0.3, "y": 0.1, "width": 0.45, "height": 0.25},
+                        "zoom_factor": 2.5,
+                        "query": "Read range token",
+                    },
+                },
+                "closure_update_hint": None,
+                "iteration_summary": "Collect image evidence again.",
+            }, "ok", "{}"
+
+        def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            raise RuntimeError("not used in focus-move mode")
+
+    def _image_mode_stub(**kwargs):  # type: ignore[no-untyped-def]
+        return {
+            "mode": "select_region",
+            "status": "executed",
+            "latest_refs": {},
+            "llm_call_seq_end": int(kwargs.get("llm_call_seq_start") or 0) + 1,
+            "image_evidence": {
+                "mode": "select_region",
+                "status": "located",
+                "check_id": "image_evidence_select_region_range_test",
+                "query": "Read range token",
+                "selector_type": "normalized_box",
+                "crop_box": {"x": 100, "y": 120, "width": 240, "height": 90},
+                "zoom_factor": 2.5,
+                "tx_image_evidence_region_ref": {"artifact_path": "in-memory://range-region.jpg"},
+                "tx_image_evidence_context_ref": None,
+                "latest_refs": {},
+            },
+            "image_verification": {},
+        }
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline._run_image_evidence_mode",
+        _image_mode_stub,
+    )
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline.build_human_feedback_prompt",
+        lambda decision_ledger, iteration, image_verification_payload=None, visual_evidence_state=None: {
+            "prompt_id": f"hitl_range_{iteration}_fallback",
+            "line1": "Range remains ambiguous after repeated image attempts.",
+            "line2": "Please confirm the correct range token.",
+            "choices": ["Range 75 West", "Range 74 West"],
+            "default_choice": "Range 75 West",
+            "context": {"decision_key": "range"},
+        },
+    )
+
+    progress_events: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Simple legal heading only."}]}),
+            encoding="utf-8",
+        )
+        result = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=4,
+                max_no_progress_iterations=2,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="manual-no-progress-image-evidence-hitl-fallback",
+            planner=_PlannerRepeatImageEvidence(),
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+
+    assert result.status == "waiting_feedback"
+    assert str(result.reason_code) == "tx_agent_waiting_feedback"
+    hitl_events = [
+        evt
+        for evt in progress_events
+        if isinstance(evt, dict) and str(evt.get("event_type") or "") == "human_feedback_needed"
+    ]
+    assert hitl_events
+    fallback_ticker = [
+        evt
+        for evt in progress_events
+        if isinstance(evt, dict)
+        and str(evt.get("phase") or "") == "human_feedback_needed"
+        and isinstance(evt.get("detail"), dict)
+        and str((evt.get("detail") or {}).get("fallback_reason") or "") == "no_progress_repeated_image_evidence"
+    ]
+    assert fallback_ticker
+
+
 def test_transcript_controller_pending_feedback_gets_grace_drain_before_no_progress(monkeypatch) -> None:
     call_count = {"poll": 0}
 
@@ -2035,6 +2141,112 @@ def test_resolver_can_chain_image_evidence_locate_then_verify(monkeypatch) -> No
         and str((evt.get("detail") or {}).get("selector_type") or "") == "normalized_box"
         for evt in progress_events
     )
+
+
+def test_human_feedback_needed_includes_focused_image_evidence_after_select_region(monkeypatch) -> None:
+    class _PlannerLocateThenHitl:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def propose_focus_move(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.calls += 1
+            focus_packet = kwargs.get("focus_packet") if isinstance(kwargs.get("focus_packet"), dict) else {}
+            key = str(focus_packet.get("decision_key") or "range")
+            if self.calls == 1:
+                return {
+                    "decision_key": key,
+                    "move": "gather_more_evidence",
+                    "reason": "select_region_before_hitl",
+                    "edit_plan": None,
+                    "feedback_prompt": None,
+                    "evidence_request": {
+                        "kind": "image_evidence",
+                        "mode": "select_region",
+                        "target": {
+                            "crop_box_normalized": {"x": 0.2, "y": 0.3, "width": 0.4, "height": 0.2},
+                            "zoom_factor": 2.0,
+                            "query": "Locate range reference",
+                        },
+                    },
+                    "closure_update_hint": None,
+                    "iteration_summary": "Select focused region first.",
+                }, "ok", "{}"
+            return {
+                "decision_key": key,
+                "move": "request_human_feedback",
+                "reason": "need_human_confirmation",
+                "edit_plan": None,
+                "feedback_prompt": None,
+                "evidence_request": None,
+                "closure_update_hint": None,
+                "iteration_summary": "Escalate with focused image evidence.",
+            }, "ok", "{}"
+
+        def propose_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+            del kwargs
+            raise RuntimeError("not used in focus-move mode")
+
+    def _image_mode_stub(**kwargs):  # type: ignore[no-untyped-def]
+        return {
+            "mode": "select_region",
+            "status": "executed",
+            "latest_refs": {},
+            "llm_call_seq_end": int(kwargs.get("llm_call_seq_start") or 0) + 1,
+            "image_evidence": {
+                "mode": "select_region",
+                "status": "located",
+                "check_id": "image_evidence_select_region_range_1",
+                "query": "Locate range reference",
+                "selector_type": "normalized_box",
+                "crop_box": {"x": 120, "y": 200, "width": 300, "height": 120},
+                "zoom_factor": 2.0,
+                "tx_image_evidence_region_ref": {"artifact_path": "in-memory://range-region.jpg"},
+                "tx_image_evidence_context_ref": {"artifact_path": "in-memory://range-context.jpg"},
+                "latest_refs": {},
+            },
+            "image_verification": {},
+        }
+
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline._run_image_evidence_mode",
+        _image_mode_stub,
+    )
+    monkeypatch.setattr(
+        "backend.agents.transcript_edit.iteration_pipeline._select_focus_decision_key",
+        lambda **kwargs: "range",  # type: ignore[no-untyped-def]
+    )
+    planner = _PlannerLocateThenHitl()
+    progress_events: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source.json"
+        source.write_text(
+            json.dumps({"sections": [{"id": "s1", "body": "Beginning at NW corner."}]}),
+            encoding="utf-8",
+        )
+        _ = run_transcript_edit_controller_loop(
+            session_manager=_session_manager(orient_baseliner=_OrientBaselinerStateStub(range_state="disputed")),
+            request=TranscriptEditAgentRunRequest(
+                dossier_id="D1",
+                source_transcript_ref=str(source),
+                mode="audit_then_repair_then_promote",
+                max_iterations=3,
+                auto_promote=False,
+                hitl_enabled=True,
+            ),
+            request_id_prefix="resolver-hitl-focused-image-evidence",
+            planner=planner,
+            progress_cb=lambda evt: progress_events.append(evt if isinstance(evt, dict) else {}),
+        )
+    hitl_events = [
+        evt
+        for evt in progress_events
+        if isinstance(evt, dict) and str(evt.get("event_type") or "") == "human_feedback_needed"
+    ]
+    assert hitl_events
+    context = hitl_events[0].get("context") if isinstance(hitl_events[0].get("context"), dict) else {}
+    focused = context.get("focused_image_evidence") if isinstance(context.get("focused_image_evidence"), dict) else {}
+    assert str(((focused.get("tx_image_evidence_region_ref") or {}).get("artifact_path")) or "") == "in-memory://range-region.jpg"
+    assert str(((focused.get("tx_image_evidence_context_ref") or {}).get("artifact_path")) or "") == "in-memory://range-context.jpg"
 
 
 def test_cached_evidence_invalidated_after_transcript_ref_change(monkeypatch) -> None:

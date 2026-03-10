@@ -1,0 +1,21 @@
+{
+  "feedback_post": {
+    "ok": true,
+    "entry": {
+      "submitted_at_epoch_seconds": 1773139532,
+      "prompt_id": "hitl_range_2_resolver",
+      "choice": "r75w",
+      "note": "Confirmed Range 75 West in the deed header/clause.",
+      "metadata": {}
+    },
+    "count": 1,
+    "auto_resume": {
+      "resumed": true,
+      "run_id": "tx_agent_1773139317_3b0f2100",
+      "status": "running"
+    }
+  },
+  "final": {
+    "status": "timeout_polling"
+  }
+}
