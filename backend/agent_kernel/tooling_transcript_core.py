@@ -63,9 +63,23 @@ from .tooling_artifacts import (
     _coerce_artifact_ref,
     _persist_json_artifact,
     _persist_text_artifact,
+    _read_str,
     _read_json_dict,
     _tool_refusal_result,
 )
+
+
+def _bounded_int(raw: Any, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(raw)
+    except Exception:
+        value = default
+    if value < minimum:
+        return minimum
+    if value > maximum:
+        return maximum
+    return value
+
 
 @dataclass
 class TranscriptAuditTool:

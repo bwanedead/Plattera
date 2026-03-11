@@ -16,7 +16,11 @@
 - Keep agent-edited draft save glue in `draft_persistence.py`.
 - Keep terminal status/reason/review decision policy in `result_policy.py`.
 - Keep mutable loop runtime state in `loop_state.py` (single source for iteration mutations).
-- Keep clean/repair per-iteration branch orchestration in `iteration_pipeline.py`.
+- Keep `iteration_pipeline.py` as the stable public facade for `handle_clean_iteration` and `handle_repair_iteration`.
+- Keep clean-iteration orchestration in `iteration_clean_flow.py`.
+- Keep repair-iteration sequencing in `iteration_repair_runtime.py`.
+- Keep repair focus-target/baseline assembly glue in `iteration_repair_focus.py`.
+- Keep repair move/evidence/apply branch handling in `iteration_repair_moves.py`.
 - Keep feedback prompt supersession/polling/consumption and ticket lifecycle state helpers in `feedback_lifecycle.py`.
 - Keep evidence execution adapters, image-evidence shaping, and per-focus evidence cache helpers in `evidence_runtime.py`.
 - Keep focus-key selection/baseline shaping/recommendation helpers in `focus_runtime.py`.
@@ -62,7 +66,7 @@
 - If adjusting Agent Viewer phase/detail payloads, update `run_reporting.py` and preserve existing phase/detail keys.
 - If changing where/how agent-edited drafts are persisted, update `draft_persistence.py`.
 - If changing completion/needs_review/failed decision rules, update `result_policy.py`.
-- If changing per-iteration clean/repair branching behavior, update `iteration_pipeline.py` before `controller.py`.
+- If changing per-iteration clean/repair branching behavior, update `iteration_clean_flow.py` / `iteration_repair_runtime.py` and keep `iteration_pipeline.py` as a thin compatibility facade.
 - If changing feedback polling/supersession/consumption semantics, update `feedback_lifecycle.py` and keep HITL lifecycle payload keys stable.
 - If changing image evidence or cached span/verify/visual evidence behavior, update `evidence_runtime.py`.
 - If changing focus-key fallback/baseline/recommendation behavior, update `focus_runtime.py`.
@@ -97,6 +101,10 @@
 - Related code: `backend/agents/transcript_edit/result_policy.py`
 - Related code: `backend/agents/transcript_edit/loop_state.py`
 - Related code: `backend/agents/transcript_edit/iteration_pipeline.py`
+- Related code: `backend/agents/transcript_edit/iteration_clean_flow.py`
+- Related code: `backend/agents/transcript_edit/iteration_repair_runtime.py`
+- Related code: `backend/agents/transcript_edit/iteration_repair_focus.py`
+- Related code: `backend/agents/transcript_edit/iteration_repair_moves.py`
 - Related code: `backend/agents/transcript_edit/feedback_lifecycle.py`
 - Related code: `backend/agents/transcript_edit/evidence_runtime.py`
 - Related code: `backend/agents/transcript_edit/focus_runtime.py`
