@@ -250,8 +250,8 @@ class ImageToTextQueueService:
 
                     # Create provenance and attach image thumbnails metadata to association for UI
                     try:
-                        from api.endpoints.dossier.dossier_utils import create_transcription_provenance
                         from services.dossier.association_service import TranscriptionAssociationService as _TAS
+                        from services.dossier.transcription_provenance_service import create_transcription_provenance
                         model = (job or {}).get('model') if isinstance(job, dict) else None
                         extraction_mode = (job or {}).get('extraction_mode') if isinstance(job, dict) else None
                         enhancement_settings = (job or {}).get('enhancement_settings') if isinstance(job, dict) else None

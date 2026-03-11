@@ -221,6 +221,16 @@ If forbiddon git actions are needed, **describe exact commands for a human to ru
 ## Build, Test, and Development Commands
 Install backend deps with `pip install -r backend/requirements.txt`, then run `uvicorn main:app --reload` (from `backend/`) or `python main.py` for quick checks. Frontend setup uses `npm install` in `frontend/`, `npm run dev` for local preview, `npm run build` for production, and `npm run tauri:dev` for the desktop shell. Manage secrets through `backend/.env`; update header comments when introducing new variables.
 
+## Linting & Static Governance
+- The repo uses both generic linting and repo-specific static-governance checks.
+- Read `docs/linting/static-governance.md` before changing lint, CI policy, or custom structural rules.
+- Frontend governance entrypoints currently live in `frontend/package.json`:
+  - `npm --prefix frontend run lint`
+  - `npm --prefix frontend run governance`
+  - `npm --prefix frontend run check`
+  - `npm --prefix frontend run check:full`
+- Treat the custom governance rules as architectural policy, not cosmetic style rules.
+
 ## Logs for Agents (Recommended Workflow)
 - Prefer API log access first (stable and filterable), then file reads only if needed.
 - Primary backend log module: `backend/api/logs.py` (API) and `backend/services/logging_service.py` (file/ring config).

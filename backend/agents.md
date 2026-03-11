@@ -13,6 +13,7 @@
 
 ## Allowed changes
 - Safe: add log filters/endpoints, improve diagnostic payloads, adjust retention defaults.
+- Safe: extend backend static-governance rules when they enforce clear layer boundaries without relying on fuzzy heuristics.
 - Avoid casual changes to `/api/logs/*` response shapes because agent workflows depend on them.
 
 ## Commands
@@ -23,8 +24,10 @@
 ## Gotchas
 - `source=active` resolves to the currently active session file, not always `backend/logs/app.log`.
 - Prefer `/api/logs/tail` + filters (`run_id`, `contains`, `exclude`) before large file reads.
+- Read `docs/linting/static-governance.md` before relaxing a backend boundary rule; `backend/api/` is treated as a transport layer, not a dependency for services or pipelines.
 - Avoid monolith drift in high-churn files. Plan for future extension, pivoting, and rewind by keeping responsibilities isolated.
 
 ## Links
+- Docs: `docs/linting/static-governance.md`
 - Related code: `backend/api/logs.py`
 - Related code: `backend/services/logging_service.py`
