@@ -118,8 +118,9 @@ def build_focus_resolver_system_message() -> str:
         "You are a transcript-edit focus resolver. "
         "Return one bounded JSON move object for the current focus item. "
         "The runtime preselects the focus decision_key; do not switch focus to any other item. "
-        "Allowed move values: apply_edit_plan, request_human_feedback, gather_more_evidence, mark_blocked, mark_resolved_no_edit. "
+        "Allowed move values: apply_edit_plan, request_human_feedback, gather_more_evidence, mark_blocked, mark_resolved_no_edit, propose_blocker_updates. "
         "If move=apply_edit_plan, include a valid EditPlanV0 in edit_plan. "
+        "If move=propose_blocker_updates, include blocker_updates[] with structured operations only (add/update/resolve/supersede). "
         "For EditPlanV0 ops, each op must include discriminator field op_type with one of: replace_span, replace_line, replace_clause, rewrite_section. "
         "If move=request_human_feedback, include feedback_prompt with line1, line2, and bounded choices when available. "
         "If move=gather_more_evidence, include evidence_request with fields: kind, decision_key, reason, target. "
@@ -129,6 +130,9 @@ def build_focus_resolver_system_message() -> str:
         "When an existing region is close but imperfect, prefer refine_region over issuing a brand-new select_region. "
         "Treat external_context_injections as persistent semantic state. "
         "Treat blocker_registry and blocker_feedback_state as authoritative loop-state context for blocker counts, HITL pairing, and feedback integration readiness. "
+        "If focus_source=emergent_blocker, use active_emergent_blocker as the primary reasoning frame for this iteration. "
+        "Legacy decision_key fields remain compatibility scaffolding and should be treated as secondary when blocker-centered focus is active. "
+        "Treat blocker_registry.archetype_menu as optional scaffolding only: use archetypes when they fit, but custom:<name> blocker_kind is allowed when needed. "
         "Prioritize removing open mapping blockers before optional work; when focused_blocker_feedback_pair.ready_for_resolution=true, your next move must directly integrate or safely escalate that blocker-ticket pair. "
         "If HITL feedback is present for the focused decision_key, you must explicitly use that feedback when selecting the move. "
         "Do not ignore provided human feedback. "
@@ -174,6 +178,7 @@ def build_focus_resolver_user_message(
             "gather_more_evidence",
             "mark_blocked",
             "mark_resolved_no_edit",
+            "propose_blocker_updates",
         ],
         "required_fields": ["decision_key", "move", "reason", "iteration_summary"],
         "focus_packet": focus_packet,
@@ -203,6 +208,7 @@ def build_focus_resolver_user_message(
             "Resolve mapping blockers before non-blocking cleanup.",
             "Use focused_blocker_feedback_pair + ticket state to decide whether to integrate feedback now, wait for feedback, or issue refined ticket.",
             "If blocker reason changed and prior ticket is stale/superseded, request new focused feedback and explain why prior ticket is being replaced.",
+            "Archetype menu rows are suggestions only; custom:<name> blocker_kind is valid for situational blockers.",
         ],
         "required_feedback_handling": (
             [
@@ -218,6 +224,26 @@ def build_focus_resolver_user_message(
             "move": "apply_edit_plan",
             "reason": "short reason",
             "edit_plan": {"plan_version": "edit_plan_v0", "ops": []},
+            "blocker_updates": [
+                {
+                    "operation": "add",
+                    "blocker_kind": "source_truncation",
+                    "title": "Page Edge Truncates Call",
+                    "blocking_class": "source_blocking",
+                    "reason": "Scan cutoff removes downstream boundary call text.",
+                    "evidence_summary": "Right margin cutoff visible at end of legal description.",
+                    "resolution_condition": "Need additional page or clearer scan.",
+                    "scope_status": "unknown",
+                },
+                {
+                    "operation": "add",
+                    "blocker_kind": "custom:scan_overwrite_ambiguity",
+                    "title": "Overwrite On Bearing Token",
+                    "blocking_class": "mapping_blocking",
+                    "reason": "Overwritten symbol changes bearing interpretation.",
+                    "scope_status": "in_target",
+                },
+            ],
             "feedback_prompt": None,
             "evidence_request": {
                 "kind": "image_evidence",
@@ -258,6 +284,7 @@ def build_focus_resolver_repair_user_message(
             "gather_more_evidence",
             "mark_blocked",
             "mark_resolved_no_edit",
+            "propose_blocker_updates",
         ],
         "move_contract": {
             "apply_edit_plan_requires": ["edit_plan"],

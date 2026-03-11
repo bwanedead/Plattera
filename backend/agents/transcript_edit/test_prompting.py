@@ -50,6 +50,8 @@ def test_focus_resolver_system_message_mentions_binding_answered_unintegrated_gu
     assert "crop_box_normalized" in system_msg
     assert "refine_region" in system_msg
     assert "grid_selection only as fallback" in lower
+    assert "propose_blocker_updates" in system_msg
+    assert "custom:<name>" in system_msg
 
 
 def test_focus_resolver_user_message_emits_hitl_alert_when_feedback_present() -> None:
@@ -114,3 +116,6 @@ def test_focus_resolver_user_message_output_shape_prefers_normalized_select_regi
     target = evidence_request.get("target") if isinstance(evidence_request.get("target"), dict) else {}
     assert str(evidence_request.get("mode") or "") == "select_region"
     assert isinstance(target.get("crop_box_normalized"), dict)
+    assert "propose_blocker_updates" in list(payload.get("allowed_moves") or [])
+    blocker_updates = output_shape.get("blocker_updates")
+    assert isinstance(blocker_updates, list) and len(blocker_updates) >= 1

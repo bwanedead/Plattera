@@ -6,6 +6,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.focus_packet import build_focus_packet
+from backend.agents.transcript_edit.blocker_registry import (
+    apply_proposed_emergent_blocker_updates,
+    initialize_blocker_registry,
+)
 
 
 def test_focus_packet_caps_spans_image_results_and_feedback() -> None:
@@ -157,3 +161,135 @@ def test_focus_packet_preserves_unknown_scope_as_none_for_in_target_flag() -> No
         continuity_log=[],
     )
     assert packet["scope_context"]["in_target_scope"] is None
+
+
+def test_focus_packet_includes_convention_and_emergent_blocker_views() -> None:
+    packet = build_focus_packet(
+        decision_ledger={
+            "items": [
+                {
+                    "key": "range",
+                    "state": "disputed",
+                    "blocking": True,
+                    "closure_requirement": {"mapping_blocking": True},
+                }
+            ]
+        },
+        decision_key="range",
+        blocker_registry={
+            "active_blocker_id": "blocker:range",
+            "counts": {"open": 1, "waiting_feedback": 0, "answered_unintegrated": 0, "resolved": 0, "superseded": 0, "total": 1},
+            "convention_context": {"document_convention": "plss", "convention_confidence": 0.9},
+            "archetype_menu": {"menu_family_candidates": ["plss"], "archetypes": [{"archetype_id": "conflicting_location_token"}]},
+            "emergent": {
+                "active_blocker_id": "emergent:blocker:range",
+                "counts": {"open": 1, "total": 1},
+                "rows": [{"blocker_id": "emergent:blocker:range", "legacy_decision_key": "range"}],
+            },
+            "rows": [{"blocker_id": "blocker:range", "decision_key": "range", "state": "open"}],
+        },
+        source_transcript_ref="in-memory://source.json",
+        source_transcript_hash="sha256:test",
+        span_context=[],
+        image_verification_payload={},
+        feedback=None,
+        continuity_log=[],
+    )
+    blocker_registry = packet.get("blocker_registry")
+    assert isinstance(blocker_registry, dict)
+    convention = blocker_registry.get("convention_context")
+    assert isinstance(convention, dict)
+    assert str(convention.get("document_convention") or "") == "plss"
+    emergent = blocker_registry.get("emergent")
+    assert isinstance(emergent, dict)
+    rows = emergent.get("rows")
+    assert isinstance(rows, list) and len(rows) == 1
+
+
+def test_focus_packet_reflects_runtime_applied_emergent_update() -> None:
+    registry = initialize_blocker_registry(
+        run_id="run-focus-emergent",
+        session_id="session-focus-emergent",
+        source_transcript_ref="in-memory://source.json",
+    )
+    apply_result = apply_proposed_emergent_blocker_updates(
+        registry=registry,
+        blocker_updates=[
+            {
+                "operation": "add",
+                "blocker_kind": "custom:unknown_notation",
+                "title": "Unknown Notation",
+                "blocking_class": "mapping_blocking",
+                "reason": "Unrecognized shorthand in callout.",
+                "scope_status": "unknown",
+            }
+        ],
+        fallback_decision_key="range",
+    )
+    updated = apply_result["registry"]
+    packet = build_focus_packet(
+        decision_ledger={
+            "items": [
+                {
+                    "key": "range",
+                    "state": "disputed",
+                    "blocking": True,
+                    "closure_requirement": {"mapping_blocking": True},
+                }
+            ]
+        },
+        decision_key="range",
+        blocker_registry=updated,
+        source_transcript_ref="in-memory://source.json",
+        source_transcript_hash="sha256:test",
+        span_context=[],
+        image_verification_payload={},
+        feedback=None,
+        continuity_log=[],
+    )
+    emergent = (
+        (packet.get("blocker_registry") or {}).get("emergent")
+        if isinstance(packet.get("blocker_registry"), dict)
+        else {}
+    )
+    rows = [row for row in list((emergent or {}).get("rows") or []) if isinstance(row, dict)]
+    assert any(str(row.get("title") or "") == "Unknown Notation" for row in rows)
+
+
+def test_focus_packet_marks_emergent_focus_source_and_blocker_fields() -> None:
+    packet = build_focus_packet(
+        decision_ledger={
+            "items": [
+                {
+                    "key": "range",
+                    "state": "disputed",
+                    "blocking": True,
+                    "closure_requirement": {"mapping_blocking": True},
+                }
+            ]
+        },
+        decision_key="range",
+        focus_source="emergent_blocker",
+        active_emergent_blocker={
+            "blocker_id": "emergent:agent:test:1",
+            "blocker_kind": "custom:scan_smudge",
+            "title": "Smudge On Range",
+            "blocking_class": "mapping_blocking",
+            "reason": "Digit is smudged",
+            "resolution_condition": "Need clearer image",
+            "candidate_values": ["74", "75"],
+            "next_valid_actions": ["gather_image_evidence", "request_hitl"],
+            "scope_status": "in_target",
+        },
+        source_transcript_ref="in-memory://source.json",
+        source_transcript_hash="sha256:test",
+        span_context=[],
+        image_verification_payload={},
+        feedback=None,
+        continuity_log=[],
+    )
+    assert str(packet.get("focus_source") or "") == "emergent_blocker"
+    blocker = packet.get("active_emergent_blocker")
+    assert isinstance(blocker, dict)
+    assert str(blocker.get("blocker_id") or "") == "emergent:agent:test:1"
+    assert str(blocker.get("blocking_class") or "") == "mapping_blocking"

@@ -11,6 +11,7 @@ from backend.agents.transcript_edit.iteration_pipeline import (
     _image_verify_runtime_config,
     _accept_mark_blocked,
     _accept_mark_resolved_no_edit,
+    _select_focus_target,
     _select_focus_decision_key,
 )
 
@@ -135,6 +136,47 @@ def test_select_focus_decision_key_prioritizes_answered_unintegrated_registry_bl
         },
     )
     assert selected == "section"
+
+
+def test_select_focus_target_prefers_emergent_answered_unintegrated_first() -> None:
+    ledger = {"items": [_ledger_item(key="range", state="disputed"), _ledger_item(key="section", state="disputed")]}
+    selected = _select_focus_target(
+        decision_ledger=ledger,
+        fallback_focus={"decision_key": "range"},
+        focus_feedback=None,
+        blocker_registry={
+            "rows": [
+                {"blocker_id": "blocker:range", "decision_key": "range", "state": "open", "mapping_blocking": True},
+            ],
+            "emergent": {
+                "rows": [
+                    {
+                        "blocker_id": "emergent:a1",
+                        "legacy_decision_key": "section",
+                        "state": "answered_unintegrated",
+                        "blocking_class": "mapping_blocking",
+                    }
+                ]
+            },
+        },
+    )
+    assert str(selected.get("focus_source") or "") == "emergent_blocker"
+    assert str(selected.get("decision_key") or "") == "section"
+
+
+def test_select_focus_target_falls_back_to_legacy_when_no_usable_emergent_blocker() -> None:
+    ledger = {"items": [_ledger_item(key="range", state="disputed")]}
+    selected = _select_focus_target(
+        decision_ledger=ledger,
+        fallback_focus={"decision_key": "range"},
+        focus_feedback=None,
+        blocker_registry={
+            "rows": [{"blocker_id": "blocker:range", "decision_key": "range", "state": "open", "mapping_blocking": True}],
+            "emergent": {"rows": []},
+        },
+    )
+    assert str(selected.get("focus_source") or "") == "legacy_fallback"
+    assert str(selected.get("decision_key") or "") == "range"
 
 
 def test_image_verify_runtime_config_defaults_unchanged_when_validation_mode_off() -> None:

@@ -75,6 +75,7 @@ def resolve_focus_move(
         out.setdefault("iteration_summary", f"Focused on {decision_key}.")
         out.setdefault("feedback_prompt", None)
         out.setdefault("evidence_request", None)
+        out.setdefault("blocker_updates", None)
         out.setdefault("closure_update_hint", None)
         raw_excerpt = str(_raw_move or "").strip()
         if raw_excerpt:
@@ -91,6 +92,7 @@ def resolve_focus_move(
                     "iteration_summary": f"Resolver proposed apply_edit_plan without safe ops for {decision_key}.",
                     "feedback_prompt": None,
                     "evidence_request": None,
+                    "blocker_updates": None,
                     "closure_update_hint": None,
                 }
         return out
@@ -103,6 +105,7 @@ def resolve_focus_move(
             "iteration_summary": f"Resolver failed to return a valid move for {decision_key}.",
             "feedback_prompt": None,
             "evidence_request": None,
+            "blocker_updates": None,
             "closure_update_hint": None,
         }
         if isinstance(answered_ticket, dict):
@@ -123,6 +126,7 @@ def resolve_focus_move(
             "iteration_summary": f"Feedback was received for {decision_key}, but resolver did not produce a usable move.",
             "feedback_prompt": None,
             "evidence_request": None,
+            "blocker_updates": None,
             "closure_update_hint": None,
         }
 
@@ -133,6 +137,7 @@ def resolve_focus_move(
         "iteration_summary": f"Further human feedback is needed to resolve {decision_key}.",
         "feedback_prompt": None,
         "evidence_request": None,
+        "blocker_updates": None,
         "closure_update_hint": None,
     }
 

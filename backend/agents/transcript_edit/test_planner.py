@@ -278,3 +278,28 @@ def test_planner_rejects_multiple_nested_image_evidence_operation_keys() -> None
     )
     assert payload is None
     assert "image_evidence_target_mode_ambiguous" in reason
+
+
+def test_planner_accepts_propose_blocker_updates_move_with_archetype_and_custom_kind() -> None:
+    service = _FakeService(
+        outputs=[
+            (
+                '{"decision_key":"range","move":"propose_blocker_updates","reason":"discover blockers","iteration_summary":"added blockers",'
+                '"blocker_updates":['
+                '{"operation":"add","blocker_kind":"source_truncation","title":"Truncated scan","blocking_class":"source_blocking","reason":"cutoff text","scope_status":"unknown"},'
+                '{"operation":"add","blocker_kind":"custom:scan_overwrite_ambiguity","title":"Overwrite ambiguity","blocking_class":"mapping_blocking","reason":"overwritten token","scope_status":"in_target"}'
+                ']}'
+            )
+        ]
+    )
+    planner = TranscriptEditPlanPlanner(service=service)
+    payload, reason, _raw = planner.propose_focus_move(
+        model="gpt-5.2",
+        focus_packet=_focus_packet_with_answered_ticket(),
+        max_attempts=1,
+    )
+    assert reason == "ok"
+    assert isinstance(payload, dict)
+    assert str(payload.get("move") or "") == "propose_blocker_updates"
+    updates = payload.get("blocker_updates")
+    assert isinstance(updates, list) and len(updates) == 2

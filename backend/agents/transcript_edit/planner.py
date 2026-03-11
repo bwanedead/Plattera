@@ -6,6 +6,7 @@ from typing import Any
 from services.llm.openai import OpenAIService
 from transcript_edit.contracts import EditPlanV0
 
+from .contracts import EmergentBlockerUpdateProposal
 from .prompting import (
     build_focus_resolver_repair_user_message,
     build_focus_resolver_system_message,
@@ -308,6 +309,7 @@ def _coerce_focus_move(
         "gather_more_evidence",
         "mark_blocked",
         "mark_resolved_no_edit",
+        "propose_blocker_updates",
     }
     move = str(parsed.get("move") or "").strip().lower()
     if move not in allowed_moves:
@@ -319,6 +321,7 @@ def _coerce_focus_move(
         "edit_plan": None,
         "feedback_prompt": None,
         "evidence_request": None,
+        "blocker_updates": None,
         "closure_update_hint": None,
         "iteration_summary": str(parsed.get("iteration_summary") or "").strip() or "Focus move selected.",
     }
@@ -398,6 +401,17 @@ def _coerce_focus_move(
                 "amount": target.get("amount"),
             },
         }
+    if move == "propose_blocker_updates":
+        raw_updates = parsed.get("blocker_updates")
+        if not isinstance(raw_updates, list) or len(raw_updates) <= 0:
+            raise ValueError("missing_blocker_updates_for_propose_move")
+        normalized_updates: list[dict[str, Any]] = []
+        for row in raw_updates[:10]:
+            if not isinstance(row, dict):
+                raise ValueError("invalid_blocker_update_entry")
+            proposal = EmergentBlockerUpdateProposal.model_validate(row)
+            normalized_updates.append(proposal.model_dump(mode="json", exclude_none=True))
+        out["blocker_updates"] = normalized_updates
     if isinstance(parsed.get("closure_update_hint"), dict):
         out["closure_update_hint"] = dict(parsed.get("closure_update_hint"))
     return out

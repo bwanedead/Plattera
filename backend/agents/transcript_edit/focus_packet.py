@@ -19,6 +19,8 @@ def build_focus_packet(
     *,
     decision_ledger: dict[str, Any],
     decision_key: str | None,
+    focus_source: str | None = None,
+    active_emergent_blocker: dict[str, Any] | None = None,
     blocker_registry: dict[str, Any] | None = None,
     source_transcript_ref: str | None,
     source_transcript_hash: str,
@@ -66,6 +68,28 @@ def build_focus_packet(
         {
             "active_blocker_id": str(blocker_registry.get("active_blocker_id") or "").strip() or None,
             "counts": dict(blocker_registry.get("counts") or {}),
+            "convention_context": dict(blocker_registry.get("convention_context") or {}),
+            "archetype_menu": {
+                "menu_family_candidates": [
+                    str(value)
+                    for value in list((blocker_registry.get("archetype_menu") or {}).get("menu_family_candidates") or [])
+                    if str(value).strip()
+                ][:10],
+                "archetypes": [
+                    dict(row)
+                    for row in list((blocker_registry.get("archetype_menu") or {}).get("archetypes") or [])
+                    if isinstance(row, dict)
+                ][:20],
+            },
+            "emergent": {
+                "active_blocker_id": str(((blocker_registry.get("emergent") or {}).get("active_blocker_id") or "")).strip() or None,
+                "counts": dict((blocker_registry.get("emergent") or {}).get("counts") or {}),
+                "rows": [
+                    dict(row)
+                    for row in list((blocker_registry.get("emergent") or {}).get("rows") or [])
+                    if isinstance(row, dict)
+                ][:12],
+            },
             "rows": [
                 dict(row)
                 for row in list(blocker_registry.get("rows") or [])
@@ -86,8 +110,34 @@ def build_focus_packet(
             closure_requirement=closure_requirement,
             external_injections=external_injections,
         )
+    emergent_focus = dict(active_emergent_blocker) if isinstance(active_emergent_blocker, dict) else {}
     return {
+        "focus_source": str(focus_source or "legacy_fallback").strip().lower() or "legacy_fallback",
         "decision_key": key,
+        "active_emergent_blocker": (
+            {
+                "blocker_id": str(emergent_focus.get("blocker_id") or "").strip() or None,
+                "blocker_kind": str(emergent_focus.get("blocker_kind") or "").strip().lower() or None,
+                "title": str(emergent_focus.get("title") or "").strip() or None,
+                "blocking_class": str(emergent_focus.get("blocking_class") or "").strip().lower() or None,
+                "reason": str(emergent_focus.get("reason") or "").strip() or None,
+                "evidence_summary": str(emergent_focus.get("evidence_summary") or "").strip() or None,
+                "candidate_values": [
+                    str(value).strip()
+                    for value in list(emergent_focus.get("candidate_values") or [])
+                    if str(value).strip()
+                ][:8],
+                "resolution_condition": str(emergent_focus.get("resolution_condition") or "").strip() or None,
+                "next_valid_actions": [
+                    str(value).strip().lower()
+                    for value in list(emergent_focus.get("next_valid_actions") or [])
+                    if str(value).strip()
+                ][:8],
+                "scope_status": str(emergent_focus.get("scope_status") or "").strip().lower() or None,
+            }
+            if emergent_focus
+            else None
+        ),
         "ledger_item": ledger_item or {},
         "closure_requirement": closure_requirement,
         "scope_context": {

@@ -17,9 +17,30 @@
 - Keep terminal status/reason/review decision policy in `result_policy.py`.
 - Keep mutable loop runtime state in `loop_state.py` (single source for iteration mutations).
 - Keep clean/repair per-iteration branch orchestration in `iteration_pipeline.py`.
+- Keep feedback prompt supersession/polling/consumption and ticket lifecycle state helpers in `feedback_lifecycle.py`.
+- Keep evidence execution adapters, image-evidence shaping, and per-focus evidence cache helpers in `evidence_runtime.py`.
+- Keep focus-key selection/baseline shaping/recommendation helpers in `focus_runtime.py`.
+- Keep resolver move acceptance/gating helpers in `resolver_gates.py`.
+- Keep blocker iteration recap payload shaping/progress emission in `blocker_iteration_reporting.py`.
 - Keep terminal run-result/message/summary composition in `terminalization.py`.
-- Keep mapping-critical decision ledger model/update helpers in `decision_ledger.py` (derived explanatory state for progress/terminal payloads).
+- Keep `decision_ledger.py` as the stable public facade for ledger APIs.
+- Keep ledger state/init/update/ticket mutation helpers in `decision_ledger_state.py`.
+- Keep closure derivation/unresolved requirement/materiality helpers in `decision_ledger_closure.py`.
+- Keep focus selection/ranking/reason helpers in `decision_ledger_focus.py`.
+- Keep scope normalization/source-completeness/scope summary helpers in `decision_ledger_scope.py`.
 - Keep transcript-edit -> mapping handoff packet composition/persistence in `handoff_packet.py`.
+- Keep convention detection and convention-situated menu-family inference in `convention_situating.py`.
+- Keep blocker archetype catalog scaffolding in `blocker_archetypes.py`; archetypes are hints, not mandatory ontology.
+- Keep blocker registry state shaping/default schema/legacy->emergent projection helpers in `blocker_registry_state.py`.
+- Keep blocker registry lifecycle transitions and prompt/ticket/feedback mutation helpers in `blocker_registry_lifecycle.py`.
+- Keep blocker prioritization/selection reason-code helpers in `blocker_registry_selection.py`.
+- Keep blocker registry snapshot/delta/health payload views in `blocker_registry_views.py`.
+- Keep `blocker_registry.py` as a stable public facade for blocker-registry APIs.
+- Keep terminal classification/scoped-success eligibility/scope-status helpers in `terminal_classification.py`.
+- Keep terminal decision rationale and unresolved/attempt summary shaping in `terminal_summary.py`.
+- Keep terminal history/event merge and observability extraction helpers in `terminal_history.py`.
+- Keep terminal HITL/ticket seam and feedback-state summary helpers in `terminal_hitl.py`.
+- Keep `terminalization.py` as the stable public facade exporting `build_run_result`, `terminal_message`, and `terminal_summary`.
 
 ## Allowed changes
 - Safe: improve loop brakes, improve request/response contracts, add endpoint/CLI ergonomics.
@@ -42,9 +63,26 @@
 - If changing where/how agent-edited drafts are persisted, update `draft_persistence.py`.
 - If changing completion/needs_review/failed decision rules, update `result_policy.py`.
 - If changing per-iteration clean/repair branching behavior, update `iteration_pipeline.py` before `controller.py`.
+- If changing feedback polling/supersession/consumption semantics, update `feedback_lifecycle.py` and keep HITL lifecycle payload keys stable.
+- If changing image evidence or cached span/verify/visual evidence behavior, update `evidence_runtime.py`.
+- If changing focus-key fallback/baseline/recommendation behavior, update `focus_runtime.py`.
+- If changing resolver acceptance gates, update `resolver_gates.py`.
+- If changing blocker iteration recap payload details, update `blocker_iteration_reporting.py`.
 - If changing done-event human summary or run-result composition, update `terminalization.py`.
-- If changing mapping-critical checklist items/decision states/evidence shaping, update `decision_ledger.py` and keep payload fields additive.
+- If changing mapping-critical checklist items/decision states/evidence shaping, preserve public imports from `decision_ledger.py` and update the owning split module (`decision_ledger_state.py`, `decision_ledger_closure.py`, `decision_ledger_focus.py`, `decision_ledger_scope.py`).
 - If changing downstream continuity payload shape or storage location, update `handoff_packet.py` and keep fields additive.
+- If changing convention detection or menu-family heuristics, update `convention_situating.py` first.
+- If changing convention-scoped blocker templates, update `blocker_archetypes.py`; do not make archetypes mandatory.
+- If changing blocker row normalization/defaults or legacy->emergent projection, update `blocker_registry_state.py`.
+- If changing blocker lifecycle transitions (waiting/answered/stale/superseded/resolved), update `blocker_registry_lifecycle.py`.
+- If changing blocker selection ordering or reason-code outputs, update `blocker_registry_selection.py`.
+- If changing blocker snapshot/delta/health payload shape, update `blocker_registry_views.py`.
+- Preserve public imports from `blocker_registry.py` unless all callers/tests are updated together.
+- If changing terminal classification, scoped-success eligibility, or next-action class mapping, update `terminal_classification.py`.
+- If changing terminal narrative/why text or unresolved/attempt summaries, update `terminal_summary.py`.
+- If changing closure history attachment, terminal event merge, pending prompt detection, or image-verify observability extraction, update `terminal_history.py`.
+- If changing post-feedback ticket seam summarization or HITL feedback state summary, update `terminal_hitl.py`.
+- Preserve public imports from `terminalization.py` unless all callers/tests are updated together.
 
 ## Links
 - Related code: `backend/agents/transcript_edit/controller.py`
@@ -59,9 +97,30 @@
 - Related code: `backend/agents/transcript_edit/result_policy.py`
 - Related code: `backend/agents/transcript_edit/loop_state.py`
 - Related code: `backend/agents/transcript_edit/iteration_pipeline.py`
+- Related code: `backend/agents/transcript_edit/feedback_lifecycle.py`
+- Related code: `backend/agents/transcript_edit/evidence_runtime.py`
+- Related code: `backend/agents/transcript_edit/focus_runtime.py`
+- Related code: `backend/agents/transcript_edit/resolver_gates.py`
+- Related code: `backend/agents/transcript_edit/blocker_iteration_reporting.py`
 - Related code: `backend/agents/transcript_edit/terminalization.py`
 - Related code: `backend/agents/transcript_edit/decision_ledger.py`
+- Related code: `backend/agents/transcript_edit/decision_ledger_state.py`
+- Related code: `backend/agents/transcript_edit/decision_ledger_closure.py`
+- Related code: `backend/agents/transcript_edit/decision_ledger_focus.py`
+- Related code: `backend/agents/transcript_edit/decision_ledger_scope.py`
 - Related code: `backend/agents/transcript_edit/handoff_packet.py`
+- Related code: `backend/agents/transcript_edit/convention_situating.py`
+- Related code: `backend/agents/transcript_edit/blocker_archetypes.py`
+- Related code: `backend/agents/transcript_edit/blocker_registry.py`
+- Related code: `backend/agents/transcript_edit/blocker_registry_state.py`
+- Related code: `backend/agents/transcript_edit/blocker_registry_lifecycle.py`
+- Related code: `backend/agents/transcript_edit/blocker_registry_selection.py`
+- Related code: `backend/agents/transcript_edit/blocker_registry_views.py`
+- Related code: `backend/agents/transcript_edit/terminalization.py`
+- Related code: `backend/agents/transcript_edit/terminal_classification.py`
+- Related code: `backend/agents/transcript_edit/terminal_summary.py`
+- Related code: `backend/agents/transcript_edit/terminal_history.py`
+- Related code: `backend/agents/transcript_edit/terminal_hitl.py`
 - Related code: `backend/agent_kernel/actions.py`
 - Related code: `backend/agent_kernel/tooling.py`
 - Related code: `backend/transcript_edit/`

@@ -34,10 +34,12 @@ from .decision_ledger import (
 from .blocker_registry import (
     blocker_health_snapshot,
     initialize_blocker_registry,
+    set_convention_context,
     registry_snapshot_for_payload,
     select_primary_blocker,
     sync_registry_from_ledger,
 )
+from .convention_situating import situate_document_convention
 from .hitl_feedback import (
     build_human_feedback_prompt,
     build_range_feedback_plan,
@@ -180,6 +182,11 @@ def run_transcript_edit_controller_loop(
             else None
         ),
     )
+    state.convention_context = (
+        dict((state.blocker_registry or {}).get("convention_context"))
+        if isinstance((state.blocker_registry or {}).get("convention_context"), dict)
+        else {}
+    )
     candidate_count = (
         len(request.candidate_refs)
         if request.candidate_refs
@@ -303,6 +310,33 @@ def run_transcript_edit_controller_loop(
             )
             if isinstance(item, dict)
         ],
+    )
+    state.convention_context = situate_document_convention(
+        orient_items=[
+            item
+            for item in (
+                orient_inline.get("tx_orient_items")
+                if isinstance(orient_inline.get("tx_orient_items"), list)
+                else []
+            )
+            if isinstance(item, dict)
+        ],
+    )
+    state.blocker_registry = set_convention_context(
+        registry=state.blocker_registry,
+        convention_context=state.convention_context,
+    )
+    _emit_progress(
+        progress_cb,
+        ticker_payload(
+            iteration=0,
+            phase="convention_situating",
+            message=(
+                "Document convention situated before blocker selection; archetype menu exposed as advisory scaffolding."
+            ),
+            latest_refs=state.latest_refs,
+            detail=dict(state.convention_context),
+        ),
     )
     state.blocker_registry = sync_registry_from_ledger(
         registry=state.blocker_registry,
@@ -783,6 +817,7 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
             if str(v).strip()
         ][:12],
         "scope_summaries": dict(state.decision_ledger.get("scope_summaries") or {}),
+        "convention_context": dict(state.convention_context or {}),
         "blocker_registry": registry_snapshot_for_payload(state.blocker_registry),
         "active_blocker": select_primary_blocker(state.blocker_registry),
         "blocker_health": blocker_health_snapshot(

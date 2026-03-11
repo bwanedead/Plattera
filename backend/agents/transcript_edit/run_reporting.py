@@ -81,6 +81,40 @@ def ticker_payload(
     return payload
 
 
+def blocker_update_payload(
+    *,
+    iteration: int,
+    latest_refs: dict[str, Any],
+    status: str,
+    operation: str | None,
+    blocker_id: str | None,
+    blocker_kind: str | None,
+    blocking_class: str | None,
+    reason: str | None,
+) -> dict[str, Any]:
+    state = str(status or "").strip().lower() or "unknown"
+    op = str(operation or "").strip().lower() or "unknown"
+    return {
+        "event_type": "blocker_update",
+        **_base_payload(
+            iteration=iteration,
+            phase="blocker_update",
+            message=f"Emergent blocker update {state}: operation={op}.",
+            latest_refs=latest_refs,
+            execution_state="running",
+            stream_kind="ticker",
+        ),
+        "detail": {
+            "status": state,
+            "operation": op,
+            "blocker_id": blocker_id,
+            "blocker_kind": blocker_kind,
+            "blocking_class": blocking_class,
+            "reason": reason,
+        },
+    }
+
+
 def audit_payload(
     *,
     iteration: int,

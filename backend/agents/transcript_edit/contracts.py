@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TranscriptEditAgentRunRequest(BaseModel):
@@ -35,6 +35,56 @@ class TranscriptEditAgentRunRequest(BaseModel):
     resume_pending_feedback_decision_key: Optional[str] = None
     resume_pending_feedback_prompt: dict[str, Any] | None = None
     resume_blocker_registry: dict[str, Any] | None = None
+
+
+class EmergentBlockerUpdateProposal(BaseModel):
+    operation: Literal["add", "update", "resolve", "supersede"]
+    blocker_id: str | None = None
+    blocker_kind: str | None = None
+    title: str | None = None
+    blocking_class: Literal["mapping_blocking", "closure_blocking", "source_blocking", "quality_only"] | None = None
+    reason: str | None = None
+    evidence_summary: str | None = None
+    candidate_values: list[str] = Field(default_factory=list, max_length=10)
+    resolution_condition: str | None = None
+    next_valid_actions: list[str] = Field(default_factory=list, max_length=10)
+    source_completeness_impact: str | None = None
+    scope_status: Literal["in_target", "outside_target", "unknown"] | None = None
+    supersedes_blocker_id: str | None = None
+    linked_ticket_id: str | None = None
+    legacy_decision_key: str | None = None
+    duplicate_rationale: str | None = None
+
+    @field_validator("blocker_kind")
+    @classmethod
+    def _normalize_blocker_kind(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip().lower()
+        return text or None
+
+    @field_validator("source_completeness_impact")
+    @classmethod
+    def _normalize_source_impact(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip().lower()
+        return text or None
+
+    @field_validator("next_valid_actions", mode="before")
+    @classmethod
+    def _normalize_actions(cls, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        out: list[str] = []
+        for row in value:
+            text = str(row).strip().lower()
+            if not text:
+                continue
+            if text in out:
+                continue
+            out.append(text)
+        return out
 
 
 @dataclass(frozen=True)

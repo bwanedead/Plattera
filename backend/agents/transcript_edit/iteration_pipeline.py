@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 from agent_kernel.models import ActionType, StepExecutionState
@@ -25,21 +26,67 @@ from .decision_ledger import (
     update_ledger_from_iteration,
 )
 from .blocker_registry import (
+    apply_proposed_emergent_blocker_updates,
     append_iteration_recap,
     blocker_registry_delta,
     link_prompt_to_blocker,
     mark_feedback_received,
     mark_feedback_stale,
     registry_snapshot_for_payload,
+    select_primary_emergent_blocker_with_reason,
     select_primary_blocker_with_reason,
     select_primary_blocker,
     supersede_prompt_link,
     sync_registry_from_ledger,
 )
+from .blocker_iteration_reporting import append_blocker_iteration_recap
 from .evidence_executor import execute_evidence_request, normalize_evidence_request
+from .evidence_runtime import (
+    cache_image_verification_for_key,
+    cache_span_context_for_key,
+    cache_visual_evidence_for_key,
+    cached_image_verification_for_key,
+    cached_span_context_for_key,
+    cached_visual_evidence_for_key,
+    clear_cached_focus_evidence,
+    coerce_artifact_ref_for_state,
+    coerce_visual_evidence_state,
+    evidence_request_mode_hint,
+    image_verify_runtime_config,
+    open_planner_context_spans_adapter,
+    run_image_evidence_mode,
+    selector_type_from_target,
+    verify_mapping_critical_with_image_adapter,
+    visual_evidence_from_verify_payload,
+)
+from .feedback_lifecycle import (
+    active_ticket_snapshot,
+    append_hitl_lifecycle_event,
+    apply_consumed_feedback,
+    drain_pending_feedback,
+    emit_ticket_lifecycle_transition,
+    feedback_payload_from_registry_row,
+    feedback_payload_from_ticket,
+    latest_human_resolution_ticket,
+    normalize_feedback_selected_value,
+    set_pending_feedback_prompt,
+    stable_feedback_confirmation_count,
+    ticket_lifecycle_snapshot_for_key,
+)
 from .draft_persistence import persist_agent_edit_draft
 from .focus_packet import build_focus_packet
 from .focus_resolver import resolve_focus_move
+from .focus_runtime import (
+    baseline_evidence_attempts,
+    baseline_residual_from_unresolved,
+    conflict_map_from_ledger,
+    decision_key_for_finding,
+    findings_for_focus_key,
+    next_recommended_action_text,
+    recent_image_evidence_attempt_count,
+    registry_row_for_decision_key,
+    select_focus_decision_key,
+)
 from .hitl_feedback import (
     build_feedback_override_plan,
     build_human_feedback_prompt,
@@ -68,6 +115,13 @@ from .plan_interpretation import (
 )
 from .planner import TranscriptEditPlanPlanner
 from .progress_evaluation import blocking_signature, blocking_unresolved_count
+from .resolver_gates import (
+    accept_apply_edit_plan,
+    accept_mark_blocked,
+    accept_mark_resolved_no_edit,
+    extract_validation_error_class,
+    resolver_result_category,
+)
 from .result_policy import (
     TranscriptEditDecision,
     TranscriptEditFacts,
@@ -79,6 +133,7 @@ from .result_policy import (
 )
 from .run_reporting import (
     apply_result_payload,
+    blocker_update_payload,
     final_verify_retry_payload,
     human_feedback_needed_payload,
     human_feedback_prompt_superseded_payload,
@@ -105,6 +160,119 @@ from .run_reporting import (
 )
 
 MAX_EVIDENCE_REPEATS_PER_SIGNATURE = 2
+
+
+def _append_blocker_iteration_recap_for_state(
+    *,
+    state: TranscriptEditLoopState,
+    blocker_registry_before_iteration: dict[str, Any],
+    iterations: int,
+    active_blocker_id: str | None,
+    active_blocker_prior_state: str | None,
+    selection_reason_code: str,
+    action_attempted: str,
+    result: str,
+    decision_key: str | None,
+    reason: str | None,
+    progress_cb: Callable[[dict[str, Any]], None] | None,
+) -> None:
+    state.blocker_registry = append_blocker_iteration_recap(
+        registry=state.blocker_registry,
+        before_registry=blocker_registry_before_iteration,
+        iteration=iterations,
+        active_blocker_id=active_blocker_id,
+        active_blocker_prior_state=active_blocker_prior_state,
+        action_attempted=action_attempted,
+        result=result,
+        decision_key=decision_key,
+        reason=reason,
+        selection_reason_code=selection_reason_code,
+        latest_refs=state.latest_refs,
+        progress_cb=progress_cb,
+    )
+
+
+def _emit_ticket_lifecycle_transition_for_state(
+    *,
+    state: TranscriptEditLoopState,
+    iterations: int,
+    progress_cb: Callable[[dict[str, Any]], None] | None,
+    ticket_id: str | None,
+    decision_key: str | None,
+    lifecycle_state: str,
+    strength: str | None = "binding",
+    relevance: str | None = None,
+    reason: str | None = None,
+) -> None:
+    emit_ticket_lifecycle_transition(
+        state=state,
+        iterations=iterations,
+        latest_refs=state.latest_refs,
+        progress_cb=progress_cb,
+        ticket_id=ticket_id,
+        decision_key=decision_key,
+        lifecycle_state=lifecycle_state,
+        strength=strength,
+        relevance=relevance,
+        reason=reason,
+    )
+
+
+def _build_feedback_prompt_with_optional_image(
+    *,
+    state: TranscriptEditLoopState,
+    iterations: int,
+    image_verification: dict[str, Any],
+    visual_evidence: dict[str, Any],
+) -> dict[str, Any] | None:
+    image_payload = image_verification.get("payload") if isinstance(image_verification, dict) else None
+    prompt = build_human_feedback_prompt(
+        decision_ledger=state.decision_ledger,
+        iteration=iterations,
+        image_verification_payload=image_payload,
+        visual_evidence_state=visual_evidence,
+    )
+    if not isinstance(prompt, dict):
+        return None
+    context = prompt.get("context")
+    if not isinstance(context, dict):
+        context = {}
+        prompt["context"] = context
+    focused = context.get("focused_image_evidence")
+    focused_dict = focused if isinstance(focused, dict) else {}
+    focused_region_ref = _coerce_artifact_ref_for_state(focused_dict.get("tx_image_evidence_region_ref"))
+    focused_context_ref = _coerce_artifact_ref_for_state(focused_dict.get("tx_image_evidence_context_ref"))
+    if focused_region_ref is not None or focused_context_ref is not None:
+        return prompt
+    visual_region_ref = _coerce_artifact_ref_for_state((visual_evidence or {}).get("tx_image_evidence_region_ref"))
+    visual_context_ref = _coerce_artifact_ref_for_state((visual_evidence or {}).get("tx_image_evidence_context_ref"))
+    latest_region_ref = _coerce_artifact_ref_for_state((state.latest_refs.get("tx_image_evidence_region_ref") or {}))
+    latest_context_ref = _coerce_artifact_ref_for_state((state.latest_refs.get("tx_image_evidence_context_ref") or {}))
+    region_ref = visual_region_ref or latest_region_ref
+    context_ref = visual_context_ref or latest_context_ref
+    if region_ref is None and context_ref is None:
+        return prompt
+    context["focused_image_evidence"] = {
+        "check_id": str((visual_evidence or {}).get("check_id") or "").strip() or None,
+        "status": str((visual_evidence or {}).get("status") or "").strip().lower() or None,
+        "query": str((visual_evidence or {}).get("query") or "").strip()[:220] or None,
+        "observed_text": str((visual_evidence or {}).get("observed_text") or "").strip()[:220] or None,
+        "crop_box": (
+            dict((visual_evidence or {}).get("crop_box"))
+            if isinstance((visual_evidence or {}).get("crop_box"), dict)
+            else None
+        ),
+        "zoom_factor": (visual_evidence or {}).get("zoom_factor"),
+        "selector_type": str((visual_evidence or {}).get("selector_type") or "").strip().lower() or None,
+        "region_lineage": (
+            dict((visual_evidence or {}).get("region_lineage"))
+            if isinstance((visual_evidence or {}).get("region_lineage"), dict)
+            else {}
+        ),
+        "tx_image_evidence_region_ref": region_ref,
+        "tx_image_evidence_context_ref": context_ref,
+    }
+    return prompt
 
 
 def handle_clean_iteration(
@@ -345,59 +513,44 @@ def handle_repair_iteration(
     active_blocker_id = str((primary_registry_blocker or {}).get("blocker_id") or "").strip() or None
     active_blocker_prior_state = str((primary_registry_blocker or {}).get("state") or "").strip().lower() or None
 
-    def _append_blocker_iteration_recap(
-        *,
-        action_attempted: str,
-        result: str,
-        decision_key: str | None,
-        reason: str | None = None,
-    ) -> None:
-        row = _registry_row_for_decision_key(
-            registry=state.blocker_registry,
-            decision_key=decision_key,
-        )
-        new_state = str((row or {}).get("state") or "").strip().lower() or None
-        delta = blocker_registry_delta(
-            before_registry=blocker_registry_before_iteration,
-            after_registry=state.blocker_registry,
-        )
-        state.blocker_registry = append_iteration_recap(
-            registry=state.blocker_registry,
-            iteration=iterations,
-            active_blocker_id=active_blocker_id,
-            prior_state=active_blocker_prior_state,
-            action_attempted=action_attempted,
-            result=result,
-            new_state=new_state,
-            reason=reason,
-            blocker_delta=delta,
-        )
-        emit_progress(
-            progress_cb,
-            ticker_payload(
-                iteration=iterations,
-                phase="blocker_registry_iteration",
-                message=f"Blocker iteration recap: action={action_attempted}, result={result}.",
-                latest_refs=state.latest_refs,
-                detail={
-                    "active_blocker_id": active_blocker_id,
-                    "prior_state": active_blocker_prior_state,
-                    "decision_key": str(decision_key or "").strip().lower() or None,
-                    "new_state": new_state,
-                    "reason": str(reason or "").strip() or None,
-                    "counts": dict((state.blocker_registry or {}).get("counts") or {}),
-                    "selection_reason_code": selection_reason_code,
-                    "blocker_delta": delta,
-                },
-            ),
-        )
-
-    def _append_hitl_lifecycle_event(event: dict[str, Any]) -> None:
-        if not isinstance(event, dict):
-            return
-        state.hitl_lifecycle_log.append(event)
-        if len(state.hitl_lifecycle_log) > 120:
-            state.hitl_lifecycle_log = state.hitl_lifecycle_log[-120:]
+    append_blocker_iteration_recap_fn = partial(
+        _append_blocker_iteration_recap_for_state,
+        state=state,
+        blocker_registry_before_iteration=blocker_registry_before_iteration,
+        iterations=iterations,
+        active_blocker_id=active_blocker_id,
+        active_blocker_prior_state=active_blocker_prior_state,
+        selection_reason_code=selection_reason_code,
+        progress_cb=progress_cb,
+    )
+    emit_ticket_lifecycle_transition_fn = partial(
+        _emit_ticket_lifecycle_transition_for_state,
+        state=state,
+        iterations=iterations,
+        progress_cb=progress_cb,
+    )
+    set_pending_feedback_prompt_fn = partial(
+        set_pending_feedback_prompt,
+        state=state,
+        iterations=iterations,
+        latest_refs=state.latest_refs,
+        progress_cb=progress_cb,
+        emit_ticket_lifecycle_transition_fn=emit_ticket_lifecycle_transition_fn,
+    )
+    drain_pending_feedback_fn = partial(
+        drain_pending_feedback,
+        state=state,
+        viewer_run_id=viewer_run_id,
+        iterations=iterations,
+        latest_refs=state.latest_refs,
+        progress_cb=progress_cb,
+        append_blocker_iteration_recap_fn=append_blocker_iteration_recap_fn,
+        emit_ticket_lifecycle_transition_fn=emit_ticket_lifecycle_transition_fn,
+        list_feedback_entries_fn=list_feedback_entries,
+        poll_feedback_response_fn=poll_feedback_response,
+        feedback_entry_signature_fn=feedback_entry_signature,
+        normalize_feedback_response_fn=normalize_feedback_response,
+    )
 
     if (
         isinstance(primary_registry_blocker, dict)
@@ -422,418 +575,13 @@ def handle_repair_iteration(
                 ),
             )
 
-    def _emit_ticket_lifecycle_transition(
-        *,
-        ticket_id: str | None,
-        decision_key: str | None,
-        lifecycle_state: str,
-        strength: str | None = "binding",
-        relevance: str | None = None,
-        reason: str | None = None,
-    ) -> None:
-        if not str(ticket_id or "").strip():
-            return
-        _append_hitl_lifecycle_event(
-            {
-                "iteration": iterations,
-                "phase": f"ticket_{str(lifecycle_state or '').strip().lower() or 'unknown'}",
-                "event_type": "human_resolution_ticket",
-                "ticket_id": str(ticket_id or "").strip() or None,
-                "decision_key": str(decision_key or "").strip().lower() or None,
-                "lifecycle_state": str(lifecycle_state or "").strip().lower() or None,
-                "strength": str(strength or "").strip().lower() or None,
-                "relevance": str(relevance or "").strip().lower() or None,
-                "reason": str(reason or "").strip() or None,
-            }
-        )
-        emit_progress(
-            progress_cb,
-            human_resolution_ticket_state_payload(
-                iteration=iterations,
-                latest_refs=state.latest_refs,
-                ticket_id=str(ticket_id or "").strip() or None,
-                decision_key=str(decision_key or "").strip().lower() or None,
-                lifecycle_state=str(lifecycle_state or "").strip().lower() or "unknown",
-                strength=str(strength or "").strip().lower() or None,
-                relevance=str(relevance or "").strip().lower() or None,
-                reason=str(reason or "").strip() or None,
-            ),
-        )
-
-    def _set_pending_feedback_prompt(
-        *,
-        feedback_prompt: dict[str, Any],
-        decision_key: str,
-        supersession_reason: str,
-    ) -> None:
-        new_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
-        old_prompt_id = str(state.pending_feedback_prompt_id or "").strip() or None
-        if old_prompt_id and new_prompt_id and old_prompt_id != new_prompt_id:
-            state.feedback_superseded_count += 1
-            state.superseded_feedback_prompt_ids.add(old_prompt_id)
-            state.decision_ledger = mark_human_resolution_ticket_state(
-                ledger=state.decision_ledger,
-                ticket_id=old_prompt_id,
-                decision_key=decision_key,
-                lifecycle_state="superseded",
-                relevance="inactive",
-            )
-            _emit_ticket_lifecycle_transition(
-                ticket_id=old_prompt_id,
-                decision_key=decision_key,
-                lifecycle_state="superseded",
-                relevance="inactive",
-                reason=supersession_reason,
-            )
-            superseded_event = {
-                "iteration": iterations,
-                "phase": "human_feedback_prompt_superseded",
-                "event_type": "human_feedback_needed",
-                "prompt_id": old_prompt_id,
-                "replacement_prompt_id": new_prompt_id,
-                "decision_key": decision_key,
-                "reason": supersession_reason,
-            }
-            _append_hitl_lifecycle_event(superseded_event)
-            emit_progress(
-                progress_cb,
-                human_feedback_prompt_superseded_payload(
-                    iteration=iterations,
-                    latest_refs=state.latest_refs,
-                    superseded_prompt_id=old_prompt_id,
-                    replacement_prompt_id=new_prompt_id,
-                    decision_key=decision_key or None,
-                    reason=supersession_reason,
-                ),
-            )
-            state.blocker_registry = supersede_prompt_link(
-                registry=state.blocker_registry,
-                decision_key=decision_key,
-                old_prompt_id=old_prompt_id,
-                new_prompt_id=new_prompt_id,
-                reason=supersession_reason,
-            )
-        state.pending_feedback_prompt_id = new_prompt_id
-        state.pending_feedback_prompt = feedback_prompt if isinstance(feedback_prompt, dict) else None
-        state.pending_feedback_decision_key = decision_key or None
-        state.pending_feedback_emitted_iteration = iterations
-        if new_prompt_id:
-            state.decision_ledger = upsert_human_resolution_ticket(
-                ledger=state.decision_ledger,
-                ticket_id=new_prompt_id,
-                decision_key=decision_key,
-                lifecycle_state="issued_waiting_feedback",
-                strength="binding",
-                payload={
-                    "issue_summary": str(feedback_prompt.get("line1") or "").strip(),
-                    "original_prompt_summary": str(feedback_prompt.get("line2") or "").strip(),
-                    "selected_choice": None,
-                    "normalized_answer_summary": None,
-                    "note": None,
-                    "alternatives": [
-                        str(v).strip()
-                        for v in list(feedback_prompt.get("choices") or [])
-                        if str(v).strip()
-                    ][:6],
-                },
-                relevance="active",
-            )
-            state.blocker_registry = link_prompt_to_blocker(
-                registry=state.blocker_registry,
-                decision_key=decision_key,
-                prompt_id=new_prompt_id,
-                ticket_id=new_prompt_id,
-                reason="hitl_prompt_issued",
-            )
-        _append_hitl_lifecycle_event(
-            {
-                "iteration": iterations,
-                "phase": "human_feedback_needed",
-                "event_type": "human_feedback_needed",
-                "prompt_id": new_prompt_id,
-                "decision_key": decision_key or None,
-            }
-        )
-
-    def _drain_pending_feedback(*, checkpoint_label: str) -> dict[str, Any] | None:
-        if not state.pending_feedback_prompt_id:
-            return None
-        pending_prompt_id = str(state.pending_feedback_prompt_id or "").strip()
-        all_entries = list_feedback_entries(run_id=viewer_run_id)
-        if all_entries:
-            for entry in all_entries:
-                signature = feedback_entry_signature(entry)
-                if signature in state.feedback_entry_seen_keys:
-                    continue
-                entry_prompt_id = str(entry.get("prompt_id") or "").strip()
-                if not entry_prompt_id:
-                    continue
-                if entry_prompt_id == pending_prompt_id:
-                    continue
-                state.feedback_entry_seen_keys.add(signature)
-                state.feedback_stale_count += 1
-                stale_decision_key = (
-                    str(entry.get("metadata", {}).get("decision_key") or "").strip().lower()
-                    if isinstance(entry.get("metadata"), dict)
-                    else ""
-                ) or str(state.pending_feedback_decision_key or "").strip().lower()
-                stale_reason = (
-                    "superseded_prompt_reply"
-                    if entry_prompt_id in state.superseded_feedback_prompt_ids
-                    else "stale_prompt_reply"
-                )
-                if entry_prompt_id and stale_decision_key:
-                    state.decision_ledger = mark_human_resolution_ticket_state(
-                        ledger=state.decision_ledger,
-                        ticket_id=entry_prompt_id,
-                        decision_key=stale_decision_key,
-                        lifecycle_state="stale",
-                        relevance="inactive",
-                    )
-                    _emit_ticket_lifecycle_transition(
-                        ticket_id=entry_prompt_id,
-                        decision_key=stale_decision_key,
-                        lifecycle_state="stale",
-                        relevance="inactive",
-                        reason="stale_prompt_reply",
-                    )
-                    state.blocker_registry = mark_feedback_stale(
-                        registry=state.blocker_registry,
-                        decision_key=stale_decision_key,
-                        prompt_id=entry_prompt_id,
-                        reason=stale_reason,
-                    )
-                stale_event = {
-                    "iteration": iterations,
-                    "phase": "human_feedback_stale",
-                    "event_type": "human_feedback",
-                    "prompt_id": entry_prompt_id,
-                    "active_prompt_id": pending_prompt_id,
-                    "reason": stale_reason,
-                }
-                _append_hitl_lifecycle_event(stale_event)
-                emit_progress(
-                    progress_cb,
-                    human_feedback_stale_payload(
-                        iteration=iterations,
-                        latest_refs=state.latest_refs,
-                        prompt_id=entry_prompt_id,
-                        active_prompt_id=pending_prompt_id,
-                        reason=stale_reason,
-                    ),
-                )
-                _append_blocker_iteration_recap(
-                    action_attempted="consume_feedback",
-                    result="feedback_stale_ignored",
-                    decision_key=stale_decision_key,
-                    reason=stale_reason,
-                )
-        feedback_entry = poll_feedback_response(
-            run_id=viewer_run_id,
-            prompt_id=pending_prompt_id,
-        )
-        if feedback_entry is None:
-            return None
-        signature = feedback_entry_signature(feedback_entry)
-        if signature in state.feedback_entry_seen_keys:
-            return None
-        state.feedback_entry_seen_keys.add(signature)
-        state.feedback_received_count += 1
-        _append_hitl_lifecycle_event(
-            {
-                "iteration": iterations,
-                "phase": "human_feedback_received",
-                "event_type": "human_feedback",
-                "prompt_id": pending_prompt_id,
-                "decision_key": state.pending_feedback_decision_key,
-            }
-        )
-        emit_progress(
-            progress_cb,
-            human_feedback_received_payload(
-                iteration=iterations,
-                latest_refs=state.latest_refs,
-                prompt_id=pending_prompt_id,
-                feedback_entry=feedback_entry,
-            ),
-        )
-        normalized_feedback = normalize_feedback_response(
-            feedback_entry=feedback_entry,
-            prompt_id=pending_prompt_id,
-            prompt_context=state.pending_feedback_prompt,
-        )
-        if not isinstance(normalized_feedback, dict):
-            state.feedback_stale_count += 1
-            state.blocker_registry = mark_feedback_stale(
-                registry=state.blocker_registry,
-                decision_key=str(state.pending_feedback_decision_key or "").strip().lower(),
-                prompt_id=pending_prompt_id,
-                reason="invalid_feedback_payload",
-            )
-            _append_hitl_lifecycle_event(
-                {
-                    "iteration": iterations,
-                    "phase": "human_feedback_stale",
-                    "event_type": "human_feedback",
-                    "prompt_id": pending_prompt_id,
-                    "active_prompt_id": pending_prompt_id,
-                    "reason": "invalid_feedback_payload",
-                }
-            )
-            emit_progress(
-                progress_cb,
-                human_feedback_stale_payload(
-                    iteration=iterations,
-                    latest_refs=state.latest_refs,
-                    prompt_id=pending_prompt_id,
-                    active_prompt_id=pending_prompt_id,
-                    reason="invalid_feedback_payload",
-                ),
-            )
-            return None
-        emit_progress(
-            progress_cb,
-            ticker_payload(
-                iteration=iterations,
-                phase="human_feedback_needed",
-                message=f"Feedback received at {checkpoint_label}; incorporating into current iteration.",
-                latest_refs=state.latest_refs,
-            ),
-        )
-        active_prompt_context = (
-            dict(state.pending_feedback_prompt)
-            if isinstance(state.pending_feedback_prompt, dict)
-            else {}
-        )
-        state.used_human_feedback = True
-        state.feedback_consumed_count += 1
-        state.pending_feedback_prompt_id = None
-        state.pending_feedback_prompt = None
-        state.pending_feedback_decision_key = None
-        state.pending_feedback_emitted_iteration = None
-        state.decision_ledger = upsert_human_resolution_ticket(
-            ledger=state.decision_ledger,
-            ticket_id=pending_prompt_id,
-            decision_key=str(normalized_feedback.get("decision_key") or "").strip().lower(),
-            lifecycle_state="answered_unintegrated",
-            strength="binding",
-            payload={
-                "issue_summary": str(active_prompt_context.get("line1") or "").strip(),
-                "original_prompt_summary": str(active_prompt_context.get("line2") or "").strip(),
-                "selected_choice": str(normalized_feedback.get("choice") or "").strip() or None,
-                "normalized_answer_summary": str(normalized_feedback.get("selected_value") or "").strip() or None,
-                "note": str(normalized_feedback.get("note") or "").strip() or None,
-                "alternatives": [
-                    str(v).strip()
-                    for v in list(active_prompt_context.get("choices") or [])
-                    if str(v).strip()
-                ][:6],
-            },
-            answered_at=int(time.time()),
-            relevance="active",
-        )
-        state.blocker_registry = mark_feedback_received(
-            registry=state.blocker_registry,
-            decision_key=str(normalized_feedback.get("decision_key") or "").strip().lower(),
-            prompt_id=pending_prompt_id,
-            feedback_value=str(normalized_feedback.get("selected_value") or "").strip() or None,
-            feedback_note=str(normalized_feedback.get("note") or "").strip() or None,
-            reason="feedback_received_for_pending_prompt",
-        )
-        _emit_ticket_lifecycle_transition(
-            ticket_id=pending_prompt_id,
-            decision_key=str(normalized_feedback.get("decision_key") or "").strip().lower(),
-            lifecycle_state="answered_unintegrated",
-            relevance="active",
-            reason=checkpoint_label,
-        )
-        _append_hitl_lifecycle_event(
-            {
-                "iteration": iterations,
-                "phase": "human_feedback_consumed",
-                "event_type": "human_feedback",
-                "prompt_id": pending_prompt_id,
-                "decision_key": normalized_feedback.get("decision_key"),
-                "selected_value": normalized_feedback.get("selected_value"),
-            }
-        )
-        emit_progress(
-            progress_cb,
-            human_feedback_consumed_payload(
-                iteration=iterations,
-                latest_refs=state.latest_refs,
-                prompt_id=pending_prompt_id,
-                decision_key=str(normalized_feedback.get("decision_key") or "").strip() or None,
-                selected_value=str(normalized_feedback.get("selected_value") or "").strip() or None,
-            ),
-        )
-        return normalized_feedback
-
-    def _apply_consumed_feedback(feedback_payload: dict[str, Any]) -> None:
-        nonlocal focus_feedback
-        focus_feedback = feedback_payload
-        state.latest_feedback = feedback_payload
-        state.evidence_signal_counter += 1
-        state.no_progress_streak = 0
-        state.last_progress_reason = "human_feedback_consumed"
-
     span_context: list[dict[str, Any]] = []
     image_verification: dict[str, Any] = {}
     visual_evidence: dict[str, Any] = {}
 
-    def _build_feedback_prompt_with_optional_image() -> dict[str, Any] | None:
-        image_payload = image_verification.get("payload") if isinstance(image_verification, dict) else None
-        prompt = build_human_feedback_prompt(
-            decision_ledger=state.decision_ledger,
-            iteration=iterations,
-            image_verification_payload=image_payload,
-            visual_evidence_state=visual_evidence,
-        )
-        if not isinstance(prompt, dict):
-            return None
-        context = prompt.get("context")
-        if not isinstance(context, dict):
-            context = {}
-            prompt["context"] = context
-        focused = context.get("focused_image_evidence")
-        focused_dict = focused if isinstance(focused, dict) else {}
-        focused_region_ref = _coerce_artifact_ref_for_state(focused_dict.get("tx_image_evidence_region_ref"))
-        focused_context_ref = _coerce_artifact_ref_for_state(focused_dict.get("tx_image_evidence_context_ref"))
-        if focused_region_ref is not None or focused_context_ref is not None:
-            return prompt
-        visual_region_ref = _coerce_artifact_ref_for_state((visual_evidence or {}).get("tx_image_evidence_region_ref"))
-        visual_context_ref = _coerce_artifact_ref_for_state((visual_evidence or {}).get("tx_image_evidence_context_ref"))
-        latest_region_ref = _coerce_artifact_ref_for_state((state.latest_refs.get("tx_image_evidence_region_ref") or {}))
-        latest_context_ref = _coerce_artifact_ref_for_state((state.latest_refs.get("tx_image_evidence_context_ref") or {}))
-        region_ref = visual_region_ref or latest_region_ref
-        context_ref = visual_context_ref or latest_context_ref
-        if region_ref is None and context_ref is None:
-            return prompt
-        context["focused_image_evidence"] = {
-            "check_id": str((visual_evidence or {}).get("check_id") or "").strip() or None,
-            "status": str((visual_evidence or {}).get("status") or "").strip().lower() or None,
-            "query": str((visual_evidence or {}).get("query") or "").strip()[:220] or None,
-            "observed_text": str((visual_evidence or {}).get("observed_text") or "").strip()[:220] or None,
-            "crop_box": (
-                dict((visual_evidence or {}).get("crop_box"))
-                if isinstance((visual_evidence or {}).get("crop_box"), dict)
-                else None
-            ),
-            "zoom_factor": (visual_evidence or {}).get("zoom_factor"),
-            "selector_type": str((visual_evidence or {}).get("selector_type") or "").strip().lower() or None,
-            "region_lineage": (
-                dict((visual_evidence or {}).get("region_lineage"))
-                if isinstance((visual_evidence or {}).get("region_lineage"), dict)
-                else {}
-            ),
-            "tx_image_evidence_region_ref": region_ref,
-            "tx_image_evidence_context_ref": context_ref,
-        }
-        return prompt
-
-    drained_plan = _drain_pending_feedback(checkpoint_label="iteration_start")
+    drained_plan = drain_pending_feedback_fn(checkpoint_label="iteration_start")
     if drained_plan is not None:
-        _apply_consumed_feedback(drained_plan)
+        focus_feedback = apply_consumed_feedback(state=state, feedback_payload=drained_plan)
         emit_progress(
             progress_cb,
             human_feedback_reused_payload(
@@ -857,9 +605,9 @@ def handle_repair_iteration(
         # One bounded last-chance drain before no-progress terminalization so
         # newly posted feedback for an active pending prompt is not skipped.
         if state.pending_feedback_prompt_id:
-            drained_plan = _drain_pending_feedback(checkpoint_label="no_progress_grace")
+            drained_plan = drain_pending_feedback_fn(checkpoint_label="no_progress_grace")
             if drained_plan is not None:
-                _apply_consumed_feedback(drained_plan)
+                focus_feedback = apply_consumed_feedback(state=state, feedback_payload=drained_plan)
                 emit_progress(
                     progress_cb,
                     human_feedback_reused_payload(
@@ -889,7 +637,7 @@ def handle_repair_iteration(
                 source_transcript_ref=state.current_transcript_ref,
                 source_transcript_hash=source_transcript_hash,
             )
-            feedback_prompt = _build_feedback_prompt_with_optional_image()
+            feedback_prompt = _build_feedback_prompt_with_optional_image(state=state, iterations=iterations, image_verification=image_verification, visual_evidence=visual_evidence)
             if isinstance(feedback_prompt, dict):
                 emit_progress(
                     progress_cb,
@@ -924,13 +672,13 @@ def handle_repair_iteration(
                     if isinstance(feedback_prompt.get("context"), dict)
                     else ""
                 ) or no_progress_focus_key
-                _set_pending_feedback_prompt(
+                set_pending_feedback_prompt_fn(
                     feedback_prompt=feedback_prompt,
                     decision_key=prompt_decision_key,
                     supersession_reason="fallback_no_progress_repeated_image_evidence",
                 )
                 state.last_reason = "tx_agent_waiting_feedback_fallback_no_progress"
-                _append_blocker_iteration_recap(
+                append_blocker_iteration_recap_fn(
                     action_attempted="fallback_request_hitl",
                     result="waiting_feedback",
                     decision_key=prompt_decision_key,
@@ -945,7 +693,7 @@ def handle_repair_iteration(
         if state.last_progress_reason and state.last_progress_reason != "not_evaluated":
             reason = f"{reason}:{state.last_progress_reason}"
         if state.no_progress_streak >= request.max_no_progress_iterations:
-            _append_blocker_iteration_recap(
+            append_blocker_iteration_recap_fn(
                 action_attempted="no_progress_guard",
                 result="needs_review",
                 decision_key=state.last_focus_key,
@@ -1026,7 +774,7 @@ def handle_repair_iteration(
             ),
         )
         state.last_reason = "tx_agent_closure_requirements_unresolved"
-        _append_blocker_iteration_recap(
+        append_blocker_iteration_recap_fn(
             action_attempted="await_feedback",
             result="no_advance",
             decision_key=state.pending_feedback_decision_key,
@@ -1035,14 +783,23 @@ def handle_repair_iteration(
         return None
 
     fallback_focus = mapping_focus or ledger_focus_fallback
-    focus_key = _select_focus_decision_key(
+    focus_target = _select_focus_target(
         blocker_registry=state.blocker_registry,
         decision_ledger=state.decision_ledger,
         fallback_focus=fallback_focus,
         focus_feedback=focus_feedback,
     )
+    focus_key = str((focus_target or {}).get("decision_key") or "").strip().lower()
+    focus_source = str((focus_target or {}).get("focus_source") or "legacy_fallback").strip().lower() or "legacy_fallback"
+    focus_reason_code = str((focus_target or {}).get("focus_reason_code") or "fallback_focus").strip() or "fallback_focus"
+    active_emergent_blocker = (
+        dict((focus_target or {}).get("active_blocker"))
+        if isinstance((focus_target or {}).get("active_blocker"), dict)
+        else None
+    )
     if (
-        not str((mapping_focus or {}).get("decision_key") or "").strip()
+        focus_source == "legacy_fallback"
+        and not str((mapping_focus or {}).get("decision_key") or "").strip()
         and str((ledger_focus_fallback or {}).get("decision_key") or "").strip()
         and str((ledger_focus_fallback or {}).get("decision_key") or "").strip().lower() == str(focus_key or "").strip().lower()
     ):
@@ -1057,12 +814,13 @@ def handle_repair_iteration(
                     "focus_decision_key": str(focus_key or "").strip().lower() or None,
                     "fallback_driven": True,
                     "fallback_source": "choose_investigation_focus",
+                    "focus_source": focus_source,
                 },
             ),
         )
     mapping_focus = fallback_focus or {"decision_key": focus_key}
     if not str(focus_key or "").strip():
-        _append_blocker_iteration_recap(
+        append_blocker_iteration_recap_fn(
             action_attempted="resolver_focus_selection",
             result="needs_review",
             decision_key=None,
@@ -1092,10 +850,16 @@ def handle_repair_iteration(
                 "focus_decision_key": normalized_focus_key or None,
                 "previous_focus_decision_key": prior_focus_key or None,
                 "focus_advanced": bool(focus_advanced),
-                "focus_reason_code": (
-                    "blocker_registry_primary"
-                    if str((mapping_focus or {}).get("decision_key") or "").strip().lower() == normalized_focus_key
-                    else "fallback_focus"
+                "focus_reason_code": focus_reason_code,
+                "focus_source": focus_source,
+                "active_blocker_id": (
+                    str((active_emergent_blocker or {}).get("blocker_id") or "").strip() or None
+                ),
+                "active_blocker_kind": (
+                    str((active_emergent_blocker or {}).get("blocker_kind") or "").strip().lower() or None
+                ),
+                "active_blocker_blocking_class": (
+                    str((active_emergent_blocker or {}).get("blocking_class") or "").strip().lower() or None
                 ),
                 "focus_stagnation_streak": int(state.focus_stagnation_streak),
             },
@@ -1123,6 +887,8 @@ def handle_repair_iteration(
         decision_ledger=state.decision_ledger,
         blocker_registry=state.blocker_registry,
         decision_key=focus_key or None,
+        focus_source=focus_source,
+        active_emergent_blocker=active_emergent_blocker,
         source_transcript_ref=state.current_transcript_ref,
         source_transcript_hash=source_transcript_hash,
         span_context=span_context,
@@ -1190,7 +956,14 @@ def handle_repair_iteration(
             raw_output_excerpt=raw_output_excerpt,
         ),
     )
-    supported_moves = {"gather_more_evidence", "apply_edit_plan", "request_human_feedback", "mark_blocked", "mark_resolved_no_edit"}
+    supported_moves = {
+        "gather_more_evidence",
+        "apply_edit_plan",
+        "request_human_feedback",
+        "mark_blocked",
+        "mark_resolved_no_edit",
+        "propose_blocker_updates",
+    }
     if move not in supported_moves:
         fallback_requested_hitl = (
             request.hitl_enabled
@@ -1199,7 +972,7 @@ def handle_repair_iteration(
             and mapping_blocking_count > 0
         )
         if fallback_requested_hitl:
-            feedback_prompt = _build_feedback_prompt_with_optional_image()
+            feedback_prompt = _build_feedback_prompt_with_optional_image(state=state, iterations=iterations, image_verification=image_verification, visual_evidence=visual_evidence)
             if feedback_prompt is not None:
                 emit_progress(
                     progress_cb,
@@ -1225,13 +998,13 @@ def handle_repair_iteration(
                         evidence_attempts=evidence_attempts_counts,
                     ),
                 )
-                _set_pending_feedback_prompt(
+                set_pending_feedback_prompt_fn(
                     feedback_prompt=feedback_prompt,
                     decision_key=str((feedback_prompt.get("context") or {}).get("decision_key") or "").strip().lower(),
                     supersession_reason="fallback_resolver_unusable_move",
                 )
                 state.last_reason = "tx_agent_closure_requirements_unresolved"
-                _append_blocker_iteration_recap(
+                append_blocker_iteration_recap_fn(
                     action_attempted="resolver_unusable_move",
                     result="waiting_feedback",
                     decision_key=focus_key,
@@ -1239,7 +1012,7 @@ def handle_repair_iteration(
                 )
                 return None
         state.last_reason = "tx_agent_closure_requirements_unresolved"
-        _append_blocker_iteration_recap(
+        append_blocker_iteration_recap_fn(
             action_attempted="resolver_unusable_move",
             result="no_advance",
             decision_key=focus_key,
@@ -1331,14 +1104,14 @@ def handle_repair_iteration(
                     lifecycle_state="integration_attempted_failed",
                     relevance="active",
                 )
-                _emit_ticket_lifecycle_transition(
+                emit_ticket_lifecycle_transition_fn(
                     ticket_id=str(answered_ticket.get("ticket_id") or ""),
                     decision_key=str(answered_ticket.get("decision_key") or ""),
                     lifecycle_state="integration_attempted_failed",
                     relevance="active",
                     reason="no_safe_feedback_override_plan",
                 )
-            _append_blocker_iteration_recap(
+            append_blocker_iteration_recap_fn(
                 action_attempted="integrate_feedback",
                 result="feedback_present_no_safe_plan",
                 decision_key=focus_key,
@@ -1358,6 +1131,89 @@ def handle_repair_iteration(
     )
     if len(state.continuity_log) > 50:
         state.continuity_log = state.continuity_log[-50:]
+    if move == "propose_blocker_updates":
+        blocker_updates = (
+            resolver_outcome.get("blocker_updates")
+            if isinstance(resolver_outcome, dict) and isinstance(resolver_outcome.get("blocker_updates"), list)
+            else []
+        )
+        apply_result = apply_proposed_emergent_blocker_updates(
+            registry=state.blocker_registry,
+            blocker_updates=[
+                row for row in blocker_updates if isinstance(row, dict)
+            ],
+            fallback_decision_key=focus_key,
+        )
+        state.blocker_registry = (
+            dict(apply_result.get("registry"))
+            if isinstance(apply_result.get("registry"), dict)
+            else state.blocker_registry
+        )
+        accepted = [row for row in list(apply_result.get("accepted") or []) if isinstance(row, dict)]
+        rejected = [row for row in list(apply_result.get("rejected") or []) if isinstance(row, dict)]
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="blocker_update",
+                message=(
+                    f"Processed emergent blocker proposals: accepted={len(accepted)}, rejected={len(rejected)}."
+                ),
+                latest_refs=state.latest_refs,
+                detail={
+                    "accepted_count": len(accepted),
+                    "rejected_count": len(rejected),
+                    "move": "propose_blocker_updates",
+                },
+            ),
+        )
+        for row in accepted[:12]:
+            emit_progress(
+                progress_cb,
+                blocker_update_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    status="accepted",
+                    operation=str(row.get("operation") or "").strip().lower() or None,
+                    blocker_id=str(row.get("blocker_id") or "").strip() or None,
+                    blocker_kind=str(row.get("blocker_kind") or "").strip().lower() or None,
+                    blocking_class=str(row.get("blocking_class") or "").strip().lower() or None,
+                    reason=resolver_reason,
+                ),
+            )
+        for row in rejected[:12]:
+            emit_progress(
+                progress_cb,
+                blocker_update_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    status="rejected",
+                    operation=str(row.get("operation") or "").strip().lower() or None,
+                    blocker_id=str(row.get("blocker_id") or "").strip() or None,
+                    blocker_kind=None,
+                    blocking_class=None,
+                    reason=str(row.get("reason") or "").strip() or "unknown_rejection",
+                ),
+            )
+        if len(accepted) > 0:
+            state.evidence_signal_counter += 1
+            state.no_progress_streak = 0
+            state.last_progress_reason = "emergent_blocker_update_accepted"
+            append_blocker_iteration_recap_fn(
+                action_attempted="propose_blocker_updates",
+                result="accepted",
+                decision_key=focus_key,
+                reason=resolver_reason,
+            )
+            return None
+        state.last_reason = "tx_agent_blocker_update_rejected"
+        append_blocker_iteration_recap_fn(
+            action_attempted="propose_blocker_updates",
+            result="rejected",
+            decision_key=focus_key,
+            reason=resolver_reason,
+        )
+        return None
     if move == "request_human_feedback":
         emit_progress(
             progress_cb,
@@ -1390,7 +1246,7 @@ def handle_repair_iteration(
                 if feedback_prompt["choices"]:
                     feedback_prompt["default_choice"] = feedback_prompt["choices"][0]
             if feedback_prompt is None:
-                feedback_prompt = _build_feedback_prompt_with_optional_image()
+                feedback_prompt = _build_feedback_prompt_with_optional_image(state=state, iterations=iterations, image_verification=image_verification, visual_evidence=visual_evidence)
             if feedback_prompt is not None:
                 emit_progress(
                     progress_cb,
@@ -1401,13 +1257,13 @@ def handle_repair_iteration(
                         evidence_attempts=evidence_attempts_counts,
                     ),
                 )
-                _set_pending_feedback_prompt(
+                set_pending_feedback_prompt_fn(
                     feedback_prompt=feedback_prompt,
                     decision_key=str((feedback_prompt.get("context") or {}).get("decision_key") or "").strip().lower(),
                     supersession_reason="resolver_requested_feedback",
                 )
         state.last_reason = "tx_agent_closure_requirements_unresolved"
-        _append_blocker_iteration_recap(
+        append_blocker_iteration_recap_fn(
             action_attempted="request_hitl",
             result="waiting_feedback",
             decision_key=focus_key,
@@ -1447,7 +1303,7 @@ def handle_repair_iteration(
                     ticket_snapshot=active_ticket_snapshot,
                 ),
             )
-            _append_blocker_iteration_recap(
+            append_blocker_iteration_recap_fn(
                 action_attempted="mark_blocked",
                 result="rejected",
                 decision_key=focus_key,
@@ -1516,7 +1372,7 @@ def handle_repair_iteration(
                             lifecycle_state="integration_attempted_failed",
                             relevance="active",
                         )
-                    _emit_ticket_lifecycle_transition(
+                    emit_ticket_lifecycle_transition_fn(
                         ticket_id=post_feedback_ticket_id,
                         decision_key=focus_key,
                         lifecycle_state="integration_attempted_failed",
@@ -2017,7 +1873,7 @@ def handle_repair_iteration(
                 integrated=True,
                 relevance="inactive",
             )
-            _emit_ticket_lifecycle_transition(
+            emit_ticket_lifecycle_transition_fn(
                 ticket_id=ticket_prompt_id,
                 decision_key=ticket_decision_key,
                 lifecycle_state="integrated",
@@ -2039,7 +1895,7 @@ def handle_repair_iteration(
             and str(remaining_for_focus.get("state") or "").strip().lower() in {"open", "waiting_feedback", "answered_unintegrated"}
             else "feedback_integrated_blocker_cleared"
         )
-        _append_blocker_iteration_recap(
+        append_blocker_iteration_recap_fn(
             action_attempted="integrate_feedback",
             result=outcome_code,
             decision_key=focus_key,
@@ -2073,13 +1929,41 @@ def _step_kernel_action(
     )
 
 
-def _select_focus_decision_key(
+def _select_focus_target(
     *,
     decision_ledger: dict[str, Any],
     fallback_focus: dict[str, Any] | None,
     focus_feedback: dict[str, Any] | None,
     blocker_registry: dict[str, Any] | None = None,
-) -> str:
+) -> dict[str, Any]:
+    emergent_selection = (
+        select_primary_emergent_blocker_with_reason(blocker_registry)
+        if isinstance(blocker_registry, dict)
+        else {"row": None, "reason_code": "no_registry"}
+    )
+    emergent_row = (
+        dict(emergent_selection.get("row"))
+        if isinstance(emergent_selection.get("row"), dict)
+        else {}
+    )
+    if emergent_row:
+        emergent_state = str(emergent_row.get("state") or "").strip().lower()
+        if emergent_state in {"answered_unintegrated", "waiting_feedback", "open"}:
+            emergent_decision_key = (
+                str(emergent_row.get("legacy_decision_key") or "").strip().lower()
+                or str(emergent_row.get("decision_key") or "").strip().lower()
+            )
+            # Bridge emergent blocker focus into current decision-key-driven runtime contracts.
+            if not emergent_decision_key:
+                emergent_decision_key = str((fallback_focus or {}).get("decision_key") or "").strip().lower()
+            if emergent_decision_key:
+                return {
+                    "decision_key": emergent_decision_key,
+                    "focus_source": "emergent_blocker",
+                    "focus_reason_code": str(emergent_selection.get("reason_code") or "emergent_selected"),
+                    "active_blocker": emergent_row,
+                }
+
     primary = select_primary_blocker(blocker_registry if isinstance(blocker_registry, dict) else None) or {}
     primary_key = str(primary.get("decision_key") or "").strip().lower()
     primary_state = str(primary.get("state") or "").strip().lower()
@@ -2088,29 +1972,55 @@ def _select_focus_decision_key(
         and primary_state in {"answered_unintegrated", "waiting_feedback"}
         and is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, primary_key)
     ):
-        return primary_key
+        return {
+            "decision_key": primary_key,
+            "focus_source": "legacy_fallback",
+            "focus_reason_code": "legacy_priority_feedback_state",
+            "active_blocker": None,
+        }
     if isinstance(focus_feedback, dict):
         feedback_key = str(focus_feedback.get("decision_key") or "").strip().lower()
         if feedback_key and is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, feedback_key):
-            return feedback_key
+            return {
+                "decision_key": feedback_key,
+                "focus_source": "legacy_fallback",
+                "focus_reason_code": "legacy_feedback_key",
+                "active_blocker": None,
+            }
     key = str((fallback_focus or {}).get("decision_key") or "").strip().lower()
     if key:
-        return key
-    return ""
+        return {
+            "decision_key": key,
+            "focus_source": "legacy_fallback",
+            "focus_reason_code": "legacy_fallback_focus",
+            "active_blocker": None,
+        }
+    return {
+        "decision_key": "",
+        "focus_source": "legacy_fallback",
+        "focus_reason_code": "legacy_focus_missing",
+        "active_blocker": None,
+    }
+
+
+def _select_focus_decision_key(
+    *,
+    decision_ledger: dict[str, Any],
+    fallback_focus: dict[str, Any] | None,
+    focus_feedback: dict[str, Any] | None,
+    blocker_registry: dict[str, Any] | None = None,
+) -> str:
+    return select_focus_decision_key(
+        decision_ledger=decision_ledger,
+        fallback_focus=fallback_focus,
+        focus_feedback=focus_feedback,
+        blocker_registry=blocker_registry,
+        select_focus_target_fn=_select_focus_target,
+    )
 
 
 def _normalize_feedback_selected_value(*, decision_key: str, selected_value: str) -> str:
-    key = str(decision_key or "").strip().lower()
-    value = str(selected_value or "").strip().lower()
-    if not value:
-        return ""
-    if key in {"range", "township", "section", "tie_distance"}:
-        import re
-
-        match = re.search(r"\b(\d{1,4})\b", value)
-        if match:
-            return f"{key}:{match.group(1)}"
-    return f"{key}:{value}"
+    return normalize_feedback_selected_value(decision_key=decision_key, selected_value=selected_value)
 
 
 def _stable_feedback_confirmation_count(
@@ -2119,31 +2029,11 @@ def _stable_feedback_confirmation_count(
     decision_key: str | None,
     selected_value: str | None,
 ) -> int:
-    key = str(decision_key or "").strip().lower()
-    normalized_target = _normalize_feedback_selected_value(
-        decision_key=key,
-        selected_value=str(selected_value or ""),
+    return stable_feedback_confirmation_count(
+        hitl_lifecycle_log=hitl_lifecycle_log,
+        decision_key=decision_key,
+        selected_value=selected_value,
     )
-    if not key or not normalized_target:
-        return 0
-    count = 0
-    for entry in reversed(hitl_lifecycle_log):
-        if not isinstance(entry, dict):
-            continue
-        if str(entry.get("phase") or "").strip().lower() != "human_feedback_consumed":
-            continue
-        entry_key = str(entry.get("decision_key") or "").strip().lower()
-        if entry_key != key:
-            continue
-        entry_value = _normalize_feedback_selected_value(
-            decision_key=key,
-            selected_value=str(entry.get("selected_value") or ""),
-        )
-        if entry_value == normalized_target:
-            count += 1
-            continue
-        break
-    return count
 
 
 def _latest_human_resolution_ticket(
@@ -2152,16 +2042,11 @@ def _latest_human_resolution_ticket(
     decision_key: str | None,
     lifecycle_states: set[str],
 ) -> dict[str, Any] | None:
-    rows = list_external_context_injections(
-        decision_ledger,
-        decision_key=str(decision_key or "").strip().lower(),
-        type_filter="human_resolution_ticket",
-        lifecycle_states={str(v).strip().lower() for v in lifecycle_states if str(v).strip()},
+    return latest_human_resolution_ticket(
+        decision_ledger=decision_ledger,
+        decision_key=decision_key,
+        lifecycle_states=lifecycle_states,
     )
-    if not rows:
-        return None
-    rows.sort(key=lambda row: int(row.get("updated_at") or row.get("created_at") or 0), reverse=True)
-    return dict(rows[0]) if isinstance(rows[0], dict) else None
 
 
 def _feedback_payload_from_ticket(
@@ -2169,57 +2054,15 @@ def _feedback_payload_from_ticket(
     answered_ticket: dict[str, Any] | None,
     decision_key: str | None,
 ) -> dict[str, Any] | None:
-    if not isinstance(answered_ticket, dict):
-        return None
-    payload = answered_ticket.get("payload") if isinstance(answered_ticket.get("payload"), dict) else {}
-    selected_value = (
-        str(payload.get("normalized_answer_summary") or "").strip()
-        or str(payload.get("selected_choice") or "").strip()
-    )
-    if not selected_value:
-        return None
-    key = str(answered_ticket.get("decision_key") or decision_key or "").strip().lower()
-    if not key:
-        return None
-    return {
-        "decision_key": key,
-        "selected_value": selected_value,
-        "choice": str(payload.get("selected_choice") or "").strip() or None,
-        "note": str(payload.get("note") or "").strip() or None,
-        "prompt_id": str(answered_ticket.get("ticket_id") or "").strip() or None,
-        "metadata": {"ticket_id": str(answered_ticket.get("ticket_id") or "").strip() or None},
-    }
+    return feedback_payload_from_ticket(answered_ticket=answered_ticket, decision_key=decision_key)
 
 
 def _feedback_payload_from_registry_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not isinstance(row, dict):
-        return None
-    decision_key = str(row.get("decision_key") or "").strip().lower()
-    selected_value = str(row.get("feedback_value") or "").strip()
-    if not decision_key or not selected_value:
-        return None
-    return {
-        "decision_key": decision_key,
-        "selected_value": selected_value,
-        "choice": None,
-        "note": str(row.get("feedback_note") or "").strip() or None,
-        "prompt_id": str(row.get("linked_prompt_id") or "").strip() or None,
-        "metadata": {
-            "source": "blocker_registry",
-            "blocker_id": str(row.get("blocker_id") or "").strip() or None,
-        },
-    }
+    return feedback_payload_from_registry_row(row)
 
 
 def _extract_validation_error_class(reason_suffix: str) -> str | None:
-    text = str(reason_suffix or "").strip()
-    if not text:
-        return None
-    parts = [segment.strip() for segment in text.split(":") if segment.strip()]
-    for segment in parts:
-        if segment.endswith("Error") or segment.endswith("Exception"):
-            return segment
-    return parts[0] if parts else None
+    return extract_validation_error_class(reason_suffix)
 
 
 def _ticket_lifecycle_snapshot_for_key(
@@ -2227,25 +2070,10 @@ def _ticket_lifecycle_snapshot_for_key(
     decision_ledger: dict[str, Any],
     decision_key: str | None,
 ) -> list[dict[str, Any]]:
-    rows = list_external_context_injections(
-        decision_ledger,
-        decision_key=str(decision_key or "").strip().lower(),
-        type_filter="human_resolution_ticket",
+    return ticket_lifecycle_snapshot_for_key(
+        decision_ledger=decision_ledger,
+        decision_key=decision_key,
     )
-    out: list[dict[str, Any]] = []
-    for row in rows[:6]:
-        if not isinstance(row, dict):
-            continue
-        out.append(
-            {
-                "ticket_id": str(row.get("ticket_id") or "").strip() or None,
-                "decision_key": str(row.get("decision_key") or "").strip().lower() or None,
-                "lifecycle_state": str(row.get("lifecycle_state") or "").strip().lower() or None,
-                "strength": str(row.get("strength") or "").strip().lower() or None,
-                "updated_at": row.get("updated_at"),
-            }
-        )
-    return out
 
 
 def _active_ticket_snapshot(
@@ -2253,46 +2081,18 @@ def _active_ticket_snapshot(
     decision_ledger: dict[str, Any],
     decision_key: str | None,
 ) -> dict[str, Any] | None:
-    ticket = _latest_human_resolution_ticket(
+    return active_ticket_snapshot(
         decision_ledger=decision_ledger,
         decision_key=decision_key,
-        lifecycle_states={"answered_unintegrated", "integration_attempted_failed", "integrated"},
     )
-    if not isinstance(ticket, dict):
-        return None
-    return {
-        "ticket_id": str(ticket.get("ticket_id") or "").strip() or None,
-        "ticket_state": str(ticket.get("lifecycle_state") or "").strip().lower() or None,
-        "ticket_strength": str(ticket.get("strength") or "").strip().lower() or None,
-        "ticket_decision_key": str(ticket.get("decision_key") or "").strip().lower() or None,
-        "answered_at": ticket.get("answered_at"),
-        "integrated_at": ticket.get("integrated_at"),
-        "injected_count": len(
-            list_external_context_injections(
-                decision_ledger,
-                decision_key=str(decision_key or "").strip().lower(),
-                type_filter="human_resolution_ticket",
-            )
-        ),
-    }
 
 
 def _resolver_result_category(*, move: str, reason: str) -> str:
-    move_value = str(move or "").strip().lower()
-    reason_value = str(reason or "").strip().lower()
-    if reason_value.startswith("resolver_move_invalid:resolver_invalid"):
-        if "invalid_move" in reason_value:
-            return "invalid_move"
-        return "invalid_schema"
-    if reason_value.startswith("resolver_move_invalid:"):
-        return "invalid_schema"
-    if move_value:
-        return "valid"
-    return "exhausted"
+    return resolver_result_category(move=move, reason=reason)
 
 
 def _accept_mark_resolved_no_edit(*, decision_ledger: dict[str, Any], decision_key: str) -> bool:
-    return not is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, decision_key)
+    return accept_mark_resolved_no_edit(decision_ledger=decision_ledger, decision_key=decision_key)
 
 
 def _accept_mark_blocked(
@@ -2302,36 +2102,12 @@ def _accept_mark_blocked(
     resolver_reason: str,
     hitl_enabled: bool,
 ) -> bool:
-    reason = str(resolver_reason or "").strip().lower()
-    if reason.startswith(
-        (
-            "resolver_move_invalid:",
-            "resolver_plan_invalid:",
-            "resolver_move_invalid",
-            "resolver_plan_invalid",
-        )
-    ):
-        return True
-    if reason.startswith("blocked_no_safe_integration_after_feedback"):
-        return True
-    unresolved = unresolved_mapping_blocking_requirements(decision_ledger)
-    focus_item = next(
-        (
-            item
-            for item in unresolved
-            if isinstance(item, dict) and str(item.get("key") or "").strip().lower() == decision_key
-        ),
-        None,
+    return accept_mark_blocked(
+        decision_ledger=decision_ledger,
+        decision_key=decision_key,
+        resolver_reason=resolver_reason,
+        hitl_enabled=hitl_enabled,
     )
-    requirement = focus_item.get("closure_requirement") if isinstance(focus_item, dict) else {}
-    block_reason = str(requirement.get("block_reason") or "").strip().lower() if isinstance(requirement, dict) else ""
-    if block_reason == "dependency":
-        return True
-    if "repeat_budget" in reason or "evidence_budget" in reason:
-        return True
-    if not hitl_enabled and is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, decision_key):
-        return True
-    return False
 
 
 def _recent_image_evidence_attempt_count(
@@ -2340,20 +2116,11 @@ def _recent_image_evidence_attempt_count(
     decision_key: str | None,
     window: int = 8,
 ) -> int:
-    key = str(decision_key or "").strip().lower()
-    if not key or not isinstance(continuity_log, list):
-        return 0
-    bounded = [row for row in continuity_log[-max(1, int(window)) :] if isinstance(row, dict)]
-    count = 0
-    for row in bounded:
-        if str(row.get("decision_key") or "").strip().lower() != key:
-            continue
-        if str(row.get("move") or "").strip().lower() != "gather_more_evidence":
-            continue
-        evidence_kind = str(row.get("evidence_kind") or "").strip().lower()
-        if evidence_kind.startswith("image_evidence"):
-            count += 1
-    return count
+    return recent_image_evidence_attempt_count(
+        continuity_log=continuity_log,
+        decision_key=decision_key,
+        window=window,
+    )
 
 
 def _accept_apply_edit_plan(
@@ -2362,14 +2129,11 @@ def _accept_apply_edit_plan(
     focus_key: str,
     plan_payload: dict[str, Any],
 ) -> bool:
-    if resolver_decision_key != focus_key:
-        return False
-    if not isinstance(plan_payload, dict):
-        return False
-    ops = plan_payload.get("ops")
-    if not isinstance(ops, list) or len(ops) <= 0:
-        return False
-    return True
+    return accept_apply_edit_plan(
+        resolver_decision_key=resolver_decision_key,
+        focus_key=focus_key,
+        plan_payload=plan_payload,
+    )
 
 
 def _open_planner_context_spans(
@@ -2381,9 +2145,7 @@ def _open_planner_context_spans(
     source_transcript_ref: str,
     top_findings: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    from .context_spans import open_planner_context_spans
-
-    return open_planner_context_spans(
+    return open_planner_context_spans_adapter(
         session_manager=session_manager,
         session_id=session_id,
         iteration=iteration,
@@ -2410,66 +2172,22 @@ def _verify_mapping_critical_with_image(
     llm_call_seq_start: int = 0,
     validation_mode: str = "off",
 ) -> dict[str, Any]:
-    verify_runtime = _image_verify_runtime_config(validation_mode)
-
-    def _emit_check_progress(update: dict[str, Any]) -> None:
-        check_index = int(update.get("check_index") or 0)
-        check_total = int(update.get("check_total") or 0)
-        check_id = str(update.get("check_id") or "").strip() or "unknown_check"
-        stage = str(update.get("stage") or "running")
-        elapsed_seconds = int(update.get("elapsed_seconds") or 0)
-        llm_call_seq = int(update.get("llm_call_seq") or 0)
-        phase_attempt = int(update.get("phase_attempt") or 1)
-        wait_reason = str(update.get("wait_reason") or "").strip().lower() or None
-        phase_started_at_epoch_seconds = int(update.get("phase_started_at_epoch_seconds") or 0) or None
-        timeout_seconds = int(update.get("timeout_seconds") or 0) or None
-        max_attempts_per_check = int(update.get("max_attempts_per_check") or 0) or None
-        check_decision_key = str(update.get("check_decision_key") or "").strip().lower() or None
-        focus_key = str(update.get("focus_decision_key") or focus_decision_key or "").strip().lower() or None
-        emit_progress(
-            progress_cb,
-            image_verify_progress_payload(
-                iteration=iteration,
-                decision_key=focus_key,
-                evidence_kind="image_verify",
-                check_id=f"{check_index}/{check_total}:{check_id}",
-                check_decision_key=check_decision_key,
-                llm_call_seq=llm_call_seq,
-                phase_attempt=phase_attempt,
-                stage=stage,
-                elapsed_seconds=elapsed_seconds,
-                wait_reason=wait_reason,
-                phase_started_at_epoch_seconds=phase_started_at_epoch_seconds,
-                timeout_seconds=timeout_seconds,
-                max_attempts_per_check=max_attempts_per_check,
-                check_index=int(update.get("check_index") or 0),
-                check_total=int(update.get("check_total") or 0),
-                diagnostic=(update.get("diagnostic") if isinstance(update.get("diagnostic"), dict) else None),
-                latest_refs={},
-            ),
-        )
-
-    return verify_mapping_critical_with_image(
+    return verify_mapping_critical_with_image_adapter(
         session_manager=session_manager,
         session_id=session_id,
         iteration=iteration,
         dossier_id=dossier_id,
         source_transcript_ref=source_transcript_ref,
         top_findings=top_findings,
-        disagreement_hints={},
         source_image_refs=source_image_refs,
         model=model,
+        progress_cb=progress_cb,
+        focus_decision_key=focus_decision_key,
+        llm_call_seq_start=llm_call_seq_start,
+        validation_mode=validation_mode,
         step_fn=_step_kernel_action,
         read_step_outputs_inline_fn=read_step_outputs_inline,
         read_str_fn=read_str,
-        progress_cb=_emit_check_progress,
-        focus_decision_key=focus_decision_key,
-        llm_call_seq_start=llm_call_seq_start,
-        max_checks=int(verify_runtime.get("max_checks") or 4),
-        step_timeout_seconds=int(verify_runtime.get("step_timeout_seconds") or 240),
-        max_attempts_per_check=int(verify_runtime.get("max_attempts_per_check") or 2),
-        heartbeat_thresholds_seconds=tuple(verify_runtime.get("heartbeat_thresholds_seconds") or (15, 30, 60)),
-        heartbeat_every_seconds=int(verify_runtime.get("heartbeat_every_seconds") or 60),
     )
 
 
@@ -2489,205 +2207,27 @@ def _run_image_evidence_mode(
     progress_cb: Callable[[dict[str, Any]], None] | None,
     latest_visual_evidence: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    mode = str(normalized_request.get("mode") or "").strip().lower()
-    if mode == "verify":
-        mode = "verify_region"
-    target = normalized_request.get("target") if isinstance(normalized_request.get("target"), dict) else {}
-    requested_selector_type = _selector_type_from_target(target)
-    decision_key = str(normalized_request.get("decision_key") or focus_decision_key or "").strip().lower()
-    source_image_ref = str(target.get("source_image_ref") or "").strip()
-    if not source_image_ref and isinstance(source_image_refs, list) and source_image_refs:
-        source_image_ref = str(source_image_refs[0] or "").strip()
-    if not source_transcript_ref or not source_image_ref:
-        return {"mode": mode, "status": "invalid", "reason": "image_evidence_missing_source_inputs"}
-
-    expected_fields = [
-        str(v).strip().lower()
-        for v in list(target.get("expected_fields") or [])
-        if str(v).strip()
-    ][:6]
-    query = str(target.get("query") or "").strip()
-    if not query:
-        query = str(target.get("anchor_hint") or "").strip()
-    if not query:
-        query = str(((top_findings or [{}])[0] or {}).get("message") or "").strip()
-    if not query:
-        query = f"Inspect evidence for {decision_key or 'focused decision'}."
-    expected_text = str(target.get("expected_text") or "").strip()
-    if not expected_text and expected_fields:
-        expected_text = ", ".join(expected_fields[:2])
-
-    region_ref = _coerce_artifact_ref_for_state(target.get("region_ref"))
-    if mode in {"verify_region", "refine_region"} and region_ref is None and isinstance(latest_visual_evidence, dict):
-        region_ref = _coerce_artifact_ref_for_state(latest_visual_evidence.get("tx_image_evidence_region_ref"))
-
-    check_id = f"image_evidence_{mode}_{decision_key or 'focus'}_{iteration}"
-    check: dict[str, Any] = {
-        "check_id": check_id,
-        "query": query[:320],
-        "expected_text": expected_text[:180] or None,
-        "decision_key": decision_key or None,
-    }
-    if isinstance(region_ref, dict):
-        check["tx_image_evidence_region_ref"] = region_ref
-
-    emit_progress(
-        progress_cb,
-        image_verify_progress_payload(
-            iteration=iteration,
-            decision_key=decision_key or None,
-            evidence_kind=f"image_evidence:{mode}",
-            check_id=check_id,
-            check_decision_key=decision_key or None,
-            llm_call_seq=int(llm_call_seq_start) + 1,
-            phase_attempt=1,
-            stage="running",
-            elapsed_seconds=0,
-            wait_reason="awaiting_image_evidence_step_response",
-            latest_refs={},
-        ),
-    )
-    step = _step_kernel_action(
+    return run_image_evidence_mode(
+        normalized_request=normalized_request,
         session_manager=session_manager,
         session_id=session_id,
-        prefix="tx_image_evidence",
         iteration=iteration,
-        action_type=ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
-        inputs={
-            "dossier_id": dossier_id,
-            "source_transcript_ref": source_transcript_ref,
-            "image_ref": source_image_ref,
-            "model": model,
-            "mode": mode,
-            "target": {
-                "region_ref": region_ref,
-                "query": query[:320],
-                "expected_text": expected_text[:180] or None,
-                "expected_fields": expected_fields,
-                "anchor_hint": str(target.get("anchor_hint") or "").strip()[:220] or None,
-                "crop_box_pixels": (
-                    dict(target.get("crop_box_pixels"))
-                    if isinstance(target.get("crop_box_pixels"), dict)
-                    else None
-                ),
-                "crop_box_normalized": (
-                    dict(target.get("crop_box_normalized"))
-                    if isinstance(target.get("crop_box_normalized"), dict)
-                    else None
-                ),
-                "grid_selection": (
-                    dict(target.get("grid_selection"))
-                    if isinstance(target.get("grid_selection"), dict)
-                    else None
-                ),
-                "grid_spec": (
-                    dict(target.get("grid_spec"))
-                    if isinstance(target.get("grid_spec"), dict)
-                    else None
-                ),
-                "zoom_factor": target.get("zoom_factor"),
-                "transform": str(target.get("transform") or "").strip().lower() or None,
-                "amount": target.get("amount"),
-                "decision_key": decision_key or None,
-                "check_id": check_id,
-            },
-            "checks": [check] if mode == "locate" else None,
-            "decision_key": decision_key or None,
-        },
+        dossier_id=dossier_id,
+        source_transcript_ref=source_transcript_ref,
+        source_image_refs=source_image_refs,
+        model=model,
+        focus_decision_key=focus_decision_key,
+        top_findings=top_findings,
+        llm_call_seq_start=llm_call_seq_start,
+        progress_cb=progress_cb,
+        latest_visual_evidence=latest_visual_evidence,
+        step_fn=_step_kernel_action,
+        read_step_outputs_inline_fn=read_step_outputs_inline,
     )
-    latest_refs = step.dashboard.latest_refs.model_dump(mode="json")
-    if step.execution_state != StepExecutionState.EXECUTED:
-        refusal = step.refusal.reason_code if step.refusal is not None else "tx_image_evidence_refused"
-        return {"mode": mode, "status": "failed", "reason": refusal, "latest_refs": latest_refs}
-    inline = read_step_outputs_inline(step.step_record)
-    summary = inline.get("tx_image_verify_summary") if isinstance(inline.get("tx_image_verify_summary"), dict) else {}
-    results = inline.get("tx_image_verify_results") if isinstance(inline.get("tx_image_verify_results"), list) else []
-    results = [dict(row) for row in results if isinstance(row, dict)]
-    first = dict(results[0]) if results else {}
-    selected_crop = inline.get("crop_box") if isinstance(inline.get("crop_box"), dict) else None
-    selected_zoom = inline.get("zoom_factor")
-    lineage = inline.get("tx_image_region_lineage") if isinstance(inline.get("tx_image_region_lineage"), dict) else {}
-    inspection_ref = inline.get("tx_image_inspection_ref") if isinstance(inline.get("tx_image_inspection_ref"), dict) else None
-    region = _coerce_artifact_ref_for_state(
-        first.get("tx_image_evidence_region_ref") or inline.get("tx_image_evidence_region_ref")
-    )
-    context = _coerce_artifact_ref_for_state(
-        first.get("tx_image_evidence_context_ref") or inline.get("tx_image_evidence_context_ref")
-    )
-    locator = first.get("locator") if isinstance(first.get("locator"), dict) else {}
-    visual_evidence = {
-        "mode": mode,
-        "status": str(first.get("status") or "executed").strip().lower() or "executed",
-        "check_id": str(first.get("check_id") or check.get("check_id") or "").strip() or None,
-        "decision_key": decision_key or None,
-        "query": str(first.get("query") or check.get("query") or "").strip()[:320] or None,
-        "expected_text": str(check.get("expected_text") or "").strip()[:180] or None,
-        "observed_text": str(first.get("observed_text") or "").strip()[:220] or None,
-        "locator": {
-            "status": str(locator.get("status") or "").strip().lower() or None,
-            "confidence": str(locator.get("confidence") or "").strip().lower() or None,
-            "reason": str(locator.get("reason") or "").strip()[:220] or None,
-        },
-        "tx_image_evidence_region_ref": region,
-        "tx_image_evidence_context_ref": context,
-        "verify_summary": dict(summary),
-        "crop_box": selected_crop,
-        "zoom_factor": selected_zoom,
-        "inspection_ref": inspection_ref,
-        "region_lineage": lineage,
-        "tx_image_region_lineage_ref": _coerce_artifact_ref_for_state(inline.get("tx_image_region_lineage_ref")),
-        "image_width": inline.get("image_width"),
-        "image_height": inline.get("image_height"),
-        "grid_spec": (dict(inline.get("grid_spec")) if isinstance(inline.get("grid_spec"), dict) else None),
-        "grid_overlay_ref": _coerce_artifact_ref_for_state(inline.get("grid_overlay_ref")),
-        "selector_type": (
-            str(inline.get("selector_type") or "").strip().lower()
-            or str(lineage.get("selector_type") or "").strip().lower()
-            or (requested_selector_type if mode == "select_region" else None)
-        ),
-        "source_image_path": str(lineage.get("source_image_path") or "").strip() or None,
-        "latest_refs": latest_refs,
-        "llm_call_seq_end": int(llm_call_seq_start) + 1,
-    }
-    image_verification = {}
-    if mode == "verify_region":
-        image_verification = {
-            "latest_refs": latest_refs,
-            "llm_call_seq_end": int(llm_call_seq_start) + 1,
-            "payload": {
-                "summary": dict(summary),
-                "results": results,
-                "diagnostics": [],
-            },
-        }
-    return {
-        "mode": mode,
-        "status": "executed",
-        "reason": f"image_evidence_{mode}_executed",
-        "latest_refs": latest_refs,
-        "llm_call_seq_end": int(llm_call_seq_start) + 1,
-        "image_evidence": visual_evidence,
-        "image_verification": image_verification,
-    }
 
 
 def _image_verify_runtime_config(validation_mode: str | None) -> dict[str, Any]:
-    mode = str(validation_mode or "").strip().lower()
-    if mode == "live_hitl":
-        return {
-            "max_checks": 1,
-            "step_timeout_seconds": 90,
-            "max_attempts_per_check": 1,
-            "heartbeat_thresholds_seconds": (10, 20, 30, 60),
-            "heartbeat_every_seconds": 30,
-        }
-    return {
-        "max_checks": 4,
-        "step_timeout_seconds": 240,
-        "max_attempts_per_check": 2,
-        "heartbeat_thresholds_seconds": (15, 30, 60),
-        "heartbeat_every_seconds": 60,
-    }
+    return image_verify_runtime_config(validation_mode)
 
 
 def _span_to_display_dict(span: dict[str, Any]) -> dict[str, Any]:
@@ -2699,84 +2239,19 @@ def _span_to_display_dict(span: dict[str, Any]) -> dict[str, Any]:
 
 
 def _findings_for_focus_key(*, top_findings: list[dict[str, Any]], focus_key: str) -> list[dict[str, Any]]:
-    key = str(focus_key or "").strip().lower()
-    if not key:
-        return []
-    focused: list[dict[str, Any]] = []
-    for finding in top_findings:
-        if not isinstance(finding, dict):
-            continue
-        inferred_key = _decision_key_for_finding(finding)
-        if inferred_key == key:
-            focused.append(finding)
-    return focused
+    return findings_for_focus_key(top_findings=top_findings, focus_key=focus_key)
 
 
 def _decision_key_for_finding(finding: dict[str, Any]) -> str:
-    finding_id = str(finding.get("finding_id") or "").strip().lower()
-    finding_type = str(finding.get("finding_type") or "").strip().lower()
-    message = str(finding.get("message") or "").strip().lower()
-    blob = f"{finding_id} {finding_type} {message}"
-    if "range" in blob:
-        return "range"
-    if "township" in blob:
-        return "township"
-    if "section" in blob:
-        return "section"
-    if "distance" in blob:
-        return "tie_distance"
-    if "bearing" in blob:
-        return "tie_bearing"
-    if "acre" in blob:
-        return "acreage"
-    if "closure" in blob or "point of beginning" in blob or "pob" in blob:
-        return "closure_or_pob"
-    return ""
+    return decision_key_for_finding(finding)
 
 
 def _conflict_map_from_ledger(ledger: dict[str, Any] | None) -> list[dict[str, Any]]:
-    if not isinstance(ledger, dict):
-        return []
-    items = ledger.get("items")
-    if not isinstance(items, list):
-        return []
-    out: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        alternatives = [str(v).strip() for v in list(item.get("alternatives") or []) if str(v).strip()]
-        if len(alternatives) < 2:
-            continue
-        state = str(item.get("state") or "").strip().lower()
-        if state not in {"disputed", "accepted_with_risk", "candidate_found", "unknown"}:
-            continue
-        out.append(
-            {
-                "decision_key": str(item.get("key") or ""),
-                "values": alternatives[:6],
-                "conflict": True,
-            }
-        )
-    return out
+    return conflict_map_from_ledger(ledger)
 
 
 def _baseline_residual_from_unresolved(item: dict[str, Any]) -> dict[str, Any]:
-    requirement = item.get("closure_requirement") if isinstance(item.get("closure_requirement"), dict) else {}
-    return {
-        "decision_key": str(item.get("key") or ""),
-        "label": str(item.get("label") or item.get("key") or "decision"),
-        "state": str(item.get("state") or "unknown"),
-        "mapping_blocking": bool(item.get("mapping_blocking")),
-        "scope_id": str(item.get("scope_id") or "unknown_scope"),
-        "scope_label": str(item.get("scope_label") or "Unknown Scope"),
-        "scope_priority": int(item.get("scope_priority") or 50),
-        "in_target_scope": bool(item.get("in_target_scope")),
-        "scope_status": str(item.get("scope_status") or "unknown"),
-        "scope_proof": [str(v) for v in list(item.get("scope_proof") or []) if str(v).strip()][:6],
-        "incomplete_source_residual": bool(item.get("incomplete_source_residual")),
-        "required_information": str(requirement.get("required_information") or "").strip(),
-        "minimal_user_action": str(requirement.get("minimal_user_action") or "").strip(),
-    }
+    return baseline_residual_from_unresolved(item)
 
 
 def _baseline_evidence_attempts(
@@ -2784,48 +2259,14 @@ def _baseline_evidence_attempts(
     span_context: list[dict[str, Any]],
     image_verification: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    image_payload = image_verification.get("payload") if isinstance(image_verification, dict) else {}
-    image_results = image_payload.get("results") if isinstance(image_payload, dict) else []
-    image_count = len(image_results) if isinstance(image_results, list) else 0
-    return [
-        {
-            "attempt": "open_spans",
-            "status": "completed",
-            "result_count": len(span_context),
-        },
-        {
-            "attempt": "image_verify",
-            "status": "completed" if image_count > 0 else "attempted",
-            "result_count": image_count,
-        },
-    ]
+    return baseline_evidence_attempts(
+        span_context=span_context,
+        image_verification=image_verification,
+    )
 
 
 def _next_recommended_action_text(residual_blockers: list[dict[str, Any]]) -> str:
-    if not residual_blockers:
-        return "Proceed with plan/apply stage."
-    prioritized = sorted(
-        [item for item in residual_blockers if isinstance(item, dict)],
-        key=lambda item: (
-            0
-            if str(item.get("scope_status") or "").strip().lower() == "in_target"
-            else 1
-            if str(item.get("scope_status") or "").strip().lower() == "unknown"
-            else 2,
-            int(item.get("scope_priority") or 50),
-        ),
-    )
-    for item in prioritized:
-        if not bool(item.get("mapping_blocking")):
-            continue
-        label = str(item.get("label") or item.get("decision_key") or "decision")
-        action = str(item.get("minimal_user_action") or item.get("required_information") or "").strip()
-        if action:
-            return f"{label}: {action}"
-        return f"Resolve {label}."
-    first = prioritized[0] if prioritized else {}
-    label = str(first.get("label") or first.get("decision_key") or "decision")
-    return f"Review optional transcript-quality issue: {label}."
+    return next_recommended_action_text(residual_blockers)
 
 
 def _cached_span_context_for_key(
@@ -2835,22 +2276,12 @@ def _cached_span_context_for_key(
     source_transcript_ref: str | None,
     source_transcript_hash: str | None,
 ) -> list[dict[str, Any]]:
-    key = str(decision_key or "").strip().lower()
-    if not key:
-        return []
-    entry = state.span_context_by_decision_key.get(key)
-    if not isinstance(entry, dict):
-        return []
-    if not _cache_entry_matches_transcript(
-        entry=entry,
+    return cached_span_context_for_key(
+        state=state,
+        decision_key=decision_key,
         source_transcript_ref=source_transcript_ref,
         source_transcript_hash=source_transcript_hash,
-    ):
-        return []
-    rows = entry.get("span_context")
-    if not isinstance(rows, list):
-        return []
-    return [dict(item) for item in rows if isinstance(item, dict)][:12]
+    )
 
 
 def _cache_span_context_for_key(
@@ -2861,15 +2292,13 @@ def _cache_span_context_for_key(
     source_transcript_ref: str | None,
     source_transcript_hash: str | None,
 ) -> None:
-    key = str(decision_key or "").strip().lower()
-    if not key:
-        return
-    bounded = [dict(item) for item in span_context if isinstance(item, dict)][:12]
-    state.span_context_by_decision_key[key] = {
-        "source_transcript_ref": str(source_transcript_ref or "").strip() or None,
-        "source_transcript_hash": str(source_transcript_hash or "").strip() or None,
-        "span_context": bounded,
-    }
+    cache_span_context_for_key(
+        state=state,
+        decision_key=decision_key,
+        span_context=span_context,
+        source_transcript_ref=source_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+    )
 
 
 def _cached_image_verification_for_key(
@@ -2879,22 +2308,12 @@ def _cached_image_verification_for_key(
     source_transcript_ref: str | None,
     source_transcript_hash: str | None,
 ) -> dict[str, Any]:
-    key = str(decision_key or "").strip().lower()
-    if not key:
-        return {}
-    entry = state.image_verification_payload_by_decision_key.get(key)
-    if not isinstance(entry, dict):
-        return {}
-    if not _cache_entry_matches_transcript(
-        entry=entry,
+    return cached_image_verification_for_key(
+        state=state,
+        decision_key=decision_key,
         source_transcript_ref=source_transcript_ref,
         source_transcript_hash=source_transcript_hash,
-    ):
-        return {}
-    payload = entry.get("image_verification_payload")
-    if not isinstance(payload, dict):
-        return {}
-    return dict(payload)
+    )
 
 
 def _cached_visual_evidence_for_key(
@@ -2904,22 +2323,12 @@ def _cached_visual_evidence_for_key(
     source_transcript_ref: str | None,
     source_transcript_hash: str | None,
 ) -> dict[str, Any]:
-    key = str(decision_key or "").strip().lower()
-    if not key:
-        return {}
-    entry = state.visual_evidence_by_decision_key.get(key)
-    if not isinstance(entry, dict):
-        return {}
-    if not _cache_entry_matches_transcript(
-        entry=entry,
+    return cached_visual_evidence_for_key(
+        state=state,
+        decision_key=decision_key,
         source_transcript_ref=source_transcript_ref,
         source_transcript_hash=source_transcript_hash,
-    ):
-        return {}
-    payload = entry.get("visual_evidence")
-    if not isinstance(payload, dict):
-        return {}
-    return _coerce_visual_evidence_state(payload)
+    )
 
 
 def _cache_image_verification_for_key(
@@ -2930,16 +2339,13 @@ def _cache_image_verification_for_key(
     source_transcript_ref: str | None,
     source_transcript_hash: str | None,
 ) -> None:
-    key = str(decision_key or "").strip().lower()
-    if not key:
-        return
-    payload = image_verification.get("payload") if isinstance(image_verification, dict) else None
-    if isinstance(payload, dict):
-        state.image_verification_payload_by_decision_key[key] = {
-            "source_transcript_ref": str(source_transcript_ref or "").strip() or None,
-            "source_transcript_hash": str(source_transcript_hash or "").strip() or None,
-            "image_verification_payload": dict(payload),
-        }
+    cache_image_verification_for_key(
+        state=state,
+        decision_key=decision_key,
+        image_verification=image_verification,
+        source_transcript_ref=source_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+    )
 
 
 def _cache_visual_evidence_for_key(
@@ -2950,80 +2356,25 @@ def _cache_visual_evidence_for_key(
     source_transcript_ref: str | None,
     source_transcript_hash: str | None,
 ) -> None:
-    key = str(decision_key or "").strip().lower()
-    if not key:
-        return
-    bounded = _coerce_visual_evidence_state(visual_evidence)
-    if not bounded:
-        return
-    state.visual_evidence_by_decision_key[key] = {
-        "source_transcript_ref": str(source_transcript_ref or "").strip() or None,
-        "source_transcript_hash": str(source_transcript_hash or "").strip() or None,
-        "visual_evidence": bounded,
-    }
+    cache_visual_evidence_for_key(
+        state=state,
+        decision_key=decision_key,
+        visual_evidence=visual_evidence,
+        source_transcript_ref=source_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+    )
 
 
 def _coerce_visual_evidence_state(raw: dict[str, Any] | None) -> dict[str, Any]:
-    data = raw if isinstance(raw, dict) else {}
-    locator = data.get("locator") if isinstance(data.get("locator"), dict) else {}
-    return {
-        "mode": str(data.get("mode") or "").strip().lower() or None,
-        "status": str(data.get("status") or "").strip().lower() or None,
-        "check_id": str(data.get("check_id") or "").strip() or None,
-        "decision_key": str(data.get("decision_key") or "").strip().lower() or None,
-        "query": str(data.get("query") or "").strip()[:320] or None,
-        "expected_text": str(data.get("expected_text") or "").strip()[:180] or None,
-        "observed_text": str(data.get("observed_text") or "").strip()[:220] or None,
-        "locator": {
-            "status": str(locator.get("status") or "").strip().lower() or None,
-            "confidence": str(locator.get("confidence") or "").strip().lower() or None,
-            "reason": str(locator.get("reason") or "").strip()[:220] or None,
-        },
-        "verify_summary": dict(data.get("verify_summary")) if isinstance(data.get("verify_summary"), dict) else {},
-        "crop_box": dict(data.get("crop_box")) if isinstance(data.get("crop_box"), dict) else None,
-        "zoom_factor": data.get("zoom_factor"),
-        "inspection_ref": _coerce_artifact_ref_for_state(data.get("inspection_ref")),
-        "tx_image_region_lineage_ref": _coerce_artifact_ref_for_state(data.get("tx_image_region_lineage_ref")),
-        "region_lineage": dict(data.get("region_lineage")) if isinstance(data.get("region_lineage"), dict) else {},
-        "image_width": data.get("image_width"),
-        "image_height": data.get("image_height"),
-        "grid_spec": dict(data.get("grid_spec")) if isinstance(data.get("grid_spec"), dict) else None,
-        "grid_overlay_ref": _coerce_artifact_ref_for_state(data.get("grid_overlay_ref")),
-        "selector_type": str(data.get("selector_type") or "").strip().lower() or None,
-        "source_image_path": str(data.get("source_image_path") or "").strip() or None,
-        "tx_image_evidence_region_ref": _coerce_artifact_ref_for_state(data.get("tx_image_evidence_region_ref")),
-        "tx_image_evidence_context_ref": _coerce_artifact_ref_for_state(data.get("tx_image_evidence_context_ref")),
-    }
+    return coerce_visual_evidence_state(raw)
 
 
 def _selector_type_from_target(target: dict[str, Any]) -> str | None:
-    if isinstance(target.get("crop_box_normalized"), dict):
-        return "normalized_box"
-    if isinstance(target.get("crop_box_pixels"), dict):
-        return "pixel_box"
-    if isinstance(target.get("grid_selection"), dict):
-        return "grid_selection"
-    return None
+    return selector_type_from_target(target)
 
 
 def _evidence_request_mode_hint(evidence_request: dict[str, Any] | None) -> str | None:
-    if not isinstance(evidence_request, dict):
-        return None
-    top_level_mode = str(evidence_request.get("mode") or "").strip().lower()
-    if top_level_mode:
-        return top_level_mode
-    target = evidence_request.get("target") if isinstance(evidence_request.get("target"), dict) else {}
-    target_mode = str(target.get("mode") or "").strip().lower()
-    if target_mode:
-        return target_mode
-    operation_modes = [
-        mode
-        for mode in ("select_region", "refine_region", "verify_region", "locate")
-        if isinstance(target.get(mode), dict)
-    ]
-    if len(operation_modes) == 1:
-        return operation_modes[0]
-    return None
+    return evidence_request_mode_hint(evidence_request)
 
 
 def _visual_evidence_from_verify_payload(
@@ -3031,40 +2382,14 @@ def _visual_evidence_from_verify_payload(
     verify_payload: dict[str, Any],
     existing_visual_evidence: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    if not isinstance(verify_payload, dict):
-        return _coerce_visual_evidence_state(existing_visual_evidence)
-    results = verify_payload.get("results") if isinstance(verify_payload.get("results"), list) else []
-    latest = dict(results[-1]) if results and isinstance(results[-1], dict) else {}
-    merged = _coerce_visual_evidence_state(existing_visual_evidence if isinstance(existing_visual_evidence, dict) else {})
-    merged.update(
-        {
-            "mode": merged.get("mode") or "verify",
-            "status": str(latest.get("status") or merged.get("status") or "").strip().lower() or None,
-            "check_id": str(latest.get("check_id") or merged.get("check_id") or "").strip() or None,
-            "query": str(latest.get("query") or merged.get("query") or "").strip()[:320] or merged.get("query"),
-            "observed_text": str(latest.get("observed_text") or merged.get("observed_text") or "").strip()[:220] or merged.get("observed_text"),
-            "verify_summary": dict(verify_payload.get("summary")) if isinstance(verify_payload.get("summary"), dict) else {},
-            "tx_image_evidence_region_ref": _coerce_artifact_ref_for_state(
-                latest.get("tx_image_evidence_region_ref") or merged.get("tx_image_evidence_region_ref")
-            ),
-            "tx_image_evidence_context_ref": _coerce_artifact_ref_for_state(
-                latest.get("tx_image_evidence_context_ref") or merged.get("tx_image_evidence_context_ref")
-            ),
-        }
+    return visual_evidence_from_verify_payload(
+        verify_payload=verify_payload,
+        existing_visual_evidence=existing_visual_evidence,
     )
-    return merged
 
 
 def _coerce_artifact_ref_for_state(raw: Any) -> dict[str, Any] | None:
-    if isinstance(raw, dict):
-        artifact_path = str(raw.get("artifact_path") or "").strip()
-        if artifact_path:
-            return {"artifact_path": artifact_path}
-    if isinstance(raw, str):
-        value = raw.strip()
-        if value:
-            return {"artifact_path": value}
-    return None
+    return coerce_artifact_ref_for_state(raw)
 
 
 def _cache_entry_matches_transcript(
@@ -3073,24 +2398,18 @@ def _cache_entry_matches_transcript(
     source_transcript_ref: str | None,
     source_transcript_hash: str | None,
 ) -> bool:
-    requested_ref = str(source_transcript_ref or "").strip()
-    requested_hash = str(source_transcript_hash or "").strip()
-    entry_ref = str(entry.get("source_transcript_ref") or "").strip()
-    entry_hash = str(entry.get("source_transcript_hash") or "").strip()
-    if requested_ref and entry_ref and requested_ref != entry_ref:
-        return False
-    if requested_hash and entry_hash and requested_hash != entry_hash:
-        return False
-    return True
+    return cache_entry_matches_transcript(
+        entry=entry,
+        source_transcript_ref=source_transcript_ref,
+        source_transcript_hash=source_transcript_hash,
+    )
 
 
 def _clear_cached_focus_evidence(
     *,
     state: TranscriptEditLoopState,
 ) -> None:
-    state.span_context_by_decision_key = {}
-    state.image_verification_payload_by_decision_key = {}
-    state.visual_evidence_by_decision_key = {}
+    clear_cached_focus_evidence(state=state)
 
 
 def _registry_row_for_decision_key(
@@ -3098,21 +2417,8 @@ def _registry_row_for_decision_key(
     registry: dict[str, Any] | None,
     decision_key: str | None,
 ) -> dict[str, Any] | None:
-    if not isinstance(registry, dict):
-        return None
-    key = str(decision_key or "").strip().lower()
-    if not key:
-        return None
-    rows = [row for row in list(registry.get("rows") or []) if isinstance(row, dict)]
-    matches = [
-        row
-        for row in rows
-        if str(row.get("decision_key") or "").strip().lower() == key
-    ]
-    if not matches:
-        return None
-    matches.sort(
-        key=lambda row: int(row.get("updated_at") or row.get("created_at") or 0),
-        reverse=True,
+    return registry_row_for_decision_key(
+        registry=registry,
+        decision_key=decision_key,
     )
-    return dict(matches[0])
+

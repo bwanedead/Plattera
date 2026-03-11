@@ -44,6 +44,52 @@ This file defines non-negotiables and working norms for any agent (including Ral
   - run the project’s verification commands when feasible (tests/lint/typecheck/build).
   - if you cannot run them, state what you did run and what remains unverified.
 
+## Mandatory review flow for non-trivial patches
+
+This repository uses reviewer subagents to prevent two recurring failures:
+1. monolith file drift
+2. code mass inflation
+
+A patch is non-trivial if it adds files, changes more than 3 files, materially expands a file, introduces a new abstraction/helper/service, changes module or layer boundaries, or is a refactor / cleanup / reorganization.
+
+For non-trivial patches, run:
+- `architecture_reviewer`
+- `code_efficiency_reviewer`
+
+### Reviewer purposes
+
+`architecture_reviewer`
+- prevent monolith files
+- prevent mixed responsibilities
+- enforce separation of concerns
+- enforce boundary, layering, orchestration, and module-intent standards
+
+`code_efficiency_reviewer`
+- prevent unnecessarily heavy implementations
+- reduce accidental complexity
+- catch over-abstraction, duplication, helper sprawl, wrapper indirection, and excessive code quantity
+
+### Standards to enforce
+
+Before implementing or reviewing, consult:
+1. `AGENTS.md`
+2. deeper local `AGENTS.md` files if present
+3. relevant `docs/ethos` files if present
+
+If `docs/ethos` exists, its relevant standards are binding within the scope they cover.
+
+### Review output requirements
+
+Reviewer findings must:
+- stay within scope
+- cite exact files and symbols when possible
+- distinguish blocking vs advisory findings
+- identify the relevant standard or ethos principle when applicable
+
+### Completion requirement
+
+A non-trivial patch is not complete until the reviewer agents have run, their findings have been summarized, and valid blocking findings have been reconciled or explicitly justified.
+
 ---
 
 ## 3) Read-first behavior (ethos / vision / local notes)
