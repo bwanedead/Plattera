@@ -107,6 +107,8 @@ A mode policy should define:
 
 Mode policies should keep weight-bearing domain truth local.
 
+Mode policies should not become a disguised copy of the old family controllers. They should own domain decisions, not accumulate reusable orchestration mechanics that belong in shared runtime capabilities.
+
 ## 4. Shared Runtime Capabilities
 
 The shared runtime should absorb generic orchestration capabilities that are useful across domains.
@@ -128,6 +130,16 @@ These should remain mode-specific:
 - deed-to-IR compile/judge/bundle/declare-done semantics
 - domain-specific blocker classes and acceptance thresholds
 
+## Layering Discipline
+
+The target layering should remain explicit:
+- mission runtime owns mission lifecycle, mode switching, shared continuity, mission trace, and terminal handling
+- execution kernel owns step execution, budgets, idempotency, refs, and deterministic action execution
+- mode policy owns domain decision logic
+- runtime capability owns reusable orchestration mechanics
+
+Implementation should resist collapsing these layers back together.
+
 ## 5. Linear Mode Transitions for v1
 
 The first unified runtime should support explicit, synchronous mode transitions within a single mission identity.
@@ -138,6 +150,8 @@ The runtime should:
 - persist the reason for switching modes
 - record the prior and next mode
 - carry forward the relevant artifacts and continuity summary
+- record what the receiving mode is expected to do
+- preserve a resumable note for returning to the prior mode
 - preserve one mission trace/story
 - allow later resumption of the prior mode with updated context
 
@@ -165,6 +179,8 @@ The next design/implementation pass should define these contracts explicitly:
   - verification summary
   - transition history
   - resumability summary
+
+MissionLedger should remain intentionally small. It should not become a giant universal runtime blob or duplicate full mode-local truth such as transcript-edit ledger internals, registry internals, or transient runtime caches.
 
 ### ModeTransition
 - owns the explicit transition event:
@@ -194,6 +210,8 @@ Define the new shared runtime contracts in docs first:
 - `ModeTransition`
 
 Also explicitly document that v1 uses synchronous in-place mode switching, not child subruns.
+
+This phase should produce a short follow-on contract doc for implementers that defines the minimum interface expectations for these runtime concepts without over-specifying internals.
 
 ## Phase 2. Build the mission runtime shell
 
