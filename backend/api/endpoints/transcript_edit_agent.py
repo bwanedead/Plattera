@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from agents.transcript_edit.controller import run_transcript_edit_controller_loop
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
 from agents.transcript_edit.handoff_packet import build_handoff_packet, persist_handoff_packet
+from agents.transcript_edit.state_projection import derive_waiting_feedback_projection
 from agents.transcript_edit.terminalization import terminal_message, terminal_summary
 from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
 from agent_kernel.session import KernelSessionManager
@@ -95,6 +96,16 @@ def _should_wait_feedback(*, result: TranscriptEditAgentRunResult, summary: dict
     status = str(result.status or "").strip().lower()
     if status not in {"needs_review", "failed"}:
         return False
+    runtime_hitl = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
+    registry = runtime_hitl.get("blocker_registry") if isinstance(runtime_hitl.get("blocker_registry"), dict) else {}
+    registry_rows = [row for row in list(registry.get("rows") or []) if isinstance(row, dict)] if isinstance(registry, dict) else []
+    waiting_projection = derive_waiting_feedback_projection(
+        blocker_registry=registry if isinstance(registry, dict) else {},
+        fallback_prompt_id=str(runtime_hitl.get("pending_feedback_prompt_id") or "").strip() or None,
+        fallback_decision_key=str(runtime_hitl.get("pending_feedback_decision_key") or "").strip().lower() or None,
+    )
+    if registry_rows:
+        return bool(waiting_projection.get("waiting_feedback"))
     if bool(summary.get("human_feedback_pending")):
         return True
     classification = str(summary.get("terminal_classification") or "").strip().lower()
@@ -103,6 +114,8 @@ def _should_wait_feedback(*, result: TranscriptEditAgentRunResult, summary: dict
         "blocked_waiting_feedback",
         "blocked_waiting_feedback_timeout",
     }:
+        return True
+    if bool(waiting_projection.get("waiting_feedback")):
         return True
     # Timeout can race with waiting-feedback ownership; treat it as resumable only with strong HITL evidence.
     reason = str(getattr(result, "reason_code", "") or "").strip().lower()
@@ -138,44 +151,35 @@ def _extract_resume_pending_feedback(run: dict[str, Any]) -> tuple[str | None, s
     runtime_hitl = snapshot.get("runtime_hitl_state") if isinstance(snapshot.get("runtime_hitl_state"), dict) else {}
     summary = snapshot.get("terminal_summary") if isinstance(snapshot.get("terminal_summary"), dict) else {}
     blocker_registry = runtime_hitl.get("blocker_registry") if isinstance(runtime_hitl.get("blocker_registry"), dict) else {}
-    blocker_rows = [row for row in list(blocker_registry.get("rows") or []) if isinstance(row, dict)]
 
-    waiting_owner = next(
+    waiting_projection = derive_waiting_feedback_projection(
+        blocker_registry=blocker_registry,
+        fallback_prompt_id=str(runtime_hitl.get("pending_feedback_prompt_id") or "").strip() or None,
+        fallback_decision_key=str(runtime_hitl.get("pending_feedback_decision_key") or "").strip().lower() or None,
+    )
+
+    prompt_id = str(waiting_projection.get("pending_feedback_prompt_id") or "").strip() or None
+    decision_key = str(waiting_projection.get("pending_feedback_decision_key") or "").strip().lower() or None
+    blocker_rows = [row for row in list(blocker_registry.get("rows") or []) if isinstance(row, dict)]
+    answered_owner = next(
         (
             row
             for row in blocker_rows
-            if str(row.get("state") or "").strip().lower() == "waiting_feedback"
+            if str(row.get("state") or "").strip().lower() == "answered_unintegrated"
+            and str(row.get("linked_prompt_id") or "").strip()
         ),
         None,
     )
+    if not prompt_id and isinstance(answered_owner, dict):
+        prompt_id = str(answered_owner.get("linked_prompt_id") or "").strip() or None
+    if not decision_key and isinstance(answered_owner, dict):
+        decision_key = str(answered_owner.get("decision_key") or "").strip().lower() or None
 
-    prompt_id = str((waiting_owner or {}).get("linked_prompt_id") or "").strip() or None
-    decision_key = str((waiting_owner or {}).get("decision_key") or "").strip().lower() or None
-
-    if not prompt_id:
-        prompt_id = str(runtime_hitl.get("pending_feedback_prompt_id") or "").strip() or None
-    if not decision_key:
-        decision_key = str(runtime_hitl.get("pending_feedback_decision_key") or "").strip().lower() or None
-
-    if not prompt_id:
+    registry_has_rows = len([row for row in list(blocker_registry.get("rows") or []) if isinstance(row, dict)]) > 0
+    if not prompt_id and not registry_has_rows:
         pending_ids = [str(v).strip() for v in list(summary.get("pending_feedback_prompt_ids") or []) if str(v).strip()]
         if pending_ids:
             prompt_id = pending_ids[0]
-
-    if not decision_key and prompt_id:
-        body = str(prompt_id).strip().lower()
-        if body.startswith("hitl_"):
-            body = body[len("hitl_") :]
-            parts = body.split("_")
-            if parts:
-                maybe = parts[0]
-                if maybe in {"township", "range", "section", "tie", "closure", "acreage"}:
-                    if maybe == "tie" and len(parts) > 1 and parts[1] in {"distance", "bearing"}:
-                        decision_key = f"tie_{parts[1]}"
-                    elif maybe == "closure" and len(parts) > 2 and parts[1] == "or" and parts[2] == "pob":
-                        decision_key = "closure_or_pob"
-                    elif maybe in {"township", "range", "section", "acreage"}:
-                        decision_key = maybe
 
     prompt_context: dict[str, Any] | None = None
     if decision_key:

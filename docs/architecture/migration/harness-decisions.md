@@ -92,6 +92,41 @@ This log is practical by design:
 - Consequences: Search should target canonical fields, while deep replay/debug follows source links to raw artifacts.
 - When to revisit: If storage/query costs or operational complexity justify changing default retention and indexing strategy.
 
+### HD-012: Shared terminal taxonomy is implemented as a classification seam
+- Status: Accepted
+- Decision: Implement shared terminal taxonomy in `backend/harness/terminal_taxonomy.py` as pure mapping helpers consumed by loop-family adapters; do not rewrite loop control flow or terminalization policy in this phase.
+- Rationale: Provides one harness-level outcome vocabulary with low migration risk while preserving loop-family semantics and reason-code detail.
+- Consequences: Tracing adapters now normalize through one shared mapper; broader runtime/API adoption is deferred to later phases.
+- When to revisit: When runtime surfaces are ready for additive normalized terminal-class exposure beyond tracing.
+
+### HD-013: Outer-loop review foundation is observational and trace-first
+- Status: Accepted
+- Decision: Implement Phase 8 review/eval as a lightweight observational layer over canonical traces and shared run-state envelopes (`backend/harness/review/reporting.py`), with deterministic heuristic flags and aggregate summaries, not runtime policy enforcement.
+- Rationale: The outer loop needs evidence-driven diagnosis and contract-shape discovery without introducing a heavyweight analytics platform or hidden decision engine.
+- Consequences: Review outputs are JSON-friendly artifacts for iteration and diagnosis; they inform migration and contract refinement but do not control loop execution.
+- When to revisit: If recurring review usage demands persisted reporting workflows, benchmark packs, or stricter eval gates.
+
+### HD-014: Operational review flow is a thin read-only orchestration tool
+- Status: Accepted
+- Decision: Operationalize review workflow via a small read-only orchestration tool (`backend/harness/review/tool.py`) that composes tracing service, shared run-state builders, and review reporting for single-run and multi-run analysis.
+- Rationale: Make review flow usable in daily harness engineering without adding API endpoints, dashboard systems, or duplicate analytics services.
+- Consequences: Tool output is structured JSON-friendly artifacts; explicit payload input remains required; orchestration stays thin and non-authoritative.
+- When to revisit: If usage pressure justifies a scheduled/automated workflow or a persisted report index.
+
+### HD-015: Ralph is out of scope for harness convergence
+- Status: Accepted
+- Decision: Exclude Ralph and `legacy-ralph/` from active harness-convergence steering, migration, and implementation planning.
+- Rationale: Ralph is unrelated to the current harness-convergence program and introduces noise into decisions about shared harness architecture.
+- Consequences: Future harness steering should focus on active harness-relevant seams only, especially transcript-edit and kernel compatibility surfaces.
+- When to revisit: Only if a separately scoped legacy cleanup effort explicitly includes Ralph and its relationship to the harness.
+
+### HD-016: Transcript-edit authority is materially converged; remaining work is simplification
+- Status: Accepted
+- Decision: Treat transcript-edit authority as materially converged after Phase 6/6A; future work should focus on compatibility retirement and simplification rather than reopening authority architecture.
+- Rationale: Ledger-backed closure truth, registry-backed lifecycle truth, and projection-only waiting/resume fields are now materially implemented and covered by authority tests.
+- Consequences: Steering should no longer frame transcript-edit authority as the primary unfinished architecture layer; shared-layer thinness and operational maturity now take priority.
+- When to revisit: If new runtime evidence shows authority drift reappearing in code or if a later blocker architecture change materially alters the ownership model.
+
 ## Change Protocol
 
 For each new major decision or reversal, append an entry with:

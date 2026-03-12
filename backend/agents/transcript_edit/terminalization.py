@@ -29,6 +29,7 @@ from .terminal_history import (
 )
 from .terminal_hitl import _post_feedback_ticket_seam
 from .terminal_summary import _final_decision_rationale
+from .state_projection import derive_waiting_feedback_projection
 
 def build_run_result(
     *,
@@ -213,13 +214,15 @@ def terminal_summary(
         ),
         None,
     )
-    waiting_feedback_owner = next(
-        (
-            row
-            for row in blocker_rows
-            if str(row.get("state") or "").strip().lower() == "waiting_feedback"
-        ),
-        None,
+    waiting_projection = derive_waiting_feedback_projection(
+        blocker_registry=blocker_registry,
+        fallback_prompt_id=str(hitl_state.get("pending_feedback_prompt_id") or "").strip() or None,
+        fallback_decision_key=str(hitl_state.get("pending_feedback_decision_key") or "").strip().lower() or None,
+    )
+    waiting_feedback_owner = (
+        dict(waiting_projection.get("waiting_feedback_owner"))
+        if isinstance(waiting_projection.get("waiting_feedback_owner"), dict)
+        else None
     )
     answered_unintegrated_owner = next(
         (
@@ -264,7 +267,7 @@ def terminal_summary(
         if isinstance(hitl_state, dict)
         else []
     )
-    runtime_pending_prompt_id = str(hitl_state.get("pending_feedback_prompt_id") or "").strip()
+    runtime_pending_prompt_id = str(waiting_projection.get("pending_feedback_prompt_id") or "").strip()
     if runtime_pending_prompt_id and runtime_pending_prompt_id not in pending_feedback_prompt_ids:
         pending_feedback_prompt_ids.append(runtime_pending_prompt_id)
         human_feedback_pending = True

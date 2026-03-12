@@ -250,3 +250,121 @@ The right posture is:
 - evidence-driven
 - willing to preserve novel Plattera-native strengths
 - willing to adjust as implementation teaches more
+
+---
+
+## Post-Phase-9 Status
+
+Phases 1 through 9 of the original convergence program are now materially implemented:
+- architecture docs spine
+- shared harness contracts
+- transcript-edit authority clarification
+- canonical trace foundation, adapters, and consumption surface
+- shared terminal taxonomy
+- transcript-edit authority convergence and hardening
+- minimal shared run-state envelope
+- review/eval foundation
+- operational review tooling
+
+The program is no longer in the "define the core convergence primitives" stage.
+
+The current state should be described as:
+- core convergence spine implemented
+- transcript-edit authority materially converged
+- shared harness layer real and useful
+- operational maturity still incomplete
+
+The most important remaining deltas are no longer missing shared primitives.
+They are:
+- keeping `backend/harness/run_state.py` thin and non-duplicative
+- resolving remaining harness-relevant compatibility seams
+- deciding trace export/persistence policy
+- turning review tooling into recurring practice
+- adding benchmark/regression packs over normalized traces and review outputs
+
+Important steering correction:
+- Ralph and `legacy-ralph/` are out of scope for this harness-convergence program.
+
+---
+
+## Next Segment
+
+### Phase 10. Make shared run-state thinner and explicitly settle its derivation model
+
+The main current technical watchpoint is `backend/harness/run_state.py`.
+
+This phase should:
+- keep shared run-state as a minimal read-model layer
+- remove duplicated transcript-edit waiting/resume derivation from the shared harness layer
+- explicitly decide how shared run-state is derived:
+  - from loop-family-owned normalized projection surfaces, or
+  - from canonical trace plus minimal raw-state supplementation
+
+This phase should not:
+- reopen transcript-edit authority as a broad redesign
+- create a giant canonical run ledger
+- make `backend/harness` a second place where loop-family truth is reinterpreted
+
+### Phase 11. Resolve active harness-relevant compatibility seams
+
+This phase should focus on the compatibility surfaces that still matter to full convergence:
+- `resume_pending_feedback_*` compatibility path
+- `run_kernel` legacy/autopilot compatibility surface
+- transcript-edit package/API naming overlap:
+  - `backend/transcript_edit`
+  - `backend/transcription_edit_loop`
+  - `backend/api/endpoints/transcription_edit.py`
+  - `backend/api/endpoints/transcript_edit_agent.py`
+
+The target is not broad cleanup for its own sake.
+The target is:
+- explicit canonical-vs-compatibility classification
+- deprecation paths where appropriate
+- reduced ambiguity for future agents
+
+### Phase 12. Decide and implement trace operational maturity policy
+
+Canonical traces are now operationally useful, but export/persistence policy is still undecided.
+
+This phase should:
+- decide whether canonical traces remain on-demand only or gain sidecar/export support
+- keep raw-plus-canonical retention intact
+- add only the smallest operational trace artifact support needed for routine live-loop review
+
+### Phase 13. Institutionalize the review loop
+
+The review/eval foundation and tooling now exist, but recurring review practice is not yet institutionalized.
+
+This phase should define:
+- review cadence
+- review ownership
+- required recurring review questions
+- how review findings flow back into harness changes and contract evolution
+
+### Phase 14. Add benchmark and regression packs
+
+Once the review loop is operational, add the first repeatable benchmark/regression layer over:
+- canonical traces
+- shared run-state envelopes
+- review outputs
+
+The target is:
+- stable fixture-backed comparisons
+- repeatable regression checks
+- trace-informed contract evolution
+
+---
+
+## Updated Working Conclusion
+
+The next stretch of work should:
+- preserve the current shared harness layer
+- treat transcript-edit authority as materially converged
+- prevent `backend/harness` from becoming a second semantic authority layer
+- move from architectural convergence toward operational maturity
+
+The main technical watchpoint is:
+- `backend/harness/run_state.py`
+
+The main program watchpoint is:
+- failure to turn trace/review tooling into disciplined recurring practice

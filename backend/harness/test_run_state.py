@@ -1,0 +1,189 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
+
+from harness.run_state import (
+    RUN_STATE_VERSION,
+    build_controller_kernel_run_state,
+    build_transcript_edit_run_state,
+)
+
+
+def _tx_snapshot_waiting() -> dict:
+    return {
+        "run_id": "tx-run-1",
+        "status": "waiting_feedback",
+        "request": {"mode": "audit_then_repair", "trigger": "manual", "dossier_id": "d-1"},
+        "snapshot": {
+            "run_id": "tx-run-1",
+            "status": "waiting_feedback",
+            "reason_code": "tx_agent_closure_requirements_unresolved",
+            "iterations": 3,
+            "session_id": "tx-session-1",
+            "latest_refs": {f"ref_{idx}": {"artifact_path": f"artifact://{idx}"} for idx in range(20)},
+            "progress_log": [
+                {
+                    "timestamp_epoch_seconds": 100,
+                    "phase": "audit_result",
+                    "iteration": 2,
+                    "detail": {
+                        "decision_ledger": {"summary": {"unresolved_count": 1}},
+                    },
+                },
+                {"timestamp_epoch_seconds": 101, "phase": "human_feedback_needed", "iteration": 3},
+                {"timestamp_epoch_seconds": 102, "phase": "image_verify_result", "iteration": 3},
+            ],
+            "critical_events": [],
+            "runtime_hitl_state": {
+                "pending_feedback_prompt_id": "hitl_range_compat",
+                "pending_feedback_decision_key": "range",
+                "blocker_registry": {
+                    "active_blocker_id": "blocker:range",
+                    "counts": {"waiting_feedback": 1, "answered_unintegrated": 1, "total": 2},
+                    "rows": [
+                        {
+                            "blocker_id": "blocker:range",
+                            "decision_key": "range",
+                            "state": "waiting_feedback",
+                            "linked_prompt_id": "hitl_range_registry",
+                        },
+                        {
+                            "blocker_id": "blocker:township",
+                            "decision_key": "township",
+                            "state": "answered_unintegrated",
+                            "linked_prompt_id": "hitl_township_2",
+                        },
+                    ],
+                },
+            },
+            "terminal_summary": {
+                "terminal_classification": "blocked_waiting_feedback",
+                "human_feedback_pending": True,
+                "decision_ledger": {"summary": {"unresolved_count": 4}},
+                "mapping_ready": False,
+                "closure_state": "needs_human_feedback",
+            },
+        },
+    }
+
+
+def _controller_payload_completed() -> tuple[dict, dict]:
+    transcript = {
+        "events": [
+            {
+                "event_type": "run_header",
+                "payload": {
+                    "request_id": "request-1",
+                    "session_id": "request-1::run-1",
+                    "dossier_id": "d-1",
+                },
+            },
+            {
+                "event_type": "kernel_step_result",
+                "payload": {
+                    "iteration": 1,
+                    "action_type": "retrieve_evidence",
+                    "latest_refs": {"retrieval_ref": "artifact://retrieval-1"},
+                },
+            },
+            {
+                "event_type": "kernel_step_result",
+                "payload": {
+                    "iteration": 2,
+                    "action_type": "declare_done",
+                    "latest_refs": {"bundle_ref": "artifact://bundle-1"},
+                    "terminal": {
+                        "terminal_outcome": "SUCCESS",
+                        "stop_reason": "completed",
+                        "success": True,
+                        "reason_code": "done_verified",
+                    },
+                },
+            },
+        ]
+    }
+    run_artifact = {
+        "run_id": "run-1",
+        "request_id": "request-1",
+        "session_id": "request-1::run-1",
+        "steps": [{"step_id": "step-1"}, {"step_id": "step-2"}],
+    }
+    return transcript, run_artifact
+
+
+def test_transcript_edit_builder_uses_registry_waiting_and_ledger_unresolved() -> None:
+    envelope = build_transcript_edit_run_state(run_snapshot=_tx_snapshot_waiting())
+    assert envelope.loop_family == "transcript_edit"
+    assert envelope.blocker_summary.source == "registry"
+    assert envelope.blocker_summary.active_blocker_id == "blocker:range"
+    assert envelope.blocker_summary.waiting_human is True
+    assert envelope.blocker_summary.answered_unintegrated_count == 1
+    assert envelope.waiting_summary.waiting is True
+    assert envelope.waiting_summary.resumable is True
+    assert envelope.waiting_summary.owner_kind == "blocker_registry"
+    assert envelope.verification_summary.status == "needs_human_feedback"
+    assert envelope.latest_refs_summary.total_count == 20
+    assert len(envelope.latest_refs_summary.ref_keys) == 16
+    assert envelope.envelope_version == RUN_STATE_VERSION
+
+
+def test_controller_builder_is_sparse_and_does_not_invent_blocker_authority() -> None:
+    transcript, run_artifact = _controller_payload_completed()
+    envelope = build_controller_kernel_run_state(
+        controller_transcript=transcript,
+        run_artifact=run_artifact,
+    )
+    assert envelope.loop_family == "controller_kernel"
+    assert envelope.blocker_summary.source == "sparse"
+    assert envelope.blocker_summary.open_count is None
+    assert envelope.blocker_summary.active_blocker_id is None
+    assert envelope.waiting_summary.waiting is False
+    assert envelope.terminal_summary.terminal is True
+    assert envelope.terminal_summary.terminal_class == "completed"
+    assert envelope.terminal_summary.reason_code == "done_verified"
+
+
+def test_controller_builder_waiting_human_terminal_maps_and_resumable() -> None:
+    transcript, run_artifact = _controller_payload_completed()
+    transcript["events"][-1]["payload"]["terminal"] = {
+        "terminal_outcome": "NEEDS_USER_CHOICE",
+        "stop_reason": "needs_user_choice",
+        "success": None,
+        "reason_code": "requires_choice",
+    }
+    envelope = build_controller_kernel_run_state(
+        controller_transcript=transcript,
+        run_artifact=run_artifact,
+    )
+    assert envelope.terminal_summary.terminal_class == "waiting_human"
+    assert envelope.waiting_summary.waiting is True
+    assert envelope.waiting_summary.resumable is True
+    assert envelope.waiting_summary.waiting_kind == "human_feedback"
+
+
+def test_transcript_edit_missing_optional_data_is_explicit() -> None:
+    payload = {
+        "run_id": "tx-run-minimal",
+        "snapshot": {
+            "run_id": "tx-run-minimal",
+            "status": "needs_review",
+            "reason_code": "tx_agent_closure_requirements_unresolved",
+            "progress_log": [],
+            "critical_events": [],
+            "runtime_hitl_state": {},
+            "terminal_summary": {},
+            "latest_refs": {},
+        },
+    }
+    envelope = build_transcript_edit_run_state(run_snapshot=payload)
+    assert envelope.blocker_summary.source == "registry"
+    assert envelope.blocker_summary.open_count == 0
+    assert envelope.waiting_summary.waiting is False
+    assert envelope.waiting_summary.owner_kind is None
+    assert envelope.latest_refs_summary.has_refs is False
+

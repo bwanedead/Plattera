@@ -23,6 +23,10 @@ from .hitl_feedback import (
 )
 from .loop_runtime import emit_progress
 from .loop_state import TranscriptEditLoopState
+from .state_projection import (
+    derive_waiting_feedback_projection,
+    sync_pending_feedback_cache_from_registry,
+)
 from .run_reporting import (
     human_feedback_consumed_payload,
     human_feedback_prompt_superseded_payload,
@@ -267,6 +271,7 @@ def set_pending_feedback_prompt(
     progress_cb: Callable[[dict[str, Any]], None] | None,
     emit_ticket_lifecycle_transition_fn,
 ) -> None:
+    sync_pending_feedback_cache_from_registry(state=state)
     new_prompt_id = str(feedback_prompt.get("prompt_id") or "").strip() or None
     old_prompt_id = str(state.pending_feedback_prompt_id or "").strip() or None
     if old_prompt_id and new_prompt_id and old_prompt_id != new_prompt_id:
@@ -346,6 +351,7 @@ def set_pending_feedback_prompt(
             ticket_id=new_prompt_id,
             reason="hitl_prompt_issued",
         )
+        sync_pending_feedback_cache_from_registry(state=state)
     append_hitl_lifecycle_event(
         state=state,
         event={
@@ -373,9 +379,15 @@ def drain_pending_feedback(
     feedback_entry_signature_fn=feedback_entry_signature,
     normalize_feedback_response_fn=normalize_feedback_response,
 ) -> dict[str, Any] | None:
-    if not state.pending_feedback_prompt_id:
+    sync_pending_feedback_cache_from_registry(state=state)
+    projection = derive_waiting_feedback_projection(
+        blocker_registry=state.blocker_registry,
+        fallback_prompt_id=state.pending_feedback_prompt_id,
+        fallback_decision_key=state.pending_feedback_decision_key,
+    )
+    if not projection.get("pending_feedback_prompt_id"):
         return None
-    pending_prompt_id = str(state.pending_feedback_prompt_id or "").strip()
+    pending_prompt_id = str(projection.get("pending_feedback_prompt_id") or "").strip()
     all_entries = list_feedback_entries_fn(run_id=viewer_run_id)
     if all_entries:
         for entry in all_entries:
@@ -420,6 +432,7 @@ def drain_pending_feedback(
                     prompt_id=entry_prompt_id,
                     reason=stale_reason,
                 )
+                sync_pending_feedback_cache_from_registry(state=state)
             stale_event = {
                 "iteration": iterations,
                 "phase": "human_feedback_stale",
@@ -488,6 +501,7 @@ def drain_pending_feedback(
             prompt_id=pending_prompt_id,
             reason="invalid_feedback_payload",
         )
+        sync_pending_feedback_cache_from_registry(state=state)
         append_hitl_lifecycle_event(
             state=state,
             event={
@@ -559,6 +573,7 @@ def drain_pending_feedback(
         feedback_note=str(normalized_feedback.get("note") or "").strip() or None,
         reason="feedback_received_for_pending_prompt",
     )
+    sync_pending_feedback_cache_from_registry(state=state)
     emit_ticket_lifecycle_transition_fn(
         ticket_id=pending_prompt_id,
         decision_key=str(normalized_feedback.get("decision_key") or "").strip().lower(),

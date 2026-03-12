@@ -76,6 +76,10 @@ from .progress_evaluation import (
 from .result_policy import (
     max_iterations_decision,
 )
+from .state_projection import (
+    derive_waiting_feedback_projection,
+    sync_pending_feedback_cache_from_registry,
+)
 from .terminalization import build_run_result
 from .run_reporting import (
     audit_payload,
@@ -170,18 +174,34 @@ def run_transcript_edit_controller_loop(
                 source_transcript_ref=request.source_transcript_ref,
             )
         ),
-        pending_feedback_prompt_id=(
-            str(request.resume_pending_feedback_prompt_id or "").strip() or None
-        ),
-        pending_feedback_decision_key=(
-            str(request.resume_pending_feedback_decision_key or "").strip().lower() or None
-        ),
+        pending_feedback_prompt_id=None,
+        pending_feedback_decision_key=None,
         pending_feedback_prompt=(
             dict(request.resume_pending_feedback_prompt)
             if isinstance(request.resume_pending_feedback_prompt, dict)
             else None
         ),
     )
+    resume_fallback_prompt_id = str(request.resume_pending_feedback_prompt_id or "").strip() or None
+    resume_fallback_decision_key = str(request.resume_pending_feedback_decision_key or "").strip().lower() or None
+    state.pending_feedback_prompt_id = resume_fallback_prompt_id
+    state.pending_feedback_decision_key = resume_fallback_decision_key
+    sync_pending_feedback_cache_from_registry(state=state)
+    authoritative_prompt_id = str(state.pending_feedback_prompt_id or "").strip() or None
+    authoritative_decision_key = str(state.pending_feedback_decision_key or "").strip().lower() or None
+    if not authoritative_prompt_id:
+        state.pending_feedback_prompt = None
+    elif (
+        (resume_fallback_prompt_id and authoritative_prompt_id != resume_fallback_prompt_id)
+        or (
+            resume_fallback_decision_key
+            and authoritative_decision_key
+            and authoritative_decision_key != resume_fallback_decision_key
+        )
+    ):
+        # Resume payload prompt context is compatibility metadata; clear it when
+        # registry-authoritative ownership points at a different prompt/decision.
+        state.pending_feedback_prompt = None
     state.convention_context = (
         dict((state.blocker_registry or {}).get("convention_context"))
         if isinstance((state.blocker_registry or {}).get("convention_context"), dict)
@@ -345,6 +365,7 @@ def run_transcript_edit_controller_loop(
         session_id=session_id,
         source_transcript_ref=state.current_transcript_ref,
     )
+    sync_pending_feedback_cache_from_registry(state=state)
     blocker_health = blocker_health_snapshot(
         registry=state.blocker_registry,
         decision_ledger=state.decision_ledger,
@@ -367,6 +388,7 @@ def run_transcript_edit_controller_loop(
             session_id=session_id,
             source_transcript_ref=state.current_transcript_ref,
         )
+        sync_pending_feedback_cache_from_registry(state=state)
         _emit_progress(
             progress_cb,
             ticker_payload(
@@ -476,6 +498,7 @@ def run_transcript_edit_controller_loop(
             session_id=session_id,
             source_transcript_ref=state.current_transcript_ref,
         )
+        sync_pending_feedback_cache_from_registry(state=state)
         unresolved_items = unresolved_closure_requirements(state.decision_ledger)
         has_open_closure = bool(unresolved_items)
         has_mapping_blocking_closure = has_unresolved_target_scope_mapping_blocking_closure(state.decision_ledger)
@@ -794,6 +817,11 @@ def _result(
 
 
 def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
+    projection = derive_waiting_feedback_projection(
+        blocker_registry=state.blocker_registry,
+        fallback_prompt_id=state.pending_feedback_prompt_id,
+        fallback_decision_key=state.pending_feedback_decision_key,
+    )
     tickets = list_external_context_injections(
         state.decision_ledger,
         type_filter="human_resolution_ticket",
@@ -804,8 +832,8 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
         "feedback_consumed_count": int(state.feedback_consumed_count),
         "feedback_stale_count": int(state.feedback_stale_count),
         "feedback_superseded_count": int(state.feedback_superseded_count),
-        "pending_feedback_prompt_id": state.pending_feedback_prompt_id,
-        "pending_feedback_decision_key": state.pending_feedback_decision_key,
+        "pending_feedback_prompt_id": projection.get("pending_feedback_prompt_id"),
+        "pending_feedback_decision_key": projection.get("pending_feedback_decision_key"),
         "superseded_prompt_ids": sorted(list(state.superseded_feedback_prompt_ids)),
         "hitl_lifecycle_log": list(state.hitl_lifecycle_log),
         "human_resolution_tickets": tickets,
@@ -870,16 +898,13 @@ def _should_convert_timeout_to_waiting_feedback(*, reason: str | None, state: Tr
     reason_text = str(reason or "").strip().lower()
     if "budget_wall_time_exceeded" not in reason_text:
         return False
-    if str(state.pending_feedback_prompt_id or "").strip():
-        return True
-    rows = [row for row in list((state.blocker_registry or {}).get("rows") or []) if isinstance(row, dict)]
-    waiting_rows = [
-        row
-        for row in rows
-        if str(row.get("state") or "").strip().lower() == "waiting_feedback"
-        and str(row.get("linked_prompt_id") or "").strip()
-    ]
-    return len(waiting_rows) > 0
+    sync_pending_feedback_cache_from_registry(state=state)
+    projection = derive_waiting_feedback_projection(
+        blocker_registry=state.blocker_registry,
+        fallback_prompt_id=state.pending_feedback_prompt_id,
+        fallback_decision_key=state.pending_feedback_decision_key,
+    )
+    return bool(projection.get("waiting_feedback"))
 
 
 def _read_step_outputs_inline(step_record: dict[str, Any] | None) -> dict[str, Any]:

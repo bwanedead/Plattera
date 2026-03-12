@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ...terminal_taxonomy import classify_controller_terminal
 from ..builder import build_canonical_trace
 from ..schema import CanonicalTraceRecord, RawTraceEvent, TerminalSnapshot
 from .controller_kernel_helpers import (
@@ -16,7 +17,6 @@ from .controller_kernel_helpers import (
     bounded_text,
     extract_run_id_from_session,
     first_non_empty,
-    map_terminal_class,
     source_ref,
 )
 
@@ -388,13 +388,15 @@ def _map_terminal_snapshot(terminal: dict[str, Any]) -> TerminalSnapshot:
     stop_reason = as_str(terminal.get("stop_reason"))
     terminal_outcome = as_str(terminal.get("terminal_outcome"))
     success = terminal.get("success")
+    classification = classify_controller_terminal(
+        stop_reason=stop_reason,
+        terminal_outcome=terminal_outcome,
+        success=success,
+        reason_code=as_str(terminal.get("reason_code")),
+    )
     return TerminalSnapshot(
-        terminal_class=map_terminal_class(
-            stop_reason=stop_reason,
-            terminal_outcome=terminal_outcome,
-            success=success,
-        ),
-        terminal_reason_code=as_str(terminal.get("reason_code")),
+        terminal_class=classification.terminal_class,
+        terminal_reason_code=classification.reason_code,
         success=bool(success) if isinstance(success, bool) else None,
         terminal_metadata={
             "stop_reason": stop_reason,

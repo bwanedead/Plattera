@@ -71,31 +71,3 @@ def extract_run_id_from_session(session_id: str | None) -> str | None:
     if not value or "::" not in value:
         return None
     return value.rsplit("::", maxsplit=1)[-1] or None
-
-
-def map_terminal_class(*, stop_reason: str | None, terminal_outcome: str | None, success: Any) -> str:
-    normalized_reason = (stop_reason or "").strip().lower()
-    if normalized_reason == "completed" and success is True:
-        return "completed"
-    if normalized_reason == "needs_user_choice":
-        return "waiting_human"
-    if normalized_reason == "needs_upload":
-        return "waiting_evidence"
-    if normalized_reason in {"needs_capability", "worker_unavailable", "validation_failed"}:
-        return "blocked"
-    if normalized_reason in {"budget_exceeded", "no_progress"}:
-        return "exhausted"
-    if normalized_reason in {"internal_error", "error", "cancelled"}:
-        return "failed"
-
-    normalized_outcome = (terminal_outcome or "").strip().upper()
-    if normalized_outcome == "SUCCESS":
-        return "completed"
-    if normalized_outcome == "NEEDS_USER_CHOICE":
-        return "waiting_human"
-    if normalized_outcome == "NEEDS_UPLOAD":
-        return "waiting_evidence"
-    if normalized_outcome == "FAILED":
-        return "failed"
-    return "blocked"
-

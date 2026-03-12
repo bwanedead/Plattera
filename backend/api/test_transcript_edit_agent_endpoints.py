@@ -663,3 +663,31 @@ def test_request_run_resume_if_waiting_returns_registry_update_failed_when_mark_
         )
         assert out["resumed"] is False
         assert out["reason"] == "resume_registry_update_failed"
+
+
+def test_extract_resume_pending_feedback_ignores_summary_fallback_when_registry_present() -> None:
+    run = {
+        "snapshot": {
+            "runtime_hitl_state": {
+                "pending_feedback_prompt_id": "hitl_range_compat",
+                "pending_feedback_decision_key": "range",
+                "blocker_registry": {
+                    "rows": [
+                        {
+                            "blocker_id": "blocker:range",
+                            "decision_key": "range",
+                            "state": "answered_unintegrated",
+                            "linked_prompt_id": "hitl_range_registry",
+                        }
+                    ]
+                },
+            },
+            "terminal_summary": {
+                "pending_feedback_prompt_ids": ["hitl_range_from_summary"],
+            },
+        }
+    }
+    prompt_id, decision_key, prompt_context = transcript_edit_agent._extract_resume_pending_feedback(run)
+    assert prompt_id == "hitl_range_registry"
+    assert decision_key == "range"
+    assert prompt_context == {"decision_key": "range"}

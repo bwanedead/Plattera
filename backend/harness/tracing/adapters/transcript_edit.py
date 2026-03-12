@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ...terminal_taxonomy import classify_transcript_edit_terminal
 from ..builder import build_canonical_trace
 from ..schema import CanonicalTraceRecord, RawTraceEvent, TerminalSnapshot
 from .transcript_edit_helpers import (
@@ -372,43 +373,31 @@ def _map_terminal_snapshot(
     terminal_summary: dict[str, Any],
     ledger_snapshot: dict[str, Any],
 ) -> TerminalSnapshot:
-    classification = (as_str(terminal_summary.get("terminal_classification")) or "").lower()
-    status_norm = (status or "").strip().lower()
+    classification = as_str(terminal_summary.get("terminal_classification"))
     human_feedback_pending = bool(terminal_summary.get("human_feedback_pending"))
-
-    if status_norm == "completed":
-        terminal_class = "completed"
-    elif status_norm == "waiting_feedback":
-        terminal_class = "waiting_human"
-    elif status_norm == "needs_review":
-        if human_feedback_pending or "waiting_feedback" in classification or "human_feedback" in classification:
-            terminal_class = "waiting_human"
-        elif "dependency" in classification or "evidence" in classification:
-            terminal_class = "waiting_evidence"
-        elif "exhausted" in classification or "iteration" in (reason_code or ""):
-            terminal_class = "exhausted"
-        else:
-            terminal_class = "blocked"
-    elif status_norm == "failed":
-        if human_feedback_pending or "waiting_feedback" in classification:
-            terminal_class = "waiting_human"
-        else:
-            terminal_class = "failed"
-    else:
-        terminal_class = "failed"
+    classification_result = classify_transcript_edit_terminal(
+        status=status,
+        reason_code=reason_code,
+        terminal_classification=classification,
+        human_feedback_pending=human_feedback_pending,
+    )
 
     metadata: dict[str, Any] = {
-        "status": status_norm or None,
-        "terminal_classification": classification or None,
+        "status": as_str(status),
+        "terminal_classification": as_str(classification),
         "review_required": terminal_summary.get("review_required"),
     }
     closure = closure_payload(ledger_snapshot)
     if closure:
         metadata["closure"] = closure
     return TerminalSnapshot(
-        terminal_class=terminal_class,
-        terminal_reason_code=reason_code,
-        success=True if terminal_class == "completed" else False if terminal_class in {"failed", "blocked", "exhausted"} else None,
+        terminal_class=classification_result.terminal_class,
+        terminal_reason_code=classification_result.reason_code,
+        success=True
+        if classification_result.terminal_class == "completed"
+        else False
+        if classification_result.terminal_class in {"failed", "blocked", "exhausted"}
+        else None,
         terminal_metadata={k: v for k, v in metadata.items() if v not in (None, "", {})},
     )
 
