@@ -1,4 +1,9 @@
-"""Public model surface for Agent Kernel v0."""
+"""Public model surface for Agent Kernel v0.
+
+Compatibility note:
+- ``run_kernel`` is a legacy/autopilot compatibility surface.
+- Preferred harness integration is step-driven via ``KernelSessionManager``.
+"""
 
 from .actions import (
     ActionExecutor,

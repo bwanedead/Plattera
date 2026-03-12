@@ -44,6 +44,45 @@ def test_run_endpoint_background_false_returns_snapshot(monkeypatch) -> None:
         assert payload["snapshot"]["reason_code"] == "ok"
 
 
+def test_resume_request_can_be_registry_first_without_pending_feedback_fields() -> None:
+    run = {
+        "request": {
+            "resume_request": {
+                "dossier_id": "D1",
+                "source_text": "Beginning at ...",
+                "mode": "audit_then_repair_then_promote",
+                "auto_promote": False,
+                "hitl_enabled": True,
+            }
+        },
+        "snapshot": {
+            "runtime_hitl_state": {
+                "blocker_registry": {
+                    "active_blocker_id": "blocker:range",
+                    "rows": [
+                        {
+                            "blocker_id": "blocker:range",
+                            "decision_key": "range",
+                            "state": "waiting_feedback",
+                        }
+                    ],
+                    "counts": {"waiting_feedback": 1},
+                }
+            },
+            "terminal_summary": {},
+        },
+    }
+    request = transcript_edit_agent._build_resume_request_for_run(
+        run=run,
+        trigger="manual_resume",
+        background=True,
+    )
+    assert isinstance(request.resume_blocker_registry, dict)
+    assert str(request.resume_blocker_registry.get("active_blocker_id") or "") == "blocker:range"
+    assert request.resume_pending_feedback_prompt_id is None
+    assert request.resume_pending_feedback_decision_key == "range"
+
+
 def test_run_endpoint_background_true_returns_running(monkeypatch) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         _reset_registry(Path(tmp))

@@ -1,0 +1,84 @@
+{
+  "run_id": "tx-reg-complete-1",
+  "status": "completed",
+  "request": {
+    "mode": "audit_then_repair_then_promote",
+    "trigger": "manual",
+    "dossier_id": "d-reg-tx-1"
+  },
+  "snapshot": {
+    "run_id": "tx-reg-complete-1",
+    "status": "completed",
+    "reason_code": "tx_agent_transcript_clean_promoted",
+    "iterations": 2,
+    "session_id": "tx-reg-complete-session-1",
+    "run_artifact_ref": "artifact://tx-reg-complete-run",
+    "latest_refs": {
+      "tx_source_transcript_ref": {
+        "artifact_path": "artifact://tx-reg-source-1"
+      }
+    },
+    "progress_log": [
+      {
+        "timestamp_epoch_seconds": 300,
+        "iteration": 0,
+        "phase": "starting",
+        "message": "starting"
+      },
+      {
+        "timestamp_epoch_seconds": 301,
+        "iteration": 1,
+        "phase": "audit_result",
+        "message": "audit done",
+        "detail": {
+          "decision_ledger": {
+            "summary": {
+              "unresolved_count": 0,
+              "mapping_blocking_unresolved_count": 0
+            }
+          }
+        }
+      },
+      {
+        "timestamp_epoch_seconds": 302,
+        "iteration": 2,
+        "phase": "image_verify_result",
+        "message": "verified",
+        "detail": {
+          "decision_ledger": {
+            "summary": {
+              "unresolved_count": 0,
+              "mapping_blocking_unresolved_count": 0
+            }
+          }
+        }
+      }
+    ],
+    "critical_events": [],
+    "runtime_hitl_state": {
+      "hitl_lifecycle_log": [],
+      "blocker_registry": {
+        "updated_at": 302,
+        "rows": [],
+        "history": [],
+        "counts": {
+          "total": 0
+        }
+      }
+    },
+    "terminal_summary": {
+      "terminal_classification": "mapping_ready",
+      "human_feedback_pending": false,
+      "decision_ledger": {
+        "summary": {
+          "unresolved_count": 0,
+          "mapping_blocking_unresolved_count": 0
+        }
+      },
+      "mapping_ready": true,
+      "closure_state": "closure_resolved"
+    },
+    "waiting_feedback": false,
+    "resumable": false
+  }
+}

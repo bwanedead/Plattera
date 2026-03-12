@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agents.transcript_edit.state_projection import derive_waiting_feedback_projection
+
 from .terminal_taxonomy import (
     TerminalClass,
     classify_controller_terminal,
@@ -108,10 +110,14 @@ def build_transcript_edit_run_state(*, run_snapshot: dict[str, Any]) -> SharedRu
     progress_log = _as_dict_list(snapshot.get("progress_log"))
     critical_events = _as_dict_list(snapshot.get("critical_events"))
 
-    waiting_projection = _derive_registry_waiting_projection(
+    waiting_projection = derive_waiting_feedback_projection(
         blocker_registry=blocker_registry,
         fallback_prompt_id=_as_str(runtime_hitl_state.get("pending_feedback_prompt_id")),
         fallback_decision_key=_as_str(runtime_hitl_state.get("pending_feedback_decision_key")),
+    )
+    waiting_from_compat_fallback = (
+        _as_str(waiting_projection.get("source")) == "compat_fallback"
+        and bool(waiting_projection.get("waiting_feedback"))
     )
     human_feedback_pending = bool(terminal.get("human_feedback_pending")) or bool(waiting_projection.get("waiting_feedback"))
     terminal_result = classify_transcript_edit_terminal(
@@ -158,7 +164,7 @@ def build_transcript_edit_run_state(*, run_snapshot: dict[str, Any]) -> SharedRu
             active_blocker_id=_as_str(blocker_registry.get("active_blocker_id")),
             waiting_human=bool(waiting_projection.get("waiting_feedback")),
             answered_unintegrated_count=answered_unintegrated_count,
-            source="registry",
+            source="derived" if waiting_from_compat_fallback else "registry",
         ),
         verification_summary=VerificationSummary(
             status=verification_status,
@@ -277,39 +283,6 @@ def _resolve_run_payload(run_snapshot: dict[str, Any]) -> tuple[dict[str, Any], 
 def _summarize_refs(refs: dict[str, Any]) -> LatestRefsSummary:
     keys = sorted(str(key) for key in refs.keys() if str(key).strip())
     return LatestRefsSummary(has_refs=bool(keys), total_count=len(keys), ref_keys=keys[:16])
-
-
-def _derive_registry_waiting_projection(
-    *,
-    blocker_registry: dict[str, Any],
-    fallback_prompt_id: str | None,
-    fallback_decision_key: str | None,
-) -> dict[str, Any]:
-    rows = _as_dict_list(blocker_registry.get("rows"))
-    active_blocker_id = _as_str(blocker_registry.get("active_blocker_id"))
-    waiting_rows = [row for row in rows if _as_str(row.get("state")) == "waiting_feedback"]
-    waiting_owner = next(
-        (
-            row
-            for row in waiting_rows
-            if active_blocker_id and _as_str(row.get("blocker_id")) == active_blocker_id
-        ),
-        waiting_rows[0] if waiting_rows else None,
-    )
-    has_registry_rows = len(rows) > 0
-    owner_prompt_id = _as_str((waiting_owner or {}).get("linked_prompt_id"))
-    owner_decision_key = _as_str((waiting_owner or {}).get("decision_key"))
-
-    prompt_id = owner_prompt_id or (fallback_prompt_id if not has_registry_rows else None)
-    decision_key = owner_decision_key or (fallback_decision_key if not has_registry_rows else None)
-    waiting_feedback = bool(waiting_owner) or (not has_registry_rows and bool(prompt_id))
-    return {
-        "pending_feedback_prompt_id": prompt_id,
-        "pending_feedback_decision_key": decision_key,
-        "waiting_feedback": waiting_feedback,
-        "resumable": waiting_feedback,
-        "waiting_feedback_owner": dict(waiting_owner) if isinstance(waiting_owner, dict) else None,
-    }
 
 
 def _registry_open_count(rows: list[dict[str, Any]]) -> int:

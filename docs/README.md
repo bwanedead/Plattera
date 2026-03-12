@@ -17,8 +17,10 @@ Current active harness convergence docs:
 - `docs/architecture/harness/trace-normalization-and-adapter-design.md`
 - `docs/architecture/migration/harness-delta-ledger.md`
 - `docs/architecture/migration/harness-decisions.md`
+- `docs/architecture/migration/unified-mission-runtime-plan-2026-03-12.md`
 - `docs/architecture/migration/transcript-edit-authority-migration-notes.md`
 - `docs/architecture/migration/trace-implementation-plan.md`
+- `docs/architecture/migration/harness-review-operating-routine.md`
 
 Use these as the source of truth for destination architecture, migration gaps, and major decisions.
 

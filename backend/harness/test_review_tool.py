@@ -12,8 +12,12 @@ if str(_BACKEND_ROOT) not in sys.path:
 
 from harness.review.tool import (
     build_multi_run_review,
+    build_multi_run_review_bundle,
+    build_multi_run_review_bundle_from_paths,
     build_multi_run_review_from_paths,
     build_single_run_review,
+    build_single_run_review_bundle,
+    build_single_run_review_bundle_from_path,
     build_single_run_review_from_path,
     maybe_write_review_output,
 )
@@ -164,3 +168,80 @@ def test_path_and_output_write_flow_is_json_friendly_and_deterministic(tmp_path:
     assert loaded["run_count"] == 2
     assert "aggregate" in loaded
 
+
+def test_single_run_review_bundle_shape_and_metadata() -> None:
+    bundle = build_single_run_review_bundle(payload=_controller_payload())
+    assert bundle["metadata"]["artifact_version"] == "review_bundle.v1"
+    assert bundle["metadata"]["mode"] == "single_run"
+    assert bundle["metadata"]["loop_family"] == "controller_kernel"
+    assert bundle["metadata"]["run_count"] == 1
+    assert isinstance(bundle["metadata"]["generated_at"], str)
+    assert len(bundle["runs"]) == 1
+    run = bundle["runs"][0]
+    assert sorted(run.keys()) == ["input", "loop_family", "review", "run_id", "run_state", "trace"]
+    assert run["trace"]["loop_family"] == "controller_kernel"
+    assert run["run_state"]["loop_family"] == "controller_kernel"
+    assert run["review"]["loop_family"] == "controller_kernel"
+
+
+def test_multi_run_review_bundle_includes_aggregate_and_mixed_loop_family() -> None:
+    bundle = build_multi_run_review_bundle(payloads=[_controller_payload(), _tx_payload()])
+    assert bundle["metadata"]["mode"] == "multi_run"
+    assert bundle["metadata"]["loop_family"] == "mixed"
+    assert bundle["metadata"]["run_count"] == 2
+    assert len(bundle["runs"]) == 2
+    aggregate = bundle["aggregate"]
+    assert aggregate["loop_family_distribution"]["controller_kernel"] == 1
+    assert aggregate["loop_family_distribution"]["transcript_edit"] == 1
+    assert aggregate["terminal_class_distribution"]["completed"] == 1
+    assert aggregate["terminal_class_distribution"]["waiting_human"] == 1
+
+
+def test_bundle_write_is_explicit_opt_in(tmp_path: Path) -> None:
+    bundle = build_single_run_review_bundle(payload=_controller_payload())
+    no_write_path = tmp_path / "no_write.json"
+    maybe_write_review_output(review_output=bundle, output_path=None)
+    assert not no_write_path.exists()
+
+    write_path = tmp_path / "write.json"
+    maybe_write_review_output(review_output=bundle, output_path=str(write_path))
+    assert write_path.exists()
+    loaded = json.loads(write_path.read_text(encoding="utf-8"))
+    assert loaded["metadata"]["artifact_version"] == "review_bundle.v1"
+
+
+def test_bundle_from_paths_tracks_input_paths_and_is_deterministic_except_timestamp(tmp_path: Path) -> None:
+    controller_path = tmp_path / "controller_payload.json"
+    tx_path = tmp_path / "tx_payload.json"
+    controller_path.write_text(json.dumps(_controller_payload()), encoding="utf-8")
+    tx_path.write_text(json.dumps(_tx_payload()), encoding="utf-8")
+
+    first = build_multi_run_review_bundle_from_paths(payload_paths=[str(controller_path), str(tx_path)])
+    second = build_multi_run_review_bundle_from_paths(payload_paths=[str(controller_path), str(tx_path)])
+    assert first["metadata"]["input_payload_paths"] == [str(controller_path), str(tx_path)]
+    assert second["metadata"]["input_payload_paths"] == [str(controller_path), str(tx_path)]
+
+    first_copy = json.loads(json.dumps(first))
+    second_copy = json.loads(json.dumps(second))
+    first_copy["metadata"]["generated_at"] = "<normalized>"
+    second_copy["metadata"]["generated_at"] = "<normalized>"
+    assert first_copy == second_copy
+
+
+def test_bundle_marks_partial_trace_honestly() -> None:
+    tx_payload = _tx_payload()
+    tx_payload["snapshot"]["progress_log"] = tx_payload["snapshot"]["progress_log"] * 120
+    bundle = build_single_run_review_bundle(payload=tx_payload)
+    note = bundle["metadata"]["partial_trace_note"]
+    assert note["contains_partial_traces"] is True
+    assert note["partial_run_count"] == 1
+    assert bundle["runs"][0]["trace"]["completeness_status"] == "partial"
+    assert "tx_progress_log_bounded" in bundle["runs"][0]["trace"]["normalization_warnings"]
+
+
+def test_single_run_bundle_from_path_includes_payload_path(tmp_path: Path) -> None:
+    controller_path = tmp_path / "controller_payload.json"
+    controller_path.write_text(json.dumps(_controller_payload()), encoding="utf-8")
+    bundle = build_single_run_review_bundle_from_path(payload_path=str(controller_path))
+    assert bundle["metadata"]["input_payload_paths"] == [str(controller_path)]
+    assert bundle["runs"][0]["input"]["payload_path"] == str(controller_path)

@@ -187,3 +187,27 @@ def test_transcript_edit_missing_optional_data_is_explicit() -> None:
     assert envelope.waiting_summary.owner_kind is None
     assert envelope.latest_refs_summary.has_refs is False
 
+
+def test_transcript_edit_waiting_falls_back_to_compat_only_without_registry_rows() -> None:
+    payload = {
+        "run_id": "tx-run-compat-wait",
+        "snapshot": {
+            "run_id": "tx-run-compat-wait",
+            "status": "waiting_feedback",
+            "reason_code": "tx_agent_waiting_for_feedback",
+            "progress_log": [],
+            "critical_events": [],
+            "runtime_hitl_state": {
+                "pending_feedback_prompt_id": "hitl_range_compat",
+                "pending_feedback_decision_key": "RANGE",
+                "blocker_registry": {"rows": []},
+            },
+            "terminal_summary": {},
+            "latest_refs": {},
+        },
+    }
+    envelope = build_transcript_edit_run_state(run_snapshot=payload)
+    assert envelope.waiting_summary.waiting is True
+    assert envelope.waiting_summary.resumable is True
+    assert envelope.waiting_summary.owner_kind is None
+    assert envelope.blocker_summary.source == "derived"

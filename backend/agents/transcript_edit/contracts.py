@@ -7,6 +7,14 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class TranscriptEditAgentRunRequest(BaseModel):
+    """Canonical request model for the harness-facing transcript-edit agent loop.
+
+    Compatibility note:
+    - ``resume_pending_feedback_*`` fields are migration-bridge inputs only.
+    - Registry-first resumability (``resume_blocker_registry``) is the canonical
+      waiting/resume authority surface.
+    """
+
     dossier_id: Optional[str] = None
     transcription_id: Optional[str] = None
     trigger: Optional[str] = None
@@ -31,9 +39,27 @@ class TranscriptEditAgentRunRequest(BaseModel):
     hitl_enabled: bool = True
     hitl_wait_timeout_seconds: int = Field(default=120, ge=10, le=900)
     hitl_poll_interval_seconds: int = Field(default=2, ge=1, le=30)
-    resume_pending_feedback_prompt_id: Optional[str] = None
-    resume_pending_feedback_decision_key: Optional[str] = None
-    resume_pending_feedback_prompt: dict[str, Any] | None = None
+    resume_pending_feedback_prompt_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Compatibility bridge input only. Canonical waiting/resume ownership "
+            "is registry-first via resume_blocker_registry."
+        ),
+    )
+    resume_pending_feedback_decision_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Compatibility bridge input only. Canonical waiting/resume ownership "
+            "is registry-first via resume_blocker_registry."
+        ),
+    )
+    resume_pending_feedback_prompt: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Compatibility bridge payload only. Canonical waiting/resume ownership "
+            "is registry-first via resume_blocker_registry."
+        ),
+    )
     resume_blocker_registry: dict[str, Any] | None = None
 
 

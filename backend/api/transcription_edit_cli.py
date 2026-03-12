@@ -1,4 +1,9 @@
-"""CLI harness for transcription-edit loop endpoint internals."""
+"""CLI harness for transcription-edit loop endpoint internals.
+
+Legacy compatibility CLI for deterministic transcription-edit v0 endpoint
+internals. Canonical harness-facing transcript-edit CLI is
+``api.transcript_edit_agent_cli``.
+"""
 
 from __future__ import annotations
 
@@ -127,4 +132,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

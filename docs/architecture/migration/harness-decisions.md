@@ -127,6 +127,41 @@ This log is practical by design:
 - Consequences: Steering should no longer frame transcript-edit authority as the primary unfinished architecture layer; shared-layer thinness and operational maturity now take priority.
 - When to revisit: If new runtime evidence shows authority drift reappearing in code or if a later blocker architecture change materially alters the ownership model.
 
+### HD-017: Shared run-state derives waiting/resumability from domain projection seams
+- Status: Accepted
+- Decision: `backend/harness/run_state.py` must remain a thin read-model builder and consume transcript-edit waiting/resumability projection through `agents.transcript_edit.state_projection.derive_waiting_feedback_projection` instead of re-deriving parallel waiting rules in harness-local helpers.
+- Rationale: Waiting/resumability semantics are domain-owned for transcript-edit; duplicate derivation in harness creates drift risk and accidental second authority surfaces.
+- Consequences: Harness run-state builders now compose domain projections with persisted/read-model snapshots; future waiting-rule changes should land in the transcript-edit projection seam and flow through to harness read models.
+- When to revisit: If a new neutral projection interface supersedes `state_projection` or if loop families adopt a canonical-trace-first derivation path with equivalent authority preservation.
+
+### HD-018: Phase 11 compatibility seams are explicitly classified and deprecation-oriented
+- Status: Accepted
+- Decision: Treat `transcript_edit_agent` endpoint/CLI as canonical harness-facing transcript-edit surfaces; treat `backend/transcript_edit` as the preferred package import path while package ownership is still transitional; keep `transcription_edit` endpoint/CLI and `run_kernel` as narrow legacy compatibility seams; treat `resume_pending_feedback_*` request fields as compatibility bridges with registry-first resumability as canonical authority.
+- Rationale: Remaining ambiguity in active seams causes migration drift and caller confusion; explicit seam classification reduces accidental expansion of legacy paths.
+- Consequences: New harness-oriented transcript-edit work should target canonical endpoint/CLI surfaces; compatibility paths remain additive and isolated until deprecation triggers are met.
+- When to revisit: When telemetry/tests show compatibility consumers are retired and removal conditions in the Phase 11 seam ledger are met.
+
+### HD-019: Trace/review operational artifacts are explicit export bundles
+- Status: Accepted
+- Decision: Canonical traces remain additive read models and are operationalized through explicit opt-in review bundle export (`harness.review.tool`) rather than background persistence or a separate trace platform.
+- Rationale: Live-loop engineering needs durable evidence artifacts, but automatic storage layers create hidden persistence drift and platform creep.
+- Consequences: Engineers can generate single-run or multi-run stable JSON bundles containing canonical trace, shared run-state envelope, review summaries, and aggregate summaries; writes occur only when explicitly requested.
+- When to revisit: If operational load shows explicit artifact generation is insufficient and a bounded persisted index is justified without violating thin-layer constraints.
+
+### HD-020: Review loop is institutionalized as a recurring observational routine
+- Status: Accepted
+- Decision: Establish a documented recurring harness review operating routine with required questions and artifact expectations, while keeping review outputs observational and non-enforcement.
+- Rationale: The review tool exists, but without cadence/ownership ritual it does not reliably drive contract evolution or ergonomics discovery.
+- Consequences: Harness engineering now has a concrete review ritual tied to trace/run-state/review bundles and recurring evidence-led questions; no runtime policy gating is introduced from review flags.
+- When to revisit: If organization ownership/cadence changes or review volume requires a different operational cadence model.
+
+### HD-021: Phase 14 regression packs protect high-signal normalized semantics
+- Status: Accepted
+- Decision: Add a compact fixture-backed harness regression pack that asserts high-signal normalized behavior (terminal class/reason, waiting posture, verification presence, partial-trace posture, selected review flags, mixed-run aggregate rates) instead of full serialized snapshots or performance benchmarking.
+- Rationale: Harness convergence needs repeatable drift detection at canonical seams without freezing incidental internal details or creating a heavyweight benchmark framework.
+- Consequences: Regression coverage stays maintainable and evidence-focused while still catching meaningful behavior shifts across controller/kernel and transcript-edit runs.
+- When to revisit: If repeated regressions show missing signal and justify adding a small number of additional representative fixtures or aggregate assertions.
+
 ## Change Protocol
 
 For each new major decision or reversal, append an entry with:

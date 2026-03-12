@@ -1,4 +1,7 @@
-"""CLI harness for transcript-edit agent endpoint internals."""
+"""CLI harness for transcript-edit agent endpoint internals.
+
+Canonical CLI for the harness-facing transcript-edit agent API.
+"""
 
 from __future__ import annotations
 

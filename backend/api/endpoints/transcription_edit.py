@@ -1,4 +1,9 @@
-"""API endpoints for transcription edit loop v0."""
+"""API endpoints for transcription edit loop v0.
+
+Legacy compatibility endpoint for deterministic transcription-edit v0 surfaces.
+Canonical harness-facing transcript-edit API lives in
+``api.endpoints.transcript_edit_agent``.
+"""
 
 from __future__ import annotations
 

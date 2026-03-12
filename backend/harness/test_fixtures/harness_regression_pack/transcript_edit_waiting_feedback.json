@@ -1,0 +1,93 @@
+{
+  "run_id": "tx-reg-waiting-1",
+  "status": "waiting_feedback",
+  "request": {
+    "mode": "audit_then_repair",
+    "trigger": "manual",
+    "dossier_id": "d-reg-tx-2"
+  },
+  "snapshot": {
+    "run_id": "tx-reg-waiting-1",
+    "status": "waiting_feedback",
+    "reason_code": "tx_agent_closure_requirements_unresolved",
+    "iterations": 3,
+    "session_id": "tx-reg-waiting-session-1",
+    "run_artifact_ref": "artifact://tx-reg-waiting-run",
+    "latest_refs": {},
+    "progress_log": [
+      {
+        "timestamp_epoch_seconds": 400,
+        "iteration": 0,
+        "phase": "starting",
+        "message": "starting"
+      },
+      {
+        "timestamp_epoch_seconds": 401,
+        "iteration": 3,
+        "phase": "human_feedback_needed",
+        "event_type": "human_feedback_needed",
+        "prompt_id": "hitl_range_reg_1",
+        "message": "Need human choice"
+      }
+    ],
+    "critical_events": [],
+    "runtime_hitl_state": {
+      "hitl_lifecycle_log": [
+        {
+          "timestamp_epoch_seconds": 402,
+          "iteration": 3,
+          "phase": "human_feedback_needed",
+          "prompt_id": "hitl_range_reg_1",
+          "ticket_id": "ticket-range-reg-1",
+          "decision_key": "range",
+          "lifecycle_state": "waiting_feedback"
+        }
+      ],
+      "blocker_registry": {
+        "updated_at": 402,
+        "rows": [
+          {
+            "blocker_id": "blocker:range",
+            "decision_key": "range",
+            "state": "waiting_feedback",
+            "feedback_status": "pending",
+            "linked_prompt_id": "hitl_range_reg_1",
+            "linked_ticket_id": "ticket-range-reg-1",
+            "updated_at": 402,
+            "last_transition_reason": "prompt_issued"
+          }
+        ],
+        "history": [
+          {
+            "timestamp_epoch_seconds": 402,
+            "iteration": 3,
+            "active_blocker_id": "blocker:range",
+            "prior_state": "open",
+            "new_state": "waiting_feedback",
+            "action_attempted": "request_hitl",
+            "result": "waiting_feedback",
+            "reason": "prompt_issued"
+          }
+        ],
+        "counts": {
+          "waiting_feedback": 1,
+          "total": 1
+        }
+      }
+    },
+    "terminal_summary": {
+      "terminal_classification": "blocked_waiting_feedback",
+      "human_feedback_pending": true,
+      "decision_ledger": {
+        "summary": {
+          "unresolved_count": 1,
+          "mapping_blocking_unresolved_count": 1
+        }
+      },
+      "mapping_ready": false,
+      "closure_state": "needs_human_feedback"
+    },
+    "waiting_feedback": true,
+    "resumable": true
+  }
+}

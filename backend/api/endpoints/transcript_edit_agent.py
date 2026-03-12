@@ -1,4 +1,8 @@
-"""Kernel-backed transcript-edit agent run endpoints."""
+"""Kernel-backed transcript-edit agent run endpoints.
+
+Canonical harness-facing transcript-edit API surface.
+Compatibility bridges remain additive while migration seams are retired.
+"""
 
 from __future__ import annotations
 
@@ -158,6 +162,7 @@ def _extract_resume_pending_feedback(run: dict[str, Any]) -> tuple[str | None, s
         fallback_decision_key=str(runtime_hitl.get("pending_feedback_decision_key") or "").strip().lower() or None,
     )
 
+    # Registry-first waiting projection is canonical; fallback fields are bridge-only.
     prompt_id = str(waiting_projection.get("pending_feedback_prompt_id") or "").strip() or None
     decision_key = str(waiting_projection.get("pending_feedback_decision_key") or "").strip().lower() or None
     blocker_rows = [row for row in list(blocker_registry.get("rows") or []) if isinstance(row, dict)]
@@ -210,6 +215,8 @@ def _build_resume_request_for_run(*, run: dict[str, Any], trigger: str | None, b
             else None
         )
     )
+    # Compatibility bridge fields remain additive while consumers converge on
+    # registry-first resumability payloads.
     if pending_prompt_id:
         base_payload["resume_pending_feedback_prompt_id"] = pending_prompt_id
     if pending_decision_key:
