@@ -162,6 +162,27 @@ This log is practical by design:
 - Consequences: Regression coverage stays maintainable and evidence-focused while still catching meaningful behavior shifts across controller/kernel and transcript-edit runs.
 - When to revisit: If repeated regressions show missing signal and justify adding a small number of additional representative fixtures or aggregate assertions.
 
+### HD-022: Unified mission runtime is locked as a four-layer, contract-first architecture with linear v1 transitions
+- Status: Accepted
+- Decision: For unified mission runtime implementation, lock the four-layer split (`MissionRuntime`, execution kernel, `RuntimeCapability`, `ModePolicy`), classify `MissionLedger` and `ModeTransition` as runtime-owned record contracts (not additional layers), enforce contract-first implementation posture via `docs/architecture/harness/mission-runtime-contracts-v1.md`, and constrain v1 mode switching to linear synchronous in-place transitions under one mission identity/continuity chain with two-owner transition flow (`ModePolicy` recommends, `MissionRuntime` validates/applies/persists).
+- Rationale: The migration plan identified interface ambiguity as the main near-term drift risk; freezing boundaries and transition constraints first reduces monolith drift and ad hoc orchestration seams.
+- Consequences: Runtime work should implement against the locked contract layer, keep domain truth in mode policies, keep reusable mechanics in capabilities, and defer child subruns.
+- When to revisit: After first production use of cross-mode mission transitions if evidence shows linear in-place switching is insufficient or boundaries repeatedly force exceptions.
+
+### HD-023: Phase A mission runtime shell is narrow, family-agnostic scaffolding
+- Status: Accepted
+- Decision: Implement Phase A as a minimal shared mission runtime shell under `backend/harness/mission_runtime/` with contract-aligned `MissionLedger` and `ModeTransition` records, a small mode-policy registry seam, active-mode tracking, and transition/terminal routing using fake-policy tests; defer deed-to-IR and transcript-edit runtime migration.
+- Rationale: Early shell realism is needed to anchor later migration phases, but mixing family behavior now would inflate interfaces and blur ownership boundaries.
+- Consequences: The shared shell exists and is testable without introducing a new mission-runtime monolith or controller-v2 policy interface; next phases can wire real families through additive adapters.
+- When to revisit: When beginning first family integration slice (deed-to-IR mode adaptation) and evaluating whether additive compatibility seams remain sufficient.
+
+### HD-024: Phase B integrates deed-to-IR as first real ModePolicy via additive adapter
+- Status: Accepted
+- Decision: Integrate deed-to-IR/controller as the first real `ModePolicy` under `MissionRuntime` using a narrow adapter module (`backend/harness/mission_runtime/modes/deed_to_ir.py`) that wraps existing `run_controller_loop` inputs/results into mission-runtime interpretation/recommendation structures, without transcript-edit migration and without nested mission/subrun mechanics.
+- Rationale: The architecture needed proof that the Phase A shell can host a real family while preserving current controller behavior and keeping shell/policy boundaries constrained.
+- Consequences: `MissionRuntime` now executes a real deed-to-IR cycle through a bounded mode policy seam; controller internals remain owned by controller-family modules; transcript-edit stays out of scope for this phase.
+- When to revisit: When starting transcript-edit integration and deciding what (if any) reusable runtime capabilities should be extracted from mode-local adapters.
+
 ## Change Protocol
 
 For each new major decision or reversal, append an entry with:

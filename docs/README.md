@@ -9,6 +9,7 @@ Primary program sequence is tracked in:
 
 Current active harness convergence docs:
 - `docs/architecture/harness/target-harness-v1.md`
+- `docs/architecture/harness/mission-runtime-contracts-v1.md`
 - `docs/architecture/harness/canonical-trace-schema.md`
 - `docs/architecture/harness/shared-terminal-taxonomy.md`
 - `docs/architecture/harness/shared-blocker-escalation-envelope.md`
@@ -23,6 +24,7 @@ Current active harness convergence docs:
 - `docs/architecture/migration/harness-review-operating-routine.md`
 
 Use these as the source of truth for destination architecture, migration gaps, and major decisions.
+For unified mission runtime layer boundaries, `docs/architecture/harness/mission-runtime-contracts-v1.md` takes precedence; `target-harness-v1.md` remains broader harness-direction context.
 
 ## Active Reference Architecture Docs
 
