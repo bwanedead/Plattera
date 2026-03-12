@@ -6,6 +6,8 @@ This document captures a design principle that has become increasingly important
 
 This is not an argument for making the engine fuzzy, permissive, or vague. It is an argument for designing action contracts that match how the agent naturally and repeatedly tries to express correct intent.
 
+It is also not a claim that we should guess that grammar once and freeze the seam around our guess. The contract layer should be discovered empirically by observing real agent behavior, probing recurring emitted shapes, and iteratively evolving the accepted seam toward the stable natural forms the agent actually uses.
+
 ---
 
 ## 1. Core Principle
@@ -28,6 +30,34 @@ In short:
 - The engine should accept action forms that are natural to the agent, provided they remain mechanically reliable.
 
 This is the **agent ergonomics** principle.
+
+### 1.1 Contract discovery, not contract guessing
+
+The deeper principle is not merely:
+
+- "make the contract match the agent's tendencies."
+
+It is:
+
+- observe how the agent naturally expresses intent in practice,
+- identify recurring sane shapes,
+- and let the accepted contract evolve toward those shapes where safe.
+
+That means the ergonomics layer is an empirical discovery process, not a one-time aesthetic preference.
+
+We should not assume ahead of time that we already know the best interface for the model. Instead, we should:
+
+1. instrument the seam,
+2. record emitted action shapes,
+3. compare repeated near-miss and valid forms,
+4. detect stable natural grammars,
+5. and then deliberately adapt the accepted contract or normalization funnel.
+
+In other words:
+
+- the runtime should learn from the agent's repeated sane conveyance patterns,
+- not force the agent to permanently think in an awkward engine dialect,
+- and not prematurely freeze the seam around a contract we invented before observing enough evidence.
 
 ---
 
@@ -66,6 +96,17 @@ It means:
 - bless them deliberately,
 - normalize them internally if useful,
 - and reject only what remains ambiguous or unsafe.
+
+To do that well, the path has to be observed, not imagined.
+
+The engine needs enough traceability at the action seam to answer questions like:
+
+- what action shape did the agent naturally emit?
+- how often does this shape recur?
+- which variations are equivalent in intent?
+- where is the model expressing the right intent through the wrong surface grammar?
+
+Without recording those emitted shapes, ergonomics degrades back into guesswork.
 
 ---
 
@@ -106,6 +147,20 @@ If the runtime constantly has to translate obvious near-miss agent intent into t
 
 That divergence should usually be corrected, not hidden forever.
 
+### 3.4 Makes contract evolution evidence-based
+
+As models, prompts, and loop policies change, the natural action grammar may shift.
+
+So a good agent-engine seam should be:
+
+- observable,
+- evidence-led,
+- and evolvable.
+
+The goal is not to discover one perfect contract forever.
+
+The goal is to maintain a contract layer that continues to fit the model's recurring sane intent expression over time.
+
 ---
 
 ## 4. Three Layers of Action Shape
@@ -145,6 +200,12 @@ The important thing is:
 
 - internal normalization as an implementation detail is healthy,
 - but forcing an awkward external contract forever when the natural agent form is clearly better is not.
+
+This also implies a fourth concern sitting across all three layers:
+
+- **observed emitted forms**: the real payloads and structures the agent actually produces in live runs.
+
+Those observed forms are the evidence source that tells us whether the accepted contract is well-fit or awkward.
 
 ---
 
@@ -195,6 +256,18 @@ Example:
 - if two active artifacts exist, "use the current one" is too vague,
 - but if exactly one active artifact exists for the focused decision key, implicit reuse may be acceptable.
 
+### 5.5 The pattern is grounded in recorded emitted behavior
+
+We should prefer contract evolution that is justified by:
+
+- traces,
+- transcripts,
+- invalid payload records,
+- retry patterns,
+- and other direct observations of how the agent tried to express intent.
+
+If we have not observed the pattern in practice, we should be careful about elevating it into the accepted contract too early.
+
 ---
 
 ## 6. When Not To Adapt the Contract
@@ -236,6 +309,19 @@ This keeps the system:
 - evidence-based,
 - structurally explicit,
 - and responsive to the agent's actual behavior.
+
+When the agent expresses the same intent through a small range of nearby valid-looking shapes, do not force an arbitrary single surface too early.
+
+Instead, consider:
+
+- an ergonomic alias layer,
+- or a narrow normalization funnel that accepts the small recurring family of sane forms
+
+as long as:
+
+- the intent remains unambiguous,
+- the distinctions that matter remain explicit,
+- and the runtime still normalizes into one deterministic execution model.
 
 ---
 
@@ -281,6 +367,20 @@ If the agent repeatedly frames the next useful action as:
 
 the contract and prompt surface should preserve that directness rather than routing it through awkward generic prompt wrappers.
 
+### 8.5 Any high-frequency action seam under active evolution
+
+This applies especially strongly anywhere the model is repeatedly authoring structured intent:
+
+- blocker proposals,
+- evidence requests,
+- repair moves,
+- artifact reuse,
+- escalation requests,
+- terminal declarations,
+- and future harness-level action grammars.
+
+These surfaces should be treated as discoverable ergonomic seams, not permanently fixed command dialects.
+
 ---
 
 ## 9. Runtime Rails Still Matter
@@ -305,6 +405,18 @@ This distinction is critical:
 - **runtime owns realization**
 
 The engine should become easier for the agent to drive, not looser about what actually happens.
+
+This is why the right implementation pattern is often:
+
+- observe many emitted forms,
+- accept a bounded subset of sane forms,
+- normalize them internally,
+- and keep the execution rails strict after normalization.
+
+That preserves both:
+
+- ergonomic intent expression,
+- and deterministic realization.
 
 ---
 
@@ -342,7 +454,8 @@ For Plattera's long-running agent loops, the bias should be:
 - strict rails,
 - explicit persistence,
 - deterministic runtime realization,
-- but contract surfaces that are increasingly aligned with how the agent naturally and repeatedly expresses sane intent.
+- contract surfaces that are increasingly aligned with how the agent naturally and repeatedly expresses sane intent,
+- and seam instrumentation rich enough to keep discovering that intent grammar over time.
 
 This helps the system become:
 
@@ -359,6 +472,8 @@ The end goal is a loop where:
 - the engine can execute reliably,
 - and the seam between them is tight enough that very little intent is lost in translation.
 
+That requires preserving the evidence trail of how the agent actually tried to express actions, so the contract layer can keep evolving toward the best-fitting puzzle piece instead of ossifying around an outdated guessed shape.
+
 ---
 
 ## 12. Summary
@@ -366,7 +481,9 @@ The end goal is a loop where:
 **Agent ergonomics theory** means:
 
 - treat recurring sane agent action shapes as design signal,
+- discover those shapes empirically from recorded runs rather than assuming them,
 - adapt accepted contracts toward those shapes when safe,
+- allow bounded ergonomic aliases or funnels when the same intent appears in a small recurring family of forms,
 - keep one deterministic execution model underneath,
 - and preserve strict rails after normalization.
 
@@ -375,3 +492,5 @@ Put differently:
 **Do not make the agent contort itself to fit a contract that the engine could easily learn to fit instead.**
 
 Where the agent consistently walks a sensible path, pave it.
+
+And before paving it, make sure you actually watched where the agent walked.
