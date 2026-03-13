@@ -26,6 +26,31 @@ Current active harness convergence docs:
 Use these as the source of truth for destination architecture, migration gaps, and major decisions.
 For unified mission runtime layer boundaries, `docs/architecture/harness/mission-runtime-contracts-v1.md` takes precedence; `target-harness-v1.md` remains broader harness-direction context.
 
+## Next-Stage Agent Kernel Seed
+
+This next-stage seed captures the direction after the current shared harness / mission-runtime convergence work.
+
+Start here for next-stage planning orientation:
+- `docs/architecture/agent-kernel/README.md` — index and interpretation rules for the seed area
+- `docs/architecture/agent-kernel/target-agent-kernel-v1.md` — seed architecture contract: execution kernel / orchestration kernel / domain-pack / mission-shell layering
+- `docs/architecture/agent-kernel/current-to-next-vocabulary-crosswalk.md` — explicit mapping from current harness terms to next-stage seed terms; read before planning next-stage work
+- `docs/architecture/agent-kernel/loop-family-orchestration-delta-matrix.md` — concrete code-grounded delta between `deed_to_ir` and `transcript_edit` orchestration; primary input to orchestration kernel design
+- `docs/architecture/migration/agent-kernel-convergence-roadmap.md` — phased roadmap for next convergence stage (7 phases: architecture clarification → orchestration kernel → loop memory → domain packs → transcript extraction → deed migration → blended missions)
+
+Use this seed when planning the next convergence stage:
+- one shared orchestration kernel above both loop families
+- one shared loop-memory law (six memory categories)
+- domain packs that differ in content and policy, not in fundamental loop shape
+
+Current implemented harness and mission-runtime reality is still primarily documented under:
+- `docs/architecture/harness/`
+- `docs/architecture/migration/`
+
+Interpretation rule:
+- `docs/architecture/harness/` and `docs/architecture/migration/` remain authoritative for the currently implemented runtime boundaries
+- `docs/architecture/agent-kernel/` is the forward-looking seed area for the next deeper convergence stage
+- do not use next-stage seed vocabulary to override current harness doc authority
+
 ## Active Reference Architecture Docs
 
 These remain active references for current-state architecture and loop behavior:

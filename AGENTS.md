@@ -52,7 +52,7 @@ This repository uses reviewer subagents to prevent two recurring failures:
 
 A patch is non-trivial if it adds files, changes more than 3 files, materially expands a file, introduces a new abstraction/helper/service, changes module or layer boundaries, or is a refactor / cleanup / reorganization.
 
-For non-trivial patches, run:
+For non-trivial patches, run (claude and codex harness only [cursor not applicable]):
 - `architecture_reviewer`
 - `code_efficiency_reviewer`
 
