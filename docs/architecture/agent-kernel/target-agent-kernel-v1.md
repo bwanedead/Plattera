@@ -15,7 +15,7 @@ Related docs:
 
 Define the next architecture target after shared harness and mission-runtime convergence:
 
-- one holistic `agent kernel`
+- one holistic `agent kernel architecture`
 - one shared loop law across domains
 - one shared loop-memory law across domains
 - domain-specific content injected without domain-specific top-level controller species

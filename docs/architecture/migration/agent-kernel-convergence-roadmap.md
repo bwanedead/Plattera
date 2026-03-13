@@ -41,39 +41,37 @@ This roadmap picks up from that foundation and addresses the remaining delta: tw
 
 ---
 
-## Phase 1. Architecture Clarification Spine (this phase)
+## Phase 1. Architecture Clarification Spine ✓ complete
 
 **Outputs:**
 - `docs/architecture/agent-kernel/target-agent-kernel-v1.md` (tightened seed)
-- `docs/architecture/agent-kernel/current-to-next-vocabulary-crosswalk.md`
+- `docs/architecture/agent-kernel/current-to-next-vocabulary-crosswalk.md` (includes `mode pack` reconciliation)
 - `docs/architecture/agent-kernel/loop-family-orchestration-delta-matrix.md`
 - this roadmap
 - updated docs navigation
 
-**Done when:** the delta matrix is code-grounded, vocabulary is reconciled, and the seed is non-conflicting with active harness docs.
-
 ---
 
-## Phase 2. Orchestration-Kernel Contract Freeze
+## Phase 2. Orchestration-Kernel Contract Freeze ✓ complete
 
 **Goal:** Define the shared loop law and orchestration kernel contracts in docs before any runtime implementation.
 
 **Outputs:**
 - `docs/architecture/agent-kernel/orchestration-kernel-contracts-v1.md`
 
-**Minimum contract surface to define:**
-- loop phase grammar (orient → refresh → project → select-focus → resolve-move → execute → evaluate-progress → decide → terminalize)
-- `OrchestratorContext` interface: inputs the orchestration kernel consumes per iteration
-- `FocusPacket` interface: the shared domain-to-orchestration handoff for one iteration
-- `MoveDecision` interface: the resolved next move for this focus
-- `ProgressDelta` interface: inputs/outputs for shared progress evaluation
-- `TerminalDecision` interface: how domains map to the shared terminal scaffold
-
-**Done when:** contracts are reviewable, non-conflicting with `mission-runtime-contracts-v1.md`, and explicitly bounded.
+**Frozen:**
+- loop phase grammar: orient (run-start) → refresh → project → select-focus → resolve-move → execute → evaluate-progress → decide → terminalize-or-continue (per-iteration)
+- `OrchestratorContext`: what the orchestration kernel assembles each iteration
+- `FocusPacket`: domain-to-orchestration handoff for one focused work item
+- `MoveDecision`: chosen next move for the active focus
+- `MoveExecutionPlan`: compiled execution-kernel action from a move decision
+- `ProgressDelta`: normalized progress evaluation output
+- `HitlState`: generic human-feedback lifecycle substrate
+- `TerminalDecision`: shared terminal scaffold mapped from domain closure conditions
 
 ---
 
-## Phase 3. Shared Loop-Memory Contract Freeze
+## Phase 3. Shared Loop-Memory Contract Freeze ✓ complete
 
 **Goal:** Define the shared loop-memory category contract.
 

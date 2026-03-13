@@ -35,6 +35,8 @@ Start here for next-stage planning orientation:
 - `docs/architecture/agent-kernel/target-agent-kernel-v1.md` — seed architecture contract: execution kernel / orchestration kernel / domain-pack / mission-shell layering
 - `docs/architecture/agent-kernel/current-to-next-vocabulary-crosswalk.md` — explicit mapping from current harness terms to next-stage seed terms; read before planning next-stage work
 - `docs/architecture/agent-kernel/loop-family-orchestration-delta-matrix.md` — concrete code-grounded delta between `deed_to_ir` and `transcript_edit` orchestration; primary input to orchestration kernel design
+- `docs/architecture/agent-kernel/orchestration-kernel-contracts-v1.md` — Phase 2 contract freeze: shared phase grammar (orient → refresh → project → select-focus → resolve-move → execute → evaluate-progress → decide → terminalize) and minimum shared contract surfaces
+- `docs/architecture/agent-kernel/shared-loop-memory-v1.md` — Phase 3 contract freeze: six loop-memory categories (continuity, work-state, evidence, feedback, progress, domain-state); persistence/resume expectations; field-mapping appendix for both loop families
 - `docs/architecture/migration/agent-kernel-convergence-roadmap.md` — phased roadmap for next convergence stage (7 phases: architecture clarification → orchestration kernel → loop memory → domain packs → transcript extraction → deed migration → blended missions)
 
 Use this seed when planning the next convergence stage:
