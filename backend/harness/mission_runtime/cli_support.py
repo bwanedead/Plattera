@@ -22,7 +22,11 @@ from agents.controller.bootstrap import (
 from agents.controller.openai_client import OpenAINextStepClient
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
 from agents.transcript_edit.controller import run_transcript_edit_controller_loop
+from agents.transcript_edit.hitl_feedback import poll_feedback_response, viewer_run_id_from_request_prefix
+from agents.transcript_edit.state_projection import derive_waiting_feedback_projection
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
+
+from .hitl_watch import hitl_pending_path
 
 from .contracts import MissionRuntimeCycleResult, MissionRuntimeRequest, ModePolicy
 from .modes import (
@@ -141,7 +145,22 @@ def build_transcript_mode_policy_from_cli_inputs(
     )
     request_prefix = f"mission-{mission_request.mission_id}-tx"
 
+    # Write HITL events to a well-known file so hitl_watch can detect them for agent-mode testing.
+    _hitl_file = hitl_pending_path(request_prefix)
+
+    def _progress_cb(event: dict[str, Any]) -> None:
+        if not (isinstance(event, dict) and event.get("event_type") == "human_feedback_needed"):
+            return
+        try:
+            import json as _json
+            _hitl_file.parent.mkdir(parents=True, exist_ok=True)
+            _hitl_file.write_text(_json.dumps(dict(event), ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
     def _runner(request: MissionRuntimeRequest, ledger: Any) -> Any:
+        import time
+
         resolved_source_ref = inputs.source_transcript_ref or infer_transcript_ref_from_ledger(ledger)
         run_request = TranscriptEditAgentRunRequest(
             dossier_id=inputs.dossier_id,
@@ -159,13 +178,60 @@ def build_transcript_mode_policy_from_cli_inputs(
                 "transcript_edit_mode_requires_source_transcript_ref_or_source_text "
                 "(provide --tx-source-transcript-ref/--tx-text or ensure transition handoff refs include a transcript ref)"
             )
-        return run_transcript_edit_controller_loop(
-            session_manager=session_manager,
-            request=run_request,
-            request_id_prefix=request_prefix,
-            progress_cb=None,
-            startup_countdown_seconds=0,
-        )
+
+        viewer_run_id = viewer_run_id_from_request_prefix(request_prefix)
+        _MAX_HITL_RESUME_ROUNDS = 10
+        _FEEDBACK_POLL_INTERVAL = 2.0
+        _FEEDBACK_POLL_TIMEOUT = 600
+
+        for _round in range(_MAX_HITL_RESUME_ROUNDS):
+            result = run_transcript_edit_controller_loop(
+                session_manager=session_manager,
+                request=run_request,
+                request_id_prefix=request_prefix,
+                progress_cb=_progress_cb,
+                startup_countdown_seconds=0,
+            )
+
+            # If not waiting for feedback, we're done.
+            hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
+            blocker_registry = hitl_state.get("blocker_registry") if isinstance(hitl_state.get("blocker_registry"), dict) else {}
+            waiting_projection = derive_waiting_feedback_projection(
+                blocker_registry=blocker_registry,
+                fallback_prompt_id=str(hitl_state.get("pending_feedback_prompt_id") or "").strip() or None,
+                fallback_decision_key=str(hitl_state.get("pending_feedback_decision_key") or "").strip().lower() or None,
+            )
+            if not waiting_projection.get("waiting_feedback"):
+                return result
+
+            prompt_id = str(waiting_projection.get("pending_feedback_prompt_id") or "").strip() or None
+            if not prompt_id:
+                return result  # Cannot resume without a prompt_id.
+
+            # Block-poll the feedback store until the tester injects a response.
+            # hitl_watch will have already surfaced the HITL event; we just wait here.
+            deadline = time.time() + _FEEDBACK_POLL_TIMEOUT
+            feedback_entry: dict[str, Any] | None = None
+            while time.time() < deadline:
+                feedback_entry = poll_feedback_response(run_id=viewer_run_id, prompt_id=prompt_id)
+                if feedback_entry is not None:
+                    break
+                time.sleep(_FEEDBACK_POLL_INTERVAL)
+
+            if feedback_entry is None:
+                return result  # Timed out waiting for feedback.
+
+            # Resume the controller with the injected feedback as the authority.
+            resume_decision_key = (
+                str(waiting_projection.get("pending_feedback_decision_key") or "").strip().lower() or None
+            )
+            run_request = run_request.model_copy(update={
+                "resume_pending_feedback_prompt_id": prompt_id,
+                "resume_pending_feedback_decision_key": resume_decision_key,
+                "resume_blocker_registry": blocker_registry if blocker_registry else None,
+            })
+
+        return result  # Max HITL resume rounds reached.
 
     return TranscriptEditModePolicy(runner=_runner)
 

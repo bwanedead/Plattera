@@ -48,6 +48,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-cycles", type=int, default=1, help="Maximum mission cycles to execute.")
     parser.add_argument("--json-only", action="store_true", help="Print only final JSON payload.")
     parser.add_argument(
+        "--done-file",
+        dest="done_file",
+        default=None,
+        help=(
+            "Path to write a done-sentinel JSON file when the run completes. "
+            "Used by hitl_watch for agent-mode testing so it knows when the loop finishes."
+        ),
+    )
+    parser.add_argument(
         "--enable-roundtrip",
         action="store_true",
         help="Enable linear transitions: deed_to_ir -> transcript_edit -> deed_to_ir.",
@@ -136,12 +145,14 @@ def run_cli(argv: Sequence[str] | None = None, stdout: TextIO | None = None, std
         out.flush()
         mission_runtime = payload.get("mission_runtime") if isinstance(payload, dict) else {}
         mission_status = mission_runtime.get("mission_status") if isinstance(mission_runtime, dict) else {}
+        _write_done_sentinel(args=args, mission_status=mission_status)
         if isinstance(mission_status, dict) and not bool(mission_status.get("terminal", False)):
             return 2
         return 0
     except SystemExit:
         raise
     except Exception as exc:
+        _write_done_sentinel(args=args, mission_status={"terminal": True, "error": str(exc)})
         err.write(f"mission-runtime-cli failed: {type(exc).__name__}: {exc}\n")
         err.flush()
         return 1
@@ -222,6 +233,23 @@ def _resolve_text(inline_text: str | None, text_file: str | None) -> str | None:
     if isinstance(text_file, str) and text_file.strip():
         return Path(text_file).read_text(encoding="utf-8").strip()
     return None
+
+
+def _write_done_sentinel(*, args: Any, mission_status: Any) -> None:
+    """Write a done-sentinel file so hitl_watch knows the loop has finished."""
+    done_file = getattr(args, "done_file", None)
+    if not done_file:
+        return
+    try:
+        sentinel = {
+            "terminal": bool((mission_status or {}).get("terminal", True)),
+            "status": (mission_status or {}).get("terminal_class") or (mission_status or {}).get("status"),
+            "reason_code": (mission_status or {}).get("reason_code"),
+        }
+        Path(done_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(done_file).write_text(json.dumps(sentinel, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def main() -> None:
