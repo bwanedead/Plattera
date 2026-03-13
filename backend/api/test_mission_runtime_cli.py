@@ -1,0 +1,173 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from api import mission_runtime_cli
+from harness.mission_runtime.contracts import (
+    MissionLedgerView,
+    MissionRuntimeRequest,
+    ModeCycleContext,
+    ModeInterpretation,
+    ModePolicy,
+    ModeRecommendation,
+    ModeTransitionRecommendation,
+    TerminalRecommendation,
+)
+from harness.mission_runtime.registry import ModePolicyRegistry
+
+
+class _DeedTerminalPolicy(ModePolicy):
+    mode_name = "deed_to_ir"
+
+    def build_context(self, *, request: MissionRuntimeRequest, ledger: MissionLedgerView) -> ModeCycleContext:
+        del request, ledger
+        return ModeCycleContext(payload={})
+
+    def interpret(
+        self,
+        *,
+        request: MissionRuntimeRequest,
+        ledger: MissionLedgerView,
+        context: ModeCycleContext,
+    ) -> ModeInterpretation:
+        del request, ledger, context
+        return ModeInterpretation(summary="deed_done")
+
+    def recommend(
+        self,
+        *,
+        request: MissionRuntimeRequest,
+        ledger: MissionLedgerView,
+        context: ModeCycleContext,
+        interpretation: ModeInterpretation,
+    ) -> ModeRecommendation:
+        del request, ledger, context, interpretation
+        return ModeRecommendation(
+            terminal=TerminalRecommendation(terminal=True, terminal_class="completed", reason_code="ok"),
+        )
+
+
+class _DeedTransitionPolicy(_DeedTerminalPolicy):
+    def recommend(
+        self,
+        *,
+        request: MissionRuntimeRequest,
+        ledger: MissionLedgerView,
+        context: ModeCycleContext,
+        interpretation: ModeInterpretation,
+    ) -> ModeRecommendation:
+        del request, context, interpretation
+        if ledger.cycle_index == 0:
+            return ModeRecommendation(
+                transition=ModeTransitionRecommendation(
+                    next_mode="transcript_edit",
+                    reason="handoff_to_transcript",
+                    handed_forward_artifact_refs=["artifact://handoff/deed"],
+                    expected_next_work="review transcript",
+                    resume_note_for_prior_mode="resume deed after transcript checks",
+                ),
+                terminal=TerminalRecommendation(terminal=True, terminal_class="completed", reason_code="deed_ready"),
+            )
+        return ModeRecommendation(
+            terminal=TerminalRecommendation(terminal=True, terminal_class="completed", reason_code="deed_done"),
+        )
+
+
+class _TranscriptTransitionPolicy(ModePolicy):
+    mode_name = "transcript_edit"
+
+    def build_context(self, *, request: MissionRuntimeRequest, ledger: MissionLedgerView) -> ModeCycleContext:
+        del request, ledger
+        return ModeCycleContext(payload={})
+
+    def interpret(
+        self,
+        *,
+        request: MissionRuntimeRequest,
+        ledger: MissionLedgerView,
+        context: ModeCycleContext,
+    ) -> ModeInterpretation:
+        del request, ledger, context
+        return ModeInterpretation(summary="transcript_done")
+
+    def recommend(
+        self,
+        *,
+        request: MissionRuntimeRequest,
+        ledger: MissionLedgerView,
+        context: ModeCycleContext,
+        interpretation: ModeInterpretation,
+    ) -> ModeRecommendation:
+        del request, ledger, context, interpretation
+        return ModeRecommendation(
+            transition=ModeTransitionRecommendation(
+                next_mode="deed_to_ir",
+                reason="handoff_back_to_deed",
+                handed_forward_artifact_refs=["artifact://handoff/transcript"],
+                expected_next_work="resume deed synthesis",
+                resume_note_for_prior_mode="return only if blockers reopen",
+            ),
+            terminal=TerminalRecommendation(terminal=True, terminal_class="completed", reason_code="tx_ready"),
+        )
+
+
+def test_mission_runtime_cli_emits_canonical_payload(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        mission_runtime_cli,
+        "_build_policy_registry",
+        lambda args, mission_request: ModePolicyRegistry([_DeedTerminalPolicy()]),
+    )
+    code = mission_runtime_cli.run_cli(
+        [
+            "--objective",
+            "cli smoke test",
+            "--initial-mode",
+            "deed_to_ir",
+            "--deed-text",
+            "Example deed body",
+            "--json-only",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["cli_surface"] == "mission_runtime_cli"
+    assert payload["canonical_surface"] is True
+    assert set(payload.keys()) == {"cli_surface", "canonical_surface", "mission_runtime"}
+    mission_runtime = payload["mission_runtime"]
+    assert mission_runtime["active_mode"] == "deed_to_ir"
+    assert mission_runtime["mode_history"] == ["deed_to_ir"]
+
+
+def test_mission_runtime_cli_supports_linear_roundtrip_shape(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        mission_runtime_cli,
+        "_build_policy_registry",
+        lambda args, mission_request: ModePolicyRegistry([_DeedTransitionPolicy(), _TranscriptTransitionPolicy()]),
+    )
+    code = mission_runtime_cli.run_cli(
+        [
+            "--objective",
+            "roundtrip test",
+            "--initial-mode",
+            "deed_to_ir",
+            "--deed-text",
+            "Example deed body",
+            "--enable-roundtrip",
+            "--max-cycles",
+            "2",
+            "--json-only",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    mission_runtime = payload["mission_runtime"]
+    assert mission_runtime["mode_history"] == ["deed_to_ir", "transcript_edit", "deed_to_ir"]
+    assert len(mission_runtime["transition_history"]) == 2
+    assert mission_runtime["cycles"][0]["executed_mode"] == "deed_to_ir"
+    assert mission_runtime["cycles"][0]["resulting_active_mode"] == "transcript_edit"
+    assert mission_runtime["cycles"][1]["executed_mode"] == "transcript_edit"
+    assert mission_runtime["cycles"][1]["resulting_active_mode"] == "deed_to_ir"

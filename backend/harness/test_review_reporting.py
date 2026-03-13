@@ -8,8 +8,13 @@ if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 from harness.review.reporting import build_review_aggregate, build_run_review_summary
-from harness.run_state import build_controller_kernel_run_state, build_transcript_edit_run_state
+from harness.run_state import (
+    build_controller_kernel_run_state,
+    build_mission_runtime_run_state,
+    build_transcript_edit_run_state,
+)
 from harness.tracing.adapters.controller_kernel import build_controller_kernel_trace
+from harness.tracing.adapters.mission_runtime import build_mission_runtime_trace
 from harness.tracing.adapters.transcript_edit import build_transcript_edit_trace
 
 
@@ -145,6 +150,80 @@ def _tx_run_snapshot() -> dict:
     }
 
 
+def _mission_runtime_payload() -> dict:
+    return {
+        "mission_id": "mission-review-1",
+        "objective": "cross mode review",
+        "request_id": "mission-request-review-1",
+        "active_mode": "deed_to_ir",
+        "mode_history": ["deed_to_ir", "transcript_edit", "deed_to_ir"],
+        "transition_history": [
+            {
+                "prior_mode": "deed_to_ir",
+                "next_mode": "transcript_edit",
+                "reason": "handoff_to_review",
+                "status": "applied",
+                "order_anchor": 1,
+                "timestamp_epoch_seconds": 101,
+                "expected_next_work": "review transcript",
+                "resume_note_for_prior_mode": "resume after reconciliation",
+                "handed_forward_artifact_refs": ["artifact://handoff/1"],
+            },
+            {
+                "prior_mode": "transcript_edit",
+                "next_mode": "deed_to_ir",
+                "reason": "review_complete",
+                "status": "applied",
+                "order_anchor": 2,
+                "timestamp_epoch_seconds": 103,
+                "handed_forward_artifact_refs": ["artifact://handoff/2"],
+            },
+        ],
+        "cycles": [
+            {
+                "cycle_index": 1,
+                "executed_mode": "deed_to_ir",
+                "resulting_active_mode": "transcript_edit",
+                "summary": "deed cycle",
+                "timestamp_epoch_seconds": 100,
+                "transition": {
+                    "prior_mode": "deed_to_ir",
+                    "next_mode": "transcript_edit",
+                    "reason": "handoff_to_review",
+                    "status": "applied",
+                    "order_anchor": 1,
+                    "timestamp_epoch_seconds": 101,
+                    "handed_forward_artifact_refs": ["artifact://handoff/1"],
+                },
+            },
+            {
+                "cycle_index": 2,
+                "executed_mode": "transcript_edit",
+                "resulting_active_mode": "deed_to_ir",
+                "summary": "review cycle",
+                "timestamp_epoch_seconds": 102,
+                "transition": {
+                    "prior_mode": "transcript_edit",
+                    "next_mode": "deed_to_ir",
+                    "reason": "review_complete",
+                    "status": "applied",
+                    "order_anchor": 2,
+                    "timestamp_epoch_seconds": 103,
+                    "handed_forward_artifact_refs": ["artifact://handoff/2"],
+                },
+            },
+        ],
+        "mission_status": {"terminal": False, "terminal_class": "in_progress", "reason_code": None},
+        "resumability_summary": {"resumable": True, "resume_reason": "ready_for_deed_resume"},
+        "blocker_posture_summary": {"waiting_human": False, "open_blocker_count": 0},
+        "verification_posture_summary": {"status": "closure_clear", "last_verification_kind": "tx_ledger"},
+        "created_at_epoch_seconds": 100,
+        "updated_at_epoch_seconds": 103,
+        "cycle_index": 2,
+        "high_signal_artifact_refs": ["artifact://handoff/1", "artifact://handoff/2"],
+    }
+
+
 def test_per_run_review_summary_controller_trace() -> None:
     transcript, run_artifact = _controller_inputs()
     trace = build_controller_kernel_trace(
@@ -220,3 +299,19 @@ def test_partial_trace_warnings_and_pattern_summary_are_stable() -> None:
     assert "tx_critical_events_bounded" in summary.normalization_warnings
     assert "synthesized=" in summary.emitted_pattern_summary
 
+
+def test_mission_runtime_review_summary_represents_multi_mode_story() -> None:
+    payload = _mission_runtime_payload()
+    trace = build_mission_runtime_trace(mission_runtime_payload=payload)
+    run_state = build_mission_runtime_run_state(mission_runtime_payload=payload)
+    summary = build_run_review_summary(trace=trace, run_state=run_state)
+    assert summary.loop_family == "mission_runtime"
+    assert summary.active_mode == "deed_to_ir"
+    assert summary.mode_history == ["deed_to_ir", "transcript_edit", "deed_to_ir"]
+    assert summary.transition_count == 2
+    assert summary.transition_reasons == ["handoff_to_review", "review_complete"]
+    assert any(row["mode"] == "deed_to_ir" for row in summary.mode_event_distribution)
+
+    aggregate = build_review_aggregate(summaries=[summary])
+    assert aggregate.multi_mode_run_count == 1
+    assert aggregate.total_transition_count == 2

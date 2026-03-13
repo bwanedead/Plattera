@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError
 import sys
 from pathlib import Path
-from typing import Any, Mapping
 
 import pytest
 
@@ -17,6 +16,7 @@ from harness.mission_runtime.contracts import (
     MissionResumabilitySummary,
     MissionRuntimeRequest,
     MissionVerificationPostureSummary,
+    ModeCycleContext,
     ModeInterpretation,
     ModeRecommendation,
     ModeTransitionRecommendation,
@@ -46,26 +46,28 @@ class FakeModePolicy:
         *,
         request: MissionRuntimeRequest,
         ledger: MissionLedgerView,
-    ) -> Mapping[str, Any]:
+    ) -> ModeCycleContext:
         self.context_calls += 1
-        return {"mission_id": request.mission_id, "active_mode": ledger.active_mode}
+        return ModeCycleContext(
+            payload={"mission_id": request.mission_id, "active_mode": ledger.active_mode}
+        )
 
     def interpret(
         self,
         *,
         request: MissionRuntimeRequest,
         ledger: MissionLedgerView,
-        context: Mapping[str, Any],
+        context: ModeCycleContext,
     ) -> ModeInterpretation:
         self.interpret_calls += 1
-        return ModeInterpretation(summary=self._interpretation_summary, details=context)
+        return ModeInterpretation(summary=self._interpretation_summary, details=context.payload)
 
     def recommend(
         self,
         *,
         request: MissionRuntimeRequest,
         ledger: MissionLedgerView,
-        context: Mapping[str, Any],
+        context: ModeCycleContext,
         interpretation: ModeInterpretation,
     ) -> ModeRecommendation:
         self.recommend_calls += 1
@@ -274,7 +276,7 @@ def test_policy_cannot_mutate_runtime_owned_ledger_state() -> None:
             *,
             request: MissionRuntimeRequest,
             ledger: MissionLedgerView,
-        ) -> Mapping[str, Any]:
+        ) -> ModeCycleContext:
             try:
                 ledger.active_mode = "mode.hijack"
             except FrozenInstanceError:
@@ -283,7 +285,7 @@ def test_policy_cannot_mutate_runtime_owned_ledger_state() -> None:
                 ledger.resumability_summary.resume_requirements.append("unauthorized")
             except AttributeError:
                 self.nested_mutation_blocked = True
-            return {"mission_id": request.mission_id}
+            return ModeCycleContext(payload={"mission_id": request.mission_id})
 
     policy = MutatingPolicy()
     runtime = MissionRuntime(

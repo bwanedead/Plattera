@@ -33,6 +33,11 @@ class RunReviewSummary(BaseModel):
     recurring_action_shapes: list[dict[str, Any]] = Field(default_factory=list, max_length=_MAX_TOP_ITEMS)
     synthesized_event_ratio: float = Field(ge=0.0, le=1.0)
     emitted_pattern_summary: str = Field(default="", max_length=280)
+    active_mode: str | None = Field(default=None, max_length=64)
+    mode_history: list[str] = Field(default_factory=list, max_length=32)
+    transition_count: int = Field(default=0, ge=0)
+    transition_reasons: list[str] = Field(default_factory=list, max_length=16)
+    mode_event_distribution: list[dict[str, Any]] = Field(default_factory=list, max_length=16)
 
 
 class ReviewAggregateSummary(BaseModel):
@@ -47,6 +52,8 @@ class ReviewAggregateSummary(BaseModel):
     waiting_evidence_rate: float = Field(ge=0.0, le=1.0)
     verification_missing_on_completion_count: int = Field(ge=0)
     recurring_pattern_summary: list[dict[str, Any]] = Field(default_factory=list, max_length=12)
+    multi_mode_run_count: int = Field(default=0, ge=0)
+    total_transition_count: int = Field(default=0, ge=0)
 
 
 def build_run_review_summary(
@@ -69,6 +76,9 @@ def build_run_review_summary(
     recurring_kinds = _top_counter_items(Counter(event_kinds))
     recurring_phases = _top_counter_items(Counter(phases))
     recurring_action_shapes = _action_shape_patterns(trace)
+    mission_modes = _mission_mode_summary(trace=trace, run_state=run_state)
+    transition_reasons = _transition_reasons(trace=trace)
+    mode_event_distribution = _mode_event_distribution(trace=trace)
 
     flags = _derive_review_flags(
         trace=trace,
@@ -106,6 +116,11 @@ def build_run_review_summary(
         recurring_action_shapes=recurring_action_shapes,
         synthesized_event_ratio=round(synthesized_ratio, 4),
         emitted_pattern_summary=emitted_pattern_summary,
+        active_mode=mission_modes.get("active_mode"),
+        mode_history=mission_modes.get("mode_history", []),
+        transition_count=len(trace.transition_events),
+        transition_reasons=transition_reasons,
+        mode_event_distribution=mode_event_distribution,
     )
 
 
@@ -118,6 +133,8 @@ def build_review_aggregate(*, summaries: list[RunReviewSummary]) -> ReviewAggreg
     waiting_human_count = 0
     waiting_evidence_count = 0
     verification_missing_on_completion_count = 0
+    multi_mode_run_count = 0
+    total_transition_count = 0
     pattern_counter: Counter[str] = Counter()
 
     for summary in summaries:
@@ -134,6 +151,9 @@ def build_review_aggregate(*, summaries: list[RunReviewSummary]) -> ReviewAggreg
             waiting_evidence_count += 1
         if summary.terminal_class == "completed" and not summary.verification_present:
             verification_missing_on_completion_count += 1
+        if len(summary.mode_history) > 1:
+            multi_mode_run_count += 1
+        total_transition_count += summary.transition_count
         for row in summary.recurring_action_shapes[:3]:
             signature = str(row.get("signature") or "").strip()
             if signature:
@@ -148,6 +168,8 @@ def build_review_aggregate(*, summaries: list[RunReviewSummary]) -> ReviewAggreg
         waiting_human_rate=_safe_rate(waiting_human_count, run_count),
         waiting_evidence_rate=_safe_rate(waiting_evidence_count, run_count),
         verification_missing_on_completion_count=verification_missing_on_completion_count,
+        multi_mode_run_count=multi_mode_run_count,
+        total_transition_count=total_transition_count,
         recurring_pattern_summary=[
             {"signature": signature, "count": count}
             for signature, count in pattern_counter.most_common(12)
@@ -255,3 +277,40 @@ def _safe_rate(numerator: int, denominator: int) -> float:
     if denominator <= 0:
         return 0.0
     return round(float(numerator) / float(denominator), 4)
+
+
+def _mission_mode_summary(
+    *,
+    trace: CanonicalTraceRecord,
+    run_state: SharedRunStateEnvelope | None,
+) -> dict[str, Any]:
+    if run_state is not None:
+        mode_history = [mode for mode in run_state.mission_mode_summary.mode_history if mode]
+        active_mode = run_state.mission_mode_summary.active_mode
+    else:
+        mode_history = [mode for mode in trace.mode_history if mode]
+        active_mode = trace.active_mode
+    if not mode_history and active_mode:
+        mode_history = [active_mode]
+    return {"active_mode": active_mode, "mode_history": mode_history}
+
+
+def _transition_reasons(trace: CanonicalTraceRecord) -> list[str]:
+    out: list[str] = []
+    for item in trace.transition_events:
+        reason = str(item.reason or "").strip()
+        if not reason or reason in out:
+            continue
+        out.append(reason)
+    return out[:16]
+
+
+def _mode_event_distribution(trace: CanonicalTraceRecord) -> list[dict[str, Any]]:
+    counts: Counter[str] = Counter()
+    for event in trace.events:
+        mode = str(event.payload.get("executed_mode") or "").strip()
+        if not mode and isinstance(event.phase, str) and event.phase.startswith("mode:"):
+            mode = event.phase.replace("mode:", "", 1).strip()
+        if mode:
+            counts[mode] += 1
+    return [{"mode": mode, "count": count} for mode, count in counts.most_common(16)]

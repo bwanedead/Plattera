@@ -1,4 +1,9 @@
-"""Minimal CLI for deterministic Agent Kernel runs."""
+"""Minimal CLI for deterministic Agent Kernel runs.
+
+Compatibility posture:
+- Low-level legacy/debug surface.
+- Not the canonical mission-runtime development CLI.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +19,10 @@ from .models import KernelRequest
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agent-kernel",
-        description="Run the deterministic agent kernel from a JSON request file.",
+        description=(
+            "Run the deterministic kernel from a JSON request file "
+            "(low-level debug surface; not canonical unified mission CLI)."
+        ),
     )
     parser.add_argument("request_file", help="Path to a JSON-encoded KernelRequest.")
     return parser

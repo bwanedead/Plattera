@@ -49,6 +49,12 @@ def test_schema_minimal_trace_record_is_valid() -> None:
         started_at_epoch_seconds=100,
         events=[event],
         terminal=TerminalSnapshot(terminal_class="completed"),
+        mission_id=None,
+        executed_mode=None,
+        active_mode=None,
+        mode_history=[],
+        transition_events=[],
+        resume_context_summary={},
         completeness_status="complete",
         missing_components=[],
         normalization_warnings=[],
@@ -107,6 +113,21 @@ def test_schema_trace_version_field_is_present_and_stable() -> None:
         started_at_epoch_seconds=1,
         events=[_minimal_event()],
         terminal=TerminalSnapshot(terminal_class="failed"),
+        mission_id="mission-1",
+        executed_mode="deed_to_ir",
+        active_mode="transcript_edit",
+        mode_history=["deed_to_ir", "transcript_edit"],
+        transition_events=[
+            {
+                "prior_mode": "deed_to_ir",
+                "next_mode": "transcript_edit",
+                "reason": "handoff",
+                "status": "applied",
+                "order_anchor": 1,
+                "timestamp_epoch_seconds": 1,
+            }
+        ],
+        resume_context_summary={"resumable": True},
         completeness_status="partial",
         missing_components=["progress_log"],
         normalization_warnings=["missing_progress_log"],
@@ -114,3 +135,4 @@ def test_schema_trace_version_field_is_present_and_stable() -> None:
     )
     assert trace.trace_version == "trace.v1"
     assert isinstance(trace.events[0].source_origin, SourceOrigin)
+    assert trace.transition_events[0].next_mode == "transcript_edit"

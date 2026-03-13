@@ -1,4 +1,4 @@
-export type AgentViewerLoopKind = 'agent_loop' | 'transcript_edit';
+export type AgentViewerLoopKind = 'mission_runtime' | 'agent_loop' | 'transcript_edit';
 
 export interface AgentViewerEventStatus {
   stage?: string;

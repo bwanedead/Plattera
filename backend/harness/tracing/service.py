@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from .adapters.controller_kernel import build_controller_kernel_trace
+from .adapters.mission_runtime import build_mission_runtime_trace
 from .adapters.transcript_edit import build_transcript_edit_trace
 from .schema import CanonicalTraceRecord, LoopFamily
 
 _CONTROLLER_DISPATCH_KEYS = {"controller_transcript", "run_artifact"}
 _TRANSCRIPT_EDIT_SIGNAL_KEYS = {"snapshot", "progress_log", "critical_events", "terminal_summary"}
 _TRANSCRIPT_EDIT_REQUIRED_ANY = {"run_id", "status", "progress_log", "critical_events", "terminal_summary"}
+_MISSION_RUNTIME_KEYS = {"mission_id", "active_mode", "mode_history", "cycles"}
 
 
 def build_controller_kernel_canonical_trace(
@@ -41,6 +43,19 @@ def build_transcript_edit_canonical_trace(
     )
 
 
+def build_mission_runtime_canonical_trace(
+    *,
+    mission_runtime_payload: dict[str, Any],
+    payload_ref: str | None = None,
+    trace_id: str | None = None,
+) -> CanonicalTraceRecord:
+    return build_mission_runtime_trace(
+        mission_runtime_payload=mission_runtime_payload,
+        payload_ref=payload_ref,
+        trace_id=trace_id,
+    )
+
+
 def build_canonical_trace_from_payload(
     *,
     payload: dict[str, Any],
@@ -69,6 +84,13 @@ def build_canonical_trace_from_payload(
             snapshot_ref=_optional_str(payload.get("snapshot_ref")),
             trace_id=trace_id,
         )
+    if family == "mission_runtime":
+        mission_payload = _mission_runtime_payload(payload)
+        return build_mission_runtime_canonical_trace(
+            mission_runtime_payload=mission_payload,
+            payload_ref=_optional_str(payload.get("mission_runtime_ref")) or _optional_str(payload.get("snapshot_ref")),
+            trace_id=trace_id,
+        )
 
     raise ValueError(f"unsupported loop_family: {family}")
 
@@ -76,19 +98,24 @@ def build_canonical_trace_from_payload(
 def _detect_loop_family(payload: dict[str, Any]) -> LoopFamily:
     looks_controller = _CONTROLLER_DISPATCH_KEYS.issubset(payload.keys())
     looks_transcript_edit = _looks_like_transcript_edit_payload(payload)
+    looks_mission_runtime = _looks_like_mission_runtime_payload(payload)
 
-    if looks_controller and looks_transcript_edit:
+    shape_hits = int(looks_controller) + int(looks_transcript_edit) + int(looks_mission_runtime)
+    if shape_hits > 1:
         raise ValueError(
-            "ambiguous canonical trace payload: matches both controller_kernel and transcript_edit shapes;"
+            "ambiguous canonical trace payload: matches multiple canonical payload shapes;"
             " pass loop_family explicitly"
         )
     if looks_controller:
         return "controller_kernel"
     if looks_transcript_edit:
         return "transcript_edit"
+    if looks_mission_runtime:
+        return "mission_runtime"
     raise ValueError(
         "unsupported canonical trace payload shape: expected controller payload with"
-        " {'controller_transcript','run_artifact'} or a transcript-edit run snapshot payload"
+        " {'controller_transcript','run_artifact'}, a transcript-edit run snapshot payload,"
+        " or mission-runtime payload under 'mission_runtime'"
     )
 
 
@@ -112,6 +139,27 @@ def _validate_transcript_edit_payload(payload: dict[str, Any]) -> None:
             "invalid transcript_edit payload: expected run snapshot with 'run_id' and one of"
             " {'snapshot','progress_log','critical_events','terminal_summary'}"
         )
+
+
+def _looks_like_mission_runtime_payload(payload: dict[str, Any]) -> bool:
+    mission_payload = _mission_runtime_payload(payload, default_none=True)
+    if not isinstance(mission_payload, dict):
+        return False
+    return _MISSION_RUNTIME_KEYS.issubset(mission_payload.keys())
+
+
+def _mission_runtime_payload(payload: dict[str, Any], default_none: bool = False) -> dict[str, Any]:
+    nested = payload.get("mission_runtime")
+    if isinstance(nested, dict):
+        return nested
+    if _MISSION_RUNTIME_KEYS.issubset(payload.keys()):
+        return payload
+    if default_none:
+        return {}
+    raise ValueError(
+        "invalid mission_runtime payload: expected 'mission_runtime' object with"
+        " {'mission_id','active_mode','mode_history','cycles'}"
+    )
 
 
 def _dict_field(payload: dict[str, Any], *, key: str) -> dict[str, Any]:

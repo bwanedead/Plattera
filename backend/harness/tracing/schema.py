@@ -6,11 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 TRACE_VERSION = "trace.v1"
 
-LoopFamily = Literal["controller_kernel", "transcript_edit"]
+LoopFamily = Literal["controller_kernel", "transcript_edit", "mission_runtime"]
 CompletenessStatus = Literal["complete", "partial"]
 EventKind = Literal[
     "request_start",
     "iteration",
+    "mode_segment",
+    "mission_transition",
     "model_proposal",
     "tool_execution",
     "retrieval_evidence",
@@ -74,6 +76,20 @@ class RawTraceEvent(BaseModel):
     source_origin: SourceOrigin | None = None
 
 
+class MissionTransitionEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prior_mode: str = Field(min_length=1, max_length=128)
+    next_mode: str = Field(min_length=1, max_length=128)
+    reason: str = Field(min_length=1, max_length=256)
+    status: str = Field(min_length=1, max_length=32)
+    order_anchor: int = Field(ge=0)
+    timestamp_epoch_seconds: int = Field(ge=0)
+    expected_next_work: str | None = Field(default=None, max_length=256)
+    resume_note_for_prior_mode: str | None = Field(default=None, max_length=256)
+    handed_forward_artifact_refs: list[str] = Field(default_factory=list, max_length=24)
+
+
 class CanonicalTraceRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -87,6 +103,12 @@ class CanonicalTraceRecord(BaseModel):
     started_at_epoch_seconds: int = Field(ge=0)
     events: list[CanonicalTraceEvent]
     terminal: TerminalSnapshot
+    mission_id: str | None = Field(default=None, max_length=128)
+    executed_mode: str | None = Field(default=None, max_length=128)
+    active_mode: str | None = Field(default=None, max_length=128)
+    mode_history: list[str] = Field(default_factory=list, max_length=32)
+    transition_events: list[MissionTransitionEvent] = Field(default_factory=list, max_length=32)
+    resume_context_summary: dict[str, Any] = Field(default_factory=dict)
     completeness_status: CompletenessStatus
     missing_components: list[str]
     normalization_warnings: list[str]

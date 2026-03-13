@@ -183,6 +183,41 @@ This log is practical by design:
 - Consequences: `MissionRuntime` now executes a real deed-to-IR cycle through a bounded mode policy seam; controller internals remain owned by controller-family modules; transcript-edit stays out of scope for this phase.
 - When to revisit: When starting transcript-edit integration and deciding what (if any) reusable runtime capabilities should be extracted from mode-local adapters.
 
+### HD-025: Phase C introduces a minimal capability layer and runtime-owned mode execution seam
+- Status: Accepted
+- Decision: Extract only one shared Phase C runtime capability (`transition`) under `backend/harness/mission_runtime/capabilities/`, and clarify execution ownership by introducing a typed `ModeCycleContext` contract that carries optional execution intent/result while runtime remains the executor of that seam.
+- Rationale: Phase B left execution hidden inside policy context assembly; Phase C needed reusable mechanics without capability-zoo drift, so family-specific completion logic remained mode-local while transition validation became the first shared capability.
+- Consequences: Runtime/policy ownership is clearer (`build_context` returns typed cycle context with optional execution adapter, runtime executes, policy interprets/recommends); mission runtime remains linear and family-agnostic; transcript-edit migration remains deferred.
+- When to revisit: When transcript-edit ModePolicy integration shows whether additional capabilities are justified by real two-family reuse pressure.
+
+### HD-026: Phase D integrates transcript-edit as second ModePolicy with authority-preserving adapter boundaries
+- Status: Accepted
+- Decision: Integrate transcript-edit as the second real `ModePolicy` via `backend/harness/mission_runtime/modes/transcript_edit.py`, keeping adapter logic additive and mode-local; preserve transcript-edit authority by consuming compact mission-runtime summary fields produced from transcript-edit canonical owners (ledger-backed closure/verification summary and registry-backed waiting/blocker/resume summary).
+- Rationale: Transcript-edit is a richer family; shared mission runtime needed a second-family proof without flattening transcript-edit authority internals or growing domain branches in `MissionRuntime`.
+- Consequences: Mission runtime remains generic and linear while transcript-edit runs through the same mode seam; no nested/child mission structure or cross-mode orchestration is introduced in this phase.
+- When to revisit: When enabling cross-mode transitions between deed-to-IR and transcript-edit and validating whether any additional capability extraction is justified.
+
+### HD-027: Phase E enables first linear in-place cross-mode round-trip under one mission continuity chain
+- Status: Accepted
+- Decision: Enable explicit transition recommendations and runtime-applied transitions for the first supported round-trip path (`deed_to_ir -> transcript_edit -> deed_to_ir`) using `ModeTransitionRecommendation`/`ModeTransition` records only, with synchronous in-place mode switching under one mission identity and one continuity chain.
+- Rationale: The unified mission runtime needed a concrete multi-stage proof that preserves shell genericity and bounded mission ledger continuity without nested mission structures.
+- Consequences: Executed-mode vs resulting-active-mode semantics are explicit per cycle (`trace_segment.mode` captures executed mode; ledger `active_mode` may change after transition apply); transition records now carry reviewable reason, handoff refs, expected next work, and resume note; no child mission model is introduced.
+- When to revisit: When broadening transition heuristics beyond bounded metadata-gated triggers and when deciding production cross-mode orchestration policy.
+
+### HD-028: Phase F adds bounded mission-level observability without changing runtime model
+- Status: Accepted
+- Decision: Extend harness observability additively so multi-mode missions are represented as one continuous mission story across canonical traces, shared run-state envelopes, and review summaries; keep runtime transition mechanics unchanged and keep observability fields bounded/read-model oriented.
+- Rationale: After Phase E introduced real cross-mode runtime flow, operational visibility needed explicit mission continuity surfaces (mode segments, transition events, active/resulting mode clarity) without creating a second mission ledger or nested-run concepts.
+- Consequences: Canonical tracing now supports `mission_runtime` loop family and mission-level fields (`mission_id`, `active_mode`, `mode_history`, `transition_events`, `resume_context_summary`) with explicit `mode_segment` and `mission_transition` events; shared run-state includes mission mode awareness (`active_mode`, `mode_history`, latest transition reason, bounded resume context); review summaries/aggregates expose mode history and transition counts/reasons while remaining observational.
+- When to revisit: If mission observability payloads begin mirroring domain-local ledgers or if mission-level fields are insufficient for operator diagnosis of executed-mode vs resulting-active-mode semantics.
+
+### HD-029: Phase G establishes canonical unified mission CLI and explicit compatibility CLI classifications
+- Status: Accepted
+- Decision: Treat `backend/api/mission_runtime_cli.py` as the canonical dev/testing CLI for unified mission runtime, and classify family-specific CLIs as compatibility/legacy surfaces (`agent_loop_cli`, `transcript_edit_agent_cli`, `transcription_edit_cli`) while keeping `agent_kernel.cli` low-level debug-only.
+- Rationale: Entry-surface ambiguity was reintroducing an implicit engine split even after mission runtime unification; one canonical mission-facing CLI reduces drift and preserves explicit compatibility seams.
+- Consequences: New harness-oriented manual testing should start from mission-runtime CLI; legacy CLIs remain additive but non-canonical and should avoid growth beyond compatibility needs; UI/service state can carry mission-level mode continuity fields without assuming separate engine species.
+- When to revisit: When production-facing API/UI surfaces fully converge on mission runtime and compatibility CLI consumers are demonstrably retired.
+
 ## Change Protocol
 
 For each new major decision or reversal, append an entry with:

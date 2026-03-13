@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Protocol, Literal, runtime_checkable
+from typing import Any, Callable, Mapping, Protocol, Literal, runtime_checkable
 
 from ..terminal_taxonomy import TerminalClass
 
@@ -68,6 +68,13 @@ class TerminalRecommendation:
 class ModeInterpretation:
     summary: str
     details: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ModeCycleContext:
+    payload: Mapping[str, Any] = field(default_factory=dict)
+    execution_adapter: Callable[[], Any] | None = None
+    execution_result: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -214,14 +221,14 @@ class ModePolicy(Protocol):
         *,
         request: MissionRuntimeRequest,
         ledger: MissionLedgerView,
-    ) -> Mapping[str, Any]: ...
+    ) -> ModeCycleContext: ...
 
     def interpret(
         self,
         *,
         request: MissionRuntimeRequest,
         ledger: MissionLedgerView,
-        context: Mapping[str, Any],
+        context: ModeCycleContext,
     ) -> ModeInterpretation: ...
 
     def recommend(
@@ -229,16 +236,9 @@ class ModePolicy(Protocol):
         *,
         request: MissionRuntimeRequest,
         ledger: MissionLedgerView,
-        context: Mapping[str, Any],
+        context: ModeCycleContext,
         interpretation: ModeInterpretation,
     ) -> ModeRecommendation: ...
-
-
-@runtime_checkable
-class RuntimeCapability(Protocol):
-    capability_name: str
-
-    def invoke(self, *, mode: str, payload: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
 
 @runtime_checkable

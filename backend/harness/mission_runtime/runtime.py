@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from time import time
-from typing import Callable
+from typing import Any, Callable
 
 from .contracts import (
     MissionLedger,
@@ -13,9 +13,12 @@ from .contracts import (
     ModeRecommendation,
     ModeTransition,
     ModeTransitionRecommendation,
+    ModeCycleContext,
     TerminalRecommendation,
     build_mission_ledger_view,
 )
+from .capabilities.transition import evaluate_mode_transition
+from .observability import build_mission_observation_from_runtime
 from .registry import ModePolicyLookupError, ModePolicyRegistry
 
 
@@ -62,6 +65,7 @@ class MissionRuntime(MissionRuntimeContract):
         policy = self._policy_registry.require(active_mode)
         policy_ledger_view = build_mission_ledger_view(active_ledger)
         context = policy.build_context(request=request, ledger=policy_ledger_view)
+        context = _execute_mode_context(context)
         interpretation = policy.interpret(
             request=request,
             ledger=policy_ledger_view,
@@ -104,37 +108,11 @@ class MissionRuntime(MissionRuntimeContract):
         ledger: MissionLedger,
         recommendation: ModeTransitionRecommendation,
     ) -> ModeTransition:
-        prior_mode = ledger.active_mode
-        next_mode = recommendation.next_mode.strip()
-        reason = recommendation.reason.strip()
-        status = "applied"
-        status_reason = None
-        if not next_mode:
-            status = "rejected"
-            status_reason = "next_mode_required"
-        elif next_mode == prior_mode:
-            status = "rejected"
-            status_reason = "next_mode_matches_active_mode"
-        elif not reason:
-            status = "rejected"
-            status_reason = "transition_reason_required"
-        else:
-            try:
-                self._policy_registry.require(next_mode)
-            except ModePolicyLookupError:
-                status = "rejected"
-                status_reason = "next_mode_policy_not_registered"
-        return ModeTransition(
-            prior_mode=prior_mode,
-            next_mode=next_mode,
-            reason=reason or "unspecified",
-            handed_forward_artifact_refs=list(recommendation.handed_forward_artifact_refs),
-            expected_next_work=recommendation.expected_next_work,
-            resume_note_for_prior_mode=recommendation.resume_note_for_prior_mode,
-            status=status,
-            status_reason=status_reason,
-            order_anchor=len(ledger.transition_history) + 1,
-            timestamp_epoch_seconds=self._now_fn(),
+        return evaluate_mode_transition(
+            ledger=ledger,
+            recommendation=recommendation,
+            mode_exists=lambda mode_name: self._policy_registry.resolve(mode_name) is not None,
+            now_epoch_seconds=self._now_fn(),
         )
 
     def _apply_transition_if_recommended(
@@ -204,3 +182,23 @@ def _merge_refs(*, existing: list[str], incoming: list[str]) -> list[str]:
             continue
         merged.append(ref)
     return merged
+
+
+def _execute_mode_context(context: ModeCycleContext) -> ModeCycleContext:
+    if context.execution_adapter is not None and context.execution_result is None:
+        context.execution_result = context.execution_adapter()
+    return context
+
+
+def build_mission_observability_payload(
+    *,
+    request: MissionRuntimeRequest,
+    ledger: MissionLedger,
+    cycle_results: list[MissionRuntimeCycleResult],
+) -> dict[str, Any]:
+    """Build bounded mission-runtime observability payload for tracing/run-state/review."""
+    return build_mission_observation_from_runtime(
+        request=request,
+        ledger=ledger,
+        cycle_results=cycle_results,
+    ).to_payload()

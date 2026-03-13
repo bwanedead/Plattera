@@ -24,6 +24,7 @@ Required top-level fields:
 - `resumability`: `resumable` bool, `resume_reason`, `resume_requirements`.
 - `terminal_snapshot`: terminal class/reason when closed, else null.
 - `updated_at_epoch_seconds`: last envelope update timestamp.
+- `mission_mode_summary`: bounded mission-mode read model (`active_mode`, `mode_history`, latest transition reason, bounded resume context summary) when available.
 
 Required design properties:
 - bounded payload size
@@ -86,6 +87,10 @@ Keep as extension fields (not required baseline):
 
 Rule:
 - if a field is required only by one loop family and not needed for cross-family resumability/observability, it remains an extension.
+
+Mission-runtime note:
+- For `loop_family=mission_runtime`, `mission_mode_summary` is first-class and should stay read-model oriented.
+- Do not mirror full mission ledger internals or mode-local domain ledgers into shared run-state.
 
 ## Why This Supports Convergence
 

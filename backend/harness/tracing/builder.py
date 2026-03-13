@@ -8,6 +8,7 @@ from .schema import (
     CanonicalTraceRecord,
     CompletenessStatus,
     LoopFamily,
+    MissionTransitionEvent,
     RawTraceEvent,
     TRACE_VERSION,
     TerminalSnapshot,
@@ -30,6 +31,12 @@ def build_canonical_trace(
     started_at_epoch_seconds: int,
     events: list[dict[str, Any] | RawTraceEvent],
     terminal: dict[str, Any] | TerminalSnapshot,
+    mission_id: str | None = None,
+    executed_mode: str | None = None,
+    active_mode: str | None = None,
+    mode_history: list[str] | None = None,
+    transition_events: list[dict[str, Any] | MissionTransitionEvent] | None = None,
+    resume_context_summary: dict[str, Any] | None = None,
     completeness_status: CompletenessStatus = "complete",
     missing_components: Iterable[str] | None = None,
     normalization_warnings: Iterable[str] | None = None,
@@ -51,6 +58,11 @@ def build_canonical_trace(
     terminal_snapshot = (
         terminal if isinstance(terminal, TerminalSnapshot) else TerminalSnapshot.model_validate(terminal)
     )
+    normalized_mode_history = [str(item).strip() for item in (mode_history or []) if str(item).strip()][:32]
+    normalized_transition_events = [
+        item if isinstance(item, MissionTransitionEvent) else MissionTransitionEvent.model_validate(item)
+        for item in (transition_events or [])
+    ][:32]
     return CanonicalTraceRecord(
         trace_id=trace_id,
         run_id=run_id,
@@ -62,6 +74,12 @@ def build_canonical_trace(
         started_at_epoch_seconds=started_at_epoch_seconds,
         events=normalized_events,
         terminal=terminal_snapshot,
+        mission_id=(str(mission_id).strip() if isinstance(mission_id, str) and mission_id.strip() else None),
+        executed_mode=(str(executed_mode).strip() if isinstance(executed_mode, str) and executed_mode.strip() else None),
+        active_mode=(str(active_mode).strip() if isinstance(active_mode, str) and active_mode.strip() else None),
+        mode_history=normalized_mode_history,
+        transition_events=normalized_transition_events,
+        resume_context_summary=resume_context_summary if isinstance(resume_context_summary, dict) else {},
         completeness_status=final_completeness,
         missing_components=missing,
         normalization_warnings=warnings,

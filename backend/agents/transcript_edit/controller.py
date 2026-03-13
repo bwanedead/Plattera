@@ -76,6 +76,7 @@ from .progress_evaluation import (
 from .result_policy import (
     max_iterations_decision,
 )
+from .runtime_summary import derive_mission_runtime_summary
 from .state_projection import (
     derive_waiting_feedback_projection,
     sync_pending_feedback_cache_from_registry,
@@ -826,12 +827,18 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
         state.decision_ledger,
         type_filter="human_resolution_ticket",
     )
+    mission_runtime_summary = derive_mission_runtime_summary(
+        decision_ledger=state.decision_ledger,
+        blocker_registry=state.blocker_registry,
+        waiting_projection=projection,
+    )
     return {
         "used_human_feedback": bool(state.used_human_feedback),
         "feedback_received_count": int(state.feedback_received_count),
         "feedback_consumed_count": int(state.feedback_consumed_count),
         "feedback_stale_count": int(state.feedback_stale_count),
         "feedback_superseded_count": int(state.feedback_superseded_count),
+        "mission_runtime_summary": mission_runtime_summary,
         "pending_feedback_prompt_id": projection.get("pending_feedback_prompt_id"),
         "pending_feedback_decision_key": projection.get("pending_feedback_decision_key"),
         "superseded_prompt_ids": sorted(list(state.superseded_feedback_prompt_ids)),
@@ -848,21 +855,14 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
         "convention_context": dict(state.convention_context or {}),
         "blocker_registry": registry_snapshot_for_payload(state.blocker_registry),
         "active_blocker": select_primary_blocker(state.blocker_registry),
-        "blocker_health": blocker_health_snapshot(
-            registry=state.blocker_registry,
-            decision_ledger=state.decision_ledger,
-        ),
+        "blocker_health": blocker_health_snapshot(registry=state.blocker_registry, decision_ledger=state.decision_ledger),
     }
-
-
 def _normalized_mode(raw: str | None) -> str:
     return normalized_mode(
         raw,
         {_MODE_OFF, _MODE_AUDIT_ONLY, _MODE_AUDIT_REPAIR, _MODE_AUDIT_REPAIR_PROMOTE},
         _MODE_AUDIT_REPAIR_PROMOTE,
     )
-
-
 def _normalized_validation_mode(raw: str | None) -> str:
     return normalized_mode(
         raw,

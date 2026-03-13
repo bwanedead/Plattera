@@ -25,7 +25,10 @@ from transcription_edit_loop.contracts import (
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="transcription-edit-cli",
-        description="Run transcription edit loop via backend endpoint internals.",
+        description=(
+            "Run deterministic transcription-edit v0 endpoint internals "
+            "(legacy compatibility surface; unified mission CLI is mission-runtime-cli)."
+        ),
     )
     parser.add_argument("--dossier-id", dest="dossier_id")
     parser.add_argument("--transcript-ref", dest="transcript_ref")

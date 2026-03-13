@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping, Protocol
+from typing import Any, Callable, Protocol
 
 from agent_kernel.models import KernelSessionStartRequest
 from agent_kernel.session import KernelSessionManager
@@ -18,9 +18,11 @@ from ..contracts import (
     MissionResumabilitySummary,
     MissionRuntimeRequest,
     MissionVerificationPostureSummary,
+    ModeCycleContext,
     ModeInterpretation,
     ModePolicy,
     ModeRecommendation,
+    ModeTransitionRecommendation,
     TerminalRecommendation,
 )
 
@@ -57,18 +59,19 @@ class DeedToIRModePolicy(ModePolicy):
         *,
         request: MissionRuntimeRequest,
         ledger: MissionLedgerView,
-    ) -> Mapping[str, Any]:
-        result = self._runner(request, ledger)
-        return {
-            "controller_result": result,
-        }
+    ) -> ModeCycleContext:
+        return ModeCycleContext(
+            payload={},
+            # Runtime executes this adapter mechanically before interpretation.
+            execution_adapter=lambda: self._runner(request, ledger),
+        )
 
     def interpret(
         self,
         *,
         request: MissionRuntimeRequest,
         ledger: MissionLedgerView,
-        context: Mapping[str, Any],
+        context: ModeCycleContext,
     ) -> ModeInterpretation:
         return interpret_controller_run_result(_require_controller_result(context))
 
@@ -77,10 +80,26 @@ class DeedToIRModePolicy(ModePolicy):
         *,
         request: MissionRuntimeRequest,
         ledger: MissionLedgerView,
-        context: Mapping[str, Any],
+        context: ModeCycleContext,
         interpretation: ModeInterpretation,
     ) -> ModeRecommendation:
-        return recommend_controller_run_result(_require_controller_result(context))
+        result = _require_controller_result(context)
+        recommendation = recommend_controller_run_result(result)
+        transition = _recommend_transition_to_transcript_edit(
+            request=request,
+            recommendation=recommendation,
+        )
+        if transition is None:
+            return recommendation
+        return ModeRecommendation(
+            next_step_hint="handoff_to_transcript_edit",
+            transition=transition,
+            terminal=recommendation.terminal,
+            high_signal_artifact_refs=list(recommendation.high_signal_artifact_refs),
+            blocker_posture=recommendation.blocker_posture,
+            verification_posture=recommendation.verification_posture,
+            resumability=recommendation.resumability,
+        )
 
 
 def build_deed_to_ir_mode_policy_from_controller_inputs(
@@ -144,18 +163,17 @@ def recommend_controller_run_result(result: ControllerRunResult) -> ModeRecommen
         reason_code=result.terminal.reason_code,
     )
     waiting = terminal_result.terminal_class in {"waiting_human", "waiting_evidence"}
-    terminal_recommendation = TerminalRecommendation(
-        terminal=True,
-        terminal_class=terminal_result.terminal_class,
-        reason_code=terminal_result.reason_code,
-    )
     return ModeRecommendation(
-        next_step_hint=None if terminal_recommendation.terminal else "continue_deed_to_ir",
-        terminal=terminal_recommendation,
+        next_step_hint=None,
+        terminal=TerminalRecommendation(
+            terminal=True,
+            terminal_class=terminal_result.terminal_class,
+            reason_code=terminal_result.reason_code,
+        ),
         high_signal_artifact_refs=_collect_high_signal_refs(result),
         blocker_posture=MissionBlockerPostureSummary(waiting_human=terminal_result.terminal_class == "waiting_human"),
         verification_posture=MissionVerificationPostureSummary(
-            status=terminal_result.reason_code or result.terminal.stop_reason.value,
+            status=result.terminal.stop_reason.value or terminal_result.reason_code,
             last_verification_kind="controller_terminal",
         ),
         resumability=MissionResumabilitySummary(
@@ -185,8 +203,35 @@ def _collect_high_signal_refs(result: ControllerRunResult) -> list[str]:
     return deduped
 
 
-def _require_controller_result(context: Mapping[str, Any]) -> ControllerRunResult:
-    result = context.get("controller_result")
+def _recommend_transition_to_transcript_edit(
+    *,
+    request: MissionRuntimeRequest,
+    recommendation: ModeRecommendation,
+) -> ModeTransitionRecommendation | None:
+    if not _metadata_flag(request.metadata, "phase_e_enable_linear_transitions"):
+        return None
+    if not _metadata_flag(request.metadata, "deed_to_ir_transition_to_transcript_edit"):
+        return None
+    terminal_class = recommendation.terminal.terminal_class if recommendation.terminal is not None else None
+    if terminal_class != "completed":
+        return None
+    return ModeTransitionRecommendation(
+        next_mode="transcript_edit",
+        reason="deed_to_ir_output_requires_transcript_edit_review",
+        handed_forward_artifact_refs=list(recommendation.high_signal_artifact_refs),
+        expected_next_work="run transcript-edit pass over latest deed output and verify closure posture",
+        resume_note_for_prior_mode="resume deed_to_ir after transcript-edit returns reconciled artifacts",
+    )
+
+
+def _metadata_flag(metadata: Any, key: str) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    return bool(metadata.get(key))
+
+
+def _require_controller_result(context: ModeCycleContext) -> ControllerRunResult:
+    result = context.execution_result
     if isinstance(result, ControllerRunResult):
         return result
-    raise ValueError("deed_to_ir_mode_context_missing_controller_result")
+    raise ValueError("deed_to_ir_mode_context_missing_execution_result")

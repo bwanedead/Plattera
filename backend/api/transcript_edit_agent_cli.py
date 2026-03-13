@@ -1,6 +1,7 @@
 """CLI harness for transcript-edit agent endpoint internals.
 
-Canonical CLI for the harness-facing transcript-edit agent API.
+Compatibility CLI for transcript-edit-only flows.
+Canonical unified mission-runtime CLI is ``api.mission_runtime_cli``.
 """
 
 from __future__ import annotations
@@ -22,7 +23,10 @@ _EXIT_WAITING_FEEDBACK = 3
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="transcript-edit-agent-cli",
-        description="Run kernel-backed transcript edit agent loop via backend endpoint internals.",
+        description=(
+            "Run transcript-edit-only loop via backend endpoint internals "
+            "(compatibility surface; unified mission CLI is mission-runtime-cli)."
+        ),
     )
     source_group = parser.add_mutually_exclusive_group(required=True)
     source_group.add_argument("--source-transcript-ref", dest="source_transcript_ref")

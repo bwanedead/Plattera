@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agents.transcript_edit.state_projection import derive_waiting_feedback_projection
 
+from .mission_runtime.observability import parse_mission_observation_payload
 from .terminal_taxonomy import (
     TerminalClass,
     classify_controller_terminal,
@@ -13,7 +14,7 @@ from .terminal_taxonomy import (
 )
 
 RUN_STATE_VERSION = "run_state.v1"
-LoopFamily = Literal["controller_kernel", "transcript_edit"]
+LoopFamily = Literal["controller_kernel", "transcript_edit", "mission_runtime"]
 
 
 class RequestSummary(BaseModel):
@@ -77,6 +78,15 @@ class ContinuitySummary(BaseModel):
     has_recent_activity: bool
 
 
+class MissionModeSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    active_mode: str | None = Field(default=None, max_length=64)
+    mode_history: list[str] = Field(default_factory=list, max_length=32)
+    latest_transition_reason: str | None = Field(default=None, max_length=256)
+    resume_context_summary: dict[str, Any] = Field(default_factory=dict)
+
+
 class SharedRunStateEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -91,6 +101,7 @@ class SharedRunStateEnvelope(BaseModel):
     waiting_summary: WaitingSummary
     terminal_summary: NormalizedTerminalSummary
     continuity_summary: ContinuitySummary
+    mission_mode_summary: MissionModeSummary = Field(default_factory=MissionModeSummary)
     envelope_version: str = Field(min_length=1, max_length=64)
 
 
@@ -188,6 +199,7 @@ def build_transcript_edit_run_state(*, run_snapshot: dict[str, Any]) -> SharedRu
             last_reason_code=reason_code,
             has_recent_activity=bool(progress_log or critical_events),
         ),
+        mission_mode_summary=MissionModeSummary(active_mode=_as_str(request.get("mode"))),
         envelope_version=RUN_STATE_VERSION,
     )
 
@@ -270,6 +282,92 @@ def build_controller_kernel_run_state(
             last_reason_code=_as_str(terminal.get("reason_code")),
             has_recent_activity=bool(transcript_events),
         ),
+        mission_mode_summary=MissionModeSummary(active_mode=_as_str(run_header_payload.get("mode"))),
+        envelope_version=RUN_STATE_VERSION,
+    )
+
+
+def build_mission_runtime_run_state(*, mission_runtime_payload: dict[str, Any]) -> SharedRunStateEnvelope:
+    observation = parse_mission_observation_payload(mission_runtime_payload)
+    mission_id = observation.mission_id
+    request_id = observation.request_id
+    active_mode = observation.active_mode
+    mode_history = list(observation.mode_history)
+    transition_history = list(observation.transition_history)
+    cycles = list(observation.cycles)
+    mission_status = dict(observation.mission_status)
+    resumability = dict(observation.resumability_summary)
+    blocker_posture = dict(observation.blocker_posture_summary)
+    verification_posture = dict(observation.verification_posture_summary)
+    latest_transition = transition_history[-1] if transition_history else None
+    transition_reason = latest_transition.reason if latest_transition else None
+    terminal_class = _as_terminal_class(mission_status.get("terminal_class"))
+    reason_code = _as_str(mission_status.get("reason_code"))
+    high_signal_refs = list(observation.high_signal_artifact_refs)
+
+    return SharedRunStateEnvelope(
+        run_id=mission_id,
+        session_id=None,
+        request_id=request_id,
+        loop_family="mission_runtime",
+        request_summary=RequestSummary(
+            objective=observation.objective,
+            mode=active_mode,
+            trigger=None,
+            dossier_id=None,
+        ),
+        latest_refs_summary=LatestRefsSummary(
+            has_refs=bool(high_signal_refs),
+            total_count=len(high_signal_refs),
+            ref_keys=high_signal_refs[:16],
+        ),
+        blocker_summary=BlockerSummary(
+            open_count=_as_int(blocker_posture.get("open_blocker_count")),
+            active_blocker_id=None,
+            waiting_human=bool(blocker_posture.get("waiting_human")),
+            answered_unintegrated_count=None,
+            source="derived",
+        ),
+        verification_summary=VerificationSummary(
+            status=_as_str(verification_posture.get("status")),
+            last_verification_kind=_as_str(verification_posture.get("last_verification_kind")),
+            mapping_ready=True
+            if terminal_class == "completed"
+            else False
+            if terminal_class in {"failed", "blocked", "exhausted"}
+            else None,
+        ),
+        waiting_summary=WaitingSummary(
+            waiting=bool(blocker_posture.get("waiting_human")),
+            waiting_kind="human_feedback" if bool(blocker_posture.get("waiting_human")) else None,
+            resumable=bool(resumability.get("resumable")),
+            owner_kind="mission_transition" if bool(blocker_posture.get("waiting_human")) else None,
+        ),
+        terminal_summary=NormalizedTerminalSummary(
+            terminal=bool(mission_status.get("terminal")),
+            terminal_class=terminal_class,
+            reason_code=reason_code,
+        ),
+        continuity_summary=ContinuitySummary(
+            iteration=observation.cycle_index or len(cycles),
+            last_phase=f"mode:{cycles[-1].executed_mode}" if cycles and cycles[-1].executed_mode else None,
+            last_reason_code=reason_code or transition_reason,
+            has_recent_activity=bool(cycles or transition_history),
+        ),
+        mission_mode_summary=MissionModeSummary(
+            active_mode=active_mode,
+            mode_history=mode_history,
+            latest_transition_reason=transition_reason,
+            resume_context_summary={
+                    "resumable": bool(resumability.get("resumable")),
+                    "resume_reason": _as_str(resumability.get("resume_reason")),
+                    "resume_requirements": _as_str_list(resumability.get("resume_requirements")),
+                    "expected_next_work": latest_transition.expected_next_work if latest_transition else None,
+                    "resume_note_for_prior_mode": (
+                        latest_transition.resume_note_for_prior_mode if latest_transition else None
+                    ),
+                },
+            ),
         envelope_version=RUN_STATE_VERSION,
     )
 
@@ -425,6 +523,25 @@ def _as_int(value: Any) -> int | None:
 
 def _as_bool(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
+
+
+def _as_str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        text = _as_str(item)
+        if not text or text in out:
+            continue
+        out.append(text)
+    return out
+
+
+def _as_terminal_class(value: Any) -> TerminalClass | None:
+    text = _as_str(value)
+    if text in {"completed", "blocked", "waiting_human", "waiting_evidence", "exhausted", "failed"}:
+        return text  # type: ignore[return-value]
+    return None
 
 
 def _first_non_empty(*values: Any) -> str | None:

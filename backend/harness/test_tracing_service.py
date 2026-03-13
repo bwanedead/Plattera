@@ -16,6 +16,7 @@ from harness.tracing.schema import CanonicalTraceRecord
 from harness.tracing.service import (
     build_canonical_trace_from_payload,
     build_controller_kernel_canonical_trace,
+    build_mission_runtime_canonical_trace,
     build_transcript_edit_canonical_trace,
 )
 
@@ -113,6 +114,53 @@ def _transcript_edit_payload() -> dict:
     }
 
 
+def _mission_runtime_payload() -> dict:
+    return {
+        "mission_runtime": {
+            "mission_id": "mission-svc-1",
+            "objective": "multi-mode mission",
+            "request_id": "mission-request-1",
+            "active_mode": "deed_to_ir",
+            "mode_history": ["deed_to_ir", "transcript_edit", "deed_to_ir"],
+            "transition_history": [
+                {
+                    "prior_mode": "deed_to_ir",
+                    "next_mode": "transcript_edit",
+                    "reason": "handoff_to_review",
+                    "status": "applied",
+                    "order_anchor": 1,
+                    "timestamp_epoch_seconds": 101,
+                    "handed_forward_artifact_refs": ["artifact://handoff/1"],
+                }
+            ],
+            "cycles": [
+                {
+                    "cycle_index": 1,
+                    "executed_mode": "deed_to_ir",
+                    "resulting_active_mode": "transcript_edit",
+                    "summary": "deed cycle done",
+                    "timestamp_epoch_seconds": 100,
+                    "transition": {
+                        "prior_mode": "deed_to_ir",
+                        "next_mode": "transcript_edit",
+                        "reason": "handoff_to_review",
+                        "status": "applied",
+                        "order_anchor": 1,
+                        "timestamp_epoch_seconds": 101,
+                        "handed_forward_artifact_refs": ["artifact://handoff/1"],
+                    },
+                }
+            ],
+            "mission_status": {"terminal": False, "terminal_class": "in_progress", "reason_code": None},
+            "resumability_summary": {"resumable": True, "resume_reason": "mode_transition_pending"},
+            "created_at_epoch_seconds": 100,
+            "updated_at_epoch_seconds": 101,
+            "cycle_index": 1,
+            "high_signal_artifact_refs": ["artifact://handoff/1"],
+        }
+    }
+
+
 def test_service_dispatches_controller_payload_with_detection() -> None:
     payload = _controller_payload()
     trace = build_canonical_trace_from_payload(payload=payload)
@@ -173,5 +221,17 @@ def test_service_direct_family_functions_return_canonical_trace_type() -> None:
     )
     tx_payload = _transcript_edit_payload()
     tx_trace = build_transcript_edit_canonical_trace(run_snapshot=tx_payload)
+    mission_payload = _mission_runtime_payload()["mission_runtime"]
+    mission_trace = build_mission_runtime_canonical_trace(mission_runtime_payload=mission_payload)
     assert isinstance(controller_trace, CanonicalTraceRecord)
     assert isinstance(tx_trace, CanonicalTraceRecord)
+    assert isinstance(mission_trace, CanonicalTraceRecord)
+
+
+def test_service_dispatches_mission_runtime_payload_with_detection() -> None:
+    payload = _mission_runtime_payload()
+    trace = build_canonical_trace_from_payload(payload=payload)
+    assert trace.loop_family == "mission_runtime"
+    assert trace.mission_id == "mission-svc-1"
+    assert trace.transition_events
+    assert any(event.event_kind == "mission_transition" for event in trace.events)

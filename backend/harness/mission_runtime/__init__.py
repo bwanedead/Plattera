@@ -4,6 +4,7 @@ from .contracts import (
     MissionLedgerView,
     MissionResumabilitySummaryView,
     MissionResumabilitySummary,
+    ModeCycleContext,
     MissionRuntime,
     MissionRuntimeCycleResult,
     MissionRuntimeRequest,
@@ -16,12 +17,15 @@ from .contracts import (
     ModeTransition,
     ModeTransitionRecommendation,
     ModeTransitionView,
-    RuntimeCapability,
     TerminalRecommendation,
     build_mission_ledger_view,
 )
 from .registry import ModePolicyLookupError, ModePolicyRegistry
-from .runtime import MissionRuntime as MissionRuntimeShell, MissionRuntimeError
+from .runtime import (
+    MissionRuntime as MissionRuntimeShell,
+    MissionRuntimeError,
+    build_mission_observability_payload,
+)
 
 __all__ = [
     "MissionBlockerPostureSummary",
@@ -29,6 +33,7 @@ __all__ = [
     "MissionLedgerView",
     "MissionResumabilitySummary",
     "MissionResumabilitySummaryView",
+    "ModeCycleContext",
     "MissionRuntime",
     "MissionRuntimeCycleResult",
     "MissionRuntimeError",
@@ -45,7 +50,7 @@ __all__ = [
     "ModeTransition",
     "ModeTransitionRecommendation",
     "ModeTransitionView",
-    "RuntimeCapability",
     "TerminalRecommendation",
+    "build_mission_observability_payload",
     "build_mission_ledger_view",
 ]

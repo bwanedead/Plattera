@@ -26,6 +26,11 @@ export interface TextToSchemaState {
   selectedModel: string;
   agentLoopModel: string;
   engine: 'legacy' | 'agent_loop';
+  missionRuntimeFamily: 'legacy_split' | 'unified_mission';
+  missionRunId?: string | null;
+  missionActiveMode?: string | null;
+  missionModeHistory?: string[] | null;
+  missionTransitionCount?: number | null;
   isProcessing: boolean;
   agentLoopRunId?: string | null;
   agentLoopRunStatus?: string | null;
@@ -70,6 +75,11 @@ const defaultTextToSchemaState: TextToSchemaState = {
   selectedModel: 'gpt-4o',
   agentLoopModel: 'gpt-5.2',
   engine: 'legacy',
+  missionRuntimeFamily: 'legacy_split',
+  missionRunId: null,
+  missionActiveMode: null,
+  missionModeHistory: null,
+  missionTransitionCount: null,
   isProcessing: false,
   agentLoopRunId: null,
   agentLoopRunStatus: null,

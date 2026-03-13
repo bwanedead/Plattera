@@ -107,6 +107,80 @@ def _tx_payload() -> dict:
     }
 
 
+def _mission_payload() -> dict:
+    return {
+        "mission_runtime": {
+            "mission_id": "mission-tool-1",
+            "objective": "cross-mode story",
+            "request_id": "mission-request-tool-1",
+            "active_mode": "deed_to_ir",
+            "mode_history": ["deed_to_ir", "transcript_edit", "deed_to_ir"],
+            "transition_history": [
+                {
+                    "prior_mode": "deed_to_ir",
+                    "next_mode": "transcript_edit",
+                    "reason": "handoff_to_review",
+                    "status": "applied",
+                    "order_anchor": 1,
+                    "timestamp_epoch_seconds": 101,
+                    "handed_forward_artifact_refs": ["artifact://handoff/1"],
+                },
+                {
+                    "prior_mode": "transcript_edit",
+                    "next_mode": "deed_to_ir",
+                    "reason": "review_complete",
+                    "status": "applied",
+                    "order_anchor": 2,
+                    "timestamp_epoch_seconds": 103,
+                    "handed_forward_artifact_refs": ["artifact://handoff/2"],
+                },
+            ],
+            "cycles": [
+                {
+                    "cycle_index": 1,
+                    "executed_mode": "deed_to_ir",
+                    "resulting_active_mode": "transcript_edit",
+                    "summary": "deed cycle",
+                    "timestamp_epoch_seconds": 100,
+                    "transition": {
+                        "prior_mode": "deed_to_ir",
+                        "next_mode": "transcript_edit",
+                        "reason": "handoff_to_review",
+                        "status": "applied",
+                        "order_anchor": 1,
+                        "timestamp_epoch_seconds": 101,
+                        "handed_forward_artifact_refs": ["artifact://handoff/1"],
+                    },
+                },
+                {
+                    "cycle_index": 2,
+                    "executed_mode": "transcript_edit",
+                    "resulting_active_mode": "deed_to_ir",
+                    "summary": "review cycle",
+                    "timestamp_epoch_seconds": 102,
+                    "transition": {
+                        "prior_mode": "transcript_edit",
+                        "next_mode": "deed_to_ir",
+                        "reason": "review_complete",
+                        "status": "applied",
+                        "order_anchor": 2,
+                        "timestamp_epoch_seconds": 103,
+                        "handed_forward_artifact_refs": ["artifact://handoff/2"],
+                    },
+                },
+            ],
+            "mission_status": {"terminal": False, "terminal_class": "in_progress", "reason_code": None},
+            "resumability_summary": {"resumable": True, "resume_reason": "ready_for_deed_resume"},
+            "blocker_posture_summary": {"waiting_human": False, "open_blocker_count": 0},
+            "verification_posture_summary": {"status": "closure_clear", "last_verification_kind": "tx_ledger"},
+            "created_at_epoch_seconds": 100,
+            "updated_at_epoch_seconds": 103,
+            "cycle_index": 2,
+            "high_signal_artifact_refs": ["artifact://handoff/1", "artifact://handoff/2"],
+        }
+    }
+
+
 def test_single_controller_run_review_flow() -> None:
     output = build_single_run_review(payload=_controller_payload())
     assert output["trace"]["loop_family"] == "controller_kernel"
@@ -121,6 +195,15 @@ def test_single_transcript_edit_run_review_flow() -> None:
     assert output["run_state"]["loop_family"] == "transcript_edit"
     assert output["review"]["terminal_class"] == "waiting_human"
     assert output["review"]["waiting_human_present"] is True
+
+
+def test_single_mission_runtime_run_review_flow() -> None:
+    output = build_single_run_review(payload=_mission_payload())
+    assert output["trace"]["loop_family"] == "mission_runtime"
+    assert output["run_state"]["loop_family"] == "mission_runtime"
+    assert output["review"]["active_mode"] == "deed_to_ir"
+    assert output["review"]["transition_count"] == 2
+    assert output["review"]["mode_history"] == ["deed_to_ir", "transcript_edit", "deed_to_ir"]
 
 
 def test_multi_run_aggregate_review_flow() -> None:

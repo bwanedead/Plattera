@@ -10,6 +10,7 @@ if str(_BACKEND_ROOT) not in sys.path:
 from harness.run_state import (
     RUN_STATE_VERSION,
     build_controller_kernel_run_state,
+    build_mission_runtime_run_state,
     build_transcript_edit_run_state,
 )
 
@@ -127,6 +128,7 @@ def test_transcript_edit_builder_uses_registry_waiting_and_ledger_unresolved() -
     assert envelope.waiting_summary.resumable is True
     assert envelope.waiting_summary.owner_kind == "blocker_registry"
     assert envelope.verification_summary.status == "needs_human_feedback"
+    assert envelope.mission_mode_summary.active_mode == "audit_then_repair"
     assert envelope.latest_refs_summary.total_count == 20
     assert len(envelope.latest_refs_summary.ref_keys) == 16
     assert envelope.envelope_version == RUN_STATE_VERSION
@@ -211,3 +213,42 @@ def test_transcript_edit_waiting_falls_back_to_compat_only_without_registry_rows
     assert envelope.waiting_summary.resumable is True
     assert envelope.waiting_summary.owner_kind is None
     assert envelope.blocker_summary.source == "derived"
+
+
+def test_mission_runtime_builder_adds_mission_mode_awareness_without_ledger_mirroring() -> None:
+    payload = {
+        "mission_id": "mission-run-state-1",
+        "objective": "cross-mode mission",
+        "request_id": "request-run-state-1",
+        "active_mode": "deed_to_ir",
+        "mode_history": ["deed_to_ir", "transcript_edit", "deed_to_ir"],
+        "transition_history": [
+            {
+                "prior_mode": "deed_to_ir",
+                "next_mode": "transcript_edit",
+                "reason": "handoff_to_review",
+                "expected_next_work": "run transcript review",
+                "resume_note_for_prior_mode": "resume with repaired refs",
+            }
+        ],
+        "high_signal_artifact_refs": ["artifact://handoff/1", "artifact://handoff/2"],
+        "resumability_summary": {
+            "resumable": True,
+            "resume_reason": "waiting_handoff_completion",
+            "resume_requirements": ["artifact://handoff/2"],
+        },
+        "mission_status": {"terminal": False, "terminal_class": "in_progress", "reason_code": None},
+        "blocker_posture_summary": {"waiting_human": False, "open_blocker_count": 0},
+        "verification_posture_summary": {"status": "closure_clear", "last_verification_kind": "tx_ledger"},
+        "cycle_index": 2,
+        "cycles": [{"executed_mode": "transcript_edit"}],
+    }
+    envelope = build_mission_runtime_run_state(mission_runtime_payload=payload)
+    assert envelope.loop_family == "mission_runtime"
+    assert envelope.run_id == "mission-run-state-1"
+    assert envelope.request_summary.mode == "deed_to_ir"
+    assert envelope.mission_mode_summary.active_mode == "deed_to_ir"
+    assert envelope.mission_mode_summary.mode_history == ["deed_to_ir", "transcript_edit", "deed_to_ir"]
+    assert envelope.mission_mode_summary.latest_transition_reason == "handoff_to_review"
+    assert envelope.mission_mode_summary.resume_context_summary["resumable"] is True
+    assert envelope.latest_refs_summary.total_count == 2

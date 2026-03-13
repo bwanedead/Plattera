@@ -35,7 +35,7 @@ Required fields:
 - `run_id`: primary run identifier.
 - `session_id`: execution session id when present (conditionally required for sessionized runs).
 - `request_id`: initiating request id when available.
-- `loop_family`: `controller_kernel` or `transcript_edit` (extendable enum).
+- `loop_family`: `controller_kernel`, `transcript_edit`, or `mission_runtime` (extendable enum).
 - `request_metadata`: bounded request context (objective, trigger, initiating surface).
 - `start_context_summary`: bounded summary of initial context and bootstrap refs.
 - `started_at_epoch_seconds`: trace start timestamp.
@@ -45,6 +45,14 @@ Required fields:
 - `missing_components`: list of source components absent during normalization.
 - `normalization_warnings`: bounded warning list describing truncation, synthesis, or fallback behavior.
 - `trace_version`: schema version identifier.
+
+Mission-level additive fields (when `loop_family=mission_runtime`):
+- `mission_id`: stable mission identity for continuity across mode segments.
+- `executed_mode`: mode executed in the most recent cycle represented by the trace.
+- `active_mode`: resulting active mode after latest cycle/transition application.
+- `mode_history`: ordered mission mode history (may repeat modes; no dedupe).
+- `transition_events`: bounded structured transition records (prior/next mode, reason, status, order anchor, timestamp, handoff refs, expected next work, resume note).
+- `resume_context_summary`: bounded resumability context (resumable, resume reason, resume requirements).
 
 Optional but strongly recommended:
 - `source_artifact_refs`: key refs available at start.
@@ -70,6 +78,8 @@ Each `events[]` entry must include:
 Required supported `event_kind` categories:
 - `request_start`
 - `iteration`
+- `mode_segment`
+- `mission_transition`
 - `model_proposal`
 - `tool_execution`
 - `retrieval_evidence`
@@ -83,6 +93,8 @@ Category notes:
 - `tool_execution` includes kernel step executions and deterministic refusal outcomes.
 - `blocker_transition` is required for blocker-native loops and optional synthesized projection for non-blocker-native loops.
 - `hitl_escalation` includes prompt issued, feedback received, feedback consumed, and stale/superseded transitions.
+- `mode_segment` is the mission-runtime mode-cycle segment marker and carries both `executed_mode` and `resulting_active_mode`.
+- `mission_transition` is an explicit mission-level transition event; do not infer transitions implicitly from mode-history deltas.
 
 ## Searchable Dimensions
 

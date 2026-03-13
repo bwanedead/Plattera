@@ -1,4 +1,9 @@
-"""CLI harness for running the backend agent-loop endpoint path without the UI."""
+"""CLI harness for running the backend agent-loop endpoint path without the UI.
+
+Compatibility posture:
+- Legacy family-specific deed/controller surface.
+- Canonical unified mission-runtime CLI is ``api.mission_runtime_cli``.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +21,10 @@ from config.paths import dossiers_state_root
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agent-loop-cli",
-        description="Run the controller-driven text-to-schema agent loop via backend endpoint internals.",
+        description=(
+            "Run the legacy controller-family deed loop via backend endpoint internals. "
+            "For unified mission-runtime development/testing, prefer mission-runtime-cli."
+        ),
     )
     bootstrap = parser.add_mutually_exclusive_group(required=False)
     bootstrap.add_argument("--dossier-id", dest="dossier_id", help="Use an existing dossier as the loop input.")
