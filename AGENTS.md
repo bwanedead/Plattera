@@ -54,7 +54,7 @@ A patch is non-trivial if it adds files, changes more than 3 files, materially e
 
 ### Reviewer subagent toggle (on-demand; claude/codex harness only)
 
-Reviewer subagents are useful but expensive. Run them **on-demand** behind a simple toggle in this file so they don't consume tokens on every non-trivial patch.
+Reviewer subagents are useful but expensive. Run them **on-demand** behind a simple toggle in this file so they don't consume tokens on every non-trivial patch. or if asked explicitly by manual request by the human - in which case should be assumed to be single use exception per request. The toggle in which dictates automated default reviewing/ other sub agents is detailed below 
 
 Toggle (edit this file):
 - `REVIEWER_SUBAGENTS_ENABLED = false`
