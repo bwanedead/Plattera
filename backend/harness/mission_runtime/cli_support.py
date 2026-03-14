@@ -34,6 +34,7 @@ from .modes import (
     TranscriptEditModePolicy,
     build_deed_to_ir_mode_policy_from_controller_inputs,
 )
+from .modes.transcript_edit import run_orchestration_kernel_transcript_loop
 from .runtime import build_mission_observability_payload
 
 
@@ -46,6 +47,7 @@ class DeedModeCliInputs:
     max_iterations: int
     requires_global_placement: bool
     render_required: bool
+    use_orchestration_kernel: bool = False
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,7 @@ class TranscriptModeCliInputs:
     mode: str
     validation_mode: str
     auto_promote: bool
+    use_orchestration_kernel: bool = False
 
 
 def build_deed_mode_policy_from_cli_inputs(inputs: DeedModeCliInputs) -> DeedToIRModePolicy:
@@ -70,6 +73,7 @@ def build_deed_mode_policy_from_cli_inputs(inputs: DeedModeCliInputs) -> DeedToI
         start_request=start_request,
         model=inputs.model,
         max_iterations=max(1, int(inputs.max_iterations)),
+        use_orchestration_kernel=bool(inputs.use_orchestration_kernel),
     )
 
 
@@ -158,9 +162,7 @@ def build_transcript_mode_policy_from_cli_inputs(
         except Exception:
             pass
 
-    def _runner(request: MissionRuntimeRequest, ledger: Any) -> Any:
-        import time
-
+    def _build_run_request(request: MissionRuntimeRequest, ledger: Any) -> TranscriptEditAgentRunRequest:
         resolved_source_ref = inputs.source_transcript_ref or infer_transcript_ref_from_ledger(ledger)
         run_request = TranscriptEditAgentRunRequest(
             dossier_id=inputs.dossier_id,
@@ -178,7 +180,24 @@ def build_transcript_mode_policy_from_cli_inputs(
                 "transcript_edit_mode_requires_source_transcript_ref_or_source_text "
                 "(provide --tx-source-transcript-ref/--tx-text or ensure transition handoff refs include a transcript ref)"
             )
+        return run_request
 
+    if inputs.use_orchestration_kernel:
+        def _ok_runner(request: MissionRuntimeRequest, ledger: Any) -> Any:
+            run_request = _build_run_request(request, ledger)
+            return run_orchestration_kernel_transcript_loop(
+                session_manager=session_manager,
+                request=run_request,
+                request_id_prefix=request_prefix,
+                planner=None,
+                progress_cb=_progress_cb,
+            )
+        return TranscriptEditModePolicy(runner=_ok_runner)
+
+    def _runner(request: MissionRuntimeRequest, ledger: Any) -> Any:
+        import time
+
+        run_request = _build_run_request(request, ledger)
         viewer_run_id = viewer_run_id_from_request_prefix(request_prefix)
         _MAX_HITL_RESUME_ROUNDS = 10
         _FEEDBACK_POLL_INTERVAL = 2.0

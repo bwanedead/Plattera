@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from typing import Any, Callable, Protocol
 
-from agent_kernel.models import KernelSessionStartRequest
+from agent_kernel.models import (
+    KernelBudgets,
+    KernelGoal,
+    KernelSessionStartRequest,
+    KernelSessionStartResult,
+    StopReason,
+    TerminalOutcome,
+    TerminalOutcomeKind,
+)
 from agent_kernel.session import KernelSessionManager
 from agents.controller.controller_runtime import (
     ControllerRunResult,
@@ -10,6 +18,8 @@ from agents.controller.controller_runtime import (
     NextStepLLMClient,
     run_controller_loop,
 )
+from agents.controller.domain_pack import DeedToIRDomainPack
+from harness.orchestration_kernel import run_orchestration_kernel_loop, KernelLoopResult
 
 from ...terminal_taxonomy import classify_controller_terminal
 from ..contracts import (
@@ -111,10 +121,19 @@ def build_deed_to_ir_mode_policy_from_controller_inputs(
     max_iterations: int = 20,
     digest_client: IterationDigestClient | None = None,
     controller_runner: ControllerLoopRunner = run_controller_loop,
+    use_orchestration_kernel: bool = False,
 ) -> DeedToIRModePolicy:
-    """Build a deed-to-IR ModePolicy backed by existing controller runtime."""
+    """Build a deed-to-IR ModePolicy backed by controller runtime or orchestration kernel."""
 
     def _runner(_request: MissionRuntimeRequest, _ledger: MissionLedgerView) -> ControllerRunResult:
+        if use_orchestration_kernel:
+            return run_orchestration_kernel_deed_loop(
+                session_manager=session_manager,
+                llm_client=llm_client,
+                start_request=start_request,
+                model=model,
+                max_iterations=max_iterations,
+            )
         return controller_runner(
             session_manager=session_manager,
             llm_client=llm_client,
@@ -125,6 +144,136 @@ def build_deed_to_ir_mode_policy_from_controller_inputs(
         )
 
     return DeedToIRModePolicy(runner=_runner)
+
+
+# ---------------------------------------------------------------------------
+# Orchestration kernel runner + adapter
+# ---------------------------------------------------------------------------
+
+
+def run_orchestration_kernel_deed_loop(
+    *,
+    session_manager: KernelSessionManager,
+    llm_client: NextStepLLMClient,
+    start_request: KernelSessionStartRequest,
+    model: str = "gpt-5-mini",
+    max_iterations: int = 20,
+    request_id_prefix: str | None = None,
+) -> ControllerRunResult:
+    """Run deed-to-IR through the orchestration kernel and adapt the result.
+
+    Calls start_session, creates DeedToIRDomainPack, runs the kernel loop,
+    and adapts KernelLoopResult → ControllerRunResult.
+    """
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
+    prefix = request_id_prefix or start_request.request_id
+    started = session_manager.start_session(start_request)
+
+    if started.refusal is not None or started.session_id is None:
+        reason = started.refusal.reason_code if started.refusal else "missing_session"
+        _log.warning("DEED_OK start_session_refused ► reason=%s", reason)
+        terminal = TerminalOutcome(
+            terminal_outcome=TerminalOutcomeKind.FAILED,
+            stop_reason=StopReason.INTERNAL_ERROR,
+            success=False,
+            reason_code=f"kernel_start_refused:{reason}",
+        )
+        return ControllerRunResult(
+            terminal=terminal,
+            last_dashboard={},
+            transcript_artifact_ref="",
+            session_id=None,
+            run_artifact_ref=None,
+            iterations=0,
+        )
+
+    session_id = started.session_id
+    run_artifact_ref = started.run_artifact_ref
+
+    domain_pack = DeedToIRDomainPack(
+        start_request=start_request,
+        started=started,
+        model=model,
+        llm_client=llm_client,
+        request_id_prefix=prefix,
+    )
+
+    max_no_progress = max(3, max_iterations // 4)
+    kernel_result = run_orchestration_kernel_loop(
+        domain_pack=domain_pack,
+        session_manager=session_manager,
+        session_id=session_id,
+        run_artifact_ref=run_artifact_ref,
+        request_id_prefix=prefix,
+        dossier_id=start_request.dossier_id,
+        max_iterations=max_iterations,
+        max_no_progress_iterations=max_no_progress,
+        max_invalid_plan_attempts=3,
+    )
+
+    return _adapt_kernel_loop_result_to_controller(kernel_result)
+
+
+def _adapt_kernel_loop_result_to_controller(result: KernelLoopResult) -> ControllerRunResult:
+    """Convert KernelLoopResult → ControllerRunResult.
+
+    TerminalClass mapping:
+      completed      → success=True, COMPLETED / SUCCESS
+      waiting_human  → NEEDS_USER_CHOICE / NEEDS_USER_CHOICE
+      waiting_evidence → NEEDS_UPLOAD / NEEDS_UPLOAD
+      blocked        → NEEDS_CAPABILITY / FAILED
+      exhausted      → BUDGET_EXCEEDED / FAILED
+      failed         → INTERNAL_ERROR / FAILED
+    """
+    tc = result.terminal_class
+    if tc == "completed":
+        stop_reason = StopReason.COMPLETED
+        outcome_kind = TerminalOutcomeKind.SUCCESS
+        success = True
+    elif tc == "waiting_human":
+        stop_reason = StopReason.NEEDS_USER_CHOICE
+        outcome_kind = TerminalOutcomeKind.NEEDS_USER_CHOICE
+        success = False
+    elif tc == "waiting_evidence":
+        stop_reason = StopReason.NEEDS_UPLOAD
+        outcome_kind = TerminalOutcomeKind.NEEDS_UPLOAD
+        success = False
+    elif tc == "blocked":
+        stop_reason = StopReason.NEEDS_CAPABILITY
+        outcome_kind = TerminalOutcomeKind.FAILED
+        success = False
+    elif tc == "exhausted":
+        stop_reason = StopReason.BUDGET_EXCEEDED
+        outcome_kind = TerminalOutcomeKind.FAILED
+        success = False
+    else:  # failed
+        stop_reason = StopReason.INTERNAL_ERROR
+        outcome_kind = TerminalOutcomeKind.FAILED
+        success = False
+
+    terminal = TerminalOutcome(
+        terminal_outcome=outcome_kind,
+        stop_reason=stop_reason,
+        success=success,
+        reason_code=result.reason_code,
+    )
+    domain_state = result.domain_runtime_state if isinstance(result.domain_runtime_state, dict) else {}
+    last_dashboard = {
+        "latest_refs": dict(result.latest_refs),
+        "deed_phase_hint": domain_state.get("deed_phase_hint"),
+        "claimability": domain_state.get("claimability"),
+        "failure_classification": domain_state.get("failure_classification"),
+    }
+    return ControllerRunResult(
+        terminal=terminal,
+        last_dashboard=last_dashboard,
+        transcript_artifact_ref=result.run_artifact_ref or "",
+        session_id=result.session_id,
+        run_artifact_ref=result.run_artifact_ref,
+        iterations=result.iterations,
+    )
 
 
 def adapt_controller_run_result(result: ControllerRunResult) -> tuple[ModeInterpretation, ModeRecommendation]:

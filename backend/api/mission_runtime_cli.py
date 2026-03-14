@@ -112,6 +112,18 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["off", "live_hitl"],
     )
     parser.add_argument("--tx-no-auto-promote", action="store_true")
+    parser.add_argument(
+        "--tx-use-orchestration-kernel",
+        action="store_true",
+        dest="tx_use_orchestration_kernel",
+        help="Route transcript-edit through the orchestration kernel instead of the legacy controller loop.",
+    )
+    parser.add_argument(
+        "--deed-use-orchestration-kernel",
+        action="store_true",
+        dest="deed_use_orchestration_kernel",
+        help="Route deed-to-IR through the orchestration kernel instead of the legacy controller loop.",
+    )
     return parser
 
 
@@ -208,6 +220,7 @@ def _build_policy_registry(
         max_iterations=max(1, int(args.deed_max_iterations)),
         requires_global_placement=bool(args.deed_requires_global_placement),
         render_required=bool(args.deed_render_required),
+        use_orchestration_kernel=bool(args.deed_use_orchestration_kernel),
     )
     transcript_inputs = TranscriptModeCliInputs(
         dossier_id=args.tx_dossier_id,
@@ -218,6 +231,7 @@ def _build_policy_registry(
         mode=str(args.tx_mode),
         validation_mode=str(args.tx_validation_mode),
         auto_promote=not bool(args.tx_no_auto_promote),
+        use_orchestration_kernel=bool(args.tx_use_orchestration_kernel),
     )
     policies = build_policy_list_for_cli(
         mission_request=mission_request,
