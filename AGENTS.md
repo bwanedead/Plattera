@@ -52,9 +52,23 @@ This repository uses reviewer subagents to prevent two recurring failures:
 
 A patch is non-trivial if it adds files, changes more than 3 files, materially expands a file, introduces a new abstraction/helper/service, changes module or layer boundaries, or is a refactor / cleanup / reorganization.
 
-For non-trivial patches, run (claude and codex harness only [cursor not applicable]):
-- `architecture_reviewer`
-- `code_efficiency_reviewer`
+### Reviewer subagent toggle (on-demand; claude/codex harness only)
+
+Reviewer subagents are useful but expensive. Run them **on-demand** behind a simple toggle in this file so they don't consume tokens on every non-trivial patch.
+
+Toggle (edit this file):
+- `REVIEWER_SUBAGENTS_ENABLED = false`
+
+Harness applicability:
+- Applies only to **Claude Code** and **Codex** harnesses.
+- **Cursor is not applicable** (treat as unsupported even if the toggle is true).
+- If a new harness is added later, explicitly add it to this allowlist in this section.
+
+Policy:
+- If `REVIEWER_SUBAGENTS_ENABLED == true` and the harness is supported, then for non-trivial patches run:
+  - `architecture_reviewer`
+  - `code_efficiency_reviewer`
+- Otherwise (toggle off or harness unsupported), do a **self-review** using the same criteria and explicitly note: `reviewers skipped by policy` in your final summary.
 
 ### Reviewer purposes
 
@@ -88,7 +102,9 @@ Reviewer findings must:
 
 ### Completion requirement
 
-A non-trivial patch is not complete until the reviewer agents have run, their findings have been summarized, and valid blocking findings have been reconciled or explicitly justified.
+A non-trivial patch is not complete until either:
+- reviewer subagents have run (when enabled by policy) and their findings have been summarized and reconciled, **or**
+- reviewer subagents are disabled / unsupported by policy and a self-review has been performed and summarized (including any blocking issues found and their resolution/justification).
 
 ---
 

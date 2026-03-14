@@ -92,7 +92,7 @@ This roadmap picks up from that foundation and addresses the remaining delta: tw
 
 ---
 
-## Phase 4. Domain-Pack Boundary Freeze
+## Phase 4. Domain-Pack Boundary Freeze ✓ complete
 
 **Goal:** Define what a domain pack owns and what it must not own.
 
@@ -108,7 +108,7 @@ This roadmap picks up from that foundation and addresses the remaining delta: tw
 
 ---
 
-## Phase 5. Transcript-First Extraction Plan
+## Phase 5. Transcript-First Extraction Plan ✓ complete
 
 **Goal:** Define a concrete extraction plan for promoting reusable transcript-edit orchestration patterns into the orchestration kernel.
 

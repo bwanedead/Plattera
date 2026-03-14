@@ -1,0 +1,302 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Protocol, TYPE_CHECKING
+
+from ..terminal_taxonomy import TerminalClass
+
+if TYPE_CHECKING:
+    from agent_kernel.session import KernelSessionManager
+    from .loop_memory import LoopMemoryState
+
+# HitlState is the shared HITL lifecycle state machine.
+# Transitions are owned exclusively by the orchestration kernel.
+# Domain packs must not write HitlState directly.
+HitlState = str  # Literal: "no_prompt" | "waiting" | "answered_unintegrated" | "consumed"
+
+
+@dataclass(frozen=True)
+class WorkStateProjection:
+    """Domain pack's hook 3 output.
+
+    Three sub-surfaces are persisted atomically into Work-State memory by the kernel.
+    The ranked_work_item_list is ephemeral: consumed by phase 4 focus selection and
+    discarded. It is NOT written to Work-State memory and NOT present in persisted state.
+
+    Focus state (active_focus_key, focus_stagnation_streak) is kernel-owned and is NOT
+    part of this projection.
+    """
+
+    # Persisted sub-surfaces (written to Work-State memory atomically):
+    work_item_collection: list[dict[str, Any]]
+    blocker_surface: list[dict[str, Any]]
+    closure_posture_summary: dict[str, Any]
+    # Ephemeral phase-4 input (consumed by focus selection; not persisted):
+    ranked_work_item_list: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class FocusPacket:
+    """Domain-assembled evidence and context for the active focus item.
+
+    The kernel passes this opaque container from hook 4 to hook 5.
+    Kernel does not inspect domain_packet contents.
+    """
+
+    focus_key: str
+    domain_packet: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class MoveDecision:
+    """Domain pack's resolved move for the active focus item.
+
+    move_type values (canonical):
+    - "apply_edit_plan"        — apply a prepared edit plan
+    - "gather_more_evidence"   — run an investigation step
+    - "request_human_feedback" — issue a HITL prompt (triggers HitlState machine)
+    - "mark_blocked"           — domain cannot resolve this item (increments kernel strike)
+    - "mark_resolved_no_edit"  — item resolved without execution (skip phase 6)
+    - "skip_no_action"         — no actionable move this iteration (skip phase 6)
+    """
+
+    move_type: str
+    focus_key: str | None
+    rationale: str | None
+    domain_move_payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class MoveExecutionPlan:
+    """Compiled execution-ready plan from hook 6.
+
+    The kernel dispatches this to KernelSessionManager.step().
+
+    Flags:
+    - hitl_intent_flag: kernel transitions HitlState to "waiting" and terminates
+      with waiting_human; domain pack must not call this for new HITL if
+      OrchestratorContext.loop_memory.hitl_state == "no_prompt"
+    - declare_done_flag: kernel terminates immediately with "completed" terminal
+    - skip_execution: kernel skips KernelSessionManager.step() for this iteration
+      (used for mark_resolved_no_edit, mark_blocked, etc.)
+    """
+
+    from agent_kernel.models import ActionType  # type: ignore[attr-defined]
+
+    action_type: Any  # ActionType
+    action_inputs: dict[str, Any]
+    idempotency_key: str
+    hitl_intent_flag: bool = False
+    declare_done_flag: bool = False
+    skip_execution: bool = False
+
+
+@dataclass(frozen=True)
+class ProgressMetrics:
+    """Domain-supplied generic progress inputs for the shared evaluator.
+
+    The domain pack derives these from its authoritative state (e.g. decision_ledger
+    + blocker_registry for transcript-edit). The shared evaluator uses only these
+    generic fields; no domain-specific field names enter the evaluator.
+    """
+
+    previous_finding_signature: str | None
+    current_finding_signature: str
+    previous_blocking_signature: str | None
+    current_blocking_signature: str
+    previous_blocking_count: int | None
+    current_blocking_count: int
+    # Domain-derived arrival signal. Kernel uses this to increment evidence_signal_counter.
+    # The counter itself is kernel-owned; domain supplies the bool each iteration.
+    new_evidence_signal: bool
+    pending_feedback_prompt_id: str | None
+    # T2: post-apply refresh tracking (mapped from domain's apply-reaudit semantics)
+    pending_refresh: bool
+    refresh_baseline_blocking_count: int | None
+    refresh_baseline_blocking_signature: str | None
+
+
+@dataclass(frozen=True)
+class ProgressDelta:
+    """Shared progress evaluation output."""
+
+    made_progress: bool
+    reason_code: str
+    # When True, kernel clears pending_refresh flag (T2 kernel-side trigger reset)
+    reset_refresh: bool
+
+
+@dataclass(frozen=True)
+class ClosureEvaluation:
+    """Domain pack's hook 8 output.
+
+    Constraint: domain_terminal_class must use one of the six shared TerminalClass values.
+    If domain cannot proceed, use "blocked" with closure_reason_code "impossible_unsupported".
+    domain_terminal_class must NOT be "waiting_human" unless OrchestratorContext.loop_memory
+    .hitl_state != "no_prompt" — new HITL intent is expressed through hook 5/6 MoveDecision
+    with move_type "request_human_feedback", not through hook 8.
+    """
+
+    domain_complete: bool
+    domain_terminal_class: TerminalClass
+    closure_reason_code: str
+    open_items_summary: str
+
+
+@dataclass(frozen=True)
+class IntegrationResult:
+    """Domain pack's hook 9 output — feedback integration completion signal.
+
+    The kernel advances HitlState from "answered_unintegrated" to "consumed"
+    only on successful return (integrated=True). The domain pack must not write
+    HitlState directly.
+    """
+
+    integrated: bool
+    integration_summary: str | None = None
+
+
+@dataclass(frozen=True)
+class RefreshResult:
+    """Domain pack's hook 2 output."""
+
+    latest_refs: dict[str, Any]
+    execution_succeeded: bool
+    refusal_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class KernelLoopResult:
+    """Result returned by run_orchestration_kernel_loop."""
+
+    terminal_class: TerminalClass
+    reason_code: str
+    iterations: int
+    session_id: str
+    run_artifact_ref: str | None
+    latest_refs: dict[str, Any]
+    # Opaque domain-specific terminal context for mission-runtime adapters.
+    # E.g. for transcript-edit: waiting_feedback, pending_feedback_prompt_id, blocker state, etc.
+    domain_runtime_state: dict[str, Any]
+
+
+class OrchestratorContext:
+    """Passed to domain pack hooks each phase.
+
+    The kernel constructs and owns this object. loop_memory is mutated by the kernel
+    between hook calls; domain packs read it but must not write kernel-owned fields.
+
+    Kernel-owned fields in loop_memory (must not be written by domain pack):
+    - active_focus_key, focus_stagnation_streak
+    - hitl_state, pending_feedback_prompt_id
+    - no_progress_streak, evidence_signal_counter
+    - invalid_plan_strikes
+    """
+
+    __slots__ = ("session_manager", "session_id", "loop_memory", "request_id_prefix", "dossier_id")
+
+    def __init__(
+        self,
+        *,
+        session_manager: Any,  # KernelSessionManager
+        session_id: str,
+        loop_memory: Any,  # LoopMemoryState
+        request_id_prefix: str,
+        dossier_id: str | None,
+    ) -> None:
+        self.session_manager = session_manager
+        self.session_id = session_id
+        self.loop_memory = loop_memory
+        self.request_id_prefix = request_id_prefix
+        self.dossier_id = dossier_id
+
+
+class DomainPack(Protocol):
+    """Nine-hook protocol a domain pack must implement to plug into the orchestration kernel.
+
+    Phase grammar: orient(1) → refresh(2) → project(3) → [select-focus(kernel,4)] →
+    build_focus_packet(5a) → resolve_move(5b) → compile_move(5c) → [execute(kernel,6)] →
+    supply_progress_metrics(7) → supply_closure_rules(8) → [terminalize(kernel,9)]
+
+    Pre-phase: if hitl_state == "answered_unintegrated", integrate_feedback fires before
+    phase 2 (refresh).
+    """
+
+    def orient(self, context: OrchestratorContext) -> None:
+        """Phase 1 — Run once at loop start (not on resume).
+
+        Domain initializes its work-state from source material (baseline audit,
+        ledger initialization, span seeds, etc.). Writes to context.loop_memory.domain_state
+        or to the domain pack's own internal state.
+        """
+        ...
+
+    def refresh(self, context: OrchestratorContext) -> RefreshResult:
+        """Phase 2 — Per-iteration re-observation pass.
+
+        Runs the domain's audit/re-audit step and updates domain work-state.
+        Returns updated latest_refs and execution status.
+        """
+        ...
+
+    def project(self, context: OrchestratorContext) -> WorkStateProjection:
+        """Phase 3 — Project domain authority into shared Work-State sub-surfaces.
+
+        Domain projects from its authoritative sources (e.g. decision_ledger,
+        blocker_registry) into the shared three-surface projection. The kernel
+        writes these atomically. The ranked_work_item_list is ephemeral input
+        to phase 4 only.
+        """
+        ...
+
+    def build_focus_packet(self, context: OrchestratorContext, focus_key: str) -> FocusPacket:
+        """Phase 5 step 1 — Assemble evidence and context for the selected focus item.
+
+        Domain assembles its evidence waterfall (span context, image verification,
+        visual evidence, feedback payload) for the given focus_key.
+        """
+        ...
+
+    def resolve_move(self, context: OrchestratorContext, focus_packet: FocusPacket) -> MoveDecision:
+        """Phase 5 step 2 — Determine the next move for the focused item.
+
+        Domain calls its planner/resolver and returns the resolved move type
+        with opaque domain_move_payload for hook 6 to compile.
+        """
+        ...
+
+    def compile_move(self, context: OrchestratorContext, move_decision: MoveDecision) -> MoveExecutionPlan:
+        """Phase 5 step 3 — Compile move decision into an execution-ready plan.
+
+        Domain translates the move type and payload into a concrete ActionType
+        + action_inputs + idempotency_key. Sets hitl_intent_flag=True for HITL moves.
+        """
+        ...
+
+    def supply_progress_metrics(self, context: OrchestratorContext) -> ProgressMetrics:
+        """Phase 7 — Supply domain-specific progress metrics for the shared evaluator.
+
+        Domain derives metrics from its authoritative state (signatures, counts, flags).
+        The kernel increments evidence_signal_counter when new_evidence_signal is True;
+        the counter is kernel-owned.
+        """
+        ...
+
+    def supply_closure_rules(self, context: OrchestratorContext) -> ClosureEvaluation:
+        """Phase 8 — Evaluate domain closure conditions and map to shared terminal scaffold.
+
+        Maps domain-specific closure conditions to the six shared TerminalClass values.
+        """
+        ...
+
+    def integrate_feedback(
+        self, context: OrchestratorContext, feedback_response: dict[str, Any]
+    ) -> IntegrationResult:
+        """Pre-phase 2 — Integrate a received human feedback response into domain work-state.
+
+        Fires when OrchestratorContext.loop_memory.hitl_state == "answered_unintegrated".
+        Domain integrates feedback into its authoritative state (e.g. ledger, registry).
+        Returns IntegrationResult; kernel advances HitlState to "consumed" on success.
+        Domain must not write HitlState directly.
+        """
+        ...

@@ -37,7 +37,9 @@ Start here for next-stage planning orientation:
 - `docs/architecture/agent-kernel/loop-family-orchestration-delta-matrix.md` — concrete code-grounded delta between `deed_to_ir` and `transcript_edit` orchestration; primary input to orchestration kernel design
 - `docs/architecture/agent-kernel/orchestration-kernel-contracts-v1.md` — Phase 2 contract freeze: shared phase grammar (orient → refresh → project → select-focus → resolve-move → execute → evaluate-progress → decide → terminalize) and minimum shared contract surfaces
 - `docs/architecture/agent-kernel/shared-loop-memory-v1.md` — Phase 3 contract freeze: six loop-memory categories (continuity, work-state, evidence, feedback, progress, domain-state); persistence/resume expectations; field-mapping appendix for both loop families
+- `docs/architecture/agent-kernel/domain-pack-interface-v1.md` — Phase 4 contract freeze: domain-pack callable protocol (9 hooks), ownership table, projection rules, worked examples for transcript-edit and deed-to-IR
 - `docs/architecture/migration/agent-kernel-convergence-roadmap.md` — phased roadmap for next convergence stage (7 phases: architecture clarification → orchestration kernel → loop memory → domain packs → transcript extraction → deed migration → blended missions)
+- `docs/architecture/migration/transcript-extraction-plan.md` — Phase 5 extraction plan: six transcript-edit mechanics (orient, refresh, focus-selection, move layer, progress evaluator, HITL substrate) with kernel-vs-pack boundary calls, code anchors, sequencing, and verification
 
 Use this seed when planning the next convergence stage:
 - one shared orchestration kernel above both loop families

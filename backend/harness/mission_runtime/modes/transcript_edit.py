@@ -6,6 +6,8 @@ from typing import Any, Callable, Protocol
 from agent_kernel.session import KernelSessionManager
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
 from agents.transcript_edit.controller import run_transcript_edit_controller_loop
+from agents.transcript_edit.domain_pack import TranscriptEditDomainPack
+from harness.orchestration_kernel import KernelLoopResult, run_orchestration_kernel_loop
 
 from ...terminal_taxonomy import classify_transcript_edit_terminal
 from ..contracts import (
@@ -116,11 +118,20 @@ def build_transcript_edit_mode_policy_from_controller_inputs(
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
     startup_countdown_seconds: int = 0,
     controller_runner: TranscriptEditLoopRunner = run_transcript_edit_controller_loop,
+    use_orchestration_kernel: bool = False,
 ) -> TranscriptEditModePolicy:
     def _runner(
         _request: MissionRuntimeRequest,
         _ledger: MissionLedgerView,
     ) -> TranscriptEditAgentRunResult:
+        if use_orchestration_kernel:
+            return _run_orchestration_kernel_transcript_loop(
+                session_manager=session_manager,
+                request=transcript_request,
+                request_id_prefix=request_id_prefix,
+                planner=planner,
+                progress_cb=progress_cb,
+            )
         return controller_runner(
             session_manager=session_manager,
             request=transcript_request,
@@ -131,6 +142,87 @@ def build_transcript_edit_mode_policy_from_controller_inputs(
         )
 
     return TranscriptEditModePolicy(runner=_runner)
+
+
+# ---------------------------------------------------------------------------
+# Orchestration kernel runner + adapter
+# ---------------------------------------------------------------------------
+
+
+def _run_orchestration_kernel_transcript_loop(
+    *,
+    session_manager: KernelSessionManager,
+    request: TranscriptEditAgentRunRequest,
+    request_id_prefix: str,
+    planner: Any | None = None,
+    progress_cb: Callable[[dict[str, Any]], None] | None = None,
+) -> TranscriptEditAgentRunResult:
+    """Run transcript-edit through the orchestration kernel and adapt the result."""
+    session_id = f"{request_id_prefix}:ok_session"
+    domain_pack = TranscriptEditDomainPack(
+        request=request,
+        session_id=session_id,
+        request_id_prefix=request_id_prefix,
+        planner=planner,
+        progress_cb=progress_cb,
+    )
+    kernel_result = run_orchestration_kernel_loop(
+        domain_pack=domain_pack,
+        session_manager=session_manager,
+        session_id=session_id,
+        run_artifact_ref=None,
+        request_id_prefix=request_id_prefix,
+        dossier_id=request.dossier_id,
+        max_iterations=int(request.max_iterations),
+        max_no_progress_iterations=int(getattr(request, "max_no_progress_iterations", 3)),
+        max_invalid_plan_attempts=int(request.max_invalid_plan_attempts),
+        progress_cb=progress_cb,
+    )
+    # Merge domain-pack runtime state (has mission_runtime_summary) with kernel loop state.
+    domain_state = domain_pack.build_domain_runtime_state()
+    kernel_state = kernel_result.domain_runtime_state if isinstance(kernel_result.domain_runtime_state, dict) else {}
+    merged_runtime_state = {**kernel_state, **domain_state}
+    return _adapt_kernel_loop_result(kernel_result, runtime_hitl_state=merged_runtime_state)
+
+
+def _adapt_kernel_loop_result(
+    result: KernelLoopResult,
+    *,
+    runtime_hitl_state: dict[str, Any] | None = None,
+) -> TranscriptEditAgentRunResult:
+    """Convert KernelLoopResult → TranscriptEditAgentRunResult.
+
+    Status mapping (TerminalClass → legacy status string):
+      completed      → "completed"
+      waiting_human  → "waiting_feedback"
+      failed         → "failed"
+      blocked / waiting_evidence / exhausted → "needs_review"
+    """
+    tc = result.terminal_class
+    if tc == "completed":
+        status = "completed"
+    elif tc == "waiting_human":
+        status = "waiting_feedback"
+    elif tc == "failed":
+        status = "failed"
+    else:
+        status = "needs_review"
+
+    review_required = not (status == "completed" and "auto_promote" in (result.reason_code or ""))
+
+    if runtime_hitl_state is None:
+        runtime_hitl_state = result.domain_runtime_state if isinstance(result.domain_runtime_state, dict) else {}
+
+    return TranscriptEditAgentRunResult(
+        run_artifact_ref=result.run_artifact_ref,
+        session_id=result.session_id,
+        iterations=result.iterations,
+        status=status,
+        reason_code=result.reason_code,
+        latest_refs=dict(result.latest_refs),
+        review_required=review_required,
+        runtime_hitl_state=runtime_hitl_state if runtime_hitl_state else None,
+    )
 
 
 def adapt_transcript_edit_run_result(

@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+from .contracts import ProgressMetrics, ProgressDelta
+
+
+def evaluate_progress(metrics: ProgressMetrics) -> ProgressDelta:
+    """Shared progress evaluator.
+
+    Generic parameter types — no domain-specific field names.
+    Promoted from classify_iteration_progress in
+    backend/agents/transcript_edit/progress_evaluation.py with generic
+    parameter naming so any domain can supply metric inputs via hook 7.
+
+    The kernel owns no_progress_streak and evidence_signal_counter.
+    The domain pack owns the metric derivation (signatures, counts, flags).
+    """
+    # Post-apply refresh path: evaluate relative to the refresh baseline, not prior iteration.
+    if metrics.pending_refresh:
+        baseline = int(
+            metrics.refresh_baseline_blocking_count
+            if metrics.refresh_baseline_blocking_count is not None
+            else metrics.current_blocking_count
+        )
+        baseline_sig = str(
+            metrics.refresh_baseline_blocking_signature
+            if isinstance(metrics.refresh_baseline_blocking_signature, str)
+            else metrics.current_blocking_signature
+        )
+        if metrics.current_blocking_count < baseline:
+            return ProgressDelta(
+                made_progress=True,
+                reason_code="refresh_improved_blocking_closure",
+                reset_refresh=True,
+            )
+        if baseline_sig and metrics.current_blocking_signature != baseline_sig:
+            return ProgressDelta(
+                made_progress=True,
+                reason_code="refresh_blocking_signature_changed",
+                reset_refresh=True,
+            )
+        return ProgressDelta(
+            made_progress=False,
+            reason_code="refresh_no_blocking_improvement",
+            reset_refresh=True,
+        )
+
+    # New evidence arrived this iteration (domain-supplied signal).
+    if metrics.new_evidence_signal:
+        return ProgressDelta(made_progress=True, reason_code="new_signal_arrived", reset_refresh=False)
+
+    # First iteration baseline — always counts as progress.
+    if metrics.previous_finding_signature is None or metrics.previous_blocking_signature is None:
+        return ProgressDelta(made_progress=True, reason_code="initial_iteration_baseline", reset_refresh=False)
+
+    prev_count = int(
+        metrics.previous_blocking_count
+        if metrics.previous_blocking_count is not None
+        else metrics.current_blocking_count
+    )
+    if metrics.current_blocking_count < prev_count:
+        return ProgressDelta(made_progress=True, reason_code="blocking_count_reduced", reset_refresh=False)
+    if (
+        metrics.current_blocking_signature != metrics.previous_blocking_signature
+        and metrics.current_blocking_count <= prev_count
+    ):
+        return ProgressDelta(made_progress=True, reason_code="blocking_state_changed", reset_refresh=False)
+    if (
+        metrics.current_finding_signature != metrics.previous_finding_signature
+        and metrics.current_blocking_count <= prev_count
+    ):
+        return ProgressDelta(made_progress=True, reason_code="audit_signature_changed", reset_refresh=False)
+
+    if metrics.pending_feedback_prompt_id:
+        return ProgressDelta(
+            made_progress=False,
+            reason_code="pending_human_feedback_no_new_signal",
+            reset_refresh=False,
+        )
+    return ProgressDelta(made_progress=False, reason_code="no_material_change", reset_refresh=False)

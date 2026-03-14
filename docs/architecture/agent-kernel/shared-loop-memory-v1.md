@@ -76,7 +76,7 @@ Do not treat canonical traces as a resumable working state container.
 **Orchestration-kernel owned (category structure):**
 - work-item surface: collection of work items with their states (open/blocked/resolved/closed) — shape is domain-defined, presence of the surface is orchestration-required
 - blocker surface: collection of active blockers with lifecycle state (open/waiting/resolved) — minimum fields: blocker id, state, associated work item key; taxonomy is domain-defined
-- focus state: current active focus key, focus stagnation streak count — `current_focus_key`, `focus_stagnation_streak`
+- focus state: current active focus key, focus stagnation streak count
 - closure posture summary: bounded read of how many items are blocking closure — not the authority for closure truth (domain pack owns that)
 
 **Domain pack owns the authority for:**

@@ -307,24 +307,27 @@ Consumed by: terminalize-or-continue phase; mission shell for `MissionLedger.mis
 
 Must include:
 - `terminal`: bool — whether the run should stop
-- `terminal_class`: one of the shared terminal classes (from `backend/harness/terminal_taxonomy.py`):
+- `terminal_class`: one of the six shared terminal classes (from `backend/harness/terminal_taxonomy.py`):
   - `completed` — work done, closure requirements met
-  - `blocked_waiting_human` — HITL pending, run is resumable
-  - `blocked_waiting_evidence` — evidence unavailable, run is resumable
-  - `exhausted_no_progress` — stagnation threshold reached, cannot proceed
-  - `invalid_refused` — repeated invalid action proposals
-  - `impossible_unsupported` — domain pack cannot make progress on this task
-- `reason_code`: str — stable reason code for trace/review
+  - `blocked` — cannot proceed; run is resumable or requires intervention
+  - `waiting_human` — HITL pending, run is resumable when feedback arrives
+  - `waiting_evidence` — evidence unavailable, run is resumable when evidence arrives
+  - `exhausted` — stagnation threshold reached, cannot proceed
+  - `failed` — unrecoverable error; run cannot continue
+- `reason_code`: str — stable reason code carrying the specific subtype for trace/review (e.g., `impossible_unsupported`, `invalid_refused`, `stagnation_threshold_reached`)
 
 Domain pack maps:
-- domain-specific closure rules → `completed` or `impossible_unsupported`
-- domain-specific blocker types → `blocked_waiting_human` or `blocked_waiting_evidence`
+- domain-specific closure rules → `completed`
+- domain-specific cannot-proceed conditions → `blocked` (reason_code carries subtype, e.g., `impossible_unsupported`)
+- domain-specific HITL conditions → `waiting_human`
+- domain-specific evidence-wait conditions → `waiting_evidence`
 
 Orchestration kernel maps:
-- stagnation counter threshold → `exhausted_no_progress`
-- invalid plan strike count → `invalid_refused`
+- stagnation counter threshold → `exhausted` (reason_code: `stagnation_threshold_reached`)
+- invalid plan strike count → `blocked` (reason_code: `invalid_refused`)
+- unrecoverable execution errors → `failed`
 
-This uses the existing `TerminalClass` vocabulary from `backend/harness/terminal_taxonomy.py`.
+This uses the existing `TerminalClass` vocabulary from `backend/harness/terminal_taxonomy.py` without modification.
 No new terminal taxonomy is introduced in this contract.
 
 ---

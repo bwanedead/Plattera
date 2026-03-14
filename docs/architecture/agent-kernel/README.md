@@ -26,12 +26,9 @@ Current status:
 - `loop-family-orchestration-delta-matrix.md` — concrete code-grounded delta between `deed_to_ir` and `transcript_edit` orchestration; primary input to orchestration kernel design
 - `orchestration-kernel-contracts-v1.md` — Phase 2 contract freeze: shared phase grammar, and minimum contract surfaces (`FocusPacket`, `MoveDecision`, `MoveExecutionPlan`, `ProgressDelta`, `HitlState`, `TerminalDecision`)
 - `shared-loop-memory-v1.md` — Phase 3 contract freeze: six loop-memory category contract (continuity, work-state, evidence, feedback, progress, domain-state); persistence and resume expectations; field-mapping appendix for both loop families
+- `domain-pack-interface-v1.md` — Phase 4 contract freeze: domain-pack callable protocol (9 hooks), ownership table, projection rules, and worked examples for transcript-edit and deed-to-IR
 
 ## Related migration docs
 
 - `docs/architecture/migration/agent-kernel-convergence-roadmap.md` — phased roadmap for the next convergence stage
-
-## Follow-on docs (not yet created)
-
-These should only be created once the relevant phase of the convergence roadmap is underway:
-- `domain-pack-interface-v1.md` — Phase 4: domain pack callable protocol
+- `docs/architecture/migration/transcript-extraction-plan.md` — Phase 5 extraction plan: six transcript-edit mechanics with kernel-vs-pack boundary calls, code anchors, and sequencing/verification plan
