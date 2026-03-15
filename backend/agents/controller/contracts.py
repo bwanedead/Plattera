@@ -128,8 +128,8 @@ class _DraftIRArgs(BaseModel):
 
     @model_validator(mode="after")
     def _validate_minimum_inputs(self) -> "_DraftIRArgs":
-        if not self.dossier_id:
-            raise ValueError("draft_ir_requires_dossier_id")
+        # dossier_id is optional — the tool falls back to "unknown" when absent
+        # (text-only runs have no dossier_id).
         if self.graph is None:
             raise ValueError("draft_ir_requires_graph")
         return self

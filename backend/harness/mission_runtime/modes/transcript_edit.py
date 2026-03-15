@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from agent_kernel.models import KernelBudgets, KernelGoal, KernelSessionStartRequest
 from agent_kernel.session import KernelSessionManager
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
 from agents.transcript_edit.controller import run_transcript_edit_controller_loop
 from agents.transcript_edit.domain_pack import TranscriptEditDomainPack
 from harness.orchestration_kernel import KernelLoopResult, run_orchestration_kernel_loop
+from harness.tracing.service import build_kernel_direct_canonical_trace
 
 from ...terminal_taxonomy import classify_transcript_edit_terminal
 from ..contracts import (
@@ -125,7 +131,7 @@ def build_transcript_edit_mode_policy_from_controller_inputs(
         _ledger: MissionLedgerView,
     ) -> TranscriptEditAgentRunResult:
         if use_orchestration_kernel:
-            return _run_orchestration_kernel_transcript_loop(
+            return run_orchestration_kernel_transcript_loop(
                 session_manager=session_manager,
                 request=transcript_request,
                 request_id_prefix=request_id_prefix,
@@ -149,16 +155,64 @@ def build_transcript_edit_mode_policy_from_controller_inputs(
 # ---------------------------------------------------------------------------
 
 
-def _run_orchestration_kernel_transcript_loop(
+def run_orchestration_kernel_transcript_loop(
     *,
     session_manager: KernelSessionManager,
     request: TranscriptEditAgentRunRequest,
     request_id_prefix: str,
     planner: Any | None = None,
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
+    resume_feedback_response: dict[str, Any] | None = None,
 ) -> TranscriptEditAgentRunResult:
-    """Run transcript-edit through the orchestration kernel and adapt the result."""
-    session_id = f"{request_id_prefix}:ok_session"
+    """Run transcript-edit through the orchestration kernel and adapt the result.
+
+    ``resume_feedback_response`` — when provided, the kernel HITL state machine is
+    pre-seeded as "answered_unintegrated" so the first iteration's pre-phase fires
+    ``integrate_feedback`` with this payload.  Used by the CLI HITL resume loop (P3).
+    """
+    # Start a kernel session so the domain pack can call session_manager.step().
+    max_steps = max(8, int(request.max_iterations) * 4)
+    start_request = KernelSessionStartRequest(
+        request_id=f"{request_id_prefix}-ok",
+        goal=KernelGoal(
+            requires_global_placement=False,
+            render_required=False,
+            objective="orchestration_kernel_transcript_edit",
+        ),
+        budgets=KernelBudgets(
+            max_steps=max_steps,
+            max_wall_time_seconds=600,
+            max_retrieval_calls=100,
+            max_semantic_calls=100,
+            max_patch_calls=100,
+        ),
+        dossier_id=request.dossier_id,
+        source_entry_ref=(f"final:{request.dossier_id}" if request.dossier_id else None),
+        initial_graph_json={
+            "graph_id": f"ok_tx_{request_id_prefix}",
+            "nodes": [],
+            "edges": [],
+            "metadata": {
+                "source": "orchestration_kernel_transcript_edit",
+                "dossier_id": request.dossier_id,
+            },
+        },
+    )
+    start_result = session_manager.start_session(start_request)
+    if start_result.refusal is not None or start_result.session_id is None:
+        reason = start_result.refusal.reason_code if start_result.refusal else "missing_session"
+        return TranscriptEditAgentRunResult(
+            run_artifact_ref=None,
+            session_id="",
+            iterations=0,
+            status="failed",
+            reason_code=f"kernel_start_refused:{reason}",
+            latest_refs={},
+            review_required=True,
+        )
+    session_id = start_result.session_id
+    run_artifact_ref = start_result.run_artifact_ref
+
     domain_pack = TranscriptEditDomainPack(
         request=request,
         session_id=session_id,
@@ -170,25 +224,45 @@ def _run_orchestration_kernel_transcript_loop(
         domain_pack=domain_pack,
         session_manager=session_manager,
         session_id=session_id,
-        run_artifact_ref=None,
+        run_artifact_ref=run_artifact_ref,
         request_id_prefix=request_id_prefix,
         dossier_id=request.dossier_id,
         max_iterations=int(request.max_iterations),
         max_no_progress_iterations=int(getattr(request, "max_no_progress_iterations", 3)),
         max_invalid_plan_attempts=int(request.max_invalid_plan_attempts),
         progress_cb=progress_cb,
+        resume_hitl_response=resume_feedback_response,
     )
+
+    # Phase 11 D2: persist the kernel-direct trace and surface its ref in latest_refs.
+    trace_artifact_ref = _persist_kernel_trace(
+        kernel_result=kernel_result,
+        session_manager=session_manager,
+        request_id_prefix=request_id_prefix,
+    )
+    enriched_latest_refs = dict(kernel_result.latest_refs)
+    if trace_artifact_ref:
+        enriched_latest_refs["trace_artifact_ref"] = trace_artifact_ref
+
     # Merge domain-pack runtime state (has mission_runtime_summary) with kernel loop state.
     domain_state = domain_pack.build_domain_runtime_state()
     kernel_state = kernel_result.domain_runtime_state if isinstance(kernel_result.domain_runtime_state, dict) else {}
     merged_runtime_state = {**kernel_state, **domain_state}
-    return _adapt_kernel_loop_result(kernel_result, runtime_hitl_state=merged_runtime_state)
+    return _adapt_kernel_loop_result(
+        kernel_result,
+        runtime_hitl_state=merged_runtime_state,
+        latest_refs_override=enriched_latest_refs,
+    )
+
+
+
 
 
 def _adapt_kernel_loop_result(
     result: KernelLoopResult,
     *,
     runtime_hitl_state: dict[str, Any] | None = None,
+    latest_refs_override: dict[str, Any] | None = None,
 ) -> TranscriptEditAgentRunResult:
     """Convert KernelLoopResult → TranscriptEditAgentRunResult.
 
@@ -213,16 +287,90 @@ def _adapt_kernel_loop_result(
     if runtime_hitl_state is None:
         runtime_hitl_state = result.domain_runtime_state if isinstance(result.domain_runtime_state, dict) else {}
 
+    latest_refs = latest_refs_override if latest_refs_override is not None else dict(result.latest_refs)
+
     return TranscriptEditAgentRunResult(
         run_artifact_ref=result.run_artifact_ref,
         session_id=result.session_id,
         iterations=result.iterations,
         status=status,
         reason_code=result.reason_code,
-        latest_refs=dict(result.latest_refs),
+        latest_refs=latest_refs,
         review_required=review_required,
         runtime_hitl_state=runtime_hitl_state if runtime_hitl_state else None,
     )
+
+
+def _persist_kernel_trace(
+    *,
+    kernel_result: KernelLoopResult,
+    session_manager: KernelSessionManager,
+    request_id_prefix: str,
+) -> str | None:
+    """Persist the kernel-direct trace artifact and return its file path ref (D2).
+
+    Returns None on any failure (trace persistence is best-effort; it must not
+    break the run result even when storage is unavailable).
+    """
+    if not kernel_result.trace_events:
+        return None
+    try:
+        # Load the run artifact so we can hydrate the trace with IDs / timestamps.
+        run_artifact_ref = kernel_result.run_artifact_ref
+        run_artifact: dict[str, Any] = {}
+        if run_artifact_ref:
+            try:
+                import json as _json
+                with open(run_artifact_ref, "r", encoding="utf-8") as _f:
+                    _loaded = _json.load(_f)
+                if isinstance(_loaded, dict):
+                    run_artifact = _loaded
+            except Exception:
+                pass
+
+        trace_record = build_kernel_direct_canonical_trace(
+            trace_events=kernel_result.trace_events,
+            run_artifact=run_artifact,
+            run_artifact_ref=run_artifact_ref,
+        )
+
+        # Persist under the same artifact root as the run artifact.
+        trace_dir: Path | None = None
+        if run_artifact_ref:
+            trace_dir = Path(run_artifact_ref).parent
+        if trace_dir is None or not trace_dir.exists():
+            try:
+                from config.paths import agent_kernel_artifacts_root
+            except ModuleNotFoundError:
+                from backend.config.paths import agent_kernel_artifacts_root  # type: ignore[no-redef]
+            trace_dir = agent_kernel_artifacts_root() / str(request_id_prefix)
+        trace_dir.mkdir(parents=True, exist_ok=True)
+
+        run_id = trace_record.run_id or "unknown_run"
+        trace_path = trace_dir / f"{run_id}_trace.json"
+
+        trace_data = trace_record.model_dump(mode="json")
+        fd, tmp = tempfile.mkstemp(prefix="kernel_trace_", suffix=".json", dir=str(trace_dir))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(trace_data, fh, ensure_ascii=False, indent=2)
+                fh.flush()
+                os.fsync(fh.fileno())
+            try:
+                os.replace(tmp, str(trace_path))
+            except PermissionError:
+                with open(trace_path, "w", encoding="utf-8") as fh:
+                    json.dump(trace_data, fh, ensure_ascii=False, indent=2)
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+
+        return str(trace_path)
+    except Exception:
+        return None
 
 
 def adapt_transcript_edit_run_result(

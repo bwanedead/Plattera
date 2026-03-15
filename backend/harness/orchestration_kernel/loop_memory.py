@@ -59,3 +59,9 @@ class LoopMemoryState:
 
     # --- Loop brakes (kernel-owned) ---
     invalid_plan_strikes: int = 0
+
+    # --- Last step refusal record (kernel-owned, readable by domain pack) ---
+    # Set when a retryable step refusal is tolerated (not immediately fatal).
+    # Cleared on the next successful step execution.
+    # Domain packs may read this to surface rejection context to the LLM.
+    last_step_refusal_record: dict[str, Any] | None = None

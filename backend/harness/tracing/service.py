@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .adapters.controller_kernel import build_controller_kernel_trace
+from .adapters.kernel_direct import build_kernel_direct_trace
 from .adapters.mission_runtime import build_mission_runtime_trace
 from .adapters.transcript_edit import build_transcript_edit_trace
 from .schema import CanonicalTraceRecord, LoopFamily
@@ -25,6 +26,25 @@ def build_controller_kernel_canonical_trace(
         controller_transcript=controller_transcript,
         run_artifact=run_artifact,
         transcript_ref=transcript_ref,
+        run_artifact_ref=run_artifact_ref,
+        trace_id=trace_id,
+    )
+
+
+def build_kernel_direct_canonical_trace(
+    *,
+    trace_events: list[dict[str, Any]],
+    run_artifact: dict[str, Any],
+    run_artifact_ref: str | None = None,
+    trace_id: str | None = None,
+) -> CanonicalTraceRecord:
+    """Build a CanonicalTraceRecord from live kernel trace events (no transcript required).
+
+    Phase 11 D3 — orchestration-kernel path canonical trace builder.
+    """
+    return build_kernel_direct_trace(
+        trace_events=trace_events,
+        run_artifact=run_artifact,
         run_artifact_ref=run_artifact_ref,
         trace_id=trace_id,
     )

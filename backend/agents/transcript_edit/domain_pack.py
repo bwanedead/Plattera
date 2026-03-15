@@ -36,6 +36,7 @@ from harness.orchestration_kernel.contracts import (
 
 from .blocker_registry import (
     initialize_blocker_registry,
+    mark_feedback_received,
     select_primary_blocker,
     sync_registry_from_ledger,
     registry_snapshot_for_payload,
@@ -44,6 +45,7 @@ from .blocker_registry import (
 from .contracts import TranscriptEditAgentRunRequest
 from .decision_ledger import (
     initialize_decision_ledger,
+    mark_human_resolution_ticket_state,
     unresolved_closure_requirements,
     unresolved_mapping_blocking_requirements,
     update_ledger_from_orient_baseline,
@@ -67,10 +69,11 @@ from .loop_state import TranscriptEditLoopState
 from .plan_interpretation import finding_signature
 from .planner import TranscriptEditPlanPlanner
 from .progress_evaluation import blocking_signature, blocking_unresolved_count
+from .image_verification import final_image_sanity_pass_before_promote
 from .result_policy import (
-    should_auto_promote_result,
+    must_verify_before_terminal,
+    should_attempt_promote,
     TranscriptEditFacts,
-    has_unresolved_target_scope_mapping_blocking_closure as _policy_has_blocking,
 )
 from .state_projection import (
     derive_waiting_feedback_projection,
@@ -78,7 +81,7 @@ from .state_projection import (
 )
 from .convention_situating import situate_document_convention
 from .blocker_registry import set_convention_context
-from .terminalization import derive_mission_runtime_summary
+from .runtime_summary import derive_mission_runtime_summary
 
 _LOG = logging.getLogger(__name__)
 
@@ -127,6 +130,8 @@ class TranscriptEditDomainPack:
         self._prev_blocking_sig: str | None = None
         self._prev_blocking_count: int | None = None
         self._prev_signal_counter: int = 0
+        # Gate: set True once final_image_sanity_pass_before_promote runs (hook 8 clean path).
+        self._image_verification_gate_cleared: bool = False
         # Pending refresh baselines (set when pending_reaudit_after_apply).
         self._refresh_baseline_blocking_count: int | None = None
         self._refresh_baseline_blocking_sig: str | None = None
@@ -151,10 +156,32 @@ class TranscriptEditDomainPack:
         if not self._state.decision_ledger:
             self._state.decision_ledger = initialize_decision_ledger()
         if not self._state.blocker_registry:
-            self._state.blocker_registry = initialize_blocker_registry(
-                run_id=request_id_prefix,
-                session_id=session_id,
-                source_transcript_ref=request.source_transcript_ref,
+            # P3: if a blocker_registry snapshot was provided for HITL resume, restore it.
+            if isinstance(request.resume_blocker_registry, dict) and request.resume_blocker_registry:
+                self._state.blocker_registry = dict(request.resume_blocker_registry)
+                _LOG.info(
+                    "TX_DOMAIN_PACK orient_resume_blocker_registry ► request_id=%s",
+                    request_id_prefix,
+                )
+            else:
+                self._state.blocker_registry = initialize_blocker_registry(
+                    run_id=request_id_prefix,
+                    session_id=session_id,
+                    source_transcript_ref=request.source_transcript_ref,
+                )
+
+        # P3/F1: restore pending feedback identity fields for HITL resume.
+        # Invariant: only set if not already populated (e.g. from initial_state) to
+        # ensure resume-restored state is not overwritten by stale request fields.
+        resume_prompt_id = str(request.resume_pending_feedback_prompt_id or "").strip() or None
+        resume_decision_key = str(request.resume_pending_feedback_decision_key or "").strip().lower() or None
+        if resume_prompt_id and not self._state.pending_feedback_prompt_id:
+            self._state.pending_feedback_prompt_id = resume_prompt_id
+            self._state.pending_feedback_decision_key = resume_decision_key
+            _LOG.info(
+                "TX_DOMAIN_PACK orient_resume_feedback_identity ► request_id=%s prompt_id=%s",
+                request_id_prefix,
+                resume_prompt_id,
             )
 
         # Pre-audit: source hash safety and advisory lints.
@@ -618,7 +645,8 @@ class TranscriptEditDomainPack:
             current_blocking_count=self._iter_blocking_count,
             new_evidence_signal=new_evidence_signal,
             pending_feedback_prompt_id=self._state.pending_feedback_prompt_id,
-            pending_refresh=bool(self._state.pending_reaudit_after_apply),
+            # Use kernel-owned pending_refresh flag (D3: kernel is the authoritative trigger).
+            pending_refresh=context.loop_memory.pending_refresh,
             refresh_baseline_blocking_count=self._state.apply_reaudit_baseline_blocking_count,
             refresh_baseline_blocking_signature=self._state.apply_reaudit_baseline_blocking_signature,
         )
@@ -671,9 +699,6 @@ class TranscriptEditDomainPack:
                 open_items_summary=f"Iteration {iterations} of minimum {min_iters}",
             )
 
-        # TODO (Phase 6b): run image verification pass when needed.
-        # handle_clean_iteration's must_verify_before_terminal logic is not yet ported.
-
         # Evaluate completion policy.
         policy_facts = TranscriptEditFacts(
             iterations=iterations,
@@ -689,7 +714,77 @@ class TranscriptEditDomainPack:
             min_iterations_before_complete=min_iters,
             unresolved_mapping_blocking_closure=has_mapping_blocking,
         )
-        should_promote = should_auto_promote_result(policy_facts)
+
+        # D2 (Phase 8): image-verification clean-path gate.
+        # must_verify_before_terminal mirrors handle_clean_iteration's terminal gate.
+        # Run the final sanity pass inline once; if it fails, gate completion.
+        if must_verify_before_terminal(policy_facts) and not self._image_verification_gate_cleared:
+            transcript_ref = self._state.current_transcript_ref
+            if transcript_ref:
+                session_manager = context.session_manager
+                session_id = context.session_id
+
+                def _step_fn(
+                    *,
+                    session_manager: Any = session_manager,
+                    session_id: str = session_id,
+                    prefix: str,
+                    iteration: int,
+                    action_type: Any,
+                    inputs: dict[str, Any],
+                ) -> Any:
+                    from agent_kernel.models import KernelStepRequest as _KSR
+                    return session_manager.step(
+                        _KSR(
+                            session_id=session_id,
+                            action_type=action_type,
+                            inputs=inputs,
+                            idempotency_key=_make_idempotency_key(
+                                f"{prefix}:{iteration}", iteration, inputs
+                            ),
+                        )
+                    )
+
+                final_verify = final_image_sanity_pass_before_promote(
+                    session_manager=session_manager,
+                    session_id=session_id,
+                    iteration=iterations,
+                    dossier_id=self._request.dossier_id,
+                    source_transcript_ref=transcript_ref,
+                    source_image_refs=list(self._request.source_image_refs or []),
+                    disagreement_hints={},
+                    model=self._loop_model,
+                    step_fn=_step_fn,
+                    read_step_outputs_inline_fn=read_step_outputs_inline,
+                    read_str_fn=read_str,
+                    read_int_fn=read_int,
+                )
+                self._state.latest_refs = final_verify.get("latest_refs", self._state.latest_refs)
+                self._image_verification_gate_cleared = True
+
+                if not bool(final_verify.get("passed")):
+                    verify_reason = read_str(final_verify.get("reason")) or "tx_final_image_verify_failed"
+                    _LOG.warning(
+                        "TX_DOMAIN_PACK supply_closure_rules_image_verify_failed ► iter=%s reason=%s",
+                        iterations,
+                        verify_reason,
+                    )
+                    # If more iterations remain, gate completion and let the kernel retry.
+                    if iterations < int(self._request.max_iterations):
+                        return ClosureEvaluation(
+                            domain_complete=False,
+                            domain_terminal_class="blocked",
+                            closure_reason_code="image_verification_retry_required",
+                            open_items_summary=f"verify_failed:{verify_reason}",
+                        )
+                    # At max iterations: surface as needs-review terminal.
+                    return ClosureEvaluation(
+                        domain_complete=True,
+                        domain_terminal_class="completed",
+                        closure_reason_code="tx_agent_completed_needs_review",
+                        open_items_summary=f"image_verify_failed_at_max_iter:{verify_reason}",
+                    )
+        should_promote = should_attempt_promote(policy_facts, "audit_then_repair_then_promote")
         if should_promote:
             reason = "tx_agent_completed_auto_promote"
         else:
@@ -720,17 +815,52 @@ class TranscriptEditDomainPack:
         if not isinstance(feedback_response, dict):
             return IntegrationResult(integrated=False, integration_summary="invalid_feedback_response")
 
+        decision_key = str(
+            feedback_response.get("decision_key") or self._state.pending_feedback_decision_key or ""
+        ).strip().lower()
+        prompt_id = str(
+            feedback_response.get("prompt_id") or self._state.pending_feedback_prompt_id or ""
+        ).strip() or None
+        feedback_value = str(feedback_response.get("selected_value") or "").strip() or None
+        feedback_note = str(feedback_response.get("note") or "").strip() or None
+
+        # Update blocker registry — marks the blocker as having received feedback.
+        if decision_key:
+            self._state.blocker_registry = mark_feedback_received(
+                registry=self._state.blocker_registry,
+                decision_key=decision_key,
+                prompt_id=prompt_id or "",
+                feedback_value=feedback_value,
+                feedback_note=feedback_note,
+                reason="hook9_feedback_integration",
+            )
+
+        # Update decision ledger — marks the ticket as integrated.
+        if prompt_id and decision_key:
+            self._state.decision_ledger = mark_human_resolution_ticket_state(
+                ledger=self._state.decision_ledger,
+                ticket_id=prompt_id,
+                decision_key=decision_key,
+                lifecycle_state="integrated",
+                relevance="active",
+            )
+
         self._state.latest_feedback = feedback_response
         # Increment domain signal counter — hook 7 will detect this as new_evidence_signal.
         self._state.evidence_signal_counter += 1
         self._state.used_human_feedback = True
+        # Clear pending feedback state.
+        self._state.pending_feedback_prompt_id = None
+        self._state.pending_feedback_decision_key = None
+        sync_pending_feedback_cache_from_registry(state=self._state)
         # NOTE: do NOT reset no_progress_streak here — that is kernel-owned in loop_memory.
         # NOTE: do NOT increment loop_memory.evidence_signal_counter — kernel pre-phase does that.
 
         feedback_summary = str(feedback_response.get("summary") or "").strip()
         _LOG.info(
-            "TX_DOMAIN_PACK integrate_feedback ► request_id=%s summary=%s",
+            "TX_DOMAIN_PACK integrate_feedback ► request_id=%s decision_key=%s summary=%s",
             self._request_id_prefix,
+            decision_key or "(none)",
             feedback_summary[:80] if feedback_summary else "(no summary)",
         )
         return IntegrationResult(integrated=True, integration_summary=feedback_summary or "feedback_integrated")

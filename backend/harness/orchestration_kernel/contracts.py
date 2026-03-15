@@ -178,6 +178,11 @@ class KernelLoopResult:
     # Opaque domain-specific terminal context for mission-runtime adapters.
     # E.g. for transcript-edit: waiting_feedback, pending_feedback_prompt_id, blocker state, etc.
     domain_runtime_state: dict[str, Any]
+    # Phase 11 D1: serialised RawTraceEvent dicts emitted live by the kernel.
+    # Populated by KernelTraceCollector; empty list when tracing is disabled.
+    # The calling runtime layer builds a CanonicalTraceRecord from these and
+    # persists the trace artifact (D2).
+    trace_events: list[dict[str, Any]] = field(default_factory=list)
 
 
 class OrchestratorContext:

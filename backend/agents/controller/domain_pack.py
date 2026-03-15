@@ -67,8 +67,15 @@ from .contracts import (
 
 _LOG = logging.getLogger(__name__)
 
-# Focus key for the single deed-to-IR work item.
-_DEED_TO_IR_FOCUS_KEY = "deed_to_ir"
+# Action types that gather/inspect evidence without modifying artifacts.
+# Used in D3 to classify move_type as "gather_more_evidence" vs "apply_edit_plan".
+_DEED_EVIDENCE_GATHERING_ACTION_TYPES = frozenset({
+    "open_artifact",
+    "open_text_spans",
+    "retrieve_evidence",
+    "hydrate_deed",
+    "summarize_status",
+})
 
 
 class DeedToIRDomainPack:
@@ -133,6 +140,11 @@ class DeedToIRDomainPack:
         # Progress baselines for hook 7.
         self._prev_refs_fingerprint: str | None = None
         self._prev_dashboard_snapshot: dict[str, Any] | None = None
+
+        # Consecutive failure streaks for D1/D2 stop-condition alignment.
+        # Incremented on parse fail (hook 5) or compile fail (hook 6); reset on success.
+        self._parse_fail_streak: int = 0
+        self._compile_fail_streak: int = 0
 
         # Ephemeral per-iteration state (hook 4 → hook 5 → hook 6).
         self._iter_context_packet: dict[str, Any] | None = None
@@ -226,36 +238,66 @@ class DeedToIRDomainPack:
     # -------------------------------------------------------------------------
 
     def project(self, context: OrchestratorContext) -> WorkStateProjection:
-        """Phase 3 — Project deed authority into shared Work-State sub-surfaces.
+        """Phase 3 — Project deed authority into Work-State sub-surfaces.
 
-        Deed uses a single work item (deed_to_ir) representing the ongoing
-        mission. No blockers or closure posture are tracked at the domain level;
-        the kernel tracks budget exhaustion and progress stagnation.
+        Produces one work item per gap kind (derived from gap_summary.top_gap_kinds)
+        plus a finalize item when claimability is ready, and a phase-fallback item
+        when no gaps exist. All items use ``focus_key`` (required by kernel's
+        _select_focus). Gap items use stable keys so focus-stagnation tracking works
+        across iterations.
         """
         snapshot = self._current_dashboard_snapshot(context)
         claimability = snapshot.get("claimability") or {}
         claimable_ready = bool(claimability.get("claimable_ready"))
-
-        status = "declare_candidate" if claimable_ready else "in_progress"
-        work_item: dict[str, Any] = {
-            "key": _DEED_TO_IR_FOCUS_KEY,
-            "priority": 1,
-            "status": status,
-            "phase_hint": self._phase_hint,
-        }
-
         gap_summary = _compact_gap_summary(snapshot.get("gap_summary"))
-        if gap_summary.get("top_gap_kinds"):
-            work_item["gap_kinds"] = gap_summary["top_gap_kinds"][:4]
+        top_gap_kinds: list[str] = gap_summary.get("top_gap_kinds") or []
+
+        work_items: list[dict[str, Any]] = []
+        ranked: list[dict[str, Any]] = []
+
+        # Highest priority: declare-done focus when claimability gate is open.
+        if claimable_ready:
+            declare_item: dict[str, Any] = {
+                "focus_key": "phase:declare_candidate",
+                "priority": 0,
+                "status": "open",
+                "phase_hint": "declare_candidate",
+            }
+            work_items.append(declare_item)
+            ranked.append(declare_item)
+
+        # Per-gap-kind work items (priority ordered as given by gap_summary).
+        for i, kind in enumerate(top_gap_kinds[:8]):
+            gap_item: dict[str, Any] = {
+                "focus_key": f"gap:{kind}",
+                "priority": i + 1,
+                "status": "open",
+                "phase_hint": self._phase_hint,
+                "gap_kind": kind,
+            }
+            work_items.append(gap_item)
+            ranked.append(gap_item)
+
+        # Fallback: when no gaps and not claimable, use phase hint as focus key.
+        if not ranked:
+            fallback: dict[str, Any] = {
+                "focus_key": f"phase:{self._phase_hint}",
+                "priority": 1,
+                "status": "open",
+                "phase_hint": self._phase_hint,
+            }
+            work_items.append(fallback)
+            ranked.append(fallback)
 
         return WorkStateProjection(
-            work_item_collection=[work_item],
+            work_item_collection=work_items,
             blocker_surface=[],
             closure_posture_summary={
                 "phase_hint": self._phase_hint,
                 "claimable_ready": claimable_ready,
+                "gap_count": len(top_gap_kinds),
             },
-            ranked_work_item_list=[work_item],
+            ranked_work_item_list=ranked,
         )
 
     # -------------------------------------------------------------------------
@@ -290,6 +332,31 @@ class DeedToIRDomainPack:
             phase_hint=self._phase_hint,
             recent_digest_memory=self._recent_digest_memory,
         )
+        # D2: inject focus-scoped summary so the LLM sees the specific gap to address.
+        if isinstance(context_packet, dict):
+            gap_summary = _compact_gap_summary(snapshot.get("gap_summary"))
+            context_packet["focus_scope"] = _build_deed_focus_scope(focus_key, gap_summary)
+            # Inject rejected graph context from last retryable step refusal if available.
+            # The kernel surfaces this via loop_memory.last_step_refusal_record so the LLM
+            # can correct a bad graph proposal rather than repeating the same mistake.
+            _step_refusal_rec = context.loop_memory.last_step_refusal_record
+            if isinstance(_step_refusal_rec, dict):
+                _inline = _step_refusal_rec.get("outputs_inline")
+                if isinstance(_inline, dict) and (
+                    "rejected_graph_summary" in _inline or "rejected_graph_artifact_ref" in _inline
+                ):
+                    _refusal_payload = context_packet.get("last_refusal") or {}
+                    if isinstance(_refusal_payload, dict):
+                        if "rejected_graph_summary" in _inline:
+                            _refusal_payload["rejected_graph_summary"] = _inline["rejected_graph_summary"]
+                        if "rejected_graph_artifact_ref" in _inline:
+                            _refusal_payload["rejected_graph_artifact_ref"] = _inline["rejected_graph_artifact_ref"]
+                        if not _refusal_payload.get("reason_code"):
+                            _step_kr = _step_refusal_rec.get("outputs_inline", {}).get("kernel_refusal", {})
+                            _refusal_payload["reason_code"] = (
+                                _step_kr.get("reason_code") if isinstance(_step_kr, dict) else "draft_ir_graph_validation_failed"
+                            )
+                        context_packet["last_refusal"] = _refusal_payload
         self._iter_context_packet = context_packet
 
         return FocusPacket(
@@ -329,9 +396,12 @@ class DeedToIRDomainPack:
             )
 
         if proposal is None:
+            self._parse_fail_streak += 1
+            self._compile_fail_streak = 0
             _LOG.warning(
-                "DEED_DOMAIN_PACK resolve_move_parse_failed ► iter=%s",
+                "DEED_DOMAIN_PACK resolve_move_parse_failed ► iter=%s streak=%s",
                 context.loop_memory.iterations,
+                self._parse_fail_streak,
             )
             return MoveDecision(
                 move_type="mark_blocked",
@@ -340,6 +410,8 @@ class DeedToIRDomainPack:
                 domain_move_payload={"reason": "proposal_parse_failed"},
             )
 
+        # Successful proposal — reset parse-fail streak.
+        self._parse_fail_streak = 0
         self._iter_proposal = proposal
         action_type_raw = str(proposal.action_type or "").strip().lower()
 
@@ -351,8 +423,15 @@ class DeedToIRDomainPack:
                 domain_move_payload={"proposal": proposal, "declare_done": True},
             )
 
+        # D3: classify move as evidence-gathering vs apply so the kernel logs intent
+        # and future progress evaluation can distinguish exploration from execution.
+        move_type = (
+            "gather_more_evidence"
+            if action_type_raw in _DEED_EVIDENCE_GATHERING_ACTION_TYPES
+            else "apply_edit_plan"
+        )
         return MoveDecision(
-            move_type="apply_edit_plan",
+            move_type=move_type,
             focus_key=focus_packet.focus_key,
             rationale=proposal.why,
             domain_move_payload={"proposal": proposal, "declare_done": False},
@@ -374,11 +453,12 @@ class DeedToIRDomainPack:
         declare_done = bool(payload.get("declare_done"))
 
         if not isinstance(proposal, KernelStepProposal):
-            # No valid proposal — skip execution.
+            # No valid proposal (move_type was mark_blocked) — skip execution.
             _LOG.warning(
                 "DEED_DOMAIN_PACK compile_move_no_proposal ► iter=%s",
                 context.loop_memory.iterations,
             )
+            # Don't increment compile_fail_streak here — parse_fail_streak covers this case.
             return MoveExecutionPlan(
                 action_type=ActionType.OPEN_ARTIFACT,
                 action_inputs={},
@@ -400,10 +480,12 @@ class DeedToIRDomainPack:
 
         action_type = coerce_action_type(str(proposal.action_type or ""))
         if action_type is None:
+            self._compile_fail_streak += 1
             _LOG.warning(
-                "DEED_DOMAIN_PACK compile_move_invalid_action ► iter=%s action=%s",
+                "DEED_DOMAIN_PACK compile_move_invalid_action ► iter=%s action=%s streak=%s",
                 context.loop_memory.iterations,
                 proposal.action_type,
+                self._compile_fail_streak,
             )
             return MoveExecutionPlan(
                 action_type=ActionType.OPEN_ARTIFACT,
@@ -425,12 +507,14 @@ class DeedToIRDomainPack:
         # Validate payload size.
         payload_refusal = _validate_controller_inputs(proposal_inputs)
         if payload_refusal is not None:
+            self._compile_fail_streak += 1
             self._last_refusal = payload_refusal
             self._last_refusal_action_type_raw = action_type.value
             _LOG.warning(
-                "DEED_DOMAIN_PACK compile_move_payload_refusal ► iter=%s reason=%s",
+                "DEED_DOMAIN_PACK compile_move_payload_refusal ► iter=%s reason=%s streak=%s",
                 context.loop_memory.iterations,
                 payload_refusal.reason_code,
+                self._compile_fail_streak,
             )
             return MoveExecutionPlan(
                 action_type=ActionType.OPEN_ARTIFACT,
@@ -444,6 +528,7 @@ class DeedToIRDomainPack:
             args=proposal_inputs,
         )
         if cleaned_inputs is None:
+            self._compile_fail_streak += 1
             refusal = KernelRefusal(
                 reason_code=args_reason or f"{action_type.value}_inputs_invalid",
                 missing_inputs=args_missing or [],
@@ -459,9 +544,10 @@ class DeedToIRDomainPack:
                 context_inputs=self._iter_context_packet.get("inputs", {}) if self._iter_context_packet else {},
             )
             _LOG.warning(
-                "DEED_DOMAIN_PACK compile_move_args_invalid ► iter=%s reason=%s",
+                "DEED_DOMAIN_PACK compile_move_args_invalid ► iter=%s reason=%s streak=%s",
                 context.loop_memory.iterations,
                 args_reason,
+                self._compile_fail_streak,
             )
             return MoveExecutionPlan(
                 action_type=ActionType.OPEN_ARTIFACT,
@@ -470,10 +556,11 @@ class DeedToIRDomainPack:
                 skip_execution=True,
             )
 
-        # Valid plan — reset refusal state.
+        # Valid plan — reset refusal and compile-fail state.
         self._last_refusal = None
         self._last_refusal_action_type_raw = None
         self._refusal_streak = 0
+        self._compile_fail_streak = 0
 
         idempotency_key = self._compute_idempotency_key(
             context.session_id,
@@ -503,13 +590,27 @@ class DeedToIRDomainPack:
         current_refs.update(kernel_refs)
 
         current_refs_fingerprint = _fingerprint(current_refs)
-        new_evidence = current_refs_fingerprint != self._prev_refs_fingerprint
 
-        # Use refs fingerprint as both finding and blocking signature.
-        # Deed has no separate "blocking" concept — use gap_kinds as blocking signal.
+        # Compute current blocking signature from the live dashboard snapshot.
+        # Must be computed before gaps_changed to avoid UnboundLocalError.
         snapshot = self._current_dashboard_snapshot(context)
         gap_summary = _compact_gap_summary(snapshot.get("gap_summary"))
         blocking_sig = _fingerprint(gap_summary.get("top_gap_kinds") or [])
+
+        # D4: also treat gap_summary changes as evidence — when a gap resolves, the
+        # blocking signature changes and that counts as progress even if refs are static.
+        refs_changed = current_refs_fingerprint != self._prev_refs_fingerprint
+        gaps_changed = (
+            self._prev_dashboard_snapshot is not None
+            and blocking_sig != _fingerprint(
+                _compact_gap_summary(self._prev_dashboard_snapshot.get("gap_summary")).get("top_gap_kinds") or []
+            )
+        )
+        # A successful step execution (pending_refresh=True) always counts as evidence
+        # for deed — e.g. open_text_spans returns inline spans (no persistent ref) but
+        # the LLM has new information. Without this, inline-only steps cause stagnation.
+        step_executed = bool(context.loop_memory.pending_refresh)
+        new_evidence = refs_changed or gaps_changed or step_executed
 
         prev_blocking_sig = None
         prev_blocking_count = None
@@ -529,7 +630,9 @@ class DeedToIRDomainPack:
             current_blocking_count=current_blocking_count,
             new_evidence_signal=new_evidence,
             pending_feedback_prompt_id=None,  # deed has no HITL path in v1
-            pending_refresh=context.loop_memory.pending_refresh,
+            # Deed does not use the pending_refresh evaluation path (no audit baseline);
+            # new_evidence_signal already incorporates step execution signal.
+            pending_refresh=False,
             refresh_baseline_blocking_count=None,
             refresh_baseline_blocking_signature=None,
         )
@@ -552,6 +655,32 @@ class DeedToIRDomainPack:
         This hook provides a fallback terminal evaluation using the dashboard's
         failure_classification and claimability status.
         """
+        # D1 — parse-fail streak: repeated LLM parse failures → blocked/proposal_parse_failed.
+        if self._parse_fail_streak >= 2:
+            _LOG.warning(
+                "DEED_DOMAIN_PACK supply_closure_rules_parse_fail_terminal ► streak=%s",
+                self._parse_fail_streak,
+            )
+            return ClosureEvaluation(
+                domain_complete=False,
+                domain_terminal_class="blocked",
+                closure_reason_code="proposal_parse_failed",
+                open_items_summary=f"parse_fail_streak:{self._parse_fail_streak}",
+            )
+
+        # D2 — compile-fail streak: repeated invalid proposals → blocked/invalid_refused.
+        if self._compile_fail_streak >= 3:
+            _LOG.warning(
+                "DEED_DOMAIN_PACK supply_closure_rules_compile_fail_terminal ► streak=%s",
+                self._compile_fail_streak,
+            )
+            return ClosureEvaluation(
+                domain_complete=False,
+                domain_terminal_class="blocked",
+                closure_reason_code="invalid_refused",
+                open_items_summary=f"compile_fail_streak:{self._compile_fail_streak}",
+            )
+
         snapshot = self._current_dashboard_snapshot(context)
         failure_cls = snapshot.get("failure_classification") or {}
         stop_reason = _read_str(failure_cls.get("stop_reason"))
@@ -573,10 +702,13 @@ class DeedToIRDomainPack:
                 open_items_summary=f"stop_reason:{stop_reason}",
             )
 
-        # Default: not done yet — let the kernel manage budget and stagnation.
+        # Default: still working — let the kernel manage budget and stagnation.
+        # domain_terminal_class is irrelevant when domain_complete=False and
+        # _is_cannot_proceed(reason_code) is False (which "deed_in_progress" guarantees).
+        # "blocked" is used here only as the required sentinel; it does NOT mean cannot-proceed.
         return ClosureEvaluation(
             domain_complete=False,
-            domain_terminal_class="exhausted",
+            domain_terminal_class="blocked",
             closure_reason_code="deed_in_progress",
             open_items_summary=f"phase:{self._phase_hint}",
         )
@@ -648,6 +780,34 @@ class DeedToIRDomainPack:
             f"{session_id}|{iteration}|{action_type}|{normalized}".encode("utf-8")
         ).hexdigest()[:24]
         return f"deed-{digest}"
+
+
+def _build_deed_focus_scope(focus_key: str, gap_summary: dict[str, Any]) -> dict[str, Any]:
+    """Build a focus-scoped summary for inclusion in the FocusPacket domain_packet.
+
+    Gives the LLM a targeted description of which gap kind (or phase) the current
+    focus key represents, plus the relevant counts and reason codes from gap_summary.
+    """
+    if focus_key.startswith("gap:"):
+        kind = focus_key[4:]
+        counts = gap_summary.get("gap_counts_by_kind") or {}
+        reason_codes = gap_summary.get("top_reason_codes") or []
+        return {
+            "focus_key": focus_key,
+            "focus_type": "gap",
+            "gap_kind": kind,
+            "gap_count": counts.get(kind),
+            "relevant_reason_codes": [rc for rc in reason_codes[:6] if kind.lower() in rc.lower() or not reason_codes],
+            "all_top_reason_codes": reason_codes[:4],
+        }
+    if focus_key.startswith("phase:"):
+        phase = focus_key[6:]
+        return {
+            "focus_key": focus_key,
+            "focus_type": "phase",
+            "phase_hint": phase,
+        }
+    return {"focus_key": focus_key, "focus_type": "unknown"}
 
 
 def _fingerprint(value: Any) -> str:

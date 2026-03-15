@@ -184,14 +184,65 @@ def build_transcript_mode_policy_from_cli_inputs(
 
     if inputs.use_orchestration_kernel:
         def _ok_runner(request: MissionRuntimeRequest, ledger: Any) -> Any:
+            import time as _time
+
             run_request = _build_run_request(request, ledger)
-            return run_orchestration_kernel_transcript_loop(
-                session_manager=session_manager,
-                request=run_request,
-                request_id_prefix=request_prefix,
-                planner=None,
-                progress_cb=_progress_cb,
-            )
+            viewer_run_id = viewer_run_id_from_request_prefix(request_prefix)
+            _MAX_HITL_RESUME_ROUNDS = 10
+            _FEEDBACK_POLL_INTERVAL = 2.0
+            _FEEDBACK_POLL_TIMEOUT = 600
+
+            resume_feedback: dict[str, Any] | None = None
+            for _round in range(_MAX_HITL_RESUME_ROUNDS):
+                result = run_orchestration_kernel_transcript_loop(
+                    session_manager=session_manager,
+                    request=run_request,
+                    request_id_prefix=request_prefix,
+                    planner=None,
+                    progress_cb=_progress_cb,
+                    resume_feedback_response=resume_feedback,
+                )
+
+                # If not waiting for feedback, done.
+                hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
+                blocker_registry = hitl_state.get("blocker_registry") if isinstance(hitl_state.get("blocker_registry"), dict) else {}
+                waiting_projection = derive_waiting_feedback_projection(
+                    blocker_registry=blocker_registry,
+                    fallback_prompt_id=str(hitl_state.get("pending_feedback_prompt_id") or "").strip() or None,
+                    fallback_decision_key=str(hitl_state.get("pending_feedback_decision_key") or "").strip().lower() or None,
+                )
+                if not waiting_projection.get("waiting_feedback"):
+                    return result
+
+                prompt_id = str(waiting_projection.get("pending_feedback_prompt_id") or "").strip() or None
+                if not prompt_id:
+                    return result  # Cannot resume without a prompt_id.
+
+                # Block-poll the feedback store until the tester injects a response.
+                deadline = _time.time() + _FEEDBACK_POLL_TIMEOUT
+                feedback_entry: dict[str, Any] | None = None
+                while _time.time() < deadline:
+                    feedback_entry = poll_feedback_response(run_id=viewer_run_id, prompt_id=prompt_id)
+                    if feedback_entry is not None:
+                        break
+                    _time.sleep(_FEEDBACK_POLL_INTERVAL)
+
+                if feedback_entry is None:
+                    return result  # Timed out waiting for feedback.
+
+                # Resume with the feedback injected via the kernel's HITL pre-phase.
+                resume_decision_key = (
+                    str(waiting_projection.get("pending_feedback_decision_key") or "").strip().lower() or None
+                )
+                run_request = run_request.model_copy(update={
+                    "resume_pending_feedback_prompt_id": prompt_id,
+                    "resume_pending_feedback_decision_key": resume_decision_key,
+                    "resume_blocker_registry": blocker_registry if blocker_registry else None,
+                })
+                resume_feedback = dict(feedback_entry)
+
+            return result  # Max HITL resume rounds reached.
+
         return TranscriptEditModePolicy(runner=_ok_runner)
 
     def _runner(request: MissionRuntimeRequest, ledger: Any) -> Any:

@@ -16,6 +16,7 @@ from .contracts import (
 )
 from .loop_memory import LoopMemoryState
 from .progress import evaluate_progress
+from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ def run_orchestration_kernel_loop(
     max_no_progress_iterations: int,
     max_invalid_plan_attempts: int,
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
+    resume_hitl_response: dict[str, Any] | None = None,
 ) -> KernelLoopResult:
     """Drive the phase grammar loop with domain_pack as the content + policy surface.
 
@@ -62,12 +64,26 @@ def run_orchestration_kernel_loop(
     compilation, closure rules.
     """
     loop_memory = LoopMemoryState()
+    # P3: pre-seed HITL state so the first iteration's pre-phase fires integrate_feedback.
+    if isinstance(resume_hitl_response, dict) and resume_hitl_response:
+        loop_memory.hitl_state = "answered_unintegrated"
+        loop_memory.pending_feedback_response = resume_hitl_response
+        _LOG.info("TX_KERNEL resume_hitl_preseeded ► request_id=%s", request_id_prefix)
+
     context = OrchestratorContext(
         session_manager=session_manager,
         session_id=session_id,
         loop_memory=loop_memory,
         request_id_prefix=request_id_prefix,
         dossier_id=dossier_id,
+    )
+
+    # Phase 11 D1: live trace collector — accumulates RawTraceEvent dicts per phase.
+    tracer = KernelTraceCollector(session_id=session_id, request_id=request_id_prefix)
+    tracer.emit_request_start(
+        dossier_id=dossier_id,
+        max_iterations=max_iterations,
+        run_artifact_ref=run_artifact_ref,
     )
 
     # Phase 1: Orient — runs once at loop start.
@@ -82,6 +98,7 @@ def run_orchestration_kernel_loop(
             iterations,
             loop_memory.hitl_state,
         )
+        tracer.emit_iteration_start(iteration=iterations, hitl_state=loop_memory.hitl_state)
 
         # Pre-phase: integrate feedback if waiting for integration.
         if (
@@ -99,21 +116,29 @@ def run_orchestration_kernel_loop(
             else:
                 _LOG.warning("TX_KERNEL feedback_integration_failed ► iter=%s", iterations)
 
-        # Phase 2: Refresh — per-iteration re-observation pass.
-        _LOG.info("TX_KERNEL hook2_refresh ► iter=%s", iterations)
-        refresh_result = domain_pack.refresh(context)
-        if not refresh_result.execution_succeeded:
-            reason = refresh_result.refusal_reason or "refresh_step_refused"
-            _LOG.warning("TX_KERNEL refresh_refused ► iter=%s reason=%s", iterations, reason)
-            return _make_result(
-                loop_memory=loop_memory,
-                terminal_class="failed",
-                reason_code=reason,
-                iterations=iterations,
-                session_id=session_id,
-                run_artifact_ref=run_artifact_ref,
+        # Phase 2: Refresh — conditional on kernel-owned pending_refresh flag or first iteration.
+        if iterations == 1 or loop_memory.pending_refresh:
+            _LOG.info(
+                "TX_KERNEL hook2_refresh ► iter=%s pending_refresh=%s",
+                iterations,
+                loop_memory.pending_refresh,
             )
-        loop_memory.latest_refs = dict(refresh_result.latest_refs)
+            refresh_result = domain_pack.refresh(context)
+            if not refresh_result.execution_succeeded:
+                reason = refresh_result.refusal_reason or "refresh_step_refused"
+                _LOG.warning("TX_KERNEL refresh_refused ► iter=%s reason=%s", iterations, reason)
+                return _make_result(
+                    loop_memory=loop_memory,
+                    terminal_class="failed",
+                    reason_code=reason,
+                    iterations=iterations,
+                    session_id=session_id,
+                    run_artifact_ref=run_artifact_ref,
+                    tracer=tracer,
+                )
+            loop_memory.latest_refs = dict(refresh_result.latest_refs)
+        else:
+            _LOG.info("TX_KERNEL hook2_refresh_skipped ► iter=%s no_pending_refresh", iterations)
 
         # Phase 3: Project — kernel writes work-state atomically.
         _LOG.info("TX_KERNEL hook3_project ► iter=%s", iterations)
@@ -133,10 +158,19 @@ def run_orchestration_kernel_loop(
         if selected_focus_key != prev_focus_key:
             loop_memory.active_focus_key = selected_focus_key
             loop_memory.focus_stagnation_streak = 0
+        tracer.emit_focus_selected(
+            iteration=iterations,
+            focus_key=selected_focus_key,
+            candidates=ranked_list,
+        )
 
         # If no actionable focus: go straight to decide without executing.
         if selected_focus_key is None:
             _LOG.info("TX_KERNEL no_actionable_focus ► iter=%s going_to_decide", iterations)
+            # No-focus iteration makes no progress; advance stagnation counters so the
+            # stagnation brake can fire instead of silently burning max_iterations.
+            loop_memory.no_progress_streak += 1
+            loop_memory.focus_stagnation_streak += 1
             closure_eval = domain_pack.supply_closure_rules(context)
             terminal = _decide_terminal(
                 closure_eval=closure_eval,
@@ -146,6 +180,7 @@ def run_orchestration_kernel_loop(
                 iterations=iterations,
                 session_id=session_id,
                 run_artifact_ref=run_artifact_ref,
+                tracer=tracer,
             )
             if terminal is not None:
                 return terminal
@@ -159,25 +194,12 @@ def run_orchestration_kernel_loop(
         # Phase 5b: Resolve move.
         _LOG.info("TX_KERNEL hook5_resolve_move ► iter=%s focus=%s", iterations, selected_focus_key)
         move_decision = domain_pack.resolve_move(context, focus_packet)
-
-        # HITL short-circuit: move requests human feedback before compilation.
-        if move_decision.move_type == "request_human_feedback":
-            feedback_prompt_id = (
-                str(move_decision.domain_move_payload.get("feedback_prompt_id") or "").strip() or None
-            )
-            loop_memory.hitl_state = "waiting"
-            loop_memory.pending_feedback_prompt_id = feedback_prompt_id
-            _LOG.info(
-                "TX_KERNEL hitl_waiting ► iter=%s prompt_id=%s", iterations, feedback_prompt_id
-            )
-            return _make_result(
-                loop_memory=loop_memory,
-                terminal_class="waiting_human",
-                reason_code="waiting_human_feedback",
-                iterations=iterations,
-                session_id=session_id,
-                run_artifact_ref=run_artifact_ref,
-            )
+        tracer.emit_move_resolved(
+            iteration=iterations,
+            move_type=move_decision.move_type,
+            focus_key=move_decision.focus_key,
+            rationale=move_decision.rationale,
+        )
 
         # Increment strike counter for dead-end moves.
         if move_decision.move_type in _STRIKE_MOVE_TYPES:
@@ -192,6 +214,11 @@ def run_orchestration_kernel_loop(
         # Phase 5c: Compile move → execution plan.
         _LOG.info("TX_KERNEL hook6_compile_move ► iter=%s move=%s", iterations, move_decision.move_type)
         execution_plan = domain_pack.compile_move(context, move_decision)
+        tracer.emit_plan_compiled(
+            iteration=iterations,
+            action_type=str(execution_plan.action_type),
+            idempotency_key=execution_plan.idempotency_key,
+        )
 
         # HITL short-circuit via hitl_intent_flag on MoveExecutionPlan.
         if execution_plan.hitl_intent_flag:
@@ -210,6 +237,7 @@ def run_orchestration_kernel_loop(
                 iterations=iterations,
                 session_id=session_id,
                 run_artifact_ref=run_artifact_ref,
+                tracer=tracer,
             )
 
         # Declare done short-circuit.
@@ -222,11 +250,21 @@ def run_orchestration_kernel_loop(
                 iterations=iterations,
                 session_id=session_id,
                 run_artifact_ref=run_artifact_ref,
+                tracer=tracer,
             )
 
         # Phase 6: Execute (kernel dispatches).
         skip = execution_plan.skip_execution or move_decision.move_type in _SKIP_EXEC_MOVE_TYPES
-        if not skip:
+        if skip:
+            tracer.emit_execution_result(
+                iteration=iterations,
+                action_type=str(execution_plan.action_type),
+                execution_state="skipped",
+                reason_code=None,
+                retryable=None,
+                refs_delta=None,
+            )
+        else:
             _LOG.info(
                 "TX_KERNEL execute ► iter=%s action=%s", iterations, execution_plan.action_type
             )
@@ -239,22 +277,76 @@ def run_orchestration_kernel_loop(
                 )
             )
             if step_result.execution_state != StepExecutionState.EXECUTED:
+                _refusal = step_result.refusal
                 reason = (
-                    step_result.refusal.reason_code
-                    if step_result.refusal is not None
+                    _refusal.reason_code
+                    if _refusal is not None
                     else "step_execution_refused"
                 )
                 _LOG.warning("TX_KERNEL step_refused ► iter=%s reason=%s", iterations, reason)
-                return _make_result(
-                    loop_memory=loop_memory,
-                    terminal_class="failed",
+                _retryable = _refusal.retryable if _refusal is not None else False
+                tracer.emit_execution_result(
+                    iteration=iterations,
+                    action_type=str(execution_plan.action_type),
+                    execution_state="refused",
                     reason_code=reason,
-                    iterations=iterations,
-                    session_id=session_id,
-                    run_artifact_ref=run_artifact_ref,
+                    retryable=_retryable,
+                    refs_delta=None,
                 )
-            if step_result.dashboard is not None:
-                loop_memory.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
+                # Retryable tool refusals (e.g. anchor-not-found, bad inputs) should not
+                # terminate the loop immediately — the refused step is recorded in the run
+                # artifact so the next context packet can inform the LLM. Advance stagnation
+                # counters and continue; supply_closure_rules decides when to stop.
+                # Non-retryable / budget / invariant refusals remain immediately fatal.
+                _is_retryable_tool_refusal = (
+                    _refusal is not None
+                    and _refusal.retryable
+                    and not _refusal.blocked_by_budget
+                    and not _refusal.blocked_by_invariant
+                )
+                if not _is_retryable_tool_refusal:
+                    return _make_result(
+                        loop_memory=loop_memory,
+                        terminal_class="failed",
+                        reason_code=reason,
+                        iterations=iterations,
+                        session_id=session_id,
+                        run_artifact_ref=run_artifact_ref,
+                        tracer=tracer,
+                    )
+                # Retryable: sync latest_refs from dashboard if available, then continue.
+                # Do NOT increment stagnation here — phase 7 (supply_progress_metrics) will
+                # evaluate progress and increment naturally. Double-counting would cause
+                # premature stagnation termination.
+                # Surface the step record so domain packs can extract rejection context.
+                if step_result.dashboard is not None:
+                    loop_memory.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
+                loop_memory.last_step_refusal_record = (
+                    dict(step_result.step_record)
+                    if isinstance(step_result.step_record, dict)
+                    else None
+                )
+                _LOG.info(
+                    "TX_KERNEL retryable_refusal_continuing ► iter=%s reason=%s",
+                    iterations,
+                    reason,
+                )
+            else:
+                # Successful execution → kernel flags that a re-observation pass is needed.
+                loop_memory.last_step_refusal_record = None  # Clear on success.
+                loop_memory.pending_refresh = True
+                _exec_refs: dict[str, Any] = {}
+                if step_result.dashboard is not None:
+                    _exec_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
+                    loop_memory.latest_refs = _exec_refs
+                tracer.emit_execution_result(
+                    iteration=iterations,
+                    action_type=str(execution_plan.action_type),
+                    execution_state="executed",
+                    reason_code=None,
+                    retryable=None,
+                    refs_delta=_exec_refs,
+                )
 
         # Phase 7: Progress evaluation.
         _LOG.info("TX_KERNEL hook7_supply_progress_metrics ► iter=%s", iterations)
@@ -286,6 +378,13 @@ def run_orchestration_kernel_loop(
             delta.reason_code,
             loop_memory.no_progress_streak,
         )
+        tracer.emit_progress_delta(
+            iteration=iterations,
+            made_progress=delta.made_progress,
+            reason_code=delta.reason_code,
+            no_progress_streak=loop_memory.no_progress_streak,
+            evidence_signal_counter=loop_memory.evidence_signal_counter,
+        )
 
         # Phase 8: Decide.
         _LOG.info("TX_KERNEL hook8_supply_closure_rules ► iter=%s", iterations)
@@ -298,6 +397,7 @@ def run_orchestration_kernel_loop(
             iterations=iterations,
             session_id=session_id,
             run_artifact_ref=run_artifact_ref,
+            tracer=tracer,
         )
         if terminal is not None:
             return terminal
@@ -311,6 +411,7 @@ def run_orchestration_kernel_loop(
         iterations=loop_memory.iterations,
         session_id=session_id,
         run_artifact_ref=run_artifact_ref,
+        tracer=tracer,
     )
 
 
@@ -356,6 +457,7 @@ def _decide_terminal(
     iterations: int,
     session_id: str,
     run_artifact_ref: str | None,
+    tracer: KernelTraceCollector,
 ) -> KernelLoopResult | None:
     """Phase 8 terminal decision.
 
@@ -380,6 +482,7 @@ def _decide_terminal(
             iterations=iterations,
             session_id=session_id,
             run_artifact_ref=run_artifact_ref,
+            tracer=tracer,
         )
 
     # Brake 2: invalid plan strikes.
@@ -396,6 +499,7 @@ def _decide_terminal(
             iterations=iterations,
             session_id=session_id,
             run_artifact_ref=run_artifact_ref,
+            tracer=tracer,
         )
 
     # Domain closure: complete.
@@ -408,6 +512,7 @@ def _decide_terminal(
             iterations=iterations,
             session_id=session_id,
             run_artifact_ref=run_artifact_ref,
+            tracer=tracer,
         )
 
     # Domain closure: cannot proceed.
@@ -427,6 +532,7 @@ def _decide_terminal(
             iterations=iterations,
             session_id=session_id,
             run_artifact_ref=run_artifact_ref,
+            tracer=tracer,
         )
 
     return None
@@ -454,7 +560,13 @@ def _make_result(
     iterations: int,
     session_id: str,
     run_artifact_ref: str | None,
+    tracer: KernelTraceCollector,
 ) -> KernelLoopResult:
+    tracer.emit_terminal(
+        iteration=iterations,
+        terminal_class=terminal_class,
+        reason_code=reason_code,
+    )
     return KernelLoopResult(
         terminal_class=terminal_class,
         reason_code=reason_code,
@@ -469,4 +581,5 @@ def _make_result(
             "invalid_plan_strikes": loop_memory.invalid_plan_strikes,
             "evidence_signal_counter": loop_memory.evidence_signal_counter,
         },
+        trace_events=tracer.build_raw_events(),
     )

@@ -213,10 +213,18 @@ def run_orchestration_kernel_deed_loop(
         max_invalid_plan_attempts=3,
     )
 
-    return _adapt_kernel_loop_result_to_controller(kernel_result)
+    # D3 — merge domain pack's accumulated refs (all steps) with kernel's latest_refs
+    # (only the final step). domain_pack._latest_refs accumulates via hook 7 merge and
+    # survives step boundaries; kernel loop_memory.latest_refs is replaced each step.
+    domain_state = domain_pack.build_domain_runtime_state()
+    return _adapt_kernel_loop_result_to_controller(kernel_result, domain_state=domain_state)
 
 
-def _adapt_kernel_loop_result_to_controller(result: KernelLoopResult) -> ControllerRunResult:
+def _adapt_kernel_loop_result_to_controller(
+    result: KernelLoopResult,
+    *,
+    domain_state: dict | None = None,
+) -> ControllerRunResult:
     """Convert KernelLoopResult → ControllerRunResult.
 
     TerminalClass mapping:
@@ -259,12 +267,24 @@ def _adapt_kernel_loop_result_to_controller(result: KernelLoopResult) -> Control
         success=success,
         reason_code=result.reason_code,
     )
-    domain_state = result.domain_runtime_state if isinstance(result.domain_runtime_state, dict) else {}
+    _domain_state = domain_state if isinstance(domain_state, dict) else {}
+    if not _domain_state:
+        _domain_state = result.domain_runtime_state if isinstance(result.domain_runtime_state, dict) else {}
+
+    # D3 — merge domain pack's accumulated refs (base) with kernel's final latest_refs
+    # (authoritative for the last executed step). Domain pack refs survive all steps;
+    # kernel refs reflect only the most recent step replacement.
+    domain_latest_refs = _domain_state.get("latest_refs")
+    merged_refs: dict = {}
+    if isinstance(domain_latest_refs, dict):
+        merged_refs.update(domain_latest_refs)
+    merged_refs.update(dict(result.latest_refs))
+
     last_dashboard = {
-        "latest_refs": dict(result.latest_refs),
-        "deed_phase_hint": domain_state.get("deed_phase_hint"),
-        "claimability": domain_state.get("claimability"),
-        "failure_classification": domain_state.get("failure_classification"),
+        "latest_refs": merged_refs,
+        "deed_phase_hint": _domain_state.get("deed_phase_hint"),
+        "claimability": _domain_state.get("claimability"),
+        "failure_classification": _domain_state.get("failure_classification"),
     }
     return ControllerRunResult(
         terminal=terminal,
