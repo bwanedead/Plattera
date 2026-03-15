@@ -15,6 +15,7 @@ def resolve_focus_move(
     findings_summary: dict[str, Any],
     planning_findings: list[dict[str, Any]],
     max_invalid_plan_attempts: int,
+    validation_mode: str = "off",
 ) -> dict[str, Any]:
     decision_key = str(focus_packet.get("decision_key") or "").strip().lower()
     ledger_item = focus_packet.get("ledger_item") if isinstance(focus_packet.get("ledger_item"), dict) else {}
@@ -57,6 +58,7 @@ def resolve_focus_move(
         "findings_summary": findings_summary if isinstance(findings_summary, dict) else {},
         "planning_findings": [f for f in planning_findings if isinstance(f, dict)][:12],
         "feedback": feedback_summary,
+        "validation_mode": validation_mode,
     }
     try:
         move_payload, move_reason, _raw_move = planner_client.propose_focus_move(

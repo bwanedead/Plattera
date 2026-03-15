@@ -140,6 +140,9 @@ def build_focus_resolver_system_message() -> str:
         "When feedback is present, your reason and iteration_summary must state how the selected move incorporates the feedback. "
         "If a binding human_resolution_ticket is answered_unintegrated for the focused decision_key, you must choose a move that addresses integration directly "
         "(apply_edit_plan, explicit blocked reason, tighter follow-up feedback, or clearly justified different evidence). "
+        "When focus_packet.validation_mode=live_hitl and the focused item has state=disputed or verification_required=true, "
+        "you MUST prefer request_human_feedback over gather_more_evidence. "
+        "Do NOT re-audit or gather evidence for a disputed item when live HITL is available — the human operator is the resolution authority. "
         "Always include decision_key, move, reason, and iteration_summary. "
         "Do not return markdown. Return JSON object only."
     )
@@ -223,7 +226,31 @@ def build_focus_resolver_user_message(
             "decision_key": "range",
             "move": "apply_edit_plan",
             "reason": "short reason",
-            "edit_plan": {"plan_version": "edit_plan_v0", "ops": []},
+            "edit_plan": {
+                "plan_version": "edit_plan_v0",
+                "plan_id": "tx-plan-range-1",
+                "summary": "Normalize Range to confirmed value",
+                "ops": [
+                    {
+                        "op_id": "op-range-1",
+                        "op_type": "replace_clause",
+                        "change_class": "semantic",
+                        "confidence": "high",
+                        "review_required": True,
+                        "reason": "Human confirmed Range 75 West; replace incorrect Range 74 token",
+                        "evidence_refs": [],
+                        "target": {
+                            "locator_type": "anchors",
+                            "start_anchor": "Range Seventy-four",
+                            "end_anchor": "West",
+                            "occurrence": 1,
+                        },
+                        "expected_old": {"old_excerpt": "Range Seventy-four (74) West", "old_hash": None},
+                        "new_text": "Range Seventy-five (75) West",
+                    }
+                ],
+                "global_flags": {"review_required": True},
+            },
             "blocker_updates": [
                 {
                     "operation": "add",
@@ -294,8 +321,12 @@ def build_focus_resolver_repair_user_message(
             "mark_resolved_no_edit_requires": ["reason"],
         },
         "edit_plan_requirements": {
-            "ops_item_requires": ["op_type"],
+            "ops_item_requires": ["op_id", "op_type", "change_class", "confidence", "review_required", "reason", "target", "expected_old", "new_text"],
             "allowed_op_type": ["replace_span", "replace_line", "replace_clause", "rewrite_section"],
+            "allowed_change_class": ["normalization", "semantic"],
+            "allowed_confidence": ["high", "medium", "low"],
+            "target_requires": ["locator_type"],
+            "expected_old_requires": ["old_excerpt"],
         },
         "fallback_rule": "If you cannot produce a valid EditPlanV0, return move=mark_blocked with a clear reason. Do not return malformed apply_edit_plan.",
         "attempt": int(attempt or 0),

@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.decision_ledger import (
     choose_investigation_focus,
+    clear_resolved_after_reaudit,
     closure_state_from_layers,
     derive_layer_statuses,
     has_blocking_dispute,
@@ -528,3 +529,84 @@ def test_scope_status_can_reclassify_from_prior_outside_to_in_target_on_new_sign
     unresolved = unresolved_closure_requirements(updated)
     row = next(item for item in unresolved if isinstance(item, dict) and str(item.get("key") or "") == "closure_or_pob")
     assert str(row.get("scope_status") or "") == "in_target"
+
+
+# ---------------------------------------------------------------------------
+# clear_resolved_after_reaudit
+# ---------------------------------------------------------------------------
+
+def _make_blocked_range_ledger() -> dict:
+    """Return a ledger where range is disputed+mapping_blocking (simulates post-edit state)."""
+    ledger = initialize_decision_ledger()
+    range_item = _item(ledger, "range")
+    range_item["state"] = "disputed"
+    range_item["blocking"] = True
+    range_item["alternatives"] = ["Range 75 West", "Range 74 West"]
+    range_item["closure_requirement"] = {
+        "block_reason": "contradiction",
+        "mapping_blocking": True,
+        "operational_impact": "mapping_blocking",
+        "required_information": "Confirm the correct range value.",
+        "self_retrievable": "conditional",
+        "retrieval_attempted": True,
+        "retrieval_blocker": None,
+        "minimal_user_action": "Select the correct range token.",
+        "resolution_options": ["Range 75 West", "Range 74 West"],
+        "evidence_refs": ["prior_audit_001"],
+        "attempt_summary": "Conflict between 74 and 75 West.",
+    }
+    return ledger
+
+
+def test_clear_resolved_after_reaudit_verifies_absent_mapping_blocking_items() -> None:
+    """When re-audit produces no range finding, range should advance to 'verified'."""
+    ledger = _make_blocked_range_ledger()
+    assert has_unresolved_mapping_blocking_closure(ledger) is True
+
+    # Re-audit found no range conflict (edit fixed it) — pass empty findings.
+    updated = clear_resolved_after_reaudit(ledger=ledger, findings=[])
+
+    range_item = _item(updated, "range")
+    assert str(range_item.get("state") or "") == "verified", (
+        "range should be 'verified' when absent from re-audit findings"
+    )
+    assert has_unresolved_mapping_blocking_closure(updated) is False, (
+        "no mapping-blocking unresolved items should remain"
+    )
+
+
+def test_clear_resolved_after_reaudit_does_not_clear_items_still_in_findings() -> None:
+    """Items present in findings must NOT be cleared — the conflict is still live."""
+    ledger = _make_blocked_range_ledger()
+
+    # Re-audit still reports a range conflict.
+    still_conflicting_finding = {
+        "finding_id": "plss_range_conflict_still",
+        "finding_type": "plss_consistency",
+        "message": "PLSS contradiction: Range 75 West and Range 74 West both present.",
+    }
+    updated = clear_resolved_after_reaudit(
+        ledger=ledger, findings=[still_conflicting_finding]
+    )
+
+    range_item = _item(updated, "range")
+    # State should NOT be 'verified' — item is still observed as conflicting.
+    assert str(range_item.get("state") or "") != "verified", (
+        "range should remain unresolved when it still appears in re-audit findings"
+    )
+    assert has_unresolved_mapping_blocking_closure(updated) is True
+
+
+def test_clear_resolved_after_reaudit_leaves_non_mapping_blocking_items_untouched() -> None:
+    """Non-mapping-blocking items must not be force-verified by the re-audit clear."""
+    ledger = initialize_decision_ledger()
+    section_item = _item(ledger, "section")
+    section_item["state"] = "candidate_found"
+    # section is not mapping_blocking by default; do not set it.
+
+    updated = clear_resolved_after_reaudit(ledger=ledger, findings=[])
+
+    section_item_after = _item(updated, "section")
+    assert str(section_item_after.get("state") or "") == "candidate_found", (
+        "non-mapping-blocking items should not be promoted by clear_resolved_after_reaudit"
+    )

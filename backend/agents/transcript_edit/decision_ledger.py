@@ -15,6 +15,7 @@ from .decision_ledger_closure import (
 from .decision_ledger_focus import choose_investigation_focus, has_blocking_dispute
 from .decision_ledger_scope import scope_summaries_from_ledger
 from .decision_ledger_state import (
+    clear_resolved_after_reaudit,
     initialize_decision_ledger,
     ledger_snapshot_for_payload,
     list_external_context_injections,
@@ -25,6 +26,7 @@ from .decision_ledger_state import (
 )
 
 __all__ = [
+    "clear_resolved_after_reaudit",
     "initialize_decision_ledger",
     "update_ledger_from_iteration",
     "update_ledger_from_orient_baseline",

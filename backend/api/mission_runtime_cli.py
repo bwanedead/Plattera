@@ -23,6 +23,7 @@ from harness.mission_runtime.cli_support import (
     TranscriptModeCliInputs,
     build_mission_cli_payload,
     build_policy_list_for_cli,
+    persist_mission_trace_index,
     resolve_tx_scenario,
 )
 from harness.mission_runtime.registry import ModePolicyRegistry
@@ -170,6 +171,17 @@ def run_cli(argv: Sequence[str] | None = None, stdout: TextIO | None = None, std
                 break
 
         assert ledger is not None
+
+        _mission_trace_ref = persist_mission_trace_index(
+            mission_request=mission_request,
+            ledger=ledger,
+            cycle_results=cycle_results,
+        )
+        if _mission_trace_ref:
+            ledger.high_signal_artifact_refs = [
+                r for r in ledger.high_signal_artifact_refs if r != _mission_trace_ref
+            ] + [_mission_trace_ref]
+
         payload = build_mission_cli_payload(
             mission_request=mission_request,
             ledger=ledger,
@@ -213,6 +225,13 @@ def _validate_args(args: argparse.Namespace, *, parser: argparse.ArgumentParser)
     if int(args.max_cycles) < 1:
         parser.error("--max-cycles must be >= 1")
 
+    if bool(getattr(args, "enable_roundtrip", False)) and int(args.max_cycles) < 3:
+        import sys as _sys
+        _sys.stderr.write(
+            "Warning: --enable-roundtrip typically requires --max-cycles >= 3 "
+            f"(deed→transcript→deed); got {args.max_cycles}.\n"
+        )
+
 
 def _build_mission_runtime_request(args: argparse.Namespace) -> MissionRuntimeRequest:
     mission_id = str(args.mission_id or f"mission_{int(time())}_{uuid4().hex[:8]}")
@@ -247,7 +266,7 @@ def _build_policy_registry(
         max_iterations=max(1, int(args.deed_max_iterations)),
         requires_global_placement=bool(args.deed_requires_global_placement),
         render_required=bool(args.deed_render_required),
-        use_orchestration_kernel=bool(args.deed_use_orchestration_kernel),
+        use_orchestration_kernel=bool(args.deed_use_orchestration_kernel) or bool(args.enable_roundtrip),
     )
 
     # Resolve named scenario first — it may supply dossier_id and transcript_ref.

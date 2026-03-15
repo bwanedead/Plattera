@@ -219,6 +219,53 @@ def update_ledger_from_iteration(
     working["blocker_feedback_state"] = _compute_blocker_feedback_state(working)
     return working
 
+def clear_resolved_after_reaudit(
+    *,
+    ledger: dict[str, Any],
+    findings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """After TX_APPLY_EDIT_PLAN + re-audit, promote mapping-blocking unresolved items
+    that are absent from the new findings to 'verified'.
+
+    Rationale: the PLSS consistency validator is deterministic.  If it ran against the
+    edited transcript and produced NO finding for a previously-blocked key, the edit
+    resolved the conflict — absent finding = validator passed = item is now verified.
+
+    Only mapping_blocking items in `"disputed"` state are promoted — those were actively
+    flagged as conflicting by the deterministic validator.  Items in `"unknown"` or
+    `"candidate_found"` state are not actively conflicting and are left untouched.
+    """
+    observed_keys: set[str] = set()
+    for f in findings:
+        if isinstance(f, dict):
+            k = _key_for_finding(f)
+            if k:
+                observed_keys.add(k)
+    working = _ensure_ledger_shape(ledger)
+    for item in working["items"]:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        if not key or key in observed_keys:
+            continue
+        # Only promote items that were actively DISPUTED — the deterministic validator
+        # flagged conflicting values.  Absent finding after edit = conflict resolved.
+        # "unknown" / "candidate_found" items are just unresolved, not actively
+        # conflicting; do not force-verify them via absence alone.
+        state = str(item.get("state") or "unknown").strip().lower()
+        if state != "disputed":
+            continue
+        cr = item.get("closure_requirement")
+        if not isinstance(cr, dict) or not cr.get("mapping_blocking"):
+            continue
+        item["state"] = "verified"
+    _attach_closure_requirements(working["items"], readiness_blocker=None)
+    working["summary"] = _summary(working["items"])
+    working["scope_summaries"] = _compute_scope_summaries(working)
+    working["blocker_feedback_state"] = _compute_blocker_feedback_state(working)
+    return working
+
+
 def update_ledger_from_orient_baseline(
     *,
     ledger: dict[str, Any] | None,

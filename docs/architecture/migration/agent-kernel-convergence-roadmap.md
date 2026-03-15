@@ -148,17 +148,45 @@ This roadmap picks up from that foundation and addresses the remaining delta: tw
 
 ## Phase 7. Blended Multi-Domain Mission Planning
 
-**Goal:** Enable a single mission to transition between domains with one shared orchestration kernel above both domain packs.
+**Goal:** Enable a single mission to execute a linear roundtrip `deed_to_ir → transcript_edit → deed_to_ir` under one shared orchestration kernel, with mission continuity, correct terminal semantics, and coherent trace lineage.
 
-**Preconditions:** Phase 6 must be complete. Both domain packs must implement the shared domain-pack interface.
+**Status:** Implementation complete — proof run pending.
 
-**Work:**
-- mission shell calls orchestration kernel per-iteration (not monolithic mode-blob execution)
-- orchestration kernel delegates domain-specific content to the active domain pack
-- mission can switch active domain pack mid-mission without losing loop-state continuity
-- one continuous trace/review story across the mission
+**Contract invariant (F1 / taxonomy):**
+`mission_status.terminal_class` must always be one of the 6 shared TerminalClass values (`completed | blocked | waiting_human | waiting_evidence | exhausted | failed`) or `None`. Do not invent pseudo-classes such as `"transitioning_to_*"` — transition state is observable via `transition_history` and `cycles[*].transition`, not via the taxonomy field.
 
-**Done when:** a single mission can execute: `deed_to_ir` → `transcript_edit` → `deed_to_ir` using one shared orchestration kernel above two domain packs, with observable per-iteration cycle records.
+**Implemented work:**
+- D1: Mission terminal semantics fixed — `mission_status.terminal=False` while a transition is in flight; `mission_status.terminal_class=None` (never a pseudo-class); transition visibility retained via `transition_history` and `cycles[*].transition`
+- D2: Deed mode start request built lazily per-cycle so ledger refs (from transition handoffs) can be incorporated when deed resumes after transcript
+- D3: `infer_deed_ir_ref_from_ledger()` added (parity with `infer_transcript_ref_from_ledger`) for ledger-driven deed resumability
+- D4: Deed kernel runs in a mission now use `mission-{mission_id}-deed-{hex}` request prefix (parity with `mission-{mission_id}-tx` for transcript)
+- D5: Transition handoff bundles are now explicitly curated (`_curate_deed_to_tx_handoff_refs`, `_curate_tx_to_deed_handoff_refs`) rather than passing all high_signal_refs implicitly
+- D6: `build_mission_trace_index()` added; persisted as `mission_trace_{mission_id}.json` after multi-cycle roundtrips; ref appended to `high_signal_artifact_refs`
+- D7: `--enable-roundtrip` auto-enables deed orchestration kernel; warns when `--max-cycles < 3`
+
+**Canonical proof path (operator):**
+```
+python -m api.mission_runtime_cli \
+  --objective "deed_to_ir_then_transcript_edit_roundtrip" \
+  --initial-mode deed_to_ir \
+  --mission-id phase7-proof-01 \
+  --max-cycles 6 \
+  --enable-roundtrip \
+  --deed-dossier-id <your_dossier_id> \
+  --tx-scenario practice_legaltext \
+  --tx-validation-mode live_hitl \
+  --tx-max-iterations 12 \
+  --done-file tmp/done_phase7.json
+```
+Then watch with `hitl_watch`, inject HITL when prompted, re-watch to completion.
+
+**Artifacts that prove completion:**
+- `high_signal_artifact_refs` contains refs from all three cycles
+- `transition_history` shows two applied transitions with explicit `handed_forward_artifact_refs`
+- `mission_status.terminal=true` only in the final payload
+- `mission_traces/mission_trace_{mission_id}.json` exists and has two `applied_transitions`
+
+**Done when:** the canonical proof path above produces a `mission_status.terminal=true` result with a coherent trace (per-run trace refs + mission trace index ref).
 
 ---
 

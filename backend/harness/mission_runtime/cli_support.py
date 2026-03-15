@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from agent_kernel.tooling import (
     TranscriptEditPlanApplyTool,
     TranscriptImageVerificationTool,
     TranscriptMappingPromoterTool,
+    TranscriptOrientBaselineTool,
     TranscriptSpanOpenerTool,
     TranscriptSpanSeedsSaverTool,
 )
@@ -127,22 +129,36 @@ class TranscriptModeCliInputs:
     use_orchestration_kernel: bool = False
 
 
-def build_deed_mode_policy_from_cli_inputs(inputs: DeedModeCliInputs) -> DeedToIRModePolicy:
-    start_request = build_deed_mode_start_request(inputs=inputs)
+def build_deed_mode_policy_from_cli_inputs(
+    inputs: DeedModeCliInputs,
+    *,
+    mission_request: MissionRuntimeRequest | None = None,
+) -> DeedToIRModePolicy:
     session_manager = KernelSessionManager(persistence_service=RunArtifactPersistenceService())
     llm_client = OpenAINextStepClient()
+    _mission_id = str(getattr(mission_request, "mission_id", None) or "").strip() or None
+
+    def _build_start_request(request: MissionRuntimeRequest, ledger: Any) -> KernelSessionStartRequest:
+        mid = _mission_id or str(getattr(request, "mission_id", None) or "").strip() or None
+        inferred_ir_ref = inputs.initial_ir_ref or infer_deed_ir_ref_from_ledger(ledger)
+        return build_deed_mode_start_request(
+            inputs=dataclasses.replace(inputs, initial_ir_ref=inferred_ir_ref),
+            mission_id=mid,
+        )
+
     return build_deed_to_ir_mode_policy_from_controller_inputs(
         session_manager=session_manager,
         llm_client=llm_client,
-        start_request=start_request,
+        start_request_factory=_build_start_request,
         model=inputs.model,
         max_iterations=max(1, int(inputs.max_iterations)),
         use_orchestration_kernel=bool(inputs.use_orchestration_kernel),
     )
 
 
-def build_deed_mode_start_request(*, inputs: DeedModeCliInputs) -> KernelSessionStartRequest:
-    request_id = f"mission-runtime-cli-{uuid4().hex[:8]}"
+def build_deed_mode_start_request(*, inputs: DeedModeCliInputs, mission_id: str | None = None) -> KernelSessionStartRequest:
+    _prefix = f"mission-{mission_id}-deed" if mission_id else "mission-deed"
+    request_id = f"{_prefix}-{uuid4().hex[:6]}"
     initial_graph_json: dict[str, Any] | None = None
     bootstrap_metadata: dict[str, Any] = {"source": "mission_runtime_cli_bootstrap", "dossier_id": inputs.dossier_id}
     deed_text = str(inputs.deed_text or "").strip()
@@ -202,6 +218,7 @@ def build_transcript_mode_policy_from_cli_inputs(
         action_executor=ActionExecutor(
             deps=ActionExecutorDeps(
                 transcript_auditor=TranscriptAuditTool(),
+                transcript_orient_baseliner=TranscriptOrientBaselineTool(),
                 transcript_span_opener=TranscriptSpanOpenerTool(),
                 transcript_image_verifier=TranscriptImageVerificationTool(),
                 transcript_plan_applier=TranscriptEditPlanApplyTool(),
@@ -275,12 +292,47 @@ def build_transcript_mode_policy_from_cli_inputs(
                     fallback_prompt_id=str(hitl_state.get("pending_feedback_prompt_id") or "").strip() or None,
                     fallback_decision_key=str(hitl_state.get("pending_feedback_decision_key") or "").strip().lower() or None,
                 )
-                if not waiting_projection.get("waiting_feedback"):
+                # Also treat kernel-path waiting_human as a waiting-feedback signal.
+                # derive_waiting_feedback_projection may miss this when the blocker_registry
+                # has rows (from orient) but none are in waiting_feedback state yet.
+                # Use state_pending_feedback_prompt_id which bypasses the registry projection.
+                _direct_prompt_id = (
+                    str(hitl_state.get("state_pending_feedback_prompt_id") or "").strip()
+                    or str(hitl_state.get("pending_feedback_prompt_id") or "").strip()
+                    or None
+                )
+                _is_waiting = waiting_projection.get("waiting_feedback") or (
+                    result.status == "waiting_feedback" and bool(_direct_prompt_id)
+                )
+                if not _is_waiting:
                     return result
 
-                prompt_id = str(waiting_projection.get("pending_feedback_prompt_id") or "").strip() or None
+                prompt_id = (
+                    str(waiting_projection.get("pending_feedback_prompt_id") or "").strip()
+                    or _direct_prompt_id
+                    or None
+                )
                 if not prompt_id:
                     return result  # Cannot resume without a prompt_id.
+
+                # Emit the HITL event so hitl_watch can surface it to the agent.
+                if _progress_cb is not None:
+                    _pending_prompt = hitl_state.get("pending_feedback_prompt") if isinstance(hitl_state.get("pending_feedback_prompt"), dict) else {}
+                    _pending_decision_key = (
+                        str(waiting_projection.get("pending_feedback_decision_key") or "").strip()
+                        or str(hitl_state.get("state_pending_feedback_decision_key") or "").strip()
+                        or None
+                    )
+                    _progress_cb({
+                        "event_type": "human_feedback_needed",
+                        "run_id": viewer_run_id,
+                        "prompt_id": prompt_id,
+                        "decision_key": _pending_decision_key,
+                        "message": _pending_prompt.get("line1") or f"Human feedback needed for: {_pending_decision_key}",
+                        "choices": list(_pending_prompt.get("choices") or []),
+                        "context": dict(_pending_prompt.get("context") or {}),
+                        "phase": "human_feedback_needed",
+                    })
 
                 # Block-poll the feedback store until the tester injects a response.
                 deadline = _time.time() + _FEEDBACK_POLL_TIMEOUT
@@ -296,7 +348,10 @@ def build_transcript_mode_policy_from_cli_inputs(
 
                 # Resume with the feedback injected via the kernel's HITL pre-phase.
                 resume_decision_key = (
-                    str(waiting_projection.get("pending_feedback_decision_key") or "").strip().lower() or None
+                    str(waiting_projection.get("pending_feedback_decision_key") or "").strip().lower()
+                    or str(hitl_state.get("state_pending_feedback_decision_key") or "").strip().lower()
+                    or str(hitl_state.get("pending_feedback_decision_key") or "").strip().lower()
+                    or None
                 )
                 run_request = run_request.model_copy(update={
                     "resume_pending_feedback_prompt_id": prompt_id,
@@ -385,6 +440,22 @@ def infer_transcript_ref_from_ledger(ledger: Any) -> str | None:
     return None
 
 
+def infer_deed_ir_ref_from_ledger(ledger: Any) -> str | None:
+    refs = getattr(ledger, "high_signal_artifact_refs", ())
+    if not isinstance(refs, tuple):
+        return None
+    for candidate in reversed(refs):
+        if not isinstance(candidate, str):
+            continue
+        text = candidate.strip()
+        if not text:
+            continue
+        lower = text.lower()
+        if ("ir" in lower or "graph" in lower) and "transcript" not in lower:
+            return text
+    return None
+
+
 def build_mission_cli_payload(
     *,
     mission_request: MissionRuntimeRequest,
@@ -401,6 +472,37 @@ def build_mission_cli_payload(
         "canonical_surface": True,
         "mission_runtime": observability_payload.get("mission_runtime"),
     }
+
+
+def persist_mission_trace_index(
+    *,
+    mission_request: MissionRuntimeRequest,
+    ledger: Any,
+    cycle_results: list[MissionRuntimeCycleResult],
+) -> str | None:
+    from .observability import build_mission_observation_from_runtime, build_mission_trace_index
+    import json as _json
+    try:
+        observation = build_mission_observation_from_runtime(
+            request=mission_request,
+            ledger=ledger,
+            cycle_results=cycle_results,
+        )
+        has_transitions = any(t.status == "applied" for t in observation.transition_history)
+        if not has_transitions:
+            return None
+        trace_index = build_mission_trace_index(observation=observation)
+        try:
+            from config.paths import dossiers_artifacts_root
+        except ModuleNotFoundError:
+            from backend.config.paths import dossiers_artifacts_root  # type: ignore[no-redef]
+        mission_id = str(getattr(mission_request, "mission_id", None) or "unknown").strip()
+        dest = dossiers_artifacts_root() / "mission_traces" / f"mission_trace_{mission_id}.json"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(_json.dumps(trace_index, ensure_ascii=False, indent=2), encoding="utf-8")
+        return str(dest)
+    except Exception:
+        return None
 
 
 def build_policy_list_for_cli(
@@ -421,7 +523,7 @@ def build_policy_list_for_cli(
     if needs_deed:
         if deed_inputs is None:
             raise ValueError("deed_mode_inputs_required")
-        policies.append(build_deed_mode_policy_from_cli_inputs(deed_inputs))
+        policies.append(build_deed_mode_policy_from_cli_inputs(deed_inputs, mission_request=mission_request))
     if needs_tx:
         if transcript_inputs is None:
             raise ValueError("transcript_mode_inputs_required")

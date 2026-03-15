@@ -44,6 +44,7 @@ from .blocker_registry import (
 )
 from .contracts import TranscriptEditAgentRunRequest
 from .decision_ledger import (
+    clear_resolved_after_reaudit,
     initialize_decision_ledger,
     mark_human_resolution_ticket_state,
     unresolved_closure_requirements,
@@ -151,6 +152,10 @@ class TranscriptEditDomainPack:
         session_manager = context.session_manager
         session_id = context.session_id
         request_id_prefix = context.request_id_prefix
+
+        # Seed current_transcript_ref from request on fresh start (before any tool call reads it).
+        if not self._state.current_transcript_ref and request.source_transcript_ref:
+            self._state.current_transcript_ref = request.source_transcript_ref
 
         # Initialize domain state if not already restored from resume.
         if not self._state.decision_ledger:
@@ -288,6 +293,16 @@ class TranscriptEditDomainPack:
         session_id = context.session_id
         iterations = context.loop_memory.iterations
 
+        # Pick up the most recent edited transcript from kernel's latest_refs.
+        # After TX_APPLY_EDIT_PLAN executes, the kernel posts tx_edited_transcript_ref
+        # into loop_memory.latest_refs.  Without this update, subsequent Phase 2
+        # re-audits would keep running against the original source transcript, never
+        # seeing the edit's effect, causing refresh_pending_reaudit_grace to fire forever.
+        _latest = context.loop_memory.latest_refs or {}
+        _edited_ref = (_latest.get("tx_edited_transcript_ref") or {}).get("artifact_path") or ""
+        if _edited_ref and _edited_ref != self._state.current_transcript_ref:
+            self._state.current_transcript_ref = _edited_ref
+
         audit_inputs: dict[str, Any] = {"dossier_id": request.dossier_id}
         if self._state.current_transcript_ref:
             audit_inputs["source_transcript_ref"] = self._state.current_transcript_ref
@@ -344,6 +359,17 @@ class TranscriptEditDomainPack:
             ledger=self._state.decision_ledger,
             findings=top_findings,
         )
+        # Post-edit re-audit: items absent from new findings are no longer conflicting.
+        # update_ledger_from_iteration only accumulates findings; it never clears absent
+        # items.  After TX_APPLY_EDIT_PLAN the edited transcript is re-audited here, and
+        # if a previously-blocked key (e.g. "range") produces NO finding, the edit fixed
+        # it — advance to "verified" so closure logic can proceed.
+        if self._state.pending_reaudit_after_apply:
+            self._state.decision_ledger = clear_resolved_after_reaudit(
+                ledger=self._state.decision_ledger,
+                findings=top_findings,
+            )
+            self._state.pending_reaudit_after_apply = False
         self._state.blocker_registry = sync_registry_from_ledger(
             registry=self._state.blocker_registry,
             decision_ledger=self._state.decision_ledger,
@@ -519,6 +545,7 @@ class TranscriptEditDomainPack:
             findings_summary=self._iter_findings_summary,
             planning_findings=self._iter_planning_findings,
             max_invalid_plan_attempts=self._request.max_invalid_plan_attempts,
+            validation_mode=str(self._request.validation_mode or "off"),
         )
         move_type = str(move_payload.get("move") or "mark_blocked").strip().lower()
         # Normalize move types to canonical forms.
@@ -561,9 +588,14 @@ class TranscriptEditDomainPack:
             if self._state.current_transcript_ref:
                 inputs["source_transcript_ref"] = self._state.current_transcript_ref
             # Flag that we applied an edit — used for refresh baseline in hook 7.
+            # Only capture the baseline on the FIRST edit in a refresh window.
+            # If pending_refresh is already True a prior TX_APPLY_EDIT_PLAN already
+            # set the baseline from the pre-edit state; overwriting it here would
+            # collapse baseline==current and cause an infinite grace loop.
             self._state.pending_reaudit_after_apply = True
-            self._state.apply_reaudit_baseline_blocking_count = self._iter_blocking_count
-            self._state.apply_reaudit_baseline_blocking_signature = self._iter_blocking_signature
+            if not context.loop_memory.pending_refresh:
+                self._state.apply_reaudit_baseline_blocking_count = self._iter_blocking_count
+                self._state.apply_reaudit_baseline_blocking_signature = self._iter_blocking_signature
             self._state.applied_any_edits = True
             return MoveExecutionPlan(
                 action_type=ActionType.TX_APPLY_EDIT_PLAN,
@@ -608,10 +640,12 @@ class TranscriptEditDomainPack:
             feedback_prompt = payload.get("feedback_prompt") if isinstance(payload.get("feedback_prompt"), dict) else {}
             prompt_id = str(feedback_prompt.get("prompt_id") or _make_prompt_id(focus_key, iterations)).strip()
             # The domain pack stores the pending prompt for resume; kernel handles HitlState.
+            # Do NOT call sync_pending_feedback_cache_from_registry here — when the registry
+            # has rows but none in waiting_feedback state, the sync would clear the prompt_id
+            # we just set (projection ignores fallback when has_registry_rows=True).
             self._state.pending_feedback_prompt_id = prompt_id
             self._state.pending_feedback_decision_key = focus_key
             self._state.pending_feedback_prompt = dict(feedback_prompt)
-            sync_pending_feedback_cache_from_registry(state=self._state)
             return MoveExecutionPlan(
                 action_type=ActionType.TX_AUDIT_TRANSCRIPT,  # placeholder; not executed
                 action_inputs={"feedback_prompt_id": prompt_id},
@@ -900,6 +934,11 @@ class TranscriptEditDomainPack:
             "convention_context": dict(state.convention_context or {}),
             "blocker_registry": registry_snapshot_for_payload(state.blocker_registry),
             "active_blocker": select_primary_blocker(state.blocker_registry),
+            "pending_feedback_prompt": dict(state.pending_feedback_prompt) if isinstance(state.pending_feedback_prompt, dict) else None,
+            # Expose state-level prompt fields directly — the projection may not surface
+            # these when the blocker_registry has rows but no row is in waiting_feedback state.
+            "state_pending_feedback_prompt_id": str(state.pending_feedback_prompt_id or "").strip() or None,
+            "state_pending_feedback_decision_key": str(state.pending_feedback_decision_key or "").strip().lower() or None,
         }
 
 

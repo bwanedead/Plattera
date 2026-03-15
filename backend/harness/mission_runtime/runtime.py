@@ -83,7 +83,7 @@ class MissionRuntime(MissionRuntimeContract):
             recommendation=recommendation,
         )
         self._apply_recommendation_summaries(ledger=active_ledger, recommendation=recommendation)
-        self._apply_terminal_handoff(ledger=active_ledger, terminal=recommendation.terminal)
+        self._apply_terminal_handoff(ledger=active_ledger, terminal=recommendation.terminal, transition=transition)
         self._refresh_timestamps(ledger=active_ledger)
         trace_segment = MissionTraceSegment(
             segment_index=active_ledger.cycle_index,
@@ -160,8 +160,16 @@ class MissionRuntime(MissionRuntimeContract):
         *,
         ledger: MissionLedger,
         terminal: TerminalRecommendation | None,
+        transition: ModeTransition | None = None,
     ) -> None:
         if terminal is None:
+            return
+        if transition is not None and transition.status == "applied":
+            ledger.mission_status = MissionStatusSummary(
+                terminal=False,
+                terminal_class=None,
+                reason_code=terminal.reason_code,
+            )
             return
         ledger.mission_status = MissionStatusSummary(
             terminal=terminal.terminal,

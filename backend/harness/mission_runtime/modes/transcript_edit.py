@@ -97,6 +97,7 @@ class TranscriptEditModePolicy(ModePolicy):
         transition = _recommend_transition_back_to_deed_to_ir(
             request=request,
             recommendation=recommendation,
+            result=result,
         )
         if transition is None:
             return recommendation
@@ -435,6 +436,7 @@ def _recommend_transition_back_to_deed_to_ir(
     *,
     request: MissionRuntimeRequest,
     recommendation: ModeRecommendation,
+    result: TranscriptEditAgentRunResult,
 ) -> ModeTransitionRecommendation | None:
     if not _metadata_flag(request.metadata, "phase_e_enable_linear_transitions"):
         return None
@@ -449,10 +451,36 @@ def _recommend_transition_back_to_deed_to_ir(
     return ModeTransitionRecommendation(
         next_mode="deed_to_ir",
         reason="transcript_edit_review_ready_for_deed_resume",
-        handed_forward_artifact_refs=list(recommendation.high_signal_artifact_refs),
+        handed_forward_artifact_refs=_curate_tx_to_deed_handoff_refs(result, recommendation),
         expected_next_work="resume deed_to_ir with transcript-edit validated artifacts",
         resume_note_for_prior_mode="return to transcript_edit only if new closure blockers emerge",
     )
+
+
+def _curate_tx_to_deed_handoff_refs(
+    result: TranscriptEditAgentRunResult,
+    recommendation: ModeRecommendation,
+) -> list[str]:
+    refs: list[str] = []
+    latest_refs = result.latest_refs if isinstance(result.latest_refs, dict) else {}
+    trace_ref = latest_refs.get("trace_artifact_ref")
+    if isinstance(trace_ref, str) and trace_ref.strip():
+        refs.append(trace_ref.strip())
+    if isinstance(result.run_artifact_ref, str) and result.run_artifact_ref.strip():
+        refs.append(result.run_artifact_ref.strip())
+    for payload in latest_refs.values():
+        if isinstance(payload, dict):
+            for key in ("artifact_ref", "artifact_path", "ref", "path"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip() and "transcript" in value.lower():
+                    if value.strip() not in refs:
+                        refs.append(value.strip())
+        elif isinstance(payload, str) and payload.strip() and "transcript" in payload.lower():
+            if payload.strip() not in refs:
+                refs.append(payload.strip())
+    if refs:
+        return refs
+    return list(recommendation.high_signal_artifact_refs)
 
 
 def _metadata_flag(metadata: Any, key: str) -> bool:

@@ -69,6 +69,21 @@ class MissionObservation:
         }
 
 
+def _last_applied_next_mode(ledger: MissionLedger) -> str | None:
+    """Return the next_mode of the most recent applied transition, or None.
+
+    Only populated when the mission is still in-flight (not terminal), giving
+    operators a top-level signal that a mode switch just occurred without having
+    to walk transition_history.
+    """
+    if ledger.mission_status.terminal:
+        return None
+    for transition in reversed(ledger.transition_history):
+        if transition.status == "applied":
+            return transition.next_mode
+    return None
+
+
 def build_mission_observation_from_runtime(
     *,
     request: MissionRuntimeRequest,
@@ -92,6 +107,11 @@ def build_mission_observation_from_runtime(
             "terminal": ledger.mission_status.terminal,
             "terminal_class": ledger.mission_status.terminal_class,
             "reason_code": ledger.mission_status.reason_code,
+            # Synthetic convenience field: non-null only when the mission is
+            # mid-roundtrip (not terminal) and the most recent transition was applied.
+            # Transition detail is authoritative in transition_history / cycles[*].transition;
+            # this field exists for operator ergonomics when scanning the top-level status.
+            "transitioning_to": _last_applied_next_mode(ledger),
         },
         blocker_posture_summary={
             "waiting_human": ledger.blocker_posture_summary.waiting_human,
@@ -260,3 +280,39 @@ def _as_str_list(value: Any, *, dedupe: bool) -> list[str]:
             continue
         out.append(text)
     return out
+
+
+def build_mission_trace_index(*, observation: MissionObservation) -> dict[str, Any]:
+    return {
+        "artifact_type": "mission_trace_index",
+        "schema_version": "v1",
+        "mission_id": observation.mission_id,
+        "objective": observation.objective,
+        "created_at_epoch_seconds": observation.created_at_epoch_seconds,
+        "completed_at_epoch_seconds": observation.updated_at_epoch_seconds,
+        "mode_history": list(observation.mode_history),
+        "cycles": [
+            {
+                "cycle_index": c.cycle_index,
+                "executed_mode": c.executed_mode,
+                "resulting_active_mode": c.resulting_active_mode,
+                "summary": c.summary,
+                "timestamp_epoch_seconds": c.timestamp_epoch_seconds,
+            }
+            for c in observation.cycles
+        ],
+        "applied_transitions": [
+            {
+                "order_anchor": t.order_anchor,
+                "prior_mode": t.prior_mode,
+                "next_mode": t.next_mode,
+                "reason": t.reason,
+                "handed_forward_artifact_refs": list(t.handed_forward_artifact_refs),
+                "timestamp_epoch_seconds": t.timestamp_epoch_seconds,
+            }
+            for t in observation.transition_history
+            if t.status == "applied"
+        ],
+        "mission_status": dict(observation.mission_status),
+        "high_signal_artifact_refs": list(observation.high_signal_artifact_refs),
+    }

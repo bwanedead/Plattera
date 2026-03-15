@@ -38,10 +38,14 @@ def evaluate_progress(metrics: ProgressMetrics) -> ProgressDelta:
                 reason_code="refresh_blocking_signature_changed",
                 reset_refresh=True,
             )
+        # No improvement detectable yet — but Phase 2 ran BEFORE this edit was applied,
+        # so the comparison is premature (pre-edit audit data vs. pre-edit baseline).
+        # Grant a grace iteration: keep pending_refresh=True so Phase 2 of the next
+        # iteration re-audits the edited transcript, then evaluate properly.
         return ProgressDelta(
-            made_progress=False,
-            reason_code="refresh_no_blocking_improvement",
-            reset_refresh=True,
+            made_progress=True,
+            reason_code="refresh_pending_reaudit_grace",
+            reset_refresh=False,
         )
 
     # New evidence arrived this iteration (domain-supplied signal).

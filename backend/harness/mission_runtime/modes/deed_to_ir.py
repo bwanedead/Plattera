@@ -99,6 +99,7 @@ class DeedToIRModePolicy(ModePolicy):
         transition = _recommend_transition_to_transcript_edit(
             request=request,
             recommendation=recommendation,
+            result=result,
         )
         if transition is None:
             return recommendation
@@ -117,7 +118,8 @@ def build_deed_to_ir_mode_policy_from_controller_inputs(
     *,
     session_manager: KernelSessionManager,
     llm_client: NextStepLLMClient,
-    start_request: KernelSessionStartRequest,
+    start_request: KernelSessionStartRequest | None = None,
+    start_request_factory: Callable[[MissionRuntimeRequest, MissionLedgerView], KernelSessionStartRequest] | None = None,
     model: str = "gpt-5-mini",
     max_iterations: int = 20,
     digest_client: IterationDigestClient | None = None,
@@ -127,18 +129,21 @@ def build_deed_to_ir_mode_policy_from_controller_inputs(
     """Build a deed-to-IR ModePolicy backed by controller runtime or orchestration kernel."""
 
     def _runner(_request: MissionRuntimeRequest, _ledger: MissionLedgerView) -> ControllerRunResult:
+        req = start_request_factory(_request, _ledger) if start_request_factory is not None else start_request
+        if req is None:
+            raise ValueError("deed_to_ir_mode_requires_start_request_or_factory")
         if use_orchestration_kernel:
             return run_orchestration_kernel_deed_loop(
                 session_manager=session_manager,
                 llm_client=llm_client,
-                start_request=start_request,
+                start_request=req,
                 model=model,
                 max_iterations=max_iterations,
             )
         return controller_runner(
             session_manager=session_manager,
             llm_client=llm_client,
-            start_request=start_request,
+            start_request=req,
             model=model,
             max_iterations=max_iterations,
             digest_client=digest_client,
@@ -394,6 +399,7 @@ def _recommend_transition_to_transcript_edit(
     *,
     request: MissionRuntimeRequest,
     recommendation: ModeRecommendation,
+    result: ControllerRunResult,
 ) -> ModeTransitionRecommendation | None:
     if not _metadata_flag(request.metadata, "phase_e_enable_linear_transitions"):
         return None
@@ -405,10 +411,33 @@ def _recommend_transition_to_transcript_edit(
     return ModeTransitionRecommendation(
         next_mode="transcript_edit",
         reason="deed_to_ir_output_requires_transcript_edit_review",
-        handed_forward_artifact_refs=list(recommendation.high_signal_artifact_refs),
+        handed_forward_artifact_refs=_curate_deed_to_tx_handoff_refs(result, recommendation),
         expected_next_work="run transcript-edit pass over latest deed output and verify closure posture",
         resume_note_for_prior_mode="resume deed_to_ir after transcript-edit returns reconciled artifacts",
     )
+
+
+def _curate_deed_to_tx_handoff_refs(
+    result: ControllerRunResult,
+    recommendation: ModeRecommendation,
+) -> list[str]:
+    refs: list[str] = []
+    latest_refs = result.last_dashboard.get("latest_refs") if isinstance(result.last_dashboard, dict) else {}
+    if isinstance(latest_refs, dict):
+        trace_ref = latest_refs.get("trace_artifact_ref")
+        if isinstance(trace_ref, str) and trace_ref.strip():
+            refs.append(trace_ref.strip())
+    if isinstance(result.transcript_artifact_ref, str) and result.transcript_artifact_ref.strip():
+        refs.append(result.transcript_artifact_ref.strip())
+    if isinstance(result.run_artifact_ref, str) and result.run_artifact_ref.strip():
+        refs.append(result.run_artifact_ref.strip())
+    if refs:
+        deduped: list[str] = []
+        for v in refs:
+            if v not in deduped:
+                deduped.append(v)
+        return deduped
+    return list(recommendation.high_signal_artifact_refs)
 
 
 def _metadata_flag(metadata: Any, key: str) -> bool:
