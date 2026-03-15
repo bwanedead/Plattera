@@ -273,7 +273,8 @@ frontend/src-tauri/bin/
 frontend/src-tauri/target/
 frontend/src-tauri/*.sig
 
-.claude/
+.claude/worktrees/
+.claude/settings.local.json
 
 # Ralph runs
 ralph/runs/**/run.json
