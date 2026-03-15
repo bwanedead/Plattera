@@ -140,6 +140,10 @@ def _build_request_metadata(*, run_artifact: dict[str, Any]) -> dict[str, Any]:
         "request_id": as_str(run_artifact.get("request_id")),
         "dossier_id": as_str(run_artifact.get("dossier_id")),
         "source_entry_ref": as_str(run_artifact.get("source_entry_ref")),
+        # D3: discriminator flag — lets analytics separate kernel-live traces from
+        # legacy controller-transcript-derived traces without touching loop_family.
+        # Existing consumers only read known fields; this key is additive.
+        "emission_source": "kernel_live",
     }
     return {k: v for k, v in out.items() if v not in (None, "")}
 

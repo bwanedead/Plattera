@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -36,6 +37,69 @@ from .modes import (
 )
 from .modes.transcript_edit import run_orchestration_kernel_transcript_loop
 from .runtime import build_mission_observability_payload
+
+# ---------------------------------------------------------------------------
+# Named scenario registry (D3 — practice deed scenarios)
+# ---------------------------------------------------------------------------
+
+# Canonical dossier id for the legal-text image practice scenario.
+_PRACTICE_LEGALTEXT_DOSSIER_ID = "live-validation-practice-legaltext"
+# Seed filename to search for inside the dossier's transcript sub-tree.
+_PRACTICE_LEGALTEXT_SEED_FILENAME = "draft_legal_text_image_v2.json"
+
+_TX_KNOWN_SCENARIOS: frozenset[str] = frozenset({"practice_legaltext"})
+
+
+def resolve_tx_scenario(scenario_name: str) -> tuple[str | None, str | None]:
+    """Return ``(dossier_id, transcript_ref)`` for a named CLI test scenario.
+
+    ``transcript_ref`` is an absolute path resolved by searching the local
+    dossiers store.  Returns ``(None, None)`` for unknown scenario names.
+    The caller is responsible for providing a fallback when ``transcript_ref``
+    is ``None`` (e.g. require ``--tx-source-transcript-ref``).
+
+    Currently supported scenarios:
+    - ``practice_legaltext`` — legal-text image with known range 74/75 conflict.
+      See docs/transcript-edit-live-validation-path-2026-03-08.md for expected
+      lifecycle.
+    """
+    if scenario_name not in _TX_KNOWN_SCENARIOS:
+        return None, None
+
+    if scenario_name == "practice_legaltext":
+        dossier_id = _PRACTICE_LEGALTEXT_DOSSIER_ID
+        transcript_ref = _find_practice_legaltext_transcript()
+        return dossier_id, transcript_ref
+
+    return None, None
+
+
+def _find_practice_legaltext_transcript() -> str | None:
+    """Search dossiers_views_root for the practice legaltext transcript seed.
+
+    Tries the known seed filename first, then falls back to the most recently
+    modified raw transcript in the dossier directory.
+    Returns an absolute path string, or None if nothing found.
+    """
+    try:
+        from config.paths import dossiers_views_root
+    except ModuleNotFoundError:
+        from backend.config.paths import dossiers_views_root  # type: ignore[no-redef]
+    try:
+        dossier_dir = dossiers_views_root() / _PRACTICE_LEGALTEXT_DOSSIER_ID
+        if not dossier_dir.exists():
+            return None
+        # Preferred: locate the known seed filename anywhere under the dossier tree.
+        matches = sorted(dossier_dir.rglob(_PRACTICE_LEGALTEXT_SEED_FILENAME))
+        if matches:
+            return str(matches[-1])
+        # Fallback: most recently modified raw transcript file.
+        raw_files = sorted(dossier_dir.rglob("raw/*.json"), key=lambda p: p.stat().st_mtime)
+        if raw_files:
+            return str(raw_files[-1])
+    except Exception:
+        pass
+    return None
 
 
 @dataclass(frozen=True)

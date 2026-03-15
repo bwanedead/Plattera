@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from agent_kernel.models import KernelBudgets, KernelGoal, KernelSessionStartRequest
@@ -13,7 +9,7 @@ from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, Tran
 from agents.transcript_edit.controller import run_transcript_edit_controller_loop
 from agents.transcript_edit.domain_pack import TranscriptEditDomainPack
 from harness.orchestration_kernel import KernelLoopResult, run_orchestration_kernel_loop
-from harness.tracing.service import build_kernel_direct_canonical_trace
+from harness.tracing.kernel_trace_persistence import persist_kernel_trace
 
 from ...terminal_taxonomy import classify_transcript_edit_terminal
 from ..contracts import (
@@ -234,10 +230,9 @@ def run_orchestration_kernel_transcript_loop(
         resume_hitl_response=resume_feedback_response,
     )
 
-    # Phase 11 D2: persist the kernel-direct trace and surface its ref in latest_refs.
-    trace_artifact_ref = _persist_kernel_trace(
+    # Phase 11 D2 / Phase 12 D2: persist the kernel-direct trace and surface its ref.
+    trace_artifact_ref = persist_kernel_trace(
         kernel_result=kernel_result,
-        session_manager=session_manager,
         request_id_prefix=request_id_prefix,
     )
     enriched_latest_refs = dict(kernel_result.latest_refs)
@@ -299,78 +294,6 @@ def _adapt_kernel_loop_result(
         review_required=review_required,
         runtime_hitl_state=runtime_hitl_state if runtime_hitl_state else None,
     )
-
-
-def _persist_kernel_trace(
-    *,
-    kernel_result: KernelLoopResult,
-    session_manager: KernelSessionManager,
-    request_id_prefix: str,
-) -> str | None:
-    """Persist the kernel-direct trace artifact and return its file path ref (D2).
-
-    Returns None on any failure (trace persistence is best-effort; it must not
-    break the run result even when storage is unavailable).
-    """
-    if not kernel_result.trace_events:
-        return None
-    try:
-        # Load the run artifact so we can hydrate the trace with IDs / timestamps.
-        run_artifact_ref = kernel_result.run_artifact_ref
-        run_artifact: dict[str, Any] = {}
-        if run_artifact_ref:
-            try:
-                import json as _json
-                with open(run_artifact_ref, "r", encoding="utf-8") as _f:
-                    _loaded = _json.load(_f)
-                if isinstance(_loaded, dict):
-                    run_artifact = _loaded
-            except Exception:
-                pass
-
-        trace_record = build_kernel_direct_canonical_trace(
-            trace_events=kernel_result.trace_events,
-            run_artifact=run_artifact,
-            run_artifact_ref=run_artifact_ref,
-        )
-
-        # Persist under the same artifact root as the run artifact.
-        trace_dir: Path | None = None
-        if run_artifact_ref:
-            trace_dir = Path(run_artifact_ref).parent
-        if trace_dir is None or not trace_dir.exists():
-            try:
-                from config.paths import agent_kernel_artifacts_root
-            except ModuleNotFoundError:
-                from backend.config.paths import agent_kernel_artifacts_root  # type: ignore[no-redef]
-            trace_dir = agent_kernel_artifacts_root() / str(request_id_prefix)
-        trace_dir.mkdir(parents=True, exist_ok=True)
-
-        run_id = trace_record.run_id or "unknown_run"
-        trace_path = trace_dir / f"{run_id}_trace.json"
-
-        trace_data = trace_record.model_dump(mode="json")
-        fd, tmp = tempfile.mkstemp(prefix="kernel_trace_", suffix=".json", dir=str(trace_dir))
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(trace_data, fh, ensure_ascii=False, indent=2)
-                fh.flush()
-                os.fsync(fh.fileno())
-            try:
-                os.replace(tmp, str(trace_path))
-            except PermissionError:
-                with open(trace_path, "w", encoding="utf-8") as fh:
-                    json.dump(trace_data, fh, ensure_ascii=False, indent=2)
-        finally:
-            if os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except Exception:
-                    pass
-
-        return str(trace_path)
-    except Exception:
-        return None
 
 
 def adapt_transcript_edit_run_result(

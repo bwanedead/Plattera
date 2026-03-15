@@ -23,6 +23,7 @@ from harness.mission_runtime.cli_support import (
     TranscriptModeCliInputs,
     build_mission_cli_payload,
     build_policy_list_for_cli,
+    resolve_tx_scenario,
 )
 from harness.mission_runtime.registry import ModePolicyRegistry
 from harness.mission_runtime.runtime import MissionRuntime
@@ -112,17 +113,39 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["off", "live_hitl"],
     )
     parser.add_argument("--tx-no-auto-promote", action="store_true")
+    # Kernel routing: kernel is the default for transcript-edit.  Use
+    # --tx-use-legacy-controller to opt back to the legacy controller loop.
     parser.add_argument(
-        "--tx-use-orchestration-kernel",
-        action="store_true",
+        "--tx-use-legacy-controller",
+        action="store_false",
         dest="tx_use_orchestration_kernel",
-        help="Route transcript-edit through the orchestration kernel instead of the legacy controller loop.",
+        help=(
+            "Route transcript-edit through the legacy controller loop instead of the "
+            "orchestration kernel. The kernel is used by default."
+        ),
     )
+    # Deed kernel routing: off by default; opt in with --deed-use-orchestration-kernel.
     parser.add_argument(
         "--deed-use-orchestration-kernel",
         action="store_true",
         dest="deed_use_orchestration_kernel",
         help="Route deed-to-IR through the orchestration kernel instead of the legacy controller loop.",
+    )
+    # Named test scenarios (D3).
+    parser.add_argument(
+        "--tx-scenario",
+        dest="tx_scenario",
+        default=None,
+        choices=["practice_legaltext"],
+        help=(
+            "Named practice scenario. Resolves --tx-dossier-id and --tx-source-transcript-ref "
+            "automatically. 'practice_legaltext' uses the legal-text image dossier with the "
+            "known range 74/75 conflict (see docs/transcript-edit-live-validation-path-2026-03-08.md)."
+        ),
+    )
+    parser.set_defaults(
+        tx_use_orchestration_kernel=True,
+        deed_use_orchestration_kernel=False,
     )
     return parser
 
@@ -180,8 +203,12 @@ def _validate_args(args: argparse.Namespace, *, parser: argparse.ArgumentParser)
         parser.error(
             "deed_to_ir requires one of --deed-dossier-id, --deed-text-file, --deed-text, or --deed-initial-ir-ref."
         )
-    if args.initial_mode == TRANSCRIPT_EDIT_MODE_NAME and not has_tx_source:
-        parser.error("transcript_edit requires one of --tx-source-transcript-ref, --tx-text-file, or --tx-text.")
+    # --tx-scenario satisfies the transcript source requirement (it resolves the ref internally).
+    if args.initial_mode == TRANSCRIPT_EDIT_MODE_NAME and not has_tx_source and not args.tx_scenario:
+        parser.error(
+            "transcript_edit requires one of --tx-source-transcript-ref, --tx-text-file, --tx-text, "
+            "or --tx-scenario <name>."
+        )
 
     if int(args.max_cycles) < 1:
         parser.error("--max-cycles must be >= 1")
@@ -222,9 +249,26 @@ def _build_policy_registry(
         render_required=bool(args.deed_render_required),
         use_orchestration_kernel=bool(args.deed_use_orchestration_kernel),
     )
+
+    # Resolve named scenario first — it may supply dossier_id and transcript_ref.
+    tx_dossier_id = args.tx_dossier_id
+    tx_source_ref = args.tx_source_transcript_ref
+    if args.tx_scenario:
+        scenario_dossier, scenario_ref = resolve_tx_scenario(args.tx_scenario)
+        if scenario_dossier and not tx_dossier_id:
+            tx_dossier_id = scenario_dossier
+        if scenario_ref and not tx_source_ref:
+            tx_source_ref = scenario_ref
+        elif not scenario_ref and not tx_source_ref:
+            raise SystemExit(
+                f"Scenario '{args.tx_scenario}': transcript seed not found in local dossiers store.\n"
+                "Ensure the practice dossier has been imported, or supply "
+                "--tx-source-transcript-ref explicitly."
+            )
+
     transcript_inputs = TranscriptModeCliInputs(
-        dossier_id=args.tx_dossier_id,
-        source_transcript_ref=args.tx_source_transcript_ref,
+        dossier_id=tx_dossier_id,
+        source_transcript_ref=tx_source_ref,
         source_text=_resolve_text(args.tx_text, args.tx_text_file),
         model=str(args.tx_model),
         max_iterations=max(1, int(args.tx_max_iterations)),

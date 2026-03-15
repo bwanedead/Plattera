@@ -20,6 +20,7 @@ from agents.controller.controller_runtime import (
 )
 from agents.controller.domain_pack import DeedToIRDomainPack
 from harness.orchestration_kernel import run_orchestration_kernel_loop, KernelLoopResult
+from harness.tracing.kernel_trace_persistence import persist_kernel_trace
 
 from ...terminal_taxonomy import classify_controller_terminal
 from ..contracts import (
@@ -213,17 +214,28 @@ def run_orchestration_kernel_deed_loop(
         max_invalid_plan_attempts=3,
     )
 
+    # Phase 12 D1: persist kernel-direct trace and surface ref (parity with transcript).
+    trace_artifact_ref = persist_kernel_trace(
+        kernel_result=kernel_result,
+        request_id_prefix=prefix,
+    )
+
     # D3 — merge domain pack's accumulated refs (all steps) with kernel's latest_refs
     # (only the final step). domain_pack._latest_refs accumulates via hook 7 merge and
     # survives step boundaries; kernel loop_memory.latest_refs is replaced each step.
     domain_state = domain_pack.build_domain_runtime_state()
-    return _adapt_kernel_loop_result_to_controller(kernel_result, domain_state=domain_state)
+    return _adapt_kernel_loop_result_to_controller(
+        kernel_result,
+        domain_state=domain_state,
+        trace_artifact_ref=trace_artifact_ref,
+    )
 
 
 def _adapt_kernel_loop_result_to_controller(
     result: KernelLoopResult,
     *,
     domain_state: dict | None = None,
+    trace_artifact_ref: str | None = None,
 ) -> ControllerRunResult:
     """Convert KernelLoopResult → ControllerRunResult.
 
@@ -279,6 +291,9 @@ def _adapt_kernel_loop_result_to_controller(
     if isinstance(domain_latest_refs, dict):
         merged_refs.update(domain_latest_refs)
     merged_refs.update(dict(result.latest_refs))
+    # Phase 12 D1: surface trace artifact ref so high_signal_refs can include it.
+    if isinstance(trace_artifact_ref, str) and trace_artifact_ref.strip():
+        merged_refs["trace_artifact_ref"] = trace_artifact_ref.strip()
 
     last_dashboard = {
         "latest_refs": merged_refs,
@@ -365,6 +380,9 @@ def _collect_high_signal_refs(result: ControllerRunResult) -> list[str]:
                     value = payload.get(key)
                     if isinstance(value, str) and value.strip():
                         refs.append(value.strip())
+            elif isinstance(payload, str) and payload.strip():
+                # Top-level string refs (e.g. trace_artifact_ref) surfaced directly.
+                refs.append(payload.strip())
     deduped: list[str] = []
     for value in refs:
         if value not in deduped:

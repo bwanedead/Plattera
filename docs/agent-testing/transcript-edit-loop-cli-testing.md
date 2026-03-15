@@ -2,11 +2,46 @@
 
 ## Purpose
 
-This document describes how to run and test the transcript-edit agent loop from the CLI,
-specifically in agent-mode (non-interactive) where an AI agent acts as both the test driver
-and the HITL feedback provider.
+This guide describes how to run and test the transcript-edit agent loop from the CLI in
+agent-mode (non-interactive), where an AI agent acts as both test driver and HITL feedback
+provider.
 
-The pattern: run loop in background → watch for HITL/done → inject feedback → re-watch → repeat.
+**The kernel is the default path.** As of Phase 12, `--tx-use-orchestration-kernel` is on by
+default. No extra flag is needed. Use `--tx-use-legacy-controller` to opt back to the legacy
+path for debugging.
+
+Pattern: run loop → watch for HITL/done → inject feedback → re-watch → repeat.
+
+---
+
+## Prerequisite: t0 Transcription (One-Time Fixture Setup)
+
+**The transcript-edit loop does not call the image pipeline.** The loop takes an existing
+transcript artifact as input — that artifact is created by a separate upstream step called **t0**
+(initial transcription: image → `gpt-o4-mini`, redundancy=3).
+
+Before running the loop for the first time, create the canonical practice fixture:
+
+```powershell
+# Backend must be running (python main.py in another terminal)
+# From repo root C:\projects\Plattera
+
+curl.exe -s -X POST "http://localhost:8000/api/dossier/process" `
+  -F "file=@practice_deeds\legal_text_image.jpg" `
+  -F "dossier_id=live-validation-practice-legaltext" `
+  -F "model=gpt-o4-mini" `
+  -F "redundancy=3" `
+  -F "auto_llm_consensus=false" `
+  | python -m json.tool
+```
+
+This writes `draft_legal_text_image_v2.json` (and v1, v3) under
+`dossiers_data/views/transcriptions/live-validation-practice-legaltext/`.
+Once those files exist, `--tx-scenario practice_legaltext` resolves the path automatically and
+**you do not need to re-run t0** unless the fixture data is deleted.
+
+> See `docs/agent-testing/practice-deed-t0-setup.md` for full details, verification steps,
+> and why the model and redundancy settings are fixed.
 
 ---
 
@@ -14,46 +49,97 @@ The pattern: run loop in background → watch for HITL/done → inject feedback 
 
 | Tool | Module | Purpose |
 |------|--------|---------|
-| `mission_runtime_cli` | `backend/api/mission_runtime_cli.py` | Run the loop (background process) |
+| `mission_runtime_cli` | `backend/api/mission_runtime_cli.py` | Run the loop |
 | `hitl_watch` | `backend/harness/mission_runtime/hitl_watch.py` | Block until HITL arrives or loop finishes |
 | `hitl_inject` | `backend/harness/mission_runtime/hitl_inject.py` | Inject feedback into the feedback store |
+
+> All commands below assume: repo root is `C:\projects\Plattera`, venv is active, working
+> directory is `backend\`. Adjust paths for your machine.
+>
+> **`tmp\` convention**: use a repo-local `tmp\` folder for done-sentinel and result files.
+> It keeps everything in one place and avoids `/tmp` path differences between shells.
+> Add `tmp/` to `.gitignore` if not already present.
+
+---
+
+## Quick Start — Practice Deed (Canonical Scenario)
+
+The canonical test scenario is **`practice_legaltext`** — a legal-text image deed with a
+known range 74 vs 75 conflict. Pass `--tx-scenario practice_legaltext` and the CLI resolves
+the dossier id and transcript seed automatically.
+
+### PowerShell (two-terminal pattern — recommended on Windows)
+
+**Terminal 1 — run the loop:**
+```powershell
+cd C:\projects\Plattera\backend
+
+python -m api.mission_runtime_cli `
+  --initial-mode transcript_edit `
+  --objective "audit and repair legal text transcript" `
+  --mission-id row1 `
+  --tx-scenario practice_legaltext `
+  --tx-validation-mode live_hitl `
+  --tx-max-iterations 12 `
+  --done-file tmp\done_row1.json `
+  > tmp\result_row1.json 2> tmp\err_row1.txt
+```
+
+**Terminal 2 — watch (run immediately after starting Terminal 1):**
+```powershell
+cd C:\projects\Plattera\backend
+
+python -m harness.mission_runtime.hitl_watch `
+  --run-id mission-row1-tx `
+  --done-file tmp\done_row1.json `
+  --timeout 600
+```
+
+### Bash / Git Bash (background operator available)
+
+```bash
+cd /c/projects/Plattera/backend
+
+python -m api.mission_runtime_cli \
+  --initial-mode transcript_edit \
+  --objective "audit and repair legal text transcript" \
+  --mission-id row1 \
+  --tx-scenario practice_legaltext \
+  --tx-validation-mode live_hitl \
+  --tx-max-iterations 12 \
+  --done-file tmp/done_row1.json \
+  > tmp/result_row1.json 2>tmp/err_row1.txt &
+
+python -m harness.mission_runtime.hitl_watch \
+  --run-id mission-row1-tx \
+  --done-file tmp/done_row1.json \
+  --timeout 600
+```
 
 ---
 
 ## Step-by-Step Pattern
 
-### 1. Start the loop (background)
+### 1. Start the loop
 
-```bash
-# From repo root, venv active
-cd backend
-
-python -m api.mission_runtime_cli \
-  --initial-mode transcript_edit \
-  --objective "transcript_edit_agent_loop_test" \
-  --mission-id row1 \
-  --tx-source-transcript-ref "C:/path/to/transcript.json" \
-  --tx-max-iterations 12 \
-  --done-file /tmp/done_row1.json \
-  > /tmp/result_row1.json 2>/tmp/err_row1.txt &
-```
+Run the CLI command above (foreground in its own terminal, or background via `&` in bash).
 
 Key args:
-- `--mission-id row1` → predictable run_id: `mission-row1-tx` (used by watch/inject)
-- `--tx-max-iterations 12` → enough iterations for mid-run feedback injection to land
-- `--done-file /tmp/done_row1.json` → sentinel written when loop completes
-- stdout → result file (JSON); stderr → error log
+- `--mission-id row1` → predictable run id: `mission-row1-tx` (used by watch/inject)
+- `--tx-scenario practice_legaltext` → resolves dossier id + transcript seed automatically
+- `--tx-validation-mode live_hitl` → enables the HITL lifecycle for the range conflict
+- `--tx-max-iterations 12` → enough budget for mid-run feedback integration
+- `--done-file tmp\done_row1.json` → sentinel file written when the loop finishes
+
+Without `--tx-scenario`, supply the transcript ref explicitly:
+```
+--tx-dossier-id live-validation-practice-legaltext
+--tx-source-transcript-ref "C:\path\to\draft_legal_text_image_v2.json"
+```
 
 ### 2. Block waiting for HITL or done
 
-```bash
-python -m harness.mission_runtime.hitl_watch \
-  --run-id mission-row1-tx \
-  --done-file /tmp/done_row1.json \
-  --timeout 600
-```
-
-Exits immediately and prints **one JSON line**:
+`hitl_watch` exits immediately and prints **one JSON line**:
 
 ```json
 // HITL arrived:
@@ -61,116 +147,132 @@ Exits immediately and prints **one JSON line**:
  "message": "Range conflict: Section 2 says 75, Sections 3-4 say 74. Which is correct?",
  "choices": ["Range 74 West", "Range 75 West"], "context": {...}}
 
-// Loop finished:
-{"event": "loop_done", "status": "waiting_human", "terminal": true, "reason_code": "tx_agent_waiting_feedback"}
+// Loop finished normally:
+{"event": "loop_done", "status": "completed", "terminal": true, "reason_code": "..."}
+
+// Loop paused waiting for feedback (slow path):
+{"event": "loop_done", "status": "waiting_feedback", "terminal": true, "reason_code": "..."}
 
 // Timed out:
 {"event": "timeout", "timeout_seconds": 600}
 ```
 
-### 3a. If `event == "hitl"`: inject feedback, then re-watch
+### 3a. If `event == "hitl"` — inject feedback, then re-watch
 
-```bash
-# Inject your choice — the runner is internally polling the feedback store right now
-python -m harness.mission_runtime.hitl_inject \
-  --run-id mission-row1-tx \
-  --prompt-id hitl_range_3_217f6ebf \
+```powershell
+# Inject — runner is already polling the feedback store
+python -m harness.mission_runtime.hitl_inject `
+  --run-id mission-row1-tx `
+  --prompt-id hitl_range_3_217f6ebf `
   --choice "Range 75 West"
 
-# Go back to blocking wait — the runner will pick up feedback, resume the controller,
-# and either complete or emit another HITL event if more decisions are needed
-python -m harness.mission_runtime.hitl_watch \
-  --run-id mission-row1-tx \
-  --done-file /tmp/done_row1.json \
+# Re-watch — runner picks up feedback within ~2 seconds and resumes
+python -m harness.mission_runtime.hitl_watch `
+  --run-id mission-row1-tx `
+  --done-file tmp\done_row1.json `
   --timeout 600
 ```
 
-Repeat until `event == "loop_done"`.
+Repeat watch → inject until `event == "loop_done"`.
 
-**Key point**: After you inject, the runner automatically resumes the loop — you do not need
-to restart the background process. The runner blocks waiting for your feedback, picks it up
-within 2 seconds of injection, and calls the controller again with resume params.
+### 3b. If `event == "loop_done"` — read the result
 
-### 3b. If `event == "loop_done"`: read the result
-
-```bash
-cat /tmp/result_row1.json | python -m json.tool
+```powershell
+Get-Content tmp\result_row1.json | python -m json.tool
 ```
 
 ---
 
-## How HITL Works (Non-Blocking with Auto-Resume)
+## How HITL Works
 
-The loop does **not** pause for HITL. It:
-1. Identifies a conflict → emits `human_feedback_needed` via `progress_cb`
-2. Writes the HITL event to `{dossiers_root}/hitl_prompts/mission-row1-tx_pending.json`
-3. Registers the pending prompt in blocker_registry
-4. Continues working on what it can (other repairs, other tickets)
-5. At the **start of each subsequent iteration**, calls `drain_pending_feedback` — if feedback
-   has been injected, it picks it up and applies it immediately
+The loop does **not** pause. It:
+1. Identifies the range conflict → emits `human_feedback_needed` via `progress_cb`
+2. Writes the HITL event to the pending file watched by `hitl_watch`
+3. Keeps working on everything else while waiting
+4. Picks up feedback at the start of the next iteration (**fast path**) **or** the runner
+   block-polls and resumes the loop when feedback arrives (**slow path**)
 
-If the loop exhausts its iteration budget while still waiting for feedback, the runner
-**automatically blocks and waits** (polling every 2 seconds, up to 10 minutes). When feedback
-is injected, the runner **resumes the controller** with the feedback as authority. This cycle
-repeats up to 10 HITL rounds.
+Both paths are transparent to the tester — the observable outcome is identical.
 
-This means the loop will never stop at `waiting_feedback` while a tester is present — it keeps
-going as long as feedback is provided.
+See `docs/agent-testing/hitl-loop-behavioral-intent.md` for the full design intent.
 
-**Use `--tx-max-iterations 12`** (or higher) so the loop has enough budget to act on feedback
-before exhausting and handing back to the runner's block-poll.
+---
+
+## Kernel Routing
+
+| Flag | Effect |
+|------|--------|
+| *(default, no flag)* | Transcript-edit routes through the orchestration kernel |
+| `--tx-use-legacy-controller` | Opt back to legacy controller loop (debug escape hatch) |
+| `--deed-use-orchestration-kernel` | Route deed-to-IR through kernel (off by default) |
+
+The kernel path persists a `trace_artifact_ref` in `latest_refs` — a canonical trace artifact
+covering every phase boundary, move decision, execution result, and terminal outcome. Its
+presence in the result confirms you ran the kernel path.
 
 ---
 
 ## Run ID Convention
 
-The run_id used by `hitl_watch` and `hitl_inject` is derived from `--mission-id`:
-
 ```
 mission-{mission_id}-tx
 ```
 
-So `--mission-id row1` → run_id `mission-row1-tx`.
-
-The viewer_run_id (used internally by the feedback store) maps from `mission-row1-tx` via
-`viewer_run_id_from_request_prefix`. Use the same `--run-id mission-row1-tx` for both
-`hitl_watch` and `hitl_inject`.
+`--mission-id row1` → run id `mission-row1-tx`. Use the same value for both `hitl_watch`
+and `hitl_inject`.
 
 ---
 
-## Practice Deed: Right-of-Way Deed
+## Practice Deed: Legal-Text Image (Canonical Scenario)
 
-**Transcript ref** (absolute path):
-```
-C:/Users/<user>/AppData/Local/Plattera/Data/dossiers_data/views/transcriptions/practice_row_dossier/practice_row_t7/raw/practice_row_t7.json
-```
+| Field | Value |
+|-------|-------|
+| Scenario flag | `--tx-scenario practice_legaltext` |
+| Dossier id | `live-validation-practice-legaltext` |
+| Transcript seed | `draft_legal_text_image_v2.json` (auto-resolved from local dossiers store) |
+| Expected HITL | Range contradiction: 74 West vs 75 West |
+| Correct answer | Range 75 West |
+| Validation mode | `--tx-validation-mode live_hitl` |
 
-**Full test command**:
-```bash
-python -m api.mission_runtime_cli \
-  --initial-mode transcript_edit \
-  --objective "audit and repair right_of_way deed transcript" \
-  --mission-id row1 \
-  --tx-source-transcript-ref "<abs path to practice_row_t7.json>" \
-  --tx-dossier-id practice_row_dossier \
-  --tx-max-iterations 12 \
-  --done-file /tmp/done_row1.json \
-  > /tmp/result_row1.json 2>/tmp/err_row1.txt &
-```
+The `--tx-scenario` flag resolves the dossier id and searches the local dossiers store for
+`draft_legal_text_image_v2.json`. If the file is not found, the CLI prints a clear error and
+asks you to supply `--tx-source-transcript-ref` manually.
 
-**Expected HITL prompt**: Range 74 vs 75 conflict (Layer 2 — canonical sanity).
-See `practice_deeds/right_of_way_deed_cheatsheet.md` for the correct answer and full 4-layer closure map.
+**Expected lifecycle**: see `docs/transcript-edit-live-validation-path-2026-03-08.md` for
+checkpoints A–D (waiting owner → feedback accepted → post-resume integration → terminal
+explainability).
 
 ---
 
 ## Reading Results
 
 Key paths in the output JSON:
-- `.mission_runtime.mission_status.terminal` — true/false
-- `.mission_runtime.mission_status.terminal_class` — e.g. `"waiting_human"`, `"completed"`
-- `.mission_runtime.mission_status.reason_code` — e.g. `"tx_agent_waiting_feedback"`
-- `.mission_runtime.cycles[*].mode_result.validator_reports` — per-iteration audit findings
+- `.mission_runtime.mission_status.terminal` — `true`/`false`
+- `.mission_runtime.mission_status.terminal_class` — e.g. `"exhausted"`, `"completed"`
+- `.mission_runtime.mission_status.reason_code`
 - `.mission_runtime.cycles[*].mode_result.runtime_hitl_state` — HITL state at completion
+- `.mission_runtime.cycles[*].mode_result.latest_refs.trace_artifact_ref` — kernel trace path
+
+---
+
+## Agent-Mode Scriptable Checklist
+
+When running this as an automated agent:
+
+1. **Start** the loop command (foreground Terminal 1 or background bash `&`).
+2. **Run `hitl_watch`** (blocking). Parse the single JSON output line.
+3. **On `event == "hitl"`**:
+   - Read `prompt_id` and `choices` from the output.
+   - For `practice_legaltext`: inject `--choice "Range 75 West"`.
+   - Run `hitl_inject --run-id ... --prompt-id ... --choice "..."`.
+   - Return to step 2.
+4. **On `event == "loop_done"`**:
+   - Check `status`. `"completed"` or `"needs_review"` are expected terminals.
+   - Read `tmp\result_row1.json` for the full payload.
+   - Verify `.mission_runtime.cycles[0].mode_result.latest_refs.trace_artifact_ref` is
+     present — confirms kernel path was active.
+5. **On `event == "timeout"`**: inspect `tmp\err_row1.txt`; the loop may have hung or
+   the dossier store path may be wrong.
 
 ---
 
@@ -178,21 +280,20 @@ Key paths in the output JSON:
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Result file contains prompt text, not JSON | Interactive stdin in runner (old code) | Ensure runner uses file-based HITL only (no `input()`) |
-| `event: loop_done` with `waiting_human` before feedback injected | Too few iterations, no_progress exhausted | Use `--tx-max-iterations 12` |
+| `Scenario 'practice_legaltext': transcript seed not found` | t0 fixture not created yet | Run the t0 setup step — see `docs/agent-testing/practice-deed-t0-setup.md` |
+| `event: loop_done` with `waiting_feedback` immediately | Too few iterations | Use `--tx-max-iterations 12` or higher |
 | `hitl_inject` says injected but loop didn't pick it up | Loop already terminated | Restart with more iterations |
-| Empty done file / no sentinel | Loop crashed before writing | Check `/tmp/err_row1.txt` |
-| HITL file not found / watcher times out | Loop ran without HITL (all repairs applied) | Check result for `"completed"` status |
+| No `tmp\result_row1.json` or empty file | Loop crashed before writing | Check `tmp\err_row1.txt` |
+| `trace_artifact_ref` missing in result | Legacy controller path active | Remove `--tx-use-legacy-controller` (kernel is the default) |
 
 ---
 
 ## Links
 
-- **HITL behavioral intent** (authoritative design intent): `docs/agent-testing/hitl-loop-behavioral-intent.md`
-- Cheat sheet: `practice_deeds/right_of_way_deed_cheatsheet.md`
-- Orchestration model: `docs/transcript-edit-loop-orchestration.md`
+- **t0 fixture setup** (run first, one-time): `docs/agent-testing/practice-deed-t0-setup.md`
+- **HITL behavioral intent** (authoritative): `docs/agent-testing/hitl-loop-behavioral-intent.md`
+- **Live validation scenario + expected lifecycle**: `docs/transcript-edit-live-validation-path-2026-03-08.md`
 - CLI entry: `backend/api/mission_runtime_cli.py`
+- CLI support / scenario resolver: `backend/harness/mission_runtime/cli_support.py`
 - HITL watch: `backend/harness/mission_runtime/hitl_watch.py`
 - HITL inject: `backend/harness/mission_runtime/hitl_inject.py`
-- CLI support / policy builder: `backend/harness/mission_runtime/cli_support.py`
-- Feedback polling: `backend/agents/transcript_edit/iteration_repair_runtime.py` (line ~627)
