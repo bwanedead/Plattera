@@ -48,8 +48,10 @@ def test_focus_resolver_system_message_mentions_binding_answered_unintegrated_gu
     assert "binding human_resolution_ticket" in lower
     assert "do not ignore provided human feedback" in lower
     assert "crop_box_normalized" in system_msg
-    assert "refine_region" in system_msg
-    assert "grid_selection only as fallback" in lower
+    assert "zoom_factor" in system_msg
+    # refine_region / grid_selection internal steps removed (D3-A clean vocab)
+    assert "refine_region" not in system_msg
+    assert "grid_selection" not in system_msg
     assert "propose_blocker_updates" in system_msg
     assert "custom:<name>" in system_msg
 

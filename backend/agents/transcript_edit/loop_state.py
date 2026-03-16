@@ -49,3 +49,8 @@ class TranscriptEditLoopState:
     evidence_repeat_guard: dict[str, dict[str, Any]] = field(default_factory=dict)
     evidence_signal_counter: int = 0
     llm_call_seq: int = 0
+    # D2 — edit lineage
+    seed_transcript_ref: str | None = None
+    edit_lineage_summary: list[dict[str, Any]] = field(default_factory=list)
+    # D1 — T0 candidate refs discovered at orient time
+    t0_candidate_refs: list[str] = field(default_factory=list)

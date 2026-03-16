@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from pathlib import Path
 from typing import Any, Callable
 
 from agent_kernel.models import ActionType, KernelStepRequest, StepExecutionState
@@ -59,6 +60,7 @@ from .decision_ledger import (
 from .decision_ledger_closure import unresolved_closure_requirements as _unresolved_closure_requirements
 from .focus_packet import build_focus_packet
 from .focus_resolver import resolve_focus_move
+from .focus_runtime import recent_image_evidence_attempt_count
 from .iteration_repair_focus import _select_focus_target
 from .loop_runtime import (
     idempotency_key as _make_idempotency_key,
@@ -216,6 +218,10 @@ class TranscriptEditDomainPack:
         else:
             self._pre_source_hash = ""
 
+        # D2: seed_transcript_ref is set once at loop start (never overwritten).
+        if not self._state.seed_transcript_ref and self._state.current_transcript_ref:
+            self._state.seed_transcript_ref = self._state.current_transcript_ref
+
         # Orient baseline: initializes decision_ledger from source material.
         orient_inputs: dict[str, Any] = {
             "dossier_id": request.dossier_id,
@@ -272,6 +278,23 @@ class TranscriptEditDomainPack:
             source_transcript_ref=self._state.current_transcript_ref,
         )
         sync_pending_feedback_cache_from_registry(state=self._state)
+
+        # D1: discover sibling T0 draft refs when not provided by the caller.
+        if not self._state.t0_candidate_refs and not request.candidate_refs and not request.candidate_texts:
+            _src = self._state.current_transcript_ref or ""
+            if _src:
+                _src_path = Path(_src)
+                if _src_path.parent.is_dir():
+                    _stem = _src_path.stem.split("_v")[0]
+                    _siblings = sorted(_src_path.parent.glob(f"{_stem}_v*.json"))
+                    self._state.t0_candidate_refs = [str(p) for p in _siblings[:10]]
+                    if self._state.t0_candidate_refs:
+                        _LOG.info(
+                            "TX_DOMAIN_PACK t0_candidates_discovered ► request_id=%s count=%d",
+                            request_id_prefix,
+                            len(self._state.t0_candidate_refs),
+                        )
+
         _LOG.info(
             "TX_DOMAIN_PACK orient_complete ► request_id=%s ledger_keys=%s",
             request_id_prefix,
@@ -302,6 +325,11 @@ class TranscriptEditDomainPack:
         _edited_ref = (_latest.get("tx_edited_transcript_ref") or {}).get("artifact_path") or ""
         if _edited_ref and _edited_ref != self._state.current_transcript_ref:
             self._state.current_transcript_ref = _edited_ref
+            # D2: backfill resulting_ref in the most recent lineage entry that lacks one.
+            if self._state.edit_lineage_summary:
+                _last = self._state.edit_lineage_summary[-1]
+                if isinstance(_last, dict) and not _last.get("resulting_ref"):
+                    _last["resulting_ref"] = _edited_ref
 
         audit_inputs: dict[str, Any] = {"dossier_id": request.dossier_id}
         if self._state.current_transcript_ref:
@@ -528,6 +556,9 @@ class TranscriptEditDomainPack:
             feedback=feedback,
             continuity_log=list(state.continuity_log or []),
             visual_evidence_state=visual_evidence,
+            seed_transcript_ref=state.seed_transcript_ref,
+            edit_lineage_summary=list(state.edit_lineage_summary or []),
+            t0_candidate_refs=list(state.t0_candidate_refs or []),
         )
         return FocusPacket(focus_key=focus_key, domain_packet=packet)
 
@@ -597,6 +628,13 @@ class TranscriptEditDomainPack:
                 self._state.apply_reaudit_baseline_blocking_count = self._iter_blocking_count
                 self._state.apply_reaudit_baseline_blocking_signature = self._iter_blocking_signature
             self._state.applied_any_edits = True
+            # D2: record edit lineage (resulting_ref will be populated in refresh).
+            self._state.edit_lineage_summary.append({
+                "iteration": iterations,
+                "decision_key": focus_key,
+                "short_summary": str(payload.get("reason") or "")[:120],
+                "resulting_ref": None,
+            })
             return MoveExecutionPlan(
                 action_type=ActionType.TX_APPLY_EDIT_PLAN,
                 action_inputs=inputs,
@@ -610,6 +648,37 @@ class TranscriptEditDomainPack:
                 else None
             )
             evidence_kind = str((evidence_request or {}).get("kind") or "open_spans").strip().lower()
+
+            # D3-B: cap image-evidence attempts per focus key at N=2 to prevent oscillation.
+            _IMAGE_EVIDENCE_KINDS = {"image_evidence", "image_verify"}
+            if evidence_kind in _IMAGE_EVIDENCE_KINDS:
+                _recent_img_count = recent_image_evidence_attempt_count(
+                    continuity_log=list(self._state.continuity_log or []),
+                    decision_key=focus_key,
+                )
+                if _recent_img_count >= 2:
+                    # Exceeded cap — escalate to HITL instead.
+                    _LOG.info(
+                        "TX_DOMAIN_PACK image_evidence_cap_hit ► request_id=%s focus_key=%s recent=%d",
+                        self._request_id_prefix,
+                        focus_key,
+                        _recent_img_count,
+                    )
+                    _prompt_id = _make_prompt_id(focus_key, iterations)
+                    self._state.pending_feedback_prompt_id = _prompt_id
+                    self._state.pending_feedback_decision_key = focus_key
+                    self._state.pending_feedback_prompt = {
+                        "prompt_id": _prompt_id,
+                        "line1": f"Image evidence cap reached for {focus_key!r} ({_recent_img_count} attempts). Human resolution required.",
+                        "line2": "Please confirm the correct value for this field.",
+                    }
+                    return MoveExecutionPlan(
+                        action_type=ActionType.TX_AUDIT_TRANSCRIPT,
+                        action_inputs={"feedback_prompt_id": _prompt_id},
+                        idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, {}),
+                        hitl_intent_flag=True,
+                    )
+
             if evidence_kind == "open_spans":
                 inputs = {
                     "dossier_id": request.dossier_id,

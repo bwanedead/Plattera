@@ -106,10 +106,16 @@ class KernelTraceCollector:
         iteration: int,
         focus_key: str | None,
         candidates: list[dict[str, Any]],
+        stagnation_streak: int | None = None,
     ) -> None:
         """Emitted at Phase 4 after the kernel selects (or fails to select) a focus."""
         top = [
-            {"focus_key": str(c.get("focus_key") or ""), "state": str(c.get("state") or "")}
+            {
+                "focus_key": str(c.get("focus_key") or ""),
+                "state": str(c.get("state") or ""),
+                "priority": c.get("priority"),
+                "focus_source": str(c.get("focus_source") or "") or None,
+            }
             for c in candidates[:_MAX_FOCUS_CANDIDATES]
             if isinstance(c, dict)
         ]
@@ -123,7 +129,11 @@ class KernelTraceCollector:
                 status="completed" if focus_key is not None else "running",
                 reason_code="no_actionable_focus" if focus_key is None else None,
                 refs_delta={},
-                payload={"focus_key": focus_key, "candidates_top": top},
+                payload={
+                    "focus_key": focus_key,
+                    "candidates_top": top,
+                    "stagnation_streak": stagnation_streak,
+                },
                 source_origin=self._source(local_id=f"iter_{iteration}_focus"),
             )
         )
@@ -135,6 +145,8 @@ class KernelTraceCollector:
         move_type: str,
         focus_key: str | None,
         rationale: str | None,
+        evidence_kind: str | None = None,
+        used_hitl_feedback: bool | None = None,
     ) -> None:
         """Emitted at Phase 5b after domain resolves the move decision."""
         self._append(
@@ -150,6 +162,8 @@ class KernelTraceCollector:
                     "move_type": move_type,
                     "focus_key": focus_key,
                     "rationale": (rationale or "")[:_MAX_RATIONALE_CHARS],
+                    "evidence_kind": evidence_kind,
+                    "used_hitl_feedback": used_hitl_feedback,
                 },
                 source_origin=self._source(local_id=f"iter_{iteration}_move"),
             )
@@ -233,6 +247,9 @@ class KernelTraceCollector:
         reason_code: str,
         no_progress_streak: int,
         evidence_signal_counter: int,
+        baseline_blocking_count: int | None = None,
+        current_blocking_count: int | None = None,
+        signature_changed: bool | None = None,
     ) -> None:
         """Emitted at Phase 7 after the kernel evaluates progress."""
         self._append(
@@ -250,6 +267,9 @@ class KernelTraceCollector:
                     "reason_code": reason_code,
                     "no_progress_streak": no_progress_streak,
                     "evidence_signal_counter": evidence_signal_counter,
+                    "baseline_blocking_count": baseline_blocking_count,
+                    "current_blocking_count": current_blocking_count,
+                    "signature_changed": signature_changed,
                 },
                 source_origin=self._source(local_id=f"iter_{iteration}_progress"),
             )

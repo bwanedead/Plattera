@@ -162,6 +162,7 @@ def run_orchestration_kernel_loop(
             iteration=iterations,
             focus_key=selected_focus_key,
             candidates=ranked_list,
+            stagnation_streak=loop_memory.focus_stagnation_streak,
         )
 
         # If no actionable focus: go straight to decide without executing.
@@ -194,11 +195,15 @@ def run_orchestration_kernel_loop(
         # Phase 5b: Resolve move.
         _LOG.info("TX_KERNEL hook5_resolve_move ► iter=%s focus=%s", iterations, selected_focus_key)
         move_decision = domain_pack.resolve_move(context, focus_packet)
+        _move_payload = move_decision.domain_move_payload or {}
+        _evidence_req = _move_payload.get("evidence_request") if isinstance(_move_payload.get("evidence_request"), dict) else None
         tracer.emit_move_resolved(
             iteration=iterations,
             move_type=move_decision.move_type,
             focus_key=move_decision.focus_key,
             rationale=move_decision.rationale,
+            evidence_kind=str((_evidence_req or {}).get("kind") or "").strip().lower() or None,
+            used_hitl_feedback=bool(_move_payload.get("used_hitl_feedback")) if "used_hitl_feedback" in _move_payload else None,
         )
 
         # Increment strike counter for dead-end moves.
@@ -384,6 +389,9 @@ def run_orchestration_kernel_loop(
             reason_code=delta.reason_code,
             no_progress_streak=loop_memory.no_progress_streak,
             evidence_signal_counter=loop_memory.evidence_signal_counter,
+            baseline_blocking_count=metrics.previous_blocking_count,
+            current_blocking_count=metrics.current_blocking_count,
+            signature_changed=metrics.previous_blocking_signature != metrics.current_blocking_signature,
         )
 
         # Phase 8: Decide.

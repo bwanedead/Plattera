@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
 from typing import Any
 
 MAX_SPAN_COUNT = 6
@@ -29,6 +32,9 @@ def build_focus_packet(
     feedback: dict[str, Any] | None,
     continuity_log: list[dict[str, Any]] | None,
     visual_evidence_state: dict[str, Any] | None = None,
+    seed_transcript_ref: str | None = None,
+    edit_lineage_summary: list[dict[str, Any]] | None = None,
+    t0_candidate_refs: list[str] | None = None,
 ) -> dict[str, Any]:
     key = str(decision_key or "").strip().lower()
     ledger_item = _ledger_item_for_key(decision_ledger=decision_ledger, decision_key=key)
@@ -182,6 +188,17 @@ def build_focus_packet(
         "focused_blocker_feedback_pair": focused_blocker_pair,
         "recent_attempts": attempts,
         "memory_summary": _memory_summary(attempts),
+        # D2 — edit lineage
+        "seed_transcript_ref": seed_transcript_ref,
+        "working_transcript_ref": source_transcript_ref,
+        "edit_lineage": [dict(e) for e in (edit_lineage_summary or [])][-8:],
+        # D1 — T0 consensus lane (populated when item is disputed + mapping-blocking)
+        "t0_consensus": _build_t0_consensus(
+            decision_key=key,
+            ledger_item=ledger_item,
+            closure_requirement=closure_requirement,
+            t0_candidate_refs=t0_candidate_refs or [],
+        ),
     }
 
 
@@ -460,4 +477,95 @@ def _focused_blocker_pair_fallback(
         "associated_ticket_relevance": str((latest_ticket or {}).get("relevance") or "").strip().lower() or None,
         "pair_state": pair_state,
         "ready_for_resolution": lifecycle_state in {"answered_unintegrated", "integration_attempted_failed"},
+    }
+
+
+# ---------------------------------------------------------------------------
+# D1 — T0 consensus lane
+# ---------------------------------------------------------------------------
+
+def _extract_key_value_from_text(decision_key: str, text: str) -> str | None:
+    """Bounded regex extraction for a single decision_key from transcript text."""
+    if decision_key == "tie_distance":
+        m = re.search(r"(\d+(?:\.\d+)?)\s*(?:feet|foot|ft)\b", text, re.IGNORECASE)
+        return m.group(0) if m else None
+    if decision_key == "acreage":
+        m = re.search(r"(\d+(?:\.\d+)?)\s*ac(?:re|res)?\b", text, re.IGNORECASE)
+        return m.group(0) if m else None
+    if decision_key == "tie_bearing":
+        m = re.search(r"\b[NS]\s*\d{1,3}(?:\s*[°º])?(?:\s*\d{1,2})?\s*[EW]\b", text, re.IGNORECASE)
+        return m.group(0) if m else None
+    if decision_key in {"range", "township", "section"}:
+        m = re.search(rf"{decision_key}\s*[:\-]?\s*([A-Za-z0-9 \-]+)", text, re.IGNORECASE)
+        if m:
+            return m.group(1).strip()[:40]
+    if decision_key == "closure_or_pob":
+        lower = text.lower()
+        if "point of beginning" in lower:
+            return "point of beginning"
+        if "pob" in lower:
+            return "pob"
+        if "closure" in lower:
+            return "closure"
+    return None
+
+
+def _read_draft_text(path_str: str) -> str:
+    """Read concatenated section bodies from a T0 draft JSON file. Returns "" on any failure."""
+    try:
+        raw = Path(path_str).read_text(encoding="utf-8")
+        data = json.loads(raw)
+        sections = data.get("sections") or []
+        return " ".join(str(s.get("body") or "") for s in sections if isinstance(s, dict))
+    except Exception:
+        return ""
+
+
+def _build_t0_consensus(
+    *,
+    decision_key: str,
+    ledger_item: dict[str, Any] | None,
+    closure_requirement: dict[str, Any],
+    t0_candidate_refs: list[str],
+) -> dict[str, Any] | None:
+    """Build bounded T0 consensus lane when item is disputed + mapping-blocking and refs are available."""
+    if not t0_candidate_refs:
+        return None
+    state = str((ledger_item or {}).get("state") or "").strip().lower()
+    mapping_blocking = bool(closure_requirement.get("mapping_blocking"))
+    if state != "disputed" or not mapping_blocking:
+        return None
+
+    draft_votes: list[dict[str, Any]] = []
+    value_counts: dict[str, int] = {}
+    for ref in t0_candidate_refs[:5]:
+        text = _read_draft_text(ref)
+        if not text:
+            continue
+        extracted = _extract_key_value_from_text(decision_key, text)
+        if extracted:
+            val = extracted.strip().lower()
+            value_counts[val] = value_counts.get(val, 0) + 1
+        draft_votes.append({"ref": ref, "extracted": extracted})
+
+    total = len(draft_votes)
+    if total == 0:
+        return None
+
+    dominant = max(value_counts, key=lambda v: value_counts[v]) if value_counts else None
+    dominant_count = value_counts.get(dominant, 0) if dominant else 0
+    if dominant_count == total:
+        confidence = "unanimous"
+    elif dominant_count > total / 2:
+        confidence = "majority"
+    else:
+        confidence = "split"
+
+    return {
+        "draft_count": total,
+        "drafts": draft_votes,
+        "dominant_candidate": dominant,
+        "dominant_vote_count": dominant_count,
+        "value_counts": dict(value_counts),
+        "confidence": confidence,
     }
