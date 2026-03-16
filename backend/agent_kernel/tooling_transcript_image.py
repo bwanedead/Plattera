@@ -247,6 +247,8 @@ class TranscriptImageVerificationTool:
             return _tool_refusal_result("tx_image_verify_source_image_not_found")
 
         model = _read_str(inputs.get("model")) or "gpt-5.2"
+        run_link_id = _read_str(inputs.get("run_link_id")) or ""
+        mission_objective = _read_str(inputs.get("mission_objective")) or ""
         mode = (_read_str(inputs.get("mode")) or "locate").strip().lower()
         if mode in {"inspection_reference", "select_region", "refine_region", "verify_region"}:
             return _execute_explicit_image_evidence_mode(
@@ -298,6 +300,8 @@ class TranscriptImageVerificationTool:
                 decision_key=decision_key,
                 fallback_crop_box=_coerce_crop_box(check.get("crop_box")),
                 precomputed_region_path=precomputed_region_path,
+                run_link_id=run_link_id,
+                mission_objective=mission_objective,
             )
             isolate = _create_image_evidence_artifacts(
                 source_image_path=image_file,
@@ -344,6 +348,9 @@ class TranscriptImageVerificationTool:
                 check_id=check_id,
                 query=query,
                 expected_text=expected,
+                run_link_id=run_link_id,
+                mission_objective=mission_objective,
+                model=model,
             )
             response = self.service.call_vision(
                 prompt=prompt,

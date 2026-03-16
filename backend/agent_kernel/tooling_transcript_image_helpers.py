@@ -59,6 +59,13 @@ from .run_artifact import ArtifactRef, ValidationInline
 
 logger = logging.getLogger(__name__)
 
+from agents.common.identity_composer import (
+    Domain,
+    InheritanceMode,
+    Surface,
+    compose_identity_header,
+)
+
 from .tooling_artifacts import (
     _coerce_artifact_ref,
     _infer_dossier_id_from_transcript_ref,
@@ -358,6 +365,8 @@ def _locate_image_evidence_region(
     decision_key: str | None,
     fallback_crop_box: dict[str, int] | None,
     precomputed_region_path: Path | None = None,
+    run_link_id: str = "",
+    mission_objective: str = "",
 ) -> dict[str, Any]:
     if isinstance(precomputed_region_path, Path) and precomputed_region_path.exists():
         image_size = _read_image_size(precomputed_region_path)
@@ -396,6 +405,9 @@ def _locate_image_evidence_region(
             expected_text=expected_text,
             decision_key=decision_key,
             image_size=render_meta.get("rendered_size"),
+            run_link_id=run_link_id,
+            mission_objective=mission_objective,
+            model=model,
         )
         response = service.call_vision(
             prompt=prompt,
@@ -596,11 +608,29 @@ def _build_transcript_image_verify_prompt(
     check_id: str,
     query: str,
     expected_text: str | None,
+    run_link_id: str = "",
+    mission_objective: str = "",
+    model: str = "",
 ) -> str:
+    identity = compose_identity_header(
+        run_link_id=run_link_id,
+        mission_objective=mission_objective,
+        domain=Domain.TRANSCRIPT_EDIT,
+        surface=Surface.TX_IMAGE_VERIFIER,
+        inheritance_mode=InheritanceMode.LIGHT,
+        model=model,
+    )
     payload = {
+        "run_identity": {
+            "run_link_id": identity.metadata.run_link_id,
+            "mission_objective": identity.metadata.mission_objective,
+            "domain": identity.metadata.domain,
+            "surface": identity.metadata.surface,
+            "constitution_version": identity.metadata.constitution_version,
+        },
+        "identity_context": identity.header_text,
         "task": "Verify a transcript claim against the provided deed image.",
         "instructions": [
-            "Return JSON only.",
             "Carefully read the image text relevant to the query.",
             "If uncertain, set status='unclear' and explain why.",
         ],
@@ -627,11 +657,29 @@ def _build_transcript_image_locator_prompt(
     expected_text: str | None,
     decision_key: str | None,
     image_size: Any,
+    run_link_id: str = "",
+    mission_objective: str = "",
+    model: str = "",
 ) -> str:
+    identity = compose_identity_header(
+        run_link_id=run_link_id,
+        mission_objective=mission_objective,
+        domain=Domain.TRANSCRIPT_EDIT,
+        surface=Surface.TX_IMAGE_LOCATOR,
+        inheritance_mode=InheritanceMode.LIGHT,
+        model=model,
+    )
     payload = {
+        "run_identity": {
+            "run_link_id": identity.metadata.run_link_id,
+            "mission_objective": identity.metadata.mission_objective,
+            "domain": identity.metadata.domain,
+            "surface": identity.metadata.surface,
+            "constitution_version": identity.metadata.constitution_version,
+        },
+        "identity_context": identity.header_text,
         "task": "Locate where likely visual evidence appears for a transcript verification query.",
         "instructions": [
-            "Return JSON only.",
             "If you cannot confidently localize, return status='unclear' or status='not_found'.",
             "Crop coordinates must be pixel integers in the source image coordinate system.",
         ],

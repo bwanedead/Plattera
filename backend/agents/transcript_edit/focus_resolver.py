@@ -16,6 +16,8 @@ def resolve_focus_move(
     planning_findings: list[dict[str, Any]],
     max_invalid_plan_attempts: int,
     validation_mode: str = "off",
+    run_link_id: str = "",
+    mission_objective: str = "",
 ) -> dict[str, Any]:
     decision_key = str(focus_packet.get("decision_key") or "").strip().lower()
     ledger_item = focus_packet.get("ledger_item") if isinstance(focus_packet.get("ledger_item"), dict) else {}
@@ -65,6 +67,8 @@ def resolve_focus_move(
             model=model,
             focus_packet=focus_payload,
             max_attempts=max_invalid_plan_attempts,
+            run_link_id=run_link_id,
+            mission_objective=mission_objective,
         )
     except Exception as exc:
         move_payload = None

@@ -316,6 +316,9 @@ def _execute_explicit_image_evidence_mode(
             check_id=check_id,
             query=query,
             expected_text=expected_text,
+            run_link_id=_read_str(inputs.get("run_link_id")) or "",
+            mission_objective=_read_str(inputs.get("mission_objective")) or "",
+            model=model,
         )
         response = service.call_vision(
             prompt=prompt,

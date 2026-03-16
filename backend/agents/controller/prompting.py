@@ -5,6 +5,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from agents.common.identity_composer import (
+    Domain,
+    InheritanceMode,
+    Surface,
+    compose_identity_header,
+)
+
 
 @dataclass(frozen=True)
 class PromptBundle:
@@ -12,11 +19,17 @@ class PromptBundle:
     user_message: str
 
 
-_DEVELOPER_MESSAGE = (
+# Leaf: deed-controller surface contract.
+# Trunk (output discipline, faithfulness) and branch (deed-to-IR domain laws)
+# are prepended by build_developer_message() via the identity composer.
+# Removed from leaf (now covered by trunk/branch):
+#   - "Never output prose."  → trunk: "Return only valid JSON. Never output prose or markdown."
+#   - "Priority rule: faithful representation ..." → branch: deed_to_ir faithfulness law
+#   - "Refs-not-blobs: prefer artifact refs ..." → trunk: "Prefer artifact refs over large inline payloads."
+_DEVELOPER_MESSAGE_LEAF = (
     "Mission: produce a deed-faithful FeatureGraph IR/map representation first, then run deterministic physics gates "
     "(compile, judge, bundle) and only attempt DECLARE_DONE when claimability is likely ready.\n"
-    "Protocol: call exactly one tool from the provided tools list. Never output prose.\n"
-    "Priority rule: faithful representation of what the deed actually describes is more important than forcing a convenient but inaccurate graph.\n"
+    "Protocol: call exactly one tool from the provided tools list.\n"
     "If a deed-faithful representation is partially unsupported, preserve the deed semantics explicitly (geometry/annotations/provenance) and continue iterating; do not invent substitute geometry.\n"
     "Continuity memory:\n"
     "- Read memory.run_summary_log as condensed history.\n"
@@ -52,7 +65,6 @@ _DEVELOPER_MESSAGE = (
     "- If the plotted shape seems implausible for the deed calls (topology/shape mismatch), reopen deed spans and revise IR.\n"
     "Done semantics: kernel claimability indicates structural readiness; you are semantic arbiter. "
     "DECLARE_DONE must include concise justification with artifact refs and evidence/assumptions.\n"
-    "Refs-not-blobs: prefer artifact refs, avoid large inline payloads.\n"
     "Deed span bookmarks:\n"
     "- Canonical deed remains available by inputs.deed_text_artifact_ref.\n"
     "- For repeated source verification on long deeds, use span bookmarks: UPSERT_DEED_SPAN_INDEX -> OPEN_TEXT_SPANS -> confirm/adjust.\n"
@@ -73,8 +85,29 @@ _DEVELOPER_MESSAGE = (
 )
 
 
-def build_developer_message() -> str:
-    return _DEVELOPER_MESSAGE
+def build_developer_message(
+    *,
+    run_link_id: str = "",
+    model: str = "",
+    mission_objective: str = "",
+) -> str:
+    """Build deed-controller developer message with identity header prepended.
+
+    Args:
+        run_link_id: canonical mission-level linkage string (= request_id_prefix).
+            Pass the same value for all LLM surfaces within one mission run.
+        model: model identifier for the call.
+        mission_objective: human-readable mission purpose string.
+    """
+    identity = compose_identity_header(
+        run_link_id=run_link_id,
+        mission_objective=mission_objective,
+        domain=Domain.DEED_TO_IR,
+        surface=Surface.DEED_CONTROLLER,
+        inheritance_mode=InheritanceMode.FULL,
+        model=model,
+    )
+    return identity.header_text + _DEVELOPER_MESSAGE_LEAF
 
 
 def build_user_message(*, context_packet: dict[str, object]) -> str:

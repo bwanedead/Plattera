@@ -15,6 +15,10 @@ class TranscriptEditAgentRunRequest(BaseModel):
       waiting/resume authority surface.
     """
 
+    mission_objective: str = Field(
+        default="",
+        description="Human-readable mission objective threaded to all LLM call surfaces.",
+    )
     dossier_id: Optional[str] = None
     transcription_id: Optional[str] = None
     trigger: Optional[str] = None

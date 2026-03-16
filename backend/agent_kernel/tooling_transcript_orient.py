@@ -59,6 +59,13 @@ from .run_artifact import ArtifactRef, ValidationInline
 
 logger = logging.getLogger(__name__)
 
+from agents.common.identity_composer import (
+    Domain,
+    InheritanceMode,
+    Surface,
+    compose_identity_header,
+)
+
 from .tooling_artifacts import _coerce_artifact_ref, _read_json_dict, _read_str, _tool_refusal_result
 from .tooling_text_spans import _bounded_int
 
@@ -205,7 +212,13 @@ class TranscriptOrientBaselineTool:
             hydration_budget_applied,
             hydrated_total_bytes,
         )
-        system_msg = _build_tx_orient_system_message()
+        run_link_id = _read_str(inputs.get("run_link_id")) or ""
+        mission_objective = _read_str(inputs.get("mission_objective")) or ""
+        system_msg = _build_tx_orient_system_message(
+            run_link_id=run_link_id,
+            mission_objective=mission_objective,
+            model=model,
+        )
         user_msg = _build_tx_orient_user_message(
             transcript_text=canonical.transcript_text,
             candidate_texts=candidate_texts,
@@ -327,16 +340,30 @@ class TranscriptOrientBaselineTool:
         }
 
 
-def _build_tx_orient_system_message() -> str:
-    return (
+def _build_tx_orient_system_message(
+    *,
+    run_link_id: str = "",
+    mission_objective: str = "",
+    model: str = "",
+) -> str:
+    identity = compose_identity_header(
+        run_link_id=run_link_id,
+        mission_objective=mission_objective,
+        domain=Domain.TRANSCRIPT_EDIT,
+        surface=Surface.TX_ORIENT_BASELINE,
+        inheritance_mode=InheritanceMode.LIGHT,
+        model=model,
+    )
+    leaf = (
         "You are a transcript orientation engine for legal deed text. "
-        "Return JSON only. Do not propose edits or plans. "
+        "Do not propose edits or plans. "
         "Classify each mapping decision with explicit layer and operational impact. "
         "Layer values: layer1_canonical_recovery, layer2_canonical_sanity, "
         "layer3_dependency, layer4_transcript_quality_optional. "
         "Operational impact values: mapping_blocking or transcript_quality_only. "
         "State values: unknown, candidate_found, verified, disputed, accepted_with_risk."
     )
+    return identity.header_text + leaf
 
 
 def _build_tx_orient_user_message(*, transcript_text: str, candidate_texts: list[str]) -> str:

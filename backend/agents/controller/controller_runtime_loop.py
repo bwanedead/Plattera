@@ -318,6 +318,8 @@ def _run_controller_loop_impl(
                 observation=context_packet,
                 transcript=transcript,
                 repair_request=pending_refusal_repair,
+                run_link_id=start_request.request_id,
+                mission_objective=str(start_request.objective or ""),
             )
             pending_refusal_repair = None
         else:
@@ -326,6 +328,8 @@ def _run_controller_loop_impl(
                 model=model,
                 observation=context_packet,
                 transcript=transcript,
+                run_link_id=start_request.request_id,
+                mission_objective=str(start_request.objective or ""),
             )
         proposal_source = "llm_or_repair"
         if proposal is None:

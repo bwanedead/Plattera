@@ -126,6 +126,76 @@ def test_normalize_image_evidence_rejects_invalid_mode() -> None:
     assert reason == "image_evidence_mode_invalid"
 
 
+def test_normalize_image_evidence_infers_select_region_when_mode_absent_and_crop_box_present() -> None:
+    """A1 compatibility: agent omits mode, provides crop_box_normalized — should infer select_region."""
+    request, reason = normalize_evidence_request(
+        evidence_request={
+            "kind": "image_evidence",
+            "decision_key": "range",
+            "reason": "Inspect range clause region.",
+            "target": {
+                "crop_box_normalized": {"x": 0.35, "y": 0.20, "width": 0.35, "height": 0.15},
+                "zoom_factor": 2.4,
+                "expected_fields": ["range"],
+            },
+        },
+        decision_key="range",
+    )
+    assert reason == "ok", f"Expected ok, got {reason}"
+    assert isinstance(request, dict)
+    assert request.get("mode") == "select_region"
+    target = request.get("target") or {}
+    assert isinstance(target.get("crop_box_normalized"), dict)
+
+
+def test_execute_evidence_request_dispatches_image_evidence_runner() -> None:
+    """B: execute_evidence_request must route image_evidence to the image_evidence_runner."""
+    evidence_request = {
+        "kind": "image_evidence",
+        "decision_key": "range",
+        "reason": "Inspect range clause.",
+        "target": {
+            "crop_box_normalized": {"x": 0.35, "y": 0.20, "width": 0.35, "height": 0.15},
+            "zoom_factor": 2.0,
+        },
+    }
+    request, reason = normalize_evidence_request(evidence_request=evidence_request, decision_key="range")
+    assert reason == "ok"
+    assert request is not None
+
+    runner_called: list[dict] = []
+
+    def _image_evidence_runner(req: dict) -> dict:
+        runner_called.append(req)
+        return {
+            "image_evidence": {
+                "mode": "select_region",
+                "status": "executed",
+                "tx_image_evidence_region_ref": {"artifact_path": "in-memory://region.jpg"},
+                "tx_image_evidence_context_ref": {"artifact_path": "in-memory://context.jpg"},
+                "crop_box": {"x": 0.35, "y": 0.20, "width": 0.35, "height": 0.15},
+                "zoom_factor": 2.0,
+            }
+        }
+
+    result = execute_evidence_request(
+        normalized_request=request,
+        source_transcript_hash="sha256:test",
+        repeat_guard={},
+        evidence_signal_counter=0,
+        max_repeats_per_signature=2,
+        open_spans_runner=lambda _: [],
+        image_verify_runner=lambda _: {},
+        image_evidence_runner=_image_evidence_runner,
+    )
+    assert result["status"] == "executed"
+    assert result["kind"] == "image_evidence"
+    assert len(runner_called) == 1
+    # Resulting image_evidence payload must include region/context refs
+    img_ev = result.get("image_evidence") or {}
+    assert isinstance(img_ev.get("tx_image_evidence_region_ref"), dict)
+
+
 def test_normalize_image_evidence_rejects_conflicting_mode_sources() -> None:
     request, reason = normalize_evidence_request(
         evidence_request={

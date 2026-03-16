@@ -1,8 +1,17 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+import logging
+from typing import Any, Callable
 
+_LOG = logging.getLogger(__name__)
+
+from agents.common.identity_composer import (
+    Domain,
+    InheritanceMode,
+    Surface,
+    compose_identity_header,
+)
 from services.llm.openai import OpenAIService
 from transcript_edit.contracts import EditPlanV0
 
@@ -28,8 +37,17 @@ KNOWN_IMAGE_EVIDENCE_DICT_TARGET_FIELDS = {
 
 
 class TranscriptEditPlanPlanner:
-    def __init__(self, service: OpenAIService | None = None) -> None:
+    def __init__(
+        self,
+        service: OpenAIService | None = None,
+        identity_trace_cb: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
         self._service = service or OpenAIService()
+        self._identity_trace_cb = identity_trace_cb
+
+    def wire_identity_trace_cb(self, cb: Callable[[dict[str, Any]], None] | None) -> None:
+        """Replace the identity trace callback (called by kernel after tracer is created)."""
+        self._identity_trace_cb = cb
 
     def propose_plan(
         self,
@@ -44,13 +62,43 @@ class TranscriptEditPlanPlanner:
         candidate_disagreement_hints: dict[str, Any] | None,
         mapping_priority_focus: dict[str, Any] | None,
         max_attempts: int,
+        run_link_id: str = "",
+        mission_objective: str = "",
     ) -> tuple[EditPlanV0 | None, str, str]:
         if not self._service.is_available() or getattr(self._service, "client", None) is None:
             return None, "planner_unavailable", ""
         api_model = self._service.models.get(model, {}).get("api_model_name", model)
         client = self._service.client
 
-        system_msg = build_planner_system_message()
+        identity = compose_identity_header(
+            run_link_id=run_link_id,
+            mission_objective=mission_objective,
+            domain=Domain.TRANSCRIPT_EDIT,
+            surface=Surface.TX_PLANNER,
+            inheritance_mode=InheritanceMode.FULL,
+            model=model,
+        )
+        _LOG.debug(
+            "llm_call_identity surface=%s domain=%s mode=%s run_link_id=%s model=%s",
+            identity.metadata.surface,
+            identity.metadata.domain,
+            identity.metadata.inheritance_mode,
+            identity.metadata.run_link_id,
+            identity.metadata.model,
+        )
+        if self._identity_trace_cb is not None:
+            try:
+                self._identity_trace_cb({
+                    "surface": identity.metadata.surface,
+                    "domain": identity.metadata.domain,
+                    "inheritance_mode": identity.metadata.inheritance_mode,
+                    "constitution_version": identity.metadata.constitution_version,
+                    "run_link_id": identity.metadata.run_link_id,
+                    "model": identity.metadata.model,
+                })
+            except Exception:
+                pass
+        system_msg = identity.header_text + build_planner_system_message()
         user_msg = build_planner_user_message(
             source_transcript_ref=source_transcript_ref,
             source_transcript_hash=source_transcript_hash,
@@ -128,13 +176,43 @@ class TranscriptEditPlanPlanner:
         model: str,
         focus_packet: dict[str, Any],
         max_attempts: int,
+        run_link_id: str = "",
+        mission_objective: str = "",
     ) -> tuple[dict[str, Any] | None, str, str]:
         if not self._service.is_available() or getattr(self._service, "client", None) is None:
             return None, "resolver_unavailable", ""
         api_model = self._service.models.get(model, {}).get("api_model_name", model)
         client = self._service.client
 
-        system_msg = build_focus_resolver_system_message()
+        identity = compose_identity_header(
+            run_link_id=run_link_id,
+            mission_objective=mission_objective,
+            domain=Domain.TRANSCRIPT_EDIT,
+            surface=Surface.TX_FOCUS_RESOLVER,
+            inheritance_mode=InheritanceMode.FULL,
+            model=model,
+        )
+        _LOG.debug(
+            "llm_call_identity surface=%s domain=%s mode=%s run_link_id=%s model=%s",
+            identity.metadata.surface,
+            identity.metadata.domain,
+            identity.metadata.inheritance_mode,
+            identity.metadata.run_link_id,
+            identity.metadata.model,
+        )
+        if self._identity_trace_cb is not None:
+            try:
+                self._identity_trace_cb({
+                    "surface": identity.metadata.surface,
+                    "domain": identity.metadata.domain,
+                    "inheritance_mode": identity.metadata.inheritance_mode,
+                    "constitution_version": identity.metadata.constitution_version,
+                    "run_link_id": identity.metadata.run_link_id,
+                    "model": identity.metadata.model,
+                })
+            except Exception:
+                pass
+        system_msg = identity.header_text + build_focus_resolver_system_message()
         user_msg = build_focus_resolver_user_message(focus_packet=focus_packet)
         decision_key = str(focus_packet.get("decision_key") or "decision")
         injection_context = _resolver_injection_context(focus_packet=focus_packet, decision_key=decision_key)

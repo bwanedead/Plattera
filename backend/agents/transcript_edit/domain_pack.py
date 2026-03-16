@@ -58,6 +58,12 @@ from .decision_ledger import (
     list_external_context_injections,
 )
 from .decision_ledger_closure import unresolved_closure_requirements as _unresolved_closure_requirements
+from .evidence_executor import normalize_evidence_request
+from .evidence_runtime import (
+    run_image_evidence_mode,
+    cache_visual_evidence_for_key,
+    cache_image_verification_for_key,
+)
 from .focus_packet import build_focus_packet
 from .focus_resolver import resolve_focus_move
 from .focus_runtime import recent_image_evidence_attempt_count
@@ -112,11 +118,16 @@ class TranscriptEditDomainPack:
         progress_cb: Callable[[dict[str, Any]], None] | None = None,
         loop_model: str = "gpt-5.2",
         initial_state: TranscriptEditLoopState | None = None,
+        identity_trace_cb: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self._request = request
         self._session_id = session_id
         self._request_id_prefix = request_id_prefix
-        self._planner = planner or TranscriptEditPlanPlanner()
+        self._mission_objective: str = str(request.mission_objective or "").strip()
+        self._identity_trace_cb = identity_trace_cb
+        self._planner = planner or TranscriptEditPlanPlanner(
+            identity_trace_cb=identity_trace_cb,
+        )
         self._progress_cb = progress_cb
         self._loop_model = loop_model
         # Authoritative domain state; initialized in orient hook or from initial_state.
@@ -138,6 +149,16 @@ class TranscriptEditDomainPack:
         # Pending refresh baselines (set when pending_reaudit_after_apply).
         self._refresh_baseline_blocking_count: int | None = None
         self._refresh_baseline_blocking_sig: str | None = None
+
+    def wire_identity_trace_cb(self, cb: Callable[[dict[str, Any]], None] | None) -> None:
+        """Inject kernel tracer callback after loop construction (D3 trace observability).
+
+        Called by run_orchestration_kernel_loop after creating KernelTraceCollector,
+        so the domain pack and its planner emit llm_call_identity trace events into
+        the kernel's persisted trace rather than only debug logs.
+        """
+        self._identity_trace_cb = cb
+        self._planner.wire_identity_trace_cb(cb)
 
     # -------------------------------------------------------------------------
     # Hook 1 — orient
@@ -226,6 +247,8 @@ class TranscriptEditDomainPack:
         orient_inputs: dict[str, Any] = {
             "dossier_id": request.dossier_id,
             "model": self._loop_model,
+            "run_link_id": request_id_prefix,
+            "mission_objective": self._mission_objective,
         }
         if self._state.current_transcript_ref:
             orient_inputs["source_transcript_ref"] = self._state.current_transcript_ref
@@ -577,6 +600,8 @@ class TranscriptEditDomainPack:
             planning_findings=self._iter_planning_findings,
             max_invalid_plan_attempts=self._request.max_invalid_plan_attempts,
             validation_mode=str(self._request.validation_mode or "off"),
+            run_link_id=self._request_id_prefix,
+            mission_objective=self._mission_objective,
         )
         move_type = str(move_payload.get("move") or "mark_blocked").strip().lower()
         # Normalize move types to canonical forms.
@@ -678,6 +703,101 @@ class TranscriptEditDomainPack:
                         idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, {}),
                         hitl_intent_flag=True,
                     )
+
+            # B — Execute image evidence inline when kind is image_evidence/image_verify.
+            if evidence_kind in _IMAGE_EVIDENCE_KINDS:
+                normalized_req, norm_reason = normalize_evidence_request(
+                    evidence_request=evidence_request,
+                    decision_key=focus_key,
+                )
+                if normalized_req is not None:
+                    _req_id = self._request_id_prefix
+
+                    def _kernel_step_fn(
+                        *,
+                        session_manager,
+                        session_id,
+                        prefix,
+                        iteration,
+                        action_type,
+                        inputs,
+                        _req_id=_req_id,
+                    ):
+                        return session_manager.step(
+                            KernelStepRequest(
+                                session_id=session_id,
+                                action_type=action_type,
+                                inputs=inputs,
+                                idempotency_key=_make_idempotency_key(
+                                    f"{_req_id}:{prefix}", iteration, inputs
+                                ),
+                            )
+                        )
+
+                    img_result = run_image_evidence_mode(
+                        normalized_request=normalized_req,
+                        session_manager=context.session_manager,
+                        session_id=context.session_id,
+                        iteration=iterations,
+                        dossier_id=request.dossier_id,
+                        source_transcript_ref=self._state.current_transcript_ref or "",
+                        source_image_refs=list(request.source_image_refs or []),
+                        model=self._loop_model,
+                        focus_decision_key=focus_key,
+                        top_findings=self._iter_planning_findings,
+                        llm_call_seq_start=self._state.llm_call_seq,
+                        progress_cb=self._progress_cb,
+                        latest_visual_evidence=self._state.visual_evidence_by_decision_key.get(focus_key),
+                        step_fn=_kernel_step_fn,
+                        read_step_outputs_inline_fn=read_step_outputs_inline,
+                    )
+                    _src_hash = self._iter_source_hash
+                    _src_ref = self._state.current_transcript_ref
+                    if img_result.get("status") == "executed":
+                        _visual = img_result.get("image_evidence") or {}
+                        if _visual:
+                            cache_visual_evidence_for_key(
+                                state=self._state,
+                                decision_key=focus_key,
+                                visual_evidence=_visual,
+                                source_transcript_ref=_src_ref,
+                                source_transcript_hash=_src_hash,
+                            )
+                            self._state.evidence_signal_counter += 1
+                        _img_verify = img_result.get("image_verification") or {}
+                        if _img_verify:
+                            cache_image_verification_for_key(
+                                state=self._state,
+                                decision_key=focus_key,
+                                image_verification=_img_verify,
+                                source_transcript_ref=_src_ref,
+                                source_transcript_hash=_src_hash,
+                            )
+                        if isinstance(img_result.get("latest_refs"), dict):
+                            self._state.latest_refs = img_result["latest_refs"]
+                        self._state.llm_call_seq = int(
+                            img_result.get("llm_call_seq_end") or self._state.llm_call_seq
+                        )
+                    _LOG.info(
+                        "TX_DOMAIN_PACK image_evidence_executed ► request_id=%s focus_key=%s status=%s",
+                        self._request_id_prefix,
+                        focus_key,
+                        img_result.get("status"),
+                    )
+                    return MoveExecutionPlan(
+                        action_type=ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+                        action_inputs={},
+                        idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, {}),
+                        skip_execution=True,
+                    )
+                else:
+                    _LOG.warning(
+                        "TX_DOMAIN_PACK image_evidence_norm_fail ► request_id=%s focus_key=%s reason=%s",
+                        self._request_id_prefix,
+                        focus_key,
+                        norm_reason,
+                    )
+                    # Fall through to default audit on normalization failure.
 
             if evidence_kind == "open_spans":
                 inputs = {

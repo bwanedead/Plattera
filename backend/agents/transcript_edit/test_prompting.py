@@ -116,8 +116,33 @@ def test_focus_resolver_user_message_output_shape_prefers_normalized_select_regi
     output_shape = payload.get("output_shape") if isinstance(payload.get("output_shape"), dict) else {}
     evidence_request = output_shape.get("evidence_request") if isinstance(output_shape.get("evidence_request"), dict) else {}
     target = evidence_request.get("target") if isinstance(evidence_request.get("target"), dict) else {}
-    assert str(evidence_request.get("mode") or "") == "select_region"
+    # mode removed from example (A1 — no internal tool-step vocab in prompt)
+    assert "mode" not in evidence_request
     assert isinstance(target.get("crop_box_normalized"), dict)
     assert "propose_blocker_updates" in list(payload.get("allowed_moves") or [])
     blocker_updates = output_shape.get("blocker_updates")
     assert isinstance(blocker_updates, list) and len(blocker_updates) >= 1
+
+
+def test_system_message_crop_box_normalized_is_dict_shape() -> None:
+    """A2: system message must describe crop_box_normalized as a dict, not a list."""
+    msg = build_focus_resolver_system_message()
+    assert '"x"' in msg or "\"x\"" in msg or '{"x"' in msg
+    assert "[x0,y0,x1,y1]" not in msg
+
+
+def test_output_shape_evidence_request_has_no_mode_field() -> None:
+    """A1: output_shape evidence_request example must not contain a mode field."""
+    payload = json.loads(
+        build_focus_resolver_user_message(
+            focus_packet={"decision_key": "range", "source_transcript_ref": "test", "source_transcript_hash": "abc"}
+        )
+    )
+    er = (payload.get("output_shape") or {}).get("evidence_request") or {}
+    assert "mode" not in er, "mode should not appear in evidence_request example (A1 clean vocab)"
+
+
+def test_system_message_staged_hitl_image_evidence_guidance() -> None:
+    """C: system message must include staged HITL pattern guidance."""
+    msg = build_focus_resolver_system_message()
+    assert "image_evidence step first" in msg or "one image_evidence step" in msg

@@ -86,6 +86,21 @@ def run_orchestration_kernel_loop(
         run_artifact_ref=run_artifact_ref,
     )
 
+    # D3 trace observability: wire tracer's emit_llm_call_identity into domain pack
+    # so LLM call identity events are persisted in the kernel trace (not just debug logs).
+    if hasattr(domain_pack, "wire_identity_trace_cb"):
+        def _identity_trace_cb(info: dict[str, Any]) -> None:
+            tracer.emit_llm_call_identity(
+                iteration=None,
+                surface=str(info.get("surface") or ""),
+                domain=str(info.get("domain") or ""),
+                inheritance_mode=str(info.get("inheritance_mode") or ""),
+                constitution_version=str(info.get("constitution_version") or ""),
+                run_link_id=str(info.get("run_link_id") or ""),
+                model=str(info.get("model") or ""),
+            )
+        domain_pack.wire_identity_trace_cb(_identity_trace_cb)
+
     # Phase 1: Orient — runs once at loop start.
     _LOG.info("TX_KERNEL orient ► request_id=%s", request_id_prefix)
     domain_pack.orient(context)

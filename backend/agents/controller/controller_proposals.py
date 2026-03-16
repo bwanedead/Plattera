@@ -84,6 +84,8 @@ def _propose_next_step(
     model: str,
     observation: dict[str, object],
     transcript: list[dict[str, object]],
+    run_link_id: str = "",
+    mission_objective: str = "",
 ) -> KernelStepProposal | None:
     tool_menu = observation.get("tool_menu")
     tool_specs = action_tool_specs_for_menu(tool_menu if isinstance(tool_menu, list) else [])
@@ -93,7 +95,7 @@ def _propose_next_step(
         model=model,
         tools=tool_specs,
         tool_choice_name=None,
-        developer_message=build_developer_message(),
+        developer_message=build_developer_message(run_link_id=run_link_id, model=model, mission_objective=mission_objective),
         user_message=build_user_message(context_packet=observation),
     )
     proposal, parse_error = _coerce_proposal(first)
@@ -112,7 +114,7 @@ def _propose_next_step(
         model=model,
         tools=tool_specs,
         tool_choice_name=None,
-        developer_message=build_developer_message(),
+        developer_message=build_developer_message(run_link_id=run_link_id, model=model, mission_objective=mission_objective),
         user_message=build_repair_user_message(parse_error=parse_error),
     )
     proposal, parse_error = _coerce_proposal(second)
@@ -136,6 +138,8 @@ def _propose_refusal_repair_step(
     observation: dict[str, object],
     transcript: list[dict[str, object]],
     repair_request: dict[str, object],
+    run_link_id: str = "",
+    mission_objective: str = "",
 ) -> KernelStepProposal | None:
     tool_menu = observation.get("tool_menu")
     available_specs = action_tool_specs_for_menu(tool_menu if isinstance(tool_menu, list) else [])
@@ -149,7 +153,7 @@ def _propose_refusal_repair_step(
         model=model,
         tools=tools,
         tool_choice_name=tools[0].name if len(tools) == 1 else action_type_raw,
-        developer_message=build_developer_message(),
+        developer_message=build_developer_message(run_link_id=run_link_id, model=model, mission_objective=mission_objective),
         user_message=build_refusal_repair_user_message(
             reason_code=str(repair_request.get("reason_code") or "unknown_refusal"),
             required_fields=[str(v) for v in (repair_request.get("required_fields") or []) if isinstance(v, str)],

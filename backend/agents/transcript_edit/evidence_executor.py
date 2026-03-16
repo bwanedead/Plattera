@@ -221,6 +221,16 @@ def _normalize_image_evidence_shape(
         mode=canonical_mode,
         target=normalized_target,
     )
+    # If mode is still unset but target has a valid selector, infer select_region.
+    # This allows the agent to omit mode entirely when providing crop_box_normalized.
+    if not canonical_mode:
+        has_selector = (
+            isinstance(normalized_target.get("crop_box_normalized"), dict)
+            or isinstance(normalized_target.get("crop_box_pixels"), dict)
+            or isinstance(normalized_target.get("grid_selection"), dict)
+        )
+        if has_selector:
+            canonical_mode = "select_region"
     return canonical_mode, normalized_target, None
 
 

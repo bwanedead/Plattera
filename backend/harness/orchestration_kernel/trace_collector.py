@@ -301,6 +301,41 @@ class KernelTraceCollector:
             )
         )
 
+    def emit_llm_call_identity(
+        self,
+        *,
+        iteration: int | None,
+        surface: str,
+        domain: str,
+        inheritance_mode: str,
+        constitution_version: str,
+        run_link_id: str,
+        model: str,
+    ) -> None:
+        """Emitted once per LLM call to record prompt identity metadata (D6)."""
+        self._append(
+            RawTraceEvent(
+                timestamp_epoch_seconds=self._now(),
+                event_kind="model_proposal",
+                phase="llm_call_identity",
+                iteration_index=iteration,
+                actor="kernel",
+                status="completed",
+                refs_delta={},
+                payload={
+                    "surface": surface,
+                    "domain": domain,
+                    "inheritance_mode": inheritance_mode,
+                    "constitution_version": constitution_version,
+                    "run_link_id": run_link_id,
+                    "model": model,
+                },
+                source_origin=self._source(
+                    local_id=f"iter_{iteration}_identity_{surface}"
+                ),
+            )
+        )
+
     # ------------------------------------------------------------------
     # Output
     # ------------------------------------------------------------------

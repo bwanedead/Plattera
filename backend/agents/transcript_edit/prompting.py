@@ -5,11 +5,13 @@ from typing import Any
 
 
 def build_planner_system_message() -> str:
+    # Trunk covers: "Return only valid JSON. Never output prose or markdown." + "Be faithful to source material."
+    # Branch covers: "Mapping-blocking unresolved items are the highest priority focus."
     return (
         "You are a legal transcript edit planner. "
         "Your mission is to drive the transcript toward zero mapping-critical inaccuracies for downstream deed-to-IR and mapping loops. "
         "Propose a bounded EditPlanV0 JSON object only. "
-        "Faithfully represent source deed semantics, prioritize sanity, and avoid speculative edits. "
+        "Prioritize sanity and avoid speculative edits. "
         "Never treat unresolved bearing/range/tie-distance conflicts as done; plans must explicitly target unresolved conflicts when evidence supports a safe edit. "
         "Do not propose purely cosmetic formatting edits (spacing, punctuation, symbol variants) unless meaning changes. "
         "Prefer localized normalization edits first. "
@@ -125,7 +127,7 @@ def build_focus_resolver_system_message() -> str:
         "If move=request_human_feedback, include feedback_prompt with line1, line2, and bounded choices when available. "
         "If move=gather_more_evidence, include evidence_request with fields: kind, decision_key, reason, target. "
         "Allowed evidence_request.kind values: open_spans, image_verify, image_evidence, retrieve_dependency_evidence. "
-        "For image_evidence: set target to a JSON object with crop_box_normalized ([x0,y0,x1,y1] in 0-1 range) and zoom_factor (1.0–4.0). "
+        "For image_evidence: set target to a JSON object with crop_box_normalized ({\"x\": float, \"y\": float, \"width\": float, \"height\": float} with values in 0-1 range) and zoom_factor (1.0–4.0). "
         "For open_spans: set target to a span_key or description of the region of interest. "
         "For retrieve_dependency_evidence: set target to the dependency key or artifact ref to retrieve. "
         "Treat external_context_injections as persistent semantic state. "
@@ -143,8 +145,10 @@ def build_focus_resolver_system_message() -> str:
         "When focus_packet.validation_mode=live_hitl and the focused item has state=disputed or verification_required=true, "
         "you MUST prefer request_human_feedback over gather_more_evidence. "
         "Do NOT re-audit or gather evidence for a disputed item when live HITL is available — the human operator is the resolution authority. "
-        "Always include decision_key, move, reason, and iteration_summary. "
-        "Do not return markdown. Return JSON object only."
+        "Exception: if no visual evidence is yet present for an image-visible dispute and you are about to request HITL, "
+        "prefer one image_evidence step first (agent-selected crop/zoom) so the HITL prompt can carry the region the agent examined; "
+        "then request HITL the following iteration. Do not chain more than one image_evidence step before HITL. "
+        "Always include decision_key, move, reason, and iteration_summary."
     )
 
 
@@ -274,9 +278,8 @@ def build_focus_resolver_user_message(
             "feedback_prompt": None,
             "evidence_request": {
                 "kind": "image_evidence",
-                "mode": "select_region",
                 "decision_key": "range",
-                "reason": "Select a normalized region around the range clause, then refine if needed.",
+                "reason": "Inspect the range clause region in the source image to resolve the R74/R75 ambiguity.",
                 "target": {
                     "crop_box_normalized": {"x": 0.35, "y": 0.20, "width": 0.35, "height": 0.15},
                     "zoom_factor": 2.4,
