@@ -149,10 +149,12 @@ def test_run_progress_frame_present_in_tx_focus_packet() -> None:
     assert set(frame.keys()) == {"run_identity", "run_posture", "work_summary"}
 
     identity = frame["run_identity"]
+    # run_identity is strictly run identity — surface is absent (owned by header).
+    assert set(identity.keys()) == {"run_link_id", "mission_objective", "domain", "constitution_version"}
     assert identity["run_link_id"] == "req_test"
     assert identity["domain"] == "transcript_edit"
-    assert identity["surface"] == "tx_planner"
     assert identity["mission_objective"] == "verify transcript edit focus packet"
+    assert "surface" not in identity, "surface must not appear in packet-level run_identity"
 
     posture = frame["run_posture"]
     assert posture["no_progress_streak"] == 1

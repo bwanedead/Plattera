@@ -365,7 +365,6 @@ class DeedToIRDomainPack:
                 run_link_id=self._request_id_prefix,
                 mission_objective="deed-to-IR feature graph mapping",
                 domain="deed_to_ir",
-                surface="deed_controller",
                 constitution_version="v1",
             )
             strip = list(getattr(context, "rationale_strip_snapshot", None) or [])

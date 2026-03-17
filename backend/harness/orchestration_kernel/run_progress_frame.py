@@ -5,8 +5,10 @@ injected into the domain packet so every LLM call surface has a consistent view 
 run identity, kernel posture, and work summary without exposing raw loop-memory verbosity.
 
 Shape:
-    run_identity  — static framing (run_link_id, mission_objective, domain, surface,
-                    constitution_version)
+    run_identity  — static run framing (run_link_id, mission_objective, domain,
+                    constitution_version).  NOTE: ``surface`` is intentionally absent;
+                    call-surface identity is owned exclusively by the developer/header
+                    message assembled by compose_identity_header().
     run_posture   — kernel-owned counters / flags that signal how the run is going
     work_summary  — top blocking items from loop_memory.blocker_surface (shallow, max 5)
                     + closure posture summary
@@ -43,7 +45,6 @@ def build_run_progress_frame(
     run_link_id: str,
     mission_objective: str,
     domain: str,
-    surface: str,
     constitution_version: str,
 ) -> dict[str, Any]:
     """Assemble a bounded run-progress snapshot from OrchestratorContext.loop_memory.
@@ -53,12 +54,14 @@ def build_run_progress_frame(
         run_link_id: canonical mission-level linkage string (= request_id_prefix).
         mission_objective: human-readable mission purpose string.
         domain: domain identifier string (e.g. "transcript_edit", "deed_to_ir").
-        surface: LLM call surface identifier for this packet.
         constitution_version: identity constitution version tag.
 
     Returns:
         A dict suitable for direct injection into a domain packet under the key
-        ``run_progress_frame``.
+        ``run_progress_frame``.  ``surface`` is not included in ``run_identity``
+        because the focus packet is shared across resolver/planner surfaces; active
+        surface identity belongs in the per-call header assembled by
+        compose_identity_header().
     """
     lm = context.loop_memory
     blocking_items = list(lm.blocker_surface or [])[:_MAX_BLOCKING_ITEMS]
@@ -69,7 +72,6 @@ def build_run_progress_frame(
             "run_link_id": run_link_id,
             "mission_objective": mission_objective,
             "domain": domain,
-            "surface": surface,
             "constitution_version": constitution_version,
         },
         "run_posture": {

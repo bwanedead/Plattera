@@ -591,7 +591,6 @@ class TranscriptEditDomainPack:
                 run_link_id=self._request_id_prefix,
                 mission_objective=self._mission_objective or "transcript edit loop",
                 domain="transcript_edit",
-                surface="tx_planner",
                 constitution_version="v1",
             )
             strip = list(getattr(context, "rationale_strip_snapshot", None) or [])
