@@ -89,6 +89,8 @@ def run_orchestration_kernel_loop(
 
     # D3 trace observability: wire tracer's emit_llm_call_identity into domain pack
     # so LLM call identity events are persisted in the kernel trace (not just debug logs).
+    # D4 telemetry: also increment loop_memory.llm_contact_count on each LLM contact
+    # so the absolute contact count is available in run_progress_frame and CLI output.
     if hasattr(domain_pack, "wire_identity_trace_cb"):
         def _identity_trace_cb(info: dict[str, Any]) -> None:
             tracer.emit_llm_call_identity(
@@ -100,6 +102,7 @@ def run_orchestration_kernel_loop(
                 run_link_id=str(info.get("run_link_id") or ""),
                 model=str(info.get("model") or ""),
             )
+            loop_memory.register_llm_contact()
         domain_pack.wire_identity_trace_cb(_identity_trace_cb)
 
     # Phase 1: Orient — runs once at loop start.

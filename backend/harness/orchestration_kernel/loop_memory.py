@@ -65,3 +65,16 @@ class LoopMemoryState:
     # Cleared on the next successful step execution.
     # Domain packs may read this to surface rejection context to the LLM.
     last_step_refusal_record: dict[str, Any] | None = None
+
+    # --- LLM contact telemetry (D4) ---
+    # Monotonic count of model prompt→response contacts across all surfaces in this run.
+    # Incremented via register_llm_contact() — pure telemetry, does not affect loop logic.
+    llm_contact_count: int = 0
+
+    def register_llm_contact(self) -> None:
+        """Telemetry: increment the absolute LLM contact count.
+
+        Safe to call from any surface (kernel callback, domain pack orient, etc.).
+        This field is telemetry only and must not be used to gate loop decisions.
+        """
+        self.llm_contact_count += 1

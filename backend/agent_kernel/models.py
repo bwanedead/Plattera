@@ -171,6 +171,7 @@ class KernelLatestRefs(BaseModel):
     tx_edited_transcript_ref: Optional[dict[str, object]] = None
     tx_mapping_pointer_ref: Optional[dict[str, object]] = None
     tx_span_seeds_ref: Optional[dict[str, object]] = None
+    tx_investigation_summary_ref: Optional[dict[str, object]] = None
 
 
 class KernelGapSummary(BaseModel):

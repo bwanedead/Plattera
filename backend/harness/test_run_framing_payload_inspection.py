@@ -40,7 +40,11 @@ from harness.tracing.rationale_continuity_strip import build_rationale_continuit
 # ---------------------------------------------------------------------------
 
 def test_ontology_block_present_in_full_trunk() -> None:
-    """[WORKFLOW:ontology_v1] section must appear in FULL mode header for every domain."""
+    """[TRUNK:root_constitution_v2] section must appear in FULL mode header for every domain.
+
+    Verifies hybrid explanatory+law doctrine: constitution block, operating doctrine prose,
+    universal harness laws, and anti-thrash discipline.
+    """
     for domain, surface in [
         (Domain.TRANSCRIPT_EDIT, Surface.TX_PLANNER),
         (Domain.TRANSCRIPT_EDIT, Surface.TX_FOCUS_RESOLVER),
@@ -54,16 +58,23 @@ def test_ontology_block_present_in_full_trunk() -> None:
             surface=surface,
             inheritance_mode=InheritanceMode.FULL,
         )
-        assert "[WORKFLOW:ontology_v1]" in result.header_text, (
-            f"Missing workflow ontology block in FULL header for {domain}/{surface}"
+        assert "[TRUNK:root_constitution_v2]" in result.header_text, (
+            f"Missing trunk constitution block in FULL header for {domain}/{surface}"
         )
-        assert "bounded step" in result.header_text
-        assert "chat memory" in result.header_text
+        assert "bounded reasoning step" in result.header_text
+        assert "conversational memory" in result.header_text
         assert "mission objective" in result.header_text
+        # Operating doctrine prose must be present in FULL headers.
+        assert "Operating doctrine" in result.header_text, (
+            f"Missing operating doctrine section in FULL header for {domain}/{surface}"
+        )
+        assert "evidence-first closure" in result.header_text
+        assert "Anti-thrash discipline" in result.header_text
+        assert "Universal harness laws" in result.header_text
 
 
 def test_ontology_block_present_in_light_trunk() -> None:
-    """Abbreviated ontology must appear in LIGHT mode header."""
+    """Abbreviated trunk must appear in LIGHT mode header."""
     for domain, surface in [
         (Domain.TRANSCRIPT_EDIT, Surface.TX_ORIENT_BASELINE),
         (Domain.TRANSCRIPT_EDIT, Surface.TX_IMAGE_LOCATOR),
@@ -76,10 +87,11 @@ def test_ontology_block_present_in_light_trunk() -> None:
             surface=surface,
             inheritance_mode=InheritanceMode.LIGHT,
         )
-        assert "[WORKFLOW:ontology_v1 mode=light]" in result.header_text, (
-            f"Missing light ontology block for {domain}/{surface}"
+        assert "[TRUNK:root_constitution_v2 mode=light]" in result.header_text, (
+            f"Missing light trunk block for {domain}/{surface}"
         )
         assert "bounded step" in result.header_text
+        assert "Investigate before escalating" in result.header_text
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +172,14 @@ def test_run_progress_frame_present_in_tx_focus_packet() -> None:
     assert posture["no_progress_streak"] == 1
     assert "hitl_state" in posture
     assert "invalid_plan_strikes" in posture
+    # D3: run_stage must be present and be a known label.
+    assert "run_stage" in posture, "run_stage must appear in run_posture (D3)"
+    assert posture["run_stage"] in {
+        "initial_recon", "closure_active", "waiting_human", "stagnating", "near_terminal"
+    }, f"Unknown run_stage value: {posture['run_stage']}"
+    # D4: llm_contact_count must be present and be a non-negative integer.
+    assert "llm_contact_count" in posture, "llm_contact_count must appear in run_posture (D4)"
+    assert isinstance(posture["llm_contact_count"], int) and posture["llm_contact_count"] >= 0
 
     work = frame["work_summary"]
     top = work["blocking_items_top"]
@@ -331,3 +351,77 @@ def test_strip_rank_based_trim_preserves_refusals_over_routine() -> None:
     assert 4 not in iters, "rank-4 iter 4 must be trimmed before rank-1/2/3 entries"
     assert 5 not in iters, "rank-4 iter 5 must be trimmed before rank-1/2/3 entries"
     assert 1 in iters and 6 in iters and 7 in iters, "rank-1 entries must be preserved"
+
+
+# ---------------------------------------------------------------------------
+# D3 — run_stage derivation
+# ---------------------------------------------------------------------------
+
+def test_run_stage_waiting_human_takes_priority() -> None:
+    """run_stage == 'waiting_human' when hitl_state is 'waiting', regardless of other signals."""
+    ctx = _make_tx_context(no_progress_streak=5)
+    ctx.loop_memory.hitl_state = "waiting"
+    ctx.loop_memory.iterations = 4
+    pack = _make_tx_domain_pack()
+    fp = pack.build_focus_packet(ctx, "range")
+    posture = fp.domain_packet["run_progress_frame"]["run_posture"]
+    assert posture["run_stage"] == "waiting_human"
+
+
+def test_run_stage_stagnating_when_streak_high() -> None:
+    """run_stage == 'stagnating' when no_progress_streak >= 3."""
+    ctx = _make_tx_context(no_progress_streak=3)
+    ctx.loop_memory.iterations = 4
+    pack = _make_tx_domain_pack()
+    fp = pack.build_focus_packet(ctx, "range")
+    posture = fp.domain_packet["run_progress_frame"]["run_posture"]
+    assert posture["run_stage"] == "stagnating"
+
+
+def test_run_stage_initial_recon_on_first_iteration() -> None:
+    """run_stage == 'initial_recon' when iterations == 1 and no other signals."""
+    ctx = _make_tx_context()
+    ctx.loop_memory.iterations = 1
+    pack = _make_tx_domain_pack()
+    fp = pack.build_focus_packet(ctx, "range")
+    posture = fp.domain_packet["run_progress_frame"]["run_posture"]
+    assert posture["run_stage"] == "initial_recon"
+
+
+def test_run_stage_near_terminal_with_zero_blockers() -> None:
+    """run_stage == 'near_terminal' when iterations > 1 and blocking_count <= 1."""
+    ctx = _make_tx_context(blocker_surface=[])
+    ctx.loop_memory.iterations = 3
+    pack = _make_tx_domain_pack()
+    fp = pack.build_focus_packet(ctx, "range")
+    posture = fp.domain_packet["run_progress_frame"]["run_posture"]
+    assert posture["run_stage"] == "near_terminal"
+
+
+def test_run_stage_closure_active_default() -> None:
+    """run_stage == 'closure_active' in normal working conditions."""
+    blockers = [{"focus_key": "range", "state": "open"}, {"focus_key": "acreage", "state": "open"}]
+    ctx = _make_tx_context(blocker_surface=blockers)
+    ctx.loop_memory.iterations = 2
+    pack = _make_tx_domain_pack()
+    fp = pack.build_focus_packet(ctx, "range")
+    posture = fp.domain_packet["run_progress_frame"]["run_posture"]
+    assert posture["run_stage"] == "closure_active"
+
+
+# ---------------------------------------------------------------------------
+# D2 — investigation_state injected into focus packet
+# ---------------------------------------------------------------------------
+
+def test_investigation_state_present_in_focus_packet() -> None:
+    """investigation_state must be injected into domain_packet by build_focus_packet."""
+    ctx = _make_tx_context()
+    pack = _make_tx_domain_pack()
+    fp = pack.build_focus_packet(ctx, "range")
+    packet = fp.domain_packet
+    assert "investigation_state" in packet, "investigation_state must be injected into focus packet"
+    state = packet["investigation_state"]
+    assert isinstance(state, dict)
+    assert "complete" in state
+    assert "ref" in state
+    assert isinstance(state["complete"], bool)

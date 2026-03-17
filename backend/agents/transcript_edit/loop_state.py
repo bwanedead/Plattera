@@ -54,3 +54,6 @@ class TranscriptEditLoopState:
     edit_lineage_summary: list[dict[str, Any]] = field(default_factory=list)
     # D1 — T0 candidate refs discovered at orient time
     t0_candidate_refs: list[str] = field(default_factory=list)
+    # D2 — Investigation summary (scene map) — generated once after orient, reused thereafter
+    investigation_summary_ref: str | None = None
+    investigation_complete: bool = False

@@ -113,6 +113,7 @@ def main() -> None:
         timeout_seconds=args.timeout,
         poll_interval=args.poll_interval,
     )
+    sys.stdout = open(sys.stdout.fileno(), mode="w", encoding="utf-8", buffering=1)
     print(json.dumps(result, ensure_ascii=False))
     sys.stdout.flush()
 

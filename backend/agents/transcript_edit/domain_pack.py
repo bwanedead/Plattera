@@ -17,11 +17,18 @@ These are used by hook 7 to supply ProgressMetrics.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import os
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 from agent_kernel.models import ActionType, KernelStepRequest, StepExecutionState
+from agents.common.identity_composer import CONSTITUTION_VERSION
+from config.paths import agent_kernel_artifacts_root
 
 from harness.orchestration_kernel.contracts import (
     ClosureEvaluation,
@@ -319,11 +326,148 @@ class TranscriptEditDomainPack:
                             len(self._state.t0_candidate_refs),
                         )
 
+        # D4: count the orient LLM contact (TX_ORIENT_AND_BASELINE makes one model call).
+        if orient.execution_state == StepExecutionState.EXECUTED:
+            context.loop_memory.register_llm_contact()
+
+        # D2: generate investigation summary once after orient completes.
+        if not self._state.investigation_summary_ref:
+            self._state.investigation_summary_ref = self._generate_investigation_summary(
+                request_id_prefix=request_id_prefix,
+                dossier_id=request.dossier_id or "unknown",
+                llm_contact_at_generation=context.loop_memory.llm_contact_count,
+            )
+            # Initial scene survey is materially complete once orient + summary exist.
+            if self._state.investigation_summary_ref:
+                self._state.investigation_complete = True
+
         _LOG.info(
             "TX_DOMAIN_PACK orient_complete ► request_id=%s ledger_keys=%s",
             request_id_prefix,
             len(self._state.decision_ledger.get("items") or {}),
         )
+
+    # -------------------------------------------------------------------------
+    # D2 — Investigation summary helper (generated once after orient)
+    # -------------------------------------------------------------------------
+
+    def _generate_investigation_summary(
+        self,
+        *,
+        request_id_prefix: str,
+        dossier_id: str,
+        llm_contact_at_generation: int,
+    ) -> str | None:
+        """Persist a bounded scene-map artifact once after orient completes.
+
+        The summary captures what we know at orient time (transcript refs, t0 siblings,
+        top discrepancies, available evidence lanes) so subsequent iterations can
+        anchor to it instead of re-surveying from scratch.
+
+        Returns the artifact file path string, or None on failure.
+        """
+        try:
+            state = self._state
+            ledger_items = state.decision_ledger.get("items") or {}
+
+            # Top discrepancies: mapping-blocking items first, max 5.
+            top_discrepancies: list[dict[str, Any]] = []
+            for key, item in (ledger_items.items() if isinstance(ledger_items, dict) else []):
+                if not isinstance(item, dict):
+                    continue
+                top_discrepancies.append({
+                    "key": key,
+                    "verdict": item.get("verdict"),
+                    "mapping_blocking": item.get("mapping_blocking", False),
+                    "state": item.get("state"),
+                })
+            top_discrepancies.sort(key=lambda x: (not x.get("mapping_blocking", False), x.get("key", "")))
+            top_discrepancies = top_discrepancies[:5]
+
+            summary = {
+                "artifact_kind": "tx_investigation_summary",
+                "schema_version": "v1",
+                "run_id": request_id_prefix,
+                "generated_at_llm_contact": llm_contact_at_generation,
+                "investigation_complete": False,
+                "source_transcript_ref": state.current_transcript_ref,
+                "seed_transcript_ref": state.seed_transcript_ref,
+                "t0_candidate_refs": list(state.t0_candidate_refs or []),
+                "t0_candidate_count": len(state.t0_candidate_refs or []),
+                "working_draft_selection_basis": "heuristic_v2_seed",
+                "top_discrepancies": top_discrepancies,
+                "evidence_lanes_available": ["span", "image", "hitl"],
+                "coverage": {
+                    "orient_baseline_complete": True,
+                    "image_evidence_attempted": False,
+                    "span_evidence_attempted": False,
+                    "hitl_received": False,
+                },
+            }
+
+            root = (
+                agent_kernel_artifacts_root()
+                / "tool_outputs"
+                / "tx_investigation_summary"
+                / dossier_id
+            )
+            root.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+            artifact_name = f"investigation_summary_{ts}_{uuid4().hex[:8]}.json"
+            path = root / artifact_name
+
+            fd, tmp_path = tempfile.mkstemp(prefix="inv_summary_", suffix=".json", dir=str(root))
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(summary, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                try:
+                    os.replace(tmp_path, str(path))
+                except PermissionError:
+                    with path.open("w", encoding="utf-8") as f:
+                        json.dump(summary, f, ensure_ascii=False, indent=2)
+            finally:
+                try:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except Exception:
+                    pass
+
+            _LOG.info(
+                "TX_DOMAIN_PACK investigation_summary_persisted ► request_id=%s path=%s",
+                request_id_prefix,
+                path,
+            )
+            return str(path)
+        except Exception:
+            _LOG.exception(
+                "TX_DOMAIN_PACK investigation_summary_failed ► request_id=%s", request_id_prefix
+            )
+            return None
+
+    def _load_investigation_excerpt(self) -> dict[str, Any] | None:
+        """Load a bounded model-facing excerpt from the persisted investigation summary.
+
+        Returns a compact dict with the fields most useful for model reasoning, or None
+        if the summary ref is unset or the file cannot be read.
+        """
+        ref = self._state.investigation_summary_ref
+        if not ref:
+            return None
+        try:
+            with open(ref, encoding="utf-8") as f:
+                data = json.load(f)
+            return {
+                "working_draft_basis": data.get("working_draft_selection_basis"),
+                "source_transcript_ref": data.get("source_transcript_ref"),
+                "t0_candidate_count": data.get("t0_candidate_count", 0),
+                "top_discrepancies": data.get("top_discrepancies") or [],
+                "evidence_lanes_available": data.get("evidence_lanes_available") or [],
+                "coverage": data.get("coverage") or {},
+            }
+        except Exception:
+            return None
 
     # -------------------------------------------------------------------------
     # Hook 2 — refresh
@@ -585,17 +729,28 @@ class TranscriptEditDomainPack:
             t0_candidate_refs=list(state.t0_candidate_refs or []),
         )
         # D3: inject run-progress frame and rationale-continuity strip into the packet.
+        # D2: inject investigation summary ref + state for cumulative grounding.
         if isinstance(packet, dict):
             packet["run_progress_frame"] = build_run_progress_frame(
                 context,
                 run_link_id=self._request_id_prefix,
                 mission_objective=self._mission_objective or "transcript edit loop",
                 domain="transcript_edit",
-                constitution_version="v1",
+                constitution_version=CONSTITUTION_VERSION,
             )
             strip = list(getattr(context, "rationale_strip_snapshot", None) or [])
             if strip:
                 packet["rationale_continuity_strip"] = strip
+            # D2: investigation summary — present from orient onward; tells the LLM
+            # what reconnaissance has already been done so it doesn't re-survey.
+            # Inject both the ref (for durable access) and a bounded excerpt
+            # (for direct model reasoning without artifact round-trip).
+            _inv_excerpt = self._load_investigation_excerpt()
+            packet["investigation_state"] = {
+                "ref": self._state.investigation_summary_ref,
+                "complete": self._state.investigation_complete,
+                "excerpt": _inv_excerpt,
+            }
         return FocusPacket(focus_key=focus_key, domain_packet=packet)
 
     # -------------------------------------------------------------------------
@@ -788,9 +943,14 @@ class TranscriptEditDomainPack:
                             )
                         if isinstance(img_result.get("latest_refs"), dict):
                             self._state.latest_refs = img_result["latest_refs"]
+                        _seq_before = self._state.llm_call_seq
                         self._state.llm_call_seq = int(
-                            img_result.get("llm_call_seq_end") or self._state.llm_call_seq
+                            img_result.get("llm_call_seq_end") or _seq_before
                         )
+                        # D4: count image locator/verifier LLM contacts via seq delta.
+                        _img_llm_contacts = max(0, self._state.llm_call_seq - _seq_before)
+                        for _ in range(_img_llm_contacts):
+                            context.loop_memory.register_llm_contact()
                     _LOG.info(
                         "TX_DOMAIN_PACK image_evidence_executed ► request_id=%s focus_key=%s status=%s",
                         self._request_id_prefix,

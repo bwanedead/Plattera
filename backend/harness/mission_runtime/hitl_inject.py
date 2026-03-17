@@ -53,6 +53,7 @@ def main() -> None:
         choice=args.choice,
         note=args.note,
     )
+    sys.stdout = open(sys.stdout.fileno(), mode="w", encoding="utf-8", buffering=1)
     print(json.dumps(result, ensure_ascii=False))
     sys.stdout.flush()
 

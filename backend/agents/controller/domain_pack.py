@@ -21,8 +21,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any
+from typing import Any, Callable
 
+from agents.common.identity_composer import CONSTITUTION_VERSION
 from agent_kernel.models import (
     ActionType,
     KernelRefusal,
@@ -150,6 +151,28 @@ class DeedToIRDomainPack:
         # Ephemeral per-iteration state (hook 4 → hook 5 → hook 6).
         self._iter_context_packet: dict[str, Any] | None = None
         self._iter_proposal: KernelStepProposal | None = None
+
+        # D4: identity trace callback wired by kernel after tracer creation.
+        self._identity_trace_cb: Callable[[dict[str, Any]], None] | None = None
+
+    def wire_identity_trace_cb(self, cb: Callable[[dict[str, Any]], None] | None) -> None:
+        """Wire kernel tracer callback for LLM contact telemetry (D4 universality)."""
+        self._identity_trace_cb = cb
+
+    def _emit_llm_contact(self) -> None:
+        """Emit one LLM contact event via the wired identity trace callback."""
+        if self._identity_trace_cb is not None:
+            try:
+                self._identity_trace_cb({
+                    "surface": "deed_controller",
+                    "domain": "deed_to_ir",
+                    "inheritance_mode": "full",
+                    "constitution_version": CONSTITUTION_VERSION,
+                    "run_link_id": self._request_id_prefix,
+                    "model": self._model,
+                })
+            except Exception:
+                pass
 
     # -------------------------------------------------------------------------
     # Hook 1 — orient
@@ -365,7 +388,7 @@ class DeedToIRDomainPack:
                 run_link_id=self._request_id_prefix,
                 mission_objective="deed-to-IR feature graph mapping",
                 domain="deed_to_ir",
-                constitution_version="v1",
+                constitution_version=CONSTITUTION_VERSION,
             )
             strip = list(getattr(context, "rationale_strip_snapshot", None) or [])
             if strip:
@@ -407,6 +430,8 @@ class DeedToIRDomainPack:
                 observation=observation,
                 transcript=self._transcript,
             )
+        # D4: count this deed controller LLM contact.
+        self._emit_llm_contact()
 
         if proposal is None:
             self._parse_fail_streak += 1
