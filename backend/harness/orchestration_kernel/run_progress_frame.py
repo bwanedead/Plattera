@@ -28,7 +28,10 @@ _MAX_BLOCKING_ITEMS = 5
 # v1 shallow blocker keys — exactly these four, nothing else.
 # Keeps each entry to a handful of tokens so the LLM can scan all 5 at a glance.
 #   focus_key   — which work item is blocked (join key to focus selection)
-#   state       — current blocker lifecycle state (e.g. "open", "waiting", "resolved")
+#   state       — domain blocker/work-item lifecycle state string
+#                 (e.g. "open", "waiting_evidence", "resolved").
+#                 This is the DOMAIN's blocker state, NOT kernel HITL state
+#                 (which lives in loop_memory.hitl_state and is separate).
 #   reason_code — machine-readable classification (e.g. "image_not_found")
 #   priority    — numeric ordering hint emitted by domain pack (omitted if absent)
 _BLOCKER_SHALLOW_KEYS_V1 = ("focus_key", "state", "reason_code", "priority")

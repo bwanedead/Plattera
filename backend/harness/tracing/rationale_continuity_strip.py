@@ -127,8 +127,14 @@ def build_rationale_continuity_strip(
 
     # ------------------------------------------------------------------ 2. Inclusion pass
     sorted_iters = sorted(by_iteration.keys())
-    # Each candidate: (iter_idx, bucket, low_relevance_flag)
-    candidates: list[tuple[int, dict[str, Any], bool]] = []
+    # Each candidate: (iter_idx, bucket, relevance_rank)
+    # relevance_rank is a deterministic integer — lower = more important to keep.
+    #   1 = refusal or HITL/escalation    (waiting / refusal constraint)
+    #   2 = new evidence signal            (new_signal_arrived)
+    #   3 = no-progress / stagnation      (no_material_change, pending_hitl, rising streak)
+    #   4 = tactic shift / routine entry  (focus/move change, normal progress)
+    # When trimming: drop highest rank (least important) first; ties broken by oldest first.
+    candidates: list[tuple[int, dict[str, Any], int]] = []
     prev_focus: Any = _SENTINEL
     prev_move: Any = _SENTINEL
 
@@ -137,27 +143,23 @@ def build_rationale_continuity_strip(
         first = prev_focus is _SENTINEL
 
         if first or _is_noteworthy(bucket, prev_focus, prev_move):
-            low_rel = _is_low_relevance(bucket)
-            candidates.append((iter_idx, bucket, low_rel))
+            rank = _relevance_rank(bucket)
+            candidates.append((iter_idx, bucket, rank))
             prev_focus = bucket.get("focus_key")
             prev_move = bucket.get("move_type")
 
     # ------------------------------------------------------------------ 3. Trim to max_entries
     if len(candidates) > max_entries:
-        # Drop oldest low-relevance first, then oldest regardless.
-        # Build working list (mutable) tagged with relevance.
+        # Sort by (rank DESC, iter_idx ASC) to find the oldest lowest-priority entry.
+        # Pop one at a time until within cap, preserving insertion order in final list.
         work = list(candidates)
         while len(work) > max_entries:
-            # Find the first (oldest) low-relevance entry.
-            dropped = False
-            for i, (_, _, low_rel) in enumerate(work):
-                if low_rel:
+            # Find index of oldest entry with the highest (worst) rank.
+            worst_rank = max(r for _, _, r in work)
+            for i, (_, _, r) in enumerate(work):
+                if r == worst_rank:
                     work.pop(i)
-                    dropped = True
                     break
-            if not dropped:
-                # All remaining are high-relevance; drop oldest.
-                work.pop(0)
         candidates = work
 
     # ------------------------------------------------------------------ 4. Build entries
@@ -236,11 +238,15 @@ def _is_noteworthy(
     return False
 
 
-def _is_low_relevance(bucket: dict[str, Any]) -> bool:
-    """Return True if this entry can be dropped first during trimming.
+def _relevance_rank(bucket: dict[str, Any]) -> int:
+    """Return a deterministic relevance rank for trimming priority.
 
-    Low-relevance = normal positive progress with no refusal, escalation, or stagnation.
-    Included in the strip because of a tactic shift, but adds the least carry-forward value.
+    Lower rank = more important to keep when trimming to max_entries.
+
+    Rank 1 — refusal or HITL/escalation: hardest tactical constraint; highest keep priority.
+    Rank 2 — new evidence signal: posture shift; second-highest keep priority.
+    Rank 3 — no-progress / stagnation: rising risk signal; medium keep priority.
+    Rank 4 — tactic shift / routine entry: lowest keep priority; dropped first when trimming.
     """
     exec_state = str(bucket.get("execution_state") or "")
     move_type = str(bucket.get("move_type") or "")
@@ -248,16 +254,17 @@ def _is_low_relevance(bucket: dict[str, Any]) -> bool:
     made_progress = bool(bucket.get("made_progress", True))
     no_progress_streak = int(bucket.get("no_progress_streak") or 0)
 
-    if exec_state == "refused":
-        return False
-    if move_type in _ESCALATION_MOVE_TYPES:
-        return False
-    if progress_rc in _CRITICAL_PROGRESS_CODES:
-        return False
-    if not made_progress and no_progress_streak >= 2:
-        return False
-    # Normal positive progress — low carry-forward value.
-    return made_progress and progress_rc in _ROUTINE_PROGRESS_CODES
+    if exec_state == "refused" or move_type in _ESCALATION_MOVE_TYPES:
+        return 1
+    if progress_rc == "new_signal_arrived":
+        return 2
+    if (
+        progress_rc in {"pending_human_feedback_no_new_signal", "no_material_change"}
+        or (not made_progress and no_progress_streak >= 2)
+        or progress_rc == "refresh_pending_reaudit_grace"
+    ):
+        return 3
+    return 4
 
 
 # ---------------------------------------------------------------------------
