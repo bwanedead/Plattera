@@ -18,7 +18,7 @@ from agents.controller.controller_runtime import (
 )
 from agents.controller.domain_pack import DeedToIRDomainPack
 from harness.orchestration_kernel import run_orchestration_kernel_loop, KernelLoopResult
-from harness.tracing.kernel_trace_persistence import persist_kernel_trace
+from harness.tracing.kernel_trace_persistence import persist_kernel_trace, persist_rationale_strip
 
 from ...terminal_taxonomy import classify_controller_terminal
 from ..contracts import (
@@ -197,6 +197,12 @@ def run_orchestration_kernel_deed_loop(
         kernel_result=kernel_result,
         request_id_prefix=prefix,
     )
+    # D4: persist rationale-continuity strip sidecar alongside the trace artifact.
+    rationale_strip_artifact_ref = persist_rationale_strip(
+        kernel_result=kernel_result,
+        request_id_prefix=prefix,
+        source_trace_artifact_ref=trace_artifact_ref,
+    )
 
     # D3 — merge domain pack's accumulated refs (all steps) with kernel's latest_refs
     # (only the final step). domain_pack._latest_refs accumulates via hook 7 merge and
@@ -206,6 +212,7 @@ def run_orchestration_kernel_deed_loop(
         kernel_result,
         domain_state=domain_state,
         trace_artifact_ref=trace_artifact_ref,
+        rationale_strip_artifact_ref=rationale_strip_artifact_ref,
     )
 
 
@@ -214,6 +221,7 @@ def _adapt_kernel_loop_result_to_controller(
     *,
     domain_state: dict | None = None,
     trace_artifact_ref: str | None = None,
+    rationale_strip_artifact_ref: str | None = None,
 ) -> ControllerRunResult:
     """Convert KernelLoopResult → ControllerRunResult.
 
@@ -272,6 +280,9 @@ def _adapt_kernel_loop_result_to_controller(
     # Phase 12 D1: surface trace artifact ref so high_signal_refs can include it.
     if isinstance(trace_artifact_ref, str) and trace_artifact_ref.strip():
         merged_refs["trace_artifact_ref"] = trace_artifact_ref.strip()
+    # D4: surface rationale strip sidecar ref for operator/resume discoverability.
+    if isinstance(rationale_strip_artifact_ref, str) and rationale_strip_artifact_ref.strip():
+        merged_refs["rationale_strip_artifact_ref"] = rationale_strip_artifact_ref.strip()
 
     last_dashboard = {
         "latest_refs": merged_refs,

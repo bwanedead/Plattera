@@ -1,14 +1,18 @@
-"""Shared kernel-direct trace persistence utility (Phase 12 D2).
+"""Shared kernel-direct trace persistence utility (Phase 12 D2 / D4).
 
-Provides a single best-effort helper used by all orchestration-kernel mode adapters
-(deed-to-IR, transcript-edit) to persist a CanonicalTraceRecord built from live
-KernelTraceCollector events and return its file-path ref.
+Provides best-effort helpers used by all orchestration-kernel mode adapters
+(deed-to-IR, transcript-edit) to persist forensic artifacts after a run:
 
-Rules:
+  persist_kernel_trace        — canonical trace record (CanonicalTraceRecord JSON)
+  persist_rationale_strip     — sidecar rationale-continuity strip (D4)
+
+Rules (both helpers):
 - Never raises — any I/O failure returns None so callers can proceed unblocked.
 - Persists atomically (tmp-file + os.replace) next to the run artifact, or under
   the agent_kernel artifacts root as a fallback.
-- File name convention: ``<run_id>_trace.json`` alongside the run artifact.
+- File name conventions:
+    ``<run_id>_trace.json``           (canonical trace)
+    ``<safe_prefix>_rationale_strip.json``  (D4 sidecar, same directory)
 """
 from __future__ import annotations
 
@@ -18,6 +22,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .rationale_continuity_strip import build_rationale_continuity_strip
 from .service import build_kernel_direct_canonical_trace
 
 if TYPE_CHECKING:
@@ -68,6 +73,64 @@ def persist_kernel_trace(
 
         _atomic_write(path=trace_path, data=trace_record.model_dump(mode="json"))
         return str(trace_path)
+    except Exception:
+        return None
+
+
+def persist_rationale_strip(
+    *,
+    kernel_result: "KernelLoopResult",
+    request_id_prefix: str,
+    source_trace_artifact_ref: str | None = None,
+    max_entries: int = 5,
+    per_entry_cap: int = 256,
+) -> str | None:
+    """Build and atomically persist the rationale-continuity strip sidecar (D4).
+
+    Semantics: persists the *terminal run-level* rationale strip derived from the
+    final raw event set — i.e. the strip that would be injected into the last
+    build_focus_packet call of the run.  This is NOT a history of every per-iteration
+    snapshot; it is the final continuity view for the run.  Reproducible at any time
+    from the same raw events via build_rationale_continuity_strip(trace_events).
+
+    Provenance fields included in the artifact:
+      source_trace_artifact_ref — path to the co-located canonical trace (if known)
+      rationale_strip_version   — derivation version tag ("v1")
+
+    The sidecar lands in the same directory as the trace artifact.
+    File name: ``<safe_prefix>_rationale_strip.json``.
+
+    Returns the absolute path to the persisted JSON, or ``None`` on any failure.
+    """
+    if not kernel_result.trace_events:
+        return None
+    try:
+        strip = build_rationale_continuity_strip(
+            kernel_result.trace_events,
+            max_entries=max_entries,
+            per_entry_cap=per_entry_cap,
+        )
+
+        trace_dir = _resolve_trace_dir(
+            run_artifact_ref=kernel_result.run_artifact_ref,
+            request_id_prefix=request_id_prefix,
+        )
+        trace_dir.mkdir(parents=True, exist_ok=True)
+
+        safe_prefix = request_id_prefix.replace("/", "_").replace("\\", "_")
+        strip_path = trace_dir / f"{safe_prefix}_rationale_strip.json"
+
+        payload: dict[str, Any] = {
+            "request_id_prefix": request_id_prefix,
+            "rationale_strip_version": "v1",
+            "source_trace_artifact_ref": source_trace_artifact_ref,
+            "max_entries": max_entries,
+            "per_entry_cap": per_entry_cap,
+            "entry_count": len(strip),
+            "rationale_continuity_strip": strip,
+        }
+        _atomic_write(path=strip_path, data=payload)
+        return str(strip_path)
     except Exception:
         return None
 

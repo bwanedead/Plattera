@@ -8,7 +8,7 @@ from agent_kernel.session import KernelSessionManager
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
 from agents.transcript_edit.domain_pack import TranscriptEditDomainPack
 from harness.orchestration_kernel import KernelLoopResult, run_orchestration_kernel_loop
-from harness.tracing.kernel_trace_persistence import persist_kernel_trace
+from harness.tracing.kernel_trace_persistence import persist_kernel_trace, persist_rationale_strip
 
 from ...terminal_taxonomy import classify_transcript_edit_terminal
 from ..contracts import (
@@ -210,9 +210,17 @@ def run_orchestration_kernel_transcript_loop(
         kernel_result=kernel_result,
         request_id_prefix=request_id_prefix,
     )
+    # D4: persist rationale-continuity strip sidecar alongside the trace artifact.
+    rationale_strip_artifact_ref = persist_rationale_strip(
+        kernel_result=kernel_result,
+        request_id_prefix=request_id_prefix,
+        source_trace_artifact_ref=trace_artifact_ref,
+    )
     enriched_latest_refs = dict(kernel_result.latest_refs)
     if trace_artifact_ref:
         enriched_latest_refs["trace_artifact_ref"] = trace_artifact_ref
+    if rationale_strip_artifact_ref:
+        enriched_latest_refs["rationale_strip_artifact_ref"] = rationale_strip_artifact_ref
 
     # Merge domain-pack runtime state (has mission_runtime_summary) with kernel loop state.
     domain_state = domain_pack.build_domain_runtime_state()
