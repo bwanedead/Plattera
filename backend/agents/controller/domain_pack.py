@@ -1,8 +1,8 @@
 """Deed-to-IR domain pack — implements the 9-hook DomainPack protocol.
 
-This adapter wraps existing deed controller machinery to plug into the
-orchestration kernel. It is NOT a replacement for the legacy controller loop;
-both coexist behind the --deed-use-orchestration-kernel feature flag.
+This adapter wraps deed controller machinery and plugs into the orchestration
+kernel. The orchestration kernel is the sole runtime for deed_to_ir; the legacy
+controller loop is retired (guarded by PLATTERA_ENABLE_LEGACY_CONTROLLERS).
 
 Hook ownership:
 - Domain pack owns: bootstrap_context, transcript, proposal state, refusal/autofill,

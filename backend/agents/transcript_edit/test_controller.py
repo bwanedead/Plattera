@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from pathlib import Path
 import sys
 from typing import Any
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("PLATTERA_ENABLE_LEGACY_CONTROLLERS"),
+    reason="Legacy controller tests are opt-in. Set PLATTERA_ENABLE_LEGACY_CONTROLLERS=1 to run.",
+)
 
 from backend.agent_kernel.actions import ActionExecutor, ActionExecutorDeps
 from backend.agent_kernel.session import KernelSessionManager

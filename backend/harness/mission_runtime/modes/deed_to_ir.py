@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
 from agent_kernel.models import (
     KernelBudgets,
@@ -14,9 +14,7 @@ from agent_kernel.models import (
 from agent_kernel.session import KernelSessionManager
 from agents.controller.controller_runtime import (
     ControllerRunResult,
-    IterationDigestClient,
     NextStepLLMClient,
-    run_controller_loop,
 )
 from agents.controller.domain_pack import DeedToIRDomainPack
 from harness.orchestration_kernel import run_orchestration_kernel_loop, KernelLoopResult
@@ -38,19 +36,6 @@ from ..contracts import (
 )
 
 DEED_TO_IR_MODE_NAME = "deed_to_ir"
-
-
-class ControllerLoopRunner(Protocol):
-    def __call__(
-        self,
-        *,
-        session_manager: KernelSessionManager,
-        llm_client: NextStepLLMClient,
-        start_request: KernelSessionStartRequest,
-        model: str = "gpt-5-mini",
-        max_iterations: int = 20,
-        digest_client: IterationDigestClient | None = None,
-    ) -> ControllerRunResult: ...
 
 
 class DeedToIRModePolicy(ModePolicy):
@@ -122,31 +107,19 @@ def build_deed_to_ir_mode_policy_from_controller_inputs(
     start_request_factory: Callable[[MissionRuntimeRequest, MissionLedgerView], KernelSessionStartRequest] | None = None,
     model: str = "gpt-5-mini",
     max_iterations: int = 20,
-    digest_client: IterationDigestClient | None = None,
-    controller_runner: ControllerLoopRunner = run_controller_loop,
-    use_orchestration_kernel: bool = False,
 ) -> DeedToIRModePolicy:
-    """Build a deed-to-IR ModePolicy backed by controller runtime or orchestration kernel."""
+    """Build a deed-to-IR ModePolicy backed by the orchestration kernel."""
 
     def _runner(_request: MissionRuntimeRequest, _ledger: MissionLedgerView) -> ControllerRunResult:
         req = start_request_factory(_request, _ledger) if start_request_factory is not None else start_request
         if req is None:
             raise ValueError("deed_to_ir_mode_requires_start_request_or_factory")
-        if use_orchestration_kernel:
-            return run_orchestration_kernel_deed_loop(
-                session_manager=session_manager,
-                llm_client=llm_client,
-                start_request=req,
-                model=model,
-                max_iterations=max_iterations,
-            )
-        return controller_runner(
+        return run_orchestration_kernel_deed_loop(
             session_manager=session_manager,
             llm_client=llm_client,
             start_request=req,
             model=model,
             max_iterations=max_iterations,
-            digest_client=digest_client,
         )
 
     return DeedToIRModePolicy(runner=_runner)

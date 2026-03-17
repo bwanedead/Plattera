@@ -167,7 +167,7 @@ def test_execute_run_emits_terminal_handoff_fields(monkeypatch) -> None:
                 del channel
                 captured_events.append(event)
 
-        monkeypatch.setattr(transcript_edit_agent, "run_transcript_edit_controller_loop", _fake_run_loop)
+        monkeypatch.setattr(transcript_edit_agent, "run_orchestration_kernel_transcript_loop", _fake_run_loop)
         monkeypatch.setattr(transcript_edit_agent, "viewer_event_bus", _Bus())
         monkeypatch.setattr(
             transcript_edit_agent,
@@ -250,7 +250,7 @@ def test_execute_run_preserves_critical_hitl_events_when_progress_log_is_truncat
                 },
             )
 
-        monkeypatch.setattr(transcript_edit_agent, "run_transcript_edit_controller_loop", _fake_run_loop)
+        monkeypatch.setattr(transcript_edit_agent, "run_orchestration_kernel_transcript_loop", _fake_run_loop)
         monkeypatch.setattr(
             transcript_edit_agent,
             "build_handoff_packet",
@@ -321,7 +321,7 @@ def test_execute_run_transitions_to_waiting_feedback_when_pending_human_feedback
                 del channel
                 captured_events.append(event)
 
-        monkeypatch.setattr(transcript_edit_agent, "run_transcript_edit_controller_loop", _fake_run_loop)
+        monkeypatch.setattr(transcript_edit_agent, "run_orchestration_kernel_transcript_loop", _fake_run_loop)
         monkeypatch.setattr(transcript_edit_agent, "viewer_event_bus", _Bus())
         monkeypatch.setattr(
             transcript_edit_agent,
@@ -412,7 +412,7 @@ def test_execute_run_timeout_with_active_hitl_wait_is_marked_resumable_waiting(m
                 },
             )
 
-        monkeypatch.setattr(transcript_edit_agent, "run_transcript_edit_controller_loop", _fake_run_loop)
+        monkeypatch.setattr(transcript_edit_agent, "run_orchestration_kernel_transcript_loop", _fake_run_loop)
         monkeypatch.setattr(
             transcript_edit_agent,
             "build_handoff_packet",
@@ -475,7 +475,7 @@ def test_execute_run_throttles_noncritical_progress_persistence(monkeypatch) -> 
                 runtime_hitl_state={"pending_feedback_prompt_id": "hitl_range_1_wait"},
             )
 
-        monkeypatch.setattr(transcript_edit_agent, "run_transcript_edit_controller_loop", _fake_run_loop)
+        monkeypatch.setattr(transcript_edit_agent, "run_orchestration_kernel_transcript_loop", _fake_run_loop)
         monkeypatch.setattr(
             transcript_edit_agent,
             "build_handoff_packet",

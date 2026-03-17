@@ -1,4 +1,4 @@
-"""Backend API endpoints for controller-driven agent-loop runs."""
+"""Backend API endpoints for kernel-driven deed-to-IR agent-loop runs."""
 
 from __future__ import annotations
 
@@ -18,12 +18,8 @@ from pydantic import BaseModel, Field
 from agent_kernel.models import KernelBudgets, KernelGoal, KernelSessionStartRequest
 from agent_kernel.session import KernelSessionManager
 from agent_kernel.tooling import CorpusArtifactOpener
-from agents.controller.controller import (
-    restore_transcript_event_hook,
-    run_controller_loop,
-    set_transcript_event_hook,
-)
 from agents.controller.openai_client import OpenAINextStepClient
+from harness.mission_runtime.modes.deed_to_ir import run_orchestration_kernel_deed_loop
 from agents.controller.bootstrap import (
     hydrate_and_persist_finalized_dossier_text,
     persist_deed_text_artifact,
@@ -31,8 +27,6 @@ from agents.controller.bootstrap import (
 from agents.schema_mapping.handoff_bridge import (
     handoff_bootstrap_metadata,
     load_transcript_handoff_packet,
-    maybe_build_upstream_correction_request,
-    persist_upstream_correction_requests,
 )
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from services.agent_loop.event_bus import event_bus
@@ -172,46 +166,13 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
                     event_bus.publish_sync(run_id, {"event_type": "run_failed", "run": updated})
                 return
         effective_max_iterations = _resolve_max_iterations(request=request, start_request=start_request)
-        seq_state = {"seq": 0}
-        upstream_requests: list[dict[str, Any]] = []
-
-        def _on_controller_event(event: dict[str, object]) -> None:
-            tape_event = _agent_tape_event_from_transcript_event(run_id=run_id, event=event, seq=seq_state["seq"])
-            seq_state["seq"] += 1
-            if tape_event is None:
-                return
-            event_bus.publish_sync(run_id, tape_event)
-            correction_request = maybe_build_upstream_correction_request(
-                run_id=run_id,
-                event=event,
-                handoff_packet=handoff_packet,
-            )
-            if correction_request is not None:
-                upstream_requests.append(correction_request)
-                event_bus.publish_sync(
-                    run_id,
-                    {
-                        "event_type": "upstream_correction_request",
-                        "run_id": run_id,
-                        "request": correction_request,
-                    },
-                )
-            _run_registry.update_run(
-                run_id=run_id,
-                patch={"live_status": tape_event.get("status"), "last_agent_tape_event": tape_event},
-            )
-
-        previous_hook = set_transcript_event_hook(_on_controller_event)
-        try:
-            result = run_controller_loop(
-                session_manager=session_manager,
-                llm_client=llm_client,
-                start_request=start_request,
-                model=request.model,
-                max_iterations=effective_max_iterations,
-            )
-        finally:
-            restore_transcript_event_hook(previous_hook)
+        result = run_orchestration_kernel_deed_loop(
+            session_manager=session_manager,
+            llm_client=llm_client,
+            start_request=start_request,
+            model=request.model,
+            max_iterations=effective_max_iterations,
+        )
         patch = {
             "status": "completed",
             "session_id": result.session_id,
@@ -220,15 +181,6 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
             "terminal": result.terminal.model_dump(mode="json"),
             "dashboard": result.last_dashboard,
         }
-        upstream_requests_ref = persist_upstream_correction_requests(
-            run_id=run_id,
-            dossier_id=request.dossier_id,
-            requests=upstream_requests,
-        )
-        if upstream_requests:
-            patch["upstream_correction_requests"] = upstream_requests
-        if upstream_requests_ref:
-            patch["upstream_correction_requests_ref"] = upstream_requests_ref
         if handoff_packet is not None:
             patch["transcript_handoff_consumed"] = {
                 "transcript_handoff_ref": request.transcript_handoff_ref,
@@ -249,8 +201,6 @@ def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
                     "run_artifact_ref": result.run_artifact_ref,
                     "transcript_artifact_ref": result.transcript_artifact_ref,
                     "terminal": result.terminal.model_dump(mode="json"),
-                    "upstream_correction_requests": upstream_requests,
-                    "upstream_correction_requests_ref": upstream_requests_ref,
                 },
                 ensure_ascii=True,
             ),

@@ -16,7 +16,6 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from agents.transcript_edit.controller import run_transcript_edit_controller_loop
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
 from agents.transcript_edit.handoff_packet import build_handoff_packet, persist_handoff_packet
 from agents.transcript_edit.state_projection import derive_waiting_feedback_projection
@@ -28,9 +27,11 @@ from agent_kernel.tooling import (
     TranscriptImageVerificationTool,
     TranscriptEditPlanApplyTool,
     TranscriptMappingPromoterTool,
+    TranscriptOrientBaselineTool,
     TranscriptSpanSeedsSaverTool,
     TranscriptSpanOpenerTool,
 )
+from harness.mission_runtime.modes.transcript_edit import run_orchestration_kernel_transcript_loop
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from services.agent_viewer.event_bus import event_bus as viewer_event_bus
 from services.run_inspection_service import RunInspectionMirror
@@ -392,6 +393,7 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             action_executor=ActionExecutor(
                 deps=ActionExecutorDeps(
                     transcript_auditor=TranscriptAuditTool(),
+                    transcript_orient_baseliner=TranscriptOrientBaselineTool(),
                     transcript_span_opener=TranscriptSpanOpenerTool(),
                     transcript_image_verifier=TranscriptImageVerificationTool(),
                     transcript_plan_applier=TranscriptEditPlanApplyTool(),
@@ -401,12 +403,11 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
             ),
             persistence_service=persistence,
         )
-        result = run_transcript_edit_controller_loop(
+        result = run_orchestration_kernel_transcript_loop(
             session_manager=session_manager,
             request=TranscriptEditAgentRunRequest.model_validate(request.model_dump(mode="json")),
             request_id_prefix=f"tx-agent-{run_id}",
             progress_cb=_progress_update,
-            startup_countdown_seconds=15,
         )
         run_terminal_message = terminal_message(result)
         run_terminal_summary = terminal_summary(

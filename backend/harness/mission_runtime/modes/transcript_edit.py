@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
 from agent_kernel.models import KernelBudgets, KernelGoal, KernelSessionStartRequest
 from agent_kernel.session import KernelSessionManager
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
-from agents.transcript_edit.controller import run_transcript_edit_controller_loop
 from agents.transcript_edit.domain_pack import TranscriptEditDomainPack
 from harness.orchestration_kernel import KernelLoopResult, run_orchestration_kernel_loop
 from harness.tracing.kernel_trace_persistence import persist_kernel_trace
@@ -27,19 +26,6 @@ from ..contracts import (
 )
 
 TRANSCRIPT_EDIT_MODE_NAME = "transcript_edit"
-
-
-class TranscriptEditLoopRunner(Protocol):
-    def __call__(
-        self,
-        *,
-        session_manager: KernelSessionManager,
-        request: TranscriptEditAgentRunRequest,
-        request_id_prefix: str,
-        planner: Any | None = None,
-        progress_cb: Callable[[dict[str, Any]], None] | None = None,
-        startup_countdown_seconds: int = 0,
-    ) -> TranscriptEditAgentRunResult: ...
 
 
 @dataclass(frozen=True)
@@ -119,29 +105,17 @@ def build_transcript_edit_mode_policy_from_controller_inputs(
     request_id_prefix: str,
     planner: Any | None = None,
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
-    startup_countdown_seconds: int = 0,
-    controller_runner: TranscriptEditLoopRunner = run_transcript_edit_controller_loop,
-    use_orchestration_kernel: bool = False,
 ) -> TranscriptEditModePolicy:
     def _runner(
         _request: MissionRuntimeRequest,
         _ledger: MissionLedgerView,
     ) -> TranscriptEditAgentRunResult:
-        if use_orchestration_kernel:
-            return run_orchestration_kernel_transcript_loop(
-                session_manager=session_manager,
-                request=transcript_request,
-                request_id_prefix=request_id_prefix,
-                planner=planner,
-                progress_cb=progress_cb,
-            )
-        return controller_runner(
+        return run_orchestration_kernel_transcript_loop(
             session_manager=session_manager,
             request=transcript_request,
             request_id_prefix=request_id_prefix,
             planner=planner,
             progress_cb=progress_cb,
-            startup_countdown_seconds=startup_countdown_seconds,
         )
 
     return TranscriptEditModePolicy(runner=_runner)

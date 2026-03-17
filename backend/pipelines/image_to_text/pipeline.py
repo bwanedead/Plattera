@@ -99,7 +99,7 @@ from agent_kernel.tooling import (
     TranscriptSpanSeedsSaverTool,
     TranscriptSpanOpenerTool,
 )
-from agents.transcript_edit.controller import run_transcript_edit_controller_loop
+from harness.mission_runtime.modes.transcript_edit import run_orchestration_kernel_transcript_loop
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
 from agents.transcript_edit.decision_ledger import unresolved_closure_requirements
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
@@ -825,7 +825,7 @@ class ImageToTextPipeline:
                     ),
                     persistence_service=RunArtifactPersistenceService(),
                 )
-                result = run_transcript_edit_controller_loop(
+                result = run_orchestration_kernel_transcript_loop(
                     session_manager=session_manager,
                     request=TranscriptEditAgentRunRequest(
                         dossier_id=dossier_id,
@@ -849,7 +849,6 @@ class ImageToTextPipeline:
                     ),
                     request_id_prefix=f"tx-agent-{run_id}",
                     progress_cb=_progress_update,
-                    startup_countdown_seconds=15,
                 )
                 first_audit = None
                 final_audit = None

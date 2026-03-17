@@ -24,7 +24,6 @@ from agents.controller.bootstrap import (
 )
 from agents.controller.openai_client import OpenAINextStepClient
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
-from agents.transcript_edit.controller import run_transcript_edit_controller_loop
 from agents.transcript_edit.hitl_feedback import poll_feedback_response, viewer_run_id_from_request_prefix
 from agents.transcript_edit.state_projection import derive_waiting_feedback_projection
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
@@ -113,7 +112,6 @@ class DeedModeCliInputs:
     max_iterations: int
     requires_global_placement: bool
     render_required: bool
-    use_orchestration_kernel: bool = False
 
 
 @dataclass(frozen=True)
@@ -126,7 +124,6 @@ class TranscriptModeCliInputs:
     mode: str
     validation_mode: str
     auto_promote: bool
-    use_orchestration_kernel: bool = False
 
 
 def build_deed_mode_policy_from_cli_inputs(
@@ -152,7 +149,6 @@ def build_deed_mode_policy_from_cli_inputs(
         start_request_factory=_build_start_request,
         model=inputs.model,
         max_iterations=max(1, int(inputs.max_iterations)),
-        use_orchestration_kernel=bool(inputs.use_orchestration_kernel),
     )
 
 
@@ -263,109 +259,8 @@ def build_transcript_mode_policy_from_cli_inputs(
             )
         return run_request
 
-    if inputs.use_orchestration_kernel:
-        def _ok_runner(request: MissionRuntimeRequest, ledger: Any) -> Any:
-            import time as _time
-
-            run_request = _build_run_request(request, ledger)
-            viewer_run_id = viewer_run_id_from_request_prefix(request_prefix)
-            _MAX_HITL_RESUME_ROUNDS = 10
-            _FEEDBACK_POLL_INTERVAL = 2.0
-            _FEEDBACK_POLL_TIMEOUT = 600
-
-            resume_feedback: dict[str, Any] | None = None
-            for _round in range(_MAX_HITL_RESUME_ROUNDS):
-                result = run_orchestration_kernel_transcript_loop(
-                    session_manager=session_manager,
-                    request=run_request,
-                    request_id_prefix=request_prefix,
-                    planner=None,
-                    progress_cb=_progress_cb,
-                    resume_feedback_response=resume_feedback,
-                )
-
-                # If not waiting for feedback, done.
-                hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
-                blocker_registry = hitl_state.get("blocker_registry") if isinstance(hitl_state.get("blocker_registry"), dict) else {}
-                waiting_projection = derive_waiting_feedback_projection(
-                    blocker_registry=blocker_registry,
-                    fallback_prompt_id=str(hitl_state.get("pending_feedback_prompt_id") or "").strip() or None,
-                    fallback_decision_key=str(hitl_state.get("pending_feedback_decision_key") or "").strip().lower() or None,
-                )
-                # Also treat kernel-path waiting_human as a waiting-feedback signal.
-                # derive_waiting_feedback_projection may miss this when the blocker_registry
-                # has rows (from orient) but none are in waiting_feedback state yet.
-                # Use state_pending_feedback_prompt_id which bypasses the registry projection.
-                _direct_prompt_id = (
-                    str(hitl_state.get("state_pending_feedback_prompt_id") or "").strip()
-                    or str(hitl_state.get("pending_feedback_prompt_id") or "").strip()
-                    or None
-                )
-                _is_waiting = waiting_projection.get("waiting_feedback") or (
-                    result.status == "waiting_feedback" and bool(_direct_prompt_id)
-                )
-                if not _is_waiting:
-                    return result
-
-                prompt_id = (
-                    str(waiting_projection.get("pending_feedback_prompt_id") or "").strip()
-                    or _direct_prompt_id
-                    or None
-                )
-                if not prompt_id:
-                    return result  # Cannot resume without a prompt_id.
-
-                # Emit the HITL event so hitl_watch can surface it to the agent.
-                if _progress_cb is not None:
-                    _pending_prompt = hitl_state.get("pending_feedback_prompt") if isinstance(hitl_state.get("pending_feedback_prompt"), dict) else {}
-                    _pending_decision_key = (
-                        str(waiting_projection.get("pending_feedback_decision_key") or "").strip()
-                        or str(hitl_state.get("state_pending_feedback_decision_key") or "").strip()
-                        or None
-                    )
-                    _progress_cb({
-                        "event_type": "human_feedback_needed",
-                        "run_id": viewer_run_id,
-                        "prompt_id": prompt_id,
-                        "decision_key": _pending_decision_key,
-                        "message": _pending_prompt.get("line1") or f"Human feedback needed for: {_pending_decision_key}",
-                        "choices": list(_pending_prompt.get("choices") or []),
-                        "context": dict(_pending_prompt.get("context") or {}),
-                        "phase": "human_feedback_needed",
-                    })
-
-                # Block-poll the feedback store until the tester injects a response.
-                deadline = _time.time() + _FEEDBACK_POLL_TIMEOUT
-                feedback_entry: dict[str, Any] | None = None
-                while _time.time() < deadline:
-                    feedback_entry = poll_feedback_response(run_id=viewer_run_id, prompt_id=prompt_id)
-                    if feedback_entry is not None:
-                        break
-                    _time.sleep(_FEEDBACK_POLL_INTERVAL)
-
-                if feedback_entry is None:
-                    return result  # Timed out waiting for feedback.
-
-                # Resume with the feedback injected via the kernel's HITL pre-phase.
-                resume_decision_key = (
-                    str(waiting_projection.get("pending_feedback_decision_key") or "").strip().lower()
-                    or str(hitl_state.get("state_pending_feedback_decision_key") or "").strip().lower()
-                    or str(hitl_state.get("pending_feedback_decision_key") or "").strip().lower()
-                    or None
-                )
-                run_request = run_request.model_copy(update={
-                    "resume_pending_feedback_prompt_id": prompt_id,
-                    "resume_pending_feedback_decision_key": resume_decision_key,
-                    "resume_blocker_registry": blocker_registry if blocker_registry else None,
-                })
-                resume_feedback = dict(feedback_entry)
-
-            return result  # Max HITL resume rounds reached.
-
-        return TranscriptEditModePolicy(runner=_ok_runner)
-
     def _runner(request: MissionRuntimeRequest, ledger: Any) -> Any:
-        import time
+        import time as _time
 
         run_request = _build_run_request(request, ledger)
         viewer_run_id = viewer_run_id_from_request_prefix(request_prefix)
@@ -373,16 +268,18 @@ def build_transcript_mode_policy_from_cli_inputs(
         _FEEDBACK_POLL_INTERVAL = 2.0
         _FEEDBACK_POLL_TIMEOUT = 600
 
+        resume_feedback: dict[str, Any] | None = None
         for _round in range(_MAX_HITL_RESUME_ROUNDS):
-            result = run_transcript_edit_controller_loop(
+            result = run_orchestration_kernel_transcript_loop(
                 session_manager=session_manager,
                 request=run_request,
                 request_id_prefix=request_prefix,
+                planner=None,
                 progress_cb=_progress_cb,
-                startup_countdown_seconds=0,
+                resume_feedback_response=resume_feedback,
             )
 
-            # If not waiting for feedback, we're done.
+            # If not waiting for feedback, done.
             hitl_state = result.runtime_hitl_state if isinstance(result.runtime_hitl_state, dict) else {}
             blocker_registry = hitl_state.get("blocker_registry") if isinstance(hitl_state.get("blocker_registry"), dict) else {}
             waiting_projection = derive_waiting_feedback_projection(
@@ -390,35 +287,70 @@ def build_transcript_mode_policy_from_cli_inputs(
                 fallback_prompt_id=str(hitl_state.get("pending_feedback_prompt_id") or "").strip() or None,
                 fallback_decision_key=str(hitl_state.get("pending_feedback_decision_key") or "").strip().lower() or None,
             )
-            if not waiting_projection.get("waiting_feedback"):
+            # Also treat kernel-path waiting_human as a waiting-feedback signal.
+            _direct_prompt_id = (
+                str(hitl_state.get("state_pending_feedback_prompt_id") or "").strip()
+                or str(hitl_state.get("pending_feedback_prompt_id") or "").strip()
+                or None
+            )
+            _is_waiting = waiting_projection.get("waiting_feedback") or (
+                result.status == "waiting_feedback" and bool(_direct_prompt_id)
+            )
+            if not _is_waiting:
                 return result
 
-            prompt_id = str(waiting_projection.get("pending_feedback_prompt_id") or "").strip() or None
+            prompt_id = (
+                str(waiting_projection.get("pending_feedback_prompt_id") or "").strip()
+                or _direct_prompt_id
+                or None
+            )
             if not prompt_id:
                 return result  # Cannot resume without a prompt_id.
 
+            # Emit the HITL event so hitl_watch can surface it to the agent.
+            if _progress_cb is not None:
+                _pending_prompt = hitl_state.get("pending_feedback_prompt") if isinstance(hitl_state.get("pending_feedback_prompt"), dict) else {}
+                _pending_decision_key = (
+                    str(waiting_projection.get("pending_feedback_decision_key") or "").strip()
+                    or str(hitl_state.get("state_pending_feedback_decision_key") or "").strip()
+                    or None
+                )
+                _progress_cb({
+                    "event_type": "human_feedback_needed",
+                    "run_id": viewer_run_id,
+                    "prompt_id": prompt_id,
+                    "decision_key": _pending_decision_key,
+                    "message": _pending_prompt.get("line1") or f"Human feedback needed for: {_pending_decision_key}",
+                    "choices": list(_pending_prompt.get("choices") or []),
+                    "context": dict(_pending_prompt.get("context") or {}),
+                    "phase": "human_feedback_needed",
+                })
+
             # Block-poll the feedback store until the tester injects a response.
-            # hitl_watch will have already surfaced the HITL event; we just wait here.
-            deadline = time.time() + _FEEDBACK_POLL_TIMEOUT
+            deadline = _time.time() + _FEEDBACK_POLL_TIMEOUT
             feedback_entry: dict[str, Any] | None = None
-            while time.time() < deadline:
+            while _time.time() < deadline:
                 feedback_entry = poll_feedback_response(run_id=viewer_run_id, prompt_id=prompt_id)
                 if feedback_entry is not None:
                     break
-                time.sleep(_FEEDBACK_POLL_INTERVAL)
+                _time.sleep(_FEEDBACK_POLL_INTERVAL)
 
             if feedback_entry is None:
                 return result  # Timed out waiting for feedback.
 
-            # Resume the controller with the injected feedback as the authority.
+            # Resume with the feedback injected via the kernel's HITL pre-phase.
             resume_decision_key = (
-                str(waiting_projection.get("pending_feedback_decision_key") or "").strip().lower() or None
+                str(waiting_projection.get("pending_feedback_decision_key") or "").strip().lower()
+                or str(hitl_state.get("state_pending_feedback_decision_key") or "").strip().lower()
+                or str(hitl_state.get("pending_feedback_decision_key") or "").strip().lower()
+                or None
             )
             run_request = run_request.model_copy(update={
                 "resume_pending_feedback_prompt_id": prompt_id,
                 "resume_pending_feedback_decision_key": resume_decision_key,
                 "resume_blocker_registry": blocker_registry if blocker_registry else None,
             })
+            resume_feedback = dict(feedback_entry)
 
         return result  # Max HITL resume rounds reached.
 

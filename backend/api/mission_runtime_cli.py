@@ -114,24 +114,6 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["off", "live_hitl"],
     )
     parser.add_argument("--tx-no-auto-promote", action="store_true")
-    # Kernel routing: kernel is the default for transcript-edit.  Use
-    # --tx-use-legacy-controller to opt back to the legacy controller loop.
-    parser.add_argument(
-        "--tx-use-legacy-controller",
-        action="store_false",
-        dest="tx_use_orchestration_kernel",
-        help=(
-            "Route transcript-edit through the legacy controller loop instead of the "
-            "orchestration kernel. The kernel is used by default."
-        ),
-    )
-    # Deed kernel routing: off by default; opt in with --deed-use-orchestration-kernel.
-    parser.add_argument(
-        "--deed-use-orchestration-kernel",
-        action="store_true",
-        dest="deed_use_orchestration_kernel",
-        help="Route deed-to-IR through the orchestration kernel instead of the legacy controller loop.",
-    )
     # Named test scenarios (D3).
     parser.add_argument(
         "--tx-scenario",
@@ -143,10 +125,6 @@ def _build_parser() -> argparse.ArgumentParser:
             "automatically. 'practice_legaltext' uses the legal-text image dossier with the "
             "known range 74/75 conflict (see docs/transcript-edit-live-validation-path-2026-03-08.md)."
         ),
-    )
-    parser.set_defaults(
-        tx_use_orchestration_kernel=True,
-        deed_use_orchestration_kernel=False,
     )
     return parser
 
@@ -266,7 +244,6 @@ def _build_policy_registry(
         max_iterations=max(1, int(args.deed_max_iterations)),
         requires_global_placement=bool(args.deed_requires_global_placement),
         render_required=bool(args.deed_render_required),
-        use_orchestration_kernel=bool(args.deed_use_orchestration_kernel) or bool(args.enable_roundtrip),
     )
 
     # Resolve named scenario first — it may supply dossier_id and transcript_ref.
@@ -294,7 +271,6 @@ def _build_policy_registry(
         mode=str(args.tx_mode),
         validation_mode=str(args.tx_validation_mode),
         auto_promote=not bool(args.tx_no_auto_promote),
-        use_orchestration_kernel=bool(args.tx_use_orchestration_kernel),
     )
     policies = build_policy_list_for_cli(
         mission_request=mission_request,

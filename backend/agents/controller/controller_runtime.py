@@ -60,6 +60,13 @@ def run_controller_loop(
     max_iterations: int = 20,
     digest_client: IterationDigestClient | None = None,
 ) -> ControllerRunResult:
+    import os as _os
+    if not _os.environ.get("PLATTERA_ENABLE_LEGACY_CONTROLLERS"):
+        raise RuntimeError(
+            "run_controller_loop is a retired legacy entrypoint. "
+            "Use run_orchestration_kernel_deed_loop instead. "
+            "Set PLATTERA_ENABLE_LEGACY_CONTROLLERS=1 to temporarily re-enable for testing."
+        )
     return _run_controller_loop_impl(
         session_manager=session_manager,
         llm_client=llm_client,

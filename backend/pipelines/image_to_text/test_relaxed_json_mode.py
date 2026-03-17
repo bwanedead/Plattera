@@ -181,8 +181,8 @@ def test_post_t0_trigger_uses_text_fallback_without_auto_promote(monkeypatch) ->
         lambda *, dossier_id, transcription_id, best_result_index=None: None,
     )
     monkeypatch.setattr(
-        "backend.pipelines.image_to_text.pipeline.run_transcript_edit_controller_loop",
-        lambda *, session_manager, request, request_id_prefix: TranscriptEditAgentRunResult(
+        "backend.pipelines.image_to_text.pipeline.run_orchestration_kernel_transcript_loop",
+        lambda **_kw: TranscriptEditAgentRunResult(
             run_artifact_ref="ref://run",
             session_id="s1",
             iterations=1,
@@ -229,8 +229,8 @@ def test_post_t0_trigger_prefers_transcript_ref_and_allows_promote(monkeypatch) 
         lambda *, dossier_id, transcription_id, best_result_index=None: "C:/tmp/source_ref.json",
     )
 
-    def _fake_run(*, session_manager, request, request_id_prefix):  # type: ignore[no-untyped-def]
-        captured["request"] = request
+    def _fake_run(**_kw):  # type: ignore[no-untyped-def]
+        captured["request"] = _kw.get("request")
         return TranscriptEditAgentRunResult(
             run_artifact_ref="ref://run",
             session_id="s1",
@@ -241,7 +241,7 @@ def test_post_t0_trigger_prefers_transcript_ref_and_allows_promote(monkeypatch) 
             review_required=False,
         )
 
-    monkeypatch.setattr("backend.pipelines.image_to_text.pipeline.run_transcript_edit_controller_loop", _fake_run)
+    monkeypatch.setattr("backend.pipelines.image_to_text.pipeline.run_orchestration_kernel_transcript_loop", _fake_run)
     monkeypatch.setenv("PLATTERA_POST_T0_TX_AGENT_MODE", "audit_then_repair_then_promote")
     monkeypatch.setenv("PLATTERA_POST_T0_TX_AGENT_EXECUTION", "sync")
 

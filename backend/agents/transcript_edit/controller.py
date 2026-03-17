@@ -113,6 +113,13 @@ def run_transcript_edit_controller_loop(
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
     startup_countdown_seconds: int = 0,
 ) -> TranscriptEditAgentRunResult:
+    import os as _os
+    if not _os.environ.get("PLATTERA_ENABLE_LEGACY_CONTROLLERS"):
+        raise RuntimeError(
+            "run_transcript_edit_controller_loop is a retired legacy entrypoint. "
+            "Use run_orchestration_kernel_transcript_loop instead. "
+            "Set PLATTERA_ENABLE_LEGACY_CONTROLLERS=1 to temporarily re-enable for testing."
+        )
     if not request.source_transcript_ref and not request.source_text:
         raise ValueError("source_transcript_ref_or_source_text_required")
     mode = _normalized_mode(request.mode)
