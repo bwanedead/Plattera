@@ -8,7 +8,13 @@ Shape:
     run_identity  — static framing (run_link_id, mission_objective, domain, surface,
                     constitution_version)
     run_posture   — kernel-owned counters / flags that signal how the run is going
-    work_summary  — top blocking items (shallow, max 5) + closure posture summary
+    work_summary  — top blocking items from loop_memory.blocker_surface (shallow, max 5)
+                    + closure posture summary
+
+``blocking_items_top`` is strictly blockers-only: drawn from loop_memory.blocker_surface
+(domain pack writes this via WorkStateProjection.blocker_surface in hook 3).  Ranked
+work items are intentionally excluded — they are ephemeral phase-4 inputs and not
+appropriate for long-term carry-forward context.
 """
 from __future__ import annotations
 
@@ -19,16 +25,13 @@ if TYPE_CHECKING:
 
 _MAX_BLOCKING_ITEMS = 5
 
-# Shallow keys retained from each blocking item — enough for the LLM to reason
-# about what is blocked without duplicating the full blocker payload.
-_BLOCKER_SHALLOW_KEYS = (
-    "decision_key",
-    "focus_key",
-    "blocker_type",
-    "severity",
-    "reason_code",
-    "summary",
-)
+# v1 shallow blocker keys — exactly these four, nothing else.
+# Keeps each entry to a handful of tokens so the LLM can scan all 5 at a glance.
+#   focus_key   — which work item is blocked (join key to focus selection)
+#   state       — current blocker lifecycle state (e.g. "open", "waiting", "resolved")
+#   reason_code — machine-readable classification (e.g. "image_not_found")
+#   priority    — numeric ordering hint emitted by domain pack (omitted if absent)
+_BLOCKER_SHALLOW_KEYS_V1 = ("focus_key", "state", "reason_code", "priority")
 
 
 def build_run_progress_frame(
@@ -81,4 +84,5 @@ def build_run_progress_frame(
 
 
 def _shallow_blocker(item: dict[str, Any]) -> dict[str, Any]:
-    return {k: item[k] for k in _BLOCKER_SHALLOW_KEYS if k in item}
+    """Return the v1 shallow view of a single blocker item (4 keys max, no nested payloads)."""
+    return {k: item[k] for k in _BLOCKER_SHALLOW_KEYS_V1 if k in item}
