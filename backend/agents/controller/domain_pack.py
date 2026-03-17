@@ -41,6 +41,7 @@ from harness.orchestration_kernel.contracts import (
     RefreshResult,
     WorkStateProjection,
 )
+from harness.orchestration_kernel.run_progress_frame import build_run_progress_frame
 from harness.terminal_taxonomy import classify_controller_terminal
 
 from .controller_bootstrap import _bootstrap_deed_span_index_from_transcript_seeds, _build_bootstrap_context
@@ -357,6 +358,19 @@ class DeedToIRDomainPack:
                                 _step_kr.get("reason_code") if isinstance(_step_kr, dict) else "draft_ir_graph_validation_failed"
                             )
                         context_packet["last_refusal"] = _refusal_payload
+        # D3: inject run-progress frame and rationale-continuity strip into the packet.
+        if isinstance(context_packet, dict):
+            context_packet["run_progress_frame"] = build_run_progress_frame(
+                context,
+                run_link_id=self._request_id_prefix,
+                mission_objective="deed-to-IR feature graph mapping",
+                domain="deed_to_ir",
+                surface="deed_controller",
+                constitution_version="v1",
+            )
+            strip = list(getattr(context, "rationale_strip_snapshot", None) or [])
+            if strip:
+                context_packet["rationale_continuity_strip"] = strip
         self._iter_context_packet = context_packet
 
         return FocusPacket(

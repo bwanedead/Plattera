@@ -125,44 +125,48 @@ def test_controller_terminal_mapping_is_preserved_at_adapter_seam() -> None:
     ]
 
 
-def test_builder_wraps_existing_controller_runner_signature() -> None:
+def test_builder_wraps_kernel_runner_signature(monkeypatch: Any) -> None:
+    """Builder forwards model/max_iterations/start_request to the kernel runner."""
+    import harness.mission_runtime.modes.deed_to_ir as _deed_mode_mod
+
     observed: dict[str, Any] = {}
 
-    def _fake_controller_runner(**kwargs: Any) -> ControllerRunResult:
+    def _fake_kernel_runner(**kwargs: Any) -> ControllerRunResult:
         observed.update(kwargs)
         return _controller_result()
 
+    monkeypatch.setattr(_deed_mode_mod, "run_orchestration_kernel_deed_loop", _fake_kernel_runner)
+
+    start_req = KernelSessionStartRequest(
+        request_id="request-deed-1",
+        goal=KernelGoal(
+            requires_global_placement=True,
+            render_required=False,
+            objective="deed objective",
+        ),
+        budgets=KernelBudgets(
+            max_steps=5,
+            max_wall_time_seconds=30,
+            max_retrieval_calls=5,
+            max_semantic_calls=5,
+            max_patch_calls=1,
+        ),
+        dossier_id="dossier-1",
+    )
     policy = build_deed_to_ir_mode_policy_from_controller_inputs(
         session_manager=object(),  # type: ignore[arg-type]
         llm_client=object(),  # type: ignore[arg-type]
-        start_request=KernelSessionStartRequest(
-            request_id="request-deed-1",
-            goal=KernelGoal(
-                requires_global_placement=True,
-                render_required=False,
-                objective="deed objective",
-            ),
-            budgets=KernelBudgets(
-                max_steps=5,
-                max_wall_time_seconds=30,
-                max_retrieval_calls=5,
-                max_semantic_calls=5,
-                max_patch_calls=1,
-            ),
-            dossier_id="dossier-1",
-        ),
+        start_request=start_req,
         model="gpt-5-mini",
         max_iterations=9,
-        digest_client=None,
-        controller_runner=_fake_controller_runner,
     )
     runtime = MissionRuntime(policy_registry=ModePolicyRegistry([policy]), now_fn=lambda: 100.0)
 
     result = runtime.run_cycle(request=_make_request())
 
-    assert observed["model"] == "gpt-5-mini"
-    assert observed["max_iterations"] == 9
-    assert observed["start_request"].request_id == "request-deed-1"
+    assert observed.get("model") == "gpt-5-mini"
+    assert observed.get("max_iterations") == 9
+    assert observed.get("start_request") is start_req
     assert result.terminal_handoff is not None
     assert result.terminal_handoff.terminal is True
 

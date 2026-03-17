@@ -166,26 +166,31 @@ def test_transcript_edit_clear_ledger_verification_posture_does_not_echo_reason_
     assert result.recommendation.verification_posture.status != "tx_agent_no_safe_plan_for_findings"
 
 
-def test_transcript_edit_builder_wraps_existing_controller_runner_signature() -> None:
+def test_transcript_edit_builder_wraps_kernel_runner_signature(monkeypatch: Any) -> None:
+    """Builder forwards request_id_prefix and transcript_request to the kernel runner."""
+    import harness.mission_runtime.modes.transcript_edit as _tx_mode_mod
+
     observed: dict[str, Any] = {}
 
-    def _fake_controller_runner(**kwargs: Any) -> TranscriptEditAgentRunResult:
+    def _fake_kernel_runner(**kwargs: Any) -> TranscriptEditAgentRunResult:
         observed.update(kwargs)
         return _result()
 
+    monkeypatch.setattr(_tx_mode_mod, "run_orchestration_kernel_transcript_loop", _fake_kernel_runner)
+
+    tx_request = TranscriptEditAgentRunRequest(
+        source_transcript_ref="artifact://tx/source/1",
+        mode="audit_then_repair_then_promote",
+    )
     policy = build_transcript_edit_mode_policy_from_controller_inputs(
         session_manager=object(),  # type: ignore[arg-type]
-        transcript_request=TranscriptEditAgentRunRequest(
-            source_transcript_ref="artifact://tx/source/1",
-            mode="audit_then_repair_then_promote",
-        ),
+        transcript_request=tx_request,
         request_id_prefix="tx-mission-prefix",
-        controller_runner=_fake_controller_runner,
     )
     runtime = MissionRuntime(policy_registry=ModePolicyRegistry([policy]), now_fn=lambda: 100.0)
     cycle = runtime.run_cycle(request=_request())
 
-    assert observed["request_id_prefix"] == "tx-mission-prefix"
-    assert observed["request"].source_transcript_ref == "artifact://tx/source/1"
+    assert observed.get("request_id_prefix") == "tx-mission-prefix"
+    assert observed.get("request") is tx_request
     assert cycle.terminal_handoff is not None
     assert cycle.terminal_handoff.terminal is True

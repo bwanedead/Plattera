@@ -92,6 +92,12 @@ _TRUNK_FULL_TMPL = (
     "- Return only valid JSON. Never output prose or markdown.\n"
     "- Be faithful to source material. Do not invent, substitute, or hallucinate.\n"
     "- Prefer artifact refs over large inline payloads.\n"
+    "[WORKFLOW:ontology_{version}]\n"
+    "This call is one bounded step inside an ongoing run; it has no persistent chat memory.\n"
+    "Continuity is carried by run identity, prior artifacts, the focus packet, and bounded"
+    " recency summaries injected into this prompt — not by conversational context.\n"
+    "Every local action must advance the mission objective under the shared constitution;"
+    " do not drift or reframe the goal.\n"
     "\n"
 )
 
@@ -104,6 +110,9 @@ _TRUNK_LIGHT_TMPL = (
     "constitution_version: {version}\n"
     "[TRUNK:root_constitution_{version} mode=light]\n"
     "Return valid JSON only. Be faithful to source material.\n"
+    "[WORKFLOW:ontology_{version} mode=light]\n"
+    "One bounded step in an ongoing run; continuity via run identity, artifacts, and packet"
+    " (not chat memory). Advance the mission objective only.\n"
     "\n"
 )
 

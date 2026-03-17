@@ -198,7 +198,16 @@ class OrchestratorContext:
     - invalid_plan_strikes
     """
 
-    __slots__ = ("session_manager", "session_id", "loop_memory", "request_id_prefix", "dossier_id")
+    __slots__ = (
+        "session_manager",
+        "session_id",
+        "loop_memory",
+        "request_id_prefix",
+        "dossier_id",
+        # D3: populated by kernel from tracer.build_raw_events() before hook 4 each iteration.
+        # Domain packs inject this into their focus packet for rationale carry-forward.
+        "rationale_strip_snapshot",
+    )
 
     def __init__(
         self,
@@ -214,6 +223,7 @@ class OrchestratorContext:
         self.loop_memory = loop_memory
         self.request_id_prefix = request_id_prefix
         self.dossier_id = dossier_id
+        self.rationale_strip_snapshot: list[dict[str, Any]] = []
 
 
 class DomainPack(Protocol):

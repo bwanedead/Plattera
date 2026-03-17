@@ -34,6 +34,7 @@ from harness.orchestration_kernel.contracts import (
     RefreshResult,
     WorkStateProjection,
 )
+from harness.orchestration_kernel.run_progress_frame import build_run_progress_frame
 
 from .blocker_registry import (
     initialize_blocker_registry,
@@ -583,6 +584,19 @@ class TranscriptEditDomainPack:
             edit_lineage_summary=list(state.edit_lineage_summary or []),
             t0_candidate_refs=list(state.t0_candidate_refs or []),
         )
+        # D3: inject run-progress frame and rationale-continuity strip into the packet.
+        if isinstance(packet, dict):
+            packet["run_progress_frame"] = build_run_progress_frame(
+                context,
+                run_link_id=self._request_id_prefix,
+                mission_objective=self._mission_objective or "transcript edit loop",
+                domain="transcript_edit",
+                surface="tx_planner",
+                constitution_version="v1",
+            )
+            strip = list(getattr(context, "rationale_strip_snapshot", None) or [])
+            if strip:
+                packet["rationale_continuity_strip"] = strip
         return FocusPacket(focus_key=focus_key, domain_packet=packet)
 
     # -------------------------------------------------------------------------

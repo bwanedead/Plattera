@@ -17,6 +17,7 @@ from .contracts import (
 from .loop_memory import LoopMemoryState
 from .progress import evaluate_progress
 from .trace_collector import KernelTraceCollector
+from ..tracing.rationale_continuity_strip import build_rationale_continuity_strip
 
 _LOG = logging.getLogger(__name__)
 
@@ -204,6 +205,10 @@ def run_orchestration_kernel_loop(
             continue
 
         # Phase 5a: Build focus packet.
+        # D3: refresh rationale strip snapshot from accumulated trace events before hook 4.
+        context.rationale_strip_snapshot = build_rationale_continuity_strip(
+            tracer.build_raw_events()
+        )
         _LOG.info("TX_KERNEL hook4_build_focus_packet ► iter=%s focus=%s", iterations, selected_focus_key)
         focus_packet = domain_pack.build_focus_packet(context, selected_focus_key)
 
