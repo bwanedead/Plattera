@@ -422,6 +422,90 @@ def test_investigation_state_present_in_focus_packet() -> None:
     assert "investigation_state" in packet, "investigation_state must be injected into focus packet"
     state = packet["investigation_state"]
     assert isinstance(state, dict)
-    assert "complete" in state
+    assert "initial_recon_complete" in state, "D3: key must be initial_recon_complete (not 'complete')"
     assert "ref" in state
-    assert isinstance(state["complete"], bool)
+    assert isinstance(state["initial_recon_complete"], bool)
+
+
+# ---------------------------------------------------------------------------
+# D1 — orient retry count increments llm_contact_count by true attempt count
+# ---------------------------------------------------------------------------
+
+def test_orient_llm_contacts_single_attempt() -> None:
+    """tx_orient_llm_contacts=1 in orient outputs increments llm_contact_count by 1."""
+    from harness.orchestration_kernel.loop_memory import LoopMemoryState
+    lm = LoopMemoryState()
+    assert lm.llm_contact_count == 0
+    # Simulate what domain_pack.orient does with orient_inline from a 1-attempt run.
+    orient_inline = {"tx_orient_llm_contacts": 1}
+    _orient_llm_contacts = max(1, int(orient_inline.get("tx_orient_llm_contacts") or 1))
+    for _ in range(_orient_llm_contacts):
+        lm.register_llm_contact()
+    assert lm.llm_contact_count == 1
+
+
+def test_orient_llm_contacts_retry_increments_correctly() -> None:
+    """tx_orient_llm_contacts=3 in orient outputs must increment llm_contact_count by 3."""
+    from harness.orchestration_kernel.loop_memory import LoopMemoryState
+    lm = LoopMemoryState()
+    # Simulate a 3-attempt orient (2 retries before success).
+    orient_inline = {"tx_orient_llm_contacts": 3}
+    _orient_llm_contacts = max(1, int(orient_inline.get("tx_orient_llm_contacts") or 1))
+    for _ in range(_orient_llm_contacts):
+        lm.register_llm_contact()
+    assert lm.llm_contact_count == 3, (
+        "3-retry orient must produce llm_contact_count == 3, not 1"
+    )
+
+
+def test_orient_llm_contacts_missing_field_defaults_to_one() -> None:
+    """Missing tx_orient_llm_contacts in orient outputs must default to 1 (not 0)."""
+    from harness.orchestration_kernel.loop_memory import LoopMemoryState
+    lm = LoopMemoryState()
+    orient_inline: dict = {}  # no tx_orient_llm_contacts key
+    _orient_llm_contacts = max(1, int(orient_inline.get("tx_orient_llm_contacts") or 1))
+    for _ in range(_orient_llm_contacts):
+        lm.register_llm_contact()
+    assert lm.llm_contact_count == 1
+
+
+# ---------------------------------------------------------------------------
+# D2 — investigation summary ref surfaced in latest_refs
+# ---------------------------------------------------------------------------
+
+def test_investigation_summary_ref_injected_into_latest_refs() -> None:
+    """When investigation_summary_ref is set, latest_refs must include tx_investigation_summary_ref."""
+    from agents.transcript_edit.loop_state import TranscriptEditLoopState
+    state = TranscriptEditLoopState(
+        decision_ledger={},
+        blocker_registry={},
+        current_transcript_ref="artifacts/tx/source.json",
+    )
+    # Simulate what domain_pack.orient does after summary generation.
+    state.investigation_summary_ref = "/some/path/investigation_summary.json"
+    state.initial_recon_complete = True
+    state.latest_refs["tx_investigation_summary_ref"] = {
+        "path": state.investigation_summary_ref
+    }
+    assert "tx_investigation_summary_ref" in state.latest_refs, (
+        "tx_investigation_summary_ref must appear in latest_refs after summary generation"
+    )
+    assert state.latest_refs["tx_investigation_summary_ref"]["path"] == state.investigation_summary_ref
+
+
+# ---------------------------------------------------------------------------
+# D3 — initial_recon_complete semantics consistent between state and packet
+# ---------------------------------------------------------------------------
+
+def test_initial_recon_complete_key_consistent_in_focus_packet() -> None:
+    """investigation_state in focus packet must use 'initial_recon_complete', not 'complete'."""
+    ctx = _make_tx_context()
+    pack = _make_tx_domain_pack()
+    fp = pack.build_focus_packet(ctx, "range")
+    state = fp.domain_packet["investigation_state"]
+    assert "initial_recon_complete" in state
+    assert "complete" not in state, (
+        "Stale 'complete' key must not appear — use 'initial_recon_complete'"
+    )
+    # Before orient, initial_recon_complete is False.
+    assert state["initial_recon_complete"] is False

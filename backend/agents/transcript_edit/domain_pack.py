@@ -299,6 +299,10 @@ class TranscriptEditDomainPack:
                 registry=self._state.blocker_registry,
                 convention_context=self._state.convention_context,
             )
+            # D1: count actual orient LLM contacts (may be >1 on retries).
+            _orient_llm_contacts = max(1, int(orient_inline.get("tx_orient_llm_contacts") or 1))
+            for _ in range(_orient_llm_contacts):
+                context.loop_memory.register_llm_contact()
 
         # Sync blocker registry from ledger after orient.
         self._state.blocker_registry = sync_registry_from_ledger(
@@ -326,10 +330,6 @@ class TranscriptEditDomainPack:
                             len(self._state.t0_candidate_refs),
                         )
 
-        # D4: count the orient LLM contact (TX_ORIENT_AND_BASELINE makes one model call).
-        if orient.execution_state == StepExecutionState.EXECUTED:
-            context.loop_memory.register_llm_contact()
-
         # D2: generate investigation summary once after orient completes.
         if not self._state.investigation_summary_ref:
             self._state.investigation_summary_ref = self._generate_investigation_summary(
@@ -339,7 +339,11 @@ class TranscriptEditDomainPack:
             )
             # Initial scene survey is materially complete once orient + summary exist.
             if self._state.investigation_summary_ref:
-                self._state.investigation_complete = True
+                self._state.initial_recon_complete = True
+                # Surface in latest_refs so it appears in CLI output and loop result.
+                self._state.latest_refs["tx_investigation_summary_ref"] = {
+                    "path": self._state.investigation_summary_ref
+                }
 
         _LOG.info(
             "TX_DOMAIN_PACK orient_complete ► request_id=%s ledger_keys=%s",
@@ -389,7 +393,7 @@ class TranscriptEditDomainPack:
                 "schema_version": "v1",
                 "run_id": request_id_prefix,
                 "generated_at_llm_contact": llm_contact_at_generation,
-                "investigation_complete": False,
+                "initial_recon_complete": True,
                 "source_transcript_ref": state.current_transcript_ref,
                 "seed_transcript_ref": state.seed_transcript_ref,
                 "t0_candidate_refs": list(state.t0_candidate_refs or []),
@@ -748,7 +752,7 @@ class TranscriptEditDomainPack:
             _inv_excerpt = self._load_investigation_excerpt()
             packet["investigation_state"] = {
                 "ref": self._state.investigation_summary_ref,
-                "complete": self._state.investigation_complete,
+                "initial_recon_complete": self._state.initial_recon_complete,
                 "excerpt": _inv_excerpt,
             }
         return FocusPacket(focus_key=focus_key, domain_packet=packet)

@@ -226,7 +226,9 @@ class TranscriptOrientBaselineTool:
         raw_content = ""
         orient_payload: dict[str, Any] | None = None
         last_error = "tx_orient_baseline_invalid_response"
+        attempts_made = 0
         for _ in range(max_attempts):
+            attempts_made += 1
             try:
                 params: dict[str, Any] = {
                     "model": api_model,
@@ -288,6 +290,7 @@ class TranscriptOrientBaselineTool:
                 "tx_source_transcript_ref": canonical.source_transcript_ref,
                 "tx_source_transcript_hash": canonical.source_transcript_hash,
                 "tx_orient_hydration": hydration_summary,
+                "tx_orient_llm_contacts": attempts_made,
             }
 
         seeds = _coerce_orient_span_seeds(orient_payload)
@@ -337,6 +340,7 @@ class TranscriptOrientBaselineTool:
             "tx_orient_hydration": hydration_summary,
             "tx_span_seeds_ref": span_seeds_ref,
             "tx_orient_raw_output_ref": raw_output_ref,
+            "tx_orient_llm_contacts": attempts_made,
         }
 
 

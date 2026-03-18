@@ -56,4 +56,6 @@ class TranscriptEditLoopState:
     t0_candidate_refs: list[str] = field(default_factory=list)
     # D2 — Investigation summary (scene map) — generated once after orient, reused thereafter
     investigation_summary_ref: str | None = None
-    investigation_complete: bool = False
+    # True once the initial scene survey (orient + summary generation) has completed.
+    # Does NOT mean all investigation is done — only that initial recon has happened.
+    initial_recon_complete: bool = False
