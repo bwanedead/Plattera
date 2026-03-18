@@ -6,6 +6,9 @@
 loop. t0 takes the raw deed image, sends it through the application's OCR/LLM transcription
 pipeline (`gpt-o4-mini`, redundancy=3), and writes the resulting draft JSON files to disk.
 
+This page is only the upstream fixture setup. For the broader loop purpose, closure model, and
+test success criteria, see `docs/agent-testing/transcript-edit-loop-holistic-intent.md`.
+
 The transcript-edit loop takes t0's output **as input** — it does not know about, or call, the
 image pipeline. The dossier and its transcript artifacts are **created by t0**, not pre-existing.
 
@@ -174,6 +177,7 @@ eliminate the 74 vs 75 range conflict that the live-hitl validation scenario req
 
 ## Links
 
+- Holistic test intent and success criteria: `docs/agent-testing/transcript-edit-loop-holistic-intent.md`
 - Edit loop test guide: `docs/agent-testing/transcript-edit-loop-cli-testing.md`
 - Live validation scenario: `docs/transcript-edit-live-validation-path-2026-03-08.md`
 - Transcription endpoint: `backend/api/endpoints/dossier/dossier_image_processing.py`

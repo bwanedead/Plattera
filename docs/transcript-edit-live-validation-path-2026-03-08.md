@@ -6,6 +6,9 @@ Date: March 8, 2026
 - Provide one controlled operator path to validate blocker-registry lifecycle behavior end-to-end.
 - Avoid broad soak tests that get dominated by unrelated runtime noise.
 
+For the broader transcript-edit mission, closure model, and test success criteria, see
+`docs/agent-testing/transcript-edit-loop-holistic-intent.md`.
+
 ## Validation mode
 - Use `validation_mode=live_hitl` only when validating lifecycle plumbing.
 - Default runtime behavior remains `validation_mode=off`.
@@ -42,3 +45,6 @@ Date: March 8, 2026
 - Not a dependency-retrieval test.
 - Not a model-comparison test.
 - Not a throughput benchmark.
+
+## Related reference
+- Holistic test intent and success criteria: `docs/agent-testing/transcript-edit-loop-holistic-intent.md`

@@ -60,6 +60,7 @@ Interpretation rule:
 These remain active references for current-state architecture and loop behavior:
 - `docs/agent-ecosystem-architecture-top-down.md`
 - `docs/agent-loop-system-overview.md`
+- `docs/agent-testing/transcript-edit-loop-holistic-intent.md`
 - `docs/transcript-edit-loop-orchestration.md`
 - `docs/agent-kernel-controller-spec.md`
 - `docs/agent-kernel-action-tool-menu.md`

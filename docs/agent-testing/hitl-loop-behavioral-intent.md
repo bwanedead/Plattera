@@ -4,6 +4,9 @@
 (human-in-the-loop) mechanism so that any agent debugging or modifying this system can
 re-anchor to the design intent without needing to reconstruct it from conversation.
 
+This doc focuses on HITL mechanics only. For the broader loop mission, closure layers, and test
+success criteria, see `docs/agent-testing/transcript-edit-loop-holistic-intent.md`.
+
 ---
 
 ## The Core Idea
@@ -93,6 +96,7 @@ authoritative. Fix the implementation to match, not the other way around.
 
 ## Links
 
+- Holistic test intent and success criteria: `docs/agent-testing/transcript-edit-loop-holistic-intent.md`
 - CLI testing guide: `docs/agent-testing/transcript-edit-loop-cli-testing.md`
 - Runner implementation: `backend/harness/mission_runtime/cli_support.py`
 - Feedback polling (mid-run): `backend/agents/transcript_edit/iteration_repair_runtime.py` (~line 627)

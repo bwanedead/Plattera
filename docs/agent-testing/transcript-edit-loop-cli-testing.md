@@ -6,6 +6,10 @@ This guide describes how to run and test the transcript-edit agent loop from the
 agent-mode (non-interactive), where an AI agent acts as both test driver and HITL feedback
 provider.
 
+For the shared testing baseline, read `docs/agent-testing/transcript-edit-loop-holistic-intent.md`
+first. This guide is the execution protocol; the holistic intent doc is the "what are we testing"
+reference.
+
 **The kernel is the default path.** As of Phase 12, `--tx-use-orchestration-kernel` is on by
 default. No extra flag is needed. Use `--tx-use-legacy-controller` to opt back to the legacy
 path for debugging.
@@ -290,6 +294,7 @@ When running this as an automated agent:
 
 ## Links
 
+- Holistic test intent and success criteria: `docs/agent-testing/transcript-edit-loop-holistic-intent.md`
 - **t0 fixture setup** (run first, one-time): `docs/agent-testing/practice-deed-t0-setup.md`
 - **HITL behavioral intent** (authoritative): `docs/agent-testing/hitl-loop-behavioral-intent.md`
 - **Live validation scenario + expected lifecycle**: `docs/transcript-edit-live-validation-path-2026-03-08.md`
