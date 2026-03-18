@@ -83,6 +83,116 @@ def test_terminal_summary_collects_audit_apply_and_feedback_flags() -> None:
     )
 
 
+def test_terminal_summary_includes_compact_final_freshness_posture() -> None:
+    progress_log = [
+        {
+            "phase": "resolver_outcome",
+            "decision_key": "range",
+            "step_story": {
+                "step_kind": "resolver_outcome",
+                "state_before_summary": {
+                    "focus_decision_key": "range",
+                    "understanding_strength": "moderate",
+                    "has_fresh_signal": True,
+                    "cached_context_present": True,
+                    "repeat_without_signal": False,
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="fresh-posture",
+        iterations=1,
+        status="completed",
+        reason_code="tx_agent_clean_no_promote",
+        latest_refs={},
+        review_required=False,
+    )
+    summary = terminal_summary(progress_log, result)
+    posture = summary.get("final_freshness_posture")
+    assert isinstance(posture, dict)
+    assert posture.get("focus_decision_key") == "range"
+    assert posture.get("has_fresh_signal") is True
+    assert posture.get("cached_context_present") is True
+    assert posture.get("repeat_without_signal") is False
+    assert summary.get("final_freshness_summary") == "Run ended with fresh signal supporting the final bounded decision."
+    assert summary["final_decision_rationale"]["freshness_posture_summary"] == summary["final_freshness_summary"]
+    assert "support_state" not in summary
+    assert "investigation_brief" not in summary
+    assert "focus_packet" not in summary
+
+
+def test_terminal_summary_reflects_cached_context_only_and_repeat_pressure() -> None:
+    progress_log = [
+        {
+            "phase": "apply_result",
+            "decision_key": "range",
+            "step_story": {
+                "step_kind": "repair_apply",
+                "state_before_summary": {
+                    "focus_decision_key": "range",
+                    "understanding_strength": "moderate",
+                    "has_fresh_signal": False,
+                    "cached_context_present": True,
+                    "repeat_without_signal": True,
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="cached-posture",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_no_progress:repeat_signal_pressure",
+        latest_refs={},
+        review_required=True,
+    )
+    summary = terminal_summary(progress_log, result)
+    posture = summary.get("final_freshness_posture")
+    assert isinstance(posture, dict)
+    assert posture.get("has_fresh_signal") is False
+    assert posture.get("cached_context_present") is True
+    assert posture.get("repeat_without_signal") is True
+    assert summary.get("final_freshness_summary") == "Run ended after repeated no-signal evidence pressure."
+
+
+def test_terminal_summary_can_end_on_cached_context_without_repeat_pressure() -> None:
+    progress_log = [
+        {
+            "phase": "resolver_attempt",
+            "decision_key": "range",
+            "step_story": {
+                "step_kind": "resolver_attempt",
+                "state_before_summary": {
+                    "focus_decision_key": "range",
+                    "understanding_strength": "narrow",
+                    "has_fresh_signal": False,
+                    "cached_context_present": True,
+                    "repeat_without_signal": False,
+                },
+            },
+        }
+    ]
+    result = build_run_result(
+        run_artifact_ref=None,
+        session_id="cached-only",
+        iterations=1,
+        status="completed",
+        reason_code="tx_agent_clean_no_promote",
+        latest_refs={},
+        review_required=False,
+    )
+    summary = terminal_summary(progress_log, result)
+    posture = summary.get("final_freshness_posture")
+    assert isinstance(posture, dict)
+    assert posture.get("has_fresh_signal") is False
+    assert posture.get("cached_context_present") is True
+    assert posture.get("repeat_without_signal") is False
+    assert summary.get("final_freshness_summary") == "Run ended with cached context present but no fresh narrowing signal."
+
+
 def test_terminal_message_and_summary_for_not_mapping_ready() -> None:
     progress_log = [
         {"phase": "audit_result", "detail": {"error_count": 0}},

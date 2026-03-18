@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api.endpoints import transcript_edit_agent
 from agents.transcript_edit.contracts import TranscriptEditAgentRunResult
+from agents.transcript_edit.run_feed_persistence import TranscriptEditRunFeedPersistenceService
 from transcript_edit.run_registry import TranscriptionEditRunRegistry
 
 
@@ -138,6 +139,7 @@ def test_run_endpoint_requires_source() -> None:
 def test_execute_run_emits_terminal_handoff_fields(monkeypatch) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         _reset_registry(Path(tmp))
+        feed_service = TranscriptEditRunFeedPersistenceService(root=Path(tmp) / "feed")
         captured_events: list[dict[str, Any]] = []
 
         def _fake_run_loop(**kwargs: Any) -> TranscriptEditAgentRunResult:
@@ -169,6 +171,7 @@ def test_execute_run_emits_terminal_handoff_fields(monkeypatch) -> None:
 
         monkeypatch.setattr(transcript_edit_agent, "run_orchestration_kernel_transcript_loop", _fake_run_loop)
         monkeypatch.setattr(transcript_edit_agent, "viewer_event_bus", _Bus())
+        monkeypatch.setattr(transcript_edit_agent, "_run_feed_persistence", feed_service)
         monkeypatch.setattr(
             transcript_edit_agent,
             "build_handoff_packet",
@@ -191,6 +194,13 @@ def test_execute_run_emits_terminal_handoff_fields(monkeypatch) -> None:
         payload = done.get("payload") or {}
         assert payload.get("handoff_packet_ref") == "in-memory://handoff.json"
         assert payload.get("handoff_summary") == "Mapping-ready."
+        latest_feed = feed_service.read_latest_run()
+        recent_feed = feed_service.read_recent_runs()
+        assert isinstance(latest_feed, dict)
+        assert isinstance(recent_feed, dict)
+        assert latest_feed["request_id"] == "r1"
+        assert latest_feed["final_freshness_summary"] is None or isinstance(latest_feed["final_freshness_summary"], str)
+        assert "support_state" not in latest_feed
         run = asyncio.run(transcript_edit_agent.get_run("r1"))
         assert run["snapshot"]["terminal_summary"]["handoff_packet_ref"] == "in-memory://handoff.json"
 

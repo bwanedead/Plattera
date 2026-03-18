@@ -10,6 +10,8 @@ from backend.agents.transcript_edit.prompting import (
     build_focus_resolver_system_message,
     build_focus_resolver_repair_user_message,
     build_focus_resolver_user_message,
+    build_planner_system_message,
+    build_planner_user_message,
 )
 
 
@@ -46,6 +48,9 @@ def test_focus_resolver_system_message_mentions_binding_answered_unintegrated_gu
     assert "blocker_feedback_state" in system_msg
     assert "answered_unintegrated" in lower
     assert "binding human_resolution_ticket" in lower
+    assert "scripted checklist runner" in lower
+    assert "emergent focus items" in lower
+    assert "investigation_brief" in lower
     assert "do not ignore provided human feedback" in lower
     assert "crop_box_normalized" in system_msg
     assert "zoom_factor" in system_msg
@@ -56,12 +61,50 @@ def test_focus_resolver_system_message_mentions_binding_answered_unintegrated_gu
     assert "custom:<name>" in system_msg
 
 
+def test_planner_system_message_mentions_investigation_brief_as_sticky_note() -> None:
+    system_msg = build_planner_system_message()
+    lower = system_msg.lower()
+    assert "investigation brief" in lower
+    assert "sticky note" in lower
+    assert "bounded and honest" in lower
+    assert "working_plan" in lower
+    assert "short-horizon rail" in lower
+    assert "policy_signals" in lower
+
+
+def test_planner_user_message_carries_investigation_brief() -> None:
+    payload = json.loads(
+        build_planner_user_message(
+            source_transcript_ref="in-memory://source.json",
+            source_transcript_hash="sha256:test",
+            findings_summary={},
+            investigation_brief={"role": "sticky_note", "purpose": "current_case_understanding"},
+            working_plan={"role": "working_plan", "purpose": "short_horizon_case_rail"},
+            policy_signals={"understanding_strength": "weak", "repair_eligible": False},
+            top_findings=[],
+            span_context=[],
+            image_verification={},
+            candidate_disagreement_hints={},
+            mapping_priority_focus={},
+        )
+    )
+    assert isinstance(payload.get("investigation_brief"), dict)
+    assert str((payload.get("investigation_brief") or {}).get("role") or "") == "sticky_note"
+    support_state = payload.get("support_state")
+    assert isinstance(support_state, dict)
+    assert str((support_state.get("working_plan") or {}).get("role") or "") == "working_plan"
+    assert str((support_state.get("policy_signals") or {}).get("understanding_strength") or "") == "weak"
+
+
 def test_focus_resolver_user_message_emits_hitl_alert_when_feedback_present() -> None:
     user_msg = build_focus_resolver_user_message(
         focus_packet={
             "decision_key": "range",
             "source_transcript_ref": "in-memory://source.json",
             "source_transcript_hash": "sha256:test",
+            "investigation_brief": {"role": "sticky_note", "purpose": "current_case_understanding"},
+            "working_plan": {"role": "working_plan", "purpose": "short_horizon_case_rail"},
+            "policy_signals": {"understanding_strength": "weak", "escalation_eligible": False},
             "feedback": {
                 "decision_key": "range",
                 "selected_value": "Range 75 West",
@@ -76,6 +119,9 @@ def test_focus_resolver_user_message_emits_hitl_alert_when_feedback_present() ->
     assert alert.get("code") == "HITL_FEEDBACK_PRESENT"
     assert str(alert.get("decision_key")) == "range"
     assert str(alert.get("selected_value")) == "Range 75 West"
+    assert isinstance(payload.get("investigation_brief"), dict)
+    assert isinstance(payload.get("working_plan"), dict)
+    assert isinstance(payload.get("policy_signals"), dict)
     handling = payload.get("required_feedback_handling")
     assert isinstance(handling, list)
     assert len(handling) >= 1

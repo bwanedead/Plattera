@@ -18,6 +18,10 @@ from pydantic import BaseModel
 
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
 from agents.transcript_edit.handoff_packet import build_handoff_packet, persist_handoff_packet
+from agents.transcript_edit.run_feed_persistence import (
+    TranscriptEditRunFeedPersistenceService,
+    write_transcript_edit_run_snapshot,
+)
 from agents.transcript_edit.state_projection import derive_waiting_feedback_projection
 from agents.transcript_edit.terminalization import terminal_message, terminal_summary
 from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
@@ -44,6 +48,7 @@ logger = logging.getLogger(__name__)
 _PROGRESS_LOG_LIMIT = 40
 _CRITICAL_EVENT_LIMIT = 200
 _NONCRITICAL_PROGRESS_PERSIST_INTERVAL_SECONDS = 2.0
+_run_feed_persistence = TranscriptEditRunFeedPersistenceService()
 
 
 def _is_critical_progress_event(event: dict[str, Any]) -> bool:
@@ -440,6 +445,33 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
         }
         waiting_feedback = _should_wait_feedback(result=result, summary=run_terminal_summary)
         final_status = "waiting_feedback" if waiting_feedback else result.status
+        freshness_posture = run_terminal_summary.get("final_freshness_posture")
+        freshness_summary = str(run_terminal_summary.get("final_freshness_summary") or "").strip() or None
+        try:
+            write_transcript_edit_run_snapshot(
+                request_id=run_id,
+                run_id=str(result.session_id or run_id),
+                session_id=result.session_id,
+                dossier_id=request.dossier_id,
+                final_status=final_status,
+                reason_code=result.reason_code,
+                iterations=result.iterations,
+                terminal_message=run_terminal_message,
+                terminal_summary=run_terminal_summary,
+                final_freshness_posture=freshness_posture if isinstance(freshness_posture, dict) else None,
+                final_freshness_summary=freshness_summary,
+                run_artifact_ref=result.run_artifact_ref,
+                handoff_packet_ref=handoff_packet_ref,
+                handoff_summary=handoff_packet.get("handoff_summary"),
+                feed_service=_run_feed_persistence,
+            )
+        except Exception as exc:
+            logger.warning(
+                "TX_RUN_FEED_WRITE_FAILED ► run_id=%s error_type=%s error=%s",
+                run_id,
+                type(exc).__name__,
+                str(exc)[:220],
+            )
         _safe_registry_update_run(
             run_id=run_id,
             patch={

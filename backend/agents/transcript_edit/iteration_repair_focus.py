@@ -28,6 +28,7 @@ from .resolver_gates import (
     accept_apply_edit_plan,
     accept_mark_blocked,
     accept_mark_resolved_no_edit,
+    accept_request_human_feedback,
     extract_validation_error_class,
     resolver_result_category,
 )
@@ -200,13 +201,23 @@ def _accept_mark_blocked(
     decision_key: str,
     resolver_reason: str,
     hitl_enabled: bool,
+    policy_signals: dict[str, Any] | None = None,
 ) -> bool:
     return accept_mark_blocked(
         decision_ledger=decision_ledger,
         decision_key=decision_key,
         resolver_reason=resolver_reason,
         hitl_enabled=hitl_enabled,
+        policy_signals=policy_signals,
     )
+
+
+def _accept_request_human_feedback(
+    *,
+    policy_signals: dict[str, Any] | None,
+    hitl_enabled: bool,
+) -> bool:
+    return accept_request_human_feedback(policy_signals=policy_signals, hitl_enabled=hitl_enabled)
 
 
 def _recent_image_evidence_attempt_count(
@@ -227,11 +238,13 @@ def _accept_apply_edit_plan(
     resolver_decision_key: str,
     focus_key: str,
     plan_payload: dict[str, Any],
+    policy_signals: dict[str, Any] | None = None,
 ) -> bool:
     return accept_apply_edit_plan(
         resolver_decision_key=resolver_decision_key,
         focus_key=focus_key,
         plan_payload=plan_payload,
+        policy_signals=policy_signals,
     )
 
 
@@ -290,6 +303,7 @@ __all__ = [
     "_resolver_result_category",
     "_accept_mark_resolved_no_edit",
     "_accept_mark_blocked",
+    "_accept_request_human_feedback",
     "_recent_image_evidence_attempt_count",
     "_accept_apply_edit_plan",
     "_findings_for_focus_key",

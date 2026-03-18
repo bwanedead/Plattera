@@ -45,6 +45,7 @@ from .run_reporting import (
     resolver_move_gate_payload,
     ticker_payload,
 )
+from .resolver_gates import accept_request_human_feedback
 from .evidence_executor import execute_evidence_request, normalize_evidence_request
 
 
@@ -294,6 +295,28 @@ def _coerce_artifact_ref_for_state(raw: Any) -> dict[str, Any] | None:
     return coerce_artifact_ref_for_state(raw)
 
 
+def _step_story_payload(
+    *,
+    step_kind: str,
+    why_now: str,
+    trigger: str,
+    state_before_summary: dict[str, Any] | None = None,
+    state_delta: dict[str, Any] | None = None,
+    outcome_class: str | None = None,
+    next_step_rationale: str | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "step_kind": str(step_kind or "").strip().lower() or "unknown",
+        "why_now": str(why_now or "").strip() or None,
+        "trigger": str(trigger or "").strip() or None,
+        "state_before_summary": dict(state_before_summary or {}),
+        "state_delta": dict(state_delta or {}),
+        "outcome_class": str(outcome_class or "").strip().lower() or None,
+        "next_step_rationale": str(next_step_rationale or "").strip() or None,
+    }
+    return {k: v for k, v in payload.items() if v not in (None, {}, [])}
+
+
 def _cache_entry_matches_transcript(
     *,
     entry: dict[str, Any],
@@ -337,6 +360,7 @@ def handle_repair_move_outcome(
     image_verification: dict[str, Any],
     evidence_attempts_counts: dict[str, int],
     raw_output_excerpt: str,
+    policy_signals: dict[str, Any] | None,
     emit_progress_fn: Callable[[Callable[[dict[str, Any]], None] | None, dict[str, Any]], None],
     progress_cb: Callable[[dict[str, Any]], None] | None,
     append_blocker_iteration_recap_fn: Callable[..., None],
@@ -352,6 +376,16 @@ def handle_repair_move_outcome(
     latest_human_resolution_ticket_fn: Callable[..., dict[str, Any] | None],
     registry_row_for_decision_key_fn: Callable[..., dict[str, Any] | None],
 ) -> TranscriptEditDecision | None:
+    signals = policy_signals if isinstance(policy_signals, dict) else {}
+    state_before_summary = {
+        "understanding_strength": str(signals.get("understanding_strength") or "unknown").strip().lower() or "unknown",
+        "has_fresh_signal": bool(signals.get("has_fresh_signal")),
+        "cached_context_present": bool(signals.get("cached_context_present")),
+        "repeat_without_signal": bool(signals.get("repeat_without_signal")),
+        "escalation_eligible": bool(signals.get("escalation_eligible")),
+        "repair_eligible": bool(signals.get("repair_eligible")),
+        "focus_is_material": bool(signals.get("focus_is_material")),
+    }
     state.continuity_log.append(
         {
             "decision_key": focus_key or "",
@@ -401,6 +435,15 @@ def handle_repair_move_outcome(
                     blocker_kind=str(row.get("blocker_kind") or "").strip().lower() or None,
                     blocking_class=str(row.get("blocking_class") or "").strip().lower() or None,
                     reason=resolver_reason,
+                    step_story=_step_story_payload(
+                        step_kind="blocker_promotion",
+                        why_now="The case identified a new explicit blocker surface.",
+                        trigger="propose_blocker_updates",
+                        state_before_summary=state_before_summary,
+                        state_delta={"accepted_count": len(accepted), "rejected_count": len(rejected)},
+                        outcome_class="accepted" if accepted else "rejected",
+                        next_step_rationale="Use the updated blocker surface to select the next bounded action.",
+                    ),
                 ),
             )
         for row in rejected[:12]:
@@ -415,6 +458,15 @@ def handle_repair_move_outcome(
                     blocker_kind=None,
                     blocking_class=None,
                     reason=str(row.get("reason") or "").strip() or "unknown_rejection",
+                    step_story=_step_story_payload(
+                        step_kind="blocker_promotion",
+                        why_now="The blocker proposal did not satisfy runtime policy.",
+                        trigger="propose_blocker_updates",
+                        state_before_summary=state_before_summary,
+                        state_delta={"accepted_count": len(accepted), "rejected_count": len(rejected)},
+                        outcome_class="rejected",
+                        next_step_rationale="Return to the support state or a narrower investigation move.",
+                    ),
                 ),
             )
         if accepted:
@@ -437,6 +489,36 @@ def handle_repair_move_outcome(
         )
         return None
     if move == "request_human_feedback":
+        if not accept_request_human_feedback(policy_signals=signals, hitl_enabled=request.hitl_enabled):
+            emit_progress_fn(
+                progress_cb,
+                resolver_move_gate_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    decision_key=focus_key,
+                    move=move,
+                    gate_outcome="rejected",
+                    gate_reason="escalation_not_yet_eligible",
+                    ticket_snapshot=active_ticket_snapshot,
+                    step_story=_step_story_payload(
+                        step_kind="human_feedback",
+                        why_now="Escalation is not yet justified because the case still lacks fresh narrowing signal.",
+                        trigger="request_human_feedback",
+                        state_before_summary=state_before_summary,
+                        state_delta={"gate_outcome": "rejected"},
+                        outcome_class="discouraged",
+                        next_step_rationale="Continue orientation, inventory, or targeted verification until fresh signal narrows the case.",
+                    ),
+                ),
+            )
+            append_blocker_iteration_recap_fn(
+                action_attempted="request_hitl",
+                result="rejected",
+                decision_key=focus_key,
+                reason="escalation_not_yet_eligible",
+            )
+            state.last_reason = "tx_agent_request_hitl_rejected"
+            return None
         emit_progress_fn(
             progress_cb,
             resolver_move_gate_payload(
@@ -447,6 +529,15 @@ def handle_repair_move_outcome(
                 gate_outcome="accepted",
                 gate_reason="accepted_request_human_feedback",
                 ticket_snapshot=active_ticket_snapshot,
+                step_story=_step_story_payload(
+                    step_kind="human_feedback",
+                    why_now="The case is sufficiently narrow and materially unresolved, and the freshness posture supports bounded HITL.",
+                    trigger="request_human_feedback",
+                    state_before_summary=state_before_summary,
+                    state_delta={"gate_outcome": "accepted"},
+                    outcome_class="accepted",
+                    next_step_rationale="Wait for operator input and integrate it explicitly on the next iteration against the current freshness posture.",
+                ),
             ),
         )
         if not state.pending_feedback_prompt_id and request.hitl_enabled:
@@ -517,6 +608,7 @@ def handle_repair_move_outcome(
             decision_key=focus_key,
             resolver_reason=resolver_reason,
             hitl_enabled=request.hitl_enabled,
+            policy_signals=signals,
         ):
             state.last_reason = f"mark_blocked_rejected:{resolver_reason}"
             emit_progress_fn(
@@ -670,6 +762,36 @@ def handle_repair_move_outcome(
             if isinstance(resolver_outcome, dict) and isinstance(resolver_outcome.get("evidence_request"), dict)
             else None
         )
+        if bool(signals.get("repeat_without_signal")):
+            emit_progress_fn(
+                progress_cb,
+                resolver_move_gate_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    decision_key=focus_key,
+                    move=move,
+                    gate_outcome="rejected",
+                    gate_reason="repeat_without_signal_discouraged",
+                    ticket_snapshot=active_ticket_snapshot,
+                    step_story=_step_story_payload(
+                        step_kind="evidence",
+                        why_now="Cached context is present, but no fresh signal was added, so repeating evidence work is discouraged.",
+                        trigger="gather_more_evidence",
+                        state_before_summary=state_before_summary,
+                        state_delta={"gate_outcome": "rejected"},
+                        outcome_class="discouraged",
+                        next_step_rationale="Shift to a different evidence lane, a focus reframe, or a blocker update that would create fresh signal.",
+                    ),
+                ),
+            )
+            append_blocker_iteration_recap_fn(
+                action_attempted="gather_more_evidence",
+                result="rejected",
+                decision_key=focus_key,
+                reason="repeat_without_signal_discouraged",
+            )
+            state.last_reason = "gather_more_evidence_rejected:repeat_without_signal"
+            return None
         normalized_request, normalize_reason = normalize_evidence_request(
             evidence_request=evidence_request,
             decision_key=focus_key,
@@ -694,18 +816,27 @@ def handle_repair_move_outcome(
                 ),
             )
             return None
-        emit_progress_fn(
-            progress_cb,
-            resolver_move_gate_payload(
-                iteration=iterations,
-                latest_refs=state.latest_refs,
-                decision_key=focus_key,
-                move=move,
-                gate_outcome="accepted",
-                gate_reason=f"accepted_new_evidence_kind:{str(normalized_request.get('kind') or '')}",
-                ticket_snapshot=active_ticket_snapshot,
-            ),
-        )
+            emit_progress_fn(
+                progress_cb,
+                resolver_move_gate_payload(
+                    iteration=iterations,
+                    latest_refs=state.latest_refs,
+                    decision_key=focus_key,
+                    move=move,
+                    gate_outcome="accepted",
+                    gate_reason=f"accepted_new_evidence_kind:{str(normalized_request.get('kind') or '')}",
+                    ticket_snapshot=active_ticket_snapshot,
+                    step_story=_step_story_payload(
+                        step_kind="evidence",
+                        why_now="The current case posture still needs a bounded evidence move, and the cached context is not yet enough on its own.",
+                        trigger="gather_more_evidence",
+                        state_before_summary=state_before_summary,
+                        state_delta={"gate_outcome": "accepted"},
+                        outcome_class="accepted",
+                        next_step_rationale="Use the evidence result to decide whether fresh signal is still needed or whether the case is now narrow.",
+                    ),
+                ),
+            )
         focused_findings = findings_for_focus_key_fn(top_findings=planning_findings, focus_key=focus_key)
         focus_findings = focused_findings if focused_findings else planning_findings
         evidence_result = execute_evidence_request(
@@ -919,6 +1050,7 @@ def handle_repair_move_outcome(
             resolver_decision_key=focus_key,
             focus_key=focus_key,
             plan_payload=manual_plan,
+            policy_signals=signals,
         ):
             state.invalid_plan_strikes += 1
             if state.invalid_plan_strikes >= request.max_invalid_plan_attempts:
@@ -932,11 +1064,24 @@ def handle_repair_move_outcome(
                         gate_outcome="rejected",
                         gate_reason="apply_scope_mismatch",
                         ticket_snapshot=active_ticket_snapshot,
+                        step_story=_step_story_payload(
+                            step_kind="repair",
+                            why_now="The proposed repair does not match the current focus posture, including its freshness posture.",
+                            trigger="apply_edit_plan",
+                            state_before_summary=state_before_summary,
+                            state_delta={"gate_outcome": "rejected"},
+                            outcome_class="discouraged",
+                            next_step_rationale="Return to investigation or narrower focus selection until the posture is fresh enough for repair.",
+                        ),
                     ),
                 )
                 return TranscriptEditDecision(
                     status="needs_review",
-                    reason_code="tx_agent_plan_invalid:focus_scope_mismatch",
+                    reason_code=(
+                        "tx_agent_plan_invalid:weak_understanding"
+                        if str(signals.get("understanding_strength") or "").strip().lower() == "weak"
+                        else "tx_agent_plan_invalid:focus_scope_mismatch"
+                    ),
                     review_required=True,
                 )
             return None
@@ -952,6 +1097,15 @@ def handle_repair_move_outcome(
                 gate_outcome="accepted",
                 gate_reason="accepted_apply_for_answered_ticket" if isinstance(answered_ticket, dict) else "accepted_apply_edit_plan",
                 ticket_snapshot=active_ticket_snapshot,
+                step_story=_step_story_payload(
+                    step_kind="repair",
+                    why_now="The case is narrow enough for direct repair, and fresh signal supports a bounded edit.",
+                    trigger="apply_edit_plan",
+                    state_before_summary=state_before_summary,
+                    state_delta={"gate_outcome": "accepted"},
+                    outcome_class="accepted",
+                    next_step_rationale="Re-audit the transcript and observe whether the fresh edit improved closure.",
+                ),
             ),
         )
     else:
@@ -977,6 +1131,15 @@ def handle_repair_move_outcome(
                 decision_ledger=state.decision_ledger,
                 decision_key=focus_key,
             ),
+            step_story=_step_story_payload(
+                step_kind="repair",
+                why_now="The resolver produced a bounded plan that passed runtime gates, with fresh signal still supporting the repair posture.",
+                trigger="apply_edit_plan",
+                state_before_summary=state_before_summary,
+                state_delta={"plan_op_count": len(plan_ops)},
+                outcome_class="accepted",
+                next_step_rationale="Apply the plan and then re-audit for closure change against the current freshness posture.",
+            ),
         ),
     )
     apply = _step_kernel_action(
@@ -1000,6 +1163,15 @@ def handle_repair_move_outcome(
             execution_state=str(apply.execution_state.value),
             plan_op_count=len(plan_ops),
             ops_display=[plan_op_to_display_dict(op) for op in plan_ops[:6] if isinstance(op, dict)],
+            step_story=_step_story_payload(
+                step_kind="repair_apply",
+                why_now="The runtime is applying the bounded plan to the transcript, reusing cached context only as support.",
+                trigger="tx_apply_edit_plan",
+                state_before_summary=state_before_summary,
+                state_delta={"execution_state": str(apply.execution_state.value)},
+                outcome_class="accepted" if apply.execution_state == StepExecutionState.EXECUTED else "rejected",
+                next_step_rationale="Re-audit the edited transcript and update durable state from the result instead of trusting cached context alone.",
+            ),
         ),
     )
     if apply.execution_state != StepExecutionState.EXECUTED:

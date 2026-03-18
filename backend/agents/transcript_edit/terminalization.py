@@ -23,6 +23,7 @@ from .terminal_classification import (
 from .terminal_history import (
     _attach_closure_history,
     _build_closure_history,
+    _latest_freshness_posture,
     _latest_image_verify_observability,
     _merge_terminal_events,
     _pending_feedback_prompt_ids,
@@ -100,6 +101,12 @@ def terminal_summary(
         )
     events = _merge_terminal_events(progress_log=progress_log, critical_events=critical_events or [])
     image_verify_observability = _latest_image_verify_observability(events=events)
+    runtime_final_freshness_posture = (
+        dict((runtime_hitl_state or {}).get("final_freshness_posture"))
+        if isinstance((runtime_hitl_state or {}).get("final_freshness_posture"), dict)
+        else None
+    )
+    final_freshness_posture = runtime_final_freshness_posture or _latest_freshness_posture(events=events)
     first_audit = None
     final_audit = None
     edits_applied = 0
@@ -369,8 +376,10 @@ def terminal_summary(
         feedback_stale_count=feedback_stale_count,
         feedback_superseded_count=feedback_superseded_count,
         pending_feedback_prompt_ids=pending_feedback_prompt_ids,
+        final_freshness_posture=final_freshness_posture,
         terminal_message_fn=terminal_message,
     )
+    final_freshness_summary = final_decision_rationale.get("freshness_posture_summary")
     return {
         "status": result_status,
         "reason_code": reason_code or None,
@@ -451,6 +460,8 @@ def terminal_summary(
             else {}
         ),
         "image_verify_observability": image_verify_observability,
+        "final_freshness_posture": final_freshness_posture,
+        "final_freshness_summary": final_freshness_summary,
         "final_decision_rationale": final_decision_rationale,
         "initial_findings": first_audit or {},
         "final_findings": final_audit or {},

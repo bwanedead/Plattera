@@ -6,7 +6,7 @@ from .terminal_classification import (
     _next_action_for_terminal_classification,
     _scope_status_for_unresolved_item,
 )
-from .terminal_history import _last_progress_reason, _max_iteration
+from .terminal_history import _last_progress_reason, _latest_freshness_posture, _max_iteration
 from .terminal_hitl import _hitl_feedback_state_summary
 
 def _final_decision_rationale(
@@ -34,6 +34,7 @@ def _final_decision_rationale(
     feedback_stale_count: int,
     feedback_superseded_count: int,
     pending_feedback_prompt_ids: list[str],
+    final_freshness_posture: dict[str, Any] | None,
     terminal_message_fn,
 ) -> dict[str, Any]:
     summary_blockers = _summarize_unresolved_items(unresolved_mapping_blocking_items, limit=8)
@@ -83,6 +84,7 @@ def _final_decision_rationale(
             unresolved_mapping_blocking_count=len(unresolved_mapping_blocking_items),
             progress_reason=progress_reason,
         ),
+        "freshness_posture_summary": _freshness_posture_summary(final_freshness_posture),
         "closure_not_reached_reason": closure_not_reached_reason,
         "blocking_items_count": int(len(unresolved_mapping_blocking_items)),
         "blocking_items_summary": summary_blockers,
@@ -194,6 +196,19 @@ def _decision_why_text(
     if progress_reason:
         reason_bits.append(f"last_progress_reason={progress_reason}")
     return "Run ended without full closure because " + ", ".join(reason_bits) + "."
+
+
+def _freshness_posture_summary(final_freshness_posture: dict[str, Any] | None) -> str | None:
+    posture = final_freshness_posture if isinstance(final_freshness_posture, dict) else {}
+    if not posture:
+        return None
+    if bool(posture.get("repeat_without_signal")):
+        return "Run ended after repeated no-signal evidence pressure."
+    if bool(posture.get("has_fresh_signal")):
+        return "Run ended with fresh signal supporting the final bounded decision."
+    if bool(posture.get("cached_context_present")):
+        return "Run ended with cached context present but no fresh narrowing signal."
+    return "Run ended without a clear freshness posture."
 
 def _closure_not_reached_reason(
     *,

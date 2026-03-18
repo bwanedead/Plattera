@@ -162,6 +162,7 @@ from .iteration_repair_focus import (
     _accept_apply_edit_plan,
     _accept_mark_blocked,
     _accept_mark_resolved_no_edit,
+    _accept_request_human_feedback,
     _active_ticket_snapshot,
     _baseline_evidence_attempts,
     _baseline_residual_from_unresolved,
@@ -759,6 +760,15 @@ def handle_repair_iteration(
             iteration=iterations,
             latest_refs=state.latest_refs,
             conflict_map=conflict_map,
+            step_story={
+                "step_kind": "investigation_baseline",
+                "why_now": "The run needs a baseline case model before deeper action.",
+                "trigger": "baseline_investigation",
+                "state_before_summary": {
+                    "conflict_count": len(conflict_map),
+                },
+                "next_step_rationale": "Use the baseline to decide whether the case is still weak or ready for narrower work.",
+            },
         ),
     )
     if manual_plan_override is not None:
@@ -804,6 +814,18 @@ def handle_repair_iteration(
             optional_count=optional_count,
             next_recommended_action=next_recommended_action,
             decision_ledger=ledger_snapshot_for_payload(state.decision_ledger),
+            step_story={
+                "step_kind": "investigation_baseline_result",
+                "why_now": "The baseline pass produced a current summary of the case.",
+                "trigger": "baseline_investigation_complete",
+                "state_before_summary": {
+                    "mapping_blocking_count": mapping_blocking_count,
+                    "optional_count": optional_count,
+                },
+                "state_delta": {"next_recommended_action": next_recommended_action},
+                "outcome_class": "informational",
+                "next_step_rationale": next_recommended_action,
+            },
         ),
     )
 
@@ -842,27 +864,6 @@ def handle_repair_iteration(
         if isinstance((focus_target or {}).get("active_blocker"), dict)
         else None
     )
-    if (
-        focus_source == "legacy_fallback"
-        and not str((mapping_focus or {}).get("decision_key") or "").strip()
-        and str((ledger_focus_fallback or {}).get("decision_key") or "").strip()
-        and str((ledger_focus_fallback or {}).get("decision_key") or "").strip().lower() == str(focus_key or "").strip().lower()
-    ):
-        emit_progress(
-            progress_cb,
-            ticker_payload(
-                iteration=iterations,
-                phase="investigate",
-                message="Resolver focus fallback applied from ledger helper due missing explicit primary focus context.",
-                latest_refs=state.latest_refs,
-                detail={
-                    "focus_decision_key": str(focus_key or "").strip().lower() or None,
-                    "fallback_driven": True,
-                    "fallback_source": "choose_investigation_focus",
-                    "focus_source": focus_source,
-                },
-            ),
-        )
     mapping_focus = fallback_focus or {"decision_key": focus_key}
     if not str(focus_key or "").strip():
         append_blocker_iteration_recap_fn(
@@ -884,32 +885,6 @@ def handle_repair_iteration(
     else:
         state.focus_stagnation_streak = 0
     state.last_focus_key = normalized_focus_key or state.last_focus_key
-    emit_progress(
-        progress_cb,
-        ticker_payload(
-            iteration=iterations,
-            phase="investigate",
-            message=f"Resolver focus selected: {normalized_focus_key or 'unknown'}.",
-            latest_refs=state.latest_refs,
-            detail={
-                "focus_decision_key": normalized_focus_key or None,
-                "previous_focus_decision_key": prior_focus_key or None,
-                "focus_advanced": bool(focus_advanced),
-                "focus_reason_code": focus_reason_code,
-                "focus_source": focus_source,
-                "active_blocker_id": (
-                    str((active_emergent_blocker or {}).get("blocker_id") or "").strip() or None
-                ),
-                "active_blocker_kind": (
-                    str((active_emergent_blocker or {}).get("blocker_kind") or "").strip().lower() or None
-                ),
-                "active_blocker_blocking_class": (
-                    str((active_emergent_blocker or {}).get("blocking_class") or "").strip().lower() or None
-                ),
-                "focus_stagnation_streak": int(state.focus_stagnation_streak),
-            },
-        ),
-    )
     span_context = _cached_span_context_for_key(
         state=state,
         decision_key=focus_key,
@@ -941,6 +916,93 @@ def handle_repair_iteration(
         visual_evidence_state=visual_evidence,
         feedback=focus_feedback,
         continuity_log=state.continuity_log,
+        evidence_repeat_guard=state.evidence_repeat_guard,
+        evidence_signal_counter=state.evidence_signal_counter,
+    )
+    focus_policy_signals = (
+        focus_packet.domain_packet.get("policy_signals")
+        if isinstance(focus_packet.domain_packet, dict)
+        else {}
+    )
+    if (
+        focus_source == "legacy_fallback"
+        and not str((fallback_focus or {}).get("decision_key") or "").strip()
+        and str((ledger_focus_fallback or {}).get("decision_key") or "").strip()
+        and str((ledger_focus_fallback or {}).get("decision_key") or "").strip().lower() == str(focus_key or "").strip().lower()
+    ):
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="investigate",
+                message="Resolver focus fallback applied from ledger helper due missing explicit primary focus context.",
+                latest_refs=state.latest_refs,
+                detail={
+                    "focus_decision_key": str(focus_key or "").strip().lower() or None,
+                    "fallback_driven": True,
+                    "fallback_source": "choose_investigation_focus",
+                    "focus_source": focus_source,
+                    "step_story": {
+                        "step_kind": "focus_selection",
+                        "why_now": "The runtime needed a defensible next focus from existing ledger state, and the current posture makes fresh signal versus cached context visible.",
+                        "trigger": "legacy_focus_fallback",
+                        "state_before_summary": {
+                            "focus_stagnation_streak": int(state.focus_stagnation_streak),
+                            "understanding_strength": str((focus_policy_signals or {}).get("understanding_strength") or "unknown").strip().lower() or "unknown",
+                            "has_fresh_signal": bool((focus_policy_signals or {}).get("has_fresh_signal")),
+                            "cached_context_present": bool((focus_policy_signals or {}).get("cached_context_present")),
+                            "repeat_without_signal": bool((focus_policy_signals or {}).get("repeat_without_signal")),
+                        },
+                        "outcome_class": "fallback",
+                        "next_step_rationale": "Continue from the selected focus item rather than rediscovering the entire case.",
+                    },
+                },
+            ),
+        )
+    emit_progress(
+        progress_cb,
+        ticker_payload(
+            iteration=iterations,
+            phase="investigate",
+            message=f"Resolver focus selected: {normalized_focus_key or 'unknown'}.",
+            latest_refs=state.latest_refs,
+            detail={
+                "focus_decision_key": normalized_focus_key or None,
+                "previous_focus_decision_key": prior_focus_key or None,
+                "focus_advanced": bool(focus_advanced),
+                "focus_reason_code": focus_reason_code,
+                "focus_source": focus_source,
+                "active_blocker_id": (
+                    str((active_emergent_blocker or {}).get("blocker_id") or "").strip() or None
+                ),
+                "active_blocker_kind": (
+                    str((active_emergent_blocker or {}).get("blocker_kind") or "").strip().lower() or None
+                ),
+                "active_blocker_blocking_class": (
+                    str((active_emergent_blocker or {}).get("blocking_class") or "").strip().lower() or None
+                ),
+                "focus_stagnation_streak": int(state.focus_stagnation_streak),
+                "step_story": {
+                    "step_kind": "focus_selection",
+                    "why_now": "The loop needs a single focus target before deeper work, and the current posture shows whether it is driven by fresh signal or cached context.",
+                    "trigger": focus_reason_code,
+                    "state_before_summary": {
+                        "previous_focus_decision_key": prior_focus_key or None,
+                        "focus_stagnation_streak": int(state.focus_stagnation_streak),
+                        "understanding_strength": str((focus_policy_signals or {}).get("understanding_strength") or "unknown").strip().lower() or "unknown",
+                        "has_fresh_signal": bool((focus_policy_signals or {}).get("has_fresh_signal")),
+                        "cached_context_present": bool((focus_policy_signals or {}).get("cached_context_present")),
+                        "repeat_without_signal": bool((focus_policy_signals or {}).get("repeat_without_signal")),
+                    },
+                    "state_delta": {
+                        "focus_decision_key": normalized_focus_key or None,
+                        "focus_advanced": bool(focus_advanced),
+                    },
+                    "outcome_class": "advanced" if focus_advanced else "steady",
+                    "next_step_rationale": "Use the selected focus to gather evidence, update support state, or promote blockers if the posture still needs narrowing.",
+                },
+            },
+        ),
     )
     active_ticket_snapshot = _active_ticket_snapshot(
         decision_ledger=state.decision_ledger,
@@ -956,6 +1018,19 @@ def handle_repair_iteration(
             resolver_attempt_number=resolver_attempt_number,
             is_repair_attempt=bool(state.invalid_plan_strikes > 0),
             ticket_snapshot=active_ticket_snapshot,
+            step_story={
+                "step_kind": "resolver_attempt",
+                "why_now": "The selected focus needs a bounded next move, with the current freshness posture shaping the attempt.",
+                "trigger": "resolve_focus_move",
+                "state_before_summary": {
+                    "focus_key": focus_key or None,
+                    "understanding_strength": str((focus_policy_signals or {}).get("understanding_strength") or "unknown").strip().lower() or "unknown",
+                    "has_fresh_signal": bool((focus_policy_signals or {}).get("has_fresh_signal")),
+                    "cached_context_present": bool((focus_policy_signals or {}).get("cached_context_present")),
+                    "repeat_without_signal": bool((focus_policy_signals or {}).get("repeat_without_signal")),
+                },
+                "next_step_rationale": "Read the resolver outcome and gate it against runtime policy with freshness posture in view.",
+            },
         ),
     )
     resolver_outcome = resolve_focus_move(
@@ -999,6 +1074,25 @@ def handle_repair_iteration(
             ticket_snapshot=active_ticket_snapshot,
             validation_error_class=validation_error_class,
             raw_output_excerpt=raw_output_excerpt,
+            step_story={
+                "step_kind": "resolver_outcome",
+                "why_now": "The resolver produced the immediate next move candidate, which still needs to be interpreted against the current freshness posture.",
+                "trigger": result_category,
+                "state_before_summary": {
+                    "focus_key": focus_key or None,
+                    "resolver_attempt_number": resolver_attempt_number,
+                    "understanding_strength": str((focus_policy_signals or {}).get("understanding_strength") or "unknown").strip().lower() or "unknown",
+                    "has_fresh_signal": bool((focus_policy_signals or {}).get("has_fresh_signal")),
+                    "cached_context_present": bool((focus_policy_signals or {}).get("cached_context_present")),
+                    "repeat_without_signal": bool((focus_policy_signals or {}).get("repeat_without_signal")),
+                },
+                "state_delta": {
+                    "move": move or None,
+                    "reason": resolver_reason,
+                },
+                "outcome_class": result_category,
+                "next_step_rationale": "Apply runtime gating and then update the case state from the accepted move or gate rejection, keeping freshness posture explicit.",
+            },
         ),
     )
     supported_moves = {
@@ -1189,6 +1283,7 @@ def handle_repair_iteration(
         image_verification=image_verification,
         evidence_attempts_counts=evidence_attempts_counts,
         raw_output_excerpt=raw_output_excerpt,
+        policy_signals=(focus_packet.domain_packet.get("policy_signals") if isinstance(focus_packet.domain_packet, dict) else {}),
         emit_progress_fn=emit_progress,
         progress_cb=progress_cb,
         append_blocker_iteration_recap_fn=append_blocker_iteration_recap_fn,

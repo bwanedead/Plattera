@@ -203,12 +203,25 @@ def test_resolver_attempt_and_outcome_payload_shapes() -> None:
         ticket_snapshot={"ticket_id": "hitl_range_1", "ticket_state": "answered_unintegrated"},
         validation_error_class="ValidationError",
         raw_output_excerpt='{"move":"bad"}',
+        step_story={
+            "step_kind": "resolver_outcome",
+            "why_now": "Need another bounded step.",
+            "trigger": "gather_more_evidence",
+            "state_before_summary": {
+                "understanding_strength": "moderate",
+                "has_fresh_signal": False,
+                "cached_context_present": True,
+                "repeat_without_signal": True,
+            },
+            "next_step_rationale": "Use the result to decide whether to repair or keep investigating.",
+        },
     )
     assert attempt["phase"] == "resolver_attempt"
     assert (attempt.get("detail") or {}).get("resolver_attempt_number") == 2
     assert outcome["phase"] == "resolver_outcome"
     assert (outcome.get("detail") or {}).get("result_category") == "invalid_schema"
     assert (outcome.get("detail") or {}).get("validation_error_class") == "ValidationError"
+    assert (outcome.get("step_story") or {}).get("state_before_summary", {}).get("cached_context_present") is True
 
 
 def test_resolver_move_gate_payload_shape() -> None:
@@ -220,11 +233,24 @@ def test_resolver_move_gate_payload_shape() -> None:
         gate_outcome="rejected",
         gate_reason="rejected_repeated_evidence_after_binding_feedback",
         ticket_snapshot={"ticket_id": "hitl_range_1", "ticket_state": "answered_unintegrated"},
+        step_story={
+            "step_kind": "evidence",
+            "why_now": "Cached context is present, but no fresh signal was added.",
+            "trigger": "gather_more_evidence",
+            "state_before_summary": {
+                "understanding_strength": "weak",
+                "has_fresh_signal": False,
+                "cached_context_present": True,
+                "repeat_without_signal": True,
+            },
+            "next_step_rationale": "Shift to a different evidence lane.",
+        },
     )
     assert payload["phase"] == "resolver_move_gate"
     detail = payload.get("detail") or {}
     assert detail.get("gate_outcome") == "rejected"
     assert detail.get("gate_reason") == "rejected_repeated_evidence_after_binding_feedback"
+    assert payload["step_story"]["state_before_summary"]["repeat_without_signal"] is True
 
 
 def test_resolver_move_gate_payload_includes_normalize_diagnostics_when_provided() -> None:
@@ -244,6 +270,34 @@ def test_resolver_move_gate_payload_includes_normalize_diagnostics_when_provided
     assert detail.get("normalize_reason") == "image_evidence_verify_region_query_missing"
     assert detail.get("evidence_request_kind") == "image_evidence"
     assert detail.get("evidence_request_mode") == "verify_region"
+
+
+def test_resolver_outcome_payload_carries_step_story() -> None:
+    payload = run_reporting.resolver_outcome_payload(
+        iteration=2,
+        latest_refs={},
+        decision_key="range",
+        move="gather_more_evidence",
+        result_category="valid",
+        reason="need more signal",
+        resolver_attempt_number=1,
+        is_repair_attempt=False,
+        step_story={
+            "step_kind": "resolver_outcome",
+            "why_now": "Need another bounded step.",
+            "trigger": "gather_more_evidence",
+            "state_before_summary": {
+                "understanding_strength": "moderate",
+                "has_fresh_signal": False,
+                "cached_context_present": True,
+                "repeat_without_signal": True,
+            },
+            "next_step_rationale": "Use the result to decide whether to repair or keep investigating.",
+        },
+    )
+    assert payload["step_story"]["step_kind"] == "resolver_outcome"
+    assert payload["step_story"]["next_step_rationale"].startswith("Use the result")
+    assert payload["step_story"]["state_before_summary"]["repeat_without_signal"] is True
 
 
 def test_human_resolution_ticket_state_payload_contract_shape() -> None:
@@ -288,11 +342,24 @@ def test_plan_result_payload_contract_shape() -> None:
                 "lifecycle_state": "answered_unintegrated",
             }
         ],
+        step_story={
+            "step_kind": "repair",
+            "why_now": "Fresh signal supports a bounded plan.",
+            "trigger": "apply_edit_plan",
+            "state_before_summary": {
+                "understanding_strength": "narrow",
+                "has_fresh_signal": True,
+                "cached_context_present": True,
+                "repeat_without_signal": False,
+            },
+            "next_step_rationale": "Apply the plan and then re-audit.",
+        },
     )
     assert payload["phase"] == "plan_result"
     assert payload["detail"]["op_count"] == 2
     assert isinstance(payload["detail"]["ops_preview"], list)
     assert isinstance(payload["detail"]["ticket_lifecycle_snapshot"], list)
+    assert payload["step_story"]["state_before_summary"]["has_fresh_signal"] is True
 
 
 def test_apply_result_payload_contract_shape() -> None:
@@ -302,10 +369,23 @@ def test_apply_result_payload_contract_shape() -> None:
         execution_state="executed",
         plan_op_count=2,
         ops_display=[{"op_type": "replace_span"}],
+        step_story={
+            "step_kind": "repair_apply",
+            "why_now": "Fresh signal supports applying the bounded plan.",
+            "trigger": "tx_apply_edit_plan",
+            "state_before_summary": {
+                "understanding_strength": "narrow",
+                "has_fresh_signal": True,
+                "cached_context_present": True,
+                "repeat_without_signal": False,
+            },
+            "next_step_rationale": "Re-audit the edited transcript.",
+        },
     )
     assert payload["phase"] == "apply_result"
     assert payload["detail"]["plan_op_count"] == 2
     assert isinstance(payload["detail"]["ops"], list)
+    assert payload["step_story"]["state_before_summary"]["cached_context_present"] is True
 
 
 def test_starting_payload_contract_shape() -> None:

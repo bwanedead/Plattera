@@ -214,6 +214,15 @@ The kernel path persists a `trace_artifact_ref` in `latest_refs` — a canonical
 covering every phase boundary, move decision, execution result, and terminal outcome. Its
 presence in the result confirms you ran the kernel path.
 
+## Human Review Surface
+
+After a run completes, inspect the projected transcript-edit run feed:
+- Stable last run: `dossiers_data/state/transcript_edit/run_feed/latest_transcript_edit_run.json`
+- Recent runs feed: `dossiers_data/state/transcript_edit/run_feed/transcript_edit_recent_runs.json`
+
+Use the stable last-run file when you want the most recent recap and freshness posture. Use the
+recent-runs feed when you want to compare the last few completions without opening terminal logs.
+
 ---
 
 ## Run ID Convention

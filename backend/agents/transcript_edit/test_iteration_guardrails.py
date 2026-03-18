@@ -11,6 +11,7 @@ from backend.agents.transcript_edit.iteration_pipeline import (
     _image_verify_runtime_config,
     _accept_mark_blocked,
     _accept_mark_resolved_no_edit,
+    _accept_request_human_feedback,
     _select_focus_target,
     _select_focus_decision_key,
 )
@@ -76,6 +77,50 @@ def test_apply_edit_plan_acceptance_requires_focus_scope_and_ops() -> None:
     assert _accept_apply_edit_plan(resolver_decision_key="range", focus_key="range", plan_payload=good_plan) is True
     assert _accept_apply_edit_plan(resolver_decision_key="section", focus_key="range", plan_payload=good_plan) is False
     assert _accept_apply_edit_plan(resolver_decision_key="range", focus_key="range", plan_payload=bad_plan) is False
+
+
+def test_apply_edit_plan_rejected_when_understanding_is_weak() -> None:
+    good_plan = {"ops": [{"op_id": "op-1"}]}
+    assert (
+        _accept_apply_edit_plan(
+            resolver_decision_key="range",
+            focus_key="range",
+            plan_payload=good_plan,
+            policy_signals={"understanding_strength": "weak", "repair_eligible": False},
+        )
+        is False
+    )
+
+
+def test_request_human_feedback_rejected_when_understanding_is_weak() -> None:
+    assert (
+        _accept_request_human_feedback(
+            policy_signals={"understanding_strength": "weak", "escalation_eligible": False},
+            hitl_enabled=True,
+        )
+        is False
+    )
+    assert (
+        _accept_request_human_feedback(
+            policy_signals={"understanding_strength": "narrow", "escalation_eligible": True},
+            hitl_enabled=True,
+        )
+        is True
+    )
+
+
+def test_mark_blocked_can_honor_repeat_without_signal_pressure() -> None:
+    ledger = {"items": [_ledger_item(key="range", state="disputed", block_reason="dependency")]}
+    assert (
+        _accept_mark_blocked(
+            decision_ledger=ledger,
+            decision_key="range",
+            resolver_reason="evidence_repeat_budget_exhausted",
+            hitl_enabled=True,
+            policy_signals={"repeat_without_signal": True},
+        )
+        is True
+    )
 
 
 def test_findings_for_focus_key_preserves_range_identity_over_generic_plss() -> None:

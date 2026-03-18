@@ -11,6 +11,11 @@ def build_planner_system_message() -> str:
         "You are a legal transcript edit planner. "
         "Your mission is to drive the transcript toward zero mapping-critical inaccuracies for downstream deed-to-IR and mapping loops. "
         "Propose a bounded EditPlanV0 JSON object only. "
+        "Treat support_state.investigation_brief / the investigation brief as a living sticky note for the case, not as canonical truth. "
+        "Treat support_state.working_plan as a revisable short-horizon rail, not as doctrine. "
+        "Treat support_state.policy_signals as derived runtime posture, not as doctrine or truth. "
+        "Do not behave like a scripted checklist runner; choose the next bounded move from the evolving case model. "
+        "If uncertainty remains, keep the plan bounded and honest rather than forcing a speculative edit. "
         "Prioritize sanity and avoid speculative edits. "
         "Never treat unresolved bearing/range/tie-distance conflicts as done; plans must explicitly target unresolved conflicts when evidence supports a safe edit. "
         "Do not propose purely cosmetic formatting edits (spacing, punctuation, symbol variants) unless meaning changes. "
@@ -29,12 +34,22 @@ def build_planner_user_message(
     source_transcript_ref: str,
     source_transcript_hash: str,
     findings_summary: dict[str, Any],
+    investigation_brief: dict[str, Any] | None = None,
+    working_plan: dict[str, Any] | None = None,
+    policy_signals: dict[str, Any] | None = None,
     top_findings: list[dict[str, Any]],
     span_context: list[dict[str, Any]],
     image_verification: dict[str, Any],
     candidate_disagreement_hints: dict[str, Any],
     mapping_priority_focus: dict[str, Any],
 ) -> str:
+    if working_plan is None and isinstance(investigation_brief, dict):
+        working_plan = {
+            "role": "working_plan",
+            "purpose": "short_horizon_case_rail",
+            "editable": True,
+            "canonical": False,
+        }
     schema_snippet = {
         "plan_version": "edit_plan_v0",
         "source_transcript_ref": source_transcript_ref,
@@ -72,6 +87,12 @@ def build_planner_user_message(
         ],
         "schema_snippet": schema_snippet,
         "findings_summary": findings_summary,
+        "investigation_brief": investigation_brief,
+        "support_state": {
+            "investigation_brief": investigation_brief,
+            "working_plan": working_plan,
+            "policy_signals": policy_signals,
+        },
         "top_findings": top_findings,
         "span_context": span_context,
         "image_verification": image_verification,
@@ -110,6 +131,9 @@ def build_plan_repair_user_message(
             "ops",
             "global_flags",
         ],
+        "note_on_investigation": "If uncertainty remains, use the investigation brief as a sticky note and keep the plan bounded rather than inventing unsupported edits.",
+        "note_on_working_plan": "The working plan is a revisable rail, not doctrine; keep it short-horizon and update it by selecting a better bounded move, not by inventing hidden steps.",
+        "note_on_policy_signals": "Derived policy signals express weak vs narrow understanding, repetition pressure, and escalation/repair eligibility; use them as posture, not as a script.",
         "note": "If no safe edit is justified, return ops=[] with rationale.",
     }
     return json.dumps(payload, ensure_ascii=False)
@@ -119,7 +143,13 @@ def build_focus_resolver_system_message() -> str:
     return (
         "You are a transcript-edit focus resolver. "
         "Return one bounded JSON move object for the current focus item. "
+        "Do not behave like a scripted checklist runner; choose the next bounded move from the evolving case model. "
         "The runtime preselects the focus decision_key; do not switch focus to any other item. "
+        "It is valid to create emergent focus items or blockers when the case needs separate investigation, orientation, or baseline-building work; "
+        "use propose_blocker_updates with custom:<name> blocker_kind when that is the best way to make the work explicit. "
+        "Treat support_state.investigation_brief as the current sticky-note summary of the run; it is editable, additive context, not canonical truth. "
+        "Treat support_state.working_plan as a revisable short-horizon rail; it may be adjusted when the case understanding changes. "
+        "Treat support_state.policy_signals as derived posture: weak understanding should bias toward orientation/inventory/verification, narrow understanding may permit repair or bounded HITL, and repeated no-signal work should be discouraged. "
         "Allowed move values: apply_edit_plan, request_human_feedback, gather_more_evidence, mark_blocked, mark_resolved_no_edit, propose_blocker_updates. "
         "If move=apply_edit_plan, include a valid EditPlanV0 in edit_plan. "
         "If move=propose_blocker_updates, include blocker_updates[] with structured operations only (add/update/resolve/supersede). "
@@ -135,6 +165,8 @@ def build_focus_resolver_system_message() -> str:
         "If focus_source=emergent_blocker, use active_emergent_blocker as the primary reasoning frame for this iteration. "
         "Legacy decision_key fields remain compatibility scaffolding and should be treated as secondary when blocker-centered focus is active. "
         "Treat blocker_registry.archetype_menu as optional scaffolding only: use archetypes when they fit, but custom:<name> blocker_kind is allowed when needed. "
+        "Investigation, orientation, and baseline-building may themselves become explicit blocker or focus items when that is the clearest way to preserve progress and state. "
+        "A sane focus item can be exploratory or planning-oriented if that is what the case needs next. "
         "Prioritize removing open mapping blockers before optional work; when focused_blocker_feedback_pair.ready_for_resolution=true, your next move must directly integrate or safely escalate that blocker-ticket pair. "
         "If HITL feedback is present for the focused decision_key, you must explicitly use that feedback when selecting the move. "
         "Do not ignore provided human feedback. "
@@ -177,6 +209,32 @@ def build_focus_resolver_user_message(
         if isinstance(focus_packet, dict) and isinstance(focus_packet.get("focused_blocker_feedback_pair"), dict)
         else {}
     )
+    working_plan = (
+        dict(focus_packet.get("working_plan"))
+        if isinstance(focus_packet, dict) and isinstance(focus_packet.get("working_plan"), dict)
+        else (
+            {
+                "role": "working_plan",
+                "purpose": "short_horizon_case_rail",
+                "editable": True,
+                "canonical": False,
+            }
+            if isinstance(focus_packet, dict) and isinstance(focus_packet.get("investigation_brief"), dict)
+            else None
+        )
+    )
+    support_state = (
+        dict(focus_packet.get("support_state"))
+        if isinstance(focus_packet, dict) and isinstance(focus_packet.get("support_state"), dict)
+        else (
+            {
+                "investigation_brief": focus_packet.get("investigation_brief") if isinstance(focus_packet, dict) else None,
+                "working_plan": working_plan,
+            }
+            if isinstance(focus_packet, dict)
+            else None
+        )
+    )
     payload = {
         "task": "Choose one next move for this focus-cycle item.",
         "allowed_moves": [
@@ -189,6 +247,14 @@ def build_focus_resolver_user_message(
         ],
         "required_fields": ["decision_key", "move", "reason", "iteration_summary"],
         "focus_packet": focus_packet,
+        "support_state": support_state,
+        "investigation_brief": focus_packet.get("investigation_brief") if isinstance(focus_packet, dict) else None,
+        "working_plan": working_plan,
+        "policy_signals": (
+            support_state.get("policy_signals")
+            if isinstance(support_state, dict) and support_state.get("policy_signals") is not None
+            else (focus_packet.get("policy_signals") if isinstance(focus_packet, dict) else None)
+        ),
         "external_context_injections": injections,
         "blocker_feedback_state": blocker_feedback_state,
         "focused_blocker_feedback_pair": focused_blocker_pair or None,

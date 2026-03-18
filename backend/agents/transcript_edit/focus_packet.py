@@ -5,6 +5,12 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .focus_runtime import (
+    baseline_residual_from_unresolved,
+    next_recommended_action_text,
+    recent_image_evidence_attempt_count,
+)
+
 MAX_SPAN_COUNT = 6
 MAX_SPAN_TEXT_CHARS = 320
 MAX_IMAGE_RESULTS = 8
@@ -35,6 +41,8 @@ def build_focus_packet(
     seed_transcript_ref: str | None = None,
     edit_lineage_summary: list[dict[str, Any]] | None = None,
     t0_candidate_refs: list[str] | None = None,
+    evidence_repeat_guard: dict[str, dict[str, Any]] | None = None,
+    evidence_signal_counter: int = 0,
 ) -> dict[str, Any]:
     key = str(decision_key or "").strip().lower()
     ledger_item = _ledger_item_for_key(decision_ledger=decision_ledger, decision_key=key)
@@ -115,11 +123,52 @@ def build_focus_packet(
             ledger_item=ledger_item or {},
             closure_requirement=closure_requirement,
             external_injections=external_injections,
-        )
+    )
     emergent_focus = dict(active_emergent_blocker) if isinstance(active_emergent_blocker, dict) else {}
+    investigation_brief = _investigation_brief(
+        decision_key=key,
+        ledger_item=ledger_item or {},
+        closure_requirement=closure_requirement,
+        recent_attempts=attempts,
+        memory_summary=_memory_summary(attempts),
+        source_completeness=str(decision_ledger.get("source_completeness") or "unknown") if isinstance(decision_ledger, dict) else "unknown",
+    )
+    working_plan = _working_plan(
+        decision_key=key,
+        focus_source=str(focus_source or "legacy_fallback").strip().lower() or "legacy_fallback",
+        ledger_item=ledger_item or {},
+        closure_requirement=closure_requirement,
+        recent_attempts=attempts,
+        investigation_brief=investigation_brief,
+        active_emergent_blocker=emergent_focus,
+        source_completeness=str(decision_ledger.get("source_completeness") or "unknown") if isinstance(decision_ledger, dict) else "unknown",
+    )
+    policy_signals = _derived_policy_signals(
+        decision_key=key,
+        ledger_item=ledger_item or {},
+        closure_requirement=closure_requirement,
+        recent_attempts=attempts,
+        investigation_brief=investigation_brief,
+        span_context=bounded_spans,
+        image_verification=bounded_image,
+        visual_evidence=bounded_visual,
+        feedback=bounded_feedback,
+        source_completeness=str(decision_ledger.get("source_completeness") or "unknown") if isinstance(decision_ledger, dict) else "unknown",
+        evidence_repeat_guard=evidence_repeat_guard or {},
+        evidence_signal_counter=evidence_signal_counter,
+    )
+    support_state = {
+        "investigation_brief": investigation_brief,
+        "working_plan": working_plan,
+        "policy_signals": policy_signals,
+    }
     return {
         "focus_source": str(focus_source or "legacy_fallback").strip().lower() or "legacy_fallback",
         "decision_key": key,
+        "investigation_brief": investigation_brief,
+        "working_plan": working_plan,
+        "policy_signals": policy_signals,
+        "support_state": support_state,
         "active_emergent_blocker": (
             {
                 "blocker_id": str(emergent_focus.get("blocker_id") or "").strip() or None,
@@ -249,6 +298,216 @@ def _memory_summary(recent_attempts: list[dict[str, Any]]) -> str:
     outcome = str(latest.get("outcome") or "unknown_outcome")
     summary = f"Recent focus history: last move={move}, outcome={outcome}, total_recent={len(recent_attempts)}."
     return summary[:MAX_MEMORY_SUMMARY_CHARS]
+
+
+def _investigation_brief(
+    *,
+    decision_key: str,
+    ledger_item: dict[str, Any],
+    closure_requirement: dict[str, Any],
+    recent_attempts: list[dict[str, Any]],
+    memory_summary: str,
+    source_completeness: str,
+) -> dict[str, Any]:
+    residual = baseline_residual_from_unresolved(ledger_item) if ledger_item else {}
+    open_questions = [
+        str(closure_requirement.get("required_information") or "").strip(),
+        str(closure_requirement.get("minimal_user_action") or "").strip(),
+    ]
+    open_questions = [question for question in open_questions if question]
+    knowns = {
+        "decision_key": decision_key,
+        "state": str(ledger_item.get("state") or "unknown").strip().lower() or "unknown",
+        "blocking": bool(ledger_item.get("blocking")),
+        "mapping_blocking": bool(closure_requirement.get("mapping_blocking")),
+        "scope_status": str(closure_requirement.get("scope_status") or "unknown").strip().lower() or "unknown",
+        "selected_value": str(ledger_item.get("selected_value") or "").strip() or None,
+        "alternatives": [
+            str(value).strip()
+            for value in list(ledger_item.get("alternatives") or [])
+            if str(value).strip()
+        ][:6],
+        "evidence_refs": [
+            str(value).strip()
+            for value in list(ledger_item.get("evidence_refs") or [])
+            if str(value).strip()
+        ][:6],
+    }
+    if residual:
+        knowns["residual"] = residual
+    next_action = next_recommended_action_text([residual] if residual else [])
+    return {
+        "role": "sticky_note",
+        "purpose": "current_case_understanding",
+        "source_completeness": source_completeness,
+        "knowns": knowns,
+        "open_questions": open_questions,
+        "recent_attempts": recent_attempts[-MAX_RECENT_ATTEMPTS:],
+        "memory_summary": memory_summary[:MAX_MEMORY_SUMMARY_CHARS],
+        "next_recommended_action": next_action[:MAX_MEMORY_SUMMARY_CHARS],
+        "editable": True,
+        "canonical": False,
+    }
+
+
+def _working_plan(
+    *,
+    decision_key: str,
+    focus_source: str,
+    ledger_item: dict[str, Any],
+    closure_requirement: dict[str, Any],
+    recent_attempts: list[dict[str, Any]],
+    investigation_brief: dict[str, Any],
+    active_emergent_blocker: dict[str, Any] | None,
+    source_completeness: str,
+) -> dict[str, Any]:
+    residual = baseline_residual_from_unresolved(ledger_item) if ledger_item else {}
+    mapping_blocking = _canonical_mapping_blocking(ledger_item=ledger_item, closure_requirement=closure_requirement)
+    focus_label = str(ledger_item.get("label") or ledger_item.get("key") or decision_key or "decision").strip()
+    current_goal = (
+        "increase understanding before repair"
+        if mapping_blocking or str(source_completeness).strip().lower() in {"unknown", "partial"}
+        else "apply the safest bounded next step"
+    )
+    next_action = str(investigation_brief.get("next_recommended_action") or "").strip()
+    if not next_action:
+        next_action = next_recommended_action_text([residual] if residual else [])
+    steps: list[str] = []
+    if focus_source == "emergent_blocker" and isinstance(active_emergent_blocker, dict):
+        title = str(active_emergent_blocker.get("title") or focus_label).strip() or focus_label
+        steps.append(f"Work the emergent blocker explicitly: {title}.")
+    if mapping_blocking:
+        steps.append("Verify or narrow the mapping-critical uncertainty before any speculative edit.")
+    elif str(closure_requirement.get("scope_status") or "").strip().lower() == "unknown":
+        steps.append("Keep scope and dependency uncertainty explicit while the case is still being oriented.")
+    if next_action:
+        steps.append(next_action)
+    if not steps:
+        steps.append("Proceed with the current bounded focus item and preserve additive state.")
+    replan_triggers = [
+        "new evidence changes the ledger state or mapping impact",
+        "human feedback arrives or is superseded",
+        "repeated no-signal attempts suggest the current approach is stale",
+        "the investigation brief gains a materially different known/open-question set",
+    ]
+    return {
+        "role": "working_plan",
+        "purpose": "short_horizon_case_rail",
+        "plan_version": "working_plan_v0",
+        "editable": True,
+        "canonical": False,
+        "status": "working" if recent_attempts or mapping_blocking else "lightweight",
+        "current_focus": {
+            "decision_key": decision_key,
+            "label": focus_label or None,
+            "focus_source": focus_source,
+            "mapping_blocking": mapping_blocking,
+            "scope_status": str(closure_requirement.get("scope_status") or "unknown").strip().lower() or "unknown",
+        },
+        "current_goal": current_goal,
+        "next_steps": steps[:4],
+        "replan_triggers": replan_triggers,
+        "notes": str(investigation_brief.get("memory_summary") or "").strip()[:MAX_MEMORY_SUMMARY_CHARS] or None,
+        "recent_attempts_seen": len(recent_attempts),
+    }
+
+
+def _derived_policy_signals(
+    *,
+    decision_key: str,
+    ledger_item: dict[str, Any],
+    closure_requirement: dict[str, Any],
+    recent_attempts: list[dict[str, Any]],
+    investigation_brief: dict[str, Any],
+    span_context: list[dict[str, Any]],
+    image_verification: dict[str, Any],
+    visual_evidence: dict[str, Any],
+    feedback: dict[str, Any] | None,
+    source_completeness: str,
+    evidence_repeat_guard: dict[str, dict[str, Any]],
+    evidence_signal_counter: int,
+) -> dict[str, Any]:
+    residual = baseline_residual_from_unresolved(ledger_item) if ledger_item else {}
+    mapping_blocking = _canonical_mapping_blocking(ledger_item=ledger_item, closure_requirement=closure_requirement)
+    scope_status = str(closure_requirement.get("scope_status") or "unknown").strip().lower() or "unknown"
+    source_state = str(source_completeness or "unknown").strip().lower() or "unknown"
+    recent_image_attempts = recent_image_evidence_attempt_count(
+        continuity_log=recent_attempts,
+        decision_key=decision_key,
+        window=8,
+    )
+    image_results = []
+    if isinstance(image_verification.get("results"), list):
+        image_results = [row for row in image_verification.get("results") if isinstance(row, dict)]
+    image_verified = any(str(row.get("status") or "").strip().lower() in {"match", "confirmed"} for row in image_results)
+    visual_status = str(visual_evidence.get("status") or "").strip().lower() or None
+    cached_context_present = bool(
+        span_context
+        or image_results
+        or image_verified
+        or visual_status in {"located", "verified", "captured"}
+        or isinstance(feedback, dict)
+    )
+    repeat_signature = _policy_repeat_signature(decision_key)
+    repeat_entry = evidence_repeat_guard.get(repeat_signature) if isinstance(evidence_repeat_guard, dict) else {}
+    last_signal_counter = int(repeat_entry.get("last_signal_counter") or 0) if isinstance(repeat_entry, dict) else 0
+    current_signal_counter = max(0, int(evidence_signal_counter or 0))
+    has_fresh_signal = bool(
+        current_signal_counter > last_signal_counter
+        or isinstance(feedback, dict)
+    )
+    has_new_signal = has_fresh_signal
+    if mapping_blocking and source_state in {"unknown", "partial", "partial_truncated", "partial_missing_context"}:
+        understanding_strength = "weak"
+    elif mapping_blocking and (has_fresh_signal or cached_context_present):
+        understanding_strength = "moderate"
+    elif mapping_blocking:
+        understanding_strength = "moderate"
+    else:
+        understanding_strength = "narrow"
+    needs_orientation = understanding_strength == "weak" and not bool(recent_attempts)
+    needs_inventory = understanding_strength == "weak" or (mapping_blocking and not has_fresh_signal)
+    repeat_without_signal = bool(recent_image_attempts >= 2 and not has_fresh_signal)
+    escalation_eligible = bool(
+        mapping_blocking
+        and scope_status in {"in_target", "unknown"}
+        and understanding_strength in {"moderate", "narrow"}
+        and (has_fresh_signal or recent_image_attempts >= 1)
+    )
+    repair_eligible = bool(
+        mapping_blocking
+        and understanding_strength != "weak"
+        and has_fresh_signal
+    )
+    focus_is_material = bool(mapping_blocking)
+    return {
+        "decision_key": decision_key,
+        "understanding_strength": understanding_strength,
+        "needs_orientation": needs_orientation,
+        "needs_inventory": needs_inventory,
+        "has_new_signal": has_new_signal,
+        "has_fresh_signal": has_fresh_signal,
+        "cached_context_present": cached_context_present,
+        "repeat_without_signal": repeat_without_signal,
+        "escalation_eligible": escalation_eligible,
+        "repair_eligible": repair_eligible,
+        "focus_is_material": focus_is_material,
+        "recent_image_attempts": int(recent_image_attempts),
+        "source_completeness": source_state,
+        "evidence_repeat_budget": int((evidence_repeat_guard.get(_policy_repeat_signature(decision_key)) or {}).get("count") or 0) if isinstance(evidence_repeat_guard, dict) else 0,
+    }
+
+
+def _canonical_mapping_blocking(*, ledger_item: dict[str, Any], closure_requirement: dict[str, Any]) -> bool:
+    if isinstance(closure_requirement, dict) and "mapping_blocking" in closure_requirement:
+        return bool(closure_requirement.get("mapping_blocking"))
+    if isinstance(ledger_item, dict):
+        return bool(ledger_item.get("mapping_blocking"))
+    return False
+
+
+def _policy_repeat_signature(decision_key: str) -> str:
+    return f"{str(decision_key or '').strip().lower()}|repeat"
 
 
 def _bounded_span_context(span_context: list[dict[str, Any]]) -> list[dict[str, Any]]:

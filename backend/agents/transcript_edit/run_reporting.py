@@ -13,6 +13,7 @@ def _base_payload(
     latest_refs: dict[str, Any],
     execution_state: str | None = None,
     stream_kind: str = "narration",
+    step_story: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "iteration": iteration,
@@ -23,6 +24,8 @@ def _base_payload(
     }
     if execution_state is not None:
         payload["execution_state"] = execution_state
+    if isinstance(step_story, dict) and step_story:
+        payload["step_story"] = step_story
     return payload
 
 
@@ -91,6 +94,7 @@ def blocker_update_payload(
     blocker_kind: str | None,
     blocking_class: str | None,
     reason: str | None,
+    step_story: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     state = str(status or "").strip().lower() or "unknown"
     op = str(operation or "").strip().lower() or "unknown"
@@ -103,6 +107,7 @@ def blocker_update_payload(
             latest_refs=latest_refs,
             execution_state="running",
             stream_kind="ticker",
+            step_story=step_story,
         ),
         "detail": {
             "status": state,
@@ -430,6 +435,7 @@ def resolver_attempt_payload(
     resolver_attempt_number: int,
     is_repair_attempt: bool,
     ticket_snapshot: dict[str, Any] | None = None,
+    step_story: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "event_type": "resolver_attempt",
@@ -439,6 +445,7 @@ def resolver_attempt_payload(
             message=f"Resolver attempt {resolver_attempt_number} for {decision_key}.",
             latest_refs=latest_refs,
             execution_state="running",
+            step_story=step_story,
         ),
         "detail": {
             "decision_key": decision_key,
@@ -462,6 +469,7 @@ def resolver_outcome_payload(
     ticket_snapshot: dict[str, Any] | None = None,
     validation_error_class: str | None = None,
     raw_output_excerpt: str | None = None,
+    step_story: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     detail: dict[str, Any] = {
         "decision_key": decision_key,
@@ -484,6 +492,7 @@ def resolver_outcome_payload(
             message=f"Resolver outcome for {decision_key}: {result_category}.",
             latest_refs=latest_refs,
             execution_state="running",
+            step_story=step_story,
         ),
         "detail": detail,
     }
@@ -501,6 +510,7 @@ def resolver_move_gate_payload(
     normalize_reason: str | None = None,
     evidence_request_kind: str | None = None,
     evidence_request_mode: str | None = None,
+    step_story: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     detail: dict[str, Any] = {
         "decision_key": decision_key,
@@ -523,6 +533,7 @@ def resolver_move_gate_payload(
             message=f"Runtime move gate for {decision_key}: {gate_outcome} ({gate_reason}).",
             latest_refs=latest_refs,
             execution_state="running",
+            step_story=step_story,
         ),
         "detail": detail,
     }
@@ -543,6 +554,7 @@ def investigation_baseline_payload(
     iteration: int,
     latest_refs: dict[str, Any],
     conflict_map: list[dict[str, Any]],
+    step_story: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         **_base_payload(
@@ -551,6 +563,7 @@ def investigation_baseline_payload(
             message="Running baseline investigation to self-reconcile cross-draft conflicts before any HITL escalation.",
             latest_refs=latest_refs,
             execution_state="running",
+            step_story=step_story,
         ),
         "detail": {
             "conflict_count": len(conflict_map),
@@ -569,6 +582,7 @@ def investigation_baseline_result_payload(
     optional_count: int,
     next_recommended_action: str,
     decision_ledger: dict[str, Any] | None = None,
+    step_story: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         **_base_payload(
@@ -581,6 +595,7 @@ def investigation_baseline_result_payload(
             ),
             latest_refs=latest_refs,
             execution_state="running",
+            step_story=step_story,
         ),
         "detail": {
             "evidence_attempts": evidence_attempts,
@@ -763,6 +778,7 @@ def plan_result_payload(
     op_count: int,
     ops_preview: list[dict[str, Any]],
     ticket_lifecycle_snapshot: list[dict[str, Any]] | None = None,
+    step_story: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     snapshot = [dict(row) for row in list(ticket_lifecycle_snapshot or []) if isinstance(row, dict)][:6]
     return {
@@ -772,6 +788,7 @@ def plan_result_payload(
             message=f"Edit plan ready ({plan_reason}): {op_count} operations proposed.",
             latest_refs=latest_refs,
             execution_state="running",
+            step_story=step_story,
         ),
         "detail": {
             "plan_reason": plan_reason,
@@ -789,6 +806,7 @@ def apply_result_payload(
     execution_state: str,
     plan_op_count: int,
     ops_display: list[dict[str, Any]],
+    step_story: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         **_base_payload(
@@ -797,6 +815,7 @@ def apply_result_payload(
             message=f"Applied {plan_op_count} edits. Re-auditing transcript.",
             latest_refs=latest_refs,
             execution_state=execution_state,
+            step_story=step_story,
         ),
         "detail": {
             "plan_op_count": plan_op_count,

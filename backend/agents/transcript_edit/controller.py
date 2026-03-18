@@ -81,7 +81,11 @@ from .state_projection import (
     derive_waiting_feedback_projection,
     sync_pending_feedback_cache_from_registry,
 )
-from .terminalization import build_run_result
+from .run_feed_persistence import (
+    TranscriptEditRunFeedPersistenceService,
+    write_transcript_edit_run_snapshot,
+)
+from .terminalization import build_run_result, terminal_message, terminal_summary
 from .run_reporting import (
     audit_payload,
     audit_result_payload,
@@ -102,6 +106,7 @@ _MAX_CANDIDATES = 10
 _VALIDATION_MODE_OFF = "off"
 _VALIDATION_MODE_LIVE_HITL = "live_hitl"
 _LOG = logging.getLogger(__name__)
+_RUN_FEED_PERSISTENCE = TranscriptEditRunFeedPersistenceService()
 
 
 def run_transcript_edit_controller_loop(
@@ -215,6 +220,16 @@ def run_transcript_edit_controller_loop(
         if isinstance((state.blocker_registry or {}).get("convention_context"), dict)
         else {}
     )
+    progress_log: list[dict[str, Any]] = []
+    upstream_progress_cb = progress_cb
+
+    def _captured_progress_cb(event: dict[str, Any]) -> None:
+        if isinstance(event, dict):
+            progress_log.append(dict(event))
+        if upstream_progress_cb is not None:
+            upstream_progress_cb(event)
+
+    progress_cb = _captured_progress_cb
     candidate_count = (
         len(request.candidate_refs)
         if request.candidate_refs
@@ -272,8 +287,11 @@ def run_transcript_edit_controller_loop(
         status = "failed"
         if _should_convert_timeout_to_waiting_feedback(reason=reason, state=state):
             status = "needs_review"
-        return _result(
+        return _finalize_result_and_project_run_feed(
             start=start,
+            request=request,
+            request_id_prefix=request_id_prefix,
+            progress_log=progress_log,
             session_id=session_id,
             iterations=0,
             status=status,
@@ -311,8 +329,11 @@ def run_transcript_edit_controller_loop(
     state.latest_refs = orient.dashboard.latest_refs.model_dump(mode="json")
     if orient.execution_state != StepExecutionState.EXECUTED:
         reason = orient.refusal.reason_code if orient.refusal is not None else "tx_orient_baseline_refused"
-        return _result(
+        return _finalize_result_and_project_run_feed(
             start=start,
+            request=request,
+            request_id_prefix=request_id_prefix,
+            progress_log=progress_log,
             session_id=session_id,
             iterations=0,
             status="needs_review",
@@ -471,8 +492,11 @@ def run_transcript_edit_controller_loop(
             status = "failed"
             if _should_convert_timeout_to_waiting_feedback(reason=reason, state=state):
                 status = "needs_review"
-            return _result(
+            return _finalize_result_and_project_run_feed(
                 start=start,
+                request=request,
+                request_id_prefix=request_id_prefix,
+                progress_log=progress_log,
                 session_id=session_id,
                 iterations=iterations,
                 status=status,
@@ -602,8 +626,11 @@ def run_transcript_edit_controller_loop(
             )
             if decision is None:
                 continue
-            return _result(
+            return _finalize_result_and_project_run_feed(
                 start=start,
+                request=request,
+                request_id_prefix=request_id_prefix,
+                progress_log=progress_log,
                 session_id=session_id,
                 iterations=iterations,
                 status=decision.status,
@@ -614,8 +641,11 @@ def run_transcript_edit_controller_loop(
             )
 
         if mode == _MODE_AUDIT_ONLY:
-            return _result(
+            return _finalize_result_and_project_run_feed(
                 start=start,
+                request=request,
+                request_id_prefix=request_id_prefix,
+                progress_log=progress_log,
                 session_id=session_id,
                 iterations=iterations,
                 status="needs_review",
@@ -643,8 +673,11 @@ def run_transcript_edit_controller_loop(
             validation_mode=validation_mode,
         )
         if decision is not None:
-            return _result(
+            return _finalize_result_and_project_run_feed(
                 start=start,
+                request=request,
+                request_id_prefix=request_id_prefix,
+                progress_log=progress_log,
                 session_id=session_id,
                 iterations=iterations,
                 status=decision.status,
@@ -663,8 +696,11 @@ def run_transcript_edit_controller_loop(
             run_id=request_id_prefix,
             reason_code=terminal_decision.reason_code,
         )
-    return _result(
+    return _finalize_result_and_project_run_feed(
         start=start,
+        request=request,
+        request_id_prefix=request_id_prefix,
+        progress_log=progress_log,
         session_id=session_id,
         iterations=iterations,
         status=terminal_decision.status,
@@ -822,6 +858,71 @@ def _result(
         review_required=review_required,
         runtime_hitl_state=runtime_hitl_state,
     )
+
+
+def _finalize_result_and_project_run_feed(
+    *,
+    start,
+    request: TranscriptEditAgentRunRequest,
+    request_id_prefix: str,
+    progress_log: list[dict[str, Any]],
+    session_id: str | None,
+    iterations: int,
+    status: str,
+    reason: str,
+    latest_refs: dict[str, Any],
+    review_required: bool,
+    runtime_hitl_state: dict[str, Any] | None = None,
+    feed_service: TranscriptEditRunFeedPersistenceService | None = None,
+    handoff_packet_ref: str | None = None,
+    handoff_summary: str | None = None,
+) -> TranscriptEditAgentRunResult:
+    effective_session_id = str(session_id or getattr(start, "session_id", "") or "")
+    result = _result(
+        start=start,
+        session_id=effective_session_id,
+        iterations=iterations,
+        status=status,
+        reason=reason,
+        latest_refs=latest_refs,
+        review_required=review_required,
+        runtime_hitl_state=runtime_hitl_state,
+    )
+    run_terminal_message = terminal_message(result)
+    run_terminal_summary = terminal_summary(
+        progress_log,
+        result,
+        critical_events=[],
+        runtime_hitl_state=runtime_hitl_state,
+    )
+    freshness_posture = run_terminal_summary.get("final_freshness_posture")
+    freshness_summary = str(run_terminal_summary.get("final_freshness_summary") or "").strip() or None
+    try:
+        write_transcript_edit_run_snapshot(
+            request_id=request_id_prefix,
+            run_id=str(result.session_id or request_id_prefix),
+            session_id=result.session_id,
+            dossier_id=request.dossier_id,
+            final_status=result.status,
+            reason_code=result.reason_code,
+            iterations=result.iterations,
+            terminal_message=run_terminal_message,
+            terminal_summary=run_terminal_summary,
+            final_freshness_posture=freshness_posture if isinstance(freshness_posture, dict) else None,
+            final_freshness_summary=freshness_summary,
+            run_artifact_ref=result.run_artifact_ref,
+            handoff_packet_ref=handoff_packet_ref,
+            handoff_summary=handoff_summary,
+            feed_service=feed_service or _RUN_FEED_PERSISTENCE,
+        )
+    except Exception as exc:
+        _LOG.warning(
+            "TX_RUN_FEED_WRITE_FAILED ► run_id=%s error_type=%s error=%s",
+            request_id_prefix,
+            type(exc).__name__,
+            str(exc)[:220],
+        )
+    return result
 
 
 def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
@@ -1065,5 +1166,3 @@ def _span_to_display_dict(span: dict[str, Any]) -> dict[str, Any]:
         "span_id": span.get("span_id"),
         "text": text[:120] + ("..." if len(text) > 120 else ""),
     }
-
-

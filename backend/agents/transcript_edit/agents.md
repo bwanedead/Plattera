@@ -24,9 +24,16 @@
 - Keep feedback prompt supersession/polling/consumption and ticket lifecycle state helpers in `feedback_lifecycle.py`.
 - Keep evidence execution adapters, image-evidence shaping, and per-focus evidence cache helpers in `evidence_runtime.py`.
 - Keep focus-key selection/baseline shaping/recommendation helpers in `focus_runtime.py`.
+- Focus is emergent, not fixed: the runtime may promote investigation, orientation, baseline-building, or mapping items into explicit blockers via `propose_blocker_updates`; do not hard-script the focus list.
+- The per-iteration `investigation_brief` is a living sticky note, not canonical trace; keep it additive and editable, and use it to inform focus and planning without turning it into doctrine.
+- The per-iteration `working_plan` is a short-horizon rail, not doctrine; it may be revised as case understanding changes, and it should stay subordinate to durable state.
+- `support_state` should bundle the editable investigation brief and working plan together; neither should be treated as canonical truth.
+- `support_state.policy_signals` are derived posture hints only; they should bias selection/gating, not replace ledger or blocker truth.
 - Keep resolver move acceptance/gating helpers in `resolver_gates.py`.
 - Keep blocker iteration recap payload shaping/progress emission in `blocker_iteration_reporting.py`.
 - Keep terminal run-result/message/summary composition in `terminalization.py`.
+- Keep the projected human-visible run feed in `run_feed_persistence.py`; it writes `dossiers_data/state/transcript_edit/run_feed/latest_transcript_edit_run.json` and `transcript_edit_recent_runs.json` as projections of the terminalized run, not as a separate truth source.
+- The run-feed projection is shared by the API and legacy controller completion seams; recent-feed updates are lock-protected so concurrent completions do not drop entries.
 - Keep `decision_ledger.py` as the stable public facade for ledger APIs.
 - Keep ledger state/init/update/ticket mutation helpers in `decision_ledger_state.py`.
 - Keep closure derivation/unresolved requirement/materiality helpers in `decision_ledger_closure.py`.

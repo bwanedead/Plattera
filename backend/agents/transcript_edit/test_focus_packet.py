@@ -71,7 +71,16 @@ def test_focus_packet_caps_spans_image_results_and_feedback() -> None:
 
 def test_focus_packet_filters_recent_attempts_to_focus_key() -> None:
     packet = build_focus_packet(
-        decision_ledger={"items": [{"key": "range", "closure_requirement": {"mapping_blocking": True}}]},
+        decision_ledger={
+            "items": [
+                {
+                    "key": "range",
+                    "state": "disputed",
+                    "mapping_blocking": False,
+                    "closure_requirement": {"mapping_blocking": True},
+                }
+            ]
+        },
         decision_key="range",
         source_transcript_ref="in-memory://source.json",
         source_transcript_hash="sha256:test",
@@ -87,6 +96,124 @@ def test_focus_packet_filters_recent_attempts_to_focus_key() -> None:
     attempts = packet["recent_attempts"]
     assert len(attempts) == 2
     assert all(str(row.get("decision_key") or "") == "range" for row in attempts)
+    brief = packet.get("investigation_brief")
+    assert isinstance(brief, dict)
+    assert str(brief.get("role") or "") == "sticky_note"
+    assert str(brief.get("purpose") or "") == "current_case_understanding"
+    working_plan = packet.get("working_plan")
+    assert isinstance(working_plan, dict)
+    assert str(working_plan.get("role") or "") == "working_plan"
+    assert str(working_plan.get("purpose") or "") == "short_horizon_case_rail"
+    support_state = packet.get("support_state")
+    assert isinstance(support_state, dict)
+    assert isinstance(support_state.get("investigation_brief"), dict)
+    assert isinstance(support_state.get("working_plan"), dict)
+    assert isinstance(support_state.get("policy_signals"), dict)
+    signals = support_state.get("policy_signals") if isinstance(support_state.get("policy_signals"), dict) else {}
+    assert str(signals.get("understanding_strength") or "") in {"weak", "moderate", "narrow"}
+    assert "repair_eligible" in signals
+    assert signals.get("focus_is_material") is True
+
+
+def test_focus_packet_materiality_comes_from_closure_requirement() -> None:
+    packet = build_focus_packet(
+        decision_ledger={
+            "items": [
+                {
+                    "key": "range",
+                    "state": "disputed",
+                    "mapping_blocking": False,
+                    "closure_requirement": {"mapping_blocking": True},
+                }
+            ]
+        },
+        decision_key="range",
+        source_transcript_ref="in-memory://source.json",
+        source_transcript_hash="sha256:test",
+        span_context=[],
+        image_verification_payload={},
+        feedback=None,
+        continuity_log=[],
+    )
+    signals = (packet.get("support_state") or {}).get("policy_signals") if isinstance(packet.get("support_state"), dict) else {}
+    assert isinstance(signals, dict)
+    assert signals.get("focus_is_material") is True
+    assert signals.get("repair_eligible") is False
+    assert signals.get("escalation_eligible") is False
+
+
+def test_focus_packet_flags_repeated_no_signal_evidence_attempts() -> None:
+    packet = build_focus_packet(
+        decision_ledger={
+            "items": [
+                {
+                    "key": "range",
+                    "state": "disputed",
+                    "closure_requirement": {"mapping_blocking": True},
+                }
+            ]
+        },
+        decision_key="range",
+        source_transcript_ref="in-memory://source.json",
+        source_transcript_hash="sha256:test",
+        span_context=[{"span_id": "cached", "text": "cached span"}],
+        image_verification_payload={
+            "results": [{"check_id": "cached_check", "status": "match", "observed_text": "cached image"}]
+        },
+        visual_evidence_state={
+            "status": "located",
+            "query": "cached query",
+            "tx_image_evidence_region_ref": {"artifact_path": "in-memory://region.jpg"},
+        },
+        feedback=None,
+        continuity_log=[
+            {"decision_key": "range", "move": "gather_more_evidence", "outcome": "ok", "evidence_kind": "image_evidence:select_region"},
+            {"decision_key": "range", "move": "gather_more_evidence", "outcome": "ok", "evidence_kind": "image_evidence:select_region"},
+        ],
+        evidence_repeat_guard={"range|repeat": {"count": 2, "last_signal_counter": 2}},
+        evidence_signal_counter=2,
+    )
+    signals = (packet.get("support_state") or {}).get("policy_signals") if isinstance(packet.get("support_state"), dict) else {}
+    assert isinstance(signals, dict)
+    assert signals.get("cached_context_present") is True
+    assert signals.get("has_new_signal") is False
+    assert signals.get("repeat_without_signal") is True
+
+
+def test_focus_packet_marks_fresh_signal_when_iteration_produces_new_context() -> None:
+    packet = build_focus_packet(
+        decision_ledger={
+            "items": [
+                {
+                    "key": "range",
+                    "state": "disputed",
+                    "closure_requirement": {"mapping_blocking": True},
+                }
+            ]
+        },
+        decision_key="range",
+        source_transcript_ref="in-memory://source.json",
+        source_transcript_hash="sha256:test",
+        span_context=[{"span_id": "fresh", "text": "fresh span"}],
+        image_verification_payload={
+            "results": [{"check_id": "fresh_check", "status": "match", "observed_text": "fresh image"}]
+        },
+        visual_evidence_state={
+            "status": "verified",
+            "query": "fresh query",
+            "tx_image_evidence_region_ref": {"artifact_path": "in-memory://fresh-region.jpg"},
+        },
+        feedback={"decision_key": "range", "selected_value": "Range 75 West"},
+        continuity_log=[],
+        evidence_repeat_guard={"range|repeat": {"count": 0, "last_signal_counter": 0}},
+        evidence_signal_counter=1,
+    )
+    signals = (packet.get("support_state") or {}).get("policy_signals") if isinstance(packet.get("support_state"), dict) else {}
+    assert isinstance(signals, dict)
+    assert signals.get("has_new_signal") is True
+    assert signals.get("has_fresh_signal") is True
+    assert signals.get("cached_context_present") is True
+    assert signals.get("repeat_without_signal") is False
 
 
 def test_focus_packet_injects_answered_unintegrated_human_resolution_ticket() -> None:
@@ -133,6 +260,14 @@ def test_focus_packet_injects_answered_unintegrated_human_resolution_ticket() ->
         "feedback_ready_for_integration",
         "answered_unintegrated",
     }
+    brief = packet.get("investigation_brief")
+    assert isinstance(brief, dict)
+    assert isinstance(brief.get("knowns"), dict)
+    assert isinstance(brief.get("open_questions"), list)
+    support_state = packet.get("support_state")
+    assert isinstance(support_state, dict)
+    assert str((support_state.get("working_plan") or {}).get("role") or "") == "working_plan"
+    assert isinstance((support_state.get("policy_signals") or {}), dict)
 
 
 def test_focus_packet_preserves_unknown_scope_as_none_for_in_target_flag() -> None:

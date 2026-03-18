@@ -20,6 +20,7 @@ from .iteration_repair_runtime import (
     _accept_apply_edit_plan,
     _accept_mark_blocked,
     _accept_mark_resolved_no_edit,
+    _accept_request_human_feedback,
     _findings_for_focus_key,
     _image_verify_runtime_config,
 )
@@ -127,6 +128,7 @@ __all__ = [
     "_select_focus_decision_key",
     "_accept_mark_resolved_no_edit",
     "_accept_mark_blocked",
+    "_accept_request_human_feedback",
     "_accept_apply_edit_plan",
     "_image_verify_runtime_config",
     "_findings_for_focus_key",

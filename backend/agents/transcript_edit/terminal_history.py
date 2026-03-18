@@ -137,6 +137,34 @@ def _latest_image_verify_observability(*, events: list[dict[str, Any]]) -> dict[
         }
     return None
 
+
+def _latest_freshness_posture(*, events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    keys = ("understanding_strength", "has_fresh_signal", "cached_context_present", "repeat_without_signal")
+    for entry in reversed(events):
+        if not isinstance(entry, dict):
+            continue
+        story = entry.get("step_story")
+        if not isinstance(story, dict):
+            continue
+        summary = story.get("state_before_summary")
+        if not isinstance(summary, dict):
+            continue
+        if not any(key in summary for key in keys):
+            continue
+        posture = {
+            "focus_decision_key": (
+                str(summary.get("focus_decision_key") or entry.get("decision_key") or "").strip().lower() or None
+            ),
+            "understanding_strength": (
+                str(summary.get("understanding_strength") or "unknown").strip().lower() or "unknown"
+            ),
+            "has_fresh_signal": bool(summary.get("has_fresh_signal")),
+            "cached_context_present": bool(summary.get("cached_context_present")),
+            "repeat_without_signal": bool(summary.get("repeat_without_signal")),
+        }
+        return posture
+    return None
+
 def _last_progress_reason(events: list[dict[str, Any]]) -> str | None:
     for entry in reversed(events):
         if not isinstance(entry, dict):

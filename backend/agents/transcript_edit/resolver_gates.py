@@ -43,8 +43,10 @@ def accept_mark_blocked(
     decision_key: str,
     resolver_reason: str,
     hitl_enabled: bool,
+    policy_signals: dict[str, Any] | None = None,
 ) -> bool:
     reason = str(resolver_reason or "").strip().lower()
+    signals = policy_signals if isinstance(policy_signals, dict) else {}
     if reason.startswith(
         (
             "resolver_move_invalid:",
@@ -73,7 +75,20 @@ def accept_mark_blocked(
         return True
     if not hitl_enabled and is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, decision_key):
         return True
+    if bool(signals.get("repeat_without_signal")) and "evidence" in reason:
+        return True
     return False
+
+
+def accept_request_human_feedback(*, policy_signals: dict[str, Any] | None = None, hitl_enabled: bool) -> bool:
+    signals = policy_signals if isinstance(policy_signals, dict) else {}
+    if not hitl_enabled:
+        return False
+    if not bool(signals.get("escalation_eligible")):
+        return False
+    if str(signals.get("understanding_strength") or "").strip().lower() == "weak":
+        return False
+    return True
 
 
 def accept_apply_edit_plan(
@@ -81,12 +96,18 @@ def accept_apply_edit_plan(
     resolver_decision_key: str,
     focus_key: str,
     plan_payload: dict[str, Any],
+    policy_signals: dict[str, Any] | None = None,
 ) -> bool:
+    signals = policy_signals if isinstance(policy_signals, dict) else {}
     if resolver_decision_key != focus_key:
         return False
     if not isinstance(plan_payload, dict):
         return False
     ops = plan_payload.get("ops")
     if not isinstance(ops, list) or len(ops) <= 0:
+        return False
+    if str(signals.get("understanding_strength") or "").strip().lower() == "weak":
+        return False
+    if not bool(signals.get("repair_eligible", True)):
         return False
     return True
