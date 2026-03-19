@@ -89,12 +89,20 @@ def _select_focus_target(
             }
     key = str((fallback_focus or {}).get("decision_key") or "").strip().lower()
     if key:
-        return {
+        out = {
             "decision_key": key,
             "focus_source": "legacy_fallback",
-            "focus_reason_code": "legacy_fallback_focus",
+            "focus_reason_code": str((fallback_focus or {}).get("next_check_reason_code") or "legacy_fallback_focus").strip()[:120]
+            or "legacy_fallback_focus",
             "active_blocker": None,
         }
+        ftk = str((fallback_focus or {}).get("focus_target_kind") or "").strip()
+        if ftk:
+            out["focus_target_kind"] = ftk
+        fa = (fallback_focus or {}).get("focus_authority")
+        if isinstance(fa, dict):
+            out["focus_authority"] = dict(fa)
+        return out
     return {
         "decision_key": "",
         "focus_source": "legacy_fallback",

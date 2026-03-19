@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -10,6 +11,7 @@ from transcript_edit.persistence import TranscriptionEditPersistenceService
 from .blocker_registry import apply_proposed_emergent_blocker_updates, sync_registry_from_ledger
 from .contracts import TranscriptEditAgentRunRequest
 from .decision_ledger import ledger_snapshot_for_payload, mark_human_resolution_ticket_state, update_ledger_from_iteration
+from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_from_loop_state
 from .evidence_runtime import (
     cache_entry_matches_transcript,
     cache_image_verification_for_key,
@@ -47,6 +49,83 @@ from .run_reporting import (
 )
 from .resolver_gates import accept_request_human_feedback
 from .evidence_executor import execute_evidence_request, normalize_evidence_request
+from .emergent_lifecycle_runtime import sync_focused_emergent_item_from_resolver_outcome
+from .work_board_projection import HARNESS_EMERGENT_ITEM_PREFIX
+
+
+def _transcript_edit_closure_read_ledger(state: TranscriptEditLoopState) -> dict[str, Any]:
+    _, read = transcript_edit_unified_and_closure_read_from_loop_state(state)
+    return read
+
+
+def _continuity_delta_and_next_hints(
+    *,
+    move: str,
+    resolver_reason: str,
+    resolver_outcome: dict[str, Any] | None,
+    policy_signals: dict[str, Any] | None,
+) -> tuple[str | None, str | None]:
+    parts: list[str] = [f"move={move or 'unknown'}"]
+    ro = resolver_outcome if isinstance(resolver_outcome, dict) else {}
+    if ro.get("edit_plan"):
+        parts.append("carry_edit_plan")
+    if ro.get("evidence_request"):
+        parts.append("carry_evidence_request")
+    if ro.get("blocker_updates"):
+        parts.append("carry_blocker_updates")
+    if ro.get("feedback_prompt"):
+        parts.append("carry_feedback_prompt")
+    delta = "; ".join(parts)[:280] or None
+    sig = policy_signals if isinstance(policy_signals, dict) else {}
+    nxt: str | None = None
+    if bool(sig.get("repair_eligible")):
+        nxt = "posture_allows_repair_when_evidence_supports_safe_edit"
+    elif bool(sig.get("escalation_eligible")):
+        nxt = "consider_hitl_or_escalation_when_machine_path_stalls"
+    elif bool(sig.get("needs_orientation")):
+        nxt = "bias_inventory_and_orientation_before_aggressive_edit"
+    elif str(move or "").strip().lower() == "gather_more_evidence":
+        nxt = "re_evaluate_resolver_after_evidence_step"
+    return delta, (nxt[:280] if nxt else None)
+
+
+def _append_continuity_step(
+    state: TranscriptEditLoopState,
+    *,
+    focus_key: str,
+    move: str,
+    resolver_reason: str,
+    iterations: int,
+    focus_source: str | None,
+    state_before_summary: dict[str, Any] | None,
+    evidence_kind: str | None = None,
+    state_delta_hint: str | None = None,
+    next_open_move_hint: str | None = None,
+    continuity_supplement: dict[str, Any] | None = None,
+) -> None:
+    row: dict[str, Any] = {
+        "decision_key": focus_key or "",
+        "move": move or "unknown_move",
+        "outcome": resolver_reason,
+        "iteration": int(iterations),
+        "focus_source": str(focus_source or "").strip()[:64] or None,
+        "gate_posture": dict(state_before_summary or {}),
+        "evidence_kind": str(evidence_kind).strip()[:120] if evidence_kind else None,
+        "why_no_closure": str(resolver_reason or "").strip()[:280] or None,
+        "state_delta_hint": str(state_delta_hint).strip()[:280] if state_delta_hint else None,
+        "next_open_move_hint": str(next_open_move_hint).strip()[:280] if next_open_move_hint else None,
+    }
+    if isinstance(continuity_supplement, dict) and continuity_supplement:
+        row.update(continuity_supplement)
+    state.continuity_log.append(row)
+    if len(state.continuity_log) > 50:
+        state.continuity_log = state.continuity_log[-50:]
+
+
+def _merge_last_continuity_row(state: TranscriptEditLoopState, extra: dict[str, Any]) -> None:
+    if not state.continuity_log or not isinstance(extra, dict):
+        return
+    state.continuity_log[-1] = {**dict(state.continuity_log[-1]), **extra}
 
 
 def _step_kernel_action(
@@ -346,6 +425,7 @@ def handle_repair_move_outcome(
     session_id: str,
     iterations: int,
     focus_key: str,
+    focus_source: str | None,
     move: str,
     resolver_reason: str,
     resolver_outcome: dict[str, Any] | None,
@@ -385,16 +465,49 @@ def handle_repair_move_outcome(
         "escalation_eligible": bool(signals.get("escalation_eligible")),
         "repair_eligible": bool(signals.get("repair_eligible")),
         "focus_is_material": bool(signals.get("focus_is_material")),
+        "generic_board_mapping_signal": signals.get("generic_board_mapping_signal"),
+        "generic_board_materiality": signals.get("generic_board_materiality"),
     }
-    state.continuity_log.append(
-        {
-            "decision_key": focus_key or "",
-            "move": move or "unknown_move",
-            "outcome": resolver_reason,
-        }
+    _sd_hint, _nx_hint = _continuity_delta_and_next_hints(
+        move=move,
+        resolver_reason=resolver_reason,
+        resolver_outcome=resolver_outcome if isinstance(resolver_outcome, dict) else None,
+        policy_signals=policy_signals,
     )
-    if len(state.continuity_log) > 50:
-        state.continuity_log = state.continuity_log[-50:]
+    _append_continuity_step(
+        state,
+        focus_key=focus_key,
+        move=move,
+        resolver_reason=resolver_reason,
+        iterations=iterations,
+        focus_source=focus_source,
+        state_before_summary=state_before_summary,
+        state_delta_hint=_sd_hint,
+        next_open_move_hint=_nx_hint,
+    )
+    board_sync = sync_focused_emergent_item_from_resolver_outcome(
+        state,
+        focus_key=focus_key,
+        move=move,
+        resolver_outcome=resolver_outcome if isinstance(resolver_outcome, dict) else None,
+        policy_signals=policy_signals,
+        now_epoch=int(time.time()),
+    )
+    if isinstance(board_sync, dict):
+        state.last_board_observability = dict(board_sync)
+        prev_hint = str((state.continuity_log[-1] or {}).get("state_delta_hint") or "").strip()
+        step_hint = (
+            f"board_lifecycle:{board_sync.get('board_state_before')}→{board_sync.get('board_state_after')}"
+        )[:260]
+        _merge_last_continuity_row(
+            state,
+            {
+                "board_progress": dict(board_sync),
+                "state_delta_hint": f"{prev_hint}; {step_hint}".strip("; ")
+                if prev_hint
+                else step_hint,
+            },
+        )
     if move == "propose_blocker_updates":
         blocker_updates = (
             resolver_outcome.get("blocker_updates")
@@ -483,6 +596,105 @@ def handle_repair_move_outcome(
         state.last_reason = "tx_agent_blocker_update_rejected"
         append_blocker_iteration_recap_fn(
             action_attempted="propose_blocker_updates",
+            result="rejected",
+            decision_key=focus_key,
+            reason=resolver_reason,
+        )
+        return None
+    if move == "propose_work_board_changes":
+        from .work_board_runtime import apply_work_board_changes_from_resolver
+
+        raw_changes = (
+            resolver_outcome.get("work_board_changes")
+            if isinstance(resolver_outcome, dict) and isinstance(resolver_outcome.get("work_board_changes"), list)
+            else []
+        )
+        apply_result = apply_work_board_changes_from_resolver(
+            state=state,
+            decision_ledger=state.decision_ledger,
+            work_board_changes=[dict(x) for x in raw_changes if isinstance(x, dict)],
+        )
+        accepted = [dict(x) for x in list(apply_result.get("accepted") or []) if isinstance(x, dict)]
+        rejected = [dict(x) for x in list(apply_result.get("rejected") or []) if isinstance(x, dict)]
+        _merge_last_continuity_row(
+            state,
+            {
+                "work_board_emergence_audit": {
+                    "accepted": accepted[:12],
+                    "rejected": rejected[:12],
+                }
+            },
+        )
+        emit_progress_fn(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="work_board_emergence",
+                message=f"Work board change proposals processed: accepted={len(accepted)}, rejected={len(rejected)}.",
+                latest_refs=state.latest_refs,
+                detail={
+                    "accepted_count": len(accepted),
+                    "rejected_count": len(rejected),
+                    "move": "propose_work_board_changes",
+                },
+            ),
+        )
+        if accepted:
+            promo = next((a for a in accepted if str(a.get("op")) == "add_item"), None)
+            attach = next((a for a in accepted if str(a.get("op")) == "attach_note"), None)
+            if isinstance(promo, dict) and str(promo.get("item_id") or "").strip():
+                tid = str(promo.get("item_id")).strip()
+                bp: dict[str, Any] = {
+                    "event": "emergent_promoted",
+                    "focus_target_kind": "harness_emergent",
+                    "board_item_id": tid,
+                    "board_state_before": None,
+                    "board_state_after": "open",
+                    "board_transition_reason": "promoted_from_resolver_work_board_changes",
+                    "newly_promoted": True,
+                    "recently_touched": True,
+                    "board_recency_rank": 0,
+                }
+                state.last_board_observability = bp
+                _merge_last_continuity_row(
+                    state,
+                    {
+                        "board_progress": bp,
+                        "state_delta_hint": f"board_promoted:{tid[:64]}",
+                    },
+                )
+            elif isinstance(attach, dict) and str(attach.get("target_item_id") or "").strip():
+                tid = str(attach.get("target_item_id")).strip()
+                bp2: dict[str, Any] = {
+                    "event": "context_note_attached",
+                    "focus_target_kind": (
+                        "harness_emergent" if tid.startswith(HARNESS_EMERGENT_ITEM_PREFIX) else "ledger_decision"
+                    ),
+                    "board_item_id": tid,
+                    "board_transition_reason": "attach_note_from_resolver_work_board_changes",
+                    "recently_touched": True,
+                }
+                state.last_board_observability = bp2
+                _merge_last_continuity_row(
+                    state,
+                    {
+                        "board_progress": bp2,
+                        "state_delta_hint": f"board_note_attached:{tid[:64]}",
+                    },
+                )
+            state.evidence_signal_counter += 1
+            state.no_progress_streak = 0
+            state.last_progress_reason = "work_board_emergence_accepted"
+            append_blocker_iteration_recap_fn(
+                action_attempted="propose_work_board_changes",
+                result="accepted",
+                decision_key=focus_key,
+                reason=resolver_reason,
+            )
+            return None
+        state.last_reason = "tx_agent_work_board_changes_rejected"
+        append_blocker_iteration_recap_fn(
+            action_attempted="propose_work_board_changes",
             result="rejected",
             decision_key=focus_key,
             reason=resolver_reason,
@@ -604,7 +816,7 @@ def handle_repair_move_outcome(
                 ),
             )
         if not accept_mark_blocked_fn(
-            decision_ledger=state.decision_ledger,
+            decision_ledger=_transcript_edit_closure_read_ledger(state),
             decision_key=focus_key,
             resolver_reason=resolver_reason,
             hitl_enabled=request.hitl_enabled,
@@ -727,7 +939,10 @@ def handle_repair_move_outcome(
             review_required=True,
         )
     if move == "mark_resolved_no_edit":
-        if accept_mark_resolved_no_edit_fn(decision_ledger=state.decision_ledger, decision_key=focus_key):
+        if accept_mark_resolved_no_edit_fn(
+            decision_ledger=_transcript_edit_closure_read_ledger(state),
+            decision_key=focus_key,
+        ):
             emit_progress_fn(
                 progress_cb,
                 resolver_move_gate_payload(
@@ -884,16 +1099,26 @@ def handle_repair_move_outcome(
             ),
             retrieve_dependency_runner=None,
         )
-        state.continuity_log.append(
-            {
-                "decision_key": focus_key,
-                "move": "gather_more_evidence",
-                "outcome": str(evidence_result.get("reason") or "evidence_result_unknown"),
-                "evidence_kind": f"{str(evidence_result.get('kind') or '')}:{str(evidence_result.get('mode') or '')}".rstrip(":"),
-            }
+        _ek = f"{str(evidence_result.get('kind') or '')}:{str(evidence_result.get('mode') or '')}".rstrip(":")
+        _ev_st = str(evidence_result.get("status") or "").strip().lower()
+        _g_delta = f"gather_more_evidence; status={_ev_st or 'n/a'}; kind={_ek or 'n/a'}"
+        _g_next = (
+            "re_evaluate_resolver_after_evidence_step"
+            if _ev_st not in {"unsupported", "invalid", "repeat_blocked"}
+            else "recover_evidence_path_or_shift_resolver_move"
         )
-        if len(state.continuity_log) > 50:
-            state.continuity_log = state.continuity_log[-50:]
+        _append_continuity_step(
+            state,
+            focus_key=focus_key,
+            move="gather_more_evidence",
+            resolver_reason=str(evidence_result.get("reason") or "evidence_result_unknown"),
+            iterations=iterations,
+            focus_source=focus_source,
+            state_before_summary=state_before_summary,
+            evidence_kind=_ek or None,
+            state_delta_hint=_g_delta,
+            next_open_move_hint=_g_next,
+        )
         if str(evidence_result.get("status") or "") == "repeat_blocked":
             emit_progress_fn(
                 progress_cb,
@@ -1009,18 +1234,20 @@ def handle_repair_move_outcome(
                     )
             iv_results = iv_payload.get("results") if isinstance(iv_payload, dict) else []
             iv_results = iv_results if isinstance(iv_results, list) else []
-            before_sig = blocking_signature(state.decision_ledger)
+            _, read_before_iv = transcript_edit_unified_and_closure_read_from_loop_state(state)
+            before_sig = blocking_signature(read_before_iv)
             state.decision_ledger = update_ledger_from_iteration(
                 ledger=state.decision_ledger,
                 findings=planning_findings,
                 image_results=[result for result in iv_results if isinstance(result, dict)],
             )
+            _, read_after_iv = transcript_edit_unified_and_closure_read_from_loop_state(state)
             state.blocker_registry = sync_registry_from_ledger(
                 registry=state.blocker_registry,
-                decision_ledger=state.decision_ledger,
+                decision_ledger=read_after_iv,
                 source_transcript_ref=state.current_transcript_ref,
             )
-            after_sig = blocking_signature(state.decision_ledger)
+            after_sig = blocking_signature(read_after_iv)
             if iv_results and before_sig != after_sig:
                 state.evidence_signal_counter += 1
             emit_progress_fn(
@@ -1128,7 +1355,7 @@ def handle_repair_move_outcome(
             op_count=len(plan_ops),
             ops_preview=[plan_op_to_display_dict(op) for op in plan_ops[:6] if isinstance(op, dict)],
             ticket_lifecycle_snapshot=ticket_lifecycle_snapshot_for_key_fn(
-                decision_ledger=state.decision_ledger,
+                decision_ledger=_transcript_edit_closure_read_ledger(state),
                 decision_key=focus_key,
             ),
             step_story=_step_story_payload(
@@ -1193,8 +1420,9 @@ def handle_repair_move_outcome(
     if len(plan_ops) > 0:
         state.applied_any_edits = True
         state.pending_reaudit_after_apply = True
-        state.apply_reaudit_baseline_blocking_count = blocking_unresolved_count(state.decision_ledger)
-        state.apply_reaudit_baseline_blocking_signature = blocking_signature(state.decision_ledger)
+        read_for_reaudit = _transcript_edit_closure_read_ledger(state)
+        state.apply_reaudit_baseline_blocking_count = blocking_unresolved_count(read_for_reaudit)
+        state.apply_reaudit_baseline_blocking_signature = blocking_signature(read_for_reaudit)
         ticket_prompt_id = str((focus_feedback or {}).get("prompt_id") or "").strip() if isinstance(focus_feedback, dict) else ""
         ticket_decision_key = (
             str((focus_feedback or {}).get("decision_key") or "").strip().lower()
@@ -1203,7 +1431,7 @@ def handle_repair_move_outcome(
         )
         if not ticket_prompt_id:
             answered_ticket = latest_human_resolution_ticket_fn(
-                decision_ledger=state.decision_ledger,
+                decision_ledger=read_for_reaudit,
                 decision_key=ticket_decision_key,
                 lifecycle_states={"answered_unintegrated", "integration_attempted_failed"},
             )
@@ -1225,9 +1453,10 @@ def handle_repair_move_outcome(
                 relevance="inactive",
                 reason="apply_edit_plan",
             )
+        read_after_ticket = _transcript_edit_closure_read_ledger(state)
         state.blocker_registry = sync_registry_from_ledger(
             registry=state.blocker_registry,
-            decision_ledger=state.decision_ledger,
+            decision_ledger=read_after_ticket,
             source_transcript_ref=state.current_transcript_ref,
         )
         remaining_for_focus = registry_row_for_decision_key_fn(registry=state.blocker_registry, decision_key=focus_key)

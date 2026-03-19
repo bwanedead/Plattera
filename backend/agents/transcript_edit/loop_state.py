@@ -28,6 +28,7 @@ class TranscriptEditLoopState:
     last_reason: str = "tx_agent_not_started"
     applied_any_edits: bool = False
     used_human_feedback: bool = False
+    # Transcript-edit native store: persistence + mutation. Runtime reads use unified envelope + closure read ledger.
     decision_ledger: dict[str, Any] = field(default_factory=dict)
     convention_context: dict[str, Any] = field(default_factory=dict)
     blocker_registry: dict[str, Any] = field(default_factory=dict)
@@ -59,3 +60,8 @@ class TranscriptEditLoopState:
     # True once the initial scene survey (orient + summary generation) has completed.
     # Does NOT mean all investigation is done — only that initial recon has happened.
     initial_recon_complete: bool = False
+    # Durable harness-emergent rows merged into the unified decision ledger at read time.
+    harness_emergent_board_items: list[dict[str, Any]] = field(default_factory=list)
+    harness_board_context_notes: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # Ephemeral: last compact board observability for progress emission (cleared after ticker).
+    last_board_observability: dict[str, Any] | None = None

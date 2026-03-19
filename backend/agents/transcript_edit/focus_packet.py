@@ -2,13 +2,26 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
+from harness.work_board.recent_iteration_lane import build_recent_iteration_lane
+
+from .focus_packet_board_context import build_work_board_focus_context_bundle
 from .focus_runtime import (
     baseline_residual_from_unresolved,
     next_recommended_action_text,
     recent_image_evidence_attempt_count,
+)
+from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_for_native
+from .work_board_projection import active_work_board_item_for_focus
+from .work_board_read import (
+    generic_knowns_snapshot,
+    ledger_board_parity,
+    board_is_mapping_blocking,
+    board_materiality,
+    board_state,
 )
 
 MAX_SPAN_COUNT = 6
@@ -29,6 +42,8 @@ def build_focus_packet(
     decision_ledger: dict[str, Any],
     decision_key: str | None,
     focus_source: str | None = None,
+    focus_reason_code: str | None = None,
+    loop_iteration: int | None = None,
     active_emergent_blocker: dict[str, Any] | None = None,
     blocker_registry: dict[str, Any] | None = None,
     source_transcript_ref: str | None,
@@ -43,14 +58,37 @@ def build_focus_packet(
     t0_candidate_refs: list[str] | None = None,
     evidence_repeat_guard: dict[str, dict[str, Any]] | None = None,
     evidence_signal_counter: int = 0,
+    harness_emergent_board_items: list[dict[str, Any]] | None = None,
+    harness_board_context_notes: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     key = str(decision_key or "").strip().lower()
-    ledger_item = _ledger_item_for_key(decision_ledger=decision_ledger, decision_key=key)
-    closure_requirement = (
-        dict(ledger_item.get("closure_requirement"))
-        if isinstance(ledger_item, dict) and isinstance(ledger_item.get("closure_requirement"), dict)
-        else {}
+    # Unified envelope + closure read model (single adapter entrypoint).
+    work_board, read_ledger = transcript_edit_unified_and_closure_read_for_native(
+        native_decision_ledger=decision_ledger if isinstance(decision_ledger, dict) else {},
+        harness_emergent_board_items=harness_emergent_board_items,
+        harness_board_context_notes=harness_board_context_notes,
     )
+    active_work_item_lookup = active_work_board_item_for_focus(work_board, key) if key else None
+    is_emergent_focus = bool(
+        (key.startswith("harness:emergent:") if key else False)
+        or (
+            isinstance(active_work_item_lookup, dict)
+            and str(active_work_item_lookup.get("provenance") or "").strip() == "harness.emergent.v1"
+        )
+    )
+    if is_emergent_focus and isinstance(active_work_item_lookup, dict):
+        ledger_item = _synthetic_ledger_item_from_emergent_board_row(active_work_item_lookup, key)
+        closure_requirement = dict(ledger_item.get("closure_requirement") or {})
+        ledger_row_for_parity = ledger_item
+    else:
+        li = _ledger_item_for_key(decision_ledger=read_ledger, decision_key=key)
+        ledger_item = dict(li) if isinstance(li, dict) else {}
+        closure_requirement = (
+            dict(ledger_item.get("closure_requirement"))
+            if isinstance(ledger_item.get("closure_requirement"), dict)
+            else {}
+        )
+        ledger_row_for_parity = li if isinstance(li, dict) else None
     attempts = _recent_attempts_for_key(
         continuity_log=continuity_log or [],
         decision_key=key,
@@ -61,20 +99,20 @@ def build_focus_packet(
     bounded_visual = _bounded_visual_evidence(visual_evidence_state=visual_evidence_state, decision_key=key)
     bounded_feedback = _bounded_feedback(feedback=feedback, decision_key=key)
     external_injections = _bounded_external_context_injections(
-        decision_ledger=decision_ledger,
+        decision_ledger=read_ledger,
         decision_key=key,
     )
     scope_summaries = (
-        dict(decision_ledger.get("scope_summaries"))
-        if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("scope_summaries"), dict)
+        dict(read_ledger.get("scope_summaries"))
+        if isinstance(read_ledger.get("scope_summaries"), dict)
         else {}
     )
     blocker_feedback_state = (
         dict((blocker_registry or {}).get("counts"))
         if isinstance(blocker_registry, dict) and isinstance((blocker_registry or {}).get("counts"), dict)
         else (
-            dict(decision_ledger.get("blocker_feedback_state"))
-            if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("blocker_feedback_state"), dict)
+            dict(read_ledger.get("blocker_feedback_state"))
+            if isinstance(read_ledger.get("blocker_feedback_state"), dict)
             else {}
         )
     )
@@ -125,13 +163,16 @@ def build_focus_packet(
             external_injections=external_injections,
     )
     emergent_focus = dict(active_emergent_blocker) if isinstance(active_emergent_blocker, dict) else {}
+    active_work_item = active_work_item_lookup
+    parity = ledger_board_parity(key, ledger_row_for_parity, active_work_item)
     investigation_brief = _investigation_brief(
         decision_key=key,
         ledger_item=ledger_item or {},
         closure_requirement=closure_requirement,
         recent_attempts=attempts,
         memory_summary=_memory_summary(attempts),
-        source_completeness=str(decision_ledger.get("source_completeness") or "unknown") if isinstance(decision_ledger, dict) else "unknown",
+        source_completeness=str(read_ledger.get("source_completeness") or "unknown"),
+        board_item=active_work_item,
     )
     working_plan = _working_plan(
         decision_key=key,
@@ -141,7 +182,8 @@ def build_focus_packet(
         recent_attempts=attempts,
         investigation_brief=investigation_brief,
         active_emergent_blocker=emergent_focus,
-        source_completeness=str(decision_ledger.get("source_completeness") or "unknown") if isinstance(decision_ledger, dict) else "unknown",
+        source_completeness=str(read_ledger.get("source_completeness") or "unknown"),
+        board_item=active_work_item,
     )
     policy_signals = _derived_policy_signals(
         decision_key=key,
@@ -153,17 +195,65 @@ def build_focus_packet(
         image_verification=bounded_image,
         visual_evidence=bounded_visual,
         feedback=bounded_feedback,
-        source_completeness=str(decision_ledger.get("source_completeness") or "unknown") if isinstance(decision_ledger, dict) else "unknown",
+        source_completeness=str(read_ledger.get("source_completeness") or "unknown"),
         evidence_repeat_guard=evidence_repeat_guard or {},
         evidence_signal_counter=evidence_signal_counter,
+        board_item=active_work_item,
     )
     support_state = {
         "investigation_brief": investigation_brief,
         "working_plan": working_plan,
         "policy_signals": policy_signals,
     }
+    recent_iteration_lane = build_recent_iteration_lane(
+        continuity_log or [],
+        current_iteration=loop_iteration,
+    )
+    focus_sel = {
+        "decision_key": key or None,
+        "focus_source": str(focus_source or "legacy_fallback").strip().lower() or "legacy_fallback",
+        "focus_reason_code": str(focus_reason_code or "").strip()[:120] or None,
+        "why_active_now": (
+            f"Focus resolver selected {key} via "
+            f"{str(focus_source or 'legacy_fallback').strip().lower() or 'legacy_fallback'} "
+            f"({str(focus_reason_code or 'unspecified').strip()[:80]})."
+            if key
+            else None
+        ),
+    }
+    blocker_posture = {
+        "active_emergent_blocker_id": str(emergent_focus.get("blocker_id") or "").strip() or None,
+        "understanding_strength": str(policy_signals.get("understanding_strength") or ""),
+        "repair_eligible": bool(policy_signals.get("repair_eligible")),
+        "escalation_eligible": bool(policy_signals.get("escalation_eligible")),
+        "repeat_without_signal": bool(policy_signals.get("repeat_without_signal")),
+    }
+    ft_kind = "harness_emergent" if is_emergent_focus else "ledger_decision"
+    work_board_focus_context = build_work_board_focus_context_bundle(
+        decision_key=key,
+        focus_target_kind=ft_kind,
+        active_work_item=dict(active_work_item) if isinstance(active_work_item, dict) else None,
+        work_board=work_board,
+        decision_ledger=read_ledger,
+        now_epoch=int(time.time()),
+    )
+    execution_context = {
+        "schema_version": "execution_context.v1",
+        "parity": parity,
+        "focus_selection": focus_sel,
+        "active_work_item": dict(active_work_item) if isinstance(active_work_item, dict) else None,
+        "recent_iterations": recent_iteration_lane,
+        "blocker_posture": blocker_posture,
+        "support_state": support_state,
+        "work_board_focus_context": work_board_focus_context,
+    }
     return {
         "focus_source": str(focus_source or "legacy_fallback").strip().lower() or "legacy_fallback",
+        "focus_reason_code": str(focus_reason_code or "").strip()[:120] or None,
+        "loop_iteration": loop_iteration,
+        "work_board": work_board,
+        "recent_iteration_lane": recent_iteration_lane,
+        "execution_context": execution_context,
         "decision_key": key,
         "investigation_brief": investigation_brief,
         "working_plan": working_plan,
@@ -212,19 +302,15 @@ def build_focus_packet(
             "target_scope_status": str((scope_summaries.get("target_scope") or {}).get("scope_closure_state") or "not_attempted"),
             "outside_target_scope_status": str((scope_summaries.get("outside_target_scope") or {}).get("scope_closure_state") or "not_attempted"),
         },
-        "source_completeness": str(decision_ledger.get("source_completeness") or "unknown") if isinstance(decision_ledger, dict) else "unknown",
+        "source_completeness": str(read_ledger.get("source_completeness") or "unknown"),
         "source_completeness_reason": (
-            str(decision_ledger.get("source_completeness_reason") or "").strip() or None
-            if isinstance(decision_ledger, dict)
-            else None
+            str(read_ledger.get("source_completeness_reason") or "").strip() or None
         ),
         "source_limitations": [
             str(v)
-            for v in list(decision_ledger.get("source_limitations") or [])
+            for v in list(read_ledger.get("source_limitations") or [])
             if str(v).strip()
-        ][:6]
-        if isinstance(decision_ledger, dict)
-        else [],
+        ][:6],
         "source_transcript_ref": source_transcript_ref,
         "source_transcript_hash": source_transcript_hash,
         "span_context": bounded_spans,
@@ -248,6 +334,40 @@ def build_focus_packet(
             closure_requirement=closure_requirement,
             t0_candidate_refs=t0_candidate_refs or [],
         ),
+        "focus_target_kind": ft_kind,
+        "active_emergent_board_item": (
+            dict(active_work_item) if is_emergent_focus and isinstance(active_work_item, dict) else None
+        ),
+    }
+
+
+def _board_item_state_to_ledger_like_state(raw: str) -> str:
+    b = str(raw or "open").strip().lower()
+    if b == "blocked":
+        return "disputed"
+    if b == "narrowed":
+        return "accepted_with_risk"
+    if b == "investigating":
+        return "candidate_found"
+    return "unknown"
+
+
+def _synthetic_ledger_item_from_emergent_board_row(row: dict[str, Any], focus_key: str) -> dict[str, Any]:
+    mb = board_is_mapping_blocking(row)
+    st = _board_item_state_to_ledger_like_state(str(row.get("state") or ""))
+    return {
+        "key": focus_key,
+        "state": st,
+        "blocking": mb,
+        "label": str(row.get("title") or "").strip()[:240] or None,
+        "alternatives": list(row.get("alternatives") or [])[:16],
+        "evidence_refs": list(row.get("evidence_refs") or [])[:24],
+        "closure_requirement": {
+            "mapping_blocking": mb,
+            "operational_impact": "mapping_blocking" if mb else "transcript_quality_only",
+            "required_information": str(row.get("resolution_condition") or "").strip()[:400] or None,
+            "scope_status": "unknown",
+        },
     }
 
 
@@ -285,6 +405,8 @@ def _recent_attempts_for_key(
                 "move": str(entry.get("move") or "").strip()[:40],
                 "outcome": str(entry.get("outcome") or "").strip()[:MAX_ATTEMPT_REASON_CHARS],
                 "evidence_kind": str(entry.get("evidence_kind") or "").strip()[:40] or None,
+                "state_delta_hint": str(entry.get("state_delta_hint") or "").strip()[:100] or None,
+                "next_open_move_hint": str(entry.get("next_open_move_hint") or "").strip()[:100] or None,
             }
         )
     return matched[-max_items:]
@@ -308,6 +430,7 @@ def _investigation_brief(
     recent_attempts: list[dict[str, Any]],
     memory_summary: str,
     source_completeness: str,
+    board_item: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     residual = baseline_residual_from_unresolved(ledger_item) if ledger_item else {}
     open_questions = [
@@ -335,6 +458,9 @@ def _investigation_brief(
     }
     if residual:
         knowns["residual"] = residual
+    gwb = generic_knowns_snapshot(board_item) if isinstance(board_item, dict) else None
+    if gwb:
+        knowns["generic_work_board"] = gwb
     next_action = next_recommended_action_text([residual] if residual else [])
     return {
         "role": "sticky_note",
@@ -360,6 +486,7 @@ def _working_plan(
     investigation_brief: dict[str, Any],
     active_emergent_blocker: dict[str, Any] | None,
     source_completeness: str,
+    board_item: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     residual = baseline_residual_from_unresolved(ledger_item) if ledger_item else {}
     mapping_blocking = _canonical_mapping_blocking(ledger_item=ledger_item, closure_requirement=closure_requirement)
@@ -384,6 +511,12 @@ def _working_plan(
         steps.append(next_action)
     if not steps:
         steps.append("Proceed with the current bounded focus item and preserve additive state.")
+    board_notes = None
+    if isinstance(board_item, dict):
+        bm = board_materiality(board_item)
+        bs = board_state(board_item)
+        if bm or bs:
+            board_notes = f"generic board: materiality={bm or 'unknown'}, state={bs or 'unknown'}"
     replan_triggers = [
         "new evidence changes the ledger state or mapping impact",
         "human feedback arrives or is superseded",
@@ -409,6 +542,7 @@ def _working_plan(
         "replan_triggers": replan_triggers,
         "notes": str(investigation_brief.get("memory_summary") or "").strip()[:MAX_MEMORY_SUMMARY_CHARS] or None,
         "recent_attempts_seen": len(recent_attempts),
+        "generic_board_snapshot": board_notes,
     }
 
 
@@ -426,6 +560,7 @@ def _derived_policy_signals(
     source_completeness: str,
     evidence_repeat_guard: dict[str, dict[str, Any]],
     evidence_signal_counter: int,
+    board_item: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     residual = baseline_residual_from_unresolved(ledger_item) if ledger_item else {}
     mapping_blocking = _canonical_mapping_blocking(ledger_item=ledger_item, closure_requirement=closure_requirement)
@@ -480,6 +615,8 @@ def _derived_policy_signals(
         and has_fresh_signal
     )
     focus_is_material = bool(mapping_blocking)
+    board_maps = board_is_mapping_blocking(board_item) if isinstance(board_item, dict) else None
+    board_mat = board_materiality(board_item) if isinstance(board_item, dict) else None
     return {
         "decision_key": decision_key,
         "understanding_strength": understanding_strength,
@@ -492,6 +629,8 @@ def _derived_policy_signals(
         "escalation_eligible": escalation_eligible,
         "repair_eligible": repair_eligible,
         "focus_is_material": focus_is_material,
+        "generic_board_mapping_signal": board_maps,
+        "generic_board_materiality": board_mat,
         "recent_image_attempts": int(recent_image_attempts),
         "source_completeness": source_state,
         "evidence_repeat_budget": int((evidence_repeat_guard.get(_policy_repeat_signature(decision_key)) or {}).get("count") or 0) if isinstance(evidence_repeat_guard, dict) else 0,

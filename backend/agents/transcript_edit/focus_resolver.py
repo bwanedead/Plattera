@@ -40,19 +40,38 @@ def resolve_focus_move(
             "iteration_summary": "Focus packet missing required transcript context; cannot continue safely.",
         }
 
-    state = str(ledger_item.get("state") or "unknown").strip().lower()
-    mapping_blocking = bool(
-        closure_requirement.get("mapping_blocking", ledger_item.get("blocking"))
-    )
-    unresolved = state in {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
+    is_harness_emergent_focus = str(decision_key).startswith("harness:emergent:")
+    if is_harness_emergent_focus:
+        awi = focus_packet.get("active_emergent_board_item") if isinstance(focus_packet.get("active_emergent_board_item"), dict) else {}
+        if not awi:
+            return {
+                "decision_key": decision_key,
+                "move": "mark_blocked",
+                "reason": "harness_emergent_board_row_missing",
+                "iteration_summary": "Harness-emergent focus is set but the board row is missing from the packet.",
+            }
+        bstate = str(awi.get("state") or "").strip().lower()
+        if bstate in {"resolved", "superseded"}:
+            return {
+                "decision_key": decision_key,
+                "move": "mark_resolved_no_edit",
+                "reason": "harness_emergent_board_item_terminal",
+                "iteration_summary": "Harness-emergent board item is resolved or superseded.",
+            }
+    else:
+        state = str(ledger_item.get("state") or "unknown").strip().lower()
+        mapping_blocking = bool(
+            closure_requirement.get("mapping_blocking", ledger_item.get("blocking"))
+        )
+        unresolved = state in {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
 
-    if not (mapping_blocking and unresolved):
-        return {
-            "decision_key": decision_key,
-            "move": "mark_resolved_no_edit",
-            "reason": "focus_item_not_mapping_blocking_unresolved",
-            "iteration_summary": "Focused item is no longer mapping-blocking unresolved.",
-        }
+        if not (mapping_blocking and unresolved):
+            return {
+                "decision_key": decision_key,
+                "move": "mark_resolved_no_edit",
+                "reason": "focus_item_not_mapping_blocking_unresolved",
+                "iteration_summary": "Focused item is no longer mapping-blocking unresolved.",
+            }
 
     feedback_summary = feedback if isinstance(feedback, dict) else None
     focus_payload = {

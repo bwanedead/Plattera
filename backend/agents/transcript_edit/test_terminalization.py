@@ -1311,3 +1311,28 @@ def test_terminal_summary_includes_image_verify_observability_snapshot() -> None
     assert isinstance(obs, dict)
     assert str(obs.get("phase") or "") == "image_verify"
     assert str((obs.get("detail") or {}).get("wait_reason") or "") == "awaiting_image_verify_step_response"
+
+
+def test_terminal_summary_passes_through_board_run_posture_compact() -> None:
+    result = build_run_result(
+        run_artifact_ref="ref://run",
+        session_id="session-board",
+        iterations=1,
+        status="needs_review",
+        reason_code="tx_agent_closure_requirements_unresolved",
+        latest_refs={},
+        review_required=True,
+    )
+    compact = {
+        "schema_version": "board_run_posture.v1",
+        "emergent_row_count": 1,
+        "emergent_non_terminal_count": 1,
+        "emergent_has_blocked_or_waiting": False,
+        "last_focus_was_emergent": True,
+    }
+    summary = terminal_summary(
+        [{"phase": "audit_result", "detail": {"error_count": 0}}],
+        result,
+        runtime_hitl_state={"board_run_posture_compact": compact},
+    )
+    assert summary.get("board_run_posture_compact") == compact

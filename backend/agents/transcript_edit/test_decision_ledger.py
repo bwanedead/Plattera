@@ -1,3 +1,8 @@
+"""Tests for transcript-edit native ledger persistence and closure helpers.
+
+Default row keys come from ``transcript_edit_default_checklist_seed`` (bootstrap only).
+Organized-work *reads* in production go through the unified envelope + closure read ledger.
+"""
 from __future__ import annotations
 
 import sys

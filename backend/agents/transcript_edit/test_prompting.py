@@ -12,6 +12,7 @@ from backend.agents.transcript_edit.prompting import (
     build_focus_resolver_user_message,
     build_planner_system_message,
     build_planner_user_message,
+    slim_execution_context_for_planner,
 )
 
 
@@ -58,6 +59,8 @@ def test_focus_resolver_system_message_mentions_binding_answered_unintegrated_gu
     assert "refine_region" not in system_msg
     assert "grid_selection" not in system_msg
     assert "propose_blocker_updates" in system_msg
+    assert "propose_work_board_changes" in system_msg
+    assert "work_board_changes" in system_msg
     assert "custom:<name>" in system_msg
 
 
@@ -70,6 +73,11 @@ def test_planner_system_message_mentions_investigation_brief_as_sticky_note() ->
     assert "working_plan" in lower
     assert "short-horizon rail" in lower
     assert "policy_signals" in lower
+    assert "execution_context.active_work_item" in system_msg
+    assert "recent_iterations" in lower
+    assert "raw history" in lower or "transcript archive" in lower
+    assert "propose_work_board_changes" not in lower
+    assert "focus resolver" in lower
 
 
 def test_planner_user_message_carries_investigation_brief() -> None:
@@ -94,6 +102,64 @@ def test_planner_user_message_carries_investigation_brief() -> None:
     assert isinstance(support_state, dict)
     assert str((support_state.get("working_plan") or {}).get("role") or "") == "working_plan"
     assert str((support_state.get("policy_signals") or {}).get("understanding_strength") or "") == "weak"
+
+
+def test_planner_user_message_includes_slim_execution_context_with_recent_lane() -> None:
+    ec = {
+        "schema_version": "execution_context.v1",
+        "parity": {"code": "ok", "identity_aligned": True, "posture_aligned": True},
+        "focus_selection": {"decision_key": "range"},
+        "active_work_item": {"item_id": "te:ledger:range", "state": "blocked"},
+        "recent_iterations": {"schema_version": "recent_iteration_lane.v1", "rich_capsules": [{"iteration": 2}]},
+        "blocker_posture": {"repair_eligible": True},
+        "support_state": {
+            "policy_signals": {"understanding_strength": "moderate"},
+            "working_plan": {
+                "current_goal": "test goal",
+                "status": "working",
+                "next_steps": ["step a", "step b"],
+            },
+            "investigation_brief": {"knowns": {"x": "y"}},
+        },
+    }
+    payload = json.loads(
+        build_planner_user_message(
+            source_transcript_ref="in-memory://source.json",
+            source_transcript_hash="sha256:test",
+            findings_summary={},
+            investigation_brief=None,
+            working_plan=None,
+            policy_signals=None,
+            top_findings=[],
+            span_context=[],
+            image_verification={},
+            candidate_disagreement_hints={},
+            mapping_priority_focus={},
+            execution_context=ec,
+        )
+    )
+    slim = payload.get("execution_context")
+    assert isinstance(slim, dict)
+    assert slim.get("active_work_item", {}).get("item_id") == "te:ledger:range"
+    assert isinstance(slim.get("recent_iterations"), dict)
+    assert slim.get("support_state", {}).get("working_plan", {}).get("next_steps")
+    assert "investigation_brief" not in (slim.get("support_state") or {})
+
+
+def test_slim_planner_execution_context_bounded_working_plan() -> None:
+    ec = {
+        "support_state": {
+            "working_plan": {
+                "current_goal": "g",
+                "status": "working",
+                "next_steps": ["a", "b", "c", "d", "e"],
+            }
+        }
+    }
+    slim = slim_execution_context_for_planner(ec)
+    assert slim is not None
+    steps = (slim.get("support_state") or {}).get("working_plan") or {}
+    assert len(steps.get("next_steps") or []) <= 4
 
 
 def test_focus_resolver_user_message_emits_hitl_alert_when_feedback_present() -> None:

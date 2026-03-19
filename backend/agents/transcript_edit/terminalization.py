@@ -465,4 +465,9 @@ def terminal_summary(
         "final_decision_rationale": final_decision_rationale,
         "initial_findings": first_audit or {},
         "final_findings": final_audit or {},
+        "board_run_posture_compact": (
+            dict((runtime_hitl_state or {}).get("board_run_posture_compact"))
+            if isinstance((runtime_hitl_state or {}).get("board_run_posture_compact"), dict)
+            else None
+        ),
     }

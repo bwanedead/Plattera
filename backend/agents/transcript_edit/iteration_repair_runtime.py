@@ -76,6 +76,7 @@ from .feedback_lifecycle import (
 from .draft_persistence import persist_agent_edit_draft
 from .focus_packet import build_focus_packet
 from .focus_resolver import resolve_focus_move
+from .planner_runtime_bridge import run_standalone_edit_planner_for_focus_packet
 from .focus_runtime import (
     baseline_evidence_attempts,
     baseline_residual_from_unresolved,
@@ -87,6 +88,7 @@ from .focus_runtime import (
     registry_row_for_decision_key,
     select_focus_decision_key,
 )
+from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_from_loop_state
 from .hitl_feedback import (
     build_feedback_override_plan,
     build_human_feedback_prompt,
@@ -272,8 +274,9 @@ def _build_feedback_prompt_with_optional_image(
     visual_evidence: dict[str, Any],
 ) -> dict[str, Any] | None:
     image_payload = image_verification.get("payload") if isinstance(image_verification, dict) else None
+    _, closure_read = transcript_edit_unified_and_closure_read_from_loop_state(state)
     prompt = build_human_feedback_prompt(
-        decision_ledger=state.decision_ledger,
+        decision_ledger=closure_read,
         iteration=iterations,
         image_verification_payload=image_payload,
         visual_evidence_state=visual_evidence,
@@ -338,7 +341,8 @@ def handle_clean_iteration(
     progress_cb: Callable[[dict[str, Any]], None] | None,
     model: str,
 ) -> TranscriptEditDecision | None:
-    unresolved_mapping_blocking_closure = has_unresolved_target_scope_mapping_blocking_closure(state.decision_ledger)
+    _, closure_read = transcript_edit_unified_and_closure_read_from_loop_state(state)
+    unresolved_mapping_blocking_closure = has_unresolved_target_scope_mapping_blocking_closure(closure_read)
     policy_facts = TranscriptEditFacts(
         iterations=iterations,
         mode=mode,
@@ -531,9 +535,10 @@ def handle_repair_iteration(
     validation_mode: str,
 ) -> TranscriptEditDecision | None:
     blocker_registry_before_iteration = registry_snapshot_for_payload(state.blocker_registry)
+    unified_decision_ledger, closure_read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
     state.blocker_registry = sync_registry_from_ledger(
         registry=state.blocker_registry,
-        decision_ledger=state.decision_ledger,
+        decision_ledger=closure_read_ledger,
         source_transcript_ref=state.current_transcript_ref,
     )
     selection = select_primary_blocker_with_reason(state.blocker_registry)
@@ -552,7 +557,7 @@ def handle_repair_iteration(
         )
         else {}
     )
-    ledger_focus_fallback: dict[str, Any] = choose_investigation_focus(state.decision_ledger) or {}
+    ledger_focus_fallback: dict[str, Any] = choose_investigation_focus(unified_decision_ledger) or {}
     manual_plan_override: dict[str, Any] | None = None
     focus_feedback: dict[str, Any] | None = state.latest_feedback if isinstance(state.latest_feedback, dict) else None
     viewer_run_id = viewer_run_id_from_request_prefix(request_id_prefix)
@@ -673,7 +678,7 @@ def handle_repair_iteration(
             request.hitl_enabled
             and not state.pending_feedback_prompt_id
             and bool(no_progress_focus_key)
-            and is_unresolved_target_scope_mapping_blocking_decision(state.decision_ledger, no_progress_focus_key)
+            and is_unresolved_target_scope_mapping_blocking_decision(closure_read_ledger, no_progress_focus_key)
             and recent_image_attempts >= 2
         )
         if should_fallback_hitl_on_no_progress:
@@ -753,7 +758,7 @@ def handle_repair_iteration(
             review_required=True,
         )
 
-    conflict_map = _conflict_map_from_ledger(state.decision_ledger)
+    conflict_map = _conflict_map_from_ledger(closure_read_ledger)
     emit_progress(
         progress_cb,
         investigation_baseline_payload(
@@ -782,8 +787,8 @@ def handle_repair_iteration(
             ),
         )
 
-    baseline_unresolved = unresolved_closure_requirements(state.decision_ledger)
-    baseline_mapping_blocking_unresolved = unresolved_target_scope_mapping_blocking_requirements(state.decision_ledger)
+    baseline_unresolved = unresolved_closure_requirements(closure_read_ledger)
+    baseline_mapping_blocking_unresolved = unresolved_target_scope_mapping_blocking_requirements(closure_read_ledger)
     baseline_residual = [_baseline_residual_from_unresolved(item) for item in baseline_unresolved]
     mapping_blocking_count = len(baseline_mapping_blocking_unresolved)
     optional_count = max(0, len(baseline_residual) - mapping_blocking_count)
@@ -852,13 +857,25 @@ def handle_repair_iteration(
     fallback_focus = mapping_focus or ledger_focus_fallback
     focus_target = _select_focus_target(
         blocker_registry=state.blocker_registry,
-        decision_ledger=state.decision_ledger,
+        decision_ledger=closure_read_ledger,
         fallback_focus=fallback_focus,
         focus_feedback=focus_feedback,
     )
     focus_key = str((focus_target or {}).get("decision_key") or "").strip().lower()
     focus_source = str((focus_target or {}).get("focus_source") or "legacy_fallback").strip().lower() or "legacy_fallback"
     focus_reason_code = str((focus_target or {}).get("focus_reason_code") or "fallback_focus").strip() or "fallback_focus"
+    focus_target_kind_selected = str((focus_target or {}).get("focus_target_kind") or "").strip() or None
+    focus_authority_snapshot = (
+        dict((focus_target or {})["focus_authority"])
+        if isinstance((focus_target or {}).get("focus_authority"), dict)
+        else None
+    )
+    if focus_authority_snapshot is None and isinstance(ledger_focus_fallback, dict):
+        fk_fb = str(ledger_focus_fallback.get("decision_key") or "").strip().lower()
+        if fk_fb and fk_fb == str(focus_key or "").strip().lower():
+            fa_fb = ledger_focus_fallback.get("focus_authority")
+            if isinstance(fa_fb, dict):
+                focus_authority_snapshot = dict(fa_fb)
     active_emergent_blocker = (
         dict((focus_target or {}).get("active_blocker"))
         if isinstance((focus_target or {}).get("active_blocker"), dict)
@@ -908,6 +925,8 @@ def handle_repair_iteration(
         blocker_registry=state.blocker_registry,
         decision_key=focus_key or None,
         focus_source=focus_source,
+        focus_reason_code=focus_reason_code,
+        loop_iteration=iterations,
         active_emergent_blocker=active_emergent_blocker,
         source_transcript_ref=state.current_transcript_ref,
         source_transcript_hash=source_transcript_hash,
@@ -918,11 +937,25 @@ def handle_repair_iteration(
         continuity_log=state.continuity_log,
         evidence_repeat_guard=state.evidence_repeat_guard,
         evidence_signal_counter=state.evidence_signal_counter,
+        harness_emergent_board_items=state.harness_emergent_board_items,
+        harness_board_context_notes=state.harness_board_context_notes,
     )
+    if request.run_standalone_edit_planner:
+        run_standalone_edit_planner_for_focus_packet(
+            planner_client=planner_client,
+            model=model,
+            focus_packet=focus_packet,
+            findings_summary=findings_summary,
+            top_findings=top_findings,
+            span_context=span_context,
+            image_verification=image_verification if isinstance(image_verification, dict) else {},
+            mapping_priority_focus=mapping_focus if isinstance(mapping_focus, dict) else {},
+            max_attempts=request.max_invalid_plan_attempts,
+            run_link_id=str(viewer_run_id or ""),
+            mission_objective=request.mission_objective or "",
+        )
     focus_policy_signals = (
-        focus_packet.domain_packet.get("policy_signals")
-        if isinstance(focus_packet.domain_packet, dict)
-        else {}
+        focus_packet.get("policy_signals") if isinstance(focus_packet.get("policy_signals"), dict) else {}
     )
     if (
         focus_source == "legacy_fallback"
@@ -997,6 +1030,10 @@ def handle_repair_iteration(
                     "state_delta": {
                         "focus_decision_key": normalized_focus_key or None,
                         "focus_advanced": bool(focus_advanced),
+                        "focus_target_kind": focus_target_kind_selected,
+                        "board_authority_mode": (
+                            (focus_authority_snapshot or {}).get("mode") if isinstance(focus_authority_snapshot, dict) else None
+                        ),
                     },
                     "outcome_class": "advanced" if focus_advanced else "steady",
                     "next_step_rationale": "Use the selected focus to gather evidence, update support state, or promote blockers if the posture still needs narrowing.",
@@ -1005,7 +1042,7 @@ def handle_repair_iteration(
         ),
     )
     active_ticket_snapshot = _active_ticket_snapshot(
-        decision_ledger=state.decision_ledger,
+        decision_ledger=closure_read_ledger,
         decision_key=focus_key,
     )
     resolver_attempt_number = int(state.invalid_plan_strikes) + 1
@@ -1040,6 +1077,9 @@ def handle_repair_iteration(
         findings_summary=findings_summary,
         planning_findings=planning_findings,
         max_invalid_plan_attempts=request.max_invalid_plan_attempts,
+        validation_mode=validation_mode,
+        run_link_id=str(viewer_run_id or ""),
+        mission_objective=request.mission_objective or "",
     )
     state.llm_call_seq += 1
     move = str((resolver_outcome or {}).get("move") or "").strip().lower()
@@ -1102,6 +1142,7 @@ def handle_repair_iteration(
         "mark_blocked",
         "mark_resolved_no_edit",
         "propose_blocker_updates",
+        "propose_work_board_changes",
     }
     if move not in supported_moves:
         fallback_requested_hitl = (
@@ -1159,7 +1200,7 @@ def handle_repair_iteration(
         )
         return None
     answered_ticket = _latest_human_resolution_ticket(
-        decision_ledger=state.decision_ledger,
+        decision_ledger=closure_read_ledger,
         decision_key=focus_key,
         lifecycle_states={"answered_unintegrated"},
     )
@@ -1269,6 +1310,7 @@ def handle_repair_iteration(
         session_id=session_id,
         iterations=iterations,
         focus_key=focus_key,
+        focus_source=focus_source,
         move=move,
         resolver_reason=resolver_reason,
         resolver_outcome=resolver_outcome if isinstance(resolver_outcome, dict) else None,
@@ -1283,7 +1325,7 @@ def handle_repair_iteration(
         image_verification=image_verification,
         evidence_attempts_counts=evidence_attempts_counts,
         raw_output_excerpt=raw_output_excerpt,
-        policy_signals=(focus_packet.domain_packet.get("policy_signals") if isinstance(focus_packet.domain_packet, dict) else {}),
+        policy_signals=(focus_packet.get("policy_signals") if isinstance(focus_packet.get("policy_signals"), dict) else {}),
         emit_progress_fn=emit_progress,
         progress_cb=progress_cb,
         append_blocker_iteration_recap_fn=append_blocker_iteration_recap_fn,
@@ -1299,6 +1341,48 @@ def handle_repair_iteration(
         latest_human_resolution_ticket_fn=_latest_human_resolution_ticket,
         registry_row_for_decision_key_fn=_registry_row_for_decision_key,
     )
+    lob = state.last_board_observability
+    if isinstance(lob, dict) and lob:
+        emit_progress(
+            progress_cb,
+            ticker_payload(
+                iteration=iterations,
+                phase="board_observability",
+                message="Board lifecycle or work-board promotion recorded for audit.",
+                latest_refs=state.latest_refs,
+                detail={
+                    "board_observability_compact": {
+                        "event": lob.get("event"),
+                        "focus_target_kind": lob.get("focus_target_kind"),
+                        "board_item_id": lob.get("board_item_id"),
+                        "board_state_before": lob.get("board_state_before"),
+                        "board_state_after": lob.get("board_state_after"),
+                        "board_transition_reason": lob.get("board_transition_reason"),
+                        "board_recency_rank": lob.get("board_recency_rank"),
+                        "newly_promoted": lob.get("newly_promoted"),
+                        "recently_touched": lob.get("recently_touched"),
+                    },
+                    "step_story": {
+                        "step_kind": "board_progress",
+                        "why_now": "A durable work-board row changed or was promoted; this makes harness-emergent work inspectable from run output.",
+                        "trigger": str(lob.get("event") or "board_progress"),
+                        "state_before_summary": {
+                            "board_item_id": lob.get("board_item_id"),
+                            "board_state_before": lob.get("board_state_before"),
+                            "focus_target_kind": lob.get("focus_target_kind"),
+                        },
+                        "state_delta": {
+                            "board_state_after": lob.get("board_state_after"),
+                            "board_transition_reason": lob.get("board_transition_reason"),
+                            "board_recency_rank": lob.get("board_recency_rank"),
+                        },
+                        "outcome_class": "board_progress",
+                        "next_step_rationale": "Bounded board_focus_context on the next focus packet carries active-item posture.",
+                    },
+                },
+            ),
+        )
+        state.last_board_observability = None
     if move in {
         "propose_blocker_updates",
         "request_human_feedback",

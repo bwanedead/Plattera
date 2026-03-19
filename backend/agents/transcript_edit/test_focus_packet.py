@@ -428,3 +428,74 @@ def test_focus_packet_marks_emergent_focus_source_and_blocker_fields() -> None:
     assert isinstance(blocker, dict)
     assert str(blocker.get("blocker_id") or "") == "emergent:agent:test:1"
     assert str(blocker.get("blocking_class") or "") == "mapping_blocking"
+
+
+def test_focus_packet_execution_context_parity_and_generic_knowns() -> None:
+    packet = build_focus_packet(
+        decision_ledger={
+            "items": [
+                {
+                    "key": "township",
+                    "label": "Township",
+                    "state": "disputed",
+                    "blocking": True,
+                    "closure_requirement": {"mapping_blocking": True, "scope_status": "in_target"},
+                    "evidence_refs": ["f1"],
+                }
+            ],
+            "source_completeness": "unknown",
+        },
+        decision_key="township",
+        focus_source="legacy_fallback",
+        loop_iteration=3,
+        active_emergent_blocker=None,
+        blocker_registry=None,
+        source_transcript_ref="in-memory://source.json",
+        source_transcript_hash="sha256:t",
+        span_context=[],
+        image_verification_payload={},
+        feedback=None,
+        continuity_log=[
+            {
+                "decision_key": "township",
+                "move": "gather_more_evidence",
+                "outcome": "ok",
+                "iteration": 2,
+                "state_delta_hint": "gather_more_evidence; status=ok",
+                "next_open_move_hint": "re_evaluate_resolver_after_evidence_step",
+            }
+        ],
+    )
+    ec = packet.get("execution_context")
+    assert isinstance(ec, dict)
+    parity = ec.get("parity")
+    assert isinstance(parity, dict)
+    assert parity.get("code") == "ok"
+    assert parity.get("identity_aligned") is True
+    brief = packet.get("investigation_brief")
+    assert isinstance(brief, dict)
+    gwb = (brief.get("knowns") or {}).get("generic_work_board")
+    assert isinstance(gwb, dict)
+    assert gwb.get("item_id") == "te:ledger:township"
+    rich = (ec.get("recent_iterations") or {}).get("rich_capsules") or []
+    assert rich
+    step0 = rich[0]["steps"][0]
+    assert "gather_more_evidence" in (step0.get("state_changes_hint") or "")
+
+
+def test_focus_packet_malformed_ledger_items_graceful_parity() -> None:
+    packet = build_focus_packet(
+        decision_ledger={"items": "not-a-list", "source_completeness": "unknown"},
+        decision_key="range",
+        active_emergent_blocker=None,
+        blocker_registry=None,
+        source_transcript_ref="ref",
+        source_transcript_hash="h",
+        span_context=[],
+        image_verification_payload={},
+        feedback=None,
+        continuity_log=[],
+    )
+    ec = packet.get("execution_context")
+    assert (ec.get("parity") or {}).get("code") == "ledger_item_missing"
+    assert ec.get("active_work_item") is None

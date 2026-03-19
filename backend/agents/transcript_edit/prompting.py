@@ -3,6 +3,44 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .work_board_emergence_hints import (
+    TRANSCRIPT_EDIT_EMERGENT_ITEM_HINTS,
+    WORK_BOARD_EMERGENCE_DOCTRINE,
+)
+
+_MAX_PLANNER_WORKING_PLAN_STEP_CHARS = 160
+
+
+def slim_execution_context_for_planner(execution_context: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Drop duplicate bulk from execution_context for edit-planner prompts (bounded)."""
+    if not isinstance(execution_context, dict):
+        return None
+    ss = execution_context.get("support_state") if isinstance(execution_context.get("support_state"), dict) else {}
+    wp = ss.get("working_plan") if isinstance(ss.get("working_plan"), dict) else {}
+    slim_wp = None
+    if wp:
+        slim_wp = {
+            "current_goal": str(wp.get("current_goal") or "").strip()[:200] or None,
+            "status": str(wp.get("status") or "").strip()[:32] or None,
+            "next_steps": [
+                str(s).strip()[:_MAX_PLANNER_WORKING_PLAN_STEP_CHARS]
+                for s in list(wp.get("next_steps") or [])
+                if str(s).strip()
+            ][:4],
+        }
+    return {
+        "schema_version": execution_context.get("schema_version"),
+        "parity": execution_context.get("parity"),
+        "focus_selection": execution_context.get("focus_selection"),
+        "active_work_item": execution_context.get("active_work_item"),
+        "recent_iterations": execution_context.get("recent_iterations"),
+        "blocker_posture": execution_context.get("blocker_posture"),
+        "support_state": {
+            "policy_signals": ss.get("policy_signals") if isinstance(ss.get("policy_signals"), dict) else {},
+            "working_plan": slim_wp,
+        },
+    }
+
 
 def build_planner_system_message() -> str:
     # Trunk covers: "Return only valid JSON. Never output prose or markdown." + "Be faithful to source material."
@@ -25,7 +63,12 @@ def build_planner_system_message() -> str:
         "Each op must include drift-safe expected_old.old_excerpt from verbatim transcript text. "
         "Prefer anchors locator; use offsets only when anchors are unreliable. "
         "Do not produce cross-section edits unless strictly necessary. "
-        "If findings do not justify changes, return an empty ops list with rationale."
+        "If findings do not justify changes, return an empty ops list with rationale. "
+        "When execution_context is provided, treat execution_context.active_work_item as the generic harness view "
+        "of the focused row on the unified decision ledger (parity flags reconcile transcript-edit checklist vs envelope). "
+        "Use execution_context.recent_iterations as a bounded recent-path lane, not a full transcript or raw history. "
+        "Return EditPlanV0 JSON only for this surface; durable emergent ledger rows (add-item batches) "
+        "are owned by the focus resolver, not this planner."
     )
 
 
@@ -42,6 +85,7 @@ def build_planner_user_message(
     image_verification: dict[str, Any],
     candidate_disagreement_hints: dict[str, Any],
     mapping_priority_focus: dict[str, Any],
+    execution_context: dict[str, Any] | None = None,
 ) -> str:
     if working_plan is None and isinstance(investigation_brief, dict):
         working_plan = {
@@ -98,6 +142,9 @@ def build_planner_user_message(
         "image_verification": image_verification,
         "candidate_disagreement_hints": candidate_disagreement_hints,
         "mapping_priority_focus": mapping_priority_focus,
+        "execution_context": slim_execution_context_for_planner(
+            execution_context if isinstance(execution_context, dict) else None
+        ),
     }
     return json.dumps(payload, ensure_ascii=False)
 
@@ -150,9 +197,13 @@ def build_focus_resolver_system_message() -> str:
         "Treat support_state.investigation_brief as the current sticky-note summary of the run; it is editable, additive context, not canonical truth. "
         "Treat support_state.working_plan as a revisable short-horizon rail; it may be adjusted when the case understanding changes. "
         "Treat support_state.policy_signals as derived posture: weak understanding should bias toward orientation/inventory/verification, narrow understanding may permit repair or bounded HITL, and repeated no-signal work should be discouraged. "
-        "Allowed move values: apply_edit_plan, request_human_feedback, gather_more_evidence, mark_blocked, mark_resolved_no_edit, propose_blocker_updates. "
+        "Organized work is one harness decision ledger; focus_packet.work_board is that ledger envelope (historical JSON field name). "
+        "Allowed move values: apply_edit_plan, request_human_feedback, gather_more_evidence, mark_blocked, mark_resolved_no_edit, propose_blocker_updates, propose_work_board_changes. "
         "If move=apply_edit_plan, include a valid EditPlanV0 in edit_plan. "
         "If move=propose_blocker_updates, include blocker_updates[] with structured operations only (add/update/resolve/supersede). "
+        "If move=propose_work_board_changes, include work_board_changes[] (decision-ledger mutations; see work_board_emergence in user payload). "
+        "work_board_changes may include op=update_item_state for harness:emergent:* rows only (new_state, reason) — use for supersede/resolve when a branch is absorbed. "
+        f"{WORK_BOARD_EMERGENCE_DOCTRINE} "
         "For EditPlanV0 ops, each op must include discriminator field op_type with one of: replace_span, replace_line, replace_clause, rewrite_section. "
         "If move=request_human_feedback, include feedback_prompt with line1, line2, and bounded choices when available. "
         "If move=gather_more_evidence, include evidence_request with fields: kind, decision_key, reason, target. "
@@ -180,7 +231,10 @@ def build_focus_resolver_system_message() -> str:
         "Exception: if no visual evidence is yet present for an image-visible dispute and you are about to request HITL, "
         "prefer one image_evidence step first (agent-selected crop/zoom) so the HITL prompt can carry the region the agent examined; "
         "then request HITL the following iteration. Do not chain more than one image_evidence step before HITL. "
-        "Always include decision_key, move, reason, and iteration_summary."
+        "Always include decision_key, move, reason, and iteration_summary. "
+        "When execution_context is present, use execution_context.recent_iterations for bounded recent-path memory "
+        "(rich tail + short summaries); it is not a full run archive. "
+        "Prefer execution_context.active_work_item as the generic harness view of the focused decision-ledger row."
     )
 
 
@@ -235,8 +289,12 @@ def build_focus_resolver_user_message(
             else None
         )
     )
+    execution_context = (
+        focus_packet.get("execution_context") if isinstance(focus_packet, dict) else None
+    )
     payload = {
         "task": "Choose one next move for this focus-cycle item.",
+        "execution_context": execution_context if isinstance(execution_context, dict) else None,
         "allowed_moves": [
             "apply_edit_plan",
             "request_human_feedback",
@@ -244,7 +302,30 @@ def build_focus_resolver_user_message(
             "mark_blocked",
             "mark_resolved_no_edit",
             "propose_blocker_updates",
+            "propose_work_board_changes",
         ],
+        "work_board_emergence": {
+            "doctrine": WORK_BOARD_EMERGENCE_DOCTRINE,
+            "add_item_fields": [
+                "op:add_item",
+                "title",
+                "kind",
+                "reason",
+                "materiality",
+                "blocking_impact",
+                "resolution_condition",
+                "dependencies",
+                "evidence_refs",
+                "scope",
+                "domain_payload",
+                "context_note",
+                "state",
+                "priority",
+            ],
+            "attach_note_fields": ["op:attach_note", "target_item_id", "note", "note_intent"],
+            "update_item_state_fields": ["op:update_item_state", "target_item_id", "new_state", "reason"],
+            "transcript_edit_hints": TRANSCRIPT_EDIT_EMERGENT_ITEM_HINTS,
+        },
         "required_fields": ["decision_key", "move", "reason", "iteration_summary"],
         "focus_packet": focus_packet,
         "support_state": support_state,
@@ -353,6 +434,28 @@ def build_focus_resolver_user_message(
                 },
             },
             "closure_update_hint": None,
+            "work_board_changes": [
+                {
+                    "op": "add_item",
+                    "title": "Explicit preserve: scan margin may truncate boundary call",
+                    "kind": "transcript_edit.investigation_branch",
+                    "reason": "Margin crop visible; need durable branch so closure work does not silently drop dependency check.",
+                    "materiality": "high",
+                    "blocking_impact": "mapping_blocking",
+                    "resolution_condition": "Obtain clearer scan or confirm call text before mapping.",
+                    "dependencies": [],
+                    "evidence_refs": ["image:margin_check_1"],
+                    "scope": {},
+                    "domain_payload": {"hint": "not a new ledger key"},
+                    "context_note": "May be artifact; do not over-index until scope confirmed.",
+                },
+                {
+                    "op": "attach_note",
+                    "target_item_id": "te:ledger:range",
+                    "note": "Operator flagged possible OCR confusables on range digit; treat as advisory until image confirms.",
+                    "note_intent": "anti_overindex",
+                },
+            ],
             "iteration_summary": "short summary",
         },
     }
@@ -381,6 +484,7 @@ def build_focus_resolver_repair_user_message(
             "mark_blocked",
             "mark_resolved_no_edit",
             "propose_blocker_updates",
+            "propose_work_board_changes",
         ],
         "move_contract": {
             "apply_edit_plan_requires": ["edit_plan"],
@@ -388,6 +492,7 @@ def build_focus_resolver_repair_user_message(
             "gather_more_evidence_requires": ["evidence_request"],
             "mark_blocked_requires": ["reason"],
             "mark_resolved_no_edit_requires": ["reason"],
+            "propose_work_board_changes_requires": ["work_board_changes"],
         },
         "edit_plan_requirements": {
             "ops_item_requires": ["op_id", "op_type", "change_class", "confidence", "review_required", "reason", "target", "expected_old", "new_text"],

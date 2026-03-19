@@ -52,23 +52,27 @@ This repository uses reviewer subagents to prevent two recurring failures:
 
 A patch is non-trivial if it adds files, changes more than 3 files, materially expands a file, introduces a new abstraction/helper/service, changes module or layer boundaries, or is a refactor / cleanup / reorganization.
 
-### Reviewer subagent toggle (on-demand; claude/codex harness only)
+### Reviewer subagent toggles (on-demand; per harness)
 
-Reviewer subagents are useful but expensive. Run them **on-demand** behind a simple toggle in this file so they don't consume tokens on every non-trivial patch. or if asked explicitly by manual request by the human - in which case should be assumed to be single use exception per request. The toggle in which dictates automated default reviewing/ other sub agents is detailed below 
+Reviewer subagents are useful but expensive. Run them **on-demand** behind **per-harness** toggles in this file so they don't consume tokens on every non-trivial patch. If the human explicitly asks for reviewers for a single change, treat that as a **one-off** exception for that request (still follow the reviewer output requirements below). note - if the your harness toggle is on treat that as the gate to self infer when a review subagent should be used. in general if a considerable amound of edits have taken place that a review of architecture sanity or code efficiency would likely strenghten the repos structure then that should be the deciding criteria, token consumption is a dev constraint currently though so try to be thoughtful as to when it is useful or likely not.
 
-Toggle (edit this file):
-- `REVIEWER_SUBAGENTS_ENABLED = false`
+**Per-harness toggles (edit this file):**
 
-Harness applicability:
-- Applies only to **Claude Code** and **Codex** harnesses.
-- **Cursor is not applicable** (treat as unsupported even if the toggle is true).
-- If a new harness is added later, explicitly add it to this allowlist in this section.
+```
+REVIEWER_SUBAGENTS_ENABLED__CLAUDE_CODE = false
+REVIEWER_SUBAGENTS_ENABLED__CODEX     = false
+REVIEWER_SUBAGENTS_ENABLED__CURSOR    = true
+```
 
-Policy:
-- If `REVIEWER_SUBAGENTS_ENABLED == true` and the harness is supported, then for non-trivial patches run:
+**Active harness:** Use the toggle line that matches the tool running this session: **Claude Code** → `__CLAUDE_CODE`, **Codex** → `__CODEX`, **Cursor** → `__CURSOR`.
+
+**New harnesses:** Add a new `REVIEWER_SUBAGENTS_ENABLED__<HARNESS_KEY> = false` line in the block above and document its key in **Active harness**.
+
+**Policy:**
+- If the **active harness** toggle is `true`, then for non-trivial patches run:
   - `architecture_reviewer`
   - `code_efficiency_reviewer`
-- Otherwise (toggle off or harness unsupported), do a **self-review** using the same criteria and explicitly note: `reviewers skipped by policy` in your final summary.
+- If that toggle is `false`, do a **self-review** using the same criteria (see **Reviewer purposes** and **Standards to enforce** below) and explicitly note: `reviewers skipped by policy` plus the harness key (e.g. `reviewers skipped by policy (harness name: toggle off)`) in your final summary.
 
 ### Reviewer purposes
 
@@ -103,8 +107,8 @@ Reviewer findings must:
 ### Completion requirement
 
 A non-trivial patch is not complete until either:
-- reviewer subagents have run (when enabled by policy) and their findings have been summarized and reconciled, **or**
-- reviewer subagents are disabled / unsupported by policy and a self-review has been performed and summarized (including any blocking issues found and their resolution/justification).
+- reviewer subagents have run (when enabled by policy for the **active harness**) and their findings have been summarized and reconciled, **or**
+- reviewer subagents are disabled by policy for the **active harness** and a self-review has been performed and summarized (including any blocking issues found and their resolution/justification).
 
 ---
 

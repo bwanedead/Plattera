@@ -31,6 +31,7 @@ from .decision_ledger import (
     update_ledger_from_orient_baseline,
     update_ledger_from_iteration,
 )
+from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_from_loop_state
 from .blocker_registry import (
     blocker_health_snapshot,
     initialize_blocker_registry,
@@ -387,9 +388,10 @@ def run_transcript_edit_controller_loop(
             detail=dict(state.convention_context),
         ),
     )
+    _, orient_read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
     state.blocker_registry = sync_registry_from_ledger(
         registry=state.blocker_registry,
-        decision_ledger=state.decision_ledger,
+        decision_ledger=orient_read_ledger,
         run_id=request_id_prefix,
         session_id=session_id,
         source_transcript_ref=state.current_transcript_ref,
@@ -397,7 +399,7 @@ def run_transcript_edit_controller_loop(
     sync_pending_feedback_cache_from_registry(state=state)
     blocker_health = blocker_health_snapshot(
         registry=state.blocker_registry,
-        decision_ledger=state.decision_ledger,
+        decision_ledger=orient_read_ledger,
     )
     _emit_progress(
         progress_cb,
@@ -412,12 +414,13 @@ def run_transcript_edit_controller_loop(
     if bool(blocker_health.get("ledger_registry_mismatch")):
         state.blocker_registry = sync_registry_from_ledger(
             registry=state.blocker_registry,
-            decision_ledger=state.decision_ledger,
+            decision_ledger=orient_read_ledger,
             run_id=request_id_prefix,
             session_id=session_id,
             source_transcript_ref=state.current_transcript_ref,
         )
         sync_pending_feedback_cache_from_registry(state=state)
+        _, orient_read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
         _emit_progress(
             progress_cb,
             ticker_payload(
@@ -427,11 +430,11 @@ def run_transcript_edit_controller_loop(
                 latest_refs=state.latest_refs,
                 detail=blocker_health_snapshot(
                     registry=state.blocker_registry,
-                    decision_ledger=state.decision_ledger,
+                    decision_ledger=orient_read_ledger,
                 ),
             ),
         )
-    baseline_unresolved = unresolved_closure_requirements(state.decision_ledger)
+    baseline_unresolved = unresolved_closure_requirements(orient_read_ledger)
     baseline_residual = [item for item in baseline_unresolved if isinstance(item, dict)]
     mapping_blocking_count = sum(1 for item in baseline_residual if bool(item.get("mapping_blocking")))
     optional_count = max(0, len(baseline_residual) - mapping_blocking_count)
@@ -523,17 +526,18 @@ def run_transcript_edit_controller_loop(
             ledger=state.decision_ledger,
             findings=top_findings,
         )
+        _, audit_read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
         state.blocker_registry = sync_registry_from_ledger(
             registry=state.blocker_registry,
-            decision_ledger=state.decision_ledger,
+            decision_ledger=audit_read_ledger,
             run_id=request_id_prefix,
             session_id=session_id,
             source_transcript_ref=state.current_transcript_ref,
         )
         sync_pending_feedback_cache_from_registry(state=state)
-        unresolved_items = unresolved_closure_requirements(state.decision_ledger)
+        unresolved_items = unresolved_closure_requirements(audit_read_ledger)
         has_open_closure = bool(unresolved_items)
-        has_mapping_blocking_closure = has_unresolved_target_scope_mapping_blocking_closure(state.decision_ledger)
+        has_mapping_blocking_closure = has_unresolved_target_scope_mapping_blocking_closure(audit_read_ledger)
         # Warnings outside the target scope should not block scoped closure gates.
         blocking_warning_present = bool(blocking_warning_present and has_mapping_blocking_closure)
         _emit_progress(
@@ -552,8 +556,8 @@ def run_transcript_edit_controller_loop(
         )
 
         current_finding_signature = finding_signature(summary=findings_summary, findings=top_findings)
-        current_blocking_signature = blocking_signature(state.decision_ledger)
-        current_blocking_count = blocking_unresolved_count(state.decision_ledger)
+        current_blocking_signature = blocking_signature(audit_read_ledger)
+        current_blocking_count = blocking_unresolved_count(audit_read_ledger)
         apply_reaudit_baseline_count = state.apply_reaudit_baseline_blocking_count
         apply_reaudit_baseline_signature = state.apply_reaudit_baseline_blocking_signature
         progressed, progress_reason, clear_pending_reaudit = classify_iteration_progress(
@@ -926,17 +930,20 @@ def _finalize_result_and_project_run_feed(
 
 
 def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
+    from .board_observability import compact_emergent_board_run_posture
+
+    _, hitl_read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
     projection = derive_waiting_feedback_projection(
         blocker_registry=state.blocker_registry,
         fallback_prompt_id=state.pending_feedback_prompt_id,
         fallback_decision_key=state.pending_feedback_decision_key,
     )
     tickets = list_external_context_injections(
-        state.decision_ledger,
+        hitl_read_ledger,
         type_filter="human_resolution_ticket",
     )
     mission_runtime_summary = derive_mission_runtime_summary(
-        decision_ledger=state.decision_ledger,
+        decision_ledger=hitl_read_ledger,
         blocker_registry=state.blocker_registry,
         waiting_projection=projection,
     )
@@ -952,18 +959,22 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
         "superseded_prompt_ids": sorted(list(state.superseded_feedback_prompt_ids)),
         "hitl_lifecycle_log": list(state.hitl_lifecycle_log),
         "human_resolution_tickets": tickets,
-        "source_completeness": str(state.decision_ledger.get("source_completeness") or "unknown"),
-        "source_completeness_reason": state.decision_ledger.get("source_completeness_reason"),
+        "source_completeness": str(hitl_read_ledger.get("source_completeness") or "unknown"),
+        "source_completeness_reason": hitl_read_ledger.get("source_completeness_reason"),
         "source_limitations": [
             str(v)
-            for v in list(state.decision_ledger.get("source_limitations") or [])
+            for v in list(hitl_read_ledger.get("source_limitations") or [])
             if str(v).strip()
         ][:12],
-        "scope_summaries": dict(state.decision_ledger.get("scope_summaries") or {}),
+        "scope_summaries": dict(hitl_read_ledger.get("scope_summaries") or {}),
         "convention_context": dict(state.convention_context or {}),
         "blocker_registry": registry_snapshot_for_payload(state.blocker_registry),
         "active_blocker": select_primary_blocker(state.blocker_registry),
-        "blocker_health": blocker_health_snapshot(registry=state.blocker_registry, decision_ledger=state.decision_ledger),
+        "blocker_health": blocker_health_snapshot(registry=state.blocker_registry, decision_ledger=hitl_read_ledger),
+        "board_run_posture_compact": compact_emergent_board_run_posture(
+            list(state.harness_emergent_board_items or []),
+            last_focus_key=state.last_focus_key,
+        ),
     }
 def _normalized_mode(raw: str | None) -> str:
     return normalized_mode(

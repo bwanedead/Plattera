@@ -65,6 +65,14 @@ class TranscriptEditAgentRunRequest(BaseModel):
         ),
     )
     resume_blocker_registry: dict[str, Any] | None = None
+    run_standalone_edit_planner: bool = Field(
+        default=False,
+        description=(
+            "When true, the repair loop also calls the standalone edit planner (propose_plan) once per "
+            "iteration with the same slim execution_context as the resolver. Off by default to avoid "
+            "doubling LLM cost."
+        ),
+    )
 
 
 class EmergentBlockerUpdateProposal(BaseModel):

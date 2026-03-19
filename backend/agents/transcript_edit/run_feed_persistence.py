@@ -125,6 +125,7 @@ class TranscriptEditRunFeedPersistenceService:
             },
             "next_action": summary.get("next_action"),
             "freshness_posture_summary": rationale.get("freshness_posture_summary"),
+            "board_run_posture_compact": summary.get("board_run_posture_compact"),
         }
 
     def _project_latest_run_recap(

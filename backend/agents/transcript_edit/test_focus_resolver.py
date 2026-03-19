@@ -121,6 +121,34 @@ class _PlannerWithOps:
         return plan, "ok", json.dumps(plan.model_dump(mode="json"))
 
 
+def _emergent_focus_packet(
+    *,
+    board_state: str = "open",
+    include_active_row: bool = True,
+) -> dict:
+    eid = "harness:emergent:aa11bb22cc33"
+    row = {
+        "item_id": eid,
+        "title": "Emergent closure branch",
+        "kind": "transcript_edit.scan_integrity",
+        "state": board_state,
+        "materiality": "high",
+        "blocking_impact": "mapping_blocking",
+    }
+    return {
+        "decision_key": eid,
+        "focus_target_kind": "harness_emergent",
+        "ledger_item": {"key": eid, "state": "unknown", "blocking": True, "closure_requirement": {"mapping_blocking": True}},
+        "closure_requirement": {"mapping_blocking": True},
+        "active_emergent_board_item": row if include_active_row else None,
+        "source_transcript_ref": "in-memory://source.json",
+        "source_transcript_hash": "sha256:test",
+        "span_context": [],
+        "image_verification": {},
+        "feedback": None,
+    }
+
+
 def _focus_packet(*, state: str = "disputed", feedback: dict | None = None) -> dict:
     return {
         "decision_key": "section",
@@ -188,6 +216,44 @@ def test_focus_resolver_returns_apply_edit_plan_for_valid_ops() -> None:
     )
     assert out["move"] == "apply_edit_plan"
     assert isinstance(out.get("edit_plan"), dict)
+
+
+def test_focus_resolver_harness_emergent_missing_row_marks_blocked() -> None:
+    out = resolve_focus_move(
+        focus_packet=_emergent_focus_packet(include_active_row=False),
+        planner_client=_PlannerWithOps(),
+        model="gpt-5.2",
+        findings_summary={},
+        planning_findings=[],
+        max_invalid_plan_attempts=2,
+    )
+    assert out["move"] == "mark_blocked"
+    assert out.get("reason") == "harness_emergent_board_row_missing"
+
+
+def test_focus_resolver_harness_emergent_resolved_marks_no_edit() -> None:
+    out = resolve_focus_move(
+        focus_packet=_emergent_focus_packet(board_state="resolved"),
+        planner_client=_PlannerWithOps(),
+        model="gpt-5.2",
+        findings_summary={},
+        planning_findings=[],
+        max_invalid_plan_attempts=2,
+    )
+    assert out["move"] == "mark_resolved_no_edit"
+    assert "terminal" in str(out.get("reason") or "")
+
+
+def test_focus_resolver_harness_emergent_open_invokes_planner() -> None:
+    out = resolve_focus_move(
+        focus_packet=_emergent_focus_packet(board_state="open"),
+        planner_client=_PlannerWithOps(),
+        model="gpt-5.2",
+        findings_summary={},
+        planning_findings=[],
+        max_invalid_plan_attempts=2,
+    )
+    assert out["move"] == "apply_edit_plan"
 
 
 def test_focus_resolver_returns_mark_resolved_no_edit_when_not_unresolved_blocker() -> None:

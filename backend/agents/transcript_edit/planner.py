@@ -66,7 +66,9 @@ class TranscriptEditPlanPlanner:
         working_plan: dict[str, Any] | None = None,
         run_link_id: str = "",
         mission_objective: str = "",
+        execution_context: dict[str, Any] | None = None,
     ) -> tuple[EditPlanV0 | None, str, str]:
+        """When ``execution_context`` is set, pass the same focus ``execution_context`` dict as the resolver (slimmed inside prompting) for planner/resolver parity."""
         if not self._service.is_available() or getattr(self._service, "client", None) is None:
             return None, "planner_unavailable", ""
         api_model = self._service.models.get(model, {}).get("api_model_name", model)
@@ -119,6 +121,7 @@ class TranscriptEditPlanPlanner:
             investigation_brief=investigation_brief,
             working_plan=working_plan,
             policy_signals=policy_signals,
+            execution_context=execution_context if isinstance(execution_context, dict) else None,
         )
         raw_content = ""
         last_error = "planner_invalid_response"
@@ -428,6 +431,7 @@ def _coerce_focus_move(
         "mark_blocked",
         "mark_resolved_no_edit",
         "propose_blocker_updates",
+        "propose_work_board_changes",
     }
     move = str(parsed.get("move") or "").strip().lower()
     if move not in allowed_moves:
@@ -440,6 +444,7 @@ def _coerce_focus_move(
         "feedback_prompt": None,
         "evidence_request": None,
         "blocker_updates": None,
+        "work_board_changes": None,
         "closure_update_hint": None,
         "iteration_summary": str(parsed.get("iteration_summary") or "").strip() or "Focus move selected.",
     }
@@ -530,6 +535,11 @@ def _coerce_focus_move(
             proposal = EmergentBlockerUpdateProposal.model_validate(row)
             normalized_updates.append(proposal.model_dump(mode="json", exclude_none=True))
         out["blocker_updates"] = normalized_updates
+    if move == "propose_work_board_changes":
+        from harness.work_board.emergence import normalize_work_board_changes_list
+
+        raw_wb = parsed.get("work_board_changes")
+        out["work_board_changes"] = normalize_work_board_changes_list(raw_wb if isinstance(raw_wb, list) else [])
     if isinstance(parsed.get("closure_update_hint"), dict):
         out["closure_update_hint"] = dict(parsed.get("closure_update_hint"))
     return out

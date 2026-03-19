@@ -62,7 +62,6 @@ from .decision_ledger import (
     update_ledger_from_iteration,
     has_unresolved_target_scope_mapping_blocking_closure,
     ledger_snapshot_for_payload,
-    choose_investigation_focus,
     list_external_context_injections,
 )
 from .decision_ledger_closure import unresolved_closure_requirements as _unresolved_closure_requirements
@@ -92,6 +91,9 @@ from .result_policy import (
     should_attempt_promote,
     TranscriptEditFacts,
 )
+from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_from_loop_state
+from .decision_ledger_focus import choose_investigation_focus
+from .domain_pack_focus_wiring import choose_investigation_fallback_focus_from_state
 from .state_projection import (
     derive_waiting_feedback_projection,
     sync_pending_feedback_cache_from_registry,
@@ -304,10 +306,11 @@ class TranscriptEditDomainPack:
             for _ in range(_orient_llm_contacts):
                 context.loop_memory.register_llm_contact()
 
-        # Sync blocker registry from ledger after orient.
+        # Sync blocker registry from closure read model (aligned with unified envelope).
+        _, read_after_orient = transcript_edit_unified_and_closure_read_from_loop_state(self._state)
         self._state.blocker_registry = sync_registry_from_ledger(
             registry=self._state.blocker_registry,
-            decision_ledger=self._state.decision_ledger,
+            decision_ledger=read_after_orient,
             run_id=request_id_prefix,
             session_id=session_id,
             source_transcript_ref=self._state.current_transcript_ref,
@@ -345,10 +348,13 @@ class TranscriptEditDomainPack:
                     "path": self._state.investigation_summary_ref
                 }
 
+        _, _orient_read = transcript_edit_unified_and_closure_read_from_loop_state(self._state)
+        _items = _orient_read.get("items") or []
+        _ledger_item_count = len(_items) if isinstance(_items, list) else 0
         _LOG.info(
             "TX_DOMAIN_PACK orient_complete ► request_id=%s ledger_keys=%s",
             request_id_prefix,
-            len(self._state.decision_ledger.get("items") or {}),
+            _ledger_item_count,
         )
 
     # -------------------------------------------------------------------------
@@ -372,13 +378,17 @@ class TranscriptEditDomainPack:
         """
         try:
             state = self._state
-            ledger_items = state.decision_ledger.get("items") or {}
+            _, read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
+            items_list = read_ledger.get("items") or []
+            if not isinstance(items_list, list):
+                items_list = []
 
             # Top discrepancies: mapping-blocking items first, max 5.
             top_discrepancies: list[dict[str, Any]] = []
-            for key, item in (ledger_items.items() if isinstance(ledger_items, dict) else []):
+            for item in items_list:
                 if not isinstance(item, dict):
                     continue
+                key = str(item.get("key") or "").strip().lower()
                 top_discrepancies.append({
                     "key": key,
                     "verdict": item.get("verdict"),
@@ -570,9 +580,10 @@ class TranscriptEditDomainPack:
                 findings=top_findings,
             )
             self._state.pending_reaudit_after_apply = False
+        _, read_after_refresh = transcript_edit_unified_and_closure_read_from_loop_state(self._state)
         self._state.blocker_registry = sync_registry_from_ledger(
             registry=self._state.blocker_registry,
-            decision_ledger=self._state.decision_ledger,
+            decision_ledger=read_after_refresh,
             run_id=self._request_id_prefix,
             session_id=session_id,
             source_transcript_ref=self._state.current_transcript_ref,
@@ -583,8 +594,8 @@ class TranscriptEditDomainPack:
         self._iter_finding_signature = finding_signature(
             summary=findings_summary, findings=top_findings
         )
-        self._iter_blocking_signature = blocking_signature(self._state.decision_ledger)
-        self._iter_blocking_count = blocking_unresolved_count(self._state.decision_ledger)
+        self._iter_blocking_signature = blocking_signature(read_after_refresh)
+        self._iter_blocking_count = blocking_unresolved_count(read_after_refresh)
         self._iter_findings_summary = dict(findings_summary)
         self._iter_planning_findings = [f for f in top_findings if isinstance(f, dict)][:12]
         self._iter_source_hash = src_hash
@@ -608,11 +619,12 @@ class TranscriptEditDomainPack:
         Focus state (active_focus_key, focus_stagnation_streak) is kernel-owned
         and NOT part of this projection.
         """
-        ledger = self._state.decision_ledger
-        registry = self._state.blocker_registry
+        state = self._state
+        unified, read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
+        registry = state.blocker_registry
 
-        # Work-item collection: mapping-blocking unresolved items.
-        unresolved = unresolved_mapping_blocking_requirements(ledger)
+        # Work-item collection: mapping-blocking unresolved items (closure read model).
+        unresolved = unresolved_mapping_blocking_requirements(read_ledger)
         work_item_collection = [
             {
                 "focus_key": str(item.get("key") or "").strip().lower(),
@@ -637,7 +649,7 @@ class TranscriptEditDomainPack:
         blocker_surface = blocker_rows + emergent_rows
 
         # Closure posture summary.
-        all_unresolved = _unresolved_closure_requirements(ledger)
+        all_unresolved = _unresolved_closure_requirements(read_ledger)
         mapping_blocking = sum(
             1 for item in all_unresolved
             if isinstance(item, dict) and bool(item.get("mapping_blocking"))
@@ -654,14 +666,14 @@ class TranscriptEditDomainPack:
         # _select_focus_target for blocker-aware priority ordering.
         ranked: list[dict[str, Any]] = []
         if work_item_collection:
-            fallback_focus = choose_investigation_focus(ledger) or {}
+            fallback_focus = choose_investigation_focus(unified) or {}
             feedback_payload = (
                 dict(self._state.latest_feedback)
                 if isinstance(self._state.latest_feedback, dict)
                 else None
             )
             focus_target = _select_focus_target(
-                decision_ledger=ledger,
+                decision_ledger=read_ledger,
                 fallback_focus=fallback_focus,
                 focus_feedback=feedback_payload,
                 blocker_registry=registry,
@@ -716,10 +728,29 @@ class TranscriptEditDomainPack:
                     active_blocker = dict(row)
                     break
 
+        _, read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
+        fallback_focus = choose_investigation_fallback_focus_from_state(state)
+        focus_target = _select_focus_target(
+            decision_ledger=read_ledger,
+            fallback_focus=fallback_focus,
+            focus_feedback=feedback,
+            blocker_registry=state.blocker_registry,
+        )
+        target_key = str((focus_target or {}).get("decision_key") or "").strip().lower()
+        aligned_with_kernel = target_key == str(focus_key or "").strip().lower()
+        focus_source = str((focus_target or {}).get("focus_source") or "legacy_fallback").strip().lower() or "legacy_fallback"
+        focus_reason_code = str((focus_target or {}).get("focus_reason_code") or "domain_pack_focus").strip()[:120] or "domain_pack_focus"
+        emergent_from_target = None
+        if aligned_with_kernel and isinstance((focus_target or {}).get("active_blocker"), dict):
+            emergent_from_target = dict((focus_target or {})["active_blocker"])
+
         packet = build_focus_packet(
             decision_ledger=state.decision_ledger,
             decision_key=focus_key,
-            active_emergent_blocker=active_blocker,
+            focus_source=focus_source,
+            focus_reason_code=focus_reason_code,
+            loop_iteration=context.loop_memory.iterations,
+            active_emergent_blocker=emergent_from_target or active_blocker,
             blocker_registry=state.blocker_registry,
             source_transcript_ref=state.current_transcript_ref,
             source_transcript_hash=src_hash,
@@ -731,6 +762,10 @@ class TranscriptEditDomainPack:
             seed_transcript_ref=state.seed_transcript_ref,
             edit_lineage_summary=list(state.edit_lineage_summary or []),
             t0_candidate_refs=list(state.t0_candidate_refs or []),
+            evidence_repeat_guard=state.evidence_repeat_guard,
+            evidence_signal_counter=state.evidence_signal_counter,
+            harness_emergent_board_items=list(state.harness_emergent_board_items or []),
+            harness_board_context_notes=dict(state.harness_board_context_notes or {}),
         )
         # D3: inject run-progress frame and rationale-continuity strip into the packet.
         # D2: inject investigation summary ref + state for cumulative grounding.
@@ -1068,7 +1103,7 @@ class TranscriptEditDomainPack:
 
         Maps transcript-edit terminal conditions to the shared TerminalClass scaffold.
         """
-        ledger = self._state.decision_ledger
+        _, read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(self._state)
         iterations = context.loop_memory.iterations
         min_iters = max(
             1,
@@ -1077,8 +1112,8 @@ class TranscriptEditDomainPack:
                 int(self._request.min_iterations_before_complete),
             ),
         )
-        has_mapping_blocking = has_unresolved_target_scope_mapping_blocking_closure(ledger)
-        all_unresolved = _unresolved_closure_requirements(ledger)
+        has_mapping_blocking = has_unresolved_target_scope_mapping_blocking_closure(read_ledger)
+        all_unresolved = _unresolved_closure_requirements(read_ledger)
         unresolved_count = len(all_unresolved)
 
         # Not done: still has mapping-blocking items.
@@ -1275,13 +1310,14 @@ class TranscriptEditDomainPack:
         Used by the mission-runtime adapter to populate TranscriptEditAgentRunResult.
         """
         state = self._state
+        _, read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
         projection = derive_waiting_feedback_projection(
             blocker_registry=state.blocker_registry,
             fallback_prompt_id=state.pending_feedback_prompt_id,
             fallback_decision_key=state.pending_feedback_decision_key,
         )
         mission_runtime_summary = derive_mission_runtime_summary(
-            decision_ledger=state.decision_ledger,
+            decision_ledger=read_ledger,
             blocker_registry=state.blocker_registry,
             waiting_projection=projection,
         )
@@ -1296,7 +1332,7 @@ class TranscriptEditDomainPack:
             "pending_feedback_decision_key": projection.get("pending_feedback_decision_key"),
             "superseded_prompt_ids": sorted(list(state.superseded_feedback_prompt_ids)),
             "hitl_lifecycle_log": list(state.hitl_lifecycle_log),
-            "source_completeness": str(state.decision_ledger.get("source_completeness") or "unknown"),
+            "source_completeness": str(read_ledger.get("source_completeness") or "unknown"),
             "convention_context": dict(state.convention_context or {}),
             "blocker_registry": registry_snapshot_for_payload(state.blocker_registry),
             "active_blocker": select_primary_blocker(state.blocker_registry),

@@ -23,16 +23,13 @@ from .decision_ledger_scope import (
     _read_scope_priority,
     _scope_label,
 )
+from .transcript_edit_default_checklist_seed import (
+    DEFAULT_DECISION_SLOT_KEYS,
+    DEFAULT_DECISION_SLOT_SPECS,
+    TRANSCRIPT_EDIT_DEFAULT_SLOT_PRIORITY,
+)
 
-_DECISION_SPECS: list[tuple[str, str, bool]] = [
-    ("township", "Township", True),
-    ("range", "Range", True),
-    ("section", "Section", True),
-    ("tie_distance", "Tie Distance", True),
-    ("tie_bearing", "Tie Bearing", True),
-    ("acreage", "Acreage", False),
-    ("closure_or_pob", "Closure / POB", True),
-]
+_DECISION_SPECS = DEFAULT_DECISION_SLOT_SPECS
 
 _DISPUTED_HINTS = {"disagree", "conflict", "mismatch", "ambiguous", "unclear"}
 _CONFIRMED_STATUSES = {"match", "confirmed"}
@@ -56,16 +53,8 @@ _APPROVED_SCOPE_PROOF_CODES = {
     "operator_marked_outside_target",
 }
 _SCOPE_CLOSURE_STATE_VALUES = {"achieved", "partial", "blocked", "not_attempted"}
-_DECISION_PRIORITY: dict[str, int] = {
-    "range": 0,
-    "township": 1,
-    "section": 2,
-    "tie_distance": 3,
-    "tie_bearing": 4,
-    "closure_or_pob": 5,
-    "acreage": 6,
-}
-_DECISION_KEYS = {spec[0] for spec in _DECISION_SPECS}
+_DECISION_PRIORITY: dict[str, int] = dict(TRANSCRIPT_EDIT_DEFAULT_SLOT_PRIORITY)
+_DECISION_KEYS = set(DEFAULT_DECISION_SLOT_KEYS)
 
 def initialize_decision_ledger() -> dict[str, Any]:
     items = [
