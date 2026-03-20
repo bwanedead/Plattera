@@ -42,8 +42,9 @@ you can run the edit loop as many times as you want without re-running t0.
 ## Prerequisites
 
 1. **venv active**: `.\.venv\scripts\activate.ps1` (from `C:\projects\Plattera`)
-2. **Backend running**: in one terminal, `cd backend && python main.py` (listens on `localhost:8000`)
-3. **Practice deed image** at its canonical location: `C:\projects\Plattera\practice_deeds\legal_text_image.jpg`
+2. **Backend running**: required only for this t0 fixture setup, because the upload goes through `POST /api/dossier/process`
+3. **Do not run the backend for transcript-edit loop testing**: once the fixture exists, the loop CLI runs directly without the API server
+4. **Practice deed image** at its canonical location: `C:\projects\Plattera\practice_deeds\legal_text_image.jpg`
 
 ---
 
@@ -145,6 +146,9 @@ python -m api.mission_runtime_cli `
   --done-file tmp\done_row1.json `
   > tmp\result_row1.json 2> tmp\err_row1.txt
 ```
+
+This loop command is CLI-only. Do not start the FastAPI backend server for the edit-loop test
+path unless you are deliberately re-running t0 or another API-dependent setup step.
 
 See `docs/agent-testing/transcript-edit-loop-cli-testing.md` for the full watch/inject cycle.
 

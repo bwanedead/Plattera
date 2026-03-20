@@ -16,6 +16,10 @@ path for debugging.
 
 Pattern: run loop → watch for HITL/done → inject feedback → re-watch → repeat.
 
+**Do not start the backend API server for transcript-edit loop testing.**
+This loop is exercised directly through the CLI and local filesystem/HITL plumbing.
+The backend server is only needed for upstream setup steps such as t0 fixture creation.
+
 ---
 
 ## Prerequisite: t0 Transcription (One-Time Fixture Setup)
@@ -59,6 +63,9 @@ Once those files exist, `--tx-scenario practice_legaltext` resolves the path aut
 
 > All commands below assume: repo root is `C:\projects\Plattera`, venv is active, working
 > directory is `backend\`. Adjust paths for your machine.
+>
+> For this loop, launch the CLI directly. Do **not** start `python main.py` or any backend
+> server process unless you are explicitly running the separate t0 fixture setup.
 >
 > **`tmp\` convention**: use a repo-local `tmp\` folder for done-sentinel and result files.
 > It keeps everything in one place and avoids `/tmp` path differences between shells.
@@ -140,6 +147,11 @@ Without `--tx-scenario`, supply the transcript ref explicitly:
 --tx-dossier-id live-validation-practice-legaltext
 --tx-source-transcript-ref "C:\path\to\draft_legal_text_image_v2.json"
 ```
+
+CLI-only reminder:
+- no backend API server is required for this loop
+- `hitl_watch` and `hitl_inject` operate against the local run files / feedback store
+- if you need the practice transcript seed, create it once via the separate t0 setup doc
 
 ### 2. Block waiting for HITL or done
 

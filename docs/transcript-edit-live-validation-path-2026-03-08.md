@@ -12,6 +12,8 @@ For the broader transcript-edit mission, closure model, and test success criteri
 ## Validation mode
 - Use `validation_mode=live_hitl` only when validating lifecycle plumbing.
 - Default runtime behavior remains `validation_mode=off`.
+- This validation path is executed through the transcript-edit CLI directly; do not start the
+  backend API server for the loop itself.
 
 ## Scenario
 - Source deed image: `practice_deeds/legal_text_image.jpg`
