@@ -468,6 +468,7 @@ def test_focus_packet_execution_context_parity_and_generic_knowns() -> None:
     )
     ec = packet.get("execution_context")
     assert isinstance(ec, dict)
+    assert isinstance(ec.get("organized_work_note"), str) and ec.get("organized_work_note")
     parity = ec.get("parity")
     assert isinstance(parity, dict)
     assert parity.get("code") == "ok"

@@ -7,7 +7,10 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
-from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger, update_ledger_from_iteration
+from backend.agents.transcript_edit.decision_ledger import (
+    initialize_decision_ledger_with_domain_template_seed,
+    update_ledger_from_iteration,
+)
 from backend.agents.transcript_edit.iteration_repair_runtime import handle_repair_iteration
 from backend.agents.transcript_edit.loop_state import TranscriptEditLoopState
 
@@ -34,7 +37,7 @@ class _PlannerCapture:
 
 def _range_disputed_ledger() -> dict:
     return update_ledger_from_iteration(
-        ledger=initialize_decision_ledger(),
+        ledger=initialize_decision_ledger_with_domain_template_seed(),
         findings=[
             {
                 "finding_id": "plss_range_conflict_001",

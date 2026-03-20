@@ -15,9 +15,9 @@ from backend.agents.transcript_edit.work_board_composite import transcript_edit_
 
 
 def test_composite_and_fallback_match_inline_assembly() -> None:
-    from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger
+    from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger_with_domain_template_seed
 
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     st = TranscriptEditLoopState(
         decision_ledger=ledger,
         harness_emergent_board_items=[],

@@ -1,12 +1,15 @@
-"""Transcript-edit adapter: legacy checklist store ↔ unified harness decision ledger.
+"""Transcript-edit: native write seam ↔ unified harness decision ledger (read truth).
 
-``state.decision_ledger`` is the **transcript-edit-native persistence / mutation** store.
-The **canonical organized-work read surface** is the unified envelope
-(:func:`build_transcript_edit_unified_decision_ledger`) plus the derived
-:func:`transcript_edit_closure_read_ledger` (items from the envelope; tickets and
-completeness metadata from native).
+Phase 18 framing — **one organized-work model** (harness decision ledger envelope); native JSON is a **bounded
+persistence and mutation seam** (tickets, orient baselines, domain-only row extensions like ``discovery_meta``).
+It does **not** conceptually own closure/focus/packet reasoning; those consume the unified envelope (+ closure read).
 
-Domain slot ordering for tie-breaks lives here—not in the generic harness ledger.
+- **Read path (authoritative for organized work):** :func:`build_transcript_edit_unified_decision_ledger`,
+  :func:`transcript_edit_closure_read_ledger`, helpers ``transcript_edit_unified_and_closure_read_*``.
+- **Write path:** mutate ``state.decision_ledger`` only; project to the envelope for reads.
+
+Bootstrap slot tie-break ordering is :data:`transcript_edit_bootstrap_hints.TRANSCRIPT_EDIT_SLOT_PRIORITY_HINTS`,
+re-exported as :data:`TRANSCRIPT_EDIT_DOMAIN_SLOT_PRIORITY` (domain doctrine, not harness ontology).
 """
 from __future__ import annotations
 
@@ -17,11 +20,11 @@ from harness.work_board.contracts import MAX_BOARD_CONTEXT_NOTES_PER_ITEM, new_w
 # Loop state is referenced as a duck-typed object to avoid importing ``loop_state`` here.
 
 from .decision_ledger_scope import _ensure_ledger_shape
-from .transcript_edit_default_checklist_seed import TRANSCRIPT_EDIT_DEFAULT_SLOT_PRIORITY
+from .transcript_edit_bootstrap_hints import TRANSCRIPT_EDIT_SLOT_PRIORITY_HINTS
 from .work_board_projection import project_decision_ledger_to_work_board
 
-# Re-export domain slot ordering (defined in default checklist seed module).
-TRANSCRIPT_EDIT_DOMAIN_SLOT_PRIORITY: dict[str, int] = dict(TRANSCRIPT_EDIT_DEFAULT_SLOT_PRIORITY)
+# Re-export domain slot ordering (bootstrap tie-break hints; not discovery output).
+TRANSCRIPT_EDIT_DOMAIN_SLOT_PRIORITY: dict[str, int] = dict(TRANSCRIPT_EDIT_SLOT_PRIORITY_HINTS)
 
 _NATIVE_LEDGER_TOP_LEVEL_KEYS = frozenset({
     "summary",
@@ -80,7 +83,11 @@ def build_transcript_edit_unified_decision_ledger(
 
 
 def legacy_decision_ledger_items_from_unified(unified: dict[str, Any]) -> list[dict[str, Any]]:
-    """Reconstruct transcript-edit checklist-shaped items from unified ``te:ledger:*`` rows only."""
+    """Checklist-shaped **items[]** derived from unified ``te:ledger:*`` rows (wire/interop shape name).
+
+    Not a second source of truth: the unified envelope owns generic ledger semantics; this is a
+    projection for native-shaped consumers and overlay merge (see ``transcript_edit_closure_read_ledger``).
+    """
     out: list[dict[str, Any]] = []
     for row in list(unified.get("items") or []):
         if not isinstance(row, dict):
@@ -129,8 +136,38 @@ def legacy_decision_ledger_items_from_unified(unified: dict[str, Any]) -> list[d
 
 
 def legacy_decision_ledger_shape_from_unified(unified: dict[str, Any]) -> dict[str, Any]:
-    """Minimal ledger-shaped dict for closure/focus utilities derived from a unified envelope."""
+    """``{"items": [...]}`` slice for helpers expecting native checklist shape from the unified envelope only."""
     return {"items": legacy_decision_ledger_items_from_unified(unified)}
+
+
+def _overlay_native_item_extensions(
+    *,
+    read_items: list[dict[str, Any]],
+    native_items: list[Any],
+) -> None:
+    """Copy fields that are not carried on the work-board envelope but live on native rows.
+
+    Discovery-first rows keep ``discovery_meta`` on the native checklist JSON; the unified
+    envelope does not round-trip that payload into ``domain_payload`` (domain-agnostic harness).
+    Lazy seed flags (``seed_scaffolding_dormant``) are also native-only (Phase 14).
+    """
+    by_key = {
+        str(it.get("key") or "").strip().lower(): it
+        for it in native_items
+        if isinstance(it, dict) and str(it.get("key") or "").strip()
+    }
+    for it in read_items:
+        if not isinstance(it, dict):
+            continue
+        k = str(it.get("key") or "").strip().lower()
+        src = by_key.get(k)
+        if not isinstance(src, dict):
+            continue
+        dm = src.get("discovery_meta")
+        if isinstance(dm, dict):
+            it["discovery_meta"] = dict(dm)
+        if "seed_scaffolding_dormant" in src:
+            it["seed_scaffolding_dormant"] = bool(src.get("seed_scaffolding_dormant"))
 
 
 def transcript_edit_closure_read_ledger(
@@ -148,6 +185,8 @@ def transcript_edit_closure_read_ledger(
     """
     merged: dict[str, Any] = {"items": legacy_decision_ledger_items_from_unified(unified_decision_ledger)}
     native = native_decision_ledger if isinstance(native_decision_ledger, dict) else {}
+    nat_items = native.get("items") if isinstance(native.get("items"), list) else []
+    _overlay_native_item_extensions(read_items=merged["items"], native_items=nat_items)
     for k in _NATIVE_LEDGER_TOP_LEVEL_KEYS:
         if k in native:
             merged[k] = native[k]

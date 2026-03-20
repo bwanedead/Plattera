@@ -7,7 +7,7 @@ from functools import partial
 from typing import Any
 
 from agent_kernel.models import ActionType, StepExecutionState
-from agent_kernel.session import KernelSessionManager
+from agent_kernel import KernelSessionManager
 from transcript_edit.persistence import TranscriptionEditPersistenceService
 
 from .contracts import TranscriptEditAgentRunRequest
@@ -76,7 +76,6 @@ from .feedback_lifecycle import (
 from .draft_persistence import persist_agent_edit_draft
 from .focus_packet import build_focus_packet
 from .focus_resolver import resolve_focus_move
-from .planner_runtime_bridge import run_standalone_edit_planner_for_focus_packet
 from .focus_runtime import (
     baseline_evidence_attempts,
     baseline_residual_from_unresolved,
@@ -208,6 +207,48 @@ from .iteration_repair_moves import (
 )
 
 MAX_EVIDENCE_REPEATS_PER_SIGNATURE = 2
+
+
+def run_standalone_edit_planner_for_focus_packet(
+    *,
+    planner_client: TranscriptEditPlanPlanner,
+    model: str,
+    focus_packet: dict[str, Any],
+    findings_summary: dict[str, Any],
+    top_findings: list[dict[str, Any]],
+    span_context: list[dict[str, Any]],
+    image_verification: dict[str, Any] | None,
+    mapping_priority_focus: dict[str, Any] | None,
+    max_attempts: int,
+    run_link_id: str = "",
+    mission_objective: str = "",
+) -> tuple[Any, str, str]:
+    """Invoke ``propose_plan`` with the same bounded ``execution_context`` as the resolver path.
+
+    Lives here (not a separate bridge module) so the edit-planner call stays next to repair iteration wiring.
+    """
+    execution_context = focus_packet.get("execution_context") if isinstance(focus_packet.get("execution_context"), dict) else None
+    investigation_brief = focus_packet.get("investigation_brief") if isinstance(focus_packet.get("investigation_brief"), dict) else None
+    working_plan = focus_packet.get("working_plan") if isinstance(focus_packet.get("working_plan"), dict) else None
+    span_trim = [dict(x) for x in span_context if isinstance(x, dict)][:32]
+    findings_trim = [dict(x) for x in top_findings if isinstance(x, dict)][:12]
+    return planner_client.propose_plan(
+        model=model,
+        source_transcript_ref=str(focus_packet.get("source_transcript_ref") or ""),
+        source_transcript_hash=str(focus_packet.get("source_transcript_hash") or ""),
+        findings_summary=findings_summary if isinstance(findings_summary, dict) else {},
+        top_findings=findings_trim,
+        span_context=span_trim,
+        image_verification=image_verification if isinstance(image_verification, dict) else {},
+        candidate_disagreement_hints=None,
+        mapping_priority_focus=mapping_priority_focus if isinstance(mapping_priority_focus, dict) else {},
+        max_attempts=max_attempts,
+        investigation_brief=investigation_brief,
+        working_plan=working_plan,
+        run_link_id=run_link_id,
+        mission_objective=mission_objective,
+        execution_context=execution_context,
+    )
 
 
 def _append_blocker_iteration_recap_for_state(
@@ -557,7 +598,9 @@ def handle_repair_iteration(
         )
         else {}
     )
-    ledger_focus_fallback: dict[str, Any] = choose_investigation_focus(unified_decision_ledger) or {}
+    ledger_focus_fallback: dict[str, Any] = (
+        choose_investigation_focus(state.decision_ledger, work_board=unified_decision_ledger) or {}
+    )
     manual_plan_override: dict[str, Any] | None = None
     focus_feedback: dict[str, Any] | None = state.latest_feedback if isinstance(state.latest_feedback, dict) else None
     viewer_run_id = viewer_run_id_from_request_prefix(request_id_prefix)
@@ -920,6 +963,7 @@ def handle_repair_iteration(
         source_transcript_ref=state.current_transcript_ref,
         source_transcript_hash=source_transcript_hash,
     )
+    # Native store only — ``build_focus_packet`` derives unified + closure reads internally.
     focus_packet = build_focus_packet(
         decision_ledger=state.decision_ledger,
         blocker_registry=state.blocker_registry,

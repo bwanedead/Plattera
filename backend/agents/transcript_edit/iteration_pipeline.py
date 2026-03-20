@@ -1,20 +1,30 @@
+"""Stable public facade for transcript-edit per-iteration handlers (controller entrypoint).
+
+``handle_clean_iteration`` / ``handle_repair_iteration`` delegate to ``iteration_repair_runtime`` (clean path
+no longer hops through a separate clean-flow module — Phase 19).
+
+``_sync_repair_runtime_seams`` exists so tests can monkeypatch symbols on **this** module while repair
+implementation lives in ``iteration_repair_runtime`` / ``iteration_repair_moves`` — keep that seam.
+
+**Canonical kernel:** import ``KernelSessionManager`` from the ``agent_kernel`` package (not ``run_kernel``).
+"""
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
 
-from agent_kernel.session import KernelSessionManager
+from agent_kernel import KernelSessionManager
 from transcript_edit.persistence import TranscriptionEditPersistenceService
 
 from .contracts import TranscriptEditAgentRunRequest
 from .hitl_feedback import build_human_feedback_prompt, poll_feedback_response
-from .iteration_clean_flow import handle_clean_iteration as _handle_clean_iteration_impl
 from .iteration_repair_focus import _select_focus_decision_key, _select_focus_target
 from .iteration_repair_moves import (
     _open_planner_context_spans,
     _run_image_evidence_mode,
     _verify_mapping_critical_with_image,
 )
+from .iteration_repair_runtime import handle_clean_iteration as _handle_clean_iteration_impl
 from .iteration_repair_runtime import handle_repair_iteration as _handle_repair_iteration_impl
 from .iteration_repair_runtime import (
     _accept_apply_edit_plan,

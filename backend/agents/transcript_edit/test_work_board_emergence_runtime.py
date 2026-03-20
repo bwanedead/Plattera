@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger
+from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger_with_domain_template_seed
 from backend.agents.transcript_edit.focus_packet import build_focus_packet
 from backend.agents.transcript_edit.loop_state import TranscriptEditLoopState
 from backend.agents.transcript_edit.planner import _coerce_focus_move
@@ -48,7 +48,7 @@ def test_coerce_propose_work_board_changes() -> None:
 
 
 def test_runtime_apply_visible_in_focus_packet_and_composite_board() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     state = TranscriptEditLoopState(decision_ledger=ledger)
     changes = _coerce_focus_move(
         parsed={

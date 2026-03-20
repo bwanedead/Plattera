@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger
+from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger_with_domain_template_seed
 from backend.agents.transcript_edit.work_board_projection import (
     active_work_board_item_for_focus,
     active_work_board_item_for_key,
@@ -16,7 +16,7 @@ from backend.harness.work_board.contracts import WORK_BOARD_VERSION
 
 
 def test_project_ledger_preserves_item_count_and_ids() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     board = project_decision_ledger_to_work_board(ledger)
     assert board["schema_version"] == WORK_BOARD_VERSION
     assert board["domain_projection"] == "transcript_edit.decision_ledger"
@@ -27,7 +27,7 @@ def test_project_ledger_preserves_item_count_and_ids() -> None:
 
 
 def test_active_item_lookup() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     board = project_decision_ledger_to_work_board(ledger)
     row = active_work_board_item_for_key(board, "range")
     assert row is not None
@@ -52,7 +52,7 @@ def test_active_work_board_item_for_focus_resolves_emergent_id() -> None:
 
 
 def test_disputed_maps_to_blocked_board_state() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     for item in ledger["items"]:
         if str(item.get("key")) == "township":
             item["state"] = "disputed"

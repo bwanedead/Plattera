@@ -27,7 +27,7 @@ def authority_rank_for_candidate(
     mode = resolve_focus_authority_mode(mapping_blocking_by_key=mapping_blocking_by_key)
     src = str(candidate.get("_candidate_source") or "")
     key = str(candidate.get("key") or "").strip().lower()
-    if src == "ledger_decision":
+    if src in {"ledger_decision", "ledger_discovery"}:
         mapped = mapping_blocking_by_key.get(key)
         if isinstance(mapped, dict) and bool(mapped.get("mapping_blocking")):
             return 0

@@ -1,3 +1,9 @@
+"""Transcript-edit decision-ledger **facade**: native mutation helpers + focus selection.
+
+Organized-work **truth** for runtime reasoning is the unified harness decision ledger envelope
+(see ``decision_ledger_adapter``). This package aggregates native persistence operations and
+closure helpers that sit beside that envelope — not a second parallel ledger architecture.
+"""
 from __future__ import annotations
 
 from .decision_ledger_closure import (
@@ -17,17 +23,23 @@ from .decision_ledger_scope import scope_summaries_from_ledger
 from .decision_ledger_state import (
     clear_resolved_after_reaudit,
     initialize_decision_ledger,
+    initialize_decision_ledger_with_domain_template_seed,
     ledger_snapshot_for_payload,
     list_external_context_injections,
     mark_human_resolution_ticket_state,
+    reconcile_ledger_derived_fields,
     update_ledger_from_iteration,
     update_ledger_from_orient_baseline,
     upsert_human_resolution_ticket,
+    wake_seed_scaffolding_row,
 )
 
 __all__ = [
     "clear_resolved_after_reaudit",
     "initialize_decision_ledger",
+    "initialize_decision_ledger_with_domain_template_seed",
+    "wake_seed_scaffolding_row",
+    "reconcile_ledger_derived_fields",
     "update_ledger_from_iteration",
     "update_ledger_from_orient_baseline",
     "ledger_snapshot_for_payload",

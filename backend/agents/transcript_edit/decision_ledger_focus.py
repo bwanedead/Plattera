@@ -1,10 +1,20 @@
+"""Investigation focus selection from the unified **harness decision ledger** envelope.
+
+Pass the unified envelope (``work_board.v1`` / decision-ledger wire shape) as ``work_board``.
+When you have a native ``decision_ledger`` dict, pass it alongside the envelope so composition,
+dormancy, and native ``discovery_meta`` overlays stay accurate — native alone is not the read model.
+"""
 from __future__ import annotations
 
 from typing import Any
 
 from harness.decision_ledger import envelope_is_unified_decision_ledger
 
-from .board_focus_shaping import board_focus_sort_suffix, emergent_board_sort_suffix
+from .board_focus_shaping import (
+    board_focus_sort_suffix,
+    emergent_board_sort_suffix,
+    ledger_discovery_focus_sort_suffix,
+)
 from .decision_ledger_adapter import (
     TRANSCRIPT_EDIT_DOMAIN_SLOT_PRIORITY,
     legacy_decision_ledger_shape_from_unified,
@@ -18,6 +28,15 @@ from .decision_ledger_scope import (
     _scope_rank,
 )
 from .focus_authority_policy import authority_rank_for_candidate, focus_authority_audit
+from .organized_work_composition import compute_organized_work_composition
+from .transcript_edit_discovery_lifecycle import discovery_lifecycle_priority_penalty
+from .transcript_edit_ledger_discovery_prep import (
+    DISCOVERY_ITEM_PROVENANCE,
+    DISCOVERY_KEY_PREFIX,
+    WEAK_SEED_SCAFFOLDING_PRIORITY_PENALTY,
+    discovery_maturity_priority_bonus,
+    is_weak_seed_scaffolding_row,
+)
 from .work_board_projection import (
     HARNESS_EMERGENT_ITEM_PREFIX,
     active_work_board_item_for_key,
@@ -75,6 +94,7 @@ def _harness_emergent_focus_candidates(
                 "blocking": blocking,
                 "alternatives": list(row.get("alternatives") or [])[:16],
                 "priority": int(row.get("priority") or 50),
+                "effective_focus_priority": int(row.get("priority") or 50),
                 "evidence_count": len(list(row.get("evidence_refs") or [])),
                 "block_reason": "",
                 "contradiction_rank": 0,
@@ -126,6 +146,34 @@ def choose_investigation_focus(
         for item in unresolved_mapping_blocking_requirements(normalized)
         if isinstance(item, dict)
     }
+    has_unresolved_discovery = False
+    for _it in normalized["items"]:
+        if not isinstance(_it, dict):
+            continue
+        if str(_it.get("state") or "") not in _UNRESOLVED_STATES:
+            continue
+        if str(_it.get("key") or "").startswith(DISCOVERY_KEY_PREFIX):
+            has_unresolved_discovery = True
+            break
+        if str(_it.get("provenance") or "").strip() == DISCOVERY_ITEM_PROVENANCE:
+            has_unresolved_discovery = True
+            break
+    seed_awake_unresolved = 0
+    for _it in normalized["items"]:
+        if not isinstance(_it, dict):
+            continue
+        if str(_it.get("state") or "") not in _UNRESOLVED_STATES:
+            continue
+        k0 = str(_it.get("key") or "")
+        prov0 = str(_it.get("provenance") or "").strip()
+        is_disc0 = prov0 == DISCOVERY_ITEM_PROVENANCE or k0.startswith(DISCOVERY_KEY_PREFIX)
+        if is_disc0:
+            continue
+        if _it.get("seed_scaffolding_dormant") is not True:
+            seed_awake_unresolved += 1
+    # Phase 15: when discovery is unresolved and every unresolved seed row is still dormant,
+    # sort discovery candidates ahead of ledger_decision so startup posture matches discovery-led composition.
+    startup_discovery_surface = bool(has_unresolved_discovery and seed_awake_unresolved == 0)
     for item in normalized["items"]:
         if not isinstance(item, dict):
             continue
@@ -133,17 +181,43 @@ def choose_investigation_focus(
         if state not in _UNRESOLVED_STATES:
             continue
         key = str(item.get("key") or "")
+        prov = str(item.get("provenance") or "").strip()
+        is_discovery = prov == DISCOVERY_ITEM_PROVENANCE or str(key).startswith(DISCOVERY_KEY_PREFIX)
+        if (
+            not is_discovery
+            and item.get("seed_scaffolding_dormant") is True
+            and has_unresolved_discovery
+            and prov.lower() in ("deterministic", "")
+        ):
+            # Phase 14: dormant bootstrap slots stay out of focus while discovery defines active work.
+            continue
         requirement = item.get("closure_requirement") if isinstance(item.get("closure_requirement"), dict) else {}
         mapped_item = mapping_blocking_by_key.get(key)
         blocking = bool((mapped_item or {}).get("mapping_blocking")) if isinstance(mapped_item, dict) else bool(item.get("blocking"))
-        if mapped_item is None and blocking:
+        if mapped_item is None and blocking and not is_discovery:
             # Prefer materially mapped blockers first; unknown placeholders come after.
+            # Discovery-first rows are not seed placeholders; keep their blocking flag.
             blocking = False
         scope_status = _normalize_scope_status(requirement.get("scope_status"))
         scope_id = _scope_id_from_scope_status(scope_status)
         scope_priority = _scope_rank(scope_id)
         block_reason = str(requirement.get("block_reason") or "").strip().lower()
         contradiction_rank = 1 if block_reason == "contradiction" else 0
+        cand_source = "ledger_discovery" if is_discovery else "ledger_decision"
+        dm = item.get("discovery_meta") if isinstance(item.get("discovery_meta"), dict) else {}
+        weak_seed = is_weak_seed_scaffolding_row(item=item, contradiction_rank=contradiction_rank)
+        if is_discovery:
+            try:
+                slot_priority = int(item.get("scope_priority") or 42)
+            except (TypeError, ValueError):
+                slot_priority = 42
+            mat_bonus = discovery_maturity_priority_bonus(dm)
+            lc_pen = discovery_lifecycle_priority_penalty(dm)
+            effective_focus_priority = int(slot_priority) - int(mat_bonus) + int(lc_pen)
+        else:
+            slot_priority = TRANSCRIPT_EDIT_DOMAIN_SLOT_PRIORITY.get(key, 99)
+            penalty = WEAK_SEED_SCAFFOLDING_PRIORITY_PENALTY if weak_seed else 0
+            effective_focus_priority = int(slot_priority) + int(penalty)
         candidates.append(
             {
                 "key": key,
@@ -151,7 +225,8 @@ def choose_investigation_focus(
                 "state": state,
                 "blocking": blocking,
                 "alternatives": list(item.get("alternatives") or []),
-                "priority": TRANSCRIPT_EDIT_DOMAIN_SLOT_PRIORITY.get(key, 99),
+                "priority": slot_priority,
+                "effective_focus_priority": effective_focus_priority,
                 "evidence_count": len(list(item.get("evidence_refs") or [])),
                 "block_reason": block_reason,
                 "contradiction_rank": contradiction_rank,
@@ -159,7 +234,8 @@ def choose_investigation_focus(
                 "scope_label": _scope_label(scope_id),
                 "scope_priority": scope_priority,
                 "_ledger_item": dict(item),
-                "_candidate_source": "ledger_decision",
+                "_candidate_source": cand_source,
+                "_weak_seed_scaffolding": weak_seed,
             }
         )
     ledger_candidate_keys = {str(c.get("key") or "").strip().lower() for c in candidates if str(c.get("key") or "").strip()}
@@ -168,6 +244,16 @@ def choose_investigation_focus(
     )
     if not candidates:
         return None
+
+    def _discovery_startup_rank(c: dict[str, Any]) -> int:
+        if not startup_discovery_surface:
+            return 0
+        src = str(c.get("_candidate_source") or "")
+        if src == "ledger_discovery":
+            return 0
+        if src == "ledger_decision":
+            return 1
+        return 0
 
     def sort_key(c: dict[str, Any]) -> tuple[Any, ...]:
         if str(c.get("_candidate_source") or "") == "harness_emergent":
@@ -179,18 +265,22 @@ def choose_investigation_focus(
                 if isinstance(unified, dict)
                 else None
             )
-            suffix = board_focus_sort_suffix(
-                str(c.get("key") or ""),
-                c.get("_ledger_item") if isinstance(c.get("_ledger_item"), dict) else {},
-                board_item,
-            )
+            li = c.get("_ledger_item") if isinstance(c.get("_ledger_item"), dict) else {}
+            if str(c.get("_candidate_source") or "") == "ledger_discovery":
+                suffix = ledger_discovery_focus_sort_suffix(li, board_item)
+            else:
+                suffix = board_focus_sort_suffix(
+                    str(c.get("key") or ""),
+                    li,
+                    board_item,
+                )
         return (
             authority_rank_for_candidate(c, mapping_blocking_by_key=mapping_blocking_by_key),
             0 if c["blocking"] else 1,
             int(c["scope_priority"]),
             -int(c["contradiction_rank"]),
             -_uncertainty_rank(str(c["state"])),
-            int(c["priority"]),
+            int(c.get("effective_focus_priority", c["priority"])),
             -int(c["evidence_count"]),
         ) + suffix
 
@@ -198,6 +288,12 @@ def choose_investigation_focus(
     winner = candidates[0]
     reason_code, reason_text = _focus_reason_for_candidate(winner)
     auth = focus_authority_audit(mapping_blocking_by_key=mapping_blocking_by_key, winner=winner)
+    comp = compute_organized_work_composition(
+        native_decision_ledger=closure_source,
+        unified_work_board=unified,
+    )
+    wli = winner.get("_ledger_item") if isinstance(winner.get("_ledger_item"), dict) else {}
+    w_dm = wli.get("discovery_meta") if isinstance(wli.get("discovery_meta"), dict) else {}
     out = {
         "decision_key": winner["key"],
         "decision_label": winner["label"],
@@ -212,9 +308,17 @@ def choose_investigation_focus(
         "focus_target_kind": (
             "harness_emergent"
             if str(winner.get("_candidate_source") or "") == "harness_emergent"
-            else "ledger_decision"
+            else (
+                "ledger_discovery"
+                if str(winner.get("_candidate_source") or "") == "ledger_discovery"
+                else "ledger_decision"
+            )
         ),
         "focus_authority": auth,
+        "organized_work_composition": comp,
+        "winner_discovery_posture": str(w_dm.get("posture") or "").strip() or None,
+        "winner_weak_seed_scaffolding": bool(winner.get("_weak_seed_scaffolding")),
+        "startup_discovery_led_surface": startup_discovery_surface,
     }
     return out
 
@@ -250,6 +354,9 @@ def _focus_reason_for_candidate(candidate: dict[str, Any]) -> tuple[str, str]:
             "harness_emergent_board_item",
             f"Prioritizing durable harness-emergent decision-ledger item: {label}.",
         )
+    if str(candidate.get("_candidate_source") or "") == "ledger_discovery":
+        label = str(candidate.get("label") or "discovered work item").strip()
+        return ("ledger_discovery_item", f"Prioritizing discovery-first ledger item: {label}.")
     state = str(candidate.get("state") or "unknown")
     label = str(candidate.get("label") or "mapping-critical detail")
     blocking = bool(candidate.get("blocking"))

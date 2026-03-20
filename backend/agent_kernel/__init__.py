@@ -1,10 +1,12 @@
 """Public model surface for Agent Kernel v0.
 
-Compatibility note:
-- ``run_kernel`` is a legacy/autopilot compatibility surface.
-- Preferred harness integration is step-driven via ``KernelSessionManager``.
+**Canonical (preferred for new code):** ``KernelSessionManager``, session models, tools, state machine.
+
+**Compatibility (explicit; do not extend as primary architecture):** ``run_kernel`` (see ``kernel.py``),
+re-exported for CLI and legacy callers — see ``COMPATIBILITY.md``.
 """
 
+# --- Actions & tools (shared deps for session + compatibility loop) ---
 from .actions import (
     ActionExecutor,
     ActionExecutorDeps,
@@ -20,7 +22,9 @@ from .actions import (
     StatusSummarizer,
     Validator,
 )
+# --- Compatibility: autopilot / CLI JSON loop (not step-driven session API) ---
 from .kernel import KernelLoop, KernelLoopOutput, RunArtifactPersistence, run_kernel
+# --- Canonical: step-driven kernel session ---
 from .session import KernelSessionManager, SessionPersistence
 from .tooling import (
     CorpusArtifactOpener,

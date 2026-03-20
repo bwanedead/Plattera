@@ -20,7 +20,7 @@ def _ensure_ledger_shape(ledger: dict[str, Any] | None) -> dict[str, Any]:
     working = ledger if isinstance(ledger, dict) else {}
     items_raw = working.get("items")
     items = [dict(item) for item in items_raw if isinstance(item, dict)] if isinstance(items_raw, list) else []
-    return {
+    out: dict[str, Any] = {
         "items": items,
         "summary": dict(working.get("summary") or {}) if isinstance(working.get("summary"), dict) else {},
         "external_context_injections": [
@@ -38,6 +38,11 @@ def _ensure_ledger_shape(ledger: dict[str, Any] | None) -> dict[str, Any]:
         "scope_summaries": dict(working.get("scope_summaries") or {}) if isinstance(working.get("scope_summaries"), dict) else {},
         "blocker_feedback_state": dict(working.get("blocker_feedback_state") or {}) if isinstance(working.get("blocker_feedback_state"), dict) else {},
     }
+    # Phase 17: native establishment metadata (not harness contract) — preserve through merge/reconcile paths.
+    for passthrough in ("ledger_establishment_mode", "initial_ledger_source"):
+        if isinstance(working, dict) and passthrough in working:
+            out[passthrough] = working[passthrough]
+    return out
 
 
 def scope_summaries_from_ledger(ledger: dict[str, Any] | None) -> dict[str, Any]:

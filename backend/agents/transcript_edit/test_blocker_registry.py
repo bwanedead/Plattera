@@ -20,7 +20,7 @@ from backend.agents.transcript_edit.blocker_registry import (
     supersede_prompt_link,
     sync_registry_from_ledger,
 )
-from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger
+from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger_with_domain_template_seed
 
 
 def _set_unresolved_range_blocker(ledger: dict) -> None:
@@ -49,7 +49,7 @@ def _set_unresolved_range_blocker(ledger: dict) -> None:
 
 
 def test_registry_creation_from_unresolved_ledger_items() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     _set_unresolved_range_blocker(ledger)
     registry = initialize_blocker_registry(
         run_id="tx-agent-run-1",
@@ -74,7 +74,7 @@ def test_registry_creation_from_unresolved_ledger_items() -> None:
 
 
 def test_registry_hitl_linkage_and_feedback_transition() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     _set_unresolved_range_blocker(ledger)
     registry = sync_registry_from_ledger(
         registry=initialize_blocker_registry(
@@ -109,7 +109,7 @@ def test_registry_hitl_linkage_and_feedback_transition() -> None:
 
 
 def test_registry_supersede_prompt_marks_old_state_and_reissues_waiting() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     _set_unresolved_range_blocker(ledger)
     registry = sync_registry_from_ledger(
         registry=initialize_blocker_registry(
@@ -139,7 +139,7 @@ def test_registry_supersede_prompt_marks_old_state_and_reissues_waiting() -> Non
 
 
 def test_waiting_feedback_row_does_not_advertise_integrate_feedback_action() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     _set_unresolved_range_blocker(ledger)
     registry = sync_registry_from_ledger(
         registry=initialize_blocker_registry(
@@ -252,7 +252,7 @@ def test_waiting_feedback_does_not_preempt_answered_unintegrated() -> None:
 
 
 def test_stale_feedback_for_superseded_prompt_is_ignored() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     _set_unresolved_range_blocker(ledger)
     registry = sync_registry_from_ledger(
         registry=initialize_blocker_registry(
@@ -325,7 +325,7 @@ def test_blocker_delta_reports_state_transition_and_resolved_ids() -> None:
 
 
 def test_blocker_health_snapshot_detects_registry_ledger_mismatch() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     _set_unresolved_range_blocker(ledger)
     registry = initialize_blocker_registry(
         run_id="run-health",
@@ -348,7 +348,7 @@ def test_blocker_health_snapshot_detects_registry_ledger_mismatch() -> None:
 
 
 def test_registry_exposes_convention_menu_and_emergent_parallel_rows() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     _set_unresolved_range_blocker(ledger)
     registry = initialize_blocker_registry(
         run_id="run-emergent",
@@ -383,7 +383,7 @@ def test_registry_exposes_convention_menu_and_emergent_parallel_rows() -> None:
 
 
 def test_emergent_add_and_resolve_updates_are_applied_without_mutating_legacy_rows() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     _set_unresolved_range_blocker(ledger)
     registry = sync_registry_from_ledger(
         registry=initialize_blocker_registry(

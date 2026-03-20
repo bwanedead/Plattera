@@ -1,3 +1,9 @@
+"""Native **mutation/persistence** state for transcript-edit checklist-shaped rows (write seam).
+
+Phase 18: this module owns **serializable native dict shape** and update helpers, not the conceptual
+organized-work universe. Default startup is discovery-native (empty items); optional template seed is explicit.
+Operational reads (closure, focus, packets) should still center the unified decision ledger envelope.
+"""
 from __future__ import annotations
 
 import re
@@ -15,6 +21,7 @@ from .decision_ledger_scope import (
     _apply_scope_from_signal,
     _apply_scope_defaults,
     _compute_scope_summaries,
+    _ensure_ledger_shape as _ledger_shape_preserve_all_items,
     _extract_source_completeness_signal,
     _merge_source_completeness_signal,
     _normalize_scope_proof_codes,
@@ -26,8 +33,9 @@ from .decision_ledger_scope import (
 from .transcript_edit_default_checklist_seed import (
     DEFAULT_DECISION_SLOT_KEYS,
     DEFAULT_DECISION_SLOT_SPECS,
-    TRANSCRIPT_EDIT_DEFAULT_SLOT_PRIORITY,
+    SEED_WAKE_AT_INIT_KEYS,
 )
+from .transcript_edit_ledger_bootstrap_policy import effective_ledger_establishment_mode
 
 _DECISION_SPECS = DEFAULT_DECISION_SLOT_SPECS
 
@@ -53,36 +61,71 @@ _APPROVED_SCOPE_PROOF_CODES = {
     "operator_marked_outside_target",
 }
 _SCOPE_CLOSURE_STATE_VALUES = {"achieved", "partial", "blocked", "not_attempted"}
-_DECISION_PRIORITY: dict[str, int] = dict(TRANSCRIPT_EDIT_DEFAULT_SLOT_PRIORITY)
 _DECISION_KEYS = set(DEFAULT_DECISION_SLOT_KEYS)
 
+
+def _spec_for_decision_key(key: str) -> tuple[str, str, bool] | None:
+    for sk, label, blocking in _DECISION_SPECS:
+        if sk == key:
+            return (sk, label, blocking)
+    return None
+
+
+def _build_seed_row_dict(key: str, label: str, blocking: bool, raw: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "key": key,
+        "label": label,
+        "state": str(raw.get("state") or "unknown"),
+        "selected_value": raw.get("selected_value"),
+        "alternatives": list(raw.get("alternatives") or []),
+        "confidence": raw.get("confidence"),
+        "blocking": bool(raw.get("blocking", blocking)),
+        "evidence_refs": list(raw.get("evidence_refs") or []),
+        "user_override_state": str(raw.get("user_override_state") or "none"),
+        "layer_tag": str(
+            raw.get("layer_tag")
+            or ("layer1_canonical_recovery" if bool(raw.get("blocking", blocking)) else "layer4_transcript_quality_optional")
+        ),
+        "operational_impact": str(
+            raw.get("operational_impact")
+            or ("mapping_blocking" if bool(raw.get("blocking", blocking)) else "transcript_quality_only")
+        ),
+        "provenance": str(raw.get("provenance") or "deterministic"),
+        "verification_required": bool(raw.get("verification_required")),
+        "scope_id": _normalized_scope_id(raw.get("scope_id")),
+        "scope_label": str(raw.get("scope_label") or _scope_label(_normalized_scope_id(raw.get("scope_id")))),
+        "scope_priority": _read_scope_priority(raw.get("scope_priority")),
+        "in_target_scope": _normalized_in_target_scope(raw.get("in_target_scope")),
+        "scope_proof": _normalize_scope_proof_codes(raw.get("scope_proof")),
+        "closure_requirement": (
+            dict(raw.get("closure_requirement")) if isinstance(raw.get("closure_requirement"), dict) else None
+        ),
+        "seed_scaffolding_dormant": (
+            bool(raw["seed_scaffolding_dormant"])
+            if "seed_scaffolding_dormant" in raw
+            else (key not in SEED_WAKE_AT_INIT_KEYS)
+        ),
+    }
+
+
+def _materialize_seed_row_item(key: str) -> dict[str, Any]:
+    spec = _spec_for_decision_key(key)
+    if spec is None:
+        raise KeyError(key)
+    sk, label, blocking = spec
+    return _build_seed_row_dict(sk, label, blocking, {})
+
+
 def initialize_decision_ledger() -> dict[str, Any]:
-    items = [
-        {
-            "key": key,
-            "label": label,
-            "state": "unknown",
-            "selected_value": None,
-            "alternatives": [],
-            "confidence": None,
-            "blocking": blocking,
-            "evidence_refs": [],
-            "user_override_state": "none",
-            "layer_tag": "layer1_canonical_recovery",
-            "operational_impact": "mapping_blocking" if blocking else "transcript_quality_only",
-            "provenance": "deterministic",
-            "verification_required": False,
-            "scope_id": "unknown_scope",
-            "scope_label": "Unknown Scope",
-            "scope_priority": 50,
-            "in_target_scope": None,
-            "scope_proof": [],
-            "closure_requirement": None,
-        }
-        for key, label, blocking in _DECISION_SPECS
-    ]
+    """Phase 17: discovery-native default — no pre-authored checklist items.
+
+    Optional checklist template: ``initialize_decision_ledger_with_domain_template_seed``.
+    """
+    items: list[dict[str, Any]] = []
     ledger = {
         "items": items,
+        "ledger_establishment_mode": "discovery_native",
+        "initial_ledger_source": "discovery_native_empty",
         "summary": _summary(items),
         "external_context_injections": [],
         "source_completeness": "unknown",
@@ -94,6 +137,40 @@ def initialize_decision_ledger() -> dict[str, Any]:
     ledger["scope_summaries"] = _compute_scope_summaries(ledger)
     ledger["blocker_feedback_state"] = _compute_blocker_feedback_state(ledger)
     return ledger
+
+
+def initialize_decision_ledger_with_domain_template_seed() -> dict[str, Any]:
+    """Optional domain template: full default checklist rows (tests, explicit template-led workflows)."""
+    items = [
+        _build_seed_row_dict(key, label, blocking, {})
+        for key, label, blocking in _DECISION_SPECS
+    ]
+    ledger = {
+        "items": items,
+        "ledger_establishment_mode": "template_seed",
+        "initial_ledger_source": "domain_template_checklist_seed",
+        "summary": _summary(items),
+        "external_context_injections": [],
+        "source_completeness": "unknown",
+        "source_completeness_reason": None,
+        "source_limitations": [],
+        "scope_summaries": {},
+        "blocker_feedback_state": {},
+    }
+    ledger["scope_summaries"] = _compute_scope_summaries(ledger)
+    ledger["blocker_feedback_state"] = _compute_blocker_feedback_state(ledger)
+    return ledger
+
+
+def wake_seed_scaffolding_row(item: dict[str, Any]) -> None:
+    """End lazy dormancy for a bootstrap checklist row once audit/orient touches it (native-only)."""
+    if not isinstance(item, dict):
+        return
+    prov = str(item.get("provenance") or "").strip().lower()
+    if prov not in {"deterministic", ""}:
+        return
+    item["seed_scaffolding_dormant"] = False
+
 
 def update_ledger_from_iteration(
     *,
@@ -131,7 +208,14 @@ def update_ledger_from_iteration(
                 signal=_extract_source_completeness_signal(finding),
             )
             continue
+        if target_key not in by_key:
+            if target_key not in _DECISION_KEYS:
+                continue
+            item = _materialize_seed_row_item(target_key)
+            working["items"].append(item)
+            by_key[target_key] = item
         item = by_key[target_key]
+        wake_seed_scaffolding_row(item)
         _apply_scope_from_signal(item=item, signal=finding)
         alternatives = _extract_alternatives_for_key(target_key, message)
         if alternatives:
@@ -170,7 +254,14 @@ def update_ledger_from_iteration(
                 signal=_extract_source_completeness_signal(result),
             )
             continue
+        if target_key not in by_key:
+            if target_key not in _DECISION_KEYS:
+                continue
+            item = _materialize_seed_row_item(target_key)
+            working["items"].append(item)
+            by_key[target_key] = item
         item = by_key[target_key]
+        wake_seed_scaffolding_row(item)
         _apply_scope_from_signal(item=item, signal=result)
         image_alternatives = _extract_alternatives_for_key(target_key, f"{query} {observed or ''}".strip())
         if image_alternatives:
@@ -255,6 +346,25 @@ def clear_resolved_after_reaudit(
     return working
 
 
+def reconcile_ledger_derived_fields(ledger: dict[str, Any] | None) -> dict[str, Any]:
+    """Recompute summary, scope, and blocker feedback after native ``items`` change outside update_ledger_*.
+
+    Used by discovery merge and other bounded native extensions.
+    """
+    from .transcript_edit_discovery_lifecycle import apply_discovery_lifecycle_hygiene
+
+    # Preserve every native checklist row (seed + discovery + future extras). Local
+    # :func:`_ensure_ledger_shape` below re-canonicalizes to seed keys only.
+    working = _ledger_shape_preserve_all_items(ledger)
+    apply_discovery_lifecycle_hygiene(working)
+    _attach_closure_requirements(working["items"], readiness_blocker=None)
+    _apply_scope_defaults(working["items"])
+    working["summary"] = _summary(working["items"])
+    working["scope_summaries"] = _compute_scope_summaries(working)
+    working["blocker_feedback_state"] = _compute_blocker_feedback_state(working)
+    return working
+
+
 def update_ledger_from_orient_baseline(
     *,
     ledger: dict[str, Any] | None,
@@ -278,9 +388,16 @@ def update_ledger_from_orient_baseline(
         if not isinstance(raw, dict):
             continue
         key = str(raw.get("key") or "").strip()
-        if not key or key not in by_key:
+        if not key:
             continue
+        if key not in by_key:
+            if key not in _DECISION_KEYS:
+                continue
+            item = _materialize_seed_row_item(key)
+            working["items"].append(item)
+            by_key[key] = item
         item = by_key[key]
+        wake_seed_scaffolding_row(item)
         state = str(raw.get("state") or item.get("state") or "unknown").strip()
         if state not in {"unknown", "candidate_found", "verified", "disputed", "accepted_with_risk"}:
             state = "unknown"
@@ -356,6 +473,11 @@ def update_ledger_from_orient_baseline(
     return working
 
 def ledger_snapshot_for_payload(ledger: dict[str, Any] | None) -> dict[str, Any]:
+    """Native-shaped JSON slice for API/wire payloads (persistence compatibility).
+
+    Operational closure/focus/packet reasoning should use the unified **decision ledger** envelope +
+    closure read — not this snapshot alone.
+    """
     normalized = _ensure_ledger_shape(ledger)
     return {
         "items": [dict(item) for item in normalized["items"]],
@@ -497,48 +619,7 @@ def mark_human_resolution_ticket_state(
     working["blocker_feedback_state"] = _compute_blocker_feedback_state(working)
     return working
 
-def _ensure_ledger_shape(ledger: dict[str, Any] | None) -> dict[str, Any]:
-    base = initialize_decision_ledger()
-    if not isinstance(ledger, dict):
-        return base
-    incoming_items = ledger.get("items")
-    if not isinstance(incoming_items, list):
-        return base
-    by_key = {
-        str(item.get("key")): item
-        for item in incoming_items
-        if isinstance(item, dict) and isinstance(item.get("key"), str)
-    }
-    items: list[dict[str, Any]] = []
-    for key, label, blocking in _DECISION_SPECS:
-        raw = by_key.get(key) or {}
-        items.append(
-            {
-                "key": key,
-                "label": label,
-                "state": str(raw.get("state") or "unknown"),
-                "selected_value": raw.get("selected_value"),
-                "alternatives": list(raw.get("alternatives") or []),
-                "confidence": raw.get("confidence"),
-                "blocking": bool(raw.get("blocking", blocking)),
-                "evidence_refs": list(raw.get("evidence_refs") or []),
-                "user_override_state": str(raw.get("user_override_state") or "none"),
-                "layer_tag": str(raw.get("layer_tag") or ("layer1_canonical_recovery" if bool(raw.get("blocking", blocking)) else "layer4_transcript_quality_optional")),
-                "operational_impact": str(raw.get("operational_impact") or ("mapping_blocking" if bool(raw.get("blocking", blocking)) else "transcript_quality_only")),
-                "provenance": str(raw.get("provenance") or "deterministic"),
-                "verification_required": bool(raw.get("verification_required")),
-                "scope_id": _normalized_scope_id(raw.get("scope_id")),
-                "scope_label": str(raw.get("scope_label") or _scope_label(_normalized_scope_id(raw.get("scope_id")))),
-                "scope_priority": _read_scope_priority(raw.get("scope_priority")),
-                "in_target_scope": _normalized_in_target_scope(raw.get("in_target_scope")),
-                "scope_proof": _normalize_scope_proof_codes(raw.get("scope_proof")),
-                "closure_requirement": (
-                    dict(raw.get("closure_requirement"))
-                    if isinstance(raw.get("closure_requirement"), dict)
-                    else None
-                ),
-            }
-        )
+def _finalize_native_ledger_envelope(*, ledger: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
     raw_injections = ledger.get("external_context_injections") if isinstance(ledger, dict) else []
     injections = [dict(row) for row in list(raw_injections or []) if isinstance(row, dict)][-60:]
     _attach_closure_requirements(items, readiness_blocker=None)
@@ -553,6 +634,8 @@ def _ensure_ledger_shape(ledger: dict[str, Any] | None) -> dict[str, Any]:
     ][:12]
     out = {
         "items": items,
+        "ledger_establishment_mode": str(ledger.get("ledger_establishment_mode") or "discovery_native"),
+        "initial_ledger_source": ledger.get("initial_ledger_source"),
         "summary": _summary(items),
         "external_context_injections": injections,
         "source_completeness": source_completeness,
@@ -568,6 +651,70 @@ def _ensure_ledger_shape(ledger: dict[str, Any] | None) -> dict[str, Any]:
     out["scope_summaries"] = _compute_scope_summaries(out)
     out["blocker_feedback_state"] = _compute_blocker_feedback_state(out)
     return out
+
+
+def _ensure_ledger_shape_discovery_native(ledger: dict[str, Any]) -> dict[str, Any]:
+    incoming_items = ledger.get("items")
+    if not isinstance(incoming_items, list):
+        return initialize_decision_ledger()
+    by_key = {
+        str(item.get("key")): item
+        for item in incoming_items
+        if isinstance(item, dict) and isinstance(item.get("key"), str)
+    }
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for it in incoming_items:
+        if not isinstance(it, dict):
+            continue
+        k = str(it.get("key") or "")
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        raw = by_key.get(k) or {}
+        if k in _DECISION_KEYS:
+            spec = _spec_for_decision_key(k)
+            if spec is None:
+                continue
+            sk, label, blocking = spec
+            items.append(_build_seed_row_dict(sk, label, blocking, raw if isinstance(raw, dict) else {}))
+        else:
+            items.append(dict(it))
+    out = _finalize_native_ledger_envelope(ledger=ledger, items=items)
+    out["ledger_establishment_mode"] = "discovery_native"
+    return out
+
+
+def _ensure_ledger_shape_template_seed(ledger: dict[str, Any]) -> dict[str, Any]:
+    incoming_items = ledger.get("items")
+    if not isinstance(incoming_items, list):
+        return initialize_decision_ledger_with_domain_template_seed()
+    by_key = {
+        str(item.get("key")): item
+        for item in incoming_items
+        if isinstance(item, dict) and isinstance(item.get("key"), str)
+    }
+    items: list[dict[str, Any]] = []
+    for key, label, blocking in _DECISION_SPECS:
+        raw = by_key.get(key) or {}
+        items.append(_build_seed_row_dict(key, label, blocking, raw if isinstance(raw, dict) else {}))
+    out = _finalize_native_ledger_envelope(ledger=ledger, items=items)
+    out["ledger_establishment_mode"] = "template_seed"
+    if not out.get("initial_ledger_source"):
+        out["initial_ledger_source"] = ledger.get("initial_ledger_source") or "domain_template_checklist_seed"
+    return out
+
+
+def _ensure_ledger_shape(ledger: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(ledger, dict):
+        return initialize_decision_ledger()
+    incoming_items = ledger.get("items")
+    if not isinstance(incoming_items, list):
+        return initialize_decision_ledger()
+    mode = effective_ledger_establishment_mode(ledger)
+    if mode == "template_seed":
+        return _ensure_ledger_shape_template_seed(ledger)
+    return _ensure_ledger_shape_discovery_native(ledger)
 
 def _summary(items: list[dict[str, Any]]) -> dict[str, int]:
     blocking_open_count = 0
@@ -685,12 +832,7 @@ def _key_for_finding(finding: dict[str, Any]) -> str | None:
     finding_type = str(finding.get("finding_type") or "").strip().lower()
     message = str(finding.get("message") or "")
     blob = f"{finding_id} {finding_type} {message}".lower()
-    if "range" in blob:
-        return "range"
-    if "township" in blob:
-        return "township"
-    if "section" in blob:
-        return "section"
+    # ``distance`` contains the substring ``range`` — classify tie-distance before PLSS range.
     if "bearing" in blob:
         return "tie_bearing"
     if "distance" in blob:
@@ -699,6 +841,12 @@ def _key_for_finding(finding: dict[str, Any]) -> str | None:
         return "acreage"
     if "point of beginning" in blob or "closure" in blob or "pob" in blob:
         return "closure_or_pob"
+    if "range" in blob:
+        return "range"
+    if "township" in blob:
+        return "township"
+    if "section" in blob:
+        return "section"
     return _key_for_text(message)
 
 def _extract_alternatives_for_key(key: str, text: str) -> list[str]:

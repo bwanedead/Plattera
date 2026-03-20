@@ -38,6 +38,24 @@ def board_focus_sort_suffix(
     return (0, mat_rank, state_urgency)
 
 
+def ledger_discovery_focus_sort_suffix(
+    ledger_item: dict[str, Any],
+    board_item: dict[str, Any] | None,
+) -> tuple[int, int, int]:
+    """Tie-break for discovery-native rows: do not apply ledger/board parity mismatch penalty.
+
+    Seed checklist rows can drift from projection briefly; discovery-first rows must not be
+    buried solely because parity checks are stricter than the material closure signal.
+    """
+    if not isinstance(board_item, dict):
+        return (0, 1, 0)
+    mat = board_materiality(board_item) or "low"
+    mat_rank = 0 if mat == "high" else 1
+    st = board_state(board_item) or ""
+    state_urgency = _BOARD_STATE_URGENCY.get(st, 5)
+    return (0, mat_rank, state_urgency)
+
+
 def emergent_board_sort_suffix(
     board_row: dict[str, Any],
     *,

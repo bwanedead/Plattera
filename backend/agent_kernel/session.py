@@ -1,4 +1,9 @@
-"""Step-driven kernel session manager (start_session + step)."""
+"""Step-driven kernel session manager (start_session + step).
+
+**Canonical Agent Kernel integration** for missions: use ``KernelSessionManager`` from the
+``agent_kernel`` package. The JSON ``run_kernel`` loop in ``kernel.py`` is a compatibility surface
+(see ``COMPATIBILITY.md``) — not the primary development path.
+"""
 
 from __future__ import annotations
 

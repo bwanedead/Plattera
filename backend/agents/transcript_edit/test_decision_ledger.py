@@ -1,7 +1,8 @@
 """Tests for transcript-edit native ledger persistence and closure helpers.
 
-Default row keys come from ``transcript_edit_default_checklist_seed`` (bootstrap only).
-Organized-work *reads* in production go through the unified envelope + closure read ledger.
+Phase 17: default ``initialize_decision_ledger`` is discovery-native (empty items). Tests that need the
+legacy checklist shape use ``initialize_decision_ledger_with_domain_template_seed``.
+Production reads use the unified envelope + closure read ledger.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ from backend.agents.transcript_edit.decision_ledger import (
     has_unresolved_mapping_blocking_closure,
     has_unresolved_target_scope_mapping_blocking_closure,
     initialize_decision_ledger,
+    initialize_decision_ledger_with_domain_template_seed,
     is_unresolved_mapping_blocking_decision,
     unresolved_target_scope_mapping_blocking_requirements,
     unresolved_outside_target_scope_mapping_blocking_requirements,
@@ -38,8 +40,9 @@ def _item(ledger: dict, key: str) -> dict:
     raise AssertionError(f"missing key: {key}")
 
 
-def test_initialize_decision_ledger_has_expected_keys() -> None:
-    ledger = initialize_decision_ledger()
+def test_initialize_decision_ledger_bootstrap_specs_match_expected_key_order() -> None:
+    """Bootstrap default rows — order follows ``DEFAULT_DECISION_SLOT_SPECS``, not harness ontology."""
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     keys = [item.get("key") for item in ledger.get("items", []) if isinstance(item, dict)]
     assert keys == [
         "township",
@@ -50,11 +53,20 @@ def test_initialize_decision_ledger_has_expected_keys() -> None:
         "acreage",
         "closure_or_pob",
     ]
+    by_k = {str(i.get("key")): i for i in ledger.get("items") or [] if isinstance(i, dict)}
+    assert by_k["tie_distance"].get("seed_scaffolding_dormant") is True
+    assert by_k["range"].get("seed_scaffolding_dormant") is True
     assert isinstance(ledger.get("summary"), dict)
 
 
-def test_update_ledger_from_audit_and_image_signals() -> None:
+def test_initialize_decision_ledger_discovery_native_starts_empty() -> None:
     ledger = initialize_decision_ledger()
+    assert ledger.get("ledger_establishment_mode") == "discovery_native"
+    assert ledger.get("items") == []
+
+
+def test_update_ledger_from_audit_and_image_signals() -> None:
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     updated = update_ledger_from_iteration(
         ledger=ledger,
         findings=[
@@ -103,7 +115,7 @@ def test_derive_layer_statuses_final_verify_blocker_marks_layer1_blocked() -> No
 
 def test_unresolved_closure_requirements_contains_only_actionable_items() -> None:
     updated = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger(),
+        ledger=initialize_decision_ledger_with_domain_template_seed(),
         findings=[{"finding_id": "f-range", "message": "Range conflict between candidate drafts"}],
     )
     unresolved = unresolved_closure_requirements(updated)
@@ -114,7 +126,7 @@ def test_unresolved_closure_requirements_contains_only_actionable_items() -> Non
 
 def test_choose_investigation_focus_prefers_blocking_disputed_items() -> None:
     updated = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger(),
+        ledger=initialize_decision_ledger_with_domain_template_seed(),
         findings=[{"finding_id": "f-range", "message": "Range conflict between candidate drafts"}],
     )
     focus = choose_investigation_focus(updated)
@@ -126,7 +138,7 @@ def test_choose_investigation_focus_prefers_blocking_disputed_items() -> None:
 
 def test_closure_requirement_marks_non_blocking_items_as_optional_for_mapping() -> None:
     updated = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger(),
+        ledger=initialize_decision_ledger_with_domain_template_seed(),
         findings=[{"finding_id": "f-acre", "message": "Acreage conflict between drafts (1.4 acres vs 1.9 acres)."}],
     )
     acreage_item = _item(updated, "acreage")
@@ -139,7 +151,7 @@ def test_closure_requirement_marks_non_blocking_items_as_optional_for_mapping() 
 def test_unresolved_mapping_blocking_predicate_covers_all_unresolved_states() -> None:
     unresolved_states = ["unknown", "candidate_found", "disputed", "accepted_with_risk"]
     for state in unresolved_states:
-        ledger = initialize_decision_ledger()
+        ledger = initialize_decision_ledger_with_domain_template_seed()
         range_item = _item(ledger, "range")
         range_item["state"] = state
         range_item["blocking"] = True
@@ -163,7 +175,7 @@ def test_unresolved_mapping_blocking_predicate_covers_all_unresolved_states() ->
 
 
 def test_is_unresolved_mapping_blocking_decision_is_key_specific() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     range_item = _item(ledger, "range")
     range_item["state"] = "disputed"
     range_item["blocking"] = True
@@ -179,7 +191,7 @@ def test_is_unresolved_mapping_blocking_decision_is_key_specific() -> None:
 
 def test_range_contradiction_identity_preserved_from_plss_finding() -> None:
     updated = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger(),
+        ledger=initialize_decision_ledger_with_domain_template_seed(),
         findings=[
             {
                 "finding_id": "plss_range_conflict_001",
@@ -200,7 +212,7 @@ def test_range_contradiction_identity_preserved_from_plss_finding() -> None:
 
 
 def test_choose_focus_prefers_range_contradiction_over_generic_township_unknown() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     range_item = _item(ledger, "range")
     range_item["state"] = "disputed"
     range_item["alternatives"] = ["Range 75 West", "Range 74 West"]
@@ -224,7 +236,7 @@ def test_choose_focus_prefers_range_contradiction_over_generic_township_unknown(
 
 def test_image_match_does_not_auto_resolve_existing_range_dispute() -> None:
     updated = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger(),
+        ledger=initialize_decision_ledger_with_domain_template_seed(),
         findings=[
             {
                 "finding_id": "plss_range_conflict_001",
@@ -251,7 +263,7 @@ def test_image_match_does_not_auto_resolve_existing_range_dispute() -> None:
 
 def test_image_result_prefers_explicit_decision_key_over_generic_check_id() -> None:
     updated = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger(),
+        ledger=initialize_decision_ledger_with_domain_template_seed(),
         image_results=[
             {
                 "check_id": "plss_conflict_001",
@@ -269,7 +281,7 @@ def test_image_result_prefers_explicit_decision_key_over_generic_check_id() -> N
 
 def test_image_result_query_preserves_range_contradiction_alternatives() -> None:
     updated = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger(),
+        ledger=initialize_decision_ledger_with_domain_template_seed(),
         image_results=[
             {
                 "check_id": "plss_range_conflict_001",
@@ -290,7 +302,7 @@ def test_image_result_query_preserves_range_contradiction_alternatives() -> None
 
 def test_range_contradiction_extraction_supports_compact_r74w_tokens() -> None:
     updated = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger(),
+        ledger=initialize_decision_ledger_with_domain_template_seed(),
         findings=[
             {
                 "finding_id": "plss_range_conflict_001",
@@ -308,7 +320,7 @@ def test_range_contradiction_extraction_supports_compact_r74w_tokens() -> None:
 
 
 def test_human_resolution_ticket_lifecycle_helpers_roundtrip() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     ledger = upsert_human_resolution_ticket(
         ledger=ledger,
         ticket_id="hitl_range_1_x",
@@ -342,7 +354,7 @@ def test_human_resolution_ticket_lifecycle_helpers_roundtrip() -> None:
 
 
 def test_blocker_feedback_state_tracks_ready_pairing_for_unresolved_blocker() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     range_item = _item(ledger, "range")
     range_item["state"] = "disputed"
     range_item["blocking"] = True
@@ -370,7 +382,7 @@ def test_blocker_feedback_state_tracks_ready_pairing_for_unresolved_blocker() ->
 
 
 def test_blocker_feedback_state_detects_hitl_removed_blocker_when_integrated() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     range_item = _item(ledger, "range")
     range_item["state"] = "verified"
     range_item["blocking"] = True
@@ -388,7 +400,7 @@ def test_blocker_feedback_state_detects_hitl_removed_blocker_when_integrated() -
 
 
 def test_scope_partitioning_and_target_scope_predicate() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     range_item = _item(ledger, "range")
     range_item["state"] = "disputed"
     range_item["blocking"] = True
@@ -422,7 +434,7 @@ def test_scope_partitioning_and_target_scope_predicate() -> None:
 
 def test_source_completeness_metadata_propagates_from_signals() -> None:
     ledger = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger(),
+        ledger=initialize_decision_ledger_with_domain_template_seed(),
         findings=[
             {
                 "finding_id": "f-cutoff",
@@ -440,7 +452,7 @@ def test_source_completeness_metadata_propagates_from_signals() -> None:
 
 
 def test_focus_selection_prefers_target_scope_over_outside_scope() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     range_item = _item(ledger, "range")
     range_item["state"] = "disputed"
     range_item["blocking"] = True
@@ -472,7 +484,7 @@ def test_focus_selection_prefers_target_scope_over_outside_scope() -> None:
 
 def test_partial_source_without_scope_proof_stays_unknown_scope() -> None:
     ledger = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger(),
+        ledger=initialize_decision_ledger_with_domain_template_seed(),
         findings=[
             {
                 "finding_id": "f-closure",
@@ -492,7 +504,7 @@ def test_partial_source_without_scope_proof_stays_unknown_scope() -> None:
 
 def test_unresolved_with_approved_scope_proof_is_outside_target() -> None:
     ledger = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger(),
+        ledger=initialize_decision_ledger_with_domain_template_seed(),
         findings=[
             {
                 "finding_id": "f-closure",
@@ -508,7 +520,7 @@ def test_unresolved_with_approved_scope_proof_is_outside_target() -> None:
 
 
 def test_scope_status_can_reclassify_from_prior_outside_to_in_target_on_new_signal() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     closure = _item(ledger, "closure_or_pob")
     closure["state"] = "disputed"
     closure["closure_requirement"] = {
@@ -542,7 +554,7 @@ def test_scope_status_can_reclassify_from_prior_outside_to_in_target_on_new_sign
 
 def _make_blocked_range_ledger() -> dict:
     """Return a ledger where range is disputed+mapping_blocking (simulates post-edit state)."""
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     range_item = _item(ledger, "range")
     range_item["state"] = "disputed"
     range_item["blocking"] = True
@@ -604,7 +616,7 @@ def test_clear_resolved_after_reaudit_does_not_clear_items_still_in_findings() -
 
 def test_clear_resolved_after_reaudit_leaves_non_mapping_blocking_items_untouched() -> None:
     """Non-mapping-blocking items must not be force-verified by the re-audit clear."""
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     section_item = _item(ledger, "section")
     section_item["state"] = "candidate_found"
     # section is not mapping_blocking by default; do not set it.

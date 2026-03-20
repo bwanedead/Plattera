@@ -92,6 +92,10 @@ from .result_policy import (
     TranscriptEditFacts,
 )
 from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_from_loop_state
+from .transcript_edit_ledger_discovery_prep import (
+    append_discovery_merge_continuity,
+    merge_discovery_from_audit_findings,
+)
 from .decision_ledger_focus import choose_investigation_focus
 from .domain_pack_focus_wiring import choose_investigation_fallback_focus_from_state
 from .state_projection import (
@@ -569,6 +573,18 @@ class TranscriptEditDomainPack:
             ledger=self._state.decision_ledger,
             findings=top_findings,
         )
+        # Discovery-first: bounded merge of non-seed ledger rows from audit signals.
+        _disc_merge_stats: dict[str, Any] = {}
+        self._state.decision_ledger = merge_discovery_from_audit_findings(
+            self._state.decision_ledger,
+            top_findings,
+            merge_stats=_disc_merge_stats,
+        )
+        append_discovery_merge_continuity(
+            self._state.continuity_log,
+            iteration=int(context.loop_memory.iterations),
+            merge_stats=_disc_merge_stats,
+        )
         # Post-edit re-audit: items absent from new findings are no longer conflicting.
         # update_ledger_from_iteration only accumulates findings; it never clears absent
         # items.  After TX_APPLY_EDIT_PLAN the edited transcript is re-audited here, and
@@ -666,7 +682,7 @@ class TranscriptEditDomainPack:
         # _select_focus_target for blocker-aware priority ordering.
         ranked: list[dict[str, Any]] = []
         if work_item_collection:
-            fallback_focus = choose_investigation_focus(unified) or {}
+            fallback_focus = choose_investigation_focus(state.decision_ledger, work_board=unified) or {}
             feedback_payload = (
                 dict(self._state.latest_feedback)
                 if isinstance(self._state.latest_feedback, dict)
@@ -744,6 +760,7 @@ class TranscriptEditDomainPack:
         if aligned_with_kernel and isinstance((focus_target or {}).get("active_blocker"), dict):
             emergent_from_target = dict((focus_target or {})["active_blocker"])
 
+        # Native store only — ``build_focus_packet`` builds unified + closure read models inside.
         packet = build_focus_packet(
             decision_ledger=state.decision_ledger,
             decision_key=focus_key,

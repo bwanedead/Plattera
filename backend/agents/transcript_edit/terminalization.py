@@ -111,6 +111,7 @@ def terminal_summary(
     final_audit = None
     edits_applied = 0
     used_human_feedback = bool((runtime_hitl_state or {}).get("used_human_feedback"))
+    # Snapshots from progress ``detail.decision_ledger`` are native-shaped wire payloads (not closure-rederived).
     decision_ledger = None
     for entry in events:
         if not isinstance(entry, dict):

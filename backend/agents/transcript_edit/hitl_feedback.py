@@ -8,6 +8,7 @@ from uuid import uuid4
 from services.agent_viewer import feedback_store
 
 from .decision_ledger import unresolved_mapping_blocking_requirements
+from .transcript_edit_bootstrap_hints import TRANSCRIPT_EDIT_SLOT_PRIORITY_HINTS
 from .hitl_override_plans import build_feedback_override_plan as build_feedback_override_plan_for_key
 from .hitl_override_plans import supported_decision_keys
 
@@ -30,16 +31,10 @@ def build_human_feedback_prompt(
     if not unresolved_items:
         return None
     target = None
-    priority = {
-        "range": 0,
-        "township": 1,
-        "section": 2,
-        "tie_distance": 3,
-        "tie_bearing": 4,
-        "closure_or_pob": 5,
-        "DELIMITED": 99,
-        "acreage": 100,
-    }
+    # HITL prompt selection: start from bootstrap slot hints, then deprioritize acreage vs mapping keys.
+    priority = dict(TRANSCRIPT_EDIT_SLOT_PRIORITY_HINTS)
+    priority["DELIMITED"] = 99
+    priority["acreage"] = 100
     unresolved_states = {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
     for item in unresolved_items:
         if not isinstance(item, dict):

@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.focus_packet import build_focus_packet
-from backend.agents.transcript_edit.planner_runtime_bridge import run_standalone_edit_planner_for_focus_packet
+from backend.agents.transcript_edit.iteration_repair_runtime import run_standalone_edit_planner_for_focus_packet
 from backend.agents.transcript_edit.prompting import build_planner_user_message, slim_execution_context_for_planner
 
 

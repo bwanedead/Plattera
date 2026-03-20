@@ -1,3 +1,8 @@
+"""Focus packet assembly for transcript-edit (model-facing bundles).
+
+The unified **harness decision ledger** envelope is the organized-work read surface. The packet field
+historically named ``work_board`` holds that envelope (``work_board.v1`` wire shape = decision ledger wire shape).
+"""
 from __future__ import annotations
 
 import json
@@ -15,6 +20,8 @@ from .focus_runtime import (
     recent_image_evidence_attempt_count,
 )
 from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_for_native
+from .organized_work_composition import compute_organized_work_composition
+from .transcript_edit_ledger_discovery_prep import DISCOVERY_ITEM_PROVENANCE, DISCOVERY_KEY_PREFIX
 from .work_board_projection import active_work_board_item_for_focus
 from .work_board_read import (
     generic_knowns_snapshot,
@@ -89,6 +96,13 @@ def build_focus_packet(
             else {}
         )
         ledger_row_for_parity = li if isinstance(li, dict) else None
+    is_discovery_focus = bool(
+        not is_emergent_focus
+        and (
+            (key.startswith(DISCOVERY_KEY_PREFIX) if key else False)
+            or str((ledger_item or {}).get("provenance") or "").strip() == DISCOVERY_ITEM_PROVENANCE
+        )
+    )
     attempts = _recent_attempts_for_key(
         continuity_log=continuity_log or [],
         decision_key=key,
@@ -228,7 +242,34 @@ def build_focus_packet(
         "escalation_eligible": bool(policy_signals.get("escalation_eligible")),
         "repeat_without_signal": bool(policy_signals.get("repeat_without_signal")),
     }
-    ft_kind = "harness_emergent" if is_emergent_focus else "ledger_decision"
+    if is_emergent_focus:
+        ft_kind = "harness_emergent"
+    elif is_discovery_focus:
+        ft_kind = "ledger_discovery"
+    else:
+        ft_kind = "ledger_decision"
+    dm0 = (
+        ledger_item.get("discovery_meta")
+        if isinstance(ledger_item, dict) and isinstance(ledger_item.get("discovery_meta"), dict)
+        else {}
+    )
+    discovery_work_context: dict[str, Any] | None = None
+    if is_discovery_focus and isinstance(ledger_item, dict):
+        lme = dm0.get("last_merged_epoch")
+        try:
+            lme_i = int(lme) if lme is not None else None
+        except (TypeError, ValueError):
+            lme_i = None
+        discovery_work_context = {
+            "origin": "transcript_edit_discovery",
+            "kind": str(dm0.get("kind") or "").strip()[:64] or None,
+            "posture": str(dm0.get("posture") or "").strip()[:32] or None,
+            "lifecycle_hint": str(dm0.get("lifecycle_hint") or "").strip()[:16] or None,
+            "evidence_touch_count": int(dm0.get("evidence_touch_count") or 0),
+            "signal_fp": str(dm0.get("signal_fp") or "").strip()[:32] or None,
+            "last_merged_epoch": lme_i,
+            "why_matters": str((closure_requirement or {}).get("required_information") or "").strip()[:240] or None,
+        }
     work_board_focus_context = build_work_board_focus_context_bundle(
         decision_key=key,
         focus_target_kind=ft_kind,
@@ -236,6 +277,10 @@ def build_focus_packet(
         work_board=work_board,
         decision_ledger=read_ledger,
         now_epoch=int(time.time()),
+    )
+    organized_work_composition = compute_organized_work_composition(
+        native_decision_ledger=read_ledger,
+        unified_work_board=work_board,
     )
     execution_context = {
         "schema_version": "execution_context.v1",
@@ -246,11 +291,19 @@ def build_focus_packet(
         "blocker_posture": blocker_posture,
         "support_state": support_state,
         "work_board_focus_context": work_board_focus_context,
+        "discovery_work_context": discovery_work_context,
+        "organized_work_composition": organized_work_composition,
+        "organized_work_note": (
+            "Unified harness decision ledger envelope (packet field `work_board`) is the organized-work surface — "
+            "not the native JSON store. Native startup is discovery-first; optional checklist template is explicit. "
+            "Templates materialize on audit/image/orient/evidence touch. Discovery rows can cool down when stale."
+        ),
     }
     return {
         "focus_source": str(focus_source or "legacy_fallback").strip().lower() or "legacy_fallback",
         "focus_reason_code": str(focus_reason_code or "").strip()[:120] or None,
         "loop_iteration": loop_iteration,
+        # Unified decision ledger envelope (work_board.v1 wire — historical field name `work_board`).
         "work_board": work_board,
         "recent_iteration_lane": recent_iteration_lane,
         "execution_context": execution_context,
@@ -883,7 +936,10 @@ def _focused_blocker_pair_fallback(
 # ---------------------------------------------------------------------------
 
 def _extract_key_value_from_text(decision_key: str, text: str) -> str | None:
-    """Bounded regex extraction for a single decision_key from transcript text."""
+    """Bounded regex extraction for a single decision_key from transcript text.
+
+    Patterns cover common PLSS/deed keys; discovery may introduce other keys with no regex here.
+    """
     if decision_key == "tie_distance":
         m = re.search(r"(\d+(?:\.\d+)?)\s*(?:feet|foot|ft)\b", text, re.IGNORECASE)
         return m.group(0) if m else None

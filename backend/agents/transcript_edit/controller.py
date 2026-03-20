@@ -32,6 +32,10 @@ from .decision_ledger import (
     update_ledger_from_iteration,
 )
 from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_from_loop_state
+from .transcript_edit_ledger_discovery_prep import (
+    append_discovery_merge_continuity,
+    merge_discovery_from_audit_findings,
+)
 from .blocker_registry import (
     blocker_health_snapshot,
     initialize_blocker_registry,
@@ -522,9 +526,22 @@ def run_transcript_edit_controller_loop(
         planning_findings = _prioritized_findings_for_planning(top_findings=top_findings)
         blocking_warning_present = _has_blocking_warnings(top_findings)
         warning_count = _read_int(findings_summary.get("warnings") if isinstance(findings_summary, dict) else None, 0)
+        # Phase 16: deterministic seed/template touch from audit findings first, then bounded discovery merge.
+        # Organized-work default remains discovery-first; template rows wake only when findings touch them.
         state.decision_ledger = update_ledger_from_iteration(
             ledger=state.decision_ledger,
             findings=top_findings,
+        )
+        _disc_merge_stats: dict[str, Any] = {}
+        state.decision_ledger = merge_discovery_from_audit_findings(
+            state.decision_ledger,
+            top_findings,
+            merge_stats=_disc_merge_stats,
+        )
+        append_discovery_merge_continuity(
+            state.continuity_log,
+            iteration=iterations,
+            merge_stats=_disc_merge_stats,
         )
         _, audit_read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
         state.blocker_registry = sync_registry_from_ledger(

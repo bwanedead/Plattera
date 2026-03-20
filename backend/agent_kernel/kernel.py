@@ -1,4 +1,10 @@
-"""Library-first deterministic kernel loop entrypoint for Agent Kernel v0."""
+"""Deterministic kernel loop for Agent Kernel v0.
+
+**Compatibility entry:** :func:`run_kernel` is the JSON-in/JSON-out loop used by ``cli.py`` and
+legacy autopilot paths. **Canonical harness integration** is step-driven ``KernelSessionManager``
+(``from agent_kernel import KernelSessionManager``).
+See ``COMPATIBILITY.md`` for surface classification.
+"""
 
 from __future__ import annotations
 

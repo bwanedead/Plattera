@@ -1,8 +1,9 @@
 """Mission-agnostic organized-work item contract (harness-owned).
 
-Canonical product name: **decision ledger** (see ``harness.decision_ledger``). This
-module remains the v1 wire implementation; domains project discovery into these
-shapes—PLSS / deed slots are never harness-native fields.
+Canonical product name: **decision ledger** (see ``harness.decision_ledger``).
+``WORK_BOARD_VERSION`` / ``work_board.v1`` is the **stable JSON wire id** for the same
+envelope (historical module name); new code should think “decision ledger envelope,”
+not a separate “work board” product.
 """
 from __future__ import annotations
 

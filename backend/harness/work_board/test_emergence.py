@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger
+from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger_with_domain_template_seed
 from backend.harness.work_board.emergence import (
     apply_work_board_changes,
     evaluate_add_item_promotion,
@@ -39,7 +39,7 @@ def test_normalize_add_item_roundtrip() -> None:
 
 
 def test_promotion_rejects_duplicate_ledger_decision_key() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     items = [{"item_id": "te:ledger:range", "title": "Range", "domain_payload": {"decision_key": "range"}}]
     prop = _add_proposal(domain_payload={"decision_key": "range"})
     ok, code = evaluate_add_item_promotion(prop, ledger_decision_keys_set={"range"}, board_items=items)
@@ -48,7 +48,7 @@ def test_promotion_rejects_duplicate_ledger_decision_key() -> None:
 
 
 def test_promotion_rejects_note_masquerading_as_item() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     board = [{"item_id": "x", "title": "Other investigation"}]
     prop = _add_proposal(
         title="low signal title attempt longer",
@@ -68,7 +68,7 @@ def test_promotion_rejects_note_masquerading_as_item() -> None:
 
 
 def test_apply_accepts_add_and_attach_note() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     projected = [
         {"item_id": "te:ledger:range", "title": "Range"},
     ]
@@ -104,7 +104,7 @@ def test_apply_accepts_add_and_attach_note() -> None:
 
 
 def test_apply_rejects_attach_unknown_id() -> None:
-    ledger = initialize_decision_ledger()
+    ledger = initialize_decision_ledger_with_domain_template_seed()
     projected = [{"item_id": "te:ledger:range", "title": "Range"}]
     ch = [
         normalize_work_board_change(
