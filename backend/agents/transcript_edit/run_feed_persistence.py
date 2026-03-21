@@ -1,3 +1,13 @@
+"""Transcript-edit run feed + run-centric diagnostic snapshots (Phase 20).
+
+``run_id`` in :meth:`TranscriptEditRunFeedPersistenceService.write_run_snapshot` is the **logical /
+durable run identity** (stable across HITL resume for the same API run). Kernel ``session_id`` is an
+implementation detail for that run — do not store it in ``run_id`` or resume will look like a new run
+in the recent-runs list.
+
+Idempotency for kernel steps remains scoped to the persisted :class:`agent_kernel.run_artifact.RunArtifact`
+(one artifact per kernel session / internal run id), not across independent logical runs.
+"""
 from __future__ import annotations
 
 import json
@@ -15,6 +25,8 @@ from config.paths import dossiers_state_root
 _LATEST_RUN_FILENAME = "latest_transcript_edit_run.json"
 _RECENT_RUNS_FILENAME = "transcript_edit_recent_runs.json"
 _RECENT_RUN_LOCK_FILENAME = "transcript_edit_recent_runs.lock"
+_DIAGNOSTICS_SUBDIR = "diagnostics"
+_RUN_DIAGNOSTIC_SCHEMA_VERSION = "run_diagnostic.v1"
 _RECENT_RUN_LIMIT = 5
 _RECENT_RUN_LOCK_TIMEOUT_SECONDS = 10.0
 _RECENT_RUN_LOCK_STALE_SECONDS = 60.0
@@ -25,6 +37,7 @@ class TranscriptEditRunFeedPersistenceService:
     def __init__(self, root: Path | None = None) -> None:
         self._root = root if root is not None else dossiers_state_root() / "transcript_edit" / "run_feed"
         self._root.mkdir(parents=True, exist_ok=True)
+        self._diagnostics_root = self._root / _DIAGNOSTICS_SUBDIR
         self._latest_path = self._root / _LATEST_RUN_FILENAME
         self._recent_path = self._root / _RECENT_RUNS_FILENAME
         self._recent_lock_path = self._root / _RECENT_RUN_LOCK_FILENAME
@@ -57,6 +70,55 @@ class TranscriptEditRunFeedPersistenceService:
 
     def _utc_now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+    @staticmethod
+    def _safe_diagnostic_filename(logical_run_id: str) -> str:
+        safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(logical_run_id).strip())[:200]
+        return (safe or "run").strip("_") + ".json"
+
+    def _write_run_diagnostic_snapshot(
+        self,
+        *,
+        logical_run_id: str,
+        request_id: str,
+        session_id: str | None,
+        dossier_id: str | None,
+        final_status: str,
+        reason_code: str | None,
+        iterations: int,
+        terminal_message: str,
+        terminal_summary: dict[str, Any] | None,
+        run_artifact_ref: str | None,
+        trace_artifact_ref: str | None,
+        progress_log: list[dict[str, Any]] | None,
+        critical_events: list[dict[str, Any]] | None,
+        saved_at_iso: str,
+    ) -> str | None:
+        """One JSON file per logical run for inspection (progress tail + terminal recap)."""
+        try:
+            self._diagnostics_root.mkdir(parents=True, exist_ok=True)
+            path = self._diagnostics_root / self._safe_diagnostic_filename(logical_run_id)
+            payload: dict[str, Any] = {
+                "schema_version": _RUN_DIAGNOSTIC_SCHEMA_VERSION,
+                "logical_run_id": logical_run_id,
+                "request_correlation_id": request_id,
+                "kernel_session_id": session_id,
+                "dossier_id": dossier_id,
+                "final_status": final_status,
+                "reason_code": reason_code,
+                "iterations": int(iterations),
+                "ended_at": saved_at_iso,
+                "terminal_message": terminal_message,
+                "terminal_summary": self._compact_terminal_summary(terminal_summary),
+                "run_artifact_ref": run_artifact_ref,
+                "trace_artifact_ref": trace_artifact_ref,
+                "progress_log": list(progress_log or [])[-48:],
+                "critical_events": list(critical_events or [])[-80:],
+            }
+            self._atomic_write(path, payload)
+            return str(path)
+        except Exception:
+            return None
 
     @contextmanager
     def _recent_feed_write_lock(self) -> Iterator[bool]:
@@ -147,6 +209,7 @@ class TranscriptEditRunFeedPersistenceService:
         handoff_packet_ref: str | None,
         handoff_summary: str | None,
     ) -> dict[str, Any]:
+        # ``run_id`` = logical durable run key (stable across HITL resume). ``session_id`` = kernel session.
         return {
             "request_id": request_id,
             "run_id": run_id,
@@ -210,7 +273,14 @@ class TranscriptEditRunFeedPersistenceService:
         handoff_packet_ref: str | None = None,
         handoff_summary: str | None = None,
         saved_at: str | None = None,
+        progress_log: list[dict[str, Any]] | None = None,
+        critical_events: list[dict[str, Any]] | None = None,
+        trace_artifact_ref: str | None = None,
     ) -> dict[str, Any]:
+        """Persist latest + recent feed. **run_id** must be the logical run id (stable across resume).
+
+        Recent list dedupes by **run_id** only so a resumed run (new ``session_id``) updates the same row.
+        """
         saved_at_iso = saved_at or self._utc_now_iso()
         latest_run = self._project_latest_run_recap(
             request_id=request_id,
@@ -243,10 +313,7 @@ class TranscriptEditRunFeedPersistenceService:
                 deduped = [
                     row
                     for row in prior_runs
-                    if not (
-                        str(row.get("request_id") or "") == str(request_id)
-                        and str(row.get("run_id") or "") == str(run_id)
-                    )
+                    if str(row.get("run_id") or "") != str(run_id)
                 ]
                 deduped.insert(0, recent_entry)
                 recent_payload = {
@@ -260,12 +327,31 @@ class TranscriptEditRunFeedPersistenceService:
                 existing_recent = self._read_json(self._recent_path)
                 if isinstance(existing_recent, dict):
                     recent_payload = existing_recent
-        return {
+        diag_path = self._write_run_diagnostic_snapshot(
+            logical_run_id=run_id,
+            request_id=request_id,
+            session_id=session_id,
+            dossier_id=dossier_id,
+            final_status=final_status,
+            reason_code=reason_code,
+            iterations=iterations,
+            terminal_message=terminal_message,
+            terminal_summary=terminal_summary,
+            run_artifact_ref=run_artifact_ref,
+            trace_artifact_ref=trace_artifact_ref,
+            progress_log=progress_log,
+            critical_events=critical_events,
+            saved_at_iso=saved_at_iso,
+        )
+        out: dict[str, Any] = {
             "latest_path": str(self._latest_path),
             "recent_path": str(self._recent_path),
             "latest_run": latest_run,
             "recent_runs": recent_payload,
         }
+        if diag_path:
+            out["diagnostic_path"] = diag_path
+        return out
 
     def read_latest_run(self) -> dict[str, Any] | None:
         return self._read_json(self._latest_path)
@@ -291,6 +377,9 @@ def write_transcript_edit_run_snapshot(
     handoff_packet_ref: str | None = None,
     handoff_summary: str | None = None,
     saved_at: str | None = None,
+    progress_log: list[dict[str, Any]] | None = None,
+    critical_events: list[dict[str, Any]] | None = None,
+    trace_artifact_ref: str | None = None,
     feed_service: TranscriptEditRunFeedPersistenceService | None = None,
 ) -> dict[str, Any]:
     service = feed_service if feed_service is not None else _DEFAULT_RUN_FEED_PERSISTENCE
@@ -310,6 +399,9 @@ def write_transcript_edit_run_snapshot(
         handoff_packet_ref=handoff_packet_ref,
         handoff_summary=handoff_summary,
         saved_at=saved_at,
+        progress_log=progress_log,
+        critical_events=critical_events,
+        trace_artifact_ref=trace_artifact_ref,
     )
 
 

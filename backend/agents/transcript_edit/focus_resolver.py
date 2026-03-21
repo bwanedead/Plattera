@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .planner import TranscriptEditPlanPlanner
+from transcript_edit.contracts import EditPlanV0
+
+from .plan_interpretation import load_working_transcript_text, validate_edit_plan_directionality
+from .planner import TranscriptEditPlanPlanner, _resolver_injection_context
 
 _RESOLVER_RAW_OUTPUT_CAPTURE_MAX_CHARS = 4000
 
@@ -120,6 +123,32 @@ def resolve_focus_move(
                     "blocker_updates": None,
                     "closure_update_hint": None,
                 }
+            inj = _resolver_injection_context(focus_packet=focus_packet, decision_key=decision_key)
+            try:
+                plan_obj = EditPlanV0.model_validate(payload)
+                ttext = load_working_transcript_text(source_transcript_ref)
+                if ttext.strip():
+                    ok, direction_reason = validate_edit_plan_directionality(
+                        plan=plan_obj,
+                        transcript_text=ttext,
+                        feedback=feedback_summary,
+                        injection_context=inj,
+                    )
+                    if not ok:
+                        return {
+                            "decision_key": decision_key,
+                            "move": "mark_blocked",
+                            "reason": f"resolver_edit_plan_directionality:{direction_reason}",
+                            "iteration_summary": (
+                                f"Edit plan failed directionality checks ({direction_reason}) for {decision_key}."
+                            ),
+                            "feedback_prompt": None,
+                            "evidence_request": None,
+                            "blocker_updates": None,
+                            "closure_update_hint": None,
+                        }
+            except Exception:
+                pass
         return out
 
     if str(move_reason).startswith(("resolver_invalid", "resolver_exception", "resolver_api_error")):

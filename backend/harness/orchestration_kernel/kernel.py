@@ -4,7 +4,7 @@ import logging
 from typing import Any, Callable
 
 from agent_kernel.session import KernelSessionManager
-from agent_kernel.models import KernelStepRequest, StepExecutionState
+from agent_kernel.models import ActionType, KernelStepRequest, StepExecutionState
 
 from ..terminal_taxonomy import TerminalClass
 from .contracts import (
@@ -516,6 +516,24 @@ def _decide_terminal(
             tracer=tracer,
         )
 
+    # Brake 1b: repeated apply refusal on the same focus (structural dead-end).
+    if loop_memory.apply_refusal_same_focus_streak >= max_invalid_plan:
+        _LOG.info(
+            "TX_KERNEL brake_repeated_apply_refusal ► iter=%s streak=%s focus=%s",
+            iterations,
+            loop_memory.apply_refusal_same_focus_streak,
+            loop_memory.last_apply_refusal_focus_key,
+        )
+        return _make_result(
+            loop_memory=loop_memory,
+            terminal_class="blocked",
+            reason_code="tx_apply_repeated_refusal_dead_end",
+            iterations=iterations,
+            session_id=session_id,
+            run_artifact_ref=run_artifact_ref,
+            tracer=tracer,
+        )
+
     # Brake 2: invalid plan strikes.
     if loop_memory.invalid_plan_strikes >= max_invalid_plan:
         _LOG.info(
@@ -611,6 +629,8 @@ def _make_result(
             "no_progress_streak": loop_memory.no_progress_streak,
             "invalid_plan_strikes": loop_memory.invalid_plan_strikes,
             "evidence_signal_counter": loop_memory.evidence_signal_counter,
+            "apply_refusal_same_focus_streak": loop_memory.apply_refusal_same_focus_streak,
+            "last_apply_refusal_focus_key": loop_memory.last_apply_refusal_focus_key,
         },
         trace_events=tracer.build_raw_events(),
     )

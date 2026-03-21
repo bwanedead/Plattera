@@ -12,6 +12,8 @@ Status: **Converging** — single harness-owned decision ledger is the **primary
 
 **Phase 19 (operational convergence):** transcript-edit iteration facade (`iteration_pipeline.py`) delegates clean/repair work directly to `iteration_repair_runtime.py` (removed redundant clean-flow hop); prefer `from agent_kernel import KernelSessionManager` in touched paths; native JSON snapshots for API (`ledger_snapshot_for_payload`) are explicitly wire-only — unified envelope remains the read model for reasoning.
 
+**Phase 20 (run-centric persistence):** logical **run id** (e.g. `tx-agent-{uuid}`) is the stable key for run-feed / recent-runs; kernel **session id** is subordinate. Recent runs dedupe by logical `run_id` so HITL resume does not multiply top-level history rows. Per-run diagnostic JSON is written under `run_feed/diagnostics/`. Kernel step idempotency remains on the persisted `RunArtifact` for that session only — not across fresh runs.
+
 Related: `docs/architecture/harness/target-harness-v1.md`, `docs/architecture/harness/minimal-shared-run-state-envelope.md`
 
 ## Purpose

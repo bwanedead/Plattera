@@ -232,6 +232,7 @@ class TranscriptEditPlanApplyTool:
                 "applied_count": apply_report.applied_count,
                 "refused_count": apply_report.refused_count,
                 "root_status": apply_report.root_status,
+                "root_reason_code": apply_report.root_reason_code,
             },
         }
 

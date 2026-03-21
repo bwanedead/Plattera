@@ -27,6 +27,15 @@ def _base_plan(*, text: str, ops: list[dict]) -> EditPlanV0:
     )
 
 
+def test_apply_plan_empty_ops_is_valid_noop() -> None:
+    text = "no changes requested"
+    plan = _base_plan(text=text, ops=[])
+    report = apply_plan(plan=plan, transcript_text=text)
+    assert report.root_status == "applied"
+    assert report.applied_count == 0
+    assert report.refused_count == 0
+
+
 def test_apply_plan_happy_path_offsets_replace_span() -> None:
     text = "Beginning at NW corner. Range seventy-four West."
     plan = _base_plan(
@@ -112,7 +121,8 @@ def test_apply_plan_locator_not_found_refusal() -> None:
     )
 
     report = apply_plan(plan=plan, transcript_text=text)
-    assert report.root_status == "applied"
+    assert report.root_status == "refused"
+    assert report.root_reason_code == "locator_not_found"
     assert report.applied_count == 0
     assert report.refused_count == 1
     assert report.op_results[0].reason_code == "locator_not_found"
@@ -139,6 +149,8 @@ def test_apply_plan_expected_old_mismatch_refusal() -> None:
     )
 
     report = apply_plan(plan=plan, transcript_text=text)
+    assert report.root_status == "refused"
+    assert report.root_reason_code == "drift_mismatch"
     assert report.applied_count == 0
     assert report.refused_count == 1
     assert report.op_results[0].reason_code == "drift_mismatch"
@@ -165,6 +177,8 @@ def test_apply_plan_old_hash_mismatch_refusal() -> None:
     )
 
     report = apply_plan(plan=plan, transcript_text=text)
+    assert report.root_status == "refused"
+    assert report.root_reason_code == "old_hash_mismatch"
     assert report.applied_count == 0
     assert report.refused_count == 1
     assert report.op_results[0].reason_code == "old_hash_mismatch"

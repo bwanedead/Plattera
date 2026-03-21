@@ -15,7 +15,13 @@ def evaluate_progress(metrics: ProgressMetrics) -> ProgressDelta:
     The domain pack owns the metric derivation (signatures, counts, flags).
     """
     # Post-apply refresh path: evaluate relative to the refresh baseline, not prior iteration.
-    if metrics.pending_refresh:
+    # Only when the domain captured post-apply reaudit baselines (compile_move for apply).
+    # If pending_refresh is set without baselines (e.g. after audit-only execute), do not grant
+    # refresh_pending_reaudit_grace — fall through to normal progress rules.
+    if metrics.pending_refresh and (
+        metrics.refresh_baseline_blocking_count is not None
+        or isinstance(metrics.refresh_baseline_blocking_signature, str)
+    ):
         baseline = int(
             metrics.refresh_baseline_blocking_count
             if metrics.refresh_baseline_blocking_count is not None

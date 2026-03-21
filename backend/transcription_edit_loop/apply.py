@@ -112,12 +112,21 @@ def apply_plan(
         )
 
     final_hash = transcript_text_hash(current_text)
+    root_status: str = "applied"
+    root_reason_code: str | None = None
+    if len(plan.ops) > 0 and applied == 0:
+        root_status = "refused"
+        root_reason_code = next(
+            (r.reason_code for r in results if r.status == "refused"),
+            None,
+        ) or "all_ops_refused"
     return ApplyReportV0(
         plan_id=plan.plan_id,
         source_transcript_ref=plan.source_transcript_ref,
         source_transcript_hash_expected=plan.source_transcript_hash,
         source_transcript_hash_actual=actual_source_hash,
-        root_status="applied",
+        root_status=root_status,
+        root_reason_code=root_reason_code,
         applied_count=applied,
         refused_count=refused,
         op_results=results,
@@ -207,12 +216,21 @@ def apply_plan_to_sections(
     output_document = document.model_copy(deep=True)
     output_document.sections = current_sections
     output_document.source_transcript_hash = output_hash
+    root_status: str = "applied"
+    root_reason_code: str | None = None
+    if len(plan.ops) > 0 and applied == 0:
+        root_status = "refused"
+        root_reason_code = next(
+            (r.reason_code for r in results if r.status == "refused"),
+            None,
+        ) or "all_ops_refused"
     report = ApplyReportV0(
         plan_id=plan.plan_id,
         source_transcript_ref=plan.source_transcript_ref,
         source_transcript_hash_expected=plan.source_transcript_hash,
         source_transcript_hash_actual=actual_source_hash,
-        root_status="applied",
+        root_status=root_status,
+        root_reason_code=root_reason_code,
         applied_count=applied,
         refused_count=refused,
         op_results=results,

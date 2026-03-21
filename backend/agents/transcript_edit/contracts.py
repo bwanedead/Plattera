@@ -24,6 +24,22 @@ class TranscriptEditAgentRunRequest(BaseModel):
     trigger: Optional[str] = None
     source_transcript_ref: Optional[str] = None
     source_text: Optional[str] = None
+    resume_working_transcript_ref: Optional[str] = Field(
+        default=None,
+        description=(
+            "Latest successfully edited transcript artifact path from a prior iteration or run. "
+            "When set, the loop audits/applies against this file before falling back to source_transcript_ref. "
+            "Session boundaries: set from snapshot tx_edited_transcript_ref on resume."
+        ),
+    )
+    original_seed_transcript_ref: Optional[str] = Field(
+        default=None,
+        description=(
+            "Immutable original import path for lineage (first transcript uploaded). "
+            "When resume_working_transcript_ref is set, keep source_transcript_ref as this seed while "
+            "working edits use the resume_working path."
+        ),
+    )
     source_image_refs: list[str] = Field(default_factory=list, max_length=5)
     model: str = "gpt-5.2"
     max_iterations: int = Field(default=4, ge=1, le=30)

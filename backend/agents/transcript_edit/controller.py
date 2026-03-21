@@ -918,10 +918,18 @@ def _finalize_result_and_project_run_feed(
     )
     freshness_posture = run_terminal_summary.get("final_freshness_posture")
     freshness_summary = str(run_terminal_summary.get("final_freshness_summary") or "").strip() or None
+    trace_ref: str | None = None
+    if isinstance(latest_refs, dict):
+        tr = latest_refs.get("trace_artifact_ref")
+        if isinstance(tr, str) and tr.strip():
+            trace_ref = tr.strip()
+        elif isinstance(tr, dict):
+            p = str(tr.get("artifact_path") or "").strip()
+            trace_ref = p or None
     try:
         write_transcript_edit_run_snapshot(
             request_id=request_id_prefix,
-            run_id=str(result.session_id or request_id_prefix),
+            run_id=request_id_prefix,
             session_id=result.session_id,
             dossier_id=request.dossier_id,
             final_status=result.status,
@@ -934,6 +942,9 @@ def _finalize_result_and_project_run_feed(
             run_artifact_ref=result.run_artifact_ref,
             handoff_packet_ref=handoff_packet_ref,
             handoff_summary=handoff_summary,
+            progress_log=progress_log,
+            critical_events=[],
+            trace_artifact_ref=trace_ref,
             feed_service=feed_service or _RUN_FEED_PERSISTENCE,
         )
     except Exception as exc:

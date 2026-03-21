@@ -17,7 +17,7 @@ def test_run_feed_writes_latest_run_and_recent_feed(tmp_path: Path) -> None:
     service = TranscriptEditRunFeedPersistenceService(root=tmp_path)
     result = service.write_run_snapshot(
         request_id="req-123",
-        run_id="session-456",
+        run_id="logical-run-abc",
         session_id="session-456",
         dossier_id="D1",
         final_status="needs_review",
@@ -45,6 +45,7 @@ def test_run_feed_writes_latest_run_and_recent_feed(tmp_path: Path) -> None:
     recent = service.read_recent_runs()
     assert Path(result["latest_path"]).exists()
     assert Path(result["recent_path"]).exists()
+    assert "diagnostic_path" in result and Path(str(result["diagnostic_path"])).exists()
     assert isinstance(latest, dict)
     assert isinstance(recent, dict)
     assert latest["final_freshness_posture"]["repeat_without_signal"] is True
@@ -55,6 +56,7 @@ def test_run_feed_writes_latest_run_and_recent_feed(tmp_path: Path) -> None:
     assert "focus_packet" not in latest
     assert isinstance(recent.get("runs"), list)
     assert recent["runs"][0]["request_id"] == "req-123"
+    assert recent["runs"][0]["run_id"] == "logical-run-abc"
 
 
 def test_recent_runs_feed_keeps_newest_five_entries(tmp_path: Path) -> None:
@@ -62,7 +64,7 @@ def test_recent_runs_feed_keeps_newest_five_entries(tmp_path: Path) -> None:
     for idx in range(6):
         service.write_run_snapshot(
             request_id=f"req-{idx}",
-            run_id=f"session-{idx}",
+            run_id=f"logical-{idx}",
             session_id=f"session-{idx}",
             dossier_id="D1",
             final_status="completed" if idx % 2 == 0 else "needs_review",
@@ -88,7 +90,7 @@ def test_recent_runs_feed_stays_compact(tmp_path: Path) -> None:
     service = TranscriptEditRunFeedPersistenceService(root=tmp_path)
     service.write_run_snapshot(
         request_id="req-compact",
-        run_id="session-compact",
+        run_id="logical-compact",
         session_id="session-compact",
         dossier_id="D1",
         final_status="needs_review",
@@ -160,7 +162,7 @@ def test_controller_completion_path_projects_the_run_feed(tmp_path: Path) -> Non
     assert isinstance(latest, dict)
     assert isinstance(recent, dict)
     assert latest["request_id"] == "req-123"
-    assert latest["run_id"] == "session-456"
+    assert latest["run_id"] == "req-123"
     assert latest["final_freshness_posture"]["has_fresh_signal"] is True
     assert recent["runs"][0]["request_id"] == "req-123"
 
@@ -181,7 +183,7 @@ def test_recent_runs_feed_keeps_concurrent_writes(tmp_path: Path) -> None:
         barrier.wait()
         service.write_run_snapshot(
             request_id=f"req-{idx}",
-            run_id=f"session-{idx}",
+            run_id=f"logical-{idx}",
             session_id=f"session-{idx}",
             dossier_id="D1",
             final_status="completed",
@@ -209,3 +211,42 @@ def test_recent_runs_feed_keeps_concurrent_writes(tmp_path: Path) -> None:
     assert isinstance(runs, list)
     assert len(runs) == 2
     assert {row["request_id"] for row in runs} == {"req-0", "req-1"}
+
+
+def test_same_logical_run_id_updates_recent_once_across_session_change(tmp_path: Path) -> None:
+    """HITL resume: new kernel session_id but same logical run_id → one recent row, not two."""
+    service = TranscriptEditRunFeedPersistenceService(root=tmp_path)
+    service.write_run_snapshot(
+        request_id="api-run-uuid-1",
+        run_id="tx-agent-api-run-uuid-1",
+        session_id="kernel-req::run-a",
+        dossier_id="D1",
+        final_status="waiting_feedback",
+        reason_code="blocked",
+        iterations=1,
+        terminal_message="waiting",
+        terminal_summary={"terminal_classification": "blocked_waiting_feedback", "closure_state": "blocked"},
+        final_freshness_posture={"has_fresh_signal": False, "cached_context_present": True, "repeat_without_signal": False},
+        final_freshness_summary="x",
+        run_artifact_ref="mem://1",
+    )
+    service.write_run_snapshot(
+        request_id="api-run-uuid-1",
+        run_id="tx-agent-api-run-uuid-1",
+        session_id="kernel-req::run-b",
+        dossier_id="D1",
+        final_status="completed",
+        reason_code="done",
+        iterations=3,
+        terminal_message="done",
+        terminal_summary={"terminal_classification": "success", "closure_state": "clear"},
+        final_freshness_posture={"has_fresh_signal": True, "cached_context_present": False, "repeat_without_signal": False},
+        final_freshness_summary="y",
+        run_artifact_ref="mem://2",
+    )
+    recent = service.read_recent_runs()
+    runs = recent.get("runs") if isinstance(recent, dict) else []
+    assert isinstance(runs, list)
+    assert len(runs) == 1
+    assert runs[0]["session_id"] == "kernel-req::run-b"
+    assert runs[0]["status"] == "completed"

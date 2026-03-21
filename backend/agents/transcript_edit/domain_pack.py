@@ -163,6 +163,14 @@ class TranscriptEditDomainPack:
         # Pending refresh baselines (set when pending_reaudit_after_apply).
         self._refresh_baseline_blocking_count: int | None = None
         self._refresh_baseline_blocking_sig: str | None = None
+        # Apply compile → execute: optimistic lineage/baselines only after confirmed edited artifact.
+        self._awaiting_apply_outcome: bool = False
+        self._pre_apply_blocking_count: int = 0
+        self._pre_apply_blocking_signature: str = ""
+        self._pending_lineage_meta: dict[str, Any] | None = None
+        self._orient_baseline_failure_reason: str | None = None
+        # Phase 22: force audit/orient inputs to use this path when tools echo a different tx_source ref.
+        self._working_transcript_override: str | None = None
 
     def wire_identity_trace_cb(self, cb: Callable[[dict[str, Any]], None] | None) -> None:
         """Inject kernel tracer callback after loop construction (D3 trace observability).
@@ -190,9 +198,25 @@ class TranscriptEditDomainPack:
         session_id = context.session_id
         request_id_prefix = context.request_id_prefix
 
-        # Seed current_transcript_ref from request on fresh start (before any tool call reads it).
-        if not self._state.current_transcript_ref and request.source_transcript_ref:
-            self._state.current_transcript_ref = request.source_transcript_ref
+        # Phase 22 — Working transcript authority (explicit precedence):
+        # 1) resume_working_transcript_ref (latest successful edited artifact from prior run/session)
+        # 2) source_transcript_ref / source_text (original import or dossier canonical source)
+        _rw = str(getattr(request, "resume_working_transcript_ref", None) or "").strip()
+        _src = str(request.source_transcript_ref or "").strip()
+        _oseed = str(getattr(request, "original_seed_transcript_ref", None) or "").strip()
+        if _rw:
+            self._state.current_transcript_ref = _rw
+            _LOG.info(
+                "TX_DOMAIN_PACK working_transcript ► request_id=%s ref=resume_working path=%s",
+                request_id_prefix,
+                _rw[:120],
+            )
+        elif _src:
+            self._state.current_transcript_ref = _src
+        elif not self._state.current_transcript_ref and request.source_text:
+            pass  # source_text handled below for audit inputs only
+
+        self._working_transcript_override = _rw or None
 
         # Initialize domain state if not already restored from resume.
         if not self._state.decision_ledger:
@@ -206,10 +230,11 @@ class TranscriptEditDomainPack:
                     request_id_prefix,
                 )
             else:
+                _reg_src = _oseed or _src or str(self._state.current_transcript_ref or "").strip()
                 self._state.blocker_registry = initialize_blocker_registry(
                     run_id=request_id_prefix,
                     session_id=session_id,
-                    source_transcript_ref=request.source_transcript_ref,
+                    source_transcript_ref=_reg_src or request.source_transcript_ref,
                 )
 
         # P3/F1: restore pending feedback identity fields for HITL resume.
@@ -247,15 +272,22 @@ class TranscriptEditDomainPack:
             self._state.latest_refs = pre_audit.dashboard.latest_refs.model_dump(mode="json")
             inline = read_step_outputs_inline(pre_audit.step_record)
             src_ref = read_str(inline.get("tx_source_transcript_ref"))
-            if src_ref:
+            if self._working_transcript_override:
+                self._state.current_transcript_ref = self._working_transcript_override
+            elif src_ref:
                 self._state.current_transcript_ref = src_ref
             self._pre_source_hash = read_str(inline.get("tx_source_transcript_hash")) or ""
         else:
             self._pre_source_hash = ""
 
         # D2: seed_transcript_ref is set once at loop start (never overwritten).
-        if not self._state.seed_transcript_ref and self._state.current_transcript_ref:
-            self._state.seed_transcript_ref = self._state.current_transcript_ref
+        if not self._state.seed_transcript_ref:
+            if _oseed:
+                self._state.seed_transcript_ref = _oseed
+            elif _rw and _src:
+                self._state.seed_transcript_ref = _src
+            elif self._state.current_transcript_ref:
+                self._state.seed_transcript_ref = self._state.current_transcript_ref
 
         # Orient baseline: initializes decision_ledger from source material.
         orient_inputs: dict[str, Any] = {
@@ -283,6 +315,19 @@ class TranscriptEditDomainPack:
                 ),
             )
         )
+        self._orient_baseline_failure_reason = None
+        if orient.execution_state != StepExecutionState.EXECUTED:
+            _inline = read_step_outputs_inline(orient.step_record) if orient.step_record else {}
+            _kr = _inline.get("kernel_refusal") if isinstance(_inline.get("kernel_refusal"), dict) else {}
+            _rc = str(_kr.get("reason_code") or "").strip()
+            if not _rc and orient.refusal is not None:
+                _rc = str(orient.refusal.reason_code or "").strip()
+            self._orient_baseline_failure_reason = _rc or "tx_orient_baseline_step_refused"
+            _LOG.warning(
+                "TX_DOMAIN_PACK orient_refused ► request_id=%s reason=%s",
+                request_id_prefix,
+                self._orient_baseline_failure_reason,
+            )
         if orient.execution_state == StepExecutionState.EXECUTED and orient.dashboard:
             self._state.latest_refs = orient.dashboard.latest_refs.model_dump(mode="json")
             orient_inline = read_step_outputs_inline(orient.step_record)
@@ -502,6 +547,20 @@ class TranscriptEditDomainPack:
         session_id = context.session_id
         iterations = context.loop_memory.iterations
 
+        # If the previous kernel step was a refused TX_APPLY, drop optimistic apply-compile state
+        # so we do not run clear_resolved_after_reaudit or grant false progress baselines.
+        _step_ref = context.loop_memory.last_step_refusal_record
+        if isinstance(_step_ref, dict):
+            _action = str(_step_ref.get("action") or "")
+            _inline_sr = _step_ref.get("outputs_inline") if isinstance(_step_ref.get("outputs_inline"), dict) else {}
+            _kr_sr = _inline_sr.get("kernel_refusal") if isinstance(_inline_sr.get("kernel_refusal"), dict) else {}
+            _rc_sr = str(_kr_sr.get("reason_code") or "").strip()
+            if _action == "tx_apply_edit_plan" or "tx_apply_refused" in _rc_sr:
+                self._awaiting_apply_outcome = False
+                self._pending_lineage_meta = None
+                self._state.apply_reaudit_baseline_blocking_count = None
+                self._state.apply_reaudit_baseline_blocking_signature = None
+
         # Pick up the most recent edited transcript from kernel's latest_refs.
         # After TX_APPLY_EDIT_PLAN executes, the kernel posts tx_edited_transcript_ref
         # into loop_memory.latest_refs.  Without this update, subsequent Phase 2
@@ -510,7 +569,23 @@ class TranscriptEditDomainPack:
         _latest = context.loop_memory.latest_refs or {}
         _edited_ref = (_latest.get("tx_edited_transcript_ref") or {}).get("artifact_path") or ""
         if _edited_ref and _edited_ref != self._state.current_transcript_ref:
+            if self._awaiting_apply_outcome:
+                self._state.pending_reaudit_after_apply = True
+                self._awaiting_apply_outcome = False
+                self._state.applied_any_edits = True
+                _meta = self._pending_lineage_meta
+                self._pending_lineage_meta = None
+                if isinstance(_meta, dict):
+                    self._state.edit_lineage_summary.append(
+                        {
+                            "iteration": _meta.get("iteration"),
+                            "decision_key": _meta.get("focus_key"),
+                            "short_summary": _meta.get("summary"),
+                            "resulting_ref": _edited_ref,
+                        }
+                    )
             self._state.current_transcript_ref = _edited_ref
+            self._working_transcript_override = _edited_ref
             # D2: backfill resulting_ref in the most recent lineage entry that lacks one.
             if self._state.edit_lineage_summary:
                 _last = self._state.edit_lineage_summary[-1]
@@ -550,7 +625,9 @@ class TranscriptEditDomainPack:
 
         inline = read_step_outputs_inline(audit.step_record)
         src_ref = read_str(inline.get("tx_source_transcript_ref"))
-        if src_ref:
+        if self._working_transcript_override:
+            self._state.current_transcript_ref = self._working_transcript_override
+        elif src_ref:
             self._state.current_transcript_ref = src_ref
 
         findings_summary = (
@@ -856,6 +933,7 @@ class TranscriptEditDomainPack:
         payload = move_decision.domain_move_payload
         focus_key = move_decision.focus_key or ""
         iterations = context.loop_memory.iterations
+        # Scoped to this orchestration invocation (``_request_id_prefix``); new prefix ⇒ fresh idempotency space.
         idempotency_prefix = f"{self._request_id_prefix}:{focus_key}:{iterations}"
 
         if move_decision.move_type == "apply_edit_plan":
@@ -867,23 +945,19 @@ class TranscriptEditDomainPack:
             }
             if self._state.current_transcript_ref:
                 inputs["source_transcript_ref"] = self._state.current_transcript_ref
-            # Flag that we applied an edit — used for refresh baseline in hook 7.
-            # Only capture the baseline on the FIRST edit in a refresh window.
-            # If pending_refresh is already True a prior TX_APPLY_EDIT_PLAN already
-            # set the baseline from the pre-edit state; overwriting it here would
-            # collapse baseline==current and cause an infinite grace loop.
-            self._state.pending_reaudit_after_apply = True
+            # Baselines for hook-7 progress (post-apply grace) — captured from pre-execute audit state.
+            # pending_reaudit_after_apply and lineage are set only after refresh confirms a new edited artifact.
+            self._pre_apply_blocking_count = self._iter_blocking_count
+            self._pre_apply_blocking_signature = self._iter_blocking_signature
+            self._awaiting_apply_outcome = True
+            self._pending_lineage_meta = {
+                "iteration": iterations,
+                "focus_key": focus_key,
+                "summary": str(payload.get("reason") or "")[:120],
+            }
             if not context.loop_memory.pending_refresh:
                 self._state.apply_reaudit_baseline_blocking_count = self._iter_blocking_count
                 self._state.apply_reaudit_baseline_blocking_signature = self._iter_blocking_signature
-            self._state.applied_any_edits = True
-            # D2: record edit lineage (resulting_ref will be populated in refresh).
-            self._state.edit_lineage_summary.append({
-                "iteration": iterations,
-                "decision_key": focus_key,
-                "short_summary": str(payload.get("reason") or "")[:120],
-                "resulting_ref": None,
-            })
             return MoveExecutionPlan(
                 action_type=ActionType.TX_APPLY_EDIT_PLAN,
                 action_inputs=inputs,
@@ -1339,6 +1413,8 @@ class TranscriptEditDomainPack:
             waiting_projection=projection,
         )
         return {
+            "working_transcript_ref": state.current_transcript_ref,
+            "seed_transcript_ref": state.seed_transcript_ref,
             "used_human_feedback": bool(state.used_human_feedback),
             "feedback_received_count": int(state.feedback_received_count),
             "feedback_consumed_count": int(state.feedback_consumed_count),
@@ -1358,6 +1434,7 @@ class TranscriptEditDomainPack:
             # these when the blocker_registry has rows but no row is in waiting_feedback state.
             "state_pending_feedback_prompt_id": str(state.pending_feedback_prompt_id or "").strip() or None,
             "state_pending_feedback_decision_key": str(state.pending_feedback_decision_key or "").strip().lower() or None,
+            "orient_baseline_failure_reason": self._orient_baseline_failure_reason,
         }
 
 

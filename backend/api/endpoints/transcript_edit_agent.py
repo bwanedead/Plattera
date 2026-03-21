@@ -142,18 +142,25 @@ def _build_resume_request_payload(request: TranscriptEditAgentApiRequest) -> dic
     return payload
 
 
+def _artifact_path_from_latest_refs(latest_refs: dict[str, Any], key: str) -> str | None:
+    row = latest_refs.get(key)
+    if isinstance(row, dict):
+        path = str(row.get("artifact_path") or "").strip()
+        if path:
+            return path
+    if isinstance(row, str) and str(row).strip():
+        return str(row).strip()
+    return None
+
+
 def _extract_resume_source_ref(*, run: dict[str, Any]) -> str | None:
+    """Legacy combined path: prefer edited working artifact, else canonical source."""
     snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}
     latest_refs = snapshot.get("latest_refs") if isinstance(snapshot.get("latest_refs"), dict) else {}
-    for key in ("tx_edited_transcript_ref", "tx_source_transcript_ref"):
-        row = latest_refs.get(key)
-        if isinstance(row, dict):
-            path = str(row.get("artifact_path") or "").strip()
-            if path:
-                return path
-        if isinstance(row, str) and str(row).strip():
-            return str(row).strip()
-    return None
+    edited = _artifact_path_from_latest_refs(latest_refs, "tx_edited_transcript_ref")
+    if edited:
+        return edited
+    return _artifact_path_from_latest_refs(latest_refs, "tx_source_transcript_ref")
 
 
 def _extract_resume_pending_feedback(run: dict[str, Any]) -> tuple[str | None, str | None, dict[str, Any] | None]:
@@ -204,10 +211,20 @@ def _build_resume_request_for_run(*, run: dict[str, Any], trigger: str | None, b
     snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}
     summary = snapshot.get("terminal_summary") if isinstance(snapshot.get("terminal_summary"), dict) else {}
     base_payload = dict(payload)
-    source_ref = _extract_resume_source_ref(run=run)
-    if source_ref:
-        base_payload["source_transcript_ref"] = source_ref
+    latest_refs = snapshot.get("latest_refs") if isinstance(snapshot.get("latest_refs"), dict) else {}
+    edited_ref = _artifact_path_from_latest_refs(latest_refs, "tx_edited_transcript_ref")
+    tx_source_ref = _artifact_path_from_latest_refs(latest_refs, "tx_source_transcript_ref")
+    original_from_first = str(base_payload.get("source_transcript_ref") or "").strip()
+    if edited_ref:
+        base_payload["resume_working_transcript_ref"] = edited_ref
+    if tx_source_ref:
+        base_payload["source_transcript_ref"] = tx_source_ref
         base_payload["source_text"] = None
+    elif original_from_first:
+        base_payload["source_transcript_ref"] = original_from_first
+        base_payload["source_text"] = None
+    if edited_ref and (tx_source_ref or original_from_first):
+        base_payload["original_seed_transcript_ref"] = tx_source_ref or original_from_first
     if trigger:
         base_payload["trigger"] = trigger
     pending_prompt_id, pending_decision_key, prompt_context = _extract_resume_pending_feedback(run)
@@ -447,10 +464,19 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
         final_status = "waiting_feedback" if waiting_feedback else result.status
         freshness_posture = run_terminal_summary.get("final_freshness_posture")
         freshness_summary = str(run_terminal_summary.get("final_freshness_summary") or "").strip() or None
+        logical_run_id = f"tx-agent-{run_id}"
+        trace_ref: str | None = None
+        lr = result.latest_refs if isinstance(result.latest_refs, dict) else {}
+        tr = lr.get("trace_artifact_ref")
+        if isinstance(tr, str) and tr.strip():
+            trace_ref = tr.strip()
+        elif isinstance(tr, dict):
+            p = str(tr.get("artifact_path") or "").strip()
+            trace_ref = p or None
         try:
             write_transcript_edit_run_snapshot(
                 request_id=run_id,
-                run_id=str(result.session_id or run_id),
+                run_id=logical_run_id,
                 session_id=result.session_id,
                 dossier_id=request.dossier_id,
                 final_status=final_status,
@@ -463,6 +489,9 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                 run_artifact_ref=result.run_artifact_ref,
                 handoff_packet_ref=handoff_packet_ref,
                 handoff_summary=handoff_packet.get("handoff_summary"),
+                progress_log=list(progress_log),
+                critical_events=list(critical_events),
+                trace_artifact_ref=trace_ref,
                 feed_service=_run_feed_persistence,
             )
         except Exception as exc:

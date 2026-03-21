@@ -282,9 +282,10 @@ class TranscriptOrientBaselineTool:
                 "kernel_refusal": {
                     "reason_code": "tx_orient_baseline_invalid_output",
                     "missing_inputs": [],
-                    "retryable": False,
+                    # Parse/empty-items failures are recoverable (repair prompt, model swap, HITL).
+                    "retryable": True,
                     "blocked_by_budget": False,
-                    "blocked_by_invariant": True,
+                    "blocked_by_invariant": False,
                 },
                 "tx_orient_raw_output_ref": raw_output_ref,
                 "tx_source_transcript_ref": canonical.source_transcript_ref,

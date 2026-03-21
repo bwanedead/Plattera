@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 from transcript_edit.contracts import EditPlanV0
 from transcript_edit.persistence import TranscriptionEditPersistenceService
+from transcript_edit.span_seeds import load_transcript_text_for_seeds
 
 
 def coerce_findings(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -119,6 +121,62 @@ def finding_to_display_dict(finding: dict[str, Any]) -> dict[str, Any]:
         "severity": finding.get("severity"),
         "message": str(finding.get("message") or "")[:200],
     }
+
+
+_RANGE_TOKEN_RE = re.compile(r"Range\s+(\d+)\s+West", re.IGNORECASE)
+
+
+def load_working_transcript_text(source_transcript_ref: str) -> str:
+    """Load flattened transcript text from an artifact path (same shape as span seed loader)."""
+    raw = load_transcript_text_for_seeds(source_transcript_ref)
+    return raw or ""
+
+
+def _range_digit_from_fragment(text: str) -> int | None:
+    m = _RANGE_TOKEN_RE.search(text or "")
+    return int(m.group(1)) if m else None
+
+
+def validate_edit_plan_directionality(
+    *,
+    plan: EditPlanV0,
+    transcript_text: str,
+    feedback: dict[str, Any] | None,
+    injection_context: dict[str, Any] | None = None,
+) -> tuple[bool, str | None]:
+    """Reject edit plans that invert a known range correction when HITL supplied the correct value.
+
+    Phase 22: HITL may include a locator-style excerpt of the *wrong* token; that excerpt must
+    become expected_old, not new_text. When selected_value contains an authoritative
+    \"Range N West\" choice, ensure the plan does not remove the correct N.
+    """
+    auth = ""
+    if isinstance(feedback, dict):
+        auth = str(feedback.get("selected_value") or feedback.get("choice") or "").strip()
+    inj = injection_context if isinstance(injection_context, dict) else {}
+    if not auth and isinstance(inj, dict):
+        auth = str(inj.get("normalized_answer_summary") or inj.get("selected_choice") or "").strip()
+    correct_n = _range_digit_from_fragment(auth)
+
+    for op in plan.ops:
+        old_excerpt = str(op.expected_old.old_excerpt or "").strip()
+        new_t = str(op.new_text or "").strip()
+        if old_excerpt and old_excerpt not in transcript_text:
+            return False, "expected_old_not_in_working_transcript"
+        if correct_n is None:
+            continue
+        old_n = _range_digit_from_fragment(old_excerpt)
+        new_n = _range_digit_from_fragment(new_t)
+        if old_n is None and new_n is None:
+            continue
+        # Inverted correction: plan removes the authoritative correct range value from the transcript.
+        if old_n == correct_n and new_n is not None and new_n != correct_n:
+            return False, "plan_removes_authoritative_range_value"
+        # Swapped direction: replacing correct token with the disputed wrong token.
+        # Legitimate repair: replace a non-authoritative old token with the authoritative range value.
+        if new_n == correct_n and old_n is not None and old_n != correct_n:
+            continue
+    return True, None
 
 
 def plan_op_to_display_dict(op: dict[str, Any]) -> dict[str, Any]:

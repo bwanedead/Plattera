@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable
+
+_LOG = logging.getLogger(__name__)
 
 from agent_kernel.models import KernelBudgets, KernelGoal, KernelSessionStartRequest
 from agent_kernel.session import KernelSessionManager
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
 from agents.transcript_edit.domain_pack import TranscriptEditDomainPack
+from agents.transcript_edit.run_feed_persistence import write_transcript_edit_run_snapshot
+from agents.transcript_edit.terminalization import terminal_message, terminal_summary
 from harness.orchestration_kernel import KernelLoopResult, run_orchestration_kernel_loop
 from harness.tracing.kernel_trace_persistence import persist_kernel_trace, persist_rationale_strip
 
@@ -184,12 +189,19 @@ def run_orchestration_kernel_transcript_loop(
     session_id = start_result.session_id
     run_artifact_ref = start_result.run_artifact_ref
 
+    progress_events: list[dict[str, Any]] = []
+
+    def _wrapped_progress_cb(event: dict[str, Any]) -> None:
+        progress_events.append(dict(event))
+        if progress_cb is not None:
+            progress_cb(event)
+
     domain_pack = TranscriptEditDomainPack(
         request=request,
         session_id=session_id,
         request_id_prefix=request_id_prefix,
         planner=planner,
-        progress_cb=progress_cb,
+        progress_cb=_wrapped_progress_cb,
     )
     kernel_result = run_orchestration_kernel_loop(
         domain_pack=domain_pack,
@@ -201,7 +213,7 @@ def run_orchestration_kernel_transcript_loop(
         max_iterations=int(request.max_iterations),
         max_no_progress_iterations=int(getattr(request, "max_no_progress_iterations", 3)),
         max_invalid_plan_attempts=int(request.max_invalid_plan_attempts),
-        progress_cb=progress_cb,
+        progress_cb=_wrapped_progress_cb,
         resume_hitl_response=resume_feedback_response,
     )
 
@@ -226,11 +238,74 @@ def run_orchestration_kernel_transcript_loop(
     domain_state = domain_pack.build_domain_runtime_state()
     kernel_state = kernel_result.domain_runtime_state if isinstance(kernel_result.domain_runtime_state, dict) else {}
     merged_runtime_state = {**kernel_state, **domain_state}
-    return _adapt_kernel_loop_result(
+    merged_runtime_state.setdefault(
+        "apply_refusal_same_focus_streak",
+        kernel_state.get("apply_refusal_same_focus_streak", 0),
+    )
+    merged_runtime_state.setdefault(
+        "last_apply_refusal_focus_key",
+        kernel_state.get("last_apply_refusal_focus_key"),
+    )
+
+    adapted = _adapt_kernel_loop_result(
         kernel_result,
         runtime_hitl_state=merged_runtime_state,
         latest_refs_override=enriched_latest_refs,
     )
+
+    # Phase 20: same run-centric feed + diagnostics as API path (logical run id = tx-agent-… prefix).
+    logical_run_id = (
+        request_id_prefix if str(request_id_prefix).startswith("tx-agent-") else f"tx-agent-{request_id_prefix}"
+    )
+    request_id_for_feed = (
+        str(request_id_prefix).removeprefix("tx-agent-") if str(request_id_prefix).startswith("tx-agent-") else str(request_id_prefix)
+    )
+    trace_ref: str | None = None
+    lr = adapted.latest_refs if isinstance(adapted.latest_refs, dict) else {}
+    tr = lr.get("trace_artifact_ref")
+    if isinstance(tr, str) and tr.strip():
+        trace_ref = tr.strip()
+    elif isinstance(tr, dict):
+        p = str(tr.get("artifact_path") or "").strip()
+        trace_ref = p or None
+    run_terminal_message = terminal_message(adapted)
+    run_terminal_summary = terminal_summary(
+        progress_events,
+        adapted,
+        critical_events=[],
+        runtime_hitl_state=merged_runtime_state if isinstance(merged_runtime_state, dict) else None,
+    )
+    waiting_feedback = adapted.status == "waiting_feedback"
+    final_status = "waiting_feedback" if waiting_feedback else adapted.status
+    try:
+        write_transcript_edit_run_snapshot(
+            request_id=request_id_for_feed,
+            run_id=logical_run_id,
+            session_id=adapted.session_id,
+            dossier_id=request.dossier_id,
+            final_status=final_status,
+            reason_code=adapted.reason_code,
+            iterations=adapted.iterations,
+            terminal_message=run_terminal_message,
+            terminal_summary=run_terminal_summary,
+            final_freshness_posture=run_terminal_summary.get("final_freshness_posture")
+            if isinstance(run_terminal_summary.get("final_freshness_posture"), dict)
+            else None,
+            final_freshness_summary=str(run_terminal_summary.get("final_freshness_summary") or "").strip() or None,
+            run_artifact_ref=adapted.run_artifact_ref,
+            progress_log=list(progress_events),
+            critical_events=[],
+            trace_artifact_ref=trace_ref,
+        )
+    except Exception as exc:
+        _LOG.warning(
+            "TX_RUN_FEED_WRITE_FAILED ► logical_run_id=%s error_type=%s error=%s",
+            logical_run_id,
+            type(exc).__name__,
+            str(exc)[:220],
+        )
+
+    return adapted
 
 
 

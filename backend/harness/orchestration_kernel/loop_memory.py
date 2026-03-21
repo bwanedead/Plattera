@@ -59,6 +59,9 @@ class LoopMemoryState:
 
     # --- Loop brakes (kernel-owned) ---
     invalid_plan_strikes: int = 0
+    # Repeated retryable TX_APPLY_EDIT_PLAN refusal while focus is unchanged (dead-end brake).
+    apply_refusal_same_focus_streak: int = 0
+    last_apply_refusal_focus_key: str | None = None
 
     # --- Last step refusal record (kernel-owned, readable by domain pack) ---
     # Set when a retryable step refusal is tolerated (not immediately fatal).

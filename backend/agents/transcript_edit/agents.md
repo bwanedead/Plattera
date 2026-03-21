@@ -32,7 +32,7 @@
 - Keep resolver move acceptance/gating helpers in `resolver_gates.py`.
 - Keep blocker iteration recap payload shaping/progress emission in `blocker_iteration_reporting.py`.
 - Keep terminal run-result/message/summary composition in `terminalization.py`.
-- Keep the projected human-visible run feed in `run_feed_persistence.py`; it writes `dossiers_data/state/transcript_edit/run_feed/latest_transcript_edit_run.json` and `transcript_edit_recent_runs.json` as projections of the terminalized run, not as a separate truth source.
+- Keep the projected human-visible run feed in `run_feed_persistence.py`; it writes `latest_transcript_edit_run.json`, `transcript_edit_recent_runs.json`, and `diagnostics/*.json` (Phase 20 per-run snapshot) under `dossiers_data/state/transcript_edit/run_feed/` — projections of the logical run, not a second truth store. **Logical `run_id`** in the feed is stable across HITL resume; `session_id` is the kernel session.
 - The run-feed projection is shared by the API and legacy controller completion seams; recent-feed updates are lock-protected so concurrent completions do not drop entries.
 - Keep `decision_ledger.py` as the stable public facade for ledger APIs.
 - Keep ledger state/init/update/ticket mutation helpers in `decision_ledger_state.py`.

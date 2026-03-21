@@ -184,6 +184,11 @@ class KernelSessionManager:
         )
 
     def step(self, request: KernelStepRequest) -> KernelStepResult:
+        """Execute one step. **Idempotency** is keyed per ``idempotency_key`` on the **loaded** run artifact.
+
+        Each ``start_session`` persists a new ``RunArtifact`` (new internal ``run_id``); the ledger does not
+        carry across unrelated sessions. Retries/resumes within the **same** session reuse the same ledger.
+        """
         run_artifact = self._load_run_artifact(request.session_id)
         if run_artifact is None:
             refusal = KernelRefusal(
