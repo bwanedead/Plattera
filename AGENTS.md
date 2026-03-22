@@ -72,6 +72,7 @@ REVIEWER_SUBAGENTS_ENABLED__CURSOR    = true
 - If the **active harness** toggle is `true`, then for non-trivial patches run:
   - `architecture_reviewer`
   - `code_efficiency_reviewer`
+- If the change concerns **agent harness** behavior (orchestration, loop mechanics, validators, ledger, focus or closure, taxonomy, startup flow, evidence-shaping, or other surfaces where deterministic code might author semantic work that must stay agent-authored), also run **`harness-determinism-reviewer`** against the Harness Constitution. Use it proactively on those edits; it complements the two reviewers above and is not a replacement for them.
 - If that toggle is `false`, do a **self-review** using the same criteria (see **Reviewer purposes** and **Standards to enforce** below) and explicitly note: `reviewers skipped by policy` plus the harness key (e.g. `reviewers skipped by policy (harness name: toggle off)`) in your final summary.
 
 ### Reviewer purposes
@@ -86,6 +87,11 @@ REVIEWER_SUBAGENTS_ENABLED__CURSOR    = true
 - prevent unnecessarily heavy implementations
 - reduce accidental complexity
 - catch over-abstraction, duplication, helper sprawl, wrapper indirection, and excessive code quantity
+
+`harness-determinism-reviewer`
+- reviews harness and loop changes for **Harness Constitution** alignment: deterministic code may provide rails and infrastructure, but must not author semantic work (work inventory, ledger meaning, blockers, focus, closure, plans, or “truth” from scripted categories) that must remain **agent-authored**
+- **When to invoke:** when editing or reviewing the agent harness, autonomous loop, orchestration, validators, ledger, focus, closure, taxonomy, startup/discovery flow, or evidence-shaping—especially anywhere validators, findings, or enums could smuggle in semantic authority
+- **Harness coverage:** Claude Code, Codex, and Cursor each define this reviewer for their own environment (same role and intent; implementation is per harness—use whichever your session’s tooling exposes)
 
 ### Standards to enforce
 

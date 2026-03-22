@@ -113,3 +113,5 @@ Behavior rules:
 - Do not give style feedback.
 - Do not soften constitutional violations into vague suggestions.
 - Prefer false positives over letting deterministic semantic authorship slip through.
+
+our north star just needs to be the llm is the smart thing all work towards the mission goal needs to be llm driven. the harness is just the container and facilitator of the llms will 

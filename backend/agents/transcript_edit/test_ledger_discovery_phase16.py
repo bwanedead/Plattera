@@ -17,6 +17,8 @@ from backend.agents.transcript_edit.transcript_edit_discovery_lifecycle import (
     apply_discovery_lifecycle_hygiene,
     discovery_lifecycle_priority_penalty,
 )
+from backend.agents.transcript_edit.decision_ledger_state import reconcile_ledger_derived_fields
+from backend.agents.transcript_edit.llm_startup_understanding import native_rows_from_llm_initial_ledger_items
 from backend.agents.transcript_edit.transcript_edit_ledger_bootstrap_policy import (
     DEFAULT_ORGANIZED_WORK_MODE,
     TRANSCRIPT_EDIT_SEED_TEMPLATE_POLICY_ID,
@@ -40,7 +42,12 @@ def _long_msg(suffix: str) -> str:
 
 def test_startup_discovery_first_no_awake_seed() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
-    ledger = merge_discovery_from_audit_findings(
+    rows = native_rows_from_llm_initial_ledger_items(
+        [{"title": "Discovery first startup", "summary": _long_contra(), "mapping_blocking": True}]
+    )
+    ledger["items"].extend(rows)
+    reconcile_ledger_derived_fields(ledger)
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "d1", "message": _long_contra()}],
     )
@@ -51,7 +58,7 @@ def test_startup_discovery_first_no_awake_seed() -> None:
     assert comp.get("bootstrap_policy", {}).get("default_organized_work_mode") == DEFAULT_ORGANIZED_WORK_MODE
 
 
-def test_seed_activates_only_when_audit_touches_row() -> None:
+def test_audit_does_not_activate_seed_rows_phase24() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
     out = update_ledger_from_iteration(
         ledger=ledger,
@@ -63,13 +70,18 @@ def test_seed_activates_only_when_audit_touches_row() -> None:
         ],
     )
     by2 = {str(i.get("key")): i for i in out.get("items") or [] if isinstance(i, dict)}
-    assert by2["tie_distance"].get("seed_scaffolding_dormant") is False
+    assert by2["tie_distance"].get("seed_scaffolding_dormant") is True
     assert by2["range"].get("seed_scaffolding_dormant") is True
 
 
 def test_dormant_template_does_not_pollute_seed_awake_in_composition() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
-    ledger = merge_discovery_from_audit_findings(
+    rows = native_rows_from_llm_initial_ledger_items(
+        [{"title": "Template composition row", "summary": _long_contra(), "mapping_blocking": True}]
+    )
+    ledger["items"].extend(rows)
+    reconcile_ledger_derived_fields(ledger)
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "d1", "message": _long_contra()}],
     )
@@ -113,11 +125,22 @@ def test_explicit_awake_seed_still_wins_when_needed() -> None:
 
 def test_discovery_cooling_deprioritized_in_focus() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
-    ledger = merge_discovery_from_audit_findings(
+    ledger["items"].extend(
+        native_rows_from_llm_initial_ledger_items(
+            [{"title": "Cooling row alpha", "summary": _long_msg("alpha"), "mapping_blocking": True}]
+        )
+    )
+    ledger["items"].extend(
+        native_rows_from_llm_initial_ledger_items(
+            [{"title": "Cooling row bravo", "summary": _long_msg("bravo"), "mapping_blocking": True}]
+        )
+    )
+    reconcile_ledger_derived_fields(ledger)
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "a", "message": _long_msg("alpha")}],
     )
-    ledger = merge_discovery_from_audit_findings(
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "b", "message": _long_msg("bravo")}],
     )
@@ -166,7 +189,13 @@ def test_bootstrap_policy_is_optional_domain_framing_not_harness() -> None:
 
 def test_composition_v4_includes_bootstrap_and_cooling_counts() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
-    ledger = merge_discovery_from_audit_findings(
+    ledger["items"].extend(
+        native_rows_from_llm_initial_ledger_items(
+            [{"title": "Bootstrap cooling counts", "summary": _long_contra(), "mapping_blocking": True}]
+        )
+    )
+    reconcile_ledger_derived_fields(ledger)
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "d1", "message": _long_contra()}],
     )

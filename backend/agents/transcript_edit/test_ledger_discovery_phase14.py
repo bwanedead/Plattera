@@ -10,6 +10,8 @@ from backend.agents.transcript_edit.decision_ledger import (
     initialize_decision_ledger_with_domain_template_seed,
     update_ledger_from_iteration,
 )
+from backend.agents.transcript_edit.decision_ledger_state import reconcile_ledger_derived_fields
+from backend.agents.transcript_edit.llm_startup_understanding import native_rows_from_llm_initial_ledger_items
 from backend.agents.transcript_edit.decision_ledger_adapter import (
     build_transcript_edit_unified_decision_ledger,
     transcript_edit_unified_and_closure_read_for_native,
@@ -40,7 +42,7 @@ def test_lazy_dormant_flags_on_init() -> None:
     assert by_k["township"].get("seed_scaffolding_dormant") is True
 
 
-def test_audit_finding_wakes_dormant_seed_row() -> None:
+def test_audit_finding_does_not_wake_dormant_seed_row_phase24() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
     out = update_ledger_from_iteration(
         ledger=ledger,
@@ -49,7 +51,7 @@ def test_audit_finding_wakes_dormant_seed_row() -> None:
         ],
     )
     by_k = {str(i.get("key")): i for i in out.get("items") or [] if isinstance(i, dict)}
-    assert by_k["tie_distance"].get("seed_scaffolding_dormant") is False
+    assert by_k["tie_distance"].get("seed_scaffolding_dormant") is True
 
 
 def test_discovery_led_focus_skips_dormant_unresolved_seed() -> None:
@@ -73,6 +75,17 @@ def test_discovery_led_focus_skips_dormant_unresolved_seed() -> None:
         "scope_status": "in_target",
         "block_reason": "ambiguity",
     }
+    disc_rows = native_rows_from_llm_initial_ledger_items(
+        [
+            {
+                "title": "Contradiction cluster from interpretation",
+                "summary": _long_contra(),
+                "mapping_blocking": True,
+            }
+        ]
+    )
+    ledger["items"].extend(disc_rows)
+    ledger = reconcile_ledger_derived_fields(ledger)
     ledger = merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "d1", "message": _long_contra()}],
@@ -117,6 +130,17 @@ def test_awake_seed_still_wins_when_closure_strong_vs_fresh_discovery() -> None:
 
 def test_packet_composition_v2_and_formation_hint() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
+    disc_rows = native_rows_from_llm_initial_ledger_items(
+        [
+            {
+                "title": "Contradiction cluster for packet test",
+                "summary": _long_contra(),
+                "mapping_blocking": True,
+            }
+        ]
+    )
+    ledger["items"].extend(disc_rows)
+    ledger = reconcile_ledger_derived_fields(ledger)
     ledger = merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "p1", "message": _long_contra()}],

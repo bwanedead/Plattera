@@ -180,6 +180,13 @@ def update_ledger_from_iteration(
     image_results: list[dict[str, Any]] | None = None,
     readiness_blocker: str | None = None,
 ) -> dict[str, Any]:
+    """Merge mechanical source-completeness signals only.
+
+    Phase 24: validator/audit observations and image tool rows do **not** mutate checklist
+    rows or discovery meaning — use ``apply_llm_iteration_updates_to_ledger`` / focus
+    resolver ``propose_work_board_changes`` for semantic updates.
+    """
+    _ = disagreement_hints
     working = _ensure_ledger_shape(ledger)
     prior_source_completeness = str(working.get("source_completeness") or "unknown").strip().lower()
     source_completeness = prior_source_completeness if prior_source_completeness in _SOURCE_COMPLETENESS_VALUES else "unknown"
@@ -189,44 +196,10 @@ def update_ledger_from_iteration(
         for v in list(working.get("source_limitations") or [])
         if str(v).strip()
     ][:12]
-    by_key: dict[str, dict[str, Any]] = {
-        str(item.get("key")): item
-        for item in working["items"]
-        if isinstance(item, dict) and isinstance(item.get("key"), str)
-    }
 
     for finding in findings or []:
         if not isinstance(finding, dict):
             continue
-        message = str(finding.get("message") or "")
-        target_key = _key_for_finding(finding)
-        if not target_key:
-            source_completeness, source_completeness_reason, source_limitations = _merge_source_completeness_signal(
-                source_completeness=source_completeness,
-                source_completeness_reason=source_completeness_reason,
-                source_limitations=source_limitations,
-                signal=_extract_source_completeness_signal(finding),
-            )
-            continue
-        if target_key not in by_key:
-            if target_key not in _DECISION_KEYS:
-                continue
-            item = _materialize_seed_row_item(target_key)
-            working["items"].append(item)
-            by_key[target_key] = item
-        item = by_key[target_key]
-        wake_seed_scaffolding_row(item)
-        _apply_scope_from_signal(item=item, signal=finding)
-        alternatives = _extract_alternatives_for_key(target_key, message)
-        if alternatives:
-            for alt in alternatives:
-                _append_unique(item, "alternatives", alt)
-        value = _extract_value_for_key(target_key, message)
-        state = "disputed" if (_looks_disputed(message) or len(alternatives) > 1) else "candidate_found"
-        _apply_observation(item=item, state=state, value=value, evidence_ref=str(finding.get("finding_id") or "").strip() or None)
-        finding_type = str(finding.get("finding_type") or "").strip().lower()
-        if finding_type == "plss_consistency" and state == "disputed":
-            item["layer_tag"] = "layer2_canonical_sanity"
         source_completeness, source_completeness_reason, source_limitations = _merge_source_completeness_signal(
             source_completeness=source_completeness,
             source_completeness_reason=source_completeness_reason,
@@ -234,48 +207,9 @@ def update_ledger_from_iteration(
             signal=_extract_source_completeness_signal(finding),
         )
 
-    # Candidate disagreement hints are no longer authoritative decision-path input.
-    del disagreement_hints
-
     for result in image_results or []:
         if not isinstance(result, dict):
             continue
-        check_id = str(result.get("check_id") or "").lower()
-        status = str(result.get("status") or "").lower()
-        observed = str(result.get("observed_text") or "").strip() or None
-        query = str(result.get("query") or "").strip()
-        result_key = str(result.get("decision_key") or "").strip().lower()
-        target_key = result_key if result_key in _DECISION_KEYS else _key_for_check_id(check_id)
-        if not target_key:
-            source_completeness, source_completeness_reason, source_limitations = _merge_source_completeness_signal(
-                source_completeness=source_completeness,
-                source_completeness_reason=source_completeness_reason,
-                source_limitations=source_limitations,
-                signal=_extract_source_completeness_signal(result),
-            )
-            continue
-        if target_key not in by_key:
-            if target_key not in _DECISION_KEYS:
-                continue
-            item = _materialize_seed_row_item(target_key)
-            working["items"].append(item)
-            by_key[target_key] = item
-        item = by_key[target_key]
-        wake_seed_scaffolding_row(item)
-        _apply_scope_from_signal(item=item, signal=result)
-        image_alternatives = _extract_alternatives_for_key(target_key, f"{query} {observed or ''}".strip())
-        if image_alternatives:
-            for alt in image_alternatives:
-                _append_unique(item, "alternatives", alt)
-        if len(image_alternatives) > 1:
-            _apply_observation(item=item, state="disputed", value=observed, evidence_ref=check_id or None)
-            if target_key in {"range", "township", "section"}:
-                item["layer_tag"] = "layer2_canonical_sanity"
-            continue
-        if status in _CONFIRMED_STATUSES:
-            _apply_observation(item=item, state="verified", value=observed, evidence_ref=check_id or None)
-        elif status in _DISPUTED_STATUSES:
-            _apply_observation(item=item, state="disputed", value=observed, evidence_ref=check_id or None)
         source_completeness, source_completeness_reason, source_limitations = _merge_source_completeness_signal(
             source_completeness=source_completeness,
             source_completeness_reason=source_completeness_reason,
@@ -304,46 +238,13 @@ def clear_resolved_after_reaudit(
     ledger: dict[str, Any],
     findings: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """After TX_APPLY_EDIT_PLAN + re-audit, promote mapping-blocking unresolved items
-    that are absent from the new findings to 'verified'.
+    """Phase 24: re-audit does not auto-resolve disputed rows via validator absence.
 
-    Rationale: the PLSS consistency validator is deterministic.  If it ran against the
-    edited transcript and produced NO finding for a previously-blocked key, the edit
-    resolved the conflict — absent finding = validator passed = item is now verified.
-
-    Only mapping_blocking items in `"disputed"` state are promoted — those were actively
-    flagged as conflicting by the deterministic validator.  Items in `"unknown"` or
-    `"candidate_found"` state are not actively conflicting and are left untouched.
+    Ledger semantic updates after an edit + audit are LLM-authored (resolver moves /
+    work_board_changes). ``findings`` is ignored for promotion logic.
     """
-    observed_keys: set[str] = set()
-    for f in findings:
-        if isinstance(f, dict):
-            k = _key_for_finding(f)
-            if k:
-                observed_keys.add(k)
-    working = _ensure_ledger_shape(ledger)
-    for item in working["items"]:
-        if not isinstance(item, dict):
-            continue
-        key = str(item.get("key") or "").strip()
-        if not key or key in observed_keys:
-            continue
-        # Only promote items that were actively DISPUTED — the deterministic validator
-        # flagged conflicting values.  Absent finding after edit = conflict resolved.
-        # "unknown" / "candidate_found" items are just unresolved, not actively
-        # conflicting; do not force-verify them via absence alone.
-        state = str(item.get("state") or "unknown").strip().lower()
-        if state != "disputed":
-            continue
-        cr = item.get("closure_requirement")
-        if not isinstance(cr, dict) or not cr.get("mapping_blocking"):
-            continue
-        item["state"] = "verified"
-    _attach_closure_requirements(working["items"], readiness_blocker=None)
-    working["summary"] = _summary(working["items"])
-    working["scope_summaries"] = _compute_scope_summaries(working)
-    working["blocker_feedback_state"] = _compute_blocker_feedback_state(working)
-    return working
+    _ = findings
+    return reconcile_ledger_derived_fields(ledger)
 
 
 def reconcile_ledger_derived_fields(ledger: dict[str, Any] | None) -> dict[str, Any]:
@@ -650,6 +551,11 @@ def _finalize_native_ledger_envelope(*, ledger: dict[str, Any], items: list[dict
     }
     out["scope_summaries"] = _compute_scope_summaries(out)
     out["blocker_feedback_state"] = _compute_blocker_feedback_state(out)
+    # Phase 23: preserve LLM startup sidecar through native mutation paths.
+    if isinstance(ledger, dict) and isinstance(ledger.get("llm_startup_understanding"), dict):
+        out["llm_startup_understanding"] = dict(ledger["llm_startup_understanding"])
+    if isinstance(ledger, dict) and isinstance(ledger.get("llm_iteration_understanding"), dict):
+        out["llm_iteration_understanding"] = dict(ledger["llm_iteration_understanding"])
     return out
 
 
@@ -828,26 +734,39 @@ def _key_for_text(message: str) -> str | None:
     return None
 
 def _key_for_finding(finding: dict[str, Any]) -> str | None:
-    finding_id = str(finding.get("finding_id") or "").strip().lower()
-    finding_type = str(finding.get("finding_type") or "").strip().lower()
+    """Map an evidence observation to a seed key using message text (and optional explicit keys only)."""
+    for k in ("suggested_decision_key", "decision_key", "target_decision_key"):
+        raw = str(finding.get(k) or "").strip().lower()
+        if raw in {
+            "range",
+            "township",
+            "section",
+            "tie_distance",
+            "tie_bearing",
+            "acreage",
+            "closure_or_pob",
+        }:
+            return raw
     message = str(finding.get("message") or "")
-    blob = f"{finding_id} {finding_type} {message}".lower()
-    # ``distance`` contains the substring ``range`` — classify tie-distance before PLSS range.
-    if "bearing" in blob:
+    direct = _key_for_text(message)
+    if direct:
+        return direct
+    lower = message.lower()
+    if "bearing" in lower:
         return "tie_bearing"
-    if "distance" in blob:
+    if "distance" in lower:
         return "tie_distance"
-    if "acre" in blob:
+    if "acre" in lower:
         return "acreage"
-    if "point of beginning" in blob or "closure" in blob or "pob" in blob:
+    if "point of beginning" in lower or "closure" in lower or "pob" in lower:
         return "closure_or_pob"
-    if "range" in blob:
+    if "range" in lower:
         return "range"
-    if "township" in blob:
+    if "township" in lower:
         return "township"
-    if "section" in blob:
+    if "section" in lower:
         return "section"
-    return _key_for_text(message)
+    return None
 
 def _extract_alternatives_for_key(key: str, text: str) -> list[str]:
     if key == "range":

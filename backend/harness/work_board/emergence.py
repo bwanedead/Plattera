@@ -86,15 +86,33 @@ def evaluate_add_item_promotion(
         return False, "duplicates_existing_ledger_decision"
 
     mat = str(proposal.get("materiality") or "medium").strip().lower()
-    bi = str(proposal.get("blocking_impact") or "").strip().lower()
+    rc = str(proposal.get("resolution_condition") or "").strip()
+    try:
+        pri = int(proposal.get("priority") or 50)
+    except (TypeError, ValueError):
+        pri = 50
+    pri = max(0, min(100, pri))
     deps = proposal.get("dependencies") if isinstance(proposal.get("dependencies"), list) else []
     ev = proposal.get("evidence_refs") if isinstance(proposal.get("evidence_refs"), list) else []
-    has_signal = bi == "mapping_blocking" or mat == "high" or len(deps) > 0 or len(ev) > 0
-    if not has_signal:
+    # Structural gating uses only generic signals. ``blocking_impact`` is stored but not
+    # interpreted here — domain packs own mission-specific labels (Phase 29).
+    has_structural_signal = (
+        mat == "high"
+        or pri >= 70
+        or len(deps) > 0
+        or len(ev) > 0
+        or len(rc) >= 16
+    )
+    if not has_structural_signal:
         return False, "missing_structural_signal_for_new_item"
 
-    rc = str(proposal.get("resolution_condition") or "").strip()
-    if mat == "low" and bi == "quality_only" and len(rc) < 16:
+    if (
+        mat == "low"
+        and len(deps) == 0
+        and len(ev) <= 1
+        and len(rc) < 16
+        and pri < 70
+    ):
         return False, "likely_note_not_item_use_attach_note"
 
     return True, "ok"

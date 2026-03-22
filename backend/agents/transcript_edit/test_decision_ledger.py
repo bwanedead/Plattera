@@ -65,7 +65,8 @@ def test_initialize_decision_ledger_discovery_native_starts_empty() -> None:
     assert ledger.get("items") == []
 
 
-def test_update_ledger_from_audit_and_image_signals() -> None:
+def test_update_ledger_from_iteration_merges_source_signals_without_checklist_authorship_phase24() -> None:
+    """Phase 24: audit/image observations do not mutate checklist rows or selected_value."""
     ledger = initialize_decision_ledger_with_domain_template_seed()
     updated = update_ledger_from_iteration(
         ledger=ledger,
@@ -80,19 +81,16 @@ def test_update_ledger_from_audit_and_image_signals() -> None:
     )
     range_item = _item(updated, "range")
     distance_item = _item(updated, "tie_distance")
-    assert range_item["state"] == "disputed"
-    assert distance_item["state"] == "verified"
-    assert str(distance_item.get("selected_value") or "").lower().startswith("1320")
-    assert updated["summary"]["disputed_count"] >= 1
-    assert isinstance(range_item.get("closure_requirement"), dict)
-    assert range_item["closure_requirement"]["block_reason"] in {"ambiguity", "contradiction"}
-    assert distance_item.get("closure_requirement") is None
+    assert str(range_item.get("state") or "") == "unknown"
+    assert str(distance_item.get("state") or "") == "unknown"
+    assert not str(distance_item.get("selected_value") or "").lower().startswith("1320")
+    assert int(updated["summary"].get("disputed_count") or 0) == 0
 
 
 def test_derive_layer_statuses_mapping_ready_is_fully_satisfied() -> None:
     statuses = derive_layer_statuses(
         mapping_ready=True,
-        validator_clean=True,
+        mechanical_severity_clear=True,
         readiness_blocker=None,
     )
     assert statuses["layer1_canonical_recovery"] == "satisfied"
@@ -104,7 +102,7 @@ def test_derive_layer_statuses_mapping_ready_is_fully_satisfied() -> None:
 def test_derive_layer_statuses_final_verify_blocker_marks_layer1_blocked() -> None:
     statuses = derive_layer_statuses(
         mapping_ready=False,
-        validator_clean=True,
+        mechanical_severity_clear=True,
         readiness_blocker="mapping_critical_image_verification_unresolved",
     )
     assert statuses["layer1_canonical_recovery"] == "blocked"
@@ -125,23 +123,48 @@ def test_unresolved_closure_requirements_contains_only_actionable_items() -> Non
 
 
 def test_choose_investigation_focus_prefers_blocking_disputed_items() -> None:
-    updated = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger_with_domain_template_seed(),
-        findings=[{"finding_id": "f-range", "message": "Range conflict between candidate drafts"}],
-    )
-    focus = choose_investigation_focus(updated)
+    ledger = initialize_decision_ledger_with_domain_template_seed()
+    range_item = _item(ledger, "range")
+    range_item["state"] = "disputed"
+    range_item["blocking"] = True
+    range_item["alternatives"] = ["Range 75 West", "Range 74 West"]
+    range_item["closure_requirement"] = {
+        "block_reason": "contradiction",
+        "mapping_blocking": True,
+        "operational_impact": "mapping_blocking",
+        "resolution_options": ["Range 75 West", "Range 74 West"],
+        "evidence_refs": ["e1"],
+    }
+    focus = choose_investigation_focus(ledger)
     assert isinstance(focus, dict)
     assert focus["decision_key"] == "range"
-    assert str(focus["next_check_reason_code"]) in {"highest_uncertainty", "blocking_mapping_critical"}
-    assert has_blocking_dispute(updated) is False
+    assert str(focus["next_check_reason_code"]) in {
+        "highest_uncertainty",
+        "blocking_mapping_critical",
+        "blocking_conflict_unresolved",
+    }
+    assert has_blocking_dispute(ledger) is True
 
 
 def test_closure_requirement_marks_non_blocking_items_as_optional_for_mapping() -> None:
-    updated = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger_with_domain_template_seed(),
-        findings=[{"finding_id": "f-acre", "message": "Acreage conflict between drafts (1.4 acres vs 1.9 acres)."}],
-    )
-    acreage_item = _item(updated, "acreage")
+    ledger = initialize_decision_ledger_with_domain_template_seed()
+    acreage_item = _item(ledger, "acreage")
+    acreage_item["state"] = "disputed"
+    acreage_item["blocking"] = False
+    acreage_item["operational_impact"] = "transcript_quality_only"
+    acreage_item["closure_requirement"] = {
+        "block_reason": "ambiguity",
+        "mapping_blocking": False,
+        "operational_impact": "transcript_quality_only",
+        "required_information": "Reconcile acreage call.",
+        "self_retrievable": "conditional",
+        "retrieval_attempted": False,
+        "retrieval_blocker": None,
+        "minimal_user_action": "Confirm acreage.",
+        "resolution_options": ["1.4 acres", "1.9 acres"],
+        "evidence_refs": [],
+        "attempt_summary": "Acreage conflict between drafts.",
+    }
     closure = acreage_item.get("closure_requirement")
     assert isinstance(closure, dict)
     assert closure.get("mapping_blocking") is False
@@ -189,7 +212,7 @@ def test_is_unresolved_mapping_blocking_decision_is_key_specific() -> None:
     assert is_unresolved_mapping_blocking_decision(ledger, "section") is False
 
 
-def test_range_contradiction_identity_preserved_from_plss_finding() -> None:
+def test_plss_finding_observations_do_not_author_checklist_rows_phase24() -> None:
     updated = update_ledger_from_iteration(
         ledger=initialize_decision_ledger_with_domain_template_seed(),
         findings=[
@@ -201,13 +224,21 @@ def test_range_contradiction_identity_preserved_from_plss_finding() -> None:
         ],
     )
     range_item = _item(updated, "range")
-    township_item = _item(updated, "township")
+    assert str(range_item.get("state") or "") == "unknown"
+
+
+def test_range_contradiction_identity_preserved_when_authored_on_ledger_rows() -> None:
+    """LLM/orient-authored disputed range keeps alternatives without cross-key bleed."""
+    ledger = initialize_decision_ledger_with_domain_template_seed()
+    range_item = _item(ledger, "range")
+    range_item["state"] = "disputed"
+    range_item["layer_tag"] = "layer2_canonical_sanity"
+    range_item["alternatives"] = ["Range 75 West", "Range 74 West"]
+    township_item = _item(ledger, "township")
     assert str(range_item.get("state") or "") == "disputed"
-    assert str(range_item.get("layer_tag") or "") == "layer2_canonical_sanity"
     alternatives = [str(v) for v in list(range_item.get("alternatives") or [])]
     assert any("75" in v for v in alternatives)
     assert any("74" in v for v in alternatives)
-    # Township should not absorb the range contradiction identity.
     assert str(township_item.get("state") or "") == "unknown"
 
 
@@ -235,8 +266,20 @@ def test_choose_focus_prefers_range_contradiction_over_generic_township_unknown(
 
 
 def test_image_match_does_not_auto_resolve_existing_range_dispute() -> None:
+    ledger = initialize_decision_ledger_with_domain_template_seed()
+    range_item = _item(ledger, "range")
+    range_item["state"] = "disputed"
+    range_item["layer_tag"] = "layer2_canonical_sanity"
+    range_item["alternatives"] = ["Range 75 West", "Range 74 West"]
+    range_item["closure_requirement"] = {
+        "block_reason": "contradiction",
+        "mapping_blocking": True,
+        "operational_impact": "mapping_blocking",
+        "resolution_options": ["Range 75 West", "Range 74 West"],
+        "evidence_refs": ["plss_range_conflict_001"],
+    }
     updated = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger_with_domain_template_seed(),
+        ledger=ledger,
         findings=[
             {
                 "finding_id": "plss_range_conflict_001",
@@ -261,7 +304,7 @@ def test_image_match_does_not_auto_resolve_existing_range_dispute() -> None:
     assert any("74" in v for v in alternatives)
 
 
-def test_image_result_prefers_explicit_decision_key_over_generic_check_id() -> None:
+def test_image_result_observations_do_not_author_disputed_state_phase24() -> None:
     updated = update_ledger_from_iteration(
         ledger=initialize_decision_ledger_with_domain_template_seed(),
         image_results=[
@@ -275,13 +318,18 @@ def test_image_result_prefers_explicit_decision_key_over_generic_check_id() -> N
     )
     range_item = _item(updated, "range")
     township_item = _item(updated, "township")
-    assert str(range_item.get("state") or "") == "disputed"
+    assert str(range_item.get("state") or "") == "unknown"
     assert str(township_item.get("state") or "") == "unknown"
 
 
 def test_image_result_query_preserves_range_contradiction_alternatives() -> None:
+    ledger = initialize_decision_ledger_with_domain_template_seed()
+    range_item = _item(ledger, "range")
+    range_item["state"] = "disputed"
+    range_item["layer_tag"] = "layer2_canonical_sanity"
+    range_item["alternatives"] = ["Range 75 West", "Range 74 West"]
     updated = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger_with_domain_template_seed(),
+        ledger=ledger,
         image_results=[
             {
                 "check_id": "plss_range_conflict_001",
@@ -300,7 +348,7 @@ def test_image_result_query_preserves_range_contradiction_alternatives() -> None
     assert any("74" in v for v in alternatives)
 
 
-def test_range_contradiction_extraction_supports_compact_r74w_tokens() -> None:
+def test_compact_plss_range_tokens_in_findings_do_not_populate_alternatives_phase24() -> None:
     updated = update_ledger_from_iteration(
         ledger=initialize_decision_ledger_with_domain_template_seed(),
         findings=[
@@ -312,11 +360,8 @@ def test_range_contradiction_extraction_supports_compact_r74w_tokens() -> None:
         ],
     )
     range_item = _item(updated, "range")
-    assert str(range_item.get("state") or "") == "disputed"
-    assert str(range_item.get("layer_tag") or "") == "layer2_canonical_sanity"
-    alternatives = [str(v) for v in list(range_item.get("alternatives") or [])]
-    assert "Range 74 West" in alternatives
-    assert "Range 75 West" in alternatives
+    assert str(range_item.get("state") or "") == "unknown"
+    assert list(range_item.get("alternatives") or []) == []
 
 
 def test_human_resolution_ticket_lifecycle_helpers_roundtrip() -> None:
@@ -503,23 +548,24 @@ def test_partial_source_without_scope_proof_stays_unknown_scope() -> None:
 
 
 def test_unresolved_with_approved_scope_proof_is_outside_target() -> None:
-    ledger = update_ledger_from_iteration(
-        ledger=initialize_decision_ledger_with_domain_template_seed(),
-        findings=[
-            {
-                "finding_id": "f-closure",
-                "message": "Outside target scope text is unresolved below the cutoff boundary.",
-                "scope_status": "outside_target",
-                "scope_proof": ["explicit_outside_target_text", "source_truncation_boundary"],
-                "source_completeness": "partial_truncated",
-            }
-        ],
-    )
+    ledger = initialize_decision_ledger_with_domain_template_seed()
+    closure = _item(ledger, "closure_or_pob")
+    closure["state"] = "disputed"
+    closure["blocking"] = True
+    closure["closure_requirement"] = {
+        "mapping_blocking": True,
+        "operational_impact": "mapping_blocking",
+        "scope_status": "outside_target",
+        "scope_proof": ["explicit_outside_target_text", "source_truncation_boundary"],
+        "resolution_options": ["A", "B"],
+        "evidence_refs": ["e1"],
+    }
     outside_items = unresolved_outside_target_scope_mapping_blocking_requirements(ledger)
     assert any(str(item.get("key") or "") == "closure_or_pob" for item in outside_items if isinstance(item, dict))
 
 
-def test_scope_status_can_reclassify_from_prior_outside_to_in_target_on_new_signal() -> None:
+def test_scope_status_can_reclassify_from_prior_outside_to_in_target_via_row_update() -> None:
+    """Phase 24: scope reclassification is LLM-authored on native rows, not validator findings."""
     ledger = initialize_decision_ledger_with_domain_template_seed()
     closure = _item(ledger, "closure_or_pob")
     closure["state"] = "disputed"
@@ -531,19 +577,13 @@ def test_scope_status_can_reclassify_from_prior_outside_to_in_target_on_new_sign
         "resolution_options": ["A", "B"],
         "evidence_refs": ["test"],
     }
-    updated = update_ledger_from_iteration(
-        ledger=ledger,
-        findings=[
-            {
-                "finding_id": "f-closure",
-                "message": "Closure language belongs to subject target plot.",
-                "scope_status": "in_target",
-                "scope_proof": [],
-                "in_target_scope": True,
-            }
-        ],
-    )
-    unresolved = unresolved_closure_requirements(updated)
+    closure["closure_requirement"] = {
+        **dict(closure.get("closure_requirement") or {}),
+        "scope_status": "in_target",
+        "scope_proof": [],
+        "in_target_scope": True,
+    }
+    unresolved = unresolved_closure_requirements(ledger)
     row = next(item for item in unresolved if isinstance(item, dict) and str(item.get("key") or "") == "closure_or_pob")
     assert str(row.get("scope_status") or "") == "in_target"
 
@@ -575,28 +615,22 @@ def _make_blocked_range_ledger() -> dict:
     return ledger
 
 
-def test_clear_resolved_after_reaudit_verifies_absent_mapping_blocking_items() -> None:
-    """When re-audit produces no range finding, range should advance to 'verified'."""
+def test_clear_resolved_after_reaudit_does_not_promote_via_validator_absence_phase24() -> None:
+    """Phase 24: re-audit does not verify disputed rows when findings are absent."""
     ledger = _make_blocked_range_ledger()
     assert has_unresolved_mapping_blocking_closure(ledger) is True
 
-    # Re-audit found no range conflict (edit fixed it) — pass empty findings.
     updated = clear_resolved_after_reaudit(ledger=ledger, findings=[])
 
     range_item = _item(updated, "range")
-    assert str(range_item.get("state") or "") == "verified", (
-        "range should be 'verified' when absent from re-audit findings"
-    )
-    assert has_unresolved_mapping_blocking_closure(updated) is False, (
-        "no mapping-blocking unresolved items should remain"
-    )
+    assert str(range_item.get("state") or "") == "disputed"
+    assert has_unresolved_mapping_blocking_closure(updated) is True
 
 
-def test_clear_resolved_after_reaudit_does_not_clear_items_still_in_findings() -> None:
-    """Items present in findings must NOT be cleared — the conflict is still live."""
+def test_clear_resolved_after_reaudit_ignores_findings_for_promotion_phase24() -> None:
+    """Phase 24: findings list does not change reconcile-only clear behavior."""
     ledger = _make_blocked_range_ledger()
 
-    # Re-audit still reports a range conflict.
     still_conflicting_finding = {
         "finding_id": "plss_range_conflict_still",
         "finding_type": "plss_consistency",
@@ -607,10 +641,7 @@ def test_clear_resolved_after_reaudit_does_not_clear_items_still_in_findings() -
     )
 
     range_item = _item(updated, "range")
-    # State should NOT be 'verified' — item is still observed as conflicting.
-    assert str(range_item.get("state") or "") != "verified", (
-        "range should remain unresolved when it still appears in re-audit findings"
-    )
+    assert str(range_item.get("state") or "") == "disputed"
     assert has_unresolved_mapping_blocking_closure(updated) is True
 
 

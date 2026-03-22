@@ -31,10 +31,10 @@ from agent_kernel.tooling import (
     TranscriptImageVerificationTool,
     TranscriptEditPlanApplyTool,
     TranscriptMappingPromoterTool,
-    TranscriptOrientBaselineTool,
     TranscriptSpanSeedsSaverTool,
     TranscriptSpanOpenerTool,
 )
+from agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool
 from harness.mission_runtime.modes.transcript_edit import run_orchestration_kernel_transcript_loop
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from services.agent_viewer.event_bus import event_bus as viewer_event_bus

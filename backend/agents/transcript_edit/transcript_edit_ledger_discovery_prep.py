@@ -378,70 +378,19 @@ def infer_discovery_items_from_audit_findings(
     existing_items: list[dict[str, Any]] | None = None,
     infer_stats: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Heuristic, bounded inference of discovery rows from validator findings (not full NLP).
-
-    Produces 0–*max_items* contributions per audit pass. Intentionally conservative to limit sprawl.
-    """
-    out: list[dict[str, Any]] = []
-    seen_keys: set[str] = set()
-    seen_signal: set[str] = set()
-    existing = [x for x in (existing_items or []) if isinstance(x, dict)]
-    sig_index = _existing_signal_index(existing)
-    for fp in sig_index:
-        seen_signal.add(fp)
-
+    """Phase 24: validator findings no longer infer discovery rows — use LLM iteration outputs instead."""
+    _ = findings, max_items, existing_items
     if infer_stats is not None:
         infer_stats.clear()
-        infer_stats.update({"rejected_low_signal": 0, "rejected_severity": 0, "rejected_kind_cap": 0})
-
-    for f in findings or []:
-        if len(out) >= max_items:
-            break
-        if not isinstance(f, dict):
-            continue
-        sev = str(f.get("severity") or "").strip().lower()
-        if sev in _SKIP_FINDING_SEVERITIES:
-            if infer_stats is not None:
-                infer_stats["rejected_severity"] = int(infer_stats.get("rejected_severity") or 0) + 1
-            continue
-        fid = str(f.get("finding_id") or f.get("id") or "").strip()
-        msg = str(f.get("message") or "")
-        msg_trim = str(msg).strip()
-        if len(msg_trim) < _MIN_MESSAGE_CHARS:
-            if infer_stats is not None:
-                infer_stats["rejected_low_signal"] = int(infer_stats.get("rejected_low_signal") or 0) + 1
-            continue
-        kind: str | None = None
-        for knd, pat in _DISCOVERY_KIND_PATTERNS:
-            if pat.search(msg):
-                kind = knd
-                break
-        if kind is None:
-            continue
-        cap_k = _MAX_DISCOVERY_PER_KIND.get(kind, 999)
-        if _discovery_kind_count(existing + out, kind) >= cap_k:
-            if infer_stats is not None:
-                infer_stats["rejected_kind_cap"] = int(infer_stats.get("rejected_kind_cap") or 0) + 1
-            continue
-        # Match _native_row_for_discovery excerpt cap so signal_fp aligns infer ↔ merge.
-        sig_fp = signal_fingerprint(kind=kind, message=msg_trim[:280])
-        if sig_fp in seen_signal:
-            continue
-        fp = discovery_fingerprint(kind=kind, finding_id=fid, message=msg)
-        key = f"{DISCOVERY_KEY_PREFIX}{kind}:{fp}"
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-        seen_signal.add(sig_fp)
-        out.append(
-            _native_row_for_discovery(
-                kind=kind,
-                fingerprint=fp,
-                finding_id=fid,
-                message_excerpt=msg,
-            )
+        infer_stats.update(
+            {
+                "rejected_low_signal": 0,
+                "rejected_severity": 0,
+                "rejected_kind_cap": 0,
+                "phase24_disabled_validator_infer": True,
+            }
         )
-    return out
+    return []
 
 
 def merge_discovery_from_audit_findings(
@@ -450,20 +399,25 @@ def merge_discovery_from_audit_findings(
     *,
     merge_stats: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Convenience: infer from findings + merge into native ledger (used after ``update_ledger_from_iteration``)."""
-    working = ledger if isinstance(ledger, dict) else {}
-    items_raw = working.get("items") if isinstance(working.get("items"), list) else []
-    existing_items = [x for x in items_raw if isinstance(x, dict)]
-    infer_stats_inner: dict[str, Any] = {}
-    inferred = infer_discovery_items_from_audit_findings(
-        findings,
-        existing_items=existing_items,
-        infer_stats=infer_stats_inner,
-    )
-    merged = merge_discovered_native_items(ledger, inferred, merge_stats=merge_stats)
+    """Phase 24: no validator→discovery merge; ledger meaning is LLM-authored."""
+    _ = findings
     if merge_stats is not None:
-        merge_stats["infer"] = infer_stats_inner
-    return merged
+        merge_stats.clear()
+        merge_stats.update(
+            {
+                "schema_version": "discovery_merge_stats.v1",
+                "added_keys": [],
+                "evidence_only_keys": [],
+                "signal_merged_into_keys": [],
+                "rejected_kind_cap": 0,
+                "rejected_near_duplicate_signal": 0,
+                "rejected_low_signal": 0,
+                "rejected_severity": 0,
+                "skipped_total_cap": False,
+                "phase24_no_validator_discovery": True,
+            }
+        )
+    return reconcile_ledger_derived_fields(ledger if isinstance(ledger, dict) else {})
 
 
 def append_discovery_merge_continuity(

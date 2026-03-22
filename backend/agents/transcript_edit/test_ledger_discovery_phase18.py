@@ -13,7 +13,9 @@ from backend.agents.transcript_edit.decision_ledger_adapter import (
     transcript_edit_closure_read_ledger,
     transcript_edit_unified_and_closure_read_for_native,
 )
+from backend.agents.transcript_edit.decision_ledger_state import reconcile_ledger_derived_fields
 from backend.agents.transcript_edit.focus_packet import build_focus_packet
+from backend.agents.transcript_edit.llm_startup_understanding import native_rows_from_llm_initial_ledger_items
 from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import merge_discovery_from_audit_findings
 from backend.harness.decision_ledger import contracts as dl_contracts
 from backend.harness.decision_ledger.contracts import DECISION_LEDGER_ENVELOPE_VERSION
@@ -42,7 +44,13 @@ def test_unified_and_closure_read_center_envelope_not_raw_native_items() -> None
 
 def test_closure_read_items_follow_unified_after_discovery_merge() -> None:
     native = initialize_decision_ledger()
-    native = merge_discovery_from_audit_findings(
+    native["items"].extend(
+        native_rows_from_llm_initial_ledger_items(
+            [{"title": "Closure read discovery", "summary": _long_contra(), "mapping_blocking": True}]
+        )
+    )
+    reconcile_ledger_derived_fields(native)
+    merge_discovery_from_audit_findings(
         native,
         [{"finding_id": "d1", "message": _long_contra()}],
     )
@@ -72,7 +80,13 @@ def test_optional_template_seed_is_explicit_and_non_default() -> None:
 def test_focus_packet_exposes_unified_envelope_on_work_board_key() -> None:
     """Historical field name `work_board` holds the same envelope as the decision ledger wire shape."""
     ledger = initialize_decision_ledger()
-    ledger = merge_discovery_from_audit_findings(
+    ledger["items"].extend(
+        native_rows_from_llm_initial_ledger_items(
+            [{"title": "Focus packet discovery", "summary": _long_contra(), "mapping_blocking": True}]
+        )
+    )
+    reconcile_ledger_derived_fields(ledger)
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "d1", "message": _long_contra()}],
     )

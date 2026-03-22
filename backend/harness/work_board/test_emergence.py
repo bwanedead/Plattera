@@ -21,7 +21,7 @@ def _add_proposal(**kwargs):  # type: ignore[no-untyped-def]
         "kind": "transcript_edit.investigation_branch",
         "reason": "Margin truncation may hide boundary call; durable board row preserves closure dependency.",
         "materiality": "high",
-        "blocking_impact": "mapping_blocking",
+        "blocking_impact": "domain_owned_label",
         "resolution_condition": "Confirm full legal calls before mapping closure.",
         "dependencies": [],
         "evidence_refs": ["scan:edge_1"],
@@ -53,7 +53,7 @@ def test_promotion_rejects_note_masquerading_as_item() -> None:
     prop = _add_proposal(
         title="low signal title attempt longer",
         materiality="low",
-        blocking_impact="quality_only",
+        blocking_impact="domain_owned_label",
         evidence_refs=["keep_signal"],
         dependencies=[],
         resolution_condition="no",
@@ -132,3 +132,62 @@ def test_normalize_list_respects_max() -> None:
     raw = [_add_proposal(title=f"Title number {i} long enough" + "x" * 8, reason="y" * 30) for i in range(20)]
     out = normalize_work_board_changes_list(raw)
     assert len(out) == MAX_EMERGENT_PROPOSALS_PER_RESOLVER
+
+
+def test_promotion_does_not_use_blocking_impact_as_structural_signal() -> None:
+    """Opaque domain labels must not satisfy harness gating (Phase 29)."""
+    ok, code = evaluate_add_item_promotion(
+        {
+            "title": "Title long enough for minimum length rule",
+            "kind": "generic.work_item",
+            "reason": "Reason with sufficient substance for the harness minimum.",
+            "materiality": "medium",
+            "blocking_impact": "any_domain_owned_critical_label",
+            "resolution_condition": "x",
+            "dependencies": [],
+            "evidence_refs": [],
+            "priority": 50,
+        },
+        ledger_decision_keys_set=set(),
+        board_items=[],
+    )
+    assert ok is False
+    assert code == "missing_structural_signal_for_new_item"
+
+
+def test_promotion_accepts_non_transcript_workflow_using_generic_signals_only() -> None:
+    ok, code = evaluate_add_item_promotion(
+        {
+            "title": "Toaster slot calibration burn-in",
+            "kind": "appliance.qa",
+            "reason": "Operator batch shows drift; track as durable work until variance bounds met.",
+            "materiality": "high",
+            "resolution_condition": "Three consecutive runs within spec.",
+            "dependencies": [],
+            "evidence_refs": [],
+            "priority": 55,
+        },
+        ledger_decision_keys_set=set(),
+        board_items=[],
+    )
+    assert ok is True
+    assert code == "ok"
+
+
+def test_promotion_accepts_via_priority_urgency_without_blocking_impact() -> None:
+    ok, code = evaluate_add_item_promotion(
+        {
+            "title": "Another title meeting minimum length",
+            "kind": "ops.follow_up",
+            "reason": "Enough substance in this reason field for harness rules to pass.",
+            "materiality": "medium",
+            "resolution_condition": "short",
+            "dependencies": [],
+            "evidence_refs": [],
+            "priority": 72,
+        },
+        ledger_decision_keys_set=set(),
+        board_items=[],
+    )
+    assert ok is True
+    assert code == "ok"

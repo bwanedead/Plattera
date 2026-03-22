@@ -171,7 +171,9 @@ class TranscriptEditRunFeedPersistenceService:
             "terminal_classification": summary.get("terminal_classification"),
             "mapping_ready": bool(summary.get("mapping_ready")),
             "closure_state": summary.get("closure_state"),
-            "validator_clean": bool(summary.get("validator_clean")),
+            "mechanical_severity_clear": bool(
+                summary.get("mechanical_severity_clear", summary.get("validator_clean"))
+            ),
             "scoped_success_eligible": bool(summary.get("scoped_success_eligible")),
             "run_healthy_for_scoped_success": bool(summary.get("run_healthy_for_scoped_success")),
             "why_this_decision": summary.get("why_this_decision"),

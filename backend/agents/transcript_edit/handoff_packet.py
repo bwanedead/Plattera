@@ -44,11 +44,13 @@ def build_handoff_packet(
     pending_feedback_prompts = _pending_feedback_prompts(progress_log)
     user_overrides_applied = _user_overrides_applied(progress_log)
     mapping_ready = bool(terminal_summary.get("mapping_ready"))
-    validator_clean = bool(terminal_summary.get("validator_clean"))
+    mechanical_clear = bool(terminal_summary.get("mechanical_severity_clear"))
+    if not mechanical_clear and terminal_summary.get("validator_clean") is not None:
+        mechanical_clear = bool(terminal_summary.get("validator_clean"))
     readiness_blocker = terminal_summary.get("readiness_blocker")
     if mapping_ready:
         resume_recommendation = "proceed"
-    elif validator_clean:
+    elif mechanical_clear:
         resume_recommendation = "proceed_with_caution"
     else:
         resume_recommendation = "requires_upstream_resolution"
@@ -74,7 +76,7 @@ def build_handoff_packet(
         "terminal": {
             "status": _read_str(getattr(result, "status", None)),
             "reason_code": _read_str(getattr(result, "reason_code", None)),
-            "validator_clean": validator_clean,
+            "mechanical_severity_clear": mechanical_clear,
             "mapping_ready": mapping_ready,
             "promoted": bool(terminal_summary.get("promoted")),
             "readiness_blocker": _read_str(readiness_blocker),

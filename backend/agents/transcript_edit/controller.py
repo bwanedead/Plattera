@@ -32,9 +32,9 @@ from .decision_ledger import (
     update_ledger_from_iteration,
 )
 from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_from_loop_state
-from .transcript_edit_ledger_discovery_prep import (
-    append_discovery_merge_continuity,
-    merge_discovery_from_audit_findings,
+from .llm_startup_understanding import (
+    apply_llm_startup_to_ledger_and_registry,
+    fallback_decision_key_for_startup_merge,
 )
 from .blocker_registry import (
     blocker_health_snapshot,
@@ -272,44 +272,7 @@ def run_transcript_edit_controller_loop(
             ),
         )
 
-    # Deterministic canonical audit runs first for source/hash safety and advisory lints.
-    pre_audit_inputs: dict[str, Any] = {"dossier_id": request.dossier_id}
-    if state.current_transcript_ref:
-        pre_audit_inputs["source_transcript_ref"] = state.current_transcript_ref
-    elif request.source_text:
-        pre_audit_inputs["source_text"] = request.source_text
-    pre_audit = _step(
-        session_manager=session_manager,
-        session_id=session_id,
-        prefix="tx_pre_audit",
-        iteration=0,
-        action_type=ActionType.TX_AUDIT_TRANSCRIPT,
-        inputs=pre_audit_inputs,
-    )
-    state.latest_refs = pre_audit.dashboard.latest_refs.model_dump(mode="json")
-    if pre_audit.execution_state != StepExecutionState.EXECUTED:
-        reason = pre_audit.refusal.reason_code if pre_audit.refusal is not None else "tx_pre_audit_refused"
-        status = "failed"
-        if _should_convert_timeout_to_waiting_feedback(reason=reason, state=state):
-            status = "needs_review"
-        return _finalize_result_and_project_run_feed(
-            start=start,
-            request=request,
-            request_id_prefix=request_id_prefix,
-            progress_log=progress_log,
-            session_id=session_id,
-            iterations=0,
-            status=status,
-            reason=reason,
-            latest_refs=state.latest_refs,
-            review_required=True,
-            runtime_hitl_state=_runtime_hitl_state(state),
-        )
-    pre_audit_inline = _read_step_outputs_inline(pre_audit.step_record)
-    pre_source_ref = _read_str(pre_audit_inline.get("tx_source_transcript_ref"))
-    if pre_source_ref:
-        state.current_transcript_ref = pre_source_ref
-    pre_source_hash = _read_str(pre_audit_inline.get("tx_source_transcript_hash")) or ""
+    pre_source_hash = ""
 
     orient_inputs = _build_orient_inputs(
         dossier_id=request.dossier_id,
@@ -351,30 +314,44 @@ def run_transcript_edit_controller_loop(
     orient_source_ref = _read_str(orient_inline.get("tx_source_transcript_ref"))
     if orient_source_ref:
         state.current_transcript_ref = orient_source_ref
+    pre_source_hash = _read_str(orient_inline.get("tx_source_transcript_hash")) or ""
     if _read_str(orient_inline.get("tx_span_seeds_ref")):
         state.span_seeds_ref = _read_str(orient_inline.get("tx_span_seeds_ref"))
+    _orient_items_list = [
+        item
+        for item in (
+            orient_inline.get("tx_orient_items")
+            if isinstance(orient_inline.get("tx_orient_items"), list)
+            else []
+        )
+        if isinstance(item, dict)
+    ]
     state.decision_ledger = update_ledger_from_orient_baseline(
         ledger=state.decision_ledger,
-        orient_items=[
-            item
-            for item in (
-                orient_inline.get("tx_orient_items")
-                if isinstance(orient_inline.get("tx_orient_items"), list)
-                else []
-            )
-            if isinstance(item, dict)
-        ],
+        orient_items=_orient_items_list,
+    )
+    _su = orient_inline.get("tx_startup_understanding")
+    if not isinstance(_su, dict):
+        _su = {}
+    _fb_key = fallback_decision_key_for_startup_merge(
+        orient_items=_orient_items_list,
+        startup=_su,
+    )
+    _merge_stats0: dict[str, Any] = {}
+    state.decision_ledger, state.blocker_registry = apply_llm_startup_to_ledger_and_registry(
+        ledger=state.decision_ledger,
+        registry=state.blocker_registry,
+        startup=_su,
+        merge_stats=_merge_stats0,
+        fallback_decision_key=_fb_key,
+    )
+    state.llm_startup_understanding = (
+        dict(state.decision_ledger.get("llm_startup_understanding"))
+        if isinstance(state.decision_ledger.get("llm_startup_understanding"), dict)
+        else None
     )
     state.convention_context = situate_document_convention(
-        orient_items=[
-            item
-            for item in (
-                orient_inline.get("tx_orient_items")
-                if isinstance(orient_inline.get("tx_orient_items"), list)
-                else []
-            )
-            if isinstance(item, dict)
-        ],
+        orient_items=_orient_items_list,
     )
     state.blocker_registry = set_convention_context(
         registry=state.blocker_registry,
@@ -519,29 +496,29 @@ def run_transcript_edit_controller_loop(
         finding_count = _read_int(inline.get("tx_findings_count"), 0)
         error_count = _read_int(inline.get("tx_error_findings_count"), 0)
         findings_summary = inline.get("tx_validator_summary") if isinstance(inline.get("tx_validator_summary"), dict) else {}
-        top_findings = inline.get("tx_top_findings") if isinstance(inline.get("tx_top_findings"), list) else []
+        _ev_obs = inline.get("tx_evidence_observations")
+        top_findings = (
+            _ev_obs
+            if isinstance(_ev_obs, list)
+            else (inline.get("tx_top_findings") if isinstance(inline.get("tx_top_findings"), list) else [])
+        )
         source_transcript_hash = _read_str(inline.get("tx_source_transcript_hash")) or pre_source_hash
         if not source_transcript_hash:
             source_transcript_hash = _read_str_from_latest_refs(state.latest_refs, "tx_source_transcript_ref") or ""
         planning_findings = _prioritized_findings_for_planning(top_findings=top_findings)
         blocking_warning_present = _has_blocking_warnings(top_findings)
         warning_count = _read_int(findings_summary.get("warnings") if isinstance(findings_summary, dict) else None, 0)
-        # Phase 16: deterministic seed/template touch from audit findings first, then bounded discovery merge.
-        # Organized-work default remains discovery-first; template rows wake only when findings touch them.
+        # Audit output is evidence-only; mechanical source-completeness merge only.
+        state.last_audit_evidence_snapshot = {
+            "schema_version": "audit_evidence_snapshot.v1",
+            "iteration": iterations,
+            "validator_summary": dict(findings_summary) if isinstance(findings_summary, dict) else {},
+            "observations": [dict(x) for x in top_findings if isinstance(x, dict)][:24],
+            "source_transcript_hash": source_transcript_hash,
+        }
         state.decision_ledger = update_ledger_from_iteration(
             ledger=state.decision_ledger,
-            findings=top_findings,
-        )
-        _disc_merge_stats: dict[str, Any] = {}
-        state.decision_ledger = merge_discovery_from_audit_findings(
-            state.decision_ledger,
-            top_findings,
-            merge_stats=_disc_merge_stats,
-        )
-        append_discovery_merge_continuity(
-            state.continuity_log,
-            iteration=iterations,
-            merge_stats=_disc_merge_stats,
+            findings=[dict(x) for x in top_findings if isinstance(x, dict)],
         )
         _, audit_read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
         state.blocker_registry = sync_registry_from_ledger(

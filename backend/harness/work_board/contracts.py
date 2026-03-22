@@ -72,7 +72,11 @@ def work_board_item_dict(
     provenance: str | None = None,
     domain_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """One normalized board row (flat JSON)."""
+    """One normalized board row (flat JSON).
+
+    ``blocking_impact`` is an optional opaque string from the domain resolver; shared harness
+    code treats it as payload only and does not branch on mission-specific label values.
+    """
     cn_raw = context_notes if isinstance(context_notes, list) else []
     cn_out: list[dict[str, Any]] = []
     for row in cn_raw[:MAX_BOARD_CONTEXT_NOTES_PER_ITEM]:

@@ -42,25 +42,27 @@ def verify_mapping_critical_with_image(
     heartbeat_every_seconds: int = _IMAGE_VERIFY_HEARTBEAT_EVERY_SECONDS,
 ) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
+    focus_k = str(focus_decision_key or "").strip().lower() or None
     for finding in top_findings[:6]:
         if not isinstance(finding, dict):
             continue
-        finding_type = str(finding.get("finding_type") or "").strip().lower()
-        if finding_type not in {"plss_consistency", "bearing_parse", "numeric_unit_sanity", "call_chain_structure"}:
+        message = str(finding.get("message") or "").strip()
+        if len(message) < 8:
             continue
-        check_id = str(finding.get("finding_id") or f"finding_{len(checks) + 1}")
         inferred_decision_key = _decision_key_for_finding(finding)
-        check_decision_key = inferred_decision_key or (str(focus_decision_key or "").strip().lower() or None)
+        check_decision_key = inferred_decision_key or focus_k
+        if not check_decision_key:
+            continue
+        check_id = str(finding.get("observation_ref") or finding.get("finding_id") or f"check_{len(checks) + 1}")
         checks.append(
             {
                 "check_id": check_id,
-                "query": str(finding.get("message") or "")[:320],
-                "expected_text": first_expected_token_from_message(str(finding.get("message") or "")),
+                "query": message[:320],
+                "expected_text": first_expected_token_from_message(message),
                 "decision_key": check_decision_key,
                 "locator_context": {
-                    "finding_id": check_id,
-                    "finding_type": finding_type,
-                    "finding_message": str(finding.get("message") or "")[:320],
+                    "observation_ref": str(finding.get("observation_ref") or check_id)[:120],
+                    "message_excerpt": message[:320],
                 },
             }
         )
@@ -426,30 +428,36 @@ def _next_wait_heartbeat_threshold(
 
 
 def _decision_key_for_finding(finding: dict[str, Any]) -> str | None:
-    finding_type = str(finding.get("finding_type") or "").strip().lower()
+    """Infer mapping check key from evidence text and optional explicit keys (no validator taxonomy)."""
+    if not isinstance(finding, dict):
+        return None
+    for k in ("suggested_decision_key", "decision_key", "target_decision_key"):
+        raw = str(finding.get(k) or "").strip().lower()
+        if raw in {
+            "range",
+            "township",
+            "section",
+            "tie_distance",
+            "tie_bearing",
+            "acreage",
+            "closure_or_pob",
+        }:
+            return raw
     message = str(finding.get("message") or "").strip().lower()
-    finding_id = str(finding.get("finding_id") or "").strip().lower()
-    blob = f"{finding_type} {message} {finding_id}"
-    if "plss_range" in blob:
-        return "range"
-    if "plss_township" in blob:
-        return "township"
-    if "plss_section" in blob:
-        return "section"
-    if "acreage" in blob or "acre" in blob:
-        return "acreage"
-    if "bearing" in blob:
+    if "bearing" in message:
         return "tie_bearing"
-    if "distance" in blob:
+    if "distance" in message or "tie distance" in message:
         return "tie_distance"
-    if "section" in blob:
-        return "section"
-    if "range" in blob:
-        return "range"
-    if "township" in blob:
-        return "township"
-    if "closure" in blob or "pob" in blob:
+    if "acre" in message:
+        return "acreage"
+    if "closure" in message or "pob" in message or "point of beginning" in message:
         return "closure_or_pob"
+    if "township" in message:
+        return "township"
+    if "section" in message:
+        return "section"
+    if "range" in message:
+        return "range"
     return None
 
 

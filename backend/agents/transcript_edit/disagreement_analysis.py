@@ -8,23 +8,12 @@ from .span_seeds import load_transcript_text_for_seeds
 
 
 def has_blocking_warnings(top_findings: list[dict[str, Any]]) -> bool:
-    blocking_types = {"plss_consistency", "call_chain_structure"}
-    blocking_ids = {
-        "plss_range_conflict_001",
-        "plss_township_conflict_001",
-        "candidate_disagreement_range_conflict_001",
-        "candidate_disagreement_tie_distance_conflict_001",
-        "candidate_disagreement_bearing_conflict_001",
-    }
+    """Phase 24: use severity only — no validator finding_type / finding_id semantics."""
     for finding in top_findings:
         if not isinstance(finding, dict):
             continue
         severity = str(finding.get("severity") or "").strip().lower()
-        if severity != "warning":
-            continue
-        ftype = str(finding.get("finding_type") or "").strip().lower()
-        fid = str(finding.get("finding_id") or "").strip().lower()
-        if ftype in blocking_types or fid in blocking_ids:
+        if severity in {"error", "critical"}:
             return True
     return False
 
@@ -235,17 +224,17 @@ def first_expected_token_from_message(message: str) -> str | None:
     return None
 
 
+def _severity_rank(sev: str) -> int:
+    s = str(sev or "").strip().lower()
+    return {"critical": 0, "error": 1, "warning": 2, "info": 3, "low": 4, "debug": 5}.get(s, 9)
+
+
 def prioritized_findings_for_planning(*, top_findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Phase 24: order evidence by severity — no validator taxonomy ranking."""
     if not isinstance(top_findings, list):
         return []
-    rank = {
-        "plss_consistency": 0,
-        "call_chain_structure": 1,
-        "bearing_parse": 2,
-        "numeric_unit_sanity": 3,
-    }
     normalized: list[dict[str, Any]] = [finding for finding in top_findings if isinstance(finding, dict)]
-    normalized.sort(key=lambda finding: rank.get(str(finding.get("finding_type") or "").strip().lower(), 9))
+    normalized.sort(key=lambda f: _severity_rank(str(f.get("severity") or "")))
     return normalized[:12]
 
 
@@ -270,54 +259,9 @@ def mapping_priority_focus(disagreement_hints: dict[str, Any]) -> dict[str, Any]
 
 
 def critical_disagreement_findings(disagreement_hints: dict[str, Any]) -> list[dict[str, Any]]:
-    findings: list[dict[str, Any]] = []
-    if not isinstance(disagreement_hints, dict):
-        return findings
-    ranges = disagreement_hints.get("range_values")
-    if isinstance(ranges, list) and len(ranges) > 1:
-        values = [str(item.get("value")) for item in ranges[:4] if isinstance(item, dict) and item.get("value")]
-        if values:
-            findings.append(
-                {
-                    "finding_id": "candidate_disagreement_range_conflict_001",
-                    "finding_type": "plss_consistency",
-                    "severity": "warning",
-                    "message": f"Redundancy drafts disagree on range tokens: {', '.join(values)}",
-                    "section_id": None,
-                    "span": None,
-                }
-            )
-
-    distances = disagreement_hints.get("distance_values")
-    if isinstance(distances, list) and len(distances) > 1:
-        critical = [item for item in distances[:6] if isinstance(item, dict) and is_critical_tie_distance(item.get("value"))]
-        if len(critical) > 1:
-            values = [str(item.get("value")) for item in critical[:4] if item.get("value")]
-            findings.append(
-                {
-                    "finding_id": "candidate_disagreement_tie_distance_conflict_001",
-                    "finding_type": "numeric_unit_sanity",
-                    "severity": "warning",
-                    "message": f"Redundancy drafts disagree on tie distances: {', '.join(values)}",
-                    "section_id": None,
-                    "span": None,
-                }
-            )
-    bearings = disagreement_hints.get("bearing_values")
-    if isinstance(bearings, list) and len(bearings) > 1:
-        values = [str(item.get("value")) for item in bearings[:4] if isinstance(item, dict) and item.get("value")]
-        if values:
-            findings.append(
-                {
-                    "finding_id": "candidate_disagreement_bearing_conflict_001",
-                    "finding_type": "bearing_parse",
-                    "severity": "warning",
-                    "message": f"Redundancy drafts disagree on bearing tokens: {', '.join(values)}",
-                    "section_id": None,
-                    "span": None,
-                }
-            )
-    return findings
+    """Phase 24: deterministic synthetic findings removed — surface disagreements via LLM/evidence only."""
+    _ = disagreement_hints
+    return []
 
 
 def build_deterministic_consensus_plan(
@@ -328,64 +272,15 @@ def build_deterministic_consensus_plan(
     image_verification: dict[str, Any],
     top_findings: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    if not isinstance(disagreement_hints, dict):
-        return None
-    if not isinstance(top_findings, list):
-        return None
-    text = load_transcript_text_for_seeds(source_transcript_ref)
-    if not text:
-        return None
-
-    has_plss_conflict = any(
-        isinstance(f, dict)
-        and str(f.get("finding_type") or "").strip().lower() == "plss_consistency"
-        for f in top_findings
+    """Phase 24: deterministic consensus edit plans are retired — planning is LLM-owned."""
+    _ = (
+        source_transcript_ref,
+        source_transcript_hash,
+        disagreement_hints,
+        image_verification,
+        top_findings,
     )
-    if has_plss_conflict:
-        return None
-
-    image_numeric = image_numeric_signals(image_verification)
-    ops: list[dict[str, Any]] = []
-    distance_op = deterministic_numeric_replace_op(
-        text=text,
-        bucket=disagreement_hints.get("distance_values"),
-        value_regex=r"\b(\d{3,5}(?:\.\d+)?)\s*(feet|ft)\b",
-        value_guard=is_critical_tie_distance,
-        op_id="auto-distance-1",
-        reason="Image-guided consensus indicates a likely OCR error in mapping-critical tie distance.",
-        preferred_value=image_numeric.get("tie_distance"),
-        preferred_strength=image_numeric.get("tie_distance_strength"),
-    )
-    if distance_op:
-        ops.append(distance_op)
-
-    acreage_op = deterministic_numeric_replace_op(
-        text=text,
-        bucket=disagreement_hints.get("acreage_values"),
-        value_regex=r"\b(\d+(?:\.\d+)?)\s*(acres?)\b",
-        value_guard=lambda _: True,
-        op_id="auto-acreage-1",
-        reason="Image-guided consensus indicates a likely OCR error in acreage value.",
-        preferred_value=image_numeric.get("acreage"),
-        preferred_strength=image_numeric.get("acreage_strength"),
-    )
-    if acreage_op:
-        ops.append(acreage_op)
-
-    if not ops:
-        return None
-    return {
-        "plan_version": "edit_plan_v0",
-        "source_transcript_ref": source_transcript_ref,
-        "source_transcript_hash": source_transcript_hash,
-        "plan_id": f"det-consensus-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
-        "summary": "Deterministic redundancy-consensus correction for mapping-critical numeric fields.",
-        "ops": ops[:3],
-        "global_flags": {
-            "review_required": True,
-            "rationale": "Auto-applied from redundancy consensus; semantic review is required before promotion.",
-        },
-    }
+    return None
 
 
 def deterministic_numeric_replace_op(

@@ -688,8 +688,8 @@ Layer 3: dependency completeness
 - Are external references required for mapping available and retrievable?
 
 Important distinction:
-- `validator_clean` is not equal to `mapping_ready`.
-- `mapping_ready` depends on unresolved mapping-blocking closure state.
+- `mechanical_severity_clear` (zero error-severity rows in the latest mechanical inspection snapshot) is not equal to `mapping_ready`.
+- `mapping_ready` depends on unresolved mapping-blocking closure state and agentic gates, not on audit taxonomy.
 
 ### 25.4 Closure state machine (conceptual)
 ```mermaid
@@ -898,7 +898,7 @@ Terminal payload includes:
 - `reason_code`
 - `iterations`
 - `review_required`
-- `validator_clean`
+- `mechanical_severity_clear`
 - `mapping_ready`
 - `promoted`
 - `closure_state`

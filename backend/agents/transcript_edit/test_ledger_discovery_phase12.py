@@ -8,15 +8,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger_with_domain_template_seed
 from backend.agents.transcript_edit.decision_ledger_focus import choose_investigation_focus
+from backend.agents.transcript_edit.decision_ledger_state import reconcile_ledger_derived_fields
 from backend.agents.transcript_edit.focus_authority_policy import authority_rank_for_candidate
 from backend.agents.transcript_edit.focus_packet import build_focus_packet
+from backend.agents.transcript_edit.llm_startup_understanding import native_rows_from_llm_initial_ledger_items
 from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import (
     DISCOVERY_ITEM_PROVENANCE,
     DISCOVERY_KEY_PREFIX,
     append_discovery_merge_continuity,
     merge_discovery_from_audit_findings,
+    merge_discovered_native_items,
     signal_fingerprint,
 )
+
+
+def _append_llm_discovery_row(ledger: dict, *, title: str, summary: str) -> str:
+    rows = native_rows_from_llm_initial_ledger_items(
+        [{"title": title, "summary": summary, "mapping_blocking": True}]
+    )
+    ledger["items"].extend(rows)
+    reconcile_ledger_derived_fields(ledger)
+    return next(
+        str(i.get("key"))
+        for i in ledger.get("items") or []
+        if isinstance(i, dict) and str(i.get("key") or "").startswith(DISCOVERY_KEY_PREFIX)
+    )
 
 
 def _long_contradiction(msg_suffix: str = "") -> str:
@@ -28,14 +44,19 @@ def _long_contradiction(msg_suffix: str = "") -> str:
 
 def test_authority_rank_discovery_matches_decision_when_mapping_blocking() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
-    ledger = merge_discovery_from_audit_findings(
+    disc_key = _append_llm_discovery_row(
+        ledger,
+        title="Authority rank case",
+        summary=_long_contradiction(),
+    )
+    for it in ledger.get("items") or []:
+        if isinstance(it, dict) and str(it.get("key") or "") == disc_key:
+            it["state"] = "disputed"
+            it["alternatives"] = ["a", "b"]
+            break
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "a1", "message": _long_contradiction()}],
-    )
-    disc_key = next(
-        str(i.get("key"))
-        for i in ledger.get("items") or []
-        if isinstance(i, dict) and str(i.get("key") or "").startswith(DISCOVERY_KEY_PREFIX)
     )
     from backend.agents.transcript_edit.decision_ledger_closure import (
         unresolved_mapping_blocking_requirements,
@@ -68,7 +89,12 @@ def test_discovery_can_outrank_seed_when_contradiction_signal_stronger() -> None
             cr["block_reason"] = "ambiguity"
             it["closure_requirement"] = cr
             break
-    ledger = merge_discovery_from_audit_findings(
+    _append_llm_discovery_row(
+        ledger,
+        title="Strong contradiction signal",
+        summary=_long_contradiction(),
+    )
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "cx", "message": _long_contradiction()}],
     )
@@ -90,11 +116,10 @@ def test_discovery_can_outrank_seed_when_contradiction_signal_stronger() -> None
 
 def test_near_duplicate_signal_merges_evidence_without_new_row() -> None:
     """Second contribution with same signal_fp merges into the first row (merge-layer dedupe)."""
-    from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import merge_discovered_native_items
-
     ledger = initialize_decision_ledger_with_domain_template_seed()
     msg = _long_contradiction("segment one")
-    m1 = merge_discovery_from_audit_findings(ledger, [{"finding_id": "id-a", "message": msg}])
+    _append_llm_discovery_row(ledger, title="Near dup base", summary=msg)
+    m1 = ledger
     row1 = next(
         i for i in m1.get("items") or [] if isinstance(i, dict) and str(i.get("key") or "").startswith(DISCOVERY_KEY_PREFIX)
     )
@@ -113,14 +138,14 @@ def test_near_duplicate_signal_merges_evidence_without_new_row() -> None:
 
 def test_focus_packet_includes_discovery_work_context() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
-    ledger = merge_discovery_from_audit_findings(
+    disc_key = _append_llm_discovery_row(
+        ledger,
+        title="Packet discovery context",
+        summary=_long_contradiction(),
+    )
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "p1", "message": _long_contradiction()}],
-    )
-    disc_key = next(
-        str(i.get("key"))
-        for i in ledger.get("items") or []
-        if isinstance(i, dict) and str(i.get("key") or "").startswith(DISCOVERY_KEY_PREFIX)
     )
     packet = build_focus_packet(
         decision_ledger=ledger,
@@ -141,7 +166,7 @@ def test_focus_packet_includes_discovery_work_context() -> None:
     dwc = ec.get("discovery_work_context")
     assert isinstance(dwc, dict)
     assert dwc.get("origin") == "transcript_edit_discovery"
-    assert dwc.get("kind") == "contradiction_cluster"
+    assert str(dwc.get("kind") or "") == "llm_startup_item"
     assert dwc.get("why_matters")
 
 
@@ -165,8 +190,12 @@ def test_low_signal_finding_not_promoted() -> None:
         [{"finding_id": "tiny", "message": "short text"}],  # < _MIN_MESSAGE_CHARS
         merge_stats=st,
     )
-    infer = st.get("infer") or {}
-    assert int(infer.get("rejected_low_signal") or 0) >= 1
+    assert st.get("phase24_no_validator_discovery") is True
+    assert not any(
+        str(i.get("key") or "").startswith(DISCOVERY_KEY_PREFIX)
+        for i in (ledger.get("items") or [])
+        if isinstance(i, dict)
+    )
 
 
 def test_signal_fingerprint_stable() -> None:

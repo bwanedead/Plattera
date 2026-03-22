@@ -10,9 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from backend.agent_kernel.tooling import (
     TranscriptImageVerificationTool,
-    TranscriptOrientBaselineTool,
     TranscriptSpanOpenerTool,
 )
+from backend.agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool
 from backend.transcript_edit.persistence import TranscriptionEditPersistenceService
 
 

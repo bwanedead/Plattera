@@ -30,7 +30,7 @@ def test_build_handoff_packet_includes_terminal_and_ledger_views() -> None:
         request=_Request(),
         result=_Result(),
         terminal_summary={
-            "validator_clean": True,
+            "mechanical_severity_clear": True,
             "mapping_ready": False,
             "promoted": False,
             "readiness_blocker": "mapping_critical_image_verification_unresolved",

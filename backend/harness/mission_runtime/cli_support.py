@@ -14,10 +14,10 @@ from agent_kernel.tooling import (
     TranscriptEditPlanApplyTool,
     TranscriptImageVerificationTool,
     TranscriptMappingPromoterTool,
-    TranscriptOrientBaselineTool,
     TranscriptSpanOpenerTool,
     TranscriptSpanSeedsSaverTool,
 )
+from agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool
 from agents.controller.bootstrap import (
     hydrate_and_persist_finalized_dossier_text,
     persist_deed_text_artifact,

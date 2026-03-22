@@ -13,6 +13,8 @@ from backend.agents.transcript_edit.decision_ledger import (
 )
 from backend.agents.transcript_edit.decision_ledger_adapter import build_transcript_edit_unified_decision_ledger
 from backend.agents.transcript_edit.decision_ledger_focus import choose_investigation_focus
+from backend.agents.transcript_edit.decision_ledger_state import reconcile_ledger_derived_fields
+from backend.agents.transcript_edit.llm_startup_understanding import native_rows_from_llm_initial_ledger_items
 from backend.agents.transcript_edit.organized_work_composition import compute_organized_work_composition
 from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import DISCOVERY_KEY_PREFIX, merge_discovery_from_audit_findings
 from backend.harness.decision_ledger import contracts as dl_contracts
@@ -28,7 +30,12 @@ def test_default_startup_empty_then_discovery_establishes_work() -> None:
     ledger = initialize_decision_ledger()
     assert ledger.get("items") == []
     assert ledger.get("ledger_establishment_mode") == "discovery_native"
-    ledger = merge_discovery_from_audit_findings(
+    rows = native_rows_from_llm_initial_ledger_items(
+        [{"title": "Establish discovery work", "summary": _long_contra(), "mapping_blocking": True}]
+    )
+    ledger["items"].extend(rows)
+    reconcile_ledger_derived_fields(ledger)
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "d1", "message": _long_contra()}],
     )
@@ -48,7 +55,13 @@ def test_optional_template_seed_injects_full_checklist() -> None:
 
 def test_focus_and_composition_with_discovery_native_after_merge() -> None:
     ledger = initialize_decision_ledger()
-    ledger = merge_discovery_from_audit_findings(
+    ledger["items"].extend(
+        native_rows_from_llm_initial_ledger_items(
+            [{"title": "Native merge composition", "summary": _long_contra(), "mapping_blocking": True}]
+        )
+    )
+    reconcile_ledger_derived_fields(ledger)
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "d1", "message": _long_contra()}],
     )
@@ -59,7 +72,7 @@ def test_focus_and_composition_with_discovery_native_after_merge() -> None:
     assert int(comp.get("unresolved_discovery_active_count") or 0) >= 1
 
 
-def test_update_ledger_materializes_seed_row_on_demand() -> None:
+def test_update_ledger_from_iteration_does_not_materialize_seed_rows_from_audit_phase24() -> None:
     ledger = initialize_decision_ledger()
     out = update_ledger_from_iteration(
         ledger=ledger,
@@ -70,9 +83,7 @@ def test_update_ledger_materializes_seed_row_on_demand() -> None:
             },
         ],
     )
-    by_k = {str(i.get("key")): i for i in out.get("items") or [] if isinstance(i, dict)}
-    assert "tie_distance" in by_k
-    assert len(by_k) == 1
+    assert out.get("items") == []
 
 
 def test_placeholder_hook_removed_is_unreferenced() -> None:

@@ -457,6 +457,21 @@ def handle_repair_move_outcome(
     registry_row_for_decision_key_fn: Callable[..., dict[str, Any] | None],
 ) -> TranscriptEditDecision | None:
     signals = policy_signals if isinstance(policy_signals, dict) else {}
+    if isinstance(resolver_outcome, dict):
+        _it_u = resolver_outcome.get("iteration_understanding")
+        if isinstance(_it_u, dict) and _it_u:
+            from .llm_startup_understanding import apply_llm_iteration_updates_to_ledger_and_registry
+
+            _ms_it: dict[str, Any] = {}
+            state.decision_ledger, state.blocker_registry = apply_llm_iteration_updates_to_ledger_and_registry(
+                ledger=state.decision_ledger,
+                registry=state.blocker_registry,
+                iteration_payload=_it_u,
+                merge_stats=_ms_it,
+                fallback_decision_key=str(focus_key or "").strip().lower() or None,
+            )
+            if isinstance(state.decision_ledger.get("llm_iteration_understanding"), dict):
+                state.llm_iteration_understanding = dict(state.decision_ledger["llm_iteration_understanding"])
     state_before_summary = {
         "understanding_strength": str(signals.get("understanding_strength") or "unknown").strip().lower() or "unknown",
         "has_fresh_signal": bool(signals.get("has_fresh_signal")),
@@ -1238,7 +1253,7 @@ def handle_repair_move_outcome(
             before_sig = blocking_signature(read_before_iv)
             state.decision_ledger = update_ledger_from_iteration(
                 ledger=state.decision_ledger,
-                findings=planning_findings,
+                findings=[],
                 image_results=[result for result in iv_results if isinstance(result, dict)],
             )
             _, read_after_iv = transcript_edit_unified_and_closure_read_from_loop_state(state)

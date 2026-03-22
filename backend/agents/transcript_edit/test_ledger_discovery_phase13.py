@@ -9,7 +9,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger_with_domain_template_seed
 from backend.agents.transcript_edit.decision_ledger_adapter import build_transcript_edit_unified_decision_ledger
 from backend.agents.transcript_edit.decision_ledger_focus import choose_investigation_focus
+from backend.agents.transcript_edit.decision_ledger_state import reconcile_ledger_derived_fields
 from backend.agents.transcript_edit.focus_packet import build_focus_packet
+from backend.agents.transcript_edit.llm_startup_understanding import native_rows_from_llm_initial_ledger_items
 from backend.agents.transcript_edit.organized_work_composition import compute_organized_work_composition
 from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import (
     DISCOVERY_KEY_PREFIX,
@@ -17,6 +19,14 @@ from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import
     merge_discovered_native_items,
     refresh_discovery_posture_fields,
 )
+
+
+def _append_llm_discovery_row(ledger: dict, *, title: str, summary: str) -> None:
+    rows = native_rows_from_llm_initial_ledger_items(
+        [{"title": title, "summary": summary, "mapping_blocking": True}]
+    )
+    ledger["items"].extend(rows)
+    reconcile_ledger_derived_fields(ledger)
 from backend.harness.decision_ledger import contracts as dl_contracts
 
 
@@ -42,7 +52,12 @@ def test_stable_discovery_outranks_weak_seed_placeholder() -> None:
                 "block_reason": "ambiguity",
             }
             break
-    ledger = merge_discovery_from_audit_findings(
+    _append_llm_discovery_row(
+        ledger,
+        title="Stable mature discovery",
+        summary=_long_contra(),
+    )
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "d1", "message": _long_contra()}],
     )
@@ -101,7 +116,12 @@ def test_seed_wins_when_closure_authority_strong() -> None:
 
 def test_packet_shows_composition_and_discovery_posture() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
-    ledger = merge_discovery_from_audit_findings(
+    _append_llm_discovery_row(
+        ledger,
+        title="Composition posture row",
+        summary=_long_contra(),
+    )
+    merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "p1", "message": _long_contra()}],
     )
@@ -135,7 +155,8 @@ def test_packet_shows_composition_and_discovery_posture() -> None:
 def test_discovery_more_salient_after_repeated_evidence_merges() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
     msg = _long_contra("repeat path")
-    ledger = merge_discovery_from_audit_findings(ledger, [{"finding_id": "a", "message": msg}])
+    _append_llm_discovery_row(ledger, title="Repeat merge base", summary=msg)
+    merge_discovery_from_audit_findings(ledger, [{"finding_id": "a", "message": msg}])
     row = next(
         i
         for i in ledger.get("items") or []

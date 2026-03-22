@@ -29,7 +29,8 @@ def open_planner_context_spans(
             start = span.get("start_char")
             end = span.get("end_char")
             if isinstance(start, int) and isinstance(end, int) and end > start:
-                spans.append({"start_char": max(0, start - 100), "end_char": end + 100, "span_id": finding.get("finding_id")})
+                sid = finding.get("observation_ref") or finding.get("finding_id") or finding.get("span_id")
+                spans.append({"start_char": max(0, start - 100), "end_char": end + 100, "span_id": sid})
     if not spans:
         spans = fallback_spans_for_findings(
             source_transcript_ref=source_transcript_ref,
@@ -87,34 +88,34 @@ def fallback_spans_for_findings(
     for finding in top_findings[:8]:
         if not isinstance(finding, dict):
             continue
-        ftype = str(finding.get("finding_type") or "").strip().lower()
-        if ftype == "plss_consistency":
-            search_terms.extend(
-                [
-                    ("Range seventy-four (74) West", "finding_plss_r74"),
-                    ("Range seventy-five (75) West", "finding_plss_r75"),
-                    ("Township Fourteen (14) North", "finding_plss_t14"),
-                ]
-            )
-        elif ftype == "bearing_parse":
-            search_terms.extend(
-                [
-                    ("N. 4°00' W., 1638 feet", "finding_bearing_tie"),
-                    ("thence N.", "finding_bearing_thence"),
-                    ("to the point of beginning", "finding_bearing_closure"),
-                ]
-            )
-        elif ftype == "numeric_unit_sanity":
-            search_terms.extend(
-                [
-                    ("1.4 acres", "finding_acreage_14"),
-                    ("1.9 acres", "finding_acreage_19"),
-                    ("1638 feet", "finding_distance_1638"),
-                ]
-            )
         message = str(finding.get("message") or "")
+        ml = message.lower()
+        if any(t in ml for t in ("range", "township", "section", "plss", "west", "east")):
+            search_terms.extend(
+                [
+                    ("Range seventy-four (74) West", "ctx_plss_r74"),
+                    ("Range seventy-five (75) West", "ctx_plss_r75"),
+                    ("Township Fourteen (14) North", "ctx_plss_t14"),
+                ]
+            )
+        if "bearing" in ml or "thence" in ml:
+            search_terms.extend(
+                [
+                    ("N. 4°00' W., 1638 feet", "ctx_bearing_tie"),
+                    ("thence N.", "ctx_bearing_thence"),
+                    ("to the point of beginning", "ctx_bearing_closure"),
+                ]
+            )
+        if "acre" in ml or "feet" in ml:
+            search_terms.extend(
+                [
+                    ("1.4 acres", "ctx_acreage_14"),
+                    ("1.9 acres", "ctx_acreage_19"),
+                    ("1638 feet", "ctx_distance_1638"),
+                ]
+            )
         for literal in extract_numeric_literals(message):
-            search_terms.append((literal, f"finding_literal_{literal[:24]}"))
+            search_terms.append((literal, f"ctx_literal_{literal[:24]}"))
 
     for term, sid in search_terms:
         idx = text.find(term)

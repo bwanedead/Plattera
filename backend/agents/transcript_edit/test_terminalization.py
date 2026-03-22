@@ -71,7 +71,7 @@ def test_terminal_summary_collects_audit_apply_and_feedback_flags() -> None:
     assert summary["used_human_feedback"] is True
     assert summary["initial_findings"]["error_count"] == 2
     assert summary["final_findings"]["error_count"] == 0
-    assert summary["validator_clean"] is True
+    assert summary["mechanical_severity_clear"] is True
     assert summary["closure_state"] == "blocked"
     assert summary["layer1_canonical_recovery"] == "unknown"
     assert summary["layer2_canonical_sanity"] == "unknown"
@@ -207,9 +207,9 @@ def test_terminal_message_and_summary_for_not_mapping_ready() -> None:
         review_required=True,
     )
     msg = terminal_message(result)
-    assert "validator-clean but not mapping-ready" in msg
+    assert "not mapping-ready" in msg and "Mechanical severity" in msg
     summary = terminal_summary(progress_log, result)
-    assert summary["validator_clean"] is True
+    assert summary["mechanical_severity_clear"] is True
     assert summary["mapping_ready"] is False
     assert summary["promoted"] is False
     assert summary["readiness_blocker"] == "mapping_critical_image_verification_unresolved"
@@ -251,7 +251,7 @@ def test_terminal_summary_completed_status_not_mapping_ready_when_blocking_closu
         review_required=False,
     )
     summary = terminal_summary(progress_log, result)
-    assert summary["validator_clean"] is True
+    assert summary["mechanical_severity_clear"] is True
     assert summary["mapping_ready"] is False
     assert summary["closure_state"] == "blocked"
     unresolved = summary["unresolved_closure_requirements"]
@@ -941,7 +941,7 @@ def test_terminal_summary_run_failed_blocks_scoped_success() -> None:
     assert summary["terminal_classification"] != "target_scope_complete_with_incomplete_source_context"
 
 
-def test_terminal_summary_validator_dirty_blocks_scoped_success() -> None:
+def test_terminal_summary_mechanical_severity_not_clear_blocks_scoped_success() -> None:
     progress_log = [
         {
             "phase": "audit_result",
@@ -982,7 +982,7 @@ def test_terminal_summary_validator_dirty_blocks_scoped_success() -> None:
         review_required=True,
     )
     summary = terminal_summary(progress_log, result, critical_events=[])
-    assert summary["validator_clean"] is False
+    assert summary["mechanical_severity_clear"] is False
     assert summary["scoped_success_eligible"] is False
     assert summary["terminal_classification"] != "target_scope_complete_with_incomplete_source_context"
 

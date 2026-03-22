@@ -29,6 +29,26 @@ The harness is the structure around that engine.
 
 ---
 
+## 1.1 Native Shape Rule
+
+The harness is a **generic mission machine**.
+
+Its intended native shape is:
+
+- shared mission runtime
+- shared orchestration kernel
+- shared execution kernel
+- shared generic state surfaces
+- pluggable domain packs
+
+Domain packs are the interchangeable **skins** the harness wears for particular missions.
+
+The harness core must be intrinsically capable of hosting radically different missions without rewriting its ontology or shared execution contracts for each mission family.
+
+If a shared layer only makes sense for one concrete mission family, it is not generic enough to live in the harness core.
+
+---
+
 ## 2. What The Harness Is Allowed To Do
 
 The harness may:
@@ -89,6 +109,89 @@ They may not provide runtime truth about what the work means.
 
 ---
 
+## 4.1 Orientation Contract Rule
+
+Startup and orientation tooling may define **generic containers** only: briefs, candidate work items, blockers, dependencies, artifact inventory, and similar bounded shapes.
+
+The harness must not require a **mission-specific ontology** (fixed decision-key lists, mandatory deed categories, or prescribed semantic slots) as the only valid startup output.
+
+Mission-specific vocabulary may appear in **prompt doctrine** as hints. The LLM chooses the practical work universe within those containers.
+
+**Module ownership (non-negotiable clarity):**
+
+- Generic orientation containers and validation belong on the agent-kernel side (for example ``agent_kernel.orientation``).
+- Domain packs own mission prompts, source assembly, optional legacy adapters (such as checklist-shaped seeds), and mapping from generic orientation output into native mission artifacts.
+- Optional advisory fields like ``suggested_key`` are model-authored hints interpreted by domain adapters — they are not shared-harness truth.
+
+**Kernel–domain tool seam:** Mission-specific tools (for example transcript-edit orient) live under ``agents/<mission>/`` and are wired into ``ActionExecutor`` / ``KernelSessionManager`` at construction time via **lazy import** or an explicit registration hook. The ``agent_kernel`` package must not eager-import domain tool modules during its own import (circular imports and ownership blur). Generic orientation stays in ``agent_kernel.orientation``; domain orchestration stays in the domain pack.
+
+## 4.2 Generic Ontology Rule
+
+Shared harness and agent-kernel layers must use **mission-agnostic ontology** only.
+
+Allowed in shared layers:
+
+- generic work/process vocabulary like work item, blocker, dependency, evidence, focus, priority, confidence, waiting, resolved, closure, resumability
+- generic process posture such as whether something is blocked, waiting on human input, waiting on evidence, or closure-blocking as a process state
+
+Forbidden in shared layers:
+
+- mission-specific impact labels
+- mission-specific blocker taxonomies
+- mission-specific closure layers
+- mission-specific decision-key families
+- mission-specific quality classes
+
+Examples of forbidden shared-layer ontology:
+
+- ``mapping_blocking``
+- ``transcript_quality_only``
+- transcript-edit-specific layer labels
+- deed-specific key families such as township/range/section as shared-harness truth
+
+If a label would not make sense for a toaster, a UFO designer, an email assistant, and a finance-doc workflow alike, it does not belong in the shared harness ontology.
+
+Mission-specific ontology belongs in:
+
+- domain packs
+- mission prompts
+- mission adapters
+- mission-specific read models
+
+It does not belong in shared contracts, shared coercion helpers, or shared emergence rules.
+
+**Work-board promotion:** shared ``evaluate_add_item_promotion`` may use generic structural signals only (for example materiality, bounded priority, dependency presence, evidence reference presence, and resolution text length). Optional fields like ``blocking_impact`` may be stored as opaque domain hints, but shared harness code must not branch on mission-specific label values.
+
+**Naming rule:** ``work_board`` is legacy migration vocabulary only. The target generic concepts are:
+
+- ``mission_state`` for the top-level harness continuity surface
+- ``resolution_state`` for the generic active problem/work surface inside it
+
+Do not build new architecture around the ``work_board`` metaphor.
+
+## 4.3 Underspecification Rule
+
+When the model leaves semantic posture incomplete or ambiguous, shared layers must preserve that ambiguity rather than silently upgrading it into domain meaning.
+
+Shared layers may:
+
+- normalize structure
+- fill empty containers
+- use neutral placeholders like ``unknown`` or ``unspecified``
+- request repair / retry when required fields are missing
+
+Shared layers must not:
+
+- default a vague work item to a mission-specific impact class
+- default a vague blocker to a mission-specific blocker kind
+- default a vague item into a mission-specific closure layer
+- choose mission-specific next actions on the model's behalf
+
+When ambiguity remains, preserve ambiguity or bounce the payload back for repair.
+Do not silently invent mission posture.
+
+---
+
 ## 5. Evidence Rule
 
 Deterministic tools are allowed to produce evidence-shaped outputs.
@@ -121,6 +224,13 @@ The distinction is:
 
 The decision ledger is the agent's organized-work surface.
 
+The current repo may still carry legacy ``decision_ledger`` naming in transitional code, but the long-term generic harness direction is:
+
+- ``mission_state`` as the top-level continuity object
+- ``resolution_state`` as the generic active problem/work surface
+
+The constitution rule is about the **surface's role**, not preserving one transitional metaphor forever.
+
 It must be populated from:
 
 - agent orientation
@@ -136,6 +246,55 @@ It must not be populated from:
 
 The ledger may store evidence refs from tools.
 The meaning of the item must still come from the agent.
+
+---
+
+## 6.1 Mission State Rule
+
+The harness should converge on a top-level generic continuity object called ``mission_state``.
+
+``mission_state`` may carry only generic harness concerns, such as:
+
+- mission identity
+- active pack / active mode
+- continuity and resumability
+- transition records
+- high-signal artifact refs
+- bounded blocker / verification / waiting summaries
+- terminal posture
+- trace refs
+- timestamps and ordering anchors
+
+It must not become a sink for domain ontology or domain-local truth stores.
+
+---
+
+## 6.2 Resolution State Rule
+
+The harness should converge on a generic active problem/work surface called ``resolution_state``.
+
+``resolution_state`` may contain:
+
+- active items
+- blockers
+- dependencies
+- evidence links
+- ordering hints
+- completion conditions
+- state transitions
+- generic notes and opaque domain payload
+
+It must not require one fixed metaphor such as board, queue, backlog, or ledger.
+
+It must be capable of representing:
+
+- sequential work
+- revisited work
+- parallelizable work
+- convergent work
+- dependency-shaped work
+
+If the implementation later becomes graph-explicit, that graph should live inside or beneath ``resolution_state`` rather than redefining the harness around a narrow project-management metaphor.
 
 ---
 
@@ -159,6 +318,15 @@ The harness must not:
 Priority policy may exist as a prompt doctrine.
 It must not exist as hidden deterministic authorship.
 
+Generic blocker posture is allowed.
+Mission-specific blocker meaning is not.
+
+For example:
+
+- ``closure_blocking`` can be a generic process posture in shared layers
+- what counts as closure, and why something blocks it, is domain-owned
+- mission-specific blocker classes like mapping-specific or transcript-quality-specific labels belong in domain packs only
+
 ---
 
 ## 8. Closure Rule
@@ -172,11 +340,20 @@ Closure is the agent's final judgment, grounded in:
 - available evidence
 - remaining contradictions
 - remaining dependencies
-- mapping relevance
+- mission relevance
 - human feedback if present
 
 Deterministic checks may support confidence.
 They may not define semantic closure.
+
+**Mechanical audit signals:** Runtime summaries may include mechanical tallies from inspection passes (for example, counts of error-severity observations). Name and document these as **mechanical** or **severity** signals — not as “validator clean” semantic truth. Ledger state, blockers, and LLM-authored rationale carry closure meaning; severity tallies are rails only.
+
+Shared layers may carry a generic notion that something is closure-blocking.
+The domain owns the meaning of closure itself.
+
+Transcript-edit may define closure around mapping-readiness and transcript integrity.
+Another mission may define closure completely differently.
+The harness must not bake one mission's closure doctrine into shared labels.
 
 ---
 
@@ -230,6 +407,8 @@ The harness must remain:
 
 - deterministic in mechanics
 - agentic in semantic authorship
+- generic in its core ontology
+- domain-specific only through pluggable packs
 
 The model decides what the case means.
 The harness makes that process durable, bounded, observable, and safe.

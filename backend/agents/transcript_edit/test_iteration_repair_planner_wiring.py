@@ -7,10 +7,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
-from backend.agents.transcript_edit.decision_ledger import (
-    initialize_decision_ledger_with_domain_template_seed,
-    update_ledger_from_iteration,
-)
+from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger_with_domain_template_seed
 from backend.agents.transcript_edit.iteration_repair_runtime import handle_repair_iteration
 from backend.agents.transcript_edit.loop_state import TranscriptEditLoopState
 
@@ -36,16 +33,22 @@ class _PlannerCapture:
 
 
 def _range_disputed_ledger() -> dict:
-    return update_ledger_from_iteration(
-        ledger=initialize_decision_ledger_with_domain_template_seed(),
-        findings=[
-            {
-                "finding_id": "plss_range_conflict_001",
-                "finding_type": "plss_consistency",
-                "message": "PLSS contradiction: Range 75 West vs Range 74 West.",
+    """Phase 24: disputed range is LLM/orient-authored on the ledger, not from audit findings."""
+    ledger = initialize_decision_ledger_with_domain_template_seed()
+    for item in ledger.get("items") or []:
+        if isinstance(item, dict) and str(item.get("key") or "") == "range":
+            item["state"] = "disputed"
+            item["blocking"] = True
+            item["alternatives"] = ["Range 75 West", "Range 74 West"]
+            item["closure_requirement"] = {
+                "block_reason": "contradiction",
+                "mapping_blocking": True,
+                "operational_impact": "mapping_blocking",
+                "resolution_options": ["Range 75 West", "Range 74 West"],
+                "evidence_refs": ["plss_range_conflict_001"],
             }
-        ],
-    )
+            break
+    return ledger
 
 
 def test_handle_repair_iteration_invokes_standalone_planner_with_execution_context_when_flag_on() -> None:

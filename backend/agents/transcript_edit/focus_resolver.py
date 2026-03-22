@@ -104,6 +104,7 @@ def resolve_focus_move(
         out.setdefault("feedback_prompt", None)
         out.setdefault("evidence_request", None)
         out.setdefault("blocker_updates", None)
+        out.setdefault("iteration_understanding", None)
         out.setdefault("closure_update_hint", None)
         raw_excerpt = str(_raw_move or "").strip()
         if raw_excerpt:

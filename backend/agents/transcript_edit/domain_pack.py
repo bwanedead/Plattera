@@ -92,9 +92,9 @@ from .result_policy import (
     TranscriptEditFacts,
 )
 from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_from_loop_state
-from .transcript_edit_ledger_discovery_prep import (
-    append_discovery_merge_continuity,
-    merge_discovery_from_audit_findings,
+from .llm_startup_understanding import (
+    apply_llm_startup_to_ledger_and_registry,
+    fallback_decision_key_for_startup_merge,
 )
 from .decision_ledger_focus import choose_investigation_focus
 from .domain_pack_focus_wiring import choose_investigation_fallback_focus_from_state
@@ -187,9 +187,10 @@ class TranscriptEditDomainPack:
     # -------------------------------------------------------------------------
 
     def orient(self, context: OrchestratorContext) -> None:
-        """Phase 1 — Pre-audit + orient baseline + initial domain state setup.
+        """Phase 1 — LLM orient baseline + initial domain state setup (Phase 23).
 
-        Runs TX_AUDIT_TRANSCRIPT (pre-audit) then TX_ORIENT_AND_BASELINE.
+        Runs TX_ORIENT_AND_BASELINE first — startup understanding and baseline items are LLM-authored.
+        Deterministic transcript audit is not used to author initial ledger rows or startup meaning here.
         Initializes decision_ledger, blocker_registry, convention_context.
         Also handles resume state restoration when initial_state was provided.
         """
@@ -251,34 +252,8 @@ class TranscriptEditDomainPack:
                 resume_prompt_id,
             )
 
-        # Pre-audit: source hash safety and advisory lints.
-        pre_audit_inputs: dict[str, Any] = {"dossier_id": request.dossier_id}
-        if self._state.current_transcript_ref:
-            pre_audit_inputs["source_transcript_ref"] = self._state.current_transcript_ref
-        elif request.source_text:
-            pre_audit_inputs["source_text"] = request.source_text
-
-        pre_audit = session_manager.step(
-            KernelStepRequest(
-                session_id=session_id,
-                action_type=ActionType.TX_AUDIT_TRANSCRIPT,
-                inputs=pre_audit_inputs,
-                idempotency_key=_make_idempotency_key(
-                    f"{request_id_prefix}:pre_audit", 0, pre_audit_inputs
-                ),
-            )
-        )
-        if pre_audit.execution_state == StepExecutionState.EXECUTED and pre_audit.dashboard:
-            self._state.latest_refs = pre_audit.dashboard.latest_refs.model_dump(mode="json")
-            inline = read_step_outputs_inline(pre_audit.step_record)
-            src_ref = read_str(inline.get("tx_source_transcript_ref"))
-            if self._working_transcript_override:
-                self._state.current_transcript_ref = self._working_transcript_override
-            elif src_ref:
-                self._state.current_transcript_ref = src_ref
-            self._pre_source_hash = read_str(inline.get("tx_source_transcript_hash")) or ""
-        else:
-            self._pre_source_hash = ""
+        # Phase 23: no pre-audit at startup — source hash/ref come from orient outputs (or resume paths above).
+        self._pre_source_hash = ""
 
         # D2: seed_transcript_ref is set once at loop start (never overwritten).
         if not self._state.seed_transcript_ref:
@@ -332,8 +307,11 @@ class TranscriptEditDomainPack:
             self._state.latest_refs = orient.dashboard.latest_refs.model_dump(mode="json")
             orient_inline = read_step_outputs_inline(orient.step_record)
             orient_src_ref = read_str(orient_inline.get("tx_source_transcript_ref"))
-            if orient_src_ref:
+            if self._working_transcript_override:
+                self._state.current_transcript_ref = self._working_transcript_override
+            elif orient_src_ref:
                 self._state.current_transcript_ref = orient_src_ref
+            self._pre_source_hash = read_str(orient_inline.get("tx_source_transcript_hash")) or ""
             if read_str(orient_inline.get("tx_span_seeds_ref")):
                 self._state.span_seeds_ref = read_str(orient_inline.get("tx_span_seeds_ref"))
             orient_items = [
@@ -344,6 +322,26 @@ class TranscriptEditDomainPack:
             self._state.decision_ledger = update_ledger_from_orient_baseline(
                 ledger=self._state.decision_ledger,
                 orient_items=orient_items,
+            )
+            startup_raw = orient_inline.get("tx_startup_understanding")
+            if not isinstance(startup_raw, dict):
+                startup_raw = {}
+            _fb_key = fallback_decision_key_for_startup_merge(
+                orient_items=orient_items,
+                startup=startup_raw,
+            )
+            _merge_stats: dict[str, Any] = {}
+            self._state.decision_ledger, self._state.blocker_registry = apply_llm_startup_to_ledger_and_registry(
+                ledger=self._state.decision_ledger,
+                registry=self._state.blocker_registry,
+                startup=startup_raw,
+                merge_stats=_merge_stats,
+                fallback_decision_key=_fb_key,
+            )
+            self._state.llm_startup_understanding = (
+                dict(self._state.decision_ledger.get("llm_startup_understanding"))
+                if isinstance(self._state.decision_ledger.get("llm_startup_understanding"), dict)
+                else None
             )
             self._state.convention_context = situate_document_convention(orient_items=orient_items)
             self._state.blocker_registry = set_convention_context(
@@ -539,8 +537,9 @@ class TranscriptEditDomainPack:
     def refresh(self, context: OrchestratorContext) -> RefreshResult:
         """Phase 2 — Per-iteration audit + ledger update.
 
-        Runs TX_AUDIT_TRANSCRIPT, updates decision_ledger from findings,
-        syncs blocker_registry, and stores per-iteration signatures for hook 7.
+        Runs TX_AUDIT_TRANSCRIPT for mechanical tracing and refs. Inspection observations are
+        evidence-only: they merge source-completeness signals only; ledger and discovery meaning
+        stay LLM-authored (startup and iteration updates).
         """
         request = self._request
         session_manager = context.session_manager
@@ -635,32 +634,32 @@ class TranscriptEditDomainPack:
             if isinstance(inline.get("tx_validator_summary"), dict)
             else {}
         )
+        _ev_obs = inline.get("tx_evidence_observations")
         top_findings = (
-            inline.get("tx_top_findings")
-            if isinstance(inline.get("tx_top_findings"), list)
-            else []
+            _ev_obs
+            if isinstance(_ev_obs, list)
+            else (
+                inline.get("tx_top_findings")
+                if isinstance(inline.get("tx_top_findings"), list)
+                else []
+            )
         )
         src_hash = (
             read_str(inline.get("tx_source_transcript_hash"))
             or getattr(self, "_pre_source_hash", "")
         )
 
-        # Update decision_ledger from audit findings.
+        # Audit/inspection output is evidence only — mechanical source-completeness merge, no ledger/discovery authorship.
+        self._state.last_audit_evidence_snapshot = {
+            "schema_version": "audit_evidence_snapshot.v1",
+            "iteration": int(context.loop_memory.iterations),
+            "validator_summary": dict(findings_summary) if isinstance(findings_summary, dict) else {},
+            "observations": [dict(x) for x in top_findings if isinstance(x, dict)][:24],
+            "source_transcript_hash": src_hash,
+        }
         self._state.decision_ledger = update_ledger_from_iteration(
             ledger=self._state.decision_ledger,
-            findings=top_findings,
-        )
-        # Discovery-first: bounded merge of non-seed ledger rows from audit signals.
-        _disc_merge_stats: dict[str, Any] = {}
-        self._state.decision_ledger = merge_discovery_from_audit_findings(
-            self._state.decision_ledger,
-            top_findings,
-            merge_stats=_disc_merge_stats,
-        )
-        append_discovery_merge_continuity(
-            self._state.continuity_log,
-            iteration=int(context.loop_memory.iterations),
-            merge_stats=_disc_merge_stats,
+            findings=[dict(x) for x in top_findings if isinstance(x, dict)],
         )
         # Post-edit re-audit: items absent from new findings are no longer conflicting.
         # update_ledger_from_iteration only accumulates findings; it never clears absent
@@ -860,6 +859,11 @@ class TranscriptEditDomainPack:
             evidence_signal_counter=state.evidence_signal_counter,
             harness_emergent_board_items=list(state.harness_emergent_board_items or []),
             harness_board_context_notes=dict(state.harness_board_context_notes or {}),
+            audit_evidence_snapshot=(
+                dict(state.last_audit_evidence_snapshot)
+                if isinstance(state.last_audit_evidence_snapshot, dict)
+                else None
+            ),
         )
         # D3: inject run-progress frame and rationale-continuity strip into the packet.
         # D2: inject investigation summary ref + state for cumulative grounding.

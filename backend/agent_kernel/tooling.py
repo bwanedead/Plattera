@@ -32,4 +32,5 @@ from .tooling_transcript_core import (
     TranscriptSpanSeedsSaverTool,
 )
 from .tooling_transcript_image import TranscriptImageVerificationTool, TranscriptSpanOpenerTool
-from .tooling_transcript_orient import TranscriptOrientBaselineTool
+
+# Transcript-orient tool: domain-owned; see ``agents.transcript_edit.orient_tool`` (not imported here — avoids cycles).

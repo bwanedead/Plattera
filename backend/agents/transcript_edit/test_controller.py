@@ -20,12 +20,12 @@ from backend.agent_kernel.actions import ActionExecutor, ActionExecutorDeps
 from backend.agent_kernel.session import KernelSessionManager
 from backend.agent_kernel.tooling import (
     TranscriptAuditTool,
-    TranscriptOrientBaselineTool,
     TranscriptEditPlanApplyTool,
     TranscriptMappingPromoterTool,
     TranscriptSpanSeedsSaverTool,
     TranscriptSpanOpenerTool,
 )
+from backend.agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool
 from backend.agents.transcript_edit.controller import (
     run_transcript_edit_controller_loop,
 )

@@ -60,13 +60,13 @@ def terminal_message(result: Any) -> str:
     iterations = getattr(result, "iterations", 0)
     if status == "needs_review" and reason.startswith("tx_agent_final_image_verify_failed"):
         return (
-            f"Transcript is validator-clean but not mapping-ready after {iterations} iteration(s) "
+            f"Mechanical severity is clear but not mapping-ready after {iterations} iteration(s) "
             "because mapping-critical image verification is unresolved."
         )
     if status == "completed" and "promoted" in reason:
-        return f"Transcript clean and promoted for mapping after {iterations} iteration(s)."
+        return f"Run completed and promoted for mapping after {iterations} iteration(s)."
     if status == "completed":
-        return f"Transcript audit completed after {iterations} iteration(s) — no errors found."
+        return f"Run completed after {iterations} iteration(s) with no mechanical error-severity flags in the latest audit snapshot."
     if status == "needs_review":
         short_reason = reason.replace("tx_agent_", "").replace("_", " ")
         if reason.startswith("tx_agent_no_safe_plan_for_findings"):
@@ -136,7 +136,7 @@ def terminal_summary(
     result_status = str(getattr(result, "status", "unknown"))
     reason_code = str(getattr(result, "reason_code", "") or "")
     final_error_count = int((final_audit or {}).get("error_count") or 0) if isinstance(final_audit, dict) else 0
-    validator_clean = final_error_count <= 0
+    mechanical_severity_clear = final_error_count <= 0
     promoted = result_status == "completed" and "promoted" in reason_code
     unresolved_requirements = (
         unresolved_closure_requirements(decision_ledger)
@@ -295,7 +295,7 @@ def terminal_summary(
         run_healthy=run_healthy,
         in_target_unresolved_count=len(unresolved_in_target_scope_items),
         unknown_scope_unresolved_count=len(unresolved_unknown_scope_items),
-        target_validator_clean=validator_clean,
+        mechanical_severity_clear=mechanical_severity_clear,
         target_scope_status=target_scope_status,
         source_completeness=source_completeness,
         outside_target_proved_count=len(unresolved_outside_target_scope_items_with_proof),
@@ -304,7 +304,7 @@ def terminal_summary(
     readiness_blocker: str | None = None
     if promoted:
         mapping_ready = True
-    elif result_status == "completed" and validator_clean and not blocking_unresolved:
+    elif result_status == "completed" and mechanical_severity_clear and not blocking_unresolved:
         mapping_ready = True
     elif reason_code.startswith("tx_agent_final_image_verify_failed"):
         mapping_ready = False
@@ -314,7 +314,7 @@ def terminal_summary(
         readiness_blocker = None
     layer_statuses = derive_layer_statuses(
         mapping_ready=mapping_ready,
-        validator_clean=validator_clean,
+        mechanical_severity_clear=mechanical_severity_clear,
         readiness_blocker=readiness_blocker,
     )
     closure_state = closure_state_from_layers(layer_statuses)
@@ -362,7 +362,7 @@ def terminal_summary(
         scoped_success_eligible=scoped_success_eligible,
         run_healthy=run_healthy,
         closure_state=closure_state,
-        validator_clean=validator_clean,
+        mechanical_severity_clear=mechanical_severity_clear,
         human_feedback_pending=human_feedback_pending,
         unresolved_mapping_blocking_items=unresolved_mapping_blocking_items,
         unresolved_dependency_items=unresolved_dependency_items,
@@ -388,7 +388,7 @@ def terminal_summary(
         "review_required": bool(getattr(result, "review_required", False)),
         "edits_applied_total": edits_applied,
         "used_human_feedback": used_human_feedback,
-        "validator_clean": validator_clean,
+        "mechanical_severity_clear": mechanical_severity_clear,
         "mapping_ready": mapping_ready,
         "promoted": promoted,
         "readiness_blocker": readiness_blocker,

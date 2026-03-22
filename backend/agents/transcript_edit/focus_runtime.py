@@ -34,25 +34,42 @@ def findings_for_focus_key(*, top_findings: list[dict[str, Any]], focus_key: str
     return focused
 
 
+_KNOWN_DECISION_KEYS = frozenset(
+    {
+        "range",
+        "township",
+        "section",
+        "tie_distance",
+        "tie_bearing",
+        "acreage",
+        "closure_or_pob",
+    }
+)
+
+
 def decision_key_for_finding(finding: dict[str, Any]) -> str:
-    finding_id = str(finding.get("finding_id") or "").strip().lower()
-    finding_type = str(finding.get("finding_type") or "").strip().lower()
+    """Infer a seed decision key from evidence-shaped rows (message / optional explicit keys only)."""
+    if not isinstance(finding, dict):
+        return ""
+    for k in ("suggested_decision_key", "decision_key", "target_decision_key"):
+        raw = str(finding.get(k) or "").strip().lower()
+        if raw in _KNOWN_DECISION_KEYS:
+            return raw
     message = str(finding.get("message") or "").strip().lower()
-    blob = f"{finding_id} {finding_type} {message}"
-    if "range" in blob:
-        return "range"
-    if "township" in blob:
-        return "township"
-    if "section" in blob:
-        return "section"
-    if "distance" in blob:
-        return "tie_distance"
-    if "bearing" in blob:
+    if "bearing" in message:
         return "tie_bearing"
-    if "acre" in blob:
+    if "distance" in message or "tie distance" in message:
+        return "tie_distance"
+    if "acre" in message:
         return "acreage"
-    if "closure" in blob or "point of beginning" in blob or "pob" in blob:
+    if "point of beginning" in message or "pob" in message or "closure" in message:
         return "closure_or_pob"
+    if "township" in message:
+        return "township"
+    if "section" in message:
+        return "section"
+    if "range" in message:
+        return "range"
     return ""
 
 

@@ -67,6 +67,7 @@ def build_focus_packet(
     evidence_signal_counter: int = 0,
     harness_emergent_board_items: list[dict[str, Any]] | None = None,
     harness_board_context_notes: dict[str, list[dict[str, Any]]] | None = None,
+    audit_evidence_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     key = str(decision_key or "").strip().lower()
     # Unified envelope + closure read model (single adapter entrypoint).
@@ -214,10 +215,23 @@ def build_focus_packet(
         evidence_signal_counter=evidence_signal_counter,
         board_item=active_work_item,
     )
+    _lsu = (
+        dict(decision_ledger.get("llm_startup_understanding"))
+        if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("llm_startup_understanding"), dict)
+        else {}
+    )
+    _liu = (
+        dict(decision_ledger.get("llm_iteration_understanding"))
+        if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("llm_iteration_understanding"), dict)
+        else {}
+    )
     support_state = {
         "investigation_brief": investigation_brief,
         "working_plan": working_plan,
         "policy_signals": policy_signals,
+        "llm_startup_understanding": _lsu if _lsu else None,
+        "llm_iteration_understanding": _liu if _liu else None,
+        "audit_evidence_snapshot": audit_evidence_snapshot if isinstance(audit_evidence_snapshot, dict) else None,
     }
     recent_iteration_lane = build_recent_iteration_lane(
         continuity_log or [],

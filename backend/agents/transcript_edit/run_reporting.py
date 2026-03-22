@@ -129,7 +129,7 @@ def audit_payload(
     return _base_payload(
         iteration=iteration,
         phase="audit",
-        message=f"Auditing transcript for deterministic errors and mapping-critical issues (iteration {iteration}).",
+        message=f"Running mechanical transcript inspection pass (iteration {iteration}); observations feed the agent as evidence.",
         latest_refs=latest_refs,
         execution_state=execution_state,
     )
@@ -189,7 +189,7 @@ def stabilize_payload(
     return _base_payload(
         iteration=iteration,
         phase="stabilize",
-        message=f"Clean audit achieved; running additional stabilization pass ({iteration}/{min_iterations_before_complete}) before terminalizing.",
+        message=f"No mechanical error-severity flags; running stabilization pass ({iteration}/{min_iterations_before_complete}) before terminalizing.",
         latest_refs=latest_refs,
         execution_state="running",
     )

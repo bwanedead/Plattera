@@ -65,3 +65,9 @@ class TranscriptEditLoopState:
     harness_board_context_notes: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     # Ephemeral: last compact board observability for progress emission (cleared after ticker).
     last_board_observability: dict[str, Any] | None = None
+    # LLM-authored startup/orientation (mirror of decision_ledger.llm_startup_understanding).
+    llm_startup_understanding: dict[str, Any] | None = None
+    # Phase 24: last mechanical audit/inspection snapshot (evidence-only; not authoritative meaning).
+    last_audit_evidence_snapshot: dict[str, Any] | None = None
+    # Last resolver-applied iteration understanding sidecar (optional).
+    llm_iteration_understanding: dict[str, Any] | None = None

@@ -20,10 +20,14 @@ _UNRESOLVED_STATES = {"unknown", "candidate_found", "disputed", "accepted_with_r
 def derive_layer_statuses(
     *,
     mapping_ready: bool,
-    validator_clean: bool,
+    mechanical_severity_clear: bool,
     readiness_blocker: str | None,
 ) -> dict[str, str]:
-    """Compact, deterministic layer statuses for terminal reporting."""
+    """Compact, deterministic layer statuses for terminal reporting.
+
+    ``mechanical_severity_clear`` means the latest mechanical audit snapshot reported
+    zero error-severity rows — a rail signal only, not semantic “validity” or LLM closure.
+    """
     blocker = str(readiness_blocker or "").strip().lower()
     if mapping_ready:
         statuses = {
@@ -33,7 +37,7 @@ def derive_layer_statuses(
         }
         return statuses
 
-    layer1 = "blocked" if (not validator_clean or blocker == "mapping_critical_image_verification_unresolved") else "unknown"
+    layer1 = "blocked" if (not mechanical_severity_clear or blocker == "mapping_critical_image_verification_unresolved") else "unknown"
     layer2 = "blocked" if blocker.startswith("canonical_sanity_") else "unknown"
     layer3 = "blocked" if blocker.startswith("dependency_") else "unknown"
     statuses = {

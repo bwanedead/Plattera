@@ -92,13 +92,13 @@ from agent_kernel.session import KernelSessionManager
 from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
 from agent_kernel.tooling import (
     TranscriptAuditTool,
-    TranscriptOrientBaselineTool,
     TranscriptImageVerificationTool,
     TranscriptEditPlanApplyTool,
     TranscriptMappingPromoterTool,
     TranscriptSpanSeedsSaverTool,
     TranscriptSpanOpenerTool,
 )
+from agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool
 from harness.mission_runtime.modes.transcript_edit import run_orchestration_kernel_transcript_loop
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
 from agents.transcript_edit.decision_ledger import unresolved_closure_requirements

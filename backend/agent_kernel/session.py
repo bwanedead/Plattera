@@ -12,7 +12,7 @@ import json
 import os
 import tempfile
 from time import time
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import uuid4
 
 from config.paths import agent_kernel_artifacts_root
@@ -44,7 +44,6 @@ from .tooling import (
     DeedSpanIndexUpserterTool,
     DraftIRFilesystemProposer,
     TranscriptAuditTool,
-    TranscriptOrientBaselineTool,
     TranscriptImageVerificationTool,
     TranscriptEditPlanApplyTool,
     TranscriptSpanSeedsSaverTool,
@@ -67,6 +66,13 @@ _MAX_INPUT_BYTES = 4096
 _MAX_INITIAL_GRAPH_JSON_BYTES = 262144
 _MAX_DASHBOARD_LIST = 10
 _MAX_MISSING_CLAIMABILITY = 20
+
+
+def _default_transcript_orient_baseliner() -> Any:
+    """Domain-owned orient tool; imported lazily so ``agent_kernel`` package init does not load transcript-edit."""
+    from agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool
+
+    return TranscriptOrientBaselineTool()
 
 
 class SessionPersistence(Protocol):
@@ -101,7 +107,7 @@ class KernelSessionManager:
                 validator=FeatureGraphValidateTool(),
                 renderer=FeatureGraphRenderTool(),
                 transcript_auditor=TranscriptAuditTool(),
-                transcript_orient_baseliner=TranscriptOrientBaselineTool(),
+                transcript_orient_baseliner=_default_transcript_orient_baseliner(),
                 transcript_span_opener=TranscriptSpanOpenerTool(),
                 transcript_image_verifier=TranscriptImageVerificationTool(),
                 transcript_plan_applier=TranscriptEditPlanApplyTool(),

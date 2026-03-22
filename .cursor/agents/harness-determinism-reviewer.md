@@ -64,7 +64,7 @@ What to flag aggressively:
 - finding_type / finding_id / issue_type / discrepancy_type / category enums being treated as runtime truth
 - focus ranking driven by scripted categories rather than agent judgment
 - blocker meaning inferred from deterministic finding categories
-- closure/reporting keyed off validator_clean or equivalent deterministic semantics
+- closure/reporting that treats mechanical severity tallies as semantic closure (e.g. naming them as “validator clean” truth)
 - correction planning derived from deterministic domain logic
 - pre-authored issue classes becoming the practical source of work content
 - prompt packets or support state that smuggle in semantic work content deterministically
@@ -111,3 +111,5 @@ Rules:
 - Do not give style-only feedback.
 - Do not rewrite code.
 - Do not drift into unrelated architecture commentary.
+
+our north star just needs to be the llm is the smart thing all work towards the mission goal needs to be llm driven. the harness is just the container and facilitator of the llms will 

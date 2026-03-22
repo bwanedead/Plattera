@@ -74,6 +74,11 @@ The point is not to hard-code those steps in advance. The point is to let the ag
 
 If a planning step is the right next move, it should be expressed as a bounded focus item or blocker-aware move, not treated as a special scripted escape hatch.
 
+## Generic orientation contract
+The orient baseline step uses **generic** harness fields (for example `orientation_brief`, `candidate_work_items`, blockers, and dependencies). The model chooses titles, tags, and optional suggested keys; deed- or PLSS-shaped concepts may appear when the case calls for them, but they are not mandatory runtime ontology in the generic orient contract.
+
+**Transcript-edit boundary:** optional checklist-shaped `items` rows are a **domain adapter** concern (transcript-edit only). They may seed the native checklist ledger when keys match the read model. The shared generic orientation layer does not depend on checklist semantics.
+
 ## Investigation Brief and Planning Rail
 The run should keep two different kinds of work artifacts distinct:
 - an investigation brief, which is a living sticky note for case understanding
@@ -221,6 +226,12 @@ When a run finishes, the same recap is projected to human-readable files:
 
 The stable file is the quickest way to inspect the most recent recap and final freshness posture.
 The recent-runs feed is the quick comparison surface for the last few completions.
+
+## Closure, Terminal Summary, and Mechanical Signals
+- **Semantic closure** is judged from the decision ledger, blockers, scope, evidence posture, and LLM-authored rationale — not from a “validator clean” verdict.
+- **Mechanical inspection** passes may still emit **severity tallies** (for example, error-severity observation counts). Treat those as **rails and telemetry**, not as the narrative backbone for what the run “means.”
+- Terminal summaries and run reporting should describe **unresolved work, blockers, evidence gathered, and focus progression** in agentic terms. Avoid framing success or failure primarily through deterministic audit taxonomies.
+- **Startup and iteration** understanding are both expected to be **LLM-authored** where the harness stores interpretation; deterministic tools supply **evidence-shaped** observations only.
 
 ## Recommended Reading Order
 If an agent is about to run a test, it should read these in order:

@@ -446,6 +446,7 @@ def _coerce_focus_move(
         "blocker_updates": None,
         "work_board_changes": None,
         "closure_update_hint": None,
+        "iteration_understanding": None,
         "iteration_summary": str(parsed.get("iteration_summary") or "").strip() or "Focus move selected.",
     }
     if move == "apply_edit_plan":
@@ -542,6 +543,8 @@ def _coerce_focus_move(
         out["work_board_changes"] = normalize_work_board_changes_list(raw_wb if isinstance(raw_wb, list) else [])
     if isinstance(parsed.get("closure_update_hint"), dict):
         out["closure_update_hint"] = dict(parsed.get("closure_update_hint"))
+    if isinstance(parsed.get("iteration_understanding"), dict):
+        out["iteration_understanding"] = dict(parsed.get("iteration_understanding"))
     return out
 
 

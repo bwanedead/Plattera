@@ -126,12 +126,12 @@ class TranscriptAuditTool:
             report_payload=report.model_dump(mode="json"),
         )
         findings_count = len(report.findings)
-        top_findings: list[dict[str, Any]] = []
-        for finding in report.findings[:12]:
-            top_findings.append(
+        # Phase 24: evidence-shaped observations only — no validator taxonomy as runtime truth.
+        tx_evidence_observations: list[dict[str, Any]] = []
+        for idx, finding in enumerate(report.findings[:12]):
+            tx_evidence_observations.append(
                 {
-                    "finding_id": finding.finding_id,
-                    "finding_type": finding.finding_type,
+                    "observation_ref": f"obs_{idx}",
                     "severity": finding.severity,
                     "message": finding.message,
                     "section_id": finding.section_id,
@@ -148,7 +148,8 @@ class TranscriptAuditTool:
             "tx_error_findings_count": int(report.summary.get("errors", 0)),
             "tx_warning_findings_count": int(report.summary.get("warnings", 0)),
             "tx_has_findings": findings_count > 0,
-            "tx_top_findings": top_findings,
+            "tx_evidence_observations": tx_evidence_observations,
+            "tx_top_findings": tx_evidence_observations,
         }
 
 

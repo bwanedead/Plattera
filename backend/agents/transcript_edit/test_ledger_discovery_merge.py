@@ -12,6 +12,8 @@ from backend.agents.transcript_edit.decision_ledger_adapter import (
     transcript_edit_unified_and_closure_read_for_native,
 )
 from backend.agents.transcript_edit.decision_ledger_focus import choose_investigation_focus
+from backend.agents.transcript_edit.decision_ledger_state import reconcile_ledger_derived_fields
+from backend.agents.transcript_edit.llm_startup_understanding import native_rows_from_llm_initial_ledger_items
 from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import (
     DISCOVERY_ITEM_PROVENANCE,
     DISCOVERY_KEY_PREFIX,
@@ -25,8 +27,19 @@ from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import
 def test_closure_read_overlays_discovery_meta_from_native() -> None:
     """Unified envelope does not carry discovery_meta; closure read must overlay from native."""
     ledger = initialize_decision_ledger_with_domain_template_seed()
-    out = merge_discovery_from_audit_findings(
-        ledger,
+    rows = native_rows_from_llm_initial_ledger_items(
+        [
+            {
+                "title": "Range line contradiction",
+                "summary": "contradiction between range lines in candidates in the legal description body.",
+                "mapping_blocking": True,
+            }
+        ]
+    )
+    ledger["items"].extend(rows)
+    out = reconcile_ledger_derived_fields(ledger)
+    merge_discovery_from_audit_findings(
+        out,
         [{"finding_id": "f-meta", "message": "contradiction between range lines in candidates"}],
     )
     _, read = transcript_edit_unified_and_closure_read_for_native(native_decision_ledger=out)
@@ -39,26 +52,51 @@ def test_closure_read_overlays_discovery_meta_from_native() -> None:
     assert isinstance(dm, dict) and str(dm.get("kind") or "")
 
 
-def test_merge_from_audit_findings_adds_non_seed_discovery_item() -> None:
+def test_llm_shaped_discovery_row_surfaces_through_merge_and_read_paths_phase24() -> None:
+    """Phase 24: validator merge is a no-op; discovery rows come from LLM-shaped native items."""
     ledger = initialize_decision_ledger_with_domain_template_seed()
     findings = [
         {"finding_id": "f-contra-1", "message": "contradiction between range lines in candidates"},
     ]
-    out = merge_discovery_from_audit_findings(ledger, findings)
-    keys = [str(i.get("key") or "") for i in (out.get("items") or []) if isinstance(i, dict)]
+    rows = native_rows_from_llm_initial_ledger_items(
+        [
+            {
+                "title": "Contradiction in range candidates",
+                "summary": "contradiction between range lines in candidates for the boundary description.",
+                "mapping_blocking": True,
+            }
+        ]
+    )
+    ledger["items"].extend(rows)
+    out = reconcile_ledger_derived_fields(ledger)
+    stats: dict = {}
+    out2 = merge_discovery_from_audit_findings(out, findings, merge_stats=stats)
+    assert stats.get("phase24_no_validator_discovery") is True
+    keys = [str(i.get("key") or "") for i in (out2.get("items") or []) if isinstance(i, dict)]
     assert any(k.startswith(DISCOVERY_KEY_PREFIX) for k in keys)
-    disc = next(i for i in out["items"] if isinstance(i, dict) and str(i.get("key", "")).startswith(DISCOVERY_KEY_PREFIX))
+    disc = next(i for i in out2["items"] if isinstance(i, dict) and str(i.get("key", "")).startswith(DISCOVERY_KEY_PREFIX))
     assert disc.get("provenance") == DISCOVERY_ITEM_PROVENANCE
-    unified = build_transcript_edit_unified_decision_ledger(decision_ledger=out)
+    unified = build_transcript_edit_unified_decision_ledger(decision_ledger=out2)
     item_ids = [str(r.get("item_id") or "") for r in unified.get("items") or [] if isinstance(r, dict)]
     assert any("te:ledger:discovery:" in iid for iid in item_ids)
-    _, read = transcript_edit_unified_and_closure_read_for_native(native_decision_ledger=out)
+    _, read = transcript_edit_unified_and_closure_read_for_native(native_decision_ledger=out2)
     read_keys = [str(i.get("key") or "") for i in (read.get("items") or []) if isinstance(i, dict)]
     assert any(k.startswith(DISCOVERY_KEY_PREFIX) for k in read_keys)
 
 
 def test_mixed_seed_and_discovery_unified_surface() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
+    rows = native_rows_from_llm_initial_ledger_items(
+        [
+            {
+                "title": "Dependency gap",
+                "summary": "dependency on prior deed not attached; need chain of title before mapping.",
+                "mapping_blocking": True,
+            }
+        ]
+    )
+    ledger["items"].extend(rows)
+    ledger = reconcile_ledger_derived_fields(ledger)
     ledger = merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "dep1", "message": "dependency on prior deed not attached"}],
@@ -66,7 +104,7 @@ def test_mixed_seed_and_discovery_unified_surface() -> None:
     unified = build_transcript_edit_unified_decision_ledger(decision_ledger=ledger)
     titles = [str(r.get("title") or "") for r in unified.get("items") or [] if isinstance(r, dict)]
     assert any("Township" in t or "Range" in t for t in titles)
-    assert any("Discovered" in t for t in titles)
+    assert any(("Discovered" in t) or ("Startup" in t) for t in titles)
 
 
 def test_discovery_item_can_win_focus_when_only_mapping_critical_unresolved() -> None:
@@ -77,6 +115,17 @@ def test_discovery_item_can_win_focus_when_only_mapping_critical_unresolved() ->
             it["state"] = "verified"
             it["blocking"] = False
             it["closure_requirement"] = None
+    rows = native_rows_from_llm_initial_ledger_items(
+        [
+            {
+                "title": "Boundary call contradiction",
+                "summary": "contradiction in boundary calls and curves in the legal description for mapping.",
+                "mapping_blocking": True,
+            }
+        ]
+    )
+    ledger["items"].extend(rows)
+    ledger = reconcile_ledger_derived_fields(ledger)
     ledger = merge_discovery_from_audit_findings(
         ledger,
         [{"finding_id": "c1", "message": "contradiction in boundary calls"}],
@@ -105,13 +154,13 @@ def test_duplicate_audit_merge_does_not_sprawl_rows() -> None:
     assert n2 == n1
 
 
-def test_infer_respects_per_audit_cap() -> None:
+def test_infer_from_audit_findings_is_disabled_phase24() -> None:
     findings = [
         {"finding_id": f"f{i}", "message": "contradiction issue in the candidate boundary calls and curves"}
         for i in range(20)
     ]
     inf = infer_discovery_items_from_audit_findings(findings, max_items=2)
-    assert len(inf) <= 2
+    assert inf == []
 
 
 def test_merge_respects_total_discovery_cap() -> None:

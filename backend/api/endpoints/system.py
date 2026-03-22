@@ -76,7 +76,7 @@ def _mark_running_transcript_edit_runs_interrupted(*, reason_code: str) -> int:
             "review_required": True,
             "edits_applied_total": 0,
             "used_human_feedback": False,
-            "validator_clean": False,
+            "mechanical_severity_clear": False,
             "mapping_ready": False,
             "promoted": False,
             "readiness_blocker": "service_shutdown",

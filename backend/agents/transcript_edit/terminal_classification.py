@@ -130,14 +130,14 @@ def _eligible_for_scoped_success(
     run_healthy: bool,
     in_target_unresolved_count: int,
     unknown_scope_unresolved_count: int,
-    target_validator_clean: bool,
+    mechanical_severity_clear: bool,
     target_scope_status: str,
     source_completeness: str,
     outside_target_proved_count: int,
 ) -> bool:
     if not run_healthy:
         return False
-    if not target_validator_clean:
+    if not mechanical_severity_clear:
         return False
     if int(in_target_unresolved_count) > 0:
         return False

@@ -39,7 +39,12 @@ def _ensure_ledger_shape(ledger: dict[str, Any] | None) -> dict[str, Any]:
         "blocker_feedback_state": dict(working.get("blocker_feedback_state") or {}) if isinstance(working.get("blocker_feedback_state"), dict) else {},
     }
     # Phase 17: native establishment metadata (not harness contract) — preserve through merge/reconcile paths.
-    for passthrough in ("ledger_establishment_mode", "initial_ledger_source"):
+    for passthrough in (
+        "ledger_establishment_mode",
+        "initial_ledger_source",
+        "llm_startup_understanding",
+        "llm_iteration_understanding",
+    ):
         if isinstance(working, dict) and passthrough in working:
             out[passthrough] = working[passthrough]
     return out

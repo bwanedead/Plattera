@@ -126,19 +126,17 @@ def test_mark_blocked_can_honor_repeat_without_signal_pressure() -> None:
 def test_findings_for_focus_key_preserves_range_identity_over_generic_plss() -> None:
     findings = [
         {
-            "finding_id": "plss_range_conflict_001",
-            "finding_type": "plss_consistency",
+            "observation_ref": "obs_range_1",
             "message": "PLSS contradiction between Range 75 West and Range 74 West.",
         },
         {
-            "finding_id": "plss_township_conflict_001",
-            "finding_type": "plss_consistency",
+            "observation_ref": "obs_township_1",
             "message": "Township token mismatch.",
         },
     ]
     focused_range = _findings_for_focus_key(top_findings=findings, focus_key="range")
     assert len(focused_range) == 1
-    assert str(focused_range[0].get("finding_id") or "") == "plss_range_conflict_001"
+    assert str(focused_range[0].get("observation_ref") or "") == "obs_range_1"
 
 
 def test_select_focus_decision_key_does_not_prioritize_outside_scope_feedback() -> None:

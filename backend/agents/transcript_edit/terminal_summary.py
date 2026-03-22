@@ -19,7 +19,7 @@ def _final_decision_rationale(
     scoped_success_eligible: bool,
     run_healthy: bool,
     closure_state: str,
-    validator_clean: bool,
+    mechanical_severity_clear: bool,
     human_feedback_pending: bool,
     unresolved_mapping_blocking_items: list[dict[str, Any]],
     unresolved_dependency_items: list[dict[str, Any]],
@@ -73,7 +73,7 @@ def _final_decision_rationale(
         "terminal_classification": terminal_classification,
         "mapping_ready": bool(mapping_ready),
         "closure_state": closure_state,
-        "validator_clean": bool(validator_clean),
+        "mechanical_severity_clear": bool(mechanical_severity_clear),
         "run_healthy_for_scoped_success": bool(run_healthy),
         "scoped_success_eligible": bool(scoped_success_eligible),
         "why_this_decision": _decision_why_text(

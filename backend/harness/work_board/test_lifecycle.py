@@ -149,7 +149,7 @@ def test_apply_update_item_state_on_emergent() -> None:
             kind="k",
             state="open",
             materiality="high",
-            blocking_impact="mapping_blocking",
+            blocking_impact="domain_owned_label",
             evidence_refs=["e"],
             resolution_condition="rc",
             provenance="harness.emergent.v1",
