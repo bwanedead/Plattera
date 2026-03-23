@@ -4,7 +4,9 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from agent_kernel.models import ActionType, StepExecutionState
+from agent_kernel.models import StepExecutionState
+
+from .execution_action_ids import TX_APPLY_EDIT_PLAN
 from agent_kernel.session import KernelSessionManager
 from transcript_edit.persistence import TranscriptionEditPersistenceService
 
@@ -1389,7 +1391,7 @@ def handle_repair_move_outcome(
         session_id=session_id,
         prefix="tx_apply",
         iteration=iterations,
-        action_type=ActionType.TX_APPLY_EDIT_PLAN,
+        action_type=TX_APPLY_EDIT_PLAN,
         inputs=build_apply_inputs_for_plan(
             persistence=tx_persistence,
             dossier_id=request.dossier_id,

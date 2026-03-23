@@ -7,12 +7,12 @@ from typing import Any
 from collections.abc import Callable
 
 from agent_kernel.models import (
-    ActionType,
     KernelBudgets,
     KernelGoal,
     KernelSessionStartRequest,
     StepExecutionState,
 )
+from .execution_action_ids import TX_AUDIT_TRANSCRIPT, TX_ORIENT_AND_BASELINE
 from agent_kernel.session import KernelSessionManager
 from transcript_edit.persistence import TranscriptionEditPersistenceService
 
@@ -291,7 +291,7 @@ def run_transcript_edit_controller_loop(
         session_id=session_id,
         prefix="tx_orient_baseline",
         iteration=0,
-        action_type=ActionType.TX_ORIENT_AND_BASELINE,
+        action_type=TX_ORIENT_AND_BASELINE,
         inputs=orient_inputs,
     )
     state.latest_refs = orient.dashboard.latest_refs.model_dump(mode="json")
@@ -459,7 +459,7 @@ def run_transcript_edit_controller_loop(
             session_id=session_id,
             prefix="tx_audit",
             iteration=iterations,
-            action_type=ActionType.TX_AUDIT_TRANSCRIPT,
+            action_type=TX_AUDIT_TRANSCRIPT,
             inputs=audit_inputs,
         )
         state.latest_refs = audit.dashboard.latest_refs.model_dump(mode="json")
@@ -746,7 +746,7 @@ def _step(
     session_id: str,
     prefix: str,
     iteration: int,
-    action_type: ActionType,
+    action_type: str,
     inputs: dict[str, Any],
 ):
     return step_kernel_action(

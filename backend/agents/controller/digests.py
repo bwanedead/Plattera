@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 
 from config.paths import agent_kernel_artifacts_root
 
+from .controller_guardrails import _flatten_latest_refs_payload
+
 _MAX_DIGEST_BYTES = 2048
 _MAX_NOTES = 3
 _MAX_NOTE_CHARS = 160
@@ -38,7 +40,15 @@ def build_fallback_iteration_digest(*, seed: dict[str, object]) -> dict[str, obj
     outcome_kind = str(outcome.get("kind", "unknown"))
     reason_code = outcome.get("reason_code")
     latest_refs = progress.get("latest_refs") if isinstance(progress.get("latest_refs"), dict) else {}
-    new_refs = [k for k, v in latest_refs.items() if isinstance(v, str) and v]
+    flat_lr = _flatten_latest_refs_payload(latest_refs)
+    new_refs: list[str] = []
+    for k, v in flat_lr.items():
+        if isinstance(v, str) and v.strip():
+            new_refs.append(str(k))
+        elif isinstance(v, dict):
+            p = v.get("artifact_path")
+            if isinstance(p, str) and p.strip():
+                new_refs.append(str(k))
     notes: list[str] = []
     if context_inputs.get("deed_text_full"):
         notes.append("inputs.deed_text_full is present; avoid OPEN_ARTIFACT for deed text unless missing.")

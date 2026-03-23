@@ -44,6 +44,16 @@ This file defines non-negotiables and working norms for any agent (including Ral
   - run the project’s verification commands when feasible (tests/lint/typecheck/build).
   - if you cannot run them, state what you did run and what remains unverified.
 
+### Harness delegation and parallel sub-agents
+
+The harness should treat **sub-agents as a first-class tool** for speed and clarity when the work benefits from it—not only for code review.Think general worker agents for general coding work or ad hoc investigation or review. prefer default hanress worker agent profiles if available
+
+- **Liberty to spawn:** You may spawn sub-agents to delegate bounded tasks (search, exploration, isolated implementation, verification, or specialized review) when splitting work reduces wall-clock time or cognitive load.
+- **Parallelism:** When sub-tasks are **independent** (no ordering hazard, no conflicting edits to the same files without coordination), prefer **running them in parallel** rather than serializing everything in one thread.
+- **Planner / orchestrator role:** When a session has multiple tracks, unclear scope, or a natural split between “figure out where / what” and “do the edits,” act as **planner and orchestrator**: break work up, assign sub-agents with explicit deliverables, then merge and reconcile results.
+- **Sub-delegation:** A primary agent may **sub-delegate** to sub-agents for individual slices of a larger goal when that matches the harness’s capabilities (e.g. explore-only agents, shell specialists, reviewers). Keep boundaries explicit so outputs stay mergeable and accountable.
+- **Judgment:** Use this when it **materially** improves efficiency or outcome quality; avoid spawning sub-agents for trivial one-step tasks where the overhead outweighs the gain. Stay aligned with repo safety rules and the Harness Constitution (orchestration and delegation are agent judgment—deterministic pipelines must not replace semantic decisions).
+
 ## Mandatory review flow for non-trivial patches
 
 This repository uses reviewer subagents to prevent two recurring failures:

@@ -12,13 +12,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.agent_kernel.actions import (
     ActionExecutor,
     ActionExecutorDeps,
-    Bundler,
-    Compiler,
+    ArtifactBundler,
+    ArtifactCompiler,
     EvidenceRetriever,
-    Georeferencer,
-    Judge,
+    ArtifactGeoreferencer,
+    ArtifactJudge,
     PatchProposer,
-    Validator,
+    ArtifactValidator,
 )
 from backend.agent_kernel.kernel import IRGraphLoader, KernelLoopOutput, run_kernel
 from backend.agent_kernel.models import (
@@ -34,11 +34,11 @@ from backend.agent_kernel.run_artifact import ArtifactRef, RunArtifact, StepReco
 
 class _DeterministicServices(
     EvidenceRetriever,
-    Compiler,
-    Judge,
-    Bundler,
-    Georeferencer,
-    Validator,
+    ArtifactCompiler,
+    ArtifactJudge,
+    ArtifactBundler,
+    ArtifactGeoreferencer,
+    ArtifactValidator,
     PatchProposer,
 ):
     def __init__(self, validation_sequence: list[bool]) -> None:
@@ -49,23 +49,23 @@ class _DeterministicServices(
         del inputs
         return ArtifactRef(artifact_path="artifacts/retrieval/retrieval-001.json")
 
-    def compile(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def compile_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/compile/compile-001.json")
 
-    def judge(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def judge_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/judge/judge-001.json")
 
-    def bundle(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def bundle_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/bundle/bundle-001.json")
 
-    def georeference(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def georeference_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/georef/georef-001.json")
 
-    def validate(self, inputs: Mapping[str, Any]) -> ValidationInline:
+    def validate_artifact(self, inputs: Mapping[str, Any]) -> ValidationInline:
         del inputs
         passed = self._validation_sequence[min(self._validation_idx, len(self._validation_sequence) - 1)]
         self._validation_idx += 1
@@ -136,11 +136,11 @@ def _executor(validation_sequence: list[bool]) -> ActionExecutor:
     services = _DeterministicServices(validation_sequence=validation_sequence)
     deps = ActionExecutorDeps(
         evidence_retriever=services,
-        compiler=services,
-        judge=services,
-        bundler=services,
-        georeferencer=services,
-        validator=services,
+        artifact_compiler=services,
+        artifact_judge=services,
+        artifact_bundler=services,
+        artifact_georeferencer=services,
+        artifact_validator=services,
         patch_proposer=services,
     )
     return ActionExecutor(deps=deps)
@@ -169,13 +169,13 @@ def test_requires_global_placement_runs_set_graph_requirements_before_compile_an
         action_executor=_executor([True]),
         ir_graph_loader=_StaticIRGraphLoader(),
     )
-    actions = [step.action.value for step in output.run_artifact.steps]
+    actions = [step.action for step in output.run_artifact.steps]
 
     assert actions[0] == "set_graph_requirements"
-    assert "compile" in actions
-    assert "judge" in actions
-    assert actions.index("set_graph_requirements") < actions.index("compile")
-    assert actions.index("set_graph_requirements") < actions.index("judge")
+    assert ActionType.COMPILE_ARTIFACT.value in actions
+    assert ActionType.JUDGE_ARTIFACT.value in actions
+    assert actions.index("set_graph_requirements") < actions.index(ActionType.COMPILE_ARTIFACT.value)
+    assert actions.index("set_graph_requirements") < actions.index(ActionType.JUDGE_ARTIFACT.value)
 
 
 def test_budget_exceeded_sets_deterministic_stop_reason() -> None:
@@ -230,11 +230,11 @@ def test_semantic_worker_in_backoff_maps_to_worker_unavailable_stop_reason() -> 
     services = _DeterministicServices(validation_sequence=[True])
     deps = ActionExecutorDeps(
         evidence_retriever=services,
-        compiler=services,
-        judge=services,
-        bundler=services,
-        georeferencer=services,
-        validator=services,
+        artifact_compiler=services,
+        artifact_judge=services,
+        artifact_bundler=services,
+        artifact_georeferencer=services,
+        artifact_validator=services,
         patch_proposer=services,
     )
     output = run_kernel(

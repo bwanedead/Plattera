@@ -14,7 +14,7 @@ from backend.agent_kernel.no_progress import (
     compute_artifact_digests,
     compute_gap_signature,
 )
-from backend.agent_kernel.policies import FeatureGraphDeedToMapPolicyV0
+from backend.feature_graph.kernel_policy import FeatureGraphDeedToMapPolicyV0
 from backend.agent_kernel.run_artifact import ArtifactRef
 
 

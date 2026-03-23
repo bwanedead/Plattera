@@ -523,12 +523,20 @@ export const TextToSchemaWorkspace: React.FC<TextToSchemaWorkspaceProps> = ({
 
         if (snapshot.status === 'completed' || snapshot.status === 'failed') {
           const terminalReason = snapshot?.terminal?.reason_code || snapshot?.error || null;
+          const lr = snapshot?.dashboard?.latest_refs as Record<string, unknown> | undefined;
+          const ar =
+            lr && typeof lr.artifact_refs === 'object' && lr.artifact_refs !== null
+              ? (lr.artifact_refs as Record<string, { artifact_path?: string }>)
+              : undefined;
+          const legacyIr = lr?.ir_ref as { artifact_path?: string } | undefined;
+          const legacyGeoref = lr?.georef_ref as { artifact_path?: string } | undefined;
+          const legacyValidate = lr?.validate_ref as { artifact_path?: string } | undefined;
           let irArtifactRef: string | null =
-            snapshot?.dashboard?.latest_refs?.ir_ref?.artifact_path || null;
+            ar?.ir_ref?.artifact_path ?? legacyIr?.artifact_path ?? null;
           const georefArtifactRef: string | null =
-            snapshot?.dashboard?.latest_refs?.georef_ref?.artifact_path || null;
+            ar?.georef_ref?.artifact_path ?? legacyGeoref?.artifact_path ?? null;
           const validateArtifactRef: string | null =
-            snapshot?.dashboard?.latest_refs?.validate_ref?.artifact_path || null;
+            ar?.validate_ref?.artifact_path ?? legacyValidate?.artifact_path ?? null;
           if (!irArtifactRef && snapshot?.run_artifact_ref) {
             try {
               const runArtifact = await getAgentLoopArtifactJson(snapshot.run_artifact_ref);

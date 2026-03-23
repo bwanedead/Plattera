@@ -5,6 +5,10 @@
 - Purpose: Universal intermediate representation for deed meaning substrate
   - Core IR models, compilation, validation, persistence, and API endpoints
 
+### Harness boundary
+- Feature graph and deed-to-IR tooling are **domain infrastructure**, not harness identity.
+- The agent kernel / execution host may **invoke** this stack through registered tools and `provider_step_projectors` (see `kernel_step_projections.py` and `kernel_executor_composition.py`); it does not treat FG semantics as native shared-core truth.
+
 ## Contracts & invariants
 - **Total representability:** any deed assertion MUST be encodable in IR, even if not compilable
 - **No confidence scores:** record facts, provenance, and deterministic outcomes only

@@ -1,46 +1,25 @@
-"""Deterministic claimability gate evaluation for DECLARE_DONE."""
+"""Generic closure-policy seam for DECLARE_DONE readiness."""
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from .run_artifact import RunArtifact
 
-GATE_HAS_IR = "has_ir"
-GATE_HAS_COMPILE = "has_compile"
-GATE_HAS_JUDGE = "has_judge"
-GATE_HAS_GEOREF = "has_georef"
-GATE_VALIDATION_PASSED = "validation_passed"
-GATE_HAS_RENDER = "has_render"
+CLAIMABILITY_POLICY_NOT_CONFIGURED = "claimability_policy_not_configured"
+
+
+class ClaimabilityPolicy(Protocol):
+    """Contract for deciding whether declare_done can be accepted."""
+
+    def evaluate(self, run_artifact: RunArtifact) -> tuple[bool, list[str]]: ...
 
 
 def evaluate_claimability(
-    *,
+    policy: ClaimabilityPolicy | None,
     run_artifact: RunArtifact,
-    requires_global_placement: bool,
-    render_required: bool = False,
 ) -> tuple[bool, list[str]]:
-    missing: list[str] = []
-    if run_artifact.ir_artifact_ref is None:
-        missing.append(GATE_HAS_IR)
-    if run_artifact.compile_artifact_ref is None:
-        missing.append(GATE_HAS_COMPILE)
-    if run_artifact.judge_artifact_ref is None:
-        missing.append(GATE_HAS_JUDGE)
-    if requires_global_placement:
-        georef_ready = run_artifact.georeference_artifact_ref is not None
-        if not georef_ready:
-            missing.append(GATE_HAS_GEOREF)
-        if not _latest_validation_passed(run_artifact):
-            missing.append(GATE_VALIDATION_PASSED)
-    if render_required and run_artifact.render_artifact_ref is None:
-        missing.append(GATE_HAS_RENDER)
-    return len(missing) == 0, missing
-
-
-def _latest_validation_passed(run_artifact: RunArtifact) -> bool:
-    for step in reversed(run_artifact.steps):
-        if step.action.value != "validate":
-            continue
-        if step.validation_result is None:
-            return False
-        return bool(step.validation_result.passed)
-    return False
+    """Return claimability from the injected policy, or a neutral refusal when none is configured."""
+    if policy is None:
+        return False, [CLAIMABILITY_POLICY_NOT_CONFIGURED]
+    return policy.evaluate(run_artifact)

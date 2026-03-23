@@ -1,5 +1,5 @@
-"""Policy scaffolds for Agent Kernel v0."""
+"""Generic policy scaffolds for Agent Kernel v0."""
 
-from .feature_graph_deed_to_map_v0 import FeatureGraphDeedToMapPolicyV0, KernelPolicy
+from .generic import DefaultKernelPolicy, KernelPolicy
 
-__all__ = ["KernelPolicy", "FeatureGraphDeedToMapPolicyV0"]
+__all__ = ["KernelPolicy", "DefaultKernelPolicy"]

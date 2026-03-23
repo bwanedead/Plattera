@@ -12,52 +12,50 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.agent_kernel.actions import (
     ActionExecutor,
     ActionExecutorDeps,
+    ArtifactDraftProposer,
+    ArtifactCompiler,
+    ArtifactJudge,
+    ArtifactBundler,
+    ArtifactGeoreferencer,
+    ArtifactValidator,
+    ArtifactRenderer,
+    ArtifactHydrator,
     ArtifactOpener,
-    Bundler,
-    Compiler,
-    DeedHydrator,
-    DraftIRProposer,
     EvidenceRetriever,
-    Georeferencer,
-    Judge,
     PatchProposer,
-    Renderer,
     StatusSummarizer,
-    TranscriptAuditor,
-    TranscriptOrientBaseliner,
-    TranscriptImageVerifier,
-    TranscriptSpanOpener,
-    TranscriptPlanApplier,
-    TranscriptSpanSeedsSaver,
-    TranscriptPromoter,
-    Validator,
 )
-from backend.agent_kernel.models import ActionType
+from backend.agent_kernel.harness_action_ids import ActionType
+from backend.agents.transcript_edit.execution_action_ids import (
+    TX_APPLY_EDIT_PLAN,
+    TX_AUDIT_TRANSCRIPT,
+    TX_OPEN_TRANSCRIPT_SPANS,
+    TX_ORIENT_AND_BASELINE,
+    TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
+    TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
+    TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+)
+from backend.agents.transcript_edit.kernel_action_registration import (
+    build_transcript_edit_provider_actions,
+)
 from backend.agent_kernel.run_artifact import ArtifactRef, ValidationInline
 
 
 class _DeterministicServices(
-    DeedHydrator,
+    ArtifactHydrator,
     ArtifactOpener,
-    DraftIRProposer,
+    ArtifactDraftProposer,
     EvidenceRetriever,
-    Compiler,
-    Judge,
-    Bundler,
-    Georeferencer,
-    Validator,
-    Renderer,
+    ArtifactCompiler,
+    ArtifactJudge,
+    ArtifactBundler,
+    ArtifactGeoreferencer,
+    ArtifactValidator,
+    ArtifactRenderer,
     PatchProposer,
     StatusSummarizer,
-    TranscriptAuditor,
-    TranscriptOrientBaseliner,
-    TranscriptImageVerifier,
-    TranscriptSpanOpener,
-    TranscriptPlanApplier,
-    TranscriptSpanSeedsSaver,
-    TranscriptPromoter,
 ):
-    def hydrate_deed(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def hydrate_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/deed/hydrated-001.json")
 
@@ -65,7 +63,7 @@ class _DeterministicServices(
         del inputs
         return {"summary": "opened artifact summary", "reason_codes": ["artifact_opened"]}
 
-    def draft_ir(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def draft_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/ir/ir-draft-001.json")
 
@@ -73,27 +71,27 @@ class _DeterministicServices(
         del inputs
         return ArtifactRef(artifact_path="artifacts/retrieval/retrieval-001.json")
 
-    def compile(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def compile_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/compile/compile-001.json")
 
-    def judge(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def judge_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/judge/judge-001.json")
 
-    def bundle(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def bundle_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/bundle/bundle-001.json")
 
-    def georeference(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def georeference_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/georef/georef-001.json")
 
-    def validate(self, inputs: Mapping[str, Any]) -> ValidationInline:
+    def validate_artifact(self, inputs: Mapping[str, Any]) -> ValidationInline:
         del inputs
         return ValidationInline(passed=True, reason_code="ok", checks={"error_count": 0})
 
-    def render(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def render_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/render/render-001.json")
 
@@ -166,19 +164,7 @@ class _DeterministicServices(
 
 def _build_executor() -> ActionExecutor:
     services = _DeterministicServices()
-    deps = ActionExecutorDeps(
-        deed_hydrator=services,
-        artifact_opener=services,
-        draft_ir_proposer=services,
-        evidence_retriever=services,
-        compiler=services,
-        judge=services,
-        bundler=services,
-        georeferencer=services,
-        validator=services,
-        renderer=services,
-        patch_proposer=services,
-        status_summarizer=services,
+    provider_actions = build_transcript_edit_provider_actions(
         transcript_auditor=services,
         transcript_orient_baseliner=services,
         transcript_span_opener=services,
@@ -187,30 +173,45 @@ def _build_executor() -> ActionExecutor:
         transcript_span_seeds_saver=services,
         transcript_promoter=services,
     )
+    deps = ActionExecutorDeps(
+        artifact_hydrator=services,
+        artifact_opener=services,
+        artifact_draft_proposer=services,
+        evidence_retriever=services,
+        artifact_compiler=services,
+        artifact_judge=services,
+        artifact_bundler=services,
+        artifact_georeferencer=services,
+        artifact_validator=services,
+        artifact_renderer=services,
+        patch_proposer=services,
+        status_summarizer=services,
+        provider_actions=provider_actions,
+    )
     return ActionExecutor(deps=deps)
 
 
 def test_executor_supports_required_deterministic_actions() -> None:
     executor = _build_executor()
     actions = (
-        ActionType.SET_GRAPH_REQUIREMENTS,
-        ActionType.HYDRATE_DEED,
-        ActionType.OPEN_ARTIFACT,
-        ActionType.DRAFT_IR,
-        ActionType.RETRIEVE_EVIDENCE,
-        ActionType.COMPILE,
-        ActionType.JUDGE,
-        ActionType.BUNDLE,
-        ActionType.GEOREFERENCE,
-        ActionType.VALIDATE,
-        ActionType.RENDER,
-        ActionType.TX_AUDIT_TRANSCRIPT,
-        ActionType.TX_ORIENT_AND_BASELINE,
-        ActionType.TX_OPEN_TRANSCRIPT_SPANS,
-        ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
-        ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
-        ActionType.TX_APPLY_EDIT_PLAN,
-        ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
+        ActionType.SET_GRAPH_REQUIREMENTS.value,
+        ActionType.HYDRATE_DEED.value,
+        ActionType.OPEN_ARTIFACT.value,
+        ActionType.DRAFT_IR.value,
+        ActionType.RETRIEVE_EVIDENCE.value,
+        ActionType.COMPILE.value,
+        ActionType.JUDGE.value,
+        ActionType.BUNDLE.value,
+        ActionType.GEOREFERENCE.value,
+        ActionType.VALIDATE.value,
+        ActionType.RENDER.value,
+        TX_AUDIT_TRANSCRIPT,
+        TX_ORIENT_AND_BASELINE,
+        TX_OPEN_TRANSCRIPT_SPANS,
+        TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+        TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
+        TX_APPLY_EDIT_PLAN,
+        TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
     )
 
     for index, action in enumerate(actions, start=1):
@@ -231,7 +232,7 @@ def test_set_graph_requirements_updates_metadata_and_records_ir_ref() -> None:
     original_graph = {"metadata": {"global_placement_required": False}, "nodes": [{"id": "n1"}]}
     step = executor.execute(
         step_id="set-graph",
-        action=ActionType.SET_GRAPH_REQUIREMENTS,
+        action=ActionType.SET_GRAPH_REQUIREMENTS.value,
         inputs={
             "graph": original_graph,
             "global_placement_required": True,
@@ -248,7 +249,7 @@ def test_validate_returns_inline_validation_result_only() -> None:
     executor = _build_executor()
     step = executor.execute(
         step_id="validate",
-        action=ActionType.VALIDATE,
+        action=ActionType.VALIDATE.value,
         inputs={"judge_artifact_path": "artifacts/judge/judge-001.json"},
     )
 
@@ -259,8 +260,8 @@ def test_validate_returns_inline_validation_result_only() -> None:
 
 
 def test_validate_accepts_validator_payload_with_persisted_artifact_ref() -> None:
-    class _ValidatorWithArtifact(Validator):
-        def validate(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+    class _ValidatorWithArtifact(ArtifactValidator):
+        def validate_artifact(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
             del inputs
             return {
                 "artifact_ref": {"artifact_path": "artifacts/validate/validate-001.json"},
@@ -273,10 +274,10 @@ def test_validate_accepts_validator_payload_with_persisted_artifact_ref() -> Non
                 "validate_summary": {"passed": False},
             }
 
-    executor = ActionExecutor(deps=ActionExecutorDeps(validator=_ValidatorWithArtifact()))
+    executor = ActionExecutor(deps=ActionExecutorDeps(artifact_validator=_ValidatorWithArtifact()))
     step = executor.execute(
         step_id="validate-with-artifact",
-        action=ActionType.VALIDATE,
+        action=ActionType.VALIDATE.value,
         inputs={"georef_artifact_ref": "artifacts/georef/georef-001.json"},
     )
 
@@ -291,8 +292,8 @@ def test_validate_accepts_validator_payload_with_persisted_artifact_ref() -> Non
 def test_llm_actions_are_stubbed_with_explicit_interfaces() -> None:
     executor = ActionExecutor(deps=ActionExecutorDeps())
 
-    patch_step = executor.execute("patch", ActionType.PROPOSE_PATCH, {"request_id": "req-1"})
-    status_step = executor.execute("status", ActionType.SUMMARIZE_STATUS, {"request_id": "req-1"})
+    patch_step = executor.execute("patch", ActionType.PROPOSE_PATCH.value, {"request_id": "req-1"})
+    status_step = executor.execute("status", ActionType.SUMMARIZE_STATUS.value, {"request_id": "req-1"})
 
     assert patch_step.reason_codes == ["missing_patch_proposer_interface"]
     assert patch_step.outputs_inline["required_interface"] == "PatchProposer"
@@ -304,12 +305,12 @@ def test_open_artifact_and_draft_ir_have_deterministic_handler_behavior() -> Non
     executor = _build_executor()
     opened = executor.execute(
         "open-artifact",
-        ActionType.OPEN_ARTIFACT,
+        ActionType.OPEN_ARTIFACT.value,
         {"artifact_ref": {"artifact_path": "artifacts/ir/ir-001.json"}},
     )
     drafted = executor.execute(
         "draft-ir",
-        ActionType.DRAFT_IR,
+        ActionType.DRAFT_IR.value,
         {"deed_text_ref": {"artifact_path": "artifacts/deed/hydrated-001.json"}},
     )
 
@@ -329,7 +330,7 @@ def test_retrieve_evidence_propagates_reason_codes_from_dependency_payload() -> 
             }
 
     executor = ActionExecutor(deps=ActionExecutorDeps(evidence_retriever=_ReasonCodeRetriever()))
-    step = executor.execute("retrieve", ActionType.RETRIEVE_EVIDENCE, {"semantic": True})
+    step = executor.execute("retrieve", ActionType.RETRIEVE_EVIDENCE.value, {"semantic": True})
 
     assert step.reason_codes == ["semantic_worker_unavailable"]
     assert step.outputs == {}
@@ -337,44 +338,45 @@ def test_retrieve_evidence_propagates_reason_codes_from_dependency_payload() -> 
 
 def test_new_actions_return_explicit_missing_interface_reason_codes() -> None:
     executor = ActionExecutor(deps=ActionExecutorDeps())
-    hydrated = executor.execute("hydrate", ActionType.HYDRATE_DEED, {"dossier_id": "d-1"})
+    hydrated = executor.execute("hydrate", ActionType.HYDRATE_DEED.value, {"dossier_id": "d-1"})
     opened = executor.execute(
         "open",
-        ActionType.OPEN_ARTIFACT,
+        ActionType.OPEN_ARTIFACT.value,
         {"artifact_ref": {"artifact_path": "artifacts/x.json"}},
     )
-    drafted = executor.execute("draft", ActionType.DRAFT_IR, {"deed_text": "..."})
-    tx_audit = executor.execute("tx-audit", ActionType.TX_AUDIT_TRANSCRIPT, {"source_text": "abc"})
-    tx_apply = executor.execute("tx-apply", ActionType.TX_APPLY_EDIT_PLAN, {"edit_plan": {}})
-    tx_orient = executor.execute("tx-orient", ActionType.TX_ORIENT_AND_BASELINE, {"source_text": "abc"})
+    drafted = executor.execute("draft", ActionType.DRAFT_IR.value, {"deed_text": "..."})
+    tx_audit = executor.execute("tx-audit", TX_AUDIT_TRANSCRIPT, {"source_text": "abc"})
+    tx_apply = executor.execute("tx-apply", TX_APPLY_EDIT_PLAN, {"edit_plan": {}})
+    tx_orient = executor.execute("tx-orient", TX_ORIENT_AND_BASELINE, {"source_text": "abc"})
     tx_spans = executor.execute(
         "tx-spans",
-        ActionType.TX_OPEN_TRANSCRIPT_SPANS,
+        TX_OPEN_TRANSCRIPT_SPANS,
         {"source_text": "alpha beta gamma", "spans": [{"start_char": 0, "end_char": 5}]},
     )
     tx_verify = executor.execute(
         "tx-verify",
-        ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+        TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
         {"source_transcript_ref": "artifacts/tx/source-001.json", "checks": [{"query": "range"}]},
     )
     tx_promote = executor.execute(
         "tx-promote",
-        ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
+        TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
         {"transcript_ref": "artifacts/tx/edited-001.json"},
     )
     tx_span_seeds = executor.execute(
         "tx-seeds",
-        ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
+        TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
         {"source_transcript_ref": "artifacts/tx/source-001.json", "source_transcript_hash": "sha256:abc"},
     )
 
-    assert hydrated.reason_codes == ["missing_deed_hydrator_interface"]
+    assert hydrated.reason_codes == ["missing_artifact_hydrator_interface"]
     assert opened.reason_codes == ["missing_artifact_opener_interface"]
-    assert drafted.reason_codes == ["missing_draft_ir_proposer_interface"]
-    assert tx_audit.reason_codes == ["missing_transcript_auditor_interface"]
-    assert tx_orient.reason_codes == ["missing_transcript_orient_baseliner_interface"]
-    assert tx_spans.reason_codes == ["missing_transcript_span_opener_interface"]
-    assert tx_verify.reason_codes == ["missing_transcript_image_verifier_interface"]
-    assert tx_apply.reason_codes == ["missing_transcript_plan_applier_interface"]
-    assert tx_span_seeds.reason_codes == ["missing_transcript_span_seeds_saver_interface"]
-    assert tx_promote.reason_codes == ["missing_transcript_promoter_interface"]
+    assert drafted.reason_codes == ["missing_artifact_draft_proposer_interface"]
+    # Domain execution ids are unknown to the bare kernel unless registered in provider_actions.
+    assert tx_audit.reason_codes == ["unsupported_action"]
+    assert tx_orient.reason_codes == ["unsupported_action"]
+    assert tx_spans.reason_codes == ["unsupported_action"]
+    assert tx_verify.reason_codes == ["unsupported_action"]
+    assert tx_apply.reason_codes == ["unsupported_action"]
+    assert tx_span_seeds.reason_codes == ["unsupported_action"]
+    assert tx_promote.reason_codes == ["unsupported_action"]

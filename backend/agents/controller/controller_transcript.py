@@ -49,8 +49,15 @@ from .prompting import (
 from .retrieval_intents import classify_retrieval_degradation, map_retrieval_intent_to_inputs
 from .tool_specs import ToolSpec
 from .bootstrap import load_transcript_span_seeds_for_mapping, materialize_seed_spans_from_text
-from .controller_guardrails import _encoded_size_bytes, _material_change_fingerprint, _read_str
+from .controller_guardrails import (
+    _encoded_size_bytes,
+    _latest_refs_summary as _controller_latest_refs_summary,
+    _material_change_fingerprint,
+    _read_str,
+)
 from .controller_summary import _normalize_iteration_summary_payload, _run_summary_entry_excerpt
+
+_latest_refs_summary = _controller_latest_refs_summary
 
 _MAX_CONTROLLER_INPUT_BYTES = 4096
 _MAX_EVENTS = 200
@@ -321,19 +328,6 @@ def _proposal_failure_payload(raw: dict[str, object], *, attempt: str, parse_err
     if isinstance(tool_name, str) and tool_name:
         payload["tool_name"] = tool_name[:64]
     return payload
-
-
-def _latest_refs_summary(dashboard: dict[str, object]) -> dict[str, object]:
-    latest_refs = dashboard.get("latest_refs")
-    if not isinstance(latest_refs, dict):
-        return {}
-    summary: dict[str, object] = {}
-    for key, value in latest_refs.items():
-        if isinstance(value, dict):
-            artifact_path = value.get("artifact_path")
-            if isinstance(artifact_path, str) and artifact_path:
-                summary[key] = artifact_path
-    return summary
 
 
 def _log_controller_event(event_type: str, payload: dict[str, object]) -> None:

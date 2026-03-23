@@ -69,7 +69,7 @@ _MAX_DISPLAY_DELTA_CHARS = 220
 
 logger = logging.getLogger(__name__)
 
-from .controller_guardrails import _latest_refs_summary, _read_str
+from .controller_guardrails import _flatten_latest_refs_payload, _latest_refs_summary, _read_str
 
 def _bounded_text(value: str, max_chars: int) -> str:
     if len(value) <= max_chars:
@@ -126,7 +126,8 @@ def _maybe_create_iteration_digest(
     if isinstance(progress, dict):
         latest_refs = progress.get("latest_refs")
         if isinstance(latest_refs, dict):
-            deed_span_index_ref = latest_refs.get("deed_span_index_ref")
+            flat_lr = _flatten_latest_refs_payload(latest_refs)
+            deed_span_index_ref = flat_lr.get("deed_span_index_ref")
     step_record = outcome_payload.get("step_record")
     if isinstance(step_record, dict):
         outputs_inline = step_record.get("outputs_inline")
@@ -138,7 +139,8 @@ def _maybe_create_iteration_digest(
             if isinstance(outputs_inline.get("span_catalog_excerpt"), list):
                 deed_span_catalog_excerpt = outputs_inline.get("span_catalog_excerpt")
     if isinstance(outcome_payload.get("latest_refs"), dict):
-        deed_span_index_ref = outcome_payload["latest_refs"].get("deed_span_index_ref") or deed_span_index_ref
+        olr = _flatten_latest_refs_payload(outcome_payload["latest_refs"])
+        deed_span_index_ref = olr.get("deed_span_index_ref") or deed_span_index_ref
     updated.append(
         {
             "iter": iteration,
@@ -343,7 +345,8 @@ def _fallback_iteration_summary(
     reason_code = outcome_payload.get("reason_code")
     missing_inputs = outcome_payload.get("missing_inputs")
     latest_refs = outcome_payload.get("latest_refs") if isinstance(outcome_payload.get("latest_refs"), dict) else {}
-    new_refs = [k for k, v in latest_refs.items() if isinstance(v, str) and v][:4]
+    flat_lr = _flatten_latest_refs_payload(latest_refs) if isinstance(latest_refs, dict) else {}
+    new_refs = [k for k, v in flat_lr.items() if isinstance(v, str) and v][:4]
     actual_observation = _fallback_actual_observation(outcome_kind=outcome_kind, reason_code=reason_code)
     entry: dict[str, object] = {
         "action": _bounded_text(f"propose:{proposal.action_type}; observed_last:{actual_observation}", 120),

@@ -10,12 +10,12 @@ from time import time
 from typing import Sequence, TextIO
 
 from agent_kernel.models import KernelBudgets, KernelGoal, KernelSessionStartRequest
-from agent_kernel.session import KernelSessionManager
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 
 from .controller import run_controller_loop
 from .openai_client import OpenAINextStepClient
 from .bootstrap import persist_deed_text_artifact
+from feature_graph.kernel_executor_composition import build_plattera_default_kernel_session_manager
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -68,7 +68,7 @@ def run_cli(argv: Sequence[str] | None = None, stdout: TextIO | None = None) -> 
     )
 
     persistence = RunArtifactPersistenceService()
-    session_manager = KernelSessionManager(persistence_service=persistence)
+    session_manager = build_plattera_default_kernel_session_manager(persistence_service=persistence)
     llm_client = OpenAINextStepClient()
     result = run_controller_loop(
         session_manager=session_manager,

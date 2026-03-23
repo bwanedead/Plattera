@@ -30,6 +30,7 @@ from agent_kernel.models import (
     TerminalOutcomeKind,
 )
 from agent_kernel.session import KernelSessionManager
+from agent_kernel.ref_coercion import flatten_latest_refs_payload as _flatten_latest_refs_payload
 
 from .contracts import (
     DeclareDoneJustification,
@@ -96,12 +97,15 @@ def _latest_refs_summary(dashboard: dict[str, object]) -> dict[str, object]:
     latest_refs = dashboard.get("latest_refs")
     if not isinstance(latest_refs, dict):
         return {}
+    flat = _flatten_latest_refs_payload(latest_refs)
     summary: dict[str, object] = {}
-    for key, value in latest_refs.items():
+    for key, value in flat.items():
         if isinstance(value, dict):
             artifact_path = value.get("artifact_path")
             if isinstance(artifact_path, str) and artifact_path:
-                summary[key] = artifact_path
+                summary[str(key)] = artifact_path
+        elif isinstance(value, str) and value.strip():
+            summary[str(key)] = value.strip()
     return summary
 
 
@@ -286,9 +290,10 @@ def _judge_excerpt_from_hint(judge_hint: dict[str, object]) -> dict[str, object]
 
 
 def _recommended_next_moves(progress_payload: dict[str, object]) -> list[str]:
-    latest_refs = progress_payload.get("latest_refs")
-    if not isinstance(latest_refs, dict):
+    raw_lr = progress_payload.get("latest_refs")
+    if not isinstance(raw_lr, dict):
         return []
+    latest_refs = _flatten_latest_refs_payload(raw_lr)
     map_sanity = progress_payload.get("map_sanity_excerpt")
     if isinstance(map_sanity, dict):
         validate_top_issues = map_sanity.get("validate_top_issues")
@@ -490,7 +495,7 @@ def _semantic_span_repair_signature_for_context(context_packet: Mapping[str, obj
     )
     if not issues:
         return None
-    deed_span_index_ref = _read_str(latest_refs.get("deed_span_index_ref"))
+    deed_span_index_ref = _ref_path("deed_span_index_ref")
     payload = {"ir_ref": ir_ref, "validate_ref": validate_ref, "issues": issues, "deed_span_index_ref": deed_span_index_ref}
     try:
         return json.dumps(payload, sort_keys=True, ensure_ascii=True)
@@ -609,15 +614,21 @@ def _build_parse_failure_resync_proposal(
     progress = observation.get("progress")
     if not isinstance(progress, dict):
         return None
-    latest_refs = progress.get("latest_refs")
-    if not isinstance(latest_refs, dict):
+    latest_refs_raw = progress.get("latest_refs")
+    if not isinstance(latest_refs_raw, dict):
         return None
+    latest_refs = _flatten_latest_refs_payload(latest_refs_raw)
     artifact_ref = None
     for key in ("judge_ref", "compile_ref", "ir_ref"):
         candidate = latest_refs.get(key)
         if isinstance(candidate, str) and candidate.strip():
             artifact_ref = candidate.strip()
             break
+        if isinstance(candidate, dict):
+            path = candidate.get("artifact_path")
+            if isinstance(path, str) and path.strip():
+                artifact_ref = path.strip()
+                break
     if artifact_ref is None:
         return None
     return KernelStepProposal(

@@ -18,28 +18,28 @@ from backend.agent_kernel.state_machine import (
 
 
 def test_compile_then_judge_reaches_ready_to_map():
-    state = advance_state(KernelState.INIT, KernelEvent.IR_READY)
-    state = advance_state(state, KernelEvent.COMPILE_COMPLETED)
-    state = advance_state(state, KernelEvent.JUDGE_COMPLETED)
+    state = advance_state(KernelState.INIT, KernelEvent.SOURCE_READY)
+    state = advance_state(state, KernelEvent.ANALYSIS_COMPLETED)
+    state = advance_state(state, KernelEvent.REVIEW_COMPLETED)
 
-    assert state == KernelState.READY_TO_MAP
+    assert state == KernelState.PACKAGE_READY
 
 
 def test_judge_then_compile_reaches_ready_to_map():
-    state = advance_state(KernelState.INIT, KernelEvent.IR_READY)
-    state = advance_state(state, KernelEvent.JUDGE_COMPLETED)
-    state = advance_state(state, KernelEvent.COMPILE_COMPLETED)
+    state = advance_state(KernelState.INIT, KernelEvent.SOURCE_READY)
+    state = advance_state(state, KernelEvent.REVIEW_COMPLETED)
+    state = advance_state(state, KernelEvent.ANALYSIS_COMPLETED)
 
-    assert state == KernelState.READY_TO_MAP
+    assert state == KernelState.PACKAGE_READY
 
 
 def test_repair_and_mapping_path_reaches_done():
-    state = advance_state(KernelState.INIT, KernelEvent.IR_READY)
+    state = advance_state(KernelState.INIT, KernelEvent.SOURCE_READY)
     state = advance_state(state, KernelEvent.REPAIR_REQUESTED)
     state = advance_state(state, KernelEvent.REPAIR_COMPLETED)
-    state = advance_state(state, KernelEvent.COMPILE_COMPLETED)
-    state = advance_state(state, KernelEvent.JUDGE_COMPLETED)
-    state = advance_state(state, KernelEvent.MAP_COMPLETED)
+    state = advance_state(state, KernelEvent.ANALYSIS_COMPLETED)
+    state = advance_state(state, KernelEvent.REVIEW_COMPLETED)
+    state = advance_state(state, KernelEvent.PACKAGE_COMMITTED)
     state = advance_state(state, KernelEvent.FINISH)
 
     assert state == KernelState.DONE
@@ -47,11 +47,17 @@ def test_repair_and_mapping_path_reaches_done():
 
 def test_invalid_transition_raises_deterministic_error():
     with pytest.raises(TransitionError) as exc:
-        advance_state(KernelState.INIT, KernelEvent.MAP_COMPLETED)
+        advance_state(KernelState.INIT, KernelEvent.PACKAGE_COMMITTED)
 
-    assert str(exc.value) == "Invalid transition: state=init, event=map_completed"
+    assert str(exc.value) == "Invalid transition: state=init, event=package_committed"
 
 
 def test_can_transition_matches_transition_table():
-    assert can_transition(KernelState.HAVE_COMPILE, KernelEvent.JUDGE_COMPLETED) is True
-    assert can_transition(KernelState.HAVE_COMPILE, KernelEvent.MAP_COMPLETED) is False
+    assert can_transition(KernelState.ANALYZED, KernelEvent.REVIEW_COMPLETED) is True
+    assert can_transition(KernelState.ANALYZED, KernelEvent.PACKAGE_COMMITTED) is False
+
+
+def test_legacy_state_aliases_still_resolve_to_generic_states():
+    assert KernelState.HAVE_IR is KernelState.SOURCE_READY
+    assert KernelState.HAVE_COMPILE is KernelState.ANALYZED
+    assert KernelState.HAVE_JUDGE is KernelState.REVIEWED

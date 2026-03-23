@@ -88,21 +88,12 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field, ValidationError
 from pipelines.image_to_text.image_processor import enhance_for_character_recognition
 from pipelines.image_to_text.redundancy import RedundancyProcessor
-from agent_kernel.session import KernelSessionManager
-from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
-from agent_kernel.tooling import (
-    TranscriptAuditTool,
-    TranscriptImageVerificationTool,
-    TranscriptEditPlanApplyTool,
-    TranscriptMappingPromoterTool,
-    TranscriptSpanSeedsSaverTool,
-    TranscriptSpanOpenerTool,
-)
-from agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool
+from agent_kernel.session import build_kernel_session_manager
 from harness.mission_runtime.modes.transcript_edit import run_orchestration_kernel_transcript_loop
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
 from agents.transcript_edit.decision_ledger import unresolved_closure_requirements
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
+from feature_graph.kernel_executor_composition import build_plattera_default_action_executor
 from transcript_edit.contracts import (
     EditLoopStartRequestV0,
     TranscriptionEditRunRequestV0,
@@ -811,18 +802,8 @@ class ImageToTextPipeline:
                     event_type = str(event.get("event_type") or "status")
                     _publish_viewer_event(event_type, event)
 
-                session_manager = KernelSessionManager(
-                    action_executor=ActionExecutor(
-                        deps=ActionExecutorDeps(
-                            transcript_auditor=TranscriptAuditTool(),
-                            transcript_orient_baseliner=TranscriptOrientBaselineTool(),
-                            transcript_span_opener=TranscriptSpanOpenerTool(),
-                            transcript_image_verifier=TranscriptImageVerificationTool(),
-                            transcript_plan_applier=TranscriptEditPlanApplyTool(),
-                            transcript_span_seeds_saver=TranscriptSpanSeedsSaverTool(),
-                            transcript_promoter=TranscriptMappingPromoterTool(),
-                        )
-                    ),
+                session_manager = build_kernel_session_manager(
+                    action_executor=build_plattera_default_action_executor(),
                     persistence_service=RunArtifactPersistenceService(),
                 )
                 result = run_orchestration_kernel_transcript_loop(

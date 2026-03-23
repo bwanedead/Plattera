@@ -16,7 +16,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from agent_kernel.models import KernelBudgets, KernelGoal, KernelSessionStartRequest
-from agent_kernel.session import KernelSessionManager
 from agent_kernel.tooling import CorpusArtifactOpener
 from agents.controller.openai_client import OpenAINextStepClient
 from harness.mission_runtime.modes.deed_to_ir import run_orchestration_kernel_deed_loop
@@ -34,6 +33,7 @@ from services.agent_loop.run_registry_service import AgentLoopRunRegistryService
 from services.dossier.management_service import DossierManagementService
 from services.dossier.finalized_snapshot_service import FinalizedSnapshotService
 from config.paths import agent_kernel_artifacts_root, dossiers_artifacts_root, dossiers_feature_graphs_artifacts_root
+from feature_graph.kernel_executor_composition import build_plattera_default_kernel_session_manager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ def _ensure_text_run_has_real_dossier(request: AgentLoopRunRequest) -> AgentLoop
 def _execute_run(run_id: str, request: AgentLoopRunRequest) -> None:
     try:
         persistence = RunArtifactPersistenceService()
-        session_manager = KernelSessionManager(persistence_service=persistence)
+        session_manager = build_plattera_default_kernel_session_manager(persistence_service=persistence)
         llm_client = OpenAINextStepClient()
         start_request = _build_start_request(run_id, request)
         handoff_packet = load_transcript_handoff_packet(handoff_ref=request.transcript_handoff_ref)

@@ -12,13 +12,19 @@ from .models import KernelState
 class KernelEvent(str, Enum):
     """Explicit events that drive deterministic state transitions."""
 
-    IR_READY = "ir_ready"
-    COMPILE_COMPLETED = "compile_completed"
-    JUDGE_COMPLETED = "judge_completed"
+    SOURCE_READY = "source_ready"
+    ANALYSIS_COMPLETED = "analysis_completed"
+    REVIEW_COMPLETED = "review_completed"
     REPAIR_REQUESTED = "repair_requested"
     REPAIR_COMPLETED = "repair_completed"
-    MAP_COMPLETED = "map_completed"
+    PACKAGE_COMMITTED = "package_committed"
     FINISH = "finish"
+
+    # Transitional aliases for compatibility with older workflow-oriented call sites.
+    IR_READY = SOURCE_READY
+    COMPILE_COMPLETED = ANALYSIS_COMPLETED
+    JUDGE_COMPLETED = REVIEW_COMPLETED
+    MAP_COMPLETED = PACKAGE_COMMITTED
 
 
 @dataclass(frozen=True)
@@ -33,20 +39,20 @@ class TransitionError(ValueError):
 
 
 _TRANSITIONS: Dict[Tuple[KernelState, KernelEvent], KernelState] = {
-    (KernelState.INIT, KernelEvent.IR_READY): KernelState.HAVE_IR,
-    (KernelState.HAVE_IR, KernelEvent.COMPILE_COMPLETED): KernelState.HAVE_COMPILE,
-    (KernelState.HAVE_IR, KernelEvent.JUDGE_COMPLETED): KernelState.HAVE_JUDGE,
-    (KernelState.HAVE_IR, KernelEvent.REPAIR_REQUESTED): KernelState.REPAIRING,
-    (KernelState.HAVE_COMPILE, KernelEvent.JUDGE_COMPLETED): KernelState.READY_TO_MAP,
-    (KernelState.HAVE_COMPILE, KernelEvent.REPAIR_REQUESTED): KernelState.REPAIRING,
-    (KernelState.HAVE_JUDGE, KernelEvent.COMPILE_COMPLETED): KernelState.READY_TO_MAP,
-    (KernelState.HAVE_JUDGE, KernelEvent.REPAIR_REQUESTED): KernelState.REPAIRING,
-    (KernelState.REPAIRING, KernelEvent.REPAIR_COMPLETED): KernelState.HAVE_IR,
-    (KernelState.REPAIRING, KernelEvent.COMPILE_COMPLETED): KernelState.HAVE_COMPILE,
-    (KernelState.REPAIRING, KernelEvent.JUDGE_COMPLETED): KernelState.HAVE_JUDGE,
-    (KernelState.READY_TO_MAP, KernelEvent.MAP_COMPLETED): KernelState.MAPPED,
-    (KernelState.READY_TO_MAP, KernelEvent.REPAIR_REQUESTED): KernelState.REPAIRING,
-    (KernelState.MAPPED, KernelEvent.FINISH): KernelState.DONE,
+    (KernelState.INIT, KernelEvent.SOURCE_READY): KernelState.SOURCE_READY,
+    (KernelState.SOURCE_READY, KernelEvent.ANALYSIS_COMPLETED): KernelState.ANALYZED,
+    (KernelState.SOURCE_READY, KernelEvent.REVIEW_COMPLETED): KernelState.REVIEWED,
+    (KernelState.SOURCE_READY, KernelEvent.REPAIR_REQUESTED): KernelState.REPAIRING,
+    (KernelState.ANALYZED, KernelEvent.REVIEW_COMPLETED): KernelState.PACKAGE_READY,
+    (KernelState.ANALYZED, KernelEvent.REPAIR_REQUESTED): KernelState.REPAIRING,
+    (KernelState.REVIEWED, KernelEvent.ANALYSIS_COMPLETED): KernelState.PACKAGE_READY,
+    (KernelState.REVIEWED, KernelEvent.REPAIR_REQUESTED): KernelState.REPAIRING,
+    (KernelState.REPAIRING, KernelEvent.REPAIR_COMPLETED): KernelState.SOURCE_READY,
+    (KernelState.REPAIRING, KernelEvent.ANALYSIS_COMPLETED): KernelState.ANALYZED,
+    (KernelState.REPAIRING, KernelEvent.REVIEW_COMPLETED): KernelState.REVIEWED,
+    (KernelState.PACKAGE_READY, KernelEvent.PACKAGE_COMMITTED): KernelState.PACKAGE_COMMITTED,
+    (KernelState.PACKAGE_READY, KernelEvent.REPAIR_REQUESTED): KernelState.REPAIRING,
+    (KernelState.PACKAGE_COMMITTED, KernelEvent.FINISH): KernelState.DONE,
 }
 
 

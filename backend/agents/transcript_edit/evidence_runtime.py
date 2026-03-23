@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from agent_kernel.models import ActionType, StepExecutionState
+from agent_kernel.models import StepExecutionState
+
+from .execution_action_ids import TX_VERIFY_TRANSCRIPT_WITH_IMAGE
 from agent_kernel.session import KernelSessionManager
 
 from .context_spans import open_planner_context_spans
@@ -196,7 +198,7 @@ def run_image_evidence_mode(
         session_id=session_id,
         prefix="tx_image_evidence",
         iteration=iteration,
-        action_type=ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+        action_type=TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
         inputs={
             "dossier_id": dossier_id,
             "source_transcript_ref": source_transcript_ref,

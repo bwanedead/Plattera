@@ -7,7 +7,16 @@ from typing import Any, Mapping
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-from agent_kernel.models import ActionType
+from agent_kernel.harness_action_ids import ActionType
+from agents.transcript_edit.execution_action_ids import (
+    TX_APPLY_EDIT_PLAN,
+    TX_AUDIT_TRANSCRIPT,
+    TX_OPEN_TRANSCRIPT_SPANS,
+    TX_ORIENT_AND_BASELINE,
+    TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
+    TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
+    TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+)
 from .tool_specs import ToolSpec
 
 
@@ -394,50 +403,65 @@ class _SummarizeStatusArgs(BaseModel):
     transcript_artifact_ref: str | None = Field(default=None, max_length=512)
 
 
-_ACTION_ARG_MODELS: dict[ActionType, type[BaseModel]] = {
-    ActionType.SET_GRAPH_REQUIREMENTS: _SetGraphRequirementsArgs,
-    ActionType.HYDRATE_DEED: _HydrateDeedArgs,
-    ActionType.OPEN_ARTIFACT: _OpenArtifactArgs,
-    ActionType.OPEN_TEXT_SPANS: _OpenTextSpansArgs,
-    ActionType.DRAFT_IR: _DraftIRArgs,
-    ActionType.DECLARE_DONE: _EmptyArgs,
-    ActionType.RETRIEVE_EVIDENCE: _RetrieveEvidenceArgs,
-    ActionType.COMPILE: _CompileArgs,
-    ActionType.JUDGE: _JudgeArgs,
-    ActionType.BUNDLE: _BundleArgs,
-    ActionType.GEOREFERENCE: _GeoreferenceArgs,
-    ActionType.VALIDATE: _ValidateArgs,
-    ActionType.RENDER: _RenderArgs,
-    ActionType.TX_AUDIT_TRANSCRIPT: _TxAuditTranscriptArgs,
-    ActionType.TX_OPEN_TRANSCRIPT_SPANS: _TxOpenTranscriptSpansArgs,
-    ActionType.TX_APPLY_EDIT_PLAN: _TxApplyEditPlanArgs,
-    ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING: _TxPromoteTranscriptArgs,
-    ActionType.PROPOSE_PATCH: _ProposePatchArgs,
-    ActionType.SUMMARIZE_STATUS: _SummarizeStatusArgs,
-    ActionType.UPSERT_DEED_SPAN_INDEX: _UpsertDeedSpanIndexArgs,
+_ACTION_ARG_MODELS: dict[str, type[BaseModel]] = {
+    ActionType.SET_GRAPH_REQUIREMENTS.value: _SetGraphRequirementsArgs,
+    ActionType.HYDRATE_DEED.value: _HydrateDeedArgs,
+    ActionType.OPEN_ARTIFACT.value: _OpenArtifactArgs,
+    ActionType.OPEN_TEXT_SPANS.value: _OpenTextSpansArgs,
+    ActionType.DRAFT_IR.value: _DraftIRArgs,
+    ActionType.DECLARE_DONE.value: _EmptyArgs,
+    ActionType.RETRIEVE_EVIDENCE.value: _RetrieveEvidenceArgs,
+    ActionType.COMPILE.value: _CompileArgs,
+    ActionType.JUDGE.value: _JudgeArgs,
+    ActionType.BUNDLE.value: _BundleArgs,
+    ActionType.GEOREFERENCE.value: _GeoreferenceArgs,
+    ActionType.VALIDATE.value: _ValidateArgs,
+    ActionType.RENDER.value: _RenderArgs,
+    TX_AUDIT_TRANSCRIPT: _TxAuditTranscriptArgs,
+    TX_OPEN_TRANSCRIPT_SPANS: _TxOpenTranscriptSpansArgs,
+    TX_APPLY_EDIT_PLAN: _TxApplyEditPlanArgs,
+    TX_PROMOTE_TRANSCRIPT_FOR_MAPPING: _TxPromoteTranscriptArgs,
+    ActionType.PROPOSE_PATCH.value: _ProposePatchArgs,
+    ActionType.SUMMARIZE_STATUS.value: _SummarizeStatusArgs,
+    ActionType.UPSERT_DEED_SPAN_INDEX.value: _UpsertDeedSpanIndexArgs,
 }
 
+_TRANSCRIPT_EXECUTION_ACTION_IDS = frozenset(
+    {
+        TX_AUDIT_TRANSCRIPT,
+        TX_OPEN_TRANSCRIPT_SPANS,
+        TX_ORIENT_AND_BASELINE,
+        TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+        TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
+        TX_APPLY_EDIT_PLAN,
+        TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
+    }
+)
 
-def coerce_action_type(action_type: str) -> ActionType | None:
+
+def coerce_action_type(action_type: str) -> str | None:
     try:
-        return ActionType(action_type)
+        return ActionType(action_type).value
     except Exception:
+        if action_type in _TRANSCRIPT_EXECUTION_ACTION_IDS:
+            return action_type
         return None
 
 
 def validate_action_args(
     *,
-    action_type: ActionType,
+    action_type: ActionType | str,
     args: Mapping[str, Any],
 ) -> tuple[dict[str, Any] | None, str | None, list[str]]:
-    model_cls = _ACTION_ARG_MODELS.get(action_type)
+    key = action_type.value if isinstance(action_type, ActionType) else str(action_type)
+    model_cls = _ACTION_ARG_MODELS.get(key)
     if model_cls is None:
         return dict(args), None, []
     try:
         validated = model_cls.model_validate(dict(args))
         return validated.model_dump(mode="json", exclude_none=True), None, []
     except ValidationError as exc:
-        reason_code = _extract_reason_code(exc, default=f"{action_type.value}_inputs_invalid")
+        reason_code = _extract_reason_code(exc, default=f"{key}_inputs_invalid")
         missing_inputs = _extract_missing_inputs(exc)
         return None, reason_code, missing_inputs
 
@@ -513,7 +537,7 @@ def action_tool_specs_for_menu(tool_menu: list[str]) -> list[ToolSpec]:
     return specs
 
 
-def _tool_spec_for_action(action: ActionType) -> ToolSpec:
+def _tool_spec_for_action(action: str) -> ToolSpec:
     arg_model = _ACTION_ARG_MODELS.get(action)
     args_schema = _pydantic_args_schema(arg_model) if arg_model is not None else {"type": "object"}
     how_to = action_how_to_guide(action_type=action, reason_code=None, context_inputs={})
@@ -532,9 +556,9 @@ def _tool_spec_for_action(action: ActionType) -> ToolSpec:
     }
     props["semantic_ready"] = {"type": "boolean"}
     props["notes"] = {"type": "string"}
-    if action == ActionType.RETRIEVE_EVIDENCE:
+    if action == ActionType.RETRIEVE_EVIDENCE.value:
         props["retrieval_intent"] = {"type": "string", "enum": [intent.value for intent in RetrievalIntent]}
-    if action == ActionType.DECLARE_DONE:
+    if action == ActionType.DECLARE_DONE.value:
         props["declare_done"] = {"type": "object", "description": "DECLARE_DONE justification payload."}
         required.append("declare_done")
     props["iteration_summary"] = {
@@ -542,7 +566,7 @@ def _tool_spec_for_action(action: ActionType) -> ToolSpec:
         "description": "Optional Memory Docket v0 (delta-only summary; continuity only).",
     }
     description = (
-        f"{action.value}: {how_to['iteration_summary_note']} "
+        f"{action}: {how_to['iteration_summary_note']} "
         f"Required fields: {', '.join(how_to['required_fields']) if how_to['required_fields'] else 'none'}."
     )
     parameters_schema: dict[str, object] = {
@@ -552,7 +576,7 @@ def _tool_spec_for_action(action: ActionType) -> ToolSpec:
         "additionalProperties": False,
     }
     return ToolSpec(
-        name=action.value,
+        name=action,
         description=description[:600],
         parameters_schema=parameters_schema,
     )
@@ -600,38 +624,38 @@ def _inline_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
     return {"type": "object", "properties": {}, "required": []}
 
 
-_TOOL_REQUIRED_FIELDS: dict[ActionType, list[str]] = {
-    ActionType.OPEN_ARTIFACT: ["artifact_ref | artifact_path | corpus_entry_ref"],
-    ActionType.OPEN_TEXT_SPANS: ["deed_text_artifact_ref", "span_ids+deed_span_index_ref OR spans[] OR anchors[]"],
-    ActionType.HYDRATE_DEED: ["dossier_id | source_entry_ref"],
-    ActionType.DRAFT_IR: [
+_TOOL_REQUIRED_FIELDS: dict[str, list[str]] = {
+    ActionType.OPEN_ARTIFACT.value: ["artifact_ref | artifact_path | corpus_entry_ref"],
+    ActionType.OPEN_TEXT_SPANS.value: ["deed_text_artifact_ref", "span_ids+deed_span_index_ref OR spans[] OR anchors[]"],
+    ActionType.HYDRATE_DEED.value: ["dossier_id | source_entry_ref"],
+    ActionType.DRAFT_IR.value: [
         "dossier_id",
         "graph",
         "deed_text_artifact_ref (recommended provenance)",
     ],
-    ActionType.RETRIEVE_EVIDENCE: ["query"],
-    ActionType.COMPILE: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
-    ActionType.JUDGE: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
-    ActionType.BUNDLE: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
-    ActionType.DECLARE_DONE: ["declare_done (artifact_refs + evidence_links + accepted_deviations)"],
-    ActionType.GEOREFERENCE: ["bundle_artifact_ref | ir_artifact_ref"],
-    ActionType.VALIDATE: ["georef_artifact_ref"],
-    ActionType.RENDER: ["georef_artifact_ref"],
-    ActionType.TX_AUDIT_TRANSCRIPT: ["source_transcript_ref | source_text"],
-    ActionType.TX_OPEN_TRANSCRIPT_SPANS: ["source_transcript_ref | source_text", "spans[] OR anchors[]"],
-    ActionType.TX_APPLY_EDIT_PLAN: ["edit_plan"],
-    ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING: ["transcript_ref | tx_edited_transcript_ref"],
-    ActionType.PROPOSE_PATCH: ["ir_artifact_ref"],
-    ActionType.UPSERT_DEED_SPAN_INDEX: ["deed_text_artifact_ref", "deed_fingerprint", "upserts[]"],
+    ActionType.RETRIEVE_EVIDENCE.value: ["query"],
+    ActionType.COMPILE.value: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
+    ActionType.JUDGE.value: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
+    ActionType.BUNDLE.value: ["ir_artifact_ref | updated_ir_artifact_ref | ir_artifact_path"],
+    ActionType.DECLARE_DONE.value: ["declare_done (artifact_refs + evidence_links + accepted_deviations)"],
+    ActionType.GEOREFERENCE.value: ["bundle_artifact_ref | ir_artifact_ref"],
+    ActionType.VALIDATE.value: ["georef_artifact_ref"],
+    ActionType.RENDER.value: ["georef_artifact_ref"],
+    TX_AUDIT_TRANSCRIPT: ["source_transcript_ref | source_text"],
+    TX_OPEN_TRANSCRIPT_SPANS: ["source_transcript_ref | source_text", "spans[] OR anchors[]"],
+    TX_APPLY_EDIT_PLAN: ["edit_plan"],
+    TX_PROMOTE_TRANSCRIPT_FOR_MAPPING: ["transcript_ref | tx_edited_transcript_ref"],
+    ActionType.PROPOSE_PATCH.value: ["ir_artifact_ref"],
+    ActionType.UPSERT_DEED_SPAN_INDEX.value: ["deed_text_artifact_ref", "deed_fingerprint", "upserts[]"],
 }
 
-_TOOL_SCHEMA_REQUIRED_KEYS: dict[ActionType, list[str]] = {
-    ActionType.DRAFT_IR: ["dossier_id", "graph"],
-    ActionType.OPEN_TEXT_SPANS: ["deed_text_artifact_ref"],
-    ActionType.UPSERT_DEED_SPAN_INDEX: ["deed_text_artifact_ref", "deed_fingerprint", "upserts"],
-    ActionType.RETRIEVE_EVIDENCE: ["query"],
-    ActionType.RENDER: ["georef_artifact_ref"],
-    ActionType.TX_APPLY_EDIT_PLAN: ["edit_plan"],
+_TOOL_SCHEMA_REQUIRED_KEYS: dict[str, list[str]] = {
+    ActionType.DRAFT_IR.value: ["dossier_id", "graph"],
+    ActionType.OPEN_TEXT_SPANS.value: ["deed_text_artifact_ref"],
+    ActionType.UPSERT_DEED_SPAN_INDEX.value: ["deed_text_artifact_ref", "deed_fingerprint", "upserts"],
+    ActionType.RETRIEVE_EVIDENCE.value: ["query"],
+    ActionType.RENDER.value: ["georef_artifact_ref"],
+    TX_APPLY_EDIT_PLAN: ["edit_plan"],
 }
 
 
@@ -648,7 +672,7 @@ def tool_cheatsheet_entries(
         how_to = action_how_to_guide(action_type=action, reason_code=None, context_inputs=context_inputs)
         entries.append(
             {
-                "action_type": action.value,
+                "action_type": action,
                 "required_fields": how_to["required_fields"],
                 "minimal_working_example": how_to["minimal_working_example"],
                 "common_mistakes": how_to["common_mistakes"],
@@ -665,7 +689,7 @@ def action_how_to_guide(
     context_inputs: Mapping[str, Any],
 ) -> dict[str, Any]:
     if isinstance(action_type, ActionType):
-        action = action_type
+        action = coerce_action_type(action_type.value)
     else:
         raw_action = getattr(action_type, "value", action_type)
         action = coerce_action_type(str(raw_action))
@@ -689,16 +713,16 @@ def action_how_to_guide(
     }
 
 
-def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str, Any]) -> dict[str, Any]:
+def _example_args_for_action(*, action: str, context_inputs: Mapping[str, Any]) -> dict[str, Any]:
     dossier_id = _ctx_str(context_inputs.get("dossier_id")) or "<inputs.dossier_id>"
     deed_ref = _ctx_str(context_inputs.get("deed_text_artifact_ref")) or "<inputs.deed_text_artifact_ref>"
     source_entry_ref = _ctx_str(context_inputs.get("source_entry_ref")) or "<inputs.source_entry_ref>"
     initial_ir_ref = _ctx_str(context_inputs.get("initial_ir_ref"))
     latest_ir_ref = _ctx_str(context_inputs.get("latest_ir_ref"))
     ir_ref = latest_ir_ref or initial_ir_ref or "<ir-artifact-ref>"
-    if action == ActionType.OPEN_ARTIFACT:
+    if action == ActionType.OPEN_ARTIFACT.value:
         return {"artifact_ref": deed_ref}
-    if action == ActionType.OPEN_TEXT_SPANS:
+    if action == ActionType.OPEN_TEXT_SPANS.value:
         index_ref = _ctx_str(context_inputs.get("deed_span_index_ref")) or "<memory.deed_span_index_ref>"
         if _ctx_str(context_inputs.get("deed_span_index_ref")):
             return {
@@ -716,9 +740,9 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
                 }
             ],
         }
-    if action == ActionType.HYDRATE_DEED:
+    if action == ActionType.HYDRATE_DEED.value:
         return {"dossier_id": dossier_id, "source_entry_ref": source_entry_ref}
-    if action == ActionType.DRAFT_IR:
+    if action == ActionType.DRAFT_IR.value:
         return {
             "dossier_id": dossier_id,
             "deed_text_artifact_ref": deed_ref,
@@ -781,11 +805,11 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
                 "metadata": {"source": "deed"},
             },
         }
-    if action == ActionType.RETRIEVE_EVIDENCE:
+    if action == ActionType.RETRIEVE_EVIDENCE.value:
         return {"query": "<what you need to find>"}
-    if action in {ActionType.COMPILE, ActionType.JUDGE, ActionType.BUNDLE}:
+    if action in {ActionType.COMPILE.value, ActionType.JUDGE.value, ActionType.BUNDLE.value}:
         return {"ir_artifact_ref": ir_ref}
-    if action == ActionType.DECLARE_DONE:
+    if action == ActionType.DECLARE_DONE.value:
         return {
             "declare_done": {
                 "artifact_refs": {
@@ -798,15 +822,15 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
                 "accepted_deviations": [],
             }
         }
-    if action == ActionType.GEOREFERENCE:
+    if action == ActionType.GEOREFERENCE.value:
         return {"bundle_artifact_ref": "<bundle-artifact-ref>"}
-    if action == ActionType.VALIDATE:
+    if action == ActionType.VALIDATE.value:
         return {"georef_artifact_ref": "<georef-artifact-ref>"}
-    if action == ActionType.RENDER:
+    if action == ActionType.RENDER.value:
         return {"georef_artifact_ref": "<georef-artifact-ref>", "width": 900, "height": 700}
-    if action == ActionType.TX_AUDIT_TRANSCRIPT:
+    if action == TX_AUDIT_TRANSCRIPT:
         return {"dossier_id": dossier_id, "source_transcript_ref": "<transcript-ref>"}
-    if action == ActionType.TX_OPEN_TRANSCRIPT_SPANS:
+    if action == TX_OPEN_TRANSCRIPT_SPANS:
         return {
             "dossier_id": dossier_id,
             "source_transcript_ref": "<transcript-ref>",
@@ -819,7 +843,7 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
             ],
             "max_total_chars": 4000,
         }
-    if action == ActionType.TX_APPLY_EDIT_PLAN:
+    if action == TX_APPLY_EDIT_PLAN:
         return {
             "dossier_id": dossier_id,
             "edit_plan": {
@@ -833,14 +857,14 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
                 "plan_fingerprint": "<fingerprint>",
             },
         }
-    if action == ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING:
+    if action == TX_PROMOTE_TRANSCRIPT_FOR_MAPPING:
         return {
             "dossier_id": dossier_id,
             "tx_edited_transcript_ref": "<edited-transcript-ref>",
         }
-    if action == ActionType.PROPOSE_PATCH:
+    if action == ActionType.PROPOSE_PATCH.value:
         return {"ir_artifact_ref": ir_ref}
-    if action == ActionType.UPSERT_DEED_SPAN_INDEX:
+    if action == ActionType.UPSERT_DEED_SPAN_INDEX.value:
         return {
             "deed_text_artifact_ref": deed_ref,
             "deed_fingerprint": {"sha256_12": "<sha256_12>", "length_chars": 0},
@@ -859,22 +883,22 @@ def _example_args_for_action(*, action: ActionType, context_inputs: Mapping[str,
     return {}
 
 
-def _common_mistakes_for_action(action: ActionType, *, reason_code: str | None) -> list[str]:
+def _common_mistakes_for_action(action: str, *, reason_code: str | None) -> list[str]:
     generic = [
         "Do not leave args empty when the tool requires fields.",
         "Prefer artifact refs from Context Packet inputs/progress, not inline blobs.",
     ]
-    if action == ActionType.OPEN_ARTIFACT:
+    if action == ActionType.OPEN_ARTIFACT.value:
         return [
             "OPEN_ARTIFACT is for bounded summaries/debug inspection, not verbatim deed recall.",
             "For verbatim deed text, prefer OPEN_TEXT_SPANS.",
         ]
-    if action == ActionType.OPEN_TEXT_SPANS:
+    if action == ActionType.OPEN_TEXT_SPANS.value:
         return [
             "OPEN_TEXT_SPANS is the canonical verbatim deed recall tool; OPEN_ARTIFACT is summary/debug only.",
             "Use anchors[] to capture a span first, then span_ids + deed_span_index_ref for repeat verification.",
         ]
-    if action == ActionType.DRAFT_IR:
+    if action == ActionType.DRAFT_IR.value:
         return [
             "DRAFT_IR must include graph (top-level tool parameter, FeatureGraph JSON); deed refs are provenance, not auto-drafting inputs.",
             "Minimum viable graph: graph_id + at least one node + metadata.source='deed'.",
@@ -882,47 +906,47 @@ def _common_mistakes_for_action(action: ActionType, *, reason_code: str | None) 
             "If deed ties the POB to a PLSS corner/line, encode point.metadata.role='pob' + point.metadata.tie_to_corner using canonical keys (corner_label, bearing_raw, distance_value, distance_units, tie_direction).",
             "For partial deeds, include only fully stated parcel geometry and keep incomplete parcels as annotation stubs (do not fabricate their boundaries).",
         ]
-    if action == ActionType.DECLARE_DONE:
+    if action == ActionType.DECLARE_DONE.value:
         return [
             "DECLARE_DONE requires top-level declare_done payload; do not leave it empty.",
-            "If claimability looks ready, include artifact_refs from progress.latest_refs plus empty evidence_links/accepted_deviations if unsure.",
+            "If claimability looks ready, include artifact_refs from progress.latest_refs.artifact_refs plus empty evidence_links/accepted_deviations if unsure.",
         ]
-    if action in {ActionType.COMPILE, ActionType.JUDGE, ActionType.BUNDLE}:
+    if action in {ActionType.COMPILE.value, ActionType.JUDGE.value, ActionType.BUNDLE.value}:
         return [
             "Physics tools require an IR artifact ref/path.",
-            "Use progress.latest_refs.ir_ref after a successful DRAFT_IR or IR update.",
+            "Use progress.latest_refs.artifact_refs.ir_ref (path) after a successful DRAFT_IR or IR update.",
         ]
-    if action == ActionType.RENDER:
+    if action == ActionType.RENDER.value:
         return [
             "RENDER requires a georeference artifact ref (not IR/bundle refs).",
-            "Use progress.latest_refs.georef_ref after successful GEOREFERENCE.",
+            "Use progress.latest_refs.artifact_refs.georef_ref (path) after successful GEOREFERENCE.",
         ]
-    if action == ActionType.RETRIEVE_EVIDENCE:
+    if action == ActionType.RETRIEVE_EVIDENCE.value:
         return [
             "RETRIEVE_EVIDENCE requires a non-empty query string.",
             "Use retrieval only when it helps resolve a concrete gap or ambiguity.",
         ]
-    if action == ActionType.TX_AUDIT_TRANSCRIPT:
+    if action == TX_AUDIT_TRANSCRIPT:
         return [
             "Provide source_transcript_ref when possible; source_text is fallback only.",
             "Run transcript audit before proposing transcript edits.",
         ]
-    if action == ActionType.TX_OPEN_TRANSCRIPT_SPANS:
+    if action == TX_OPEN_TRANSCRIPT_SPANS:
         return [
             "TX_OPEN_TRANSCRIPT_SPANS needs source_transcript_ref/source_text and spans[] or anchors[].",
             "Keep requests bounded; do not request full-document spans repeatedly.",
         ]
-    if action == ActionType.TX_APPLY_EDIT_PLAN:
+    if action == TX_APPLY_EDIT_PLAN:
         return [
             "TX_APPLY_EDIT_PLAN requires edit_plan at top level.",
             "Each op should include expected_old.old_excerpt for drift safety.",
         ]
-    if action == ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING:
+    if action == TX_PROMOTE_TRANSCRIPT_FOR_MAPPING:
         return [
             "Promotion requires transcript_ref (or tx_edited_transcript_ref).",
             "Do not promote when unresolved validator errors remain.",
         ]
-    if action == ActionType.UPSERT_DEED_SPAN_INDEX:
+    if action == ActionType.UPSERT_DEED_SPAN_INDEX.value:
         return [
             "UPSERT_DEED_SPAN_INDEX requires deed_fingerprint and at least one valid span upsert.",
             "Include bounded agent_intent.intended_verbatim_text to support verification loops.",

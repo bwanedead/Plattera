@@ -273,10 +273,12 @@ def test_declare_done_missing_payload_autofills_and_executes() -> None:
     )
     dashboard = _dashboard()
     dashboard.latest_refs = KernelLatestRefs(
-        ir_ref={"artifact_path": "artifacts/feature_graphs/D1/ir.json"},
-        compile_ref={"artifact_path": "artifacts/feature_graphs/D1/compile.json"},
-        judge_ref={"artifact_path": "artifacts/feature_graphs/D1/judge.json"},
-        bundle_ref={"artifact_path": "artifacts/feature_graphs/D1/bundle.json"},
+        artifact_refs={
+            "ir_ref": {"artifact_path": "artifacts/feature_graphs/D1/ir.json"},
+            "compile_ref": {"artifact_path": "artifacts/feature_graphs/D1/compile.json"},
+            "judge_ref": {"artifact_path": "artifacts/feature_graphs/D1/judge.json"},
+            "bundle_ref": {"artifact_path": "artifacts/feature_graphs/D1/bundle.json"},
+        },
     )
     dashboard.claimability = KernelClaimabilityStatus(claimable_ready=True, missing_claimability=[])
     terminal = TerminalOutcome(
@@ -400,7 +402,9 @@ def test_parse_failure_triggers_one_step_controller_resync_open_artifact() -> No
         ]
     )
     dash = _dashboard()
-    dash.latest_refs = KernelLatestRefs(judge_ref={"artifact_path": "artifacts/feature_graphs/judge_1.json"})
+    dash.latest_refs = KernelLatestRefs(
+        artifact_refs={"judge_ref": {"artifact_path": "artifacts/feature_graphs/judge_1.json"}},
+    )
     step_result = KernelStepResult(
         session_id="controller-req-001::run-001",
         idempotency_key="k1",
@@ -1120,8 +1124,10 @@ def test_repeated_open_artifact_same_ref_triggers_inspection_thrash_brake() -> N
     )
     dash = _dashboard()
     dash.latest_refs = KernelLatestRefs(
-        ir_ref={"artifact_path": "artifacts/ir/ir-001.json"},
-        judge_ref={"artifact_path": "artifacts/judge/j1.json"},
+        artifact_refs={
+            "ir_ref": {"artifact_path": "artifacts/ir/ir-001.json"},
+            "judge_ref": {"artifact_path": "artifacts/judge/j1.json"},
+        },
     )
     step_result = KernelStepResult(
         session_id="controller-req-001::run-001",
@@ -1203,8 +1209,10 @@ def test_repeated_open_text_spans_same_args_triggers_span_thrash_brake() -> None
     )
     dash = _dashboard()
     dash.latest_refs = KernelLatestRefs(
-        ir_ref={"artifact_path": "artifacts/ir/ir-001.json"},
-        judge_ref={"artifact_path": "artifacts/judge/j1.json"},
+        artifact_refs={
+            "ir_ref": {"artifact_path": "artifacts/ir/ir-001.json"},
+            "judge_ref": {"artifact_path": "artifacts/judge/j1.json"},
+        },
     )
     step_result = KernelStepResult(
         session_id="controller-req-001::run-001",
@@ -1329,8 +1337,10 @@ def test_redundant_compile_is_refused_before_kernel_step() -> None:
     )
     dash = _dashboard()
     dash.latest_refs = KernelLatestRefs(
-        ir_ref={"artifact_path": "artifacts/ir/ir-001.json"},
-        compile_ref={"artifact_path": "artifacts/compile/c-001.json"},
+        artifact_refs={
+            "ir_ref": {"artifact_path": "artifacts/ir/ir-001.json"},
+            "compile_ref": {"artifact_path": "artifacts/compile/c-001.json"},
+        },
     )
     terminal = TerminalOutcome(
         terminal_outcome=TerminalOutcomeKind.FAILED,

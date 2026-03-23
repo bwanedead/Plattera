@@ -12,15 +12,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.agent_kernel.actions import (
     ActionExecutor,
     ActionExecutorDeps,
-    Bundler,
-    Compiler,
-    DraftIRProposer,
-    Judge,
-    Renderer,
-    Validator,
+    ArtifactBundler,
+    ArtifactCompiler,
+    ArtifactDraftProposer,
+    ArtifactJudge,
+    ArtifactRenderer,
+    ArtifactValidator,
 )
+from backend.agents.transcript_edit.execution_action_ids import (
+    TX_APPLY_EDIT_PLAN,
+    TX_AUDIT_TRANSCRIPT,
+    TX_OPEN_TRANSCRIPT_SPANS,
+    TX_ORIENT_AND_BASELINE,
+    TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
+    TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
+    TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+)
+from backend.agent_kernel.harness_action_ids import ActionType
 from backend.agent_kernel.models import (
-    ActionType,
     KernelBudgets,
     KernelGoal,
     KernelSessionStartRequest,
@@ -31,32 +40,38 @@ from backend.agent_kernel.models import (
 from backend.agent_kernel.run_artifact import ArtifactRef, RunArtifact, StepRecord, ValidationInline
 from backend.agent_kernel.session import KernelSessionManager
 from backend.agent_kernel import session as kernel_session_module
+from backend.feature_graph.kernel_claimability import FeatureGraphClaimabilityPolicy
+from backend.feature_graph.kernel_executor_composition import (
+    build_plattera_default_kernel_session_manager,
+)
+from backend.feature_graph import kernel_terminal_hooks as feature_graph_terminal_hooks
+from backend.feature_graph.kernel_step_projections import build_feature_graph_provider_step_projectors
 
 
-class _DeterministicServices(Compiler, Judge, Bundler, Validator, Renderer):
-    def compile(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+class _DeterministicServices(ArtifactCompiler, ArtifactJudge, ArtifactBundler, ArtifactValidator, ArtifactRenderer):
+    def compile_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/compile/compile-001.json")
 
-    def judge(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def judge_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/judge/judge-001.json")
 
-    def bundle(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def bundle_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/bundle/bundle-001.json")
 
-    def validate(self, inputs: Mapping[str, Any]) -> ValidationInline:
+    def validate_artifact(self, inputs: Mapping[str, Any]) -> ValidationInline:
         del inputs
         return ValidationInline(passed=True, reason_code="ok", checks={})
 
-    def render(self, inputs: Mapping[str, Any]) -> ArtifactRef:
+    def render_artifact(self, inputs: Mapping[str, Any]) -> ArtifactRef:
         del inputs
         return ArtifactRef(artifact_path="artifacts/render/render-001.json")
 
 
-class _RefusingDraftIR(DraftIRProposer):
-    def draft_ir(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
+class _RefusingDraftIR(ArtifactDraftProposer):
+    def draft_artifact(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
         del inputs
         return {
             "artifact_ref": None,
@@ -73,8 +88,8 @@ class _RefusingDraftIR(DraftIRProposer):
         }
 
 
-class _DraftIRV2(DraftIRProposer):
-    def draft_ir(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
+class _DraftIRV2(ArtifactDraftProposer):
+    def draft_artifact(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
         del inputs
         return {
             "artifact_ref": {"artifact_path": "artifacts/ir/ir-002.json"},
@@ -114,11 +129,12 @@ def _session_manager() -> tuple[KernelSessionManager, _InMemorySessionPersistenc
     services = _DeterministicServices()
     executor = ActionExecutor(
         deps=ActionExecutorDeps(
-            compiler=services,
-            judge=services,
-            bundler=services,
-            validator=services,
-            renderer=services,
+            artifact_compiler=services,
+            artifact_judge=services,
+            artifact_bundler=services,
+            artifact_validator=services,
+            artifact_renderer=services,
+            provider_step_projectors=build_feature_graph_provider_step_projectors(),
         )
     )
     persistence = _InMemorySessionPersistence()
@@ -178,9 +194,43 @@ def test_start_session_persists_initial_graph_json_as_ir_artifact_ref() -> None:
     assert run_id in stored.ir_artifact_ref.artifact_path
 
 
-def test_start_session_tool_menu_is_capability_aware_for_default_manager() -> None:
+def test_start_session_tool_menu_is_generic_for_plain_manager() -> None:
     persistence = _InMemorySessionPersistence()
     manager = KernelSessionManager(persistence_service=persistence)
+    result = manager.start_session(_start_request())
+
+    assert result.refusal is None
+    assert result.tool_menu == [ActionType.SET_GRAPH_REQUIREMENTS.value, ActionType.DECLARE_DONE.value]
+    assert result.dashboard is not None
+    assert result.dashboard.claimability.claimable_ready is False
+    assert "claimability_policy_not_configured" in result.dashboard.claimability.missing_claimability
+
+
+def test_plain_manager_declares_done_refuses_without_closure_policy() -> None:
+    manager = KernelSessionManager(persistence_service=_InMemorySessionPersistence())
+    started = manager.start_session(_start_request())
+    assert started.session_id is not None
+
+    refused = manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-generic-done",
+            action_type=ActionType.DECLARE_DONE,
+            inputs={},
+        )
+    )
+
+    assert refused.execution_state == StepExecutionState.REFUSED
+    assert refused.refusal is not None
+    assert refused.refusal.reason_code == "declare_done_claimability_missing"
+    assert refused.dashboard is not None
+    assert refused.dashboard.claimability.claimable_ready is False
+    assert "claimability_policy_not_configured" in refused.dashboard.claimability.missing_claimability
+
+
+def test_start_session_tool_menu_is_capability_aware_for_plattera_composition() -> None:
+    persistence = _InMemorySessionPersistence()
+    manager = build_plattera_default_kernel_session_manager(persistence_service=persistence)
     result = manager.start_session(_start_request())
 
     assert result.refusal is None
@@ -191,13 +241,13 @@ def test_start_session_tool_menu_is_capability_aware_for_default_manager() -> No
     assert ActionType.COMPILE.value in result.tool_menu
     assert ActionType.JUDGE.value in result.tool_menu
     assert ActionType.RENDER.value in result.tool_menu
-    assert ActionType.TX_AUDIT_TRANSCRIPT.value in result.tool_menu
-    assert ActionType.TX_ORIENT_AND_BASELINE.value in result.tool_menu
-    assert ActionType.TX_OPEN_TRANSCRIPT_SPANS.value in result.tool_menu
-    assert ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE.value in result.tool_menu
-    assert ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS.value in result.tool_menu
-    assert ActionType.TX_APPLY_EDIT_PLAN.value in result.tool_menu
-    assert ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING.value in result.tool_menu
+    assert TX_AUDIT_TRANSCRIPT in result.tool_menu
+    assert TX_ORIENT_AND_BASELINE in result.tool_menu
+    assert TX_OPEN_TRANSCRIPT_SPANS in result.tool_menu
+    assert TX_VERIFY_TRANSCRIPT_WITH_IMAGE in result.tool_menu
+    assert TX_SAVE_TRANSCRIPT_SPAN_SEEDS in result.tool_menu
+    assert TX_APPLY_EDIT_PLAN in result.tool_menu
+    assert TX_PROMOTE_TRANSCRIPT_FOR_MAPPING in result.tool_menu
     assert ActionType.DECLARE_DONE.value in result.tool_menu
 
 
@@ -292,12 +342,18 @@ def test_update_latest_refs_clears_derived_refs_when_draft_ir_updates_ir_ref() -
     )
     step = StepRecord(
         step_id="step-draft-002",
-        action=ActionType.DRAFT_IR,
+        action=ActionType.DRAFT_IR.value,
         outputs={"ir_artifact_ref": {"artifact_path": "artifacts/ir/ir-v2.json"}},
         reason_codes=["ir_drafted"],
     )
 
-    kernel_session_module._update_latest_refs(run_artifact, step)
+    kernel_session_module._update_latest_refs(
+        run_artifact,
+        step,
+        action_executor=ActionExecutor(
+            deps=ActionExecutorDeps(provider_step_projectors=build_feature_graph_provider_step_projectors())
+        ),
+    )
 
     assert run_artifact.ir_artifact_ref is not None
     assert run_artifact.ir_artifact_ref.artifact_path == "artifacts/ir/ir-v2.json"
@@ -311,11 +367,12 @@ def test_dashboard_latest_refs_clear_stale_compile_judge_bundle_after_new_draft_
     services = _DeterministicServices()
     executor = ActionExecutor(
         deps=ActionExecutorDeps(
-            compiler=services,
-            judge=services,
-            bundler=services,
-            validator=services,
-            draft_ir_proposer=_DraftIRV2(),
+            artifact_compiler=services,
+            artifact_judge=services,
+            artifact_bundler=services,
+            artifact_validator=services,
+            artifact_draft_proposer=_DraftIRV2(),
+            provider_step_projectors=build_feature_graph_provider_step_projectors(),
         )
     )
     persistence = _InMemorySessionPersistence()
@@ -347,9 +404,10 @@ def test_dashboard_latest_refs_clear_stale_compile_judge_bundle_after_new_draft_
             inputs={},
         )
     )
-    assert compile_step.dashboard.latest_refs.compile_ref is not None
-    assert judge_step.dashboard.latest_refs.judge_ref is not None
-    assert bundle_step.dashboard.latest_refs.bundle_ref is not None
+    ar = compile_step.dashboard.latest_refs.artifact_refs
+    assert ar.get("compile_ref") is not None
+    assert judge_step.dashboard.latest_refs.artifact_refs.get("judge_ref") is not None
+    assert bundle_step.dashboard.latest_refs.artifact_refs.get("bundle_ref") is not None
 
     draft_step = manager.step(
         KernelStepRequest(
@@ -361,15 +419,29 @@ def test_dashboard_latest_refs_clear_stale_compile_judge_bundle_after_new_draft_
     )
 
     latest_refs = draft_step.dashboard.latest_refs
-    assert latest_refs.ir_ref is not None
-    assert latest_refs.ir_ref.get("artifact_path") == "artifacts/ir/ir-002.json"
-    assert latest_refs.compile_ref is None
-    assert latest_refs.judge_ref is None
-    assert latest_refs.bundle_ref is None
+    assert latest_refs.artifact_refs.get("ir_ref") is not None
+    assert latest_refs.artifact_refs["ir_ref"].get("artifact_path") == "artifacts/ir/ir-002.json"
+    assert latest_refs.artifact_refs.get("compile_ref") is None
+    assert latest_refs.artifact_refs.get("judge_ref") is None
+    assert latest_refs.artifact_refs.get("bundle_ref") is None
 
 
 def test_declare_done_refuses_until_claimability_is_satisfied_then_succeeds() -> None:
-    manager, _ = _session_manager()
+    services = _DeterministicServices()
+    manager = KernelSessionManager(
+        action_executor=ActionExecutor(
+            deps=ActionExecutorDeps(
+                artifact_compiler=services,
+                artifact_judge=services,
+                artifact_bundler=services,
+                artifact_validator=services,
+                artifact_renderer=services,
+                provider_step_projectors=build_feature_graph_provider_step_projectors(),
+            )
+        ),
+        claimability_policy=FeatureGraphClaimabilityPolicy(),
+        persistence_service=_InMemorySessionPersistence(),
+    )
     started = manager.start_session(_start_request())
     assert started.session_id is not None
 
@@ -415,7 +487,21 @@ def test_declare_done_refuses_until_claimability_is_satisfied_then_succeeds() ->
 
 
 def test_declare_done_requires_render_when_goal_render_required() -> None:
-    manager, _ = _session_manager()
+    services = _DeterministicServices()
+    manager = KernelSessionManager(
+        action_executor=ActionExecutor(
+            deps=ActionExecutorDeps(
+                artifact_compiler=services,
+                artifact_judge=services,
+                artifact_bundler=services,
+                artifact_validator=services,
+                artifact_renderer=services,
+                provider_step_projectors=build_feature_graph_provider_step_projectors(),
+            )
+        ),
+        claimability_policy=FeatureGraphClaimabilityPolicy(),
+        persistence_service=_InMemorySessionPersistence(),
+    )
     started = manager.start_session(
         _start_request().model_copy(
             update={
@@ -476,9 +562,11 @@ def test_declare_done_requires_render_when_goal_render_required() -> None:
     assert accepted.execution_state == StepExecutionState.EXECUTED
 
 
-def test_declare_done_acceptance_marks_final_feature_graph_pointers(monkeypatch) -> None:
+def test_declare_done_acceptance_marks_final_feature_graph_pointers_via_composition_hook(
+    monkeypatch,
+) -> None:
     calls: list[dict[str, object]] = []
-    original = kernel_session_module.FeatureGraphPersistenceService.mark_final_pointers_from_paths
+    original = feature_graph_terminal_hooks.FeatureGraphPersistenceService.mark_final_pointers_from_paths
 
     def _spy(self, *, ir_artifact_path: str | None, bundle_artifact_path: str | None = None):  # type: ignore[override]
         calls.append(
@@ -489,9 +577,28 @@ def test_declare_done_acceptance_marks_final_feature_graph_pointers(monkeypatch)
         )
         return {"success": True, "written": ["final_ir.json"]}
 
-    monkeypatch.setattr(kernel_session_module.FeatureGraphPersistenceService, "mark_final_pointers_from_paths", _spy)
+    monkeypatch.setattr(
+        feature_graph_terminal_hooks.FeatureGraphPersistenceService,
+        "mark_final_pointers_from_paths",
+        _spy,
+    )
     try:
-        manager, _ = _session_manager()
+        services = _DeterministicServices()
+        manager = KernelSessionManager(
+            action_executor=ActionExecutor(
+                deps=ActionExecutorDeps(
+                    artifact_compiler=services,
+                    artifact_judge=services,
+                    artifact_bundler=services,
+                    artifact_validator=services,
+                    artifact_renderer=services,
+                    provider_step_projectors=build_feature_graph_provider_step_projectors(),
+                    terminal_success_hooks=(feature_graph_terminal_hooks.mark_final_feature_graph_pointers,),
+                )
+            ),
+            claimability_policy=FeatureGraphClaimabilityPolicy(),
+            persistence_service=_InMemorySessionPersistence(),
+        )
         started = manager.start_session(_start_request())
         assert started.session_id is not None
         manager.step(
@@ -523,21 +630,76 @@ def test_declare_done_acceptance_marks_final_feature_graph_pointers(monkeypatch)
         assert isinstance(calls[0]["ir_artifact_path"], str)
     finally:
         monkeypatch.setattr(
-            kernel_session_module.FeatureGraphPersistenceService,
+            feature_graph_terminal_hooks.FeatureGraphPersistenceService,
             "mark_final_pointers_from_paths",
             original,
         )
+
+
+def test_terminal_success_hook_failures_do_not_invalidate_completion() -> None:
+    services = _DeterministicServices()
+
+    def _failing_hook(_run_artifact: RunArtifact) -> None:
+        raise RuntimeError("best effort only")
+
+    executor = ActionExecutor(
+        deps=ActionExecutorDeps(
+            artifact_compiler=services,
+            artifact_judge=services,
+            artifact_bundler=services,
+            artifact_validator=services,
+            artifact_renderer=services,
+            provider_step_projectors=build_feature_graph_provider_step_projectors(),
+            terminal_success_hooks=(_failing_hook,),
+        )
+    )
+    persistence = _InMemorySessionPersistence()
+    manager = KernelSessionManager(
+        action_executor=executor,
+        claimability_policy=FeatureGraphClaimabilityPolicy(),
+        persistence_service=persistence,
+    )
+    started = manager.start_session(_start_request())
+    assert started.session_id is not None
+
+    manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-hook-c",
+            action_type=ActionType.COMPILE,
+            inputs={},
+        )
+    )
+    manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-hook-j",
+            action_type=ActionType.JUDGE,
+            inputs={},
+        )
+    )
+    accepted = manager.step(
+        KernelStepRequest(
+            session_id=started.session_id,
+            idempotency_key="k-hook-done",
+            action_type=ActionType.DECLARE_DONE,
+            inputs={},
+        )
+    )
+    assert accepted.execution_state == StepExecutionState.EXECUTED
+    assert accepted.terminal is not None
+    assert accepted.terminal.stop_reason == StopReason.COMPLETED
 
 
 def test_step_surfaces_tool_level_kernel_refusal_and_preserves_repair_outputs() -> None:
     services = _DeterministicServices()
     executor = ActionExecutor(
         deps=ActionExecutorDeps(
-            draft_ir_proposer=_RefusingDraftIR(),
-            compiler=services,
-            judge=services,
-            bundler=services,
-            validator=services,
+                artifact_draft_proposer=_RefusingDraftIR(),
+            artifact_compiler=services,
+            artifact_judge=services,
+            artifact_bundler=services,
+            artifact_validator=services,
         )
     )
     persistence = _InMemorySessionPersistence()
@@ -561,4 +723,4 @@ def test_step_surfaces_tool_level_kernel_refusal_and_preserves_repair_outputs() 
     outputs_inline = result.step_record.get("outputs_inline")
     assert isinstance(outputs_inline, dict)
     assert "rejected_graph_artifact_ref" in outputs_inline
-    assert result.dashboard.latest_refs.ir_ref is not None  # initial_ir_ref remains intact
+    assert result.dashboard.latest_refs.artifact_refs.get("ir_ref") is not None  # initial_ir_ref remains intact

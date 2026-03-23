@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from agent_kernel.models import ActionType, StepExecutionState
+from agent_kernel.models import StepExecutionState
+
+from .execution_action_ids import TX_OPEN_TRANSCRIPT_SPANS
 
 from .disagreement_analysis import extract_numeric_literals
 from .span_seeds import load_transcript_text_for_seeds
@@ -41,7 +43,7 @@ def open_planner_context_spans(
         session_id=session_id,
         prefix="tx_open_spans",
         iteration=iteration,
-        action_type=ActionType.TX_OPEN_TRANSCRIPT_SPANS,
+        action_type=TX_OPEN_TRANSCRIPT_SPANS,
         inputs={
             "dossier_id": dossier_id,
             "source_transcript_ref": source_transcript_ref,

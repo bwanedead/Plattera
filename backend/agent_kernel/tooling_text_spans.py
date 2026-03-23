@@ -128,25 +128,25 @@ class TextSpanOpenerTool:
 class DeedSpanIndexUpserterTool:
     """Persist versioned deed span index artifacts under agent-kernel artifacts root."""
 
-    def upsert_deed_span_index(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
+    def upsert_artifact_span_index(self, inputs: Mapping[str, Any]) -> Mapping[str, Any]:
         deed_ref = _coerce_artifact_ref(inputs.get("deed_text_artifact_ref"))
         deed_fp = inputs.get("deed_fingerprint")
         raw_upserts = inputs.get("upserts")
         if deed_ref is None or not isinstance(deed_fp, dict) or not isinstance(raw_upserts, list):
-            return _tool_refusal_result("upsert_deed_span_index_missing_inputs")
+            return _tool_refusal_result("upsert_artifact_span_index_missing_inputs")
         deed_payload = _read_json_dict(Path(deed_ref.artifact_path))
         if deed_payload is None or not isinstance(deed_payload.get("text"), str):
-            return _tool_refusal_result("upsert_deed_span_index_missing_inputs")
+            return _tool_refusal_result("upsert_artifact_span_index_missing_inputs")
         deed_text = str(deed_payload["text"])
         computed_fp = _deed_fingerprint(deed_text)
         if not _fingerprint_matches_dict(expected=deed_fp, actual=computed_fp):
-            return _tool_refusal_result("upsert_deed_span_index_fingerprint_mismatch")
+            return _tool_refusal_result("upsert_artifact_span_index_fingerprint_mismatch")
 
         existing = _load_span_index(inputs.get("deed_span_index_ref"))
         if isinstance(existing, dict):
             existing_fp = existing.get("deed_fingerprint")
             if isinstance(existing_fp, dict) and not _fingerprint_matches_dict(expected=existing_fp, actual=computed_fp):
-                return _tool_refusal_result("upsert_deed_span_index_fingerprint_mismatch")
+                return _tool_refusal_result("upsert_artifact_span_index_fingerprint_mismatch")
         existing_spans = []
         if isinstance(existing, dict) and isinstance(existing.get("spans"), list):
             existing_spans = [s for s in existing["spans"] if isinstance(s, dict)]
@@ -158,16 +158,16 @@ class DeedSpanIndexUpserterTool:
         now = int(datetime.now(timezone.utc).timestamp())
         for raw in raw_upserts:
             if not isinstance(raw, dict):
-                return _tool_refusal_result("upsert_deed_span_index_invalid_span")
+                return _tool_refusal_result("upsert_artifact_span_index_invalid_span")
             sid = _read_str(raw.get("span_id"))
             kind = _read_str(raw.get("kind"))
             start_char = raw.get("start_char")
             end_char = raw.get("end_char")
             status = _read_str(raw.get("status")) or "proposed"
             if not sid or not kind or not isinstance(start_char, int) or not isinstance(end_char, int):
-                return _tool_refusal_result("upsert_deed_span_index_invalid_span")
+                return _tool_refusal_result("upsert_artifact_span_index_invalid_span")
             if start_char < 0 or end_char <= start_char or end_char > len(deed_text):
-                return _tool_refusal_result("upsert_deed_span_index_invalid_span")
+                return _tool_refusal_result("upsert_artifact_span_index_invalid_span")
             intended = raw.get("agent_intent")
             bounded_intent = None
             if isinstance(intended, dict):
@@ -205,7 +205,7 @@ class DeedSpanIndexUpserterTool:
         artifact_ref = _persist_json_artifact(category="deed_span_indexes", dossier_id=dossier_id, payload=payload)
         return {
             "artifact_ref": artifact_ref,
-            "reason_codes": ["deed_span_index_saved"],
+            "reason_codes": ["artifact_span_index_saved"],
             "span_catalog_excerpt": _span_catalog_excerpt(spans),
         }
 

@@ -7,7 +7,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from agent_kernel.models import ActionType, StepExecutionState
+from agent_kernel.models import StepExecutionState
+
+from .execution_action_ids import TX_VERIFY_TRANSCRIPT_WITH_IMAGE
 
 from .disagreement_analysis import first_expected_token_from_message
 
@@ -355,7 +357,7 @@ def _run_step_with_heartbeat(
                 session_id=session_id,
                 prefix=f"tx_verify_img_{check_index}",
                 iteration=iteration,
-                action_type=ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+                action_type=TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
                 inputs=step_inputs,
             )
         except BaseException as exc:  # pragma: no cover - defensive thread handoff
@@ -579,7 +581,7 @@ def final_image_sanity_pass_before_promote(
         session_id=session_id,
         prefix="tx_final_verify",
         iteration=iteration,
-        action_type=ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+        action_type=TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
         inputs=inputs,
     )
     latest_refs = step.dashboard.latest_refs.model_dump(mode="json")

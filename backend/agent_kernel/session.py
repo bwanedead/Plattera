@@ -12,15 +12,16 @@ import json
 import os
 import tempfile
 from time import time
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 from uuid import uuid4
 
 from config.paths import agent_kernel_artifacts_root
 
 from .actions import ActionExecutor, ActionExecutorDeps
-from .claimability import evaluate_claimability
+from .claimability import ClaimabilityPolicy, evaluate_claimability
+from .dashboard_refs import build_latest_refs_map, build_latest_validate_ref
+from .harness_action_ids import ActionType, HarnessAction, canonical_action_id
 from .models import (
-    ActionType,
     KernelClaimabilityStatus,
     KernelDashboard,
     KernelFailureClassification,
@@ -38,43 +39,10 @@ from .models import (
     TerminalOutcomeKind,
 )
 from .run_artifact import ArtifactRef, RunArtifact, StepRecord
-from .tooling import (
-    CorpusArtifactOpener,
-    CorpusDeedHydrator,
-    DeedSpanIndexUpserterTool,
-    DraftIRFilesystemProposer,
-    TranscriptAuditTool,
-    TranscriptImageVerificationTool,
-    TranscriptEditPlanApplyTool,
-    TranscriptSpanSeedsSaverTool,
-    TranscriptMappingPromoterTool,
-    TranscriptSpanOpenerTool,
-    TextSpanOpenerTool,
-)
-from .tooling import (
-    FeatureGraphBundlerTool,
-    FeatureGraphCompilerTool,
-    FeatureGraphGeoreferenceTool,
-    FeatureGraphRenderTool,
-    FeatureGraphJudgeTool,
-    FeatureGraphValidateTool,
-    RetrievalEvidenceTool,
-)
-from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
-
 _MAX_INPUT_BYTES = 4096
 _MAX_INITIAL_GRAPH_JSON_BYTES = 262144
 _MAX_DASHBOARD_LIST = 10
 _MAX_MISSING_CLAIMABILITY = 20
-
-
-def _default_transcript_orient_baseliner() -> Any:
-    """Domain-owned orient tool; imported lazily so ``agent_kernel`` package init does not load transcript-edit."""
-    from agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool
-
-    return TranscriptOrientBaselineTool()
-
-
 class SessionPersistence(Protocol):
     """Persistence contract needed by the step-driven kernel session manager."""
 
@@ -90,31 +58,14 @@ class KernelSessionManager:
         self,
         *,
         action_executor: ActionExecutor | None = None,
+        default_action_executor_factory: Callable[[], ActionExecutor] | None = None,
+        claimability_policy: ClaimabilityPolicy | None = None,
         persistence_service: SessionPersistence | None = None,
     ) -> None:
-        self._action_executor = action_executor or ActionExecutor(
-            deps=ActionExecutorDeps(
-                deed_hydrator=CorpusDeedHydrator(),
-                artifact_opener=CorpusArtifactOpener(),
-                text_span_opener=TextSpanOpenerTool(),
-                draft_ir_proposer=DraftIRFilesystemProposer(),
-                deed_span_index_upserter=DeedSpanIndexUpserterTool(),
-                evidence_retriever=RetrievalEvidenceTool(),
-                compiler=FeatureGraphCompilerTool(),
-                judge=FeatureGraphJudgeTool(),
-                bundler=FeatureGraphBundlerTool(),
-                georeferencer=FeatureGraphGeoreferenceTool(),
-                validator=FeatureGraphValidateTool(),
-                renderer=FeatureGraphRenderTool(),
-                transcript_auditor=TranscriptAuditTool(),
-                transcript_orient_baseliner=_default_transcript_orient_baseliner(),
-                transcript_span_opener=TranscriptSpanOpenerTool(),
-                transcript_image_verifier=TranscriptImageVerificationTool(),
-                transcript_plan_applier=TranscriptEditPlanApplyTool(),
-                transcript_span_seeds_saver=TranscriptSpanSeedsSaverTool(),
-                transcript_promoter=TranscriptMappingPromoterTool(),
-            )
+        self._action_executor = action_executor or (
+            default_action_executor_factory() if default_action_executor_factory is not None else ActionExecutor()
         )
+        self._claimability_policy = claimability_policy
         self._persistence_service = persistence_service
 
     def start_session(self, request: KernelSessionStartRequest) -> KernelSessionStartResult:
@@ -174,6 +125,7 @@ class KernelSessionManager:
         dashboard = _build_dashboard(
             run_artifact=run_artifact,
             budgets=run_artifact.session_budgets,
+            claimability_policy=self._claimability_policy,
             semantic_ready=None,
             last_refusal=None,
             failure_reason=None,
@@ -223,6 +175,7 @@ class KernelSessionManager:
                 dashboard = _build_dashboard(
                     run_artifact=run_artifact,
                     budgets=_extract_budgets(existing),
+                    claimability_policy=self._claimability_policy,
                     semantic_ready=request.semantic_ready,
                     last_refusal=refusal,
                     failure_reason=StopReason.INTERNAL_ERROR,
@@ -241,6 +194,7 @@ class KernelSessionManager:
             dashboard = _build_dashboard(
                 run_artifact=run_artifact,
                 budgets=_extract_budgets(existing),
+                claimability_policy=self._claimability_policy,
                 semantic_ready=request.semantic_ready,
                 last_refusal=refusal,
                 failure_reason=None,
@@ -299,7 +253,7 @@ class KernelSessionManager:
             self._persist(run_artifact)
             return result
 
-        if request.action_type == ActionType.DECLARE_DONE:
+        if canonical_action_id(request.action_type) == ActionType.DECLARE_DONE.value:
             return self._handle_declare_done(
                 run_artifact=run_artifact,
                 request=request,
@@ -329,6 +283,7 @@ class KernelSessionManager:
             dashboard = _build_dashboard(
                 run_artifact=run_artifact,
                 budgets=budgets,
+                claimability_policy=self._claimability_policy,
                 semantic_ready=request.semantic_ready,
                 last_refusal=tool_refusal,
                 failure_reason=None,
@@ -342,7 +297,7 @@ class KernelSessionManager:
                 refusal=tool_refusal,
                 dashboard=dashboard,
             )
-        _update_latest_refs(run_artifact, step)
+        _update_latest_refs(run_artifact, step, action_executor=self._action_executor)
         self._record_idempotency_entry(
             run_artifact=run_artifact,
             request=request,
@@ -356,6 +311,7 @@ class KernelSessionManager:
         dashboard = _build_dashboard(
             run_artifact=run_artifact,
             budgets=budgets,
+            claimability_policy=self._claimability_policy,
             semantic_ready=request.semantic_ready,
             last_refusal=None,
             failure_reason=None,
@@ -377,11 +333,7 @@ class KernelSessionManager:
         fingerprint: str,
         budgets: dict[str, int],
     ) -> KernelStepResult:
-        claimable_ready, missing = evaluate_claimability(
-            run_artifact=run_artifact,
-            requires_global_placement=run_artifact.requires_global_placement,
-            render_required=run_artifact.render_required,
-        )
+        claimable_ready, missing = evaluate_claimability(self._claimability_policy, run_artifact)
         step_id = f"step-{len(run_artifact.steps) + 1:03d}"
         if not claimable_ready:
             refusal = KernelRefusal(
@@ -391,7 +343,7 @@ class KernelSessionManager:
             )
             step = StepRecord(
                 step_id=step_id,
-                action=ActionType.DECLARE_DONE,
+                action=ActionType.DECLARE_DONE.value,
                 inputs=request.inputs,
                 reason_codes=["declare_done_refused"],
                 outputs_inline={"missing_claimability": refusal.missing_inputs},
@@ -410,6 +362,7 @@ class KernelSessionManager:
             dashboard = _build_dashboard(
                 run_artifact=run_artifact,
                 budgets=budgets,
+                claimability_policy=self._claimability_policy,
                 semantic_ready=request.semantic_ready,
                 last_refusal=refusal,
                 failure_reason=None,
@@ -426,7 +379,7 @@ class KernelSessionManager:
 
         step = StepRecord(
             step_id=step_id,
-            action=ActionType.DECLARE_DONE,
+            action=ActionType.DECLARE_DONE.value,
             inputs=request.inputs,
             reason_codes=["declare_done_accepted"],
         )
@@ -446,11 +399,12 @@ class KernelSessionManager:
             terminal=terminal,
             budgets=budgets,
         )
-        _mark_final_feature_graph_pointers(run_artifact)
+        _run_terminal_success_hooks(run_artifact, action_executor=self._action_executor)
         self._persist(run_artifact)
         dashboard = _build_dashboard(
             run_artifact=run_artifact,
             budgets=budgets,
+            claimability_policy=self._claimability_policy,
             semantic_ready=request.semantic_ready,
             last_refusal=None,
             failure_reason=StopReason.COMPLETED,
@@ -477,6 +431,7 @@ class KernelSessionManager:
         dashboard = _build_dashboard(
             run_artifact=run_artifact,
             budgets=budgets,
+            claimability_policy=self._claimability_policy,
             semantic_ready=request.semantic_ready,
             last_refusal=refusal,
             failure_reason=(terminal.stop_reason if terminal is not None else None),
@@ -524,6 +479,22 @@ class KernelSessionManager:
         self._persistence_service.save_run_artifact(run_artifact)
 
 
+def build_kernel_session_manager(
+    *,
+    action_executor: ActionExecutor | None = None,
+    default_action_executor_factory: Callable[[], ActionExecutor] | None = None,
+    claimability_policy: ClaimabilityPolicy | None = None,
+    persistence_service: SessionPersistence | None = None,
+) -> KernelSessionManager:
+    """Explicit runtime composition seam for shared kernel session hosts."""
+    return KernelSessionManager(
+        action_executor=action_executor,
+        default_action_executor_factory=default_action_executor_factory,
+        claimability_policy=claimability_policy,
+        persistence_service=persistence_service,
+    )
+
+
 def _validate_bootstrap_inputs(request: KernelSessionStartRequest) -> list[str]:
     if request.initial_ir_ref is not None:
         return []
@@ -567,7 +538,7 @@ def _parse_session_id(session_id: str) -> tuple[str | None, str | None]:
 def _fingerprint_step_request(request: KernelStepRequest) -> str:
     canonical = json.dumps(
         {
-            "action_type": request.action_type.value,
+            "action_type": request.action_type,
             "inputs": request.inputs,
         },
         sort_keys=True,
@@ -617,13 +588,18 @@ def _check_budget_limits(
     budgets: dict[str, int],
 ) -> tuple[KernelRefusal | None, TerminalOutcome | None]:
     steps_used = len(run_artifact.steps)
-    retrieval_calls = sum(1 for step in run_artifact.steps if step.action == ActionType.RETRIEVE_EVIDENCE)
+    retrieval_calls = sum(
+        1 for step in run_artifact.steps if canonical_action_id(step.action) == ActionType.RETRIEVE_EVIDENCE.value
+    )
     semantic_calls = sum(
         1
         for step in run_artifact.steps
-        if step.action == ActionType.RETRIEVE_EVIDENCE and bool(step.inputs.get("semantic", False))
+        if canonical_action_id(step.action) == ActionType.RETRIEVE_EVIDENCE.value
+        and bool(step.inputs.get("semantic", False))
     )
-    patch_calls = sum(1 for step in run_artifact.steps if step.action == ActionType.PROPOSE_PATCH)
+    patch_calls = sum(
+        1 for step in run_artifact.steps if canonical_action_id(step.action) == ActionType.PROPOSE_PATCH.value
+    )
     elapsed_seconds = max(0, int(time()) - int(run_artifact.created_at_epoch_seconds or int(time())))
 
     checks = (
@@ -651,38 +627,21 @@ def _check_budget_limits(
     return None, None
 
 
+def _dashboard_artifact_ref_map(run_artifact: RunArtifact) -> dict[str, dict[str, object]]:
+    return build_latest_refs_map(run_artifact)
+
+
 def _build_dashboard(
     *,
     run_artifact: RunArtifact,
     budgets: dict[str, int],
+    claimability_policy: ClaimabilityPolicy | None,
     semantic_ready: bool | None,
     last_refusal: KernelRefusal | None,
     failure_reason: StopReason | None,
     failure_code: str | None,
 ) -> KernelDashboard:
-    latest_refs = KernelLatestRefs(
-        ir_ref=_dump_ref(run_artifact.ir_artifact_ref),
-        compile_ref=_dump_ref(run_artifact.compile_artifact_ref),
-        judge_ref=_dump_ref(run_artifact.judge_artifact_ref),
-        bundle_ref=_dump_ref(run_artifact.bundle_artifact_ref),
-        georef_ref=_dump_ref(run_artifact.georeference_artifact_ref),
-        validate_ref=_latest_validate_ref(run_artifact),
-        render_ref=_dump_ref(run_artifact.render_artifact_ref),
-        retrieval_ref=_dump_ref(run_artifact.retrieval_artifact_ref),
-        deed_span_index_ref=_dump_ref(run_artifact.deed_span_index_artifact_ref),
-        tx_source_transcript_ref=_dump_ref(run_artifact.tx_source_transcript_artifact_ref),
-        tx_open_spans_ref=_dump_ref(run_artifact.tx_open_spans_artifact_ref),
-        tx_image_verify_ref=_dump_ref(run_artifact.tx_image_verify_artifact_ref),
-        tx_image_evidence_region_ref=_dump_ref(run_artifact.tx_image_evidence_region_artifact_ref),
-        tx_image_evidence_context_ref=_dump_ref(run_artifact.tx_image_evidence_context_artifact_ref),
-        tx_validator_report_ref=_dump_ref(run_artifact.tx_validator_report_artifact_ref),
-        tx_orient_baseline_ref=_dump_ref(run_artifact.tx_orient_baseline_artifact_ref),
-        tx_edit_plan_ref=_dump_ref(run_artifact.tx_edit_plan_artifact_ref),
-        tx_apply_report_ref=_dump_ref(run_artifact.tx_apply_report_artifact_ref),
-        tx_edited_transcript_ref=_dump_ref(run_artifact.tx_edited_transcript_artifact_ref),
-        tx_mapping_pointer_ref=_dump_ref(run_artifact.tx_mapping_pointer_artifact_ref),
-        tx_span_seeds_ref=_dump_ref(run_artifact.tx_span_seeds_artifact_ref),
-    )
+    latest_refs = KernelLatestRefs(artifact_refs=_dashboard_artifact_ref_map(run_artifact))
 
     gap_counts: dict[str, int] = {}
     for step in run_artifact.steps[-20:]:
@@ -690,11 +649,7 @@ def _build_dashboard(
             gap_counts[code] = gap_counts.get(code, 0) + 1
     top_codes = sorted(gap_counts.keys(), key=lambda code: (-gap_counts[code], code))[:_MAX_DASHBOARD_LIST]
 
-    claimable_ready, missing_claimability = evaluate_claimability(
-        run_artifact=run_artifact,
-        requires_global_placement=run_artifact.requires_global_placement,
-        render_required=run_artifact.render_required,
-    )
+    claimable_ready, missing_claimability = evaluate_claimability(claimability_policy, run_artifact)
     budgets_remaining = _compute_budgets_remaining(run_artifact, budgets)
     return KernelDashboard(
         latest_refs=latest_refs,
@@ -744,141 +699,41 @@ def _build_empty_dashboard(
     )
 
 
-def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord) -> None:
-    if step.action == ActionType.SET_GRAPH_REQUIREMENTS:
-        run_artifact.ir_artifact_ref = _extract_ref(step.outputs, "ir_artifact_ref") or run_artifact.ir_artifact_ref
-    if step.action == ActionType.DRAFT_IR:
-        previous_ir_ref = run_artifact.ir_artifact_ref
-        next_ir_ref = _extract_ref(step.outputs, "ir_artifact_ref")
-        if next_ir_ref is not None:
-            ir_changed = (
-                previous_ir_ref is None
-                or previous_ir_ref.artifact_path != next_ir_ref.artifact_path
-            )
-            run_artifact.ir_artifact_ref = next_ir_ref
-            if ir_changed:
-                run_artifact.compile_artifact_ref = None
-                run_artifact.judge_artifact_ref = None
-                run_artifact.bundle_artifact_ref = None
-                run_artifact.georeference_artifact_ref = None
-                run_artifact.validate_artifact_ref = None
-                run_artifact.render_artifact_ref = None
-    if step.action == ActionType.RETRIEVE_EVIDENCE:
-        run_artifact.retrieval_artifact_ref = _extract_ref(step.outputs, "retrieval_artifact_ref")
-    if step.action == ActionType.UPSERT_DEED_SPAN_INDEX:
-        run_artifact.deed_span_index_artifact_ref = _extract_ref(step.outputs, "deed_span_index_ref")
-    if step.action == ActionType.TX_AUDIT_TRANSCRIPT:
-        run_artifact.tx_validator_report_artifact_ref = _extract_ref(step.outputs, "tx_validator_report_ref")
-        source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
-        if source_ref is not None:
-            run_artifact.tx_source_transcript_artifact_ref = source_ref
-    if step.action == ActionType.TX_ORIENT_AND_BASELINE:
-        run_artifact.tx_orient_baseline_artifact_ref = _extract_ref(step.outputs, "tx_orient_baseline_ref")
-        source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
-        if source_ref is not None:
-            run_artifact.tx_source_transcript_artifact_ref = source_ref
-    if step.action == ActionType.TX_OPEN_TRANSCRIPT_SPANS:
-        run_artifact.tx_open_spans_artifact_ref = _extract_ref(step.outputs, "tx_open_spans_ref")
-        source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
-        if source_ref is not None:
-            run_artifact.tx_source_transcript_artifact_ref = source_ref
-    if step.action == ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE:
-        run_artifact.tx_image_verify_artifact_ref = _extract_ref(step.outputs, "tx_image_verify_ref")
-        source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
-        if source_ref is not None:
-            run_artifact.tx_source_transcript_artifact_ref = source_ref
-        region_ref = _extract_ref_from_inline(step.outputs_inline, "tx_image_evidence_region_ref")
-        if region_ref is not None:
-            run_artifact.tx_image_evidence_region_artifact_ref = region_ref
-        context_ref = _extract_ref_from_inline(step.outputs_inline, "tx_image_evidence_context_ref")
-        if context_ref is not None:
-            run_artifact.tx_image_evidence_context_artifact_ref = context_ref
-    if step.action == ActionType.TX_APPLY_EDIT_PLAN:
-        run_artifact.tx_apply_report_artifact_ref = _extract_ref(step.outputs, "tx_apply_report_ref")
-        plan_ref = _extract_ref_from_inline(step.outputs_inline, "tx_edit_plan_ref")
-        if plan_ref is not None:
-            run_artifact.tx_edit_plan_artifact_ref = plan_ref
-        source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
-        if source_ref is not None:
-            run_artifact.tx_source_transcript_artifact_ref = source_ref
-        edited_ref = _extract_ref_from_inline(step.outputs_inline, "tx_edited_transcript_ref")
-        if edited_ref is not None:
-            run_artifact.tx_edited_transcript_artifact_ref = edited_ref
-    if step.action == ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS:
-        seeds_ref = _extract_ref(step.outputs, "tx_span_seeds_ref")
-        if seeds_ref is None:
-            seeds_ref = _extract_ref_from_inline(step.outputs_inline, "tx_span_seeds_ref")
-        if seeds_ref is not None:
-            run_artifact.tx_span_seeds_artifact_ref = seeds_ref
-        source_ref = _extract_ref_from_inline(step.outputs_inline, "tx_source_transcript_ref")
-        if source_ref is not None:
-            run_artifact.tx_source_transcript_artifact_ref = source_ref
-    if step.action == ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING:
-        run_artifact.tx_mapping_pointer_artifact_ref = _extract_ref(step.outputs, "tx_mapping_pointer_ref")
-    seeds_ref = _extract_ref_from_inline(step.outputs_inline, "tx_span_seeds_ref")
-    if seeds_ref is not None:
-        run_artifact.tx_span_seeds_artifact_ref = seeds_ref
-    if step.action == ActionType.COMPILE:
-        run_artifact.compile_artifact_ref = _extract_ref(step.outputs, "compile_artifact_ref")
-    if step.action == ActionType.JUDGE:
-        run_artifact.judge_artifact_ref = _extract_ref(step.outputs, "judge_artifact_ref")
-    if step.action == ActionType.BUNDLE:
-        run_artifact.bundle_artifact_ref = _extract_ref(step.outputs, "bundle_artifact_ref")
-    if step.action == ActionType.GEOREFERENCE:
-        run_artifact.georeference_artifact_ref = _extract_ref(step.outputs, "georeference_artifact_ref")
-        run_artifact.validate_artifact_ref = None
-        run_artifact.render_artifact_ref = None
-    if step.action == ActionType.VALIDATE:
-        run_artifact.validate_artifact_ref = _extract_ref(step.outputs, "validate_artifact_ref")
-    if step.action == ActionType.RENDER:
-        run_artifact.render_artifact_ref = _extract_ref(step.outputs, "render_artifact_ref")
+def _update_latest_refs(run_artifact: RunArtifact, step: StepRecord, *, action_executor: ActionExecutor) -> None:
+    """Apply registered provider/projector hooks only — no mission semantics in session."""
+    projector = action_executor.deps.provider_step_projectors.get(step.action)
+    if projector is not None:
+        projector(run_artifact, step)
 
 
-def _extract_ref(outputs: dict[str, object], key: str) -> ArtifactRef | None:
-    raw = outputs.get(key)
-    if isinstance(raw, dict):
-        return ArtifactRef.model_validate(raw)
-    if isinstance(raw, str) and raw:
-        return ArtifactRef(artifact_path=raw)
-    return None
-
-
-def _extract_ref_from_inline(outputs_inline: dict[str, object] | None, key: str) -> ArtifactRef | None:
-    if not isinstance(outputs_inline, dict):
-        return None
-    raw = outputs_inline.get(key)
-    if isinstance(raw, dict):
+def _run_terminal_success_hooks(run_artifact: RunArtifact, *, action_executor: ActionExecutor) -> None:
+    """Apply product/domain-owned terminal completion hooks only."""
+    for hook in action_executor.deps.terminal_success_hooks:
         try:
-            return ArtifactRef.model_validate(raw)
+            hook(run_artifact)
         except Exception:
-            path = raw.get("artifact_path")
-            if isinstance(path, str) and path:
-                return ArtifactRef(artifact_path=path)
-            return None
-    if isinstance(raw, str) and raw:
-        return ArtifactRef(artifact_path=raw)
-    return None
+            # Completion hooks are best-effort and must not invalidate successful terminal completion.
+            continue
 
 
 def _latest_validate_ref(run_artifact: RunArtifact) -> dict[str, object] | None:
-    if run_artifact.validate_artifact_ref is not None:
-        return _dump_ref(run_artifact.validate_artifact_ref)
-    for step in reversed(run_artifact.steps):
-        if step.action != ActionType.VALIDATE:
-            continue
-        return {"artifact_path": "inline://validation", "reason_codes": step.reason_codes}
-    return None
+    return build_latest_validate_ref(run_artifact)
 
 
 def _compute_budgets_remaining(run_artifact: RunArtifact, budgets: dict[str, int]) -> dict[str, int]:
     steps_used = len(run_artifact.steps)
-    retrieval_calls = sum(1 for step in run_artifact.steps if step.action == ActionType.RETRIEVE_EVIDENCE)
+    retrieval_calls = sum(
+        1 for step in run_artifact.steps if canonical_action_id(step.action) == ActionType.RETRIEVE_EVIDENCE.value
+    )
     semantic_calls = sum(
         1
         for step in run_artifact.steps
-        if step.action == ActionType.RETRIEVE_EVIDENCE and bool(step.inputs.get("semantic", False))
+        if canonical_action_id(step.action) == ActionType.RETRIEVE_EVIDENCE.value
+        and bool(step.inputs.get("semantic", False))
     )
-    patch_calls = sum(1 for step in run_artifact.steps if step.action == ActionType.PROPOSE_PATCH)
+    patch_calls = sum(
+        1 for step in run_artifact.steps if canonical_action_id(step.action) == ActionType.PROPOSE_PATCH.value
+    )
     elapsed = max(0, int(time()) - int(run_artifact.created_at_epoch_seconds or int(time())))
     return {
         "steps_remaining": max(0, int(budgets.get("max_steps", 0)) - steps_used),
@@ -951,40 +806,22 @@ def _extract_tool_refusal(step: StepRecord) -> KernelRefusal | None:
         return None
 
 
-def _mark_final_feature_graph_pointers(run_artifact: RunArtifact) -> None:
-    ir_path = run_artifact.ir_artifact_ref.artifact_path if run_artifact.ir_artifact_ref is not None else None
-    bundle_path = (
-        run_artifact.bundle_artifact_ref.artifact_path
-        if run_artifact.bundle_artifact_ref is not None
-        else None
-    )
-    if not ir_path:
-        return
-    try:
-        FeatureGraphPersistenceService().mark_final_pointers_from_paths(
-            ir_artifact_path=ir_path,
-            bundle_artifact_path=bundle_path,
-        )
-    except Exception:
-        # Final pointer writes are best-effort and must not invalidate successful terminal completion.
-        return
-
-
-def _dump_ref(ref: ArtifactRef | None) -> dict[str, object] | None:
-    if ref is None:
-        return None
-    return ref.model_dump(mode="json")
 
 
 def _tool_menu(action_executor: ActionExecutor) -> list[str]:
+    """Order: harness enum order (plus declare_done), then any provider-only action ids."""
+    available = list(action_executor.available_actions(allow_stubbed=False))
+    avail_set = set(available)
     ordered: list[str] = []
-    available = set(action_executor.available_actions(allow_stubbed=False))
-    for action in ActionType:
+    for action in HarnessAction:
         if action == ActionType.DECLARE_DONE:
             ordered.append(action.value)
             continue
-        if action in available:
+        if action.value in avail_set:
             ordered.append(action.value)
+    for aid in available:
+        if aid not in ordered:
+            ordered.append(aid)
     return ordered
 
 

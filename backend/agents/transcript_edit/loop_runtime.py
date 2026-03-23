@@ -5,7 +5,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from agent_kernel.models import ActionType, KernelStepRequest
+from agent_kernel.models import KernelStepRequest
 from agent_kernel.session import KernelSessionManager
 
 
@@ -24,7 +24,7 @@ def step_kernel_action(
     session_id: str,
     prefix: str,
     iteration: int,
-    action_type: ActionType,
+    action_type: str,
     inputs: dict[str, Any],
 ):
     return session_manager.step(

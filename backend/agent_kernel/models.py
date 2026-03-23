@@ -7,6 +7,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from .harness_action_ids import ActionType  # re-exported for callers importing models
+
 
 class StopReason(str, Enum):
     """Deterministic terminal reasons for kernel execution."""
@@ -25,56 +27,35 @@ class StopReason(str, Enum):
 
 
 class KernelState(str, Enum):
-    """Explicit kernel state machine states."""
+    """Generic kernel lifecycle states."""
 
     INIT = "init"
-    HAVE_IR = "have_ir"
-    HAVE_COMPILE = "have_compile"
-    HAVE_JUDGE = "have_judge"
+    SOURCE_READY = "source_ready"
+    ANALYZED = "analyzed"
+    REVIEWED = "reviewed"
+    PACKAGE_READY = "package_ready"
     REPAIRING = "repairing"
-    READY_TO_MAP = "ready_to_map"
-    MAPPED = "mapped"
+    PACKAGE_COMMITTED = "package_committed"
     DONE = "done"
 
-
-class ActionType(str, Enum):
-    """Kernel actions, including deterministic and LLM-facing stubs."""
-
-    SET_GRAPH_REQUIREMENTS = "set_graph_requirements"
-    HYDRATE_DEED = "hydrate_deed"
-    OPEN_ARTIFACT = "open_artifact"
-    OPEN_TEXT_SPANS = "open_text_spans"
-    DRAFT_IR = "draft_ir"
-    DECLARE_DONE = "declare_done"
-    RETRIEVE_EVIDENCE = "retrieve_evidence"
-    COMPILE = "compile"
-    JUDGE = "judge"
-    BUNDLE = "bundle"
-    GEOREFERENCE = "georeference"
-    VALIDATE = "validate"
-    RENDER = "render"
-    PROPOSE_PATCH = "propose_patch"
-    SUMMARIZE_STATUS = "summarize_status"
-    UPSERT_DEED_SPAN_INDEX = "upsert_deed_span_index"
-    TX_AUDIT_TRANSCRIPT = "tx_audit_transcript"
-    TX_ORIENT_AND_BASELINE = "tx_orient_and_baseline"
-    TX_OPEN_TRANSCRIPT_SPANS = "tx_open_transcript_spans"
-    TX_VERIFY_TRANSCRIPT_WITH_IMAGE = "tx_verify_transcript_with_image"
-    TX_SAVE_TRANSCRIPT_SPAN_SEEDS = "tx_save_transcript_span_seeds"
-    TX_APPLY_EDIT_PLAN = "tx_apply_edit_plan"
-    TX_PROMOTE_TRANSCRIPT_FOR_MAPPING = "tx_promote_transcript_for_mapping"
+    # Transitional aliases for older workflow-oriented call sites.
+    HAVE_IR = SOURCE_READY
+    HAVE_COMPILE = ANALYZED
+    HAVE_JUDGE = REVIEWED
+    READY_TO_MAP = PACKAGE_READY
+    MAPPED = PACKAGE_COMMITTED
 
 
 class KernelGoal(BaseModel):
-    """Goal flags that drive deterministic routing behavior."""
+    """Goal flags supplied by the owning pack; shared core treats them as transitional hints."""
 
     requires_global_placement: bool = Field(
         ...,
-        description="Whether execution must surface global placement gaps deterministically.",
+        description="Transitional pack-owned hint; shared core does not assign closure doctrine.",
     )
     render_required: bool = Field(
         default=False,
-        description="Whether final rendering is required to consider the run complete.",
+        description="Transitional pack-owned hint; rendering semantics are pack-defined.",
     )
     objective: str = Field(default="", description="Human-readable run objective.")
 
@@ -90,18 +71,22 @@ class KernelBudgets(BaseModel):
 
 
 class KernelRequest(BaseModel):
-    """Input contract for deterministic kernel runs."""
+    """Input contract for deterministic kernel runs.
+
+    The bootstrap fields are transitional compatibility inputs; product packs can shape them
+    externally before handing them to the shared host.
+    """
 
     request_id: str = Field(..., min_length=1)
     goal: KernelGoal
     budgets: KernelBudgets
     initial_ir_ref: Optional[str] = Field(
         default=None,
-        description="Optional durable reference to a pre-existing IR artifact.",
+        description="Transitional bootstrap ref for a pre-existing IR artifact.",
     )
     initial_graph_json: Optional[dict[str, object]] = Field(
         default=None,
-        description="Optional inline graph payload when no initial IR artifact ref is available.",
+        description="Transitional inline bootstrap payload when no durable IR ref is available.",
     )
 
 
@@ -148,30 +133,16 @@ class KernelRefusal(BaseModel):
 
 
 class KernelLatestRefs(BaseModel):
-    """Compact latest artifact refs for dashboard instrumentation."""
+    """Latest artifact pointers for dashboard.
 
-    ir_ref: Optional[dict[str, object]] = None
-    compile_ref: Optional[dict[str, object]] = None
-    judge_ref: Optional[dict[str, object]] = None
-    bundle_ref: Optional[dict[str, object]] = None
-    georef_ref: Optional[dict[str, object]] = None
-    validate_ref: Optional[dict[str, object]] = None
-    render_ref: Optional[dict[str, object]] = None
-    retrieval_ref: Optional[dict[str, object]] = None
-    deed_span_index_ref: Optional[dict[str, object]] = None
-    tx_source_transcript_ref: Optional[dict[str, object]] = None
-    tx_open_spans_ref: Optional[dict[str, object]] = None
-    tx_image_verify_ref: Optional[dict[str, object]] = None
-    tx_image_evidence_region_ref: Optional[dict[str, object]] = None
-    tx_image_evidence_context_ref: Optional[dict[str, object]] = None
-    tx_validator_report_ref: Optional[dict[str, object]] = None
-    tx_orient_baseline_ref: Optional[dict[str, object]] = None
-    tx_edit_plan_ref: Optional[dict[str, object]] = None
-    tx_apply_report_ref: Optional[dict[str, object]] = None
-    tx_edited_transcript_ref: Optional[dict[str, object]] = None
-    tx_mapping_pointer_ref: Optional[dict[str, object]] = None
-    tx_span_seeds_ref: Optional[dict[str, object]] = None
-    tx_investigation_summary_ref: Optional[dict[str, object]] = None
+    ``artifact_refs`` is the canonical shared surface. Any legacy slot handling is transitional and
+    owned by callers/adapters, not by the model itself.
+    """
+
+    artifact_refs: dict[str, dict[str, object]] = Field(
+        default_factory=dict,
+        description="Merged opaque pointers owned by the pack or compatibility adapters.",
+    )
 
 
 class KernelGapSummary(BaseModel):
@@ -217,17 +188,22 @@ class KernelDashboard(BaseModel):
 
 
 class KernelSessionStartRequest(BaseModel):
-    """Input contract for initializing a step-driven kernel session."""
+    """Input contract for initializing a step-driven kernel session.
+
+    Shared core keeps this generic; pack-specific shaping stays outside the shared contract.
+    """
 
     session_id: Optional[str] = None
     request_id: str = Field(..., min_length=1)
     goal: KernelGoal
     budgets: KernelBudgets
-    dossier_id: Optional[str] = None
-    source_entry_ref: Optional[str] = None
-    initial_ir_ref: Optional[str] = None
-    initial_graph_json: Optional[dict[str, object]] = None
-    policy_id: str = "feature_graph_deed_to_map_v0"
+    dossier_id: Optional[str] = Field(default=None, description="Transitional pack-shaped bootstrap field.")
+    source_entry_ref: Optional[str] = Field(default=None, description="Transitional pack-shaped bootstrap field.")
+    initial_ir_ref: Optional[str] = Field(default=None, description="Transitional bootstrap ref.")
+    initial_graph_json: Optional[dict[str, object]] = Field(
+        default=None,
+        description="Transitional inline bootstrap payload.",
+    )
 
 
 class KernelSessionStartResult(BaseModel):
@@ -243,11 +219,19 @@ class KernelSessionStartResult(BaseModel):
 
 
 class KernelStepRequest(BaseModel):
-    """One-step action request chosen by a controller."""
+    """One-step action request chosen by a controller.
+
+    ``action_type`` is an opaque action id. Built-in harness ids and provider-registered ids share
+    this single field.
+    """
 
     session_id: str = Field(..., min_length=1)
     idempotency_key: str = Field(..., min_length=1)
-    action_type: ActionType
+    action_type: str = Field(
+        ...,
+        min_length=1,
+        description="Harness-reserved action id or domain-registered id (opaque string).",
+    )
     inputs: dict[str, object] = Field(default_factory=dict)
     semantic_ready: Optional[bool] = None
     notes: Optional[str] = Field(default=None, max_length=512)

@@ -24,17 +24,9 @@ from agents.transcript_edit.run_feed_persistence import (
 )
 from agents.transcript_edit.state_projection import derive_waiting_feedback_projection
 from agents.transcript_edit.terminalization import terminal_message, terminal_summary
-from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
-from agent_kernel.session import KernelSessionManager
-from agent_kernel.tooling import (
-    TranscriptAuditTool,
-    TranscriptImageVerificationTool,
-    TranscriptEditPlanApplyTool,
-    TranscriptMappingPromoterTool,
-    TranscriptSpanSeedsSaverTool,
-    TranscriptSpanOpenerTool,
-)
-from agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool
+from agent_kernel.ref_coercion import flatten_latest_refs_payload, latest_ref_artifact_path
+from agent_kernel.session import build_kernel_session_manager
+from feature_graph.kernel_executor_composition import build_plattera_default_action_executor
 from harness.mission_runtime.modes.transcript_edit import run_orchestration_kernel_transcript_loop
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from services.agent_viewer.event_bus import event_bus as viewer_event_bus
@@ -142,25 +134,14 @@ def _build_resume_request_payload(request: TranscriptEditAgentApiRequest) -> dic
     return payload
 
 
-def _artifact_path_from_latest_refs(latest_refs: dict[str, Any], key: str) -> str | None:
-    row = latest_refs.get(key)
-    if isinstance(row, dict):
-        path = str(row.get("artifact_path") or "").strip()
-        if path:
-            return path
-    if isinstance(row, str) and str(row).strip():
-        return str(row).strip()
-    return None
-
-
 def _extract_resume_source_ref(*, run: dict[str, Any]) -> str | None:
     """Legacy combined path: prefer edited working artifact, else canonical source."""
     snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}
     latest_refs = snapshot.get("latest_refs") if isinstance(snapshot.get("latest_refs"), dict) else {}
-    edited = _artifact_path_from_latest_refs(latest_refs, "tx_edited_transcript_ref")
+    edited = latest_ref_artifact_path(latest_refs, "tx_edited_transcript_ref")
     if edited:
         return edited
-    return _artifact_path_from_latest_refs(latest_refs, "tx_source_transcript_ref")
+    return latest_ref_artifact_path(latest_refs, "tx_source_transcript_ref")
 
 
 def _extract_resume_pending_feedback(run: dict[str, Any]) -> tuple[str | None, str | None, dict[str, Any] | None]:
@@ -212,8 +193,8 @@ def _build_resume_request_for_run(*, run: dict[str, Any], trigger: str | None, b
     summary = snapshot.get("terminal_summary") if isinstance(snapshot.get("terminal_summary"), dict) else {}
     base_payload = dict(payload)
     latest_refs = snapshot.get("latest_refs") if isinstance(snapshot.get("latest_refs"), dict) else {}
-    edited_ref = _artifact_path_from_latest_refs(latest_refs, "tx_edited_transcript_ref")
-    tx_source_ref = _artifact_path_from_latest_refs(latest_refs, "tx_source_transcript_ref")
+    edited_ref = latest_ref_artifact_path(latest_refs, "tx_edited_transcript_ref")
+    tx_source_ref = latest_ref_artifact_path(latest_refs, "tx_source_transcript_ref")
     original_from_first = str(base_payload.get("source_transcript_ref") or "").strip()
     if edited_ref:
         base_payload["resume_working_transcript_ref"] = edited_ref
@@ -303,8 +284,9 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
         def _to_artifact_ref_map(obj: Any) -> dict[str, dict[str, str]]:
             if not isinstance(obj, dict):
                 return {}
+            flat = flatten_latest_refs_payload(obj)
             refs: dict[str, dict[str, str]] = {}
-            for key, value in obj.items():
+            for key, value in flat.items():
                 if isinstance(value, str) and value.strip():
                     refs[str(key)] = {"artifact_path": value}
                 elif isinstance(value, dict):
@@ -411,18 +393,9 @@ def _execute_run(run_id: str, request: TranscriptEditAgentApiRequest) -> None:
                     )
 
         persistence = RunArtifactPersistenceService()
-        session_manager = KernelSessionManager(
-            action_executor=ActionExecutor(
-                deps=ActionExecutorDeps(
-                    transcript_auditor=TranscriptAuditTool(),
-                    transcript_orient_baseliner=TranscriptOrientBaselineTool(),
-                    transcript_span_opener=TranscriptSpanOpenerTool(),
-                    transcript_image_verifier=TranscriptImageVerificationTool(),
-                    transcript_plan_applier=TranscriptEditPlanApplyTool(),
-                    transcript_span_seeds_saver=TranscriptSpanSeedsSaverTool(),
-                    transcript_promoter=TranscriptMappingPromoterTool(),
-                )
-            ),
+        # Product composition is explicit: the transcript-edit executor is injected into the generic session host.
+        session_manager = build_kernel_session_manager(
+            action_executor=build_plattera_default_action_executor(),
             persistence_service=persistence,
         )
         result = run_orchestration_kernel_transcript_loop(

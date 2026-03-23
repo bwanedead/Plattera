@@ -2,8 +2,8 @@
 
 **Canonical (preferred for new code):** ``KernelSessionManager``, session models, tools, state machine.
 
-**Compatibility (explicit; do not extend as primary architecture):** ``run_kernel`` (see ``kernel.py``),
-re-exported for CLI and legacy callers — see ``COMPATIBILITY.md``.
+**Compatibility (explicit; do not extend as primary architecture):** legacy loop and policy helpers
+remain available from their owning modules for older callers — see ``COMPATIBILITY.md``.
 """
 
 # --- Actions & tools (shared deps for session + compatibility loop) ---
@@ -11,31 +11,24 @@ from .actions import (
     ActionExecutor,
     ActionExecutorDeps,
     ArtifactOpener,
-    Bundler,
-    Compiler,
-    DeedHydrator,
-    DraftIRProposer,
+    ArtifactBundler,
+    ArtifactCompiler,
+    ArtifactDraftProposer,
+    ArtifactGeoreferencer,
+    ArtifactHydrator,
+    ArtifactJudge,
+    ArtifactRenderer,
+    ArtifactValidator,
     EvidenceRetriever,
-    Georeferencer,
-    Judge,
     PatchProposer,
     StatusSummarizer,
-    Validator,
+    SpanIndexUpserter,
 )
-# --- Compatibility: autopilot / CLI JSON loop (not step-driven session API) ---
-from .kernel import KernelLoop, KernelLoopOutput, RunArtifactPersistence, run_kernel
+from .claimability import ClaimabilityPolicy
 # --- Canonical: step-driven kernel session ---
 from .session import KernelSessionManager, SessionPersistence
-from .tooling import (
-    CorpusArtifactOpener,
-    CorpusDeedHydrator,
-    DraftIRFilesystemProposer,
-    FeatureGraphBundlerTool,
-    FeatureGraphCompilerTool,
-    FeatureGraphJudgeTool,
-    RetrievalEvidenceTool,
-)
 from .budgets import BudgetSnapshot, BudgetStatus, BudgetTracker
+from .policies import KernelPolicy
 from .models import (
     ActionType,
     KernelClaimabilityStatus,
@@ -75,26 +68,23 @@ __all__ = [
     "ActionExecutor",
     "ActionExecutorDeps",
     "ArtifactOpener",
+    "ArtifactBundler",
+    "ArtifactCompiler",
+    "ArtifactDraftProposer",
+    "ArtifactGeoreferencer",
+    "ArtifactHydrator",
+    "ArtifactJudge",
+    "ArtifactRenderer",
+    "ArtifactValidator",
+    "SpanIndexUpserter",
     "ArtifactRef",
     "BudgetSnapshot",
     "BudgetStatus",
     "BudgetTracker",
-    "Bundler",
-    "Compiler",
-    "CorpusArtifactOpener",
-    "CorpusDeedHydrator",
-    "DeedHydrator",
-    "DraftIRFilesystemProposer",
-    "FeatureGraphBundlerTool",
-    "FeatureGraphCompilerTool",
-    "FeatureGraphJudgeTool",
-    "DraftIRProposer",
     "EvidenceRetriever",
-    "Georeferencer",
-    "Judge",
-    "KernelLoop",
-    "KernelLoopOutput",
     "KernelSessionManager",
+    "KernelPolicy",
+    "ClaimabilityPolicy",
     "KernelBudgets",
     "KernelClaimabilityStatus",
     "KernelDashboard",
@@ -116,17 +106,13 @@ __all__ = [
     "NoProgressStatus",
     "PatchProposer",
     "RunArtifact",
-    "RetrievalEvidenceTool",
-    "RunArtifactPersistence",
     "StopReason",
     "StatusSummarizer",
     "StepRecord",
     "StepExecutionState",
     "TerminalOutcome",
     "TerminalOutcomeKind",
-    "Validator",
     "ValidationInline",
-    "run_kernel",
     "SessionPersistence",
     "KernelEvent",
     "TransitionError",

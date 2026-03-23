@@ -5,7 +5,11 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from backend.agent_kernel.models import ActionType
+from backend.agent_kernel.harness_action_ids import ActionType
+from backend.agents.transcript_edit.execution_action_ids import (
+    TX_APPLY_EDIT_PLAN,
+    TX_OPEN_TRANSCRIPT_SPANS,
+)
 from backend.agents.controller.contracts import (
     KernelStepProposal,
     action_how_to_guide,
@@ -89,7 +93,7 @@ def test_coerce_action_type_returns_none_for_unknown_value() -> None:
 
 def test_validate_action_args_compile_requires_ir_ref() -> None:
     cleaned, reason_code, missing = validate_action_args(
-        action_type=ActionType.COMPILE,
+        action_type=ActionType.COMPILE.value,
         args={},
     )
     assert cleaned is None
@@ -99,7 +103,7 @@ def test_validate_action_args_compile_requires_ir_ref() -> None:
 
 def test_validate_action_args_retrieve_evidence_requires_query() -> None:
     cleaned, reason_code, missing = validate_action_args(
-        action_type=ActionType.RETRIEVE_EVIDENCE,
+        action_type=ActionType.RETRIEVE_EVIDENCE.value,
         args={},
     )
     assert cleaned is None
@@ -109,7 +113,7 @@ def test_validate_action_args_retrieve_evidence_requires_query() -> None:
 
 def test_validate_action_args_returns_cleaned_payload() -> None:
     cleaned, reason_code, missing = validate_action_args(
-        action_type=ActionType.HYDRATE_DEED,
+        action_type=ActionType.HYDRATE_DEED.value,
         args={"dossier_id": "abc", "source_entry_ref": None},
     )
     assert reason_code is None
@@ -119,7 +123,7 @@ def test_validate_action_args_returns_cleaned_payload() -> None:
 
 def test_validate_action_args_draft_ir_requires_graph_even_with_deed_ref() -> None:
     cleaned, reason_code, missing = validate_action_args(
-        action_type=ActionType.DRAFT_IR,
+        action_type=ActionType.DRAFT_IR.value,
         args={
             "dossier_id": "D1",
             "deed_text_artifact_ref": "artifacts/deed/d1.json",
@@ -132,7 +136,7 @@ def test_validate_action_args_draft_ir_requires_graph_even_with_deed_ref() -> No
 
 def test_validate_action_args_draft_ir_accepts_graph() -> None:
     cleaned, reason_code, missing = validate_action_args(
-        action_type=ActionType.DRAFT_IR,
+        action_type=ActionType.DRAFT_IR.value,
         args={
             "dossier_id": "D1",
             "deed_text_artifact_ref": "artifacts/deed/d1.json",
@@ -147,7 +151,7 @@ def test_validate_action_args_draft_ir_accepts_graph() -> None:
 
 def test_validate_action_args_tx_open_transcript_spans_requires_source_and_query_shape() -> None:
     cleaned, reason_code, missing = validate_action_args(
-        action_type=ActionType.TX_OPEN_TRANSCRIPT_SPANS,
+        action_type=TX_OPEN_TRANSCRIPT_SPANS,
         args={"anchors": [{"start_anchor": "Beginning", "end_anchor": "P.O.B."}]},
     )
     assert cleaned is None
@@ -156,7 +160,7 @@ def test_validate_action_args_tx_open_transcript_spans_requires_source_and_query
 
 
 def test_action_tool_specs_for_menu_tx_apply_edit_plan_requires_edit_plan() -> None:
-    specs = action_tool_specs_for_menu([ActionType.TX_APPLY_EDIT_PLAN.value])
+    specs = action_tool_specs_for_menu([TX_APPLY_EDIT_PLAN])
     assert len(specs) == 1
     params = specs[0].parameters_schema
     required = params.get("required")

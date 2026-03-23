@@ -26,7 +26,15 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
-from agent_kernel.models import ActionType, KernelStepRequest, StepExecutionState
+from agent_kernel.models import KernelStepRequest, StepExecutionState
+
+from .execution_action_ids import (
+    TX_APPLY_EDIT_PLAN,
+    TX_AUDIT_TRANSCRIPT,
+    TX_OPEN_TRANSCRIPT_SPANS,
+    TX_ORIENT_AND_BASELINE,
+    TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+)
 from agents.common.identity_composer import CONSTITUTION_VERSION
 from config.paths import agent_kernel_artifacts_root
 
@@ -283,7 +291,7 @@ class TranscriptEditDomainPack:
         orient = session_manager.step(
             KernelStepRequest(
                 session_id=session_id,
-                action_type=ActionType.TX_ORIENT_AND_BASELINE,
+                action_type=TX_ORIENT_AND_BASELINE,
                 inputs=orient_inputs,
                 idempotency_key=_make_idempotency_key(
                     f"{request_id_prefix}:orient", 0, orient_inputs
@@ -600,7 +608,7 @@ class TranscriptEditDomainPack:
         audit = session_manager.step(
             KernelStepRequest(
                 session_id=session_id,
-                action_type=ActionType.TX_AUDIT_TRANSCRIPT,
+                action_type=TX_AUDIT_TRANSCRIPT,
                 inputs=audit_inputs,
                 idempotency_key=_make_idempotency_key(
                     f"{self._request_id_prefix}:audit", iterations, audit_inputs
@@ -963,7 +971,7 @@ class TranscriptEditDomainPack:
                 self._state.apply_reaudit_baseline_blocking_count = self._iter_blocking_count
                 self._state.apply_reaudit_baseline_blocking_signature = self._iter_blocking_signature
             return MoveExecutionPlan(
-                action_type=ActionType.TX_APPLY_EDIT_PLAN,
+                action_type=TX_APPLY_EDIT_PLAN,
                 action_inputs=inputs,
                 idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, inputs),
             )
@@ -1000,7 +1008,7 @@ class TranscriptEditDomainPack:
                         "line2": "Please confirm the correct value for this field.",
                     }
                     return MoveExecutionPlan(
-                        action_type=ActionType.TX_AUDIT_TRANSCRIPT,
+                        action_type=TX_AUDIT_TRANSCRIPT,
                         action_inputs={"feedback_prompt_id": _prompt_id},
                         idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, {}),
                         hitl_intent_flag=True,
@@ -1092,7 +1100,7 @@ class TranscriptEditDomainPack:
                         img_result.get("status"),
                     )
                     return MoveExecutionPlan(
-                        action_type=ActionType.TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
+                        action_type=TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
                         action_inputs={},
                         idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, {}),
                         skip_execution=True,
@@ -1118,7 +1126,7 @@ class TranscriptEditDomainPack:
                 if span_ids:
                     inputs["span_ids"] = span_ids
                 return MoveExecutionPlan(
-                    action_type=ActionType.TX_OPEN_TRANSCRIPT_SPANS,
+                    action_type=TX_OPEN_TRANSCRIPT_SPANS,
                     action_inputs=inputs,
                     idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, inputs),
                 )
@@ -1127,7 +1135,7 @@ class TranscriptEditDomainPack:
             if self._state.current_transcript_ref:
                 inputs["source_transcript_ref"] = self._state.current_transcript_ref
             return MoveExecutionPlan(
-                action_type=ActionType.TX_AUDIT_TRANSCRIPT,
+                action_type=TX_AUDIT_TRANSCRIPT,
                 action_inputs=inputs,
                 idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, inputs),
             )
@@ -1143,7 +1151,7 @@ class TranscriptEditDomainPack:
             self._state.pending_feedback_decision_key = focus_key
             self._state.pending_feedback_prompt = dict(feedback_prompt)
             return MoveExecutionPlan(
-                action_type=ActionType.TX_AUDIT_TRANSCRIPT,  # placeholder; not executed
+                action_type=TX_AUDIT_TRANSCRIPT,  # placeholder; not executed
                 action_inputs={"feedback_prompt_id": prompt_id},
                 idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, {}),
                 hitl_intent_flag=True,
@@ -1151,7 +1159,7 @@ class TranscriptEditDomainPack:
 
         # mark_resolved_no_edit, mark_blocked, skip_no_action: skip execution.
         return MoveExecutionPlan(
-            action_type=ActionType.TX_AUDIT_TRANSCRIPT,  # placeholder; not executed
+            action_type=TX_AUDIT_TRANSCRIPT,  # placeholder; not executed
             action_inputs={},
             idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, {}),
             skip_execution=True,

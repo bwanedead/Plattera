@@ -47,6 +47,8 @@ The harness core must be intrinsically capable of hosting radically different mi
 
 If a shared layer only makes sense for one concrete mission family, it is not generic enough to live in the harness core.
 
+**Deed-to-IR / feature graph:** The feature graph, compiler, judge, georeference, and render pipelines are domain systems. The harness schedules execution and persists opaque artifact pointers; it does not own their semantics as core identity. They are reached through provider registration and composition, not as implicit harness rails.
+
 ---
 
 ## 2. What The Harness Is Allowed To Do

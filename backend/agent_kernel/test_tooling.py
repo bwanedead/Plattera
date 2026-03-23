@@ -864,7 +864,7 @@ def test_span_index_upsert_and_open_text_spans_returns_bounded_verbatim_text() -
                 "length_chars": len(deed_text),
             }
             upserter = DeedSpanIndexUpserterTool()
-            upsert = upserter.upsert_deed_span_index(
+            upsert = upserter.upsert_artifact_span_index(
                 {
                     "dossier_id": "D_SPAN",
                     "deed_text_artifact_ref": deed_ref.model_dump(mode="json"),
@@ -883,7 +883,7 @@ def test_span_index_upsert_and_open_text_spans_returns_bounded_verbatim_text() -
                 }
             )
             index_ref = ArtifactRef.model_validate(upsert["artifact_ref"])
-            assert "deed_span_index_saved" in upsert["reason_codes"]
+            assert "artifact_span_index_saved" in upsert["reason_codes"]
             assert Path(index_ref.artifact_path).exists()
 
             opener = TextSpanOpenerTool()

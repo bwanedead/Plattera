@@ -6,18 +6,10 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from agent_kernel.actions import ActionExecutor, ActionExecutorDeps
 from agent_kernel.models import KernelBudgets, KernelGoal, KernelSessionStartRequest
-from agent_kernel.session import KernelSessionManager
-from agent_kernel.tooling import (
-    TranscriptAuditTool,
-    TranscriptEditPlanApplyTool,
-    TranscriptImageVerificationTool,
-    TranscriptMappingPromoterTool,
-    TranscriptSpanOpenerTool,
-    TranscriptSpanSeedsSaverTool,
-)
-from agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool
+from agent_kernel.session import build_kernel_session_manager
+from feature_graph.kernel_executor_composition import build_plattera_default_action_executor
+from feature_graph.kernel_executor_composition import build_plattera_default_kernel_session_manager
 from agents.controller.bootstrap import (
     hydrate_and_persist_finalized_dossier_text,
     persist_deed_text_artifact,
@@ -131,7 +123,9 @@ def build_deed_mode_policy_from_cli_inputs(
     *,
     mission_request: MissionRuntimeRequest | None = None,
 ) -> DeedToIRModePolicy:
-    session_manager = KernelSessionManager(persistence_service=RunArtifactPersistenceService())
+    session_manager = build_plattera_default_kernel_session_manager(
+        persistence_service=RunArtifactPersistenceService()
+    )
     llm_client = OpenAINextStepClient()
     _mission_id = str(getattr(mission_request, "mission_id", None) or "").strip() or None
 
@@ -210,18 +204,8 @@ def build_transcript_mode_policy_from_cli_inputs(
     inputs: TranscriptModeCliInputs,
     mission_request: MissionRuntimeRequest,
 ) -> TranscriptEditModePolicy:
-    session_manager = KernelSessionManager(
-        action_executor=ActionExecutor(
-            deps=ActionExecutorDeps(
-                transcript_auditor=TranscriptAuditTool(),
-                transcript_orient_baseliner=TranscriptOrientBaselineTool(),
-                transcript_span_opener=TranscriptSpanOpenerTool(),
-                transcript_image_verifier=TranscriptImageVerificationTool(),
-                transcript_plan_applier=TranscriptEditPlanApplyTool(),
-                transcript_span_seeds_saver=TranscriptSpanSeedsSaverTool(),
-                transcript_promoter=TranscriptMappingPromoterTool(),
-            )
-        ),
+    session_manager = build_kernel_session_manager(
+        action_executor=build_plattera_default_action_executor(),
         persistence_service=RunArtifactPersistenceService(),
     )
     request_prefix = f"mission-{mission_request.mission_id}-tx"

@@ -7,8 +7,6 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from .models import ActionType
-
 _MAX_INLINE_JSON_BYTES = 16384
 _GEOMETRY_KEYS = {"geometry", "coordinates", "rings", "vertices", "polygon"}
 _MAX_GEOMETRY_POINTS = 64
@@ -41,7 +39,7 @@ class StepRecord(BaseModel):
     """Single deterministic execution step with refs and compact inline outputs."""
 
     step_id: str = Field(..., min_length=1)
-    action: ActionType
+    action: str = Field(..., min_length=1, description="Harness or domain-registered execution action id.")
     inputs: Dict[str, Any] = Field(default_factory=dict)
     outputs: Dict[str, Any] = Field(default_factory=dict)
     reason_codes: List[str] = Field(default_factory=list)
@@ -62,7 +60,11 @@ class StepRecord(BaseModel):
 
 
 class RunArtifact(BaseModel):
-    """Durable run-level refs plus deterministic step execution records."""
+    """Durable run-level refs plus deterministic step execution records.
+
+    ``artifact_refs`` is the canonical shared carrier. Named artifact slots remain only where
+    current callers still depend on transitional compatibility.
+    """
 
     run_id: str = Field(..., min_length=1)
     request_id: str = Field(..., min_length=1)
@@ -79,19 +81,10 @@ class RunArtifact(BaseModel):
     validate_artifact_ref: Optional[ArtifactRef] = None
     render_artifact_ref: Optional[ArtifactRef] = None
     retrieval_artifact_ref: Optional[ArtifactRef] = None
+    # Canonical shared artifact-ref bucket for provider/domain outputs (opaque keys; meaning is pack-defined).
+    artifact_refs: dict[str, ArtifactRef] = Field(default_factory=dict)
+    # Transitional compatibility slot; new code should prefer ``artifact_refs``.
     deed_span_index_artifact_ref: Optional[ArtifactRef] = None
-    tx_source_transcript_artifact_ref: Optional[ArtifactRef] = None
-    tx_open_spans_artifact_ref: Optional[ArtifactRef] = None
-    tx_image_verify_artifact_ref: Optional[ArtifactRef] = None
-    tx_image_evidence_region_artifact_ref: Optional[ArtifactRef] = None
-    tx_image_evidence_context_artifact_ref: Optional[ArtifactRef] = None
-    tx_validator_report_artifact_ref: Optional[ArtifactRef] = None
-    tx_orient_baseline_artifact_ref: Optional[ArtifactRef] = None
-    tx_edit_plan_artifact_ref: Optional[ArtifactRef] = None
-    tx_apply_report_artifact_ref: Optional[ArtifactRef] = None
-    tx_edited_transcript_artifact_ref: Optional[ArtifactRef] = None
-    tx_mapping_pointer_artifact_ref: Optional[ArtifactRef] = None
-    tx_span_seeds_artifact_ref: Optional[ArtifactRef] = None
     idempotency_ledger: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     steps: List[StepRecord] = Field(default_factory=list)
 

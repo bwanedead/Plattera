@@ -6,7 +6,9 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
-from agent_kernel.models import ActionType, StepExecutionState
+from agent_kernel.models import StepExecutionState
+
+from .execution_action_ids import TX_PROMOTE_TRANSCRIPT_FOR_MAPPING, TX_SAVE_TRANSCRIPT_SPAN_SEEDS
 from agent_kernel import KernelSessionManager
 from transcript_edit.persistence import TranscriptionEditPersistenceService
 
@@ -468,7 +470,7 @@ def handle_clean_iteration(
             session_id=session_id,
             prefix="tx_span_seeds",
             iteration=iterations,
-            action_type=ActionType.TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
+            action_type=TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
             inputs={
                 "dossier_id": request.dossier_id,
                 "source_transcript_ref": state.current_transcript_ref,
@@ -523,7 +525,7 @@ def handle_clean_iteration(
             session_id=session_id,
             prefix="tx_promote",
             iteration=iterations,
-            action_type=ActionType.TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
+            action_type=TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
             inputs={
                 "dossier_id": request.dossier_id,
                 "transcript_ref": state.current_transcript_ref,
