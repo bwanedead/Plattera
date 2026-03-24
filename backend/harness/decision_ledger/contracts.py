@@ -1,11 +1,9 @@
-"""Canonical harness **decision ledger** contract (mission-agnostic organized work).
+"""Transitional harness **decision ledger** shim over work-board contracts.
 
-This is the intended single harness-owned surface for durable work items (including
-domain-projected rows and harness-emergent rows). The wire envelope matches
-``work_board.v1`` during migration; domain ontology never belongs in harness-native
-field semantics—use ``kind`` and ``domain_payload`` only.
-
-See also: ``backend/harness/work_board/contracts.py`` (implementation source).
+This module remains as compatibility surface during the work-board migration.
+Canonical implementation lives in ``backend/harness/work_board/contracts.py``.
+Use ``kind`` and ``domain_payload`` for domain-specific payloads; do not treat
+this file as the source of new shared-harness doctrine.
 """
 from __future__ import annotations
 

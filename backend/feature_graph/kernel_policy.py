@@ -1,4 +1,8 @@
-"""Product-owned policy doctrine for feature-graph execution."""
+"""Legacy product-owned policy doctrine for feature-graph execution.
+
+This module exists for product-layer compatibility and tests. It is not shared
+harness doctrine and should not be treated as the canonical runtime contract.
+"""
 
 from __future__ import annotations
 
